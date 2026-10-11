@@ -897,7 +897,6 @@ def failed_declaration(notice, mine, index=None):
     elsewhere. `index` is a `transitions.supersession_index` over the run records; without
     one supersession is not read.
     """
-    from . import run as run_mod    # here, not at the top: the loop imports this module
     stamp = notice.get("time", 0)
     return [directory.name for directory, state in mine
             if state.get("state") in run_record.FAILED
@@ -1133,7 +1132,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
     # explicit `ak notify --session` still may -- it names its subject on purpose.
     if seat is not None and seat.get("legacy"):
         return 0
-    from . import watch, menu, orch, run
+    from . import watch, menu, orch
     try:
         with session_lock(session) as name:
             at = time.time() if now is None else now
@@ -1419,7 +1418,7 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     """Record what that session said, under its notice lock, which the caller holds; the
     notice it replaced, or None.  A watcher's repeated event re-records nothing.  `at` dates
     it where it was said before now."""
-    from . import menu, run
+    from . import menu
     previous = last(name, include_seen=True)
     if event_id and previous and previous.get("source") == event_id:
         return previous

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job, record, run, worktrees, task
+from agentkit import config, job, record, run, staffing, task, worktrees
 
 AK_MAIN = runpy.run_path(str(REPO / "bin/ak"))["main"]
 
@@ -123,7 +123,7 @@ class AfterGone(unittest.TestCase):
     def test_a_resume_ends_blocked_before_any_round(self):
         run_dir, state = self.saved("20261004-0701-beta", state="running", verdict=None,
                                     merge_failed=False)
-        with patch.object(run, "collect_usage", side_effect=AssertionError("a model pick")), \
+        with patch.object(run, "collect_usage", side_effect=AssertionError("a model pick")), patch.object(staffing, "collect_usage", side_effect=AssertionError("a model pick")), \
                 patch.object(run, "rounds", side_effect=AssertionError("a round ran")), \
                 patch.object(run, "integrate", side_effect=AssertionError("integrated")), \
                 patch.object(worktrees, "settle_run"):

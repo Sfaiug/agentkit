@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, history, menu, run, terminal, turns, worker
+from agentkit import config, hand_in, history, menu, run, staffing, terminal, turns, worker
 
 
 class CatchCounts(unittest.TestCase):
@@ -185,8 +185,8 @@ class CatchCounts(unittest.TestCase):
 
         with patch.object(run, "call_retrying", side_effect=call), \
                 patch.object(worker, "turn", side_effect=extra), \
-                patch.object(run, "collect_usage", return_value={}), \
-                patch.object(run, "ready_order", return_value=[]):
+                patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
+                patch.object(run, "ready_order", return_value=[]), patch.object(staffing, "ready_order", return_value=[]):
             with self.assertRaises(run.Exhausted):
                 run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n")
         self.assert_unused()

@@ -45,7 +45,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, gitcall, guard, host, motion, plan, retention, terminal, transitions, update, usage
+from . import command_help, config, gitcall, guard, host, motion, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -1625,7 +1625,7 @@ def project_name(repo, fallback="no project"):
 
 def session_projects(kept):
     """Infer old records once, from launched runs; ties use the checkout's name."""
-    from . import menu, run   # here, not at the top: menu imports this module
+    from . import menu  # here, not at the top: menu imports this module
     missing = {name for name, record in kept.items() if "repo" not in record}
     votes = {name: Counter() for name in missing}
     if missing:
@@ -2652,7 +2652,7 @@ def unread_question(name):
 
 def sweep(log):
     """Retire old detached dead seats and stale records; preserve active job evidence."""
-    from . import notify, run
+    from . import notify
     found = {s["name"]: s for s in sessions()}
     protected = set()
     for directory in run_record.run_dirs():
@@ -2774,7 +2774,7 @@ def rename(old, new, log=print, *, auto=False):
     function. With `auto`, return None if somebody has already named the seat.
     """
     new = session_name(new)
-    from . import notify, run as run_mod, watch
+    from . import notify, watch
     with watch.state_lock(), ExitStack() as locks:
         old = config.resolve_session(old)
         session = find(old)
@@ -3397,7 +3397,7 @@ def in_flight(name, repo):
     change against their base, committed or not, or a queued run's task `files:`.  A seat
     with neither is left out.
     """
-    from . import menu, run, watch   # here, not at the top: menu imports this module
+    from . import menu, watch  # here, not at the top: menu imports this module
     target = checkout_of(repo)
     seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
              if seat != name and target and checkout_of(record.get("repo")) == target}
@@ -3603,10 +3603,9 @@ ROLE_HEADS = ("orch", "exec", "review")
 
 def role_refusal(cfg, selected, providers):
     """Use the launch's pairing rules, with a sentence that fits under the marks on a phone."""
-    from . import run
     reviewers = selected.get("reviewers", selected["workers"])
     # Without executors the screen only needs runnable reviewers.
-    if run.pair_refusal(cfg, providers, selected["workers"] or reviewers, reviewers=reviewers):
+    if staffing.pair_refusal(cfg, providers, selected["workers"] or reviewers, reviewers=reviewers):
         return "no allowed executor/reviewer pair"
     return ""
 
@@ -3860,7 +3859,6 @@ def pick(cfg, providers, default):
     On the menu's keyboard where the menu has one; None where there is no terminal to take --
     a pipe, a file, the smoke suite -- and the caller asks its two questions a line at a time.
     """
-    from . import run
     names = config.offered(cfg)
     notes = {name: spent_note(cfg, name, providers) for name in names}
     fresh = [name for name in names if not notes[name]]
@@ -3883,8 +3881,8 @@ def pick(cfg, providers, default):
             def tier(name):
                 tiers = []
                 for peer in peers:
-                    found = (run.pair_tier(cfg, name, peer) if role == "workers"
-                             else run.pair_tier(cfg, peer, name))
+                    found = (staffing.pair_tier(cfg, name, peer) if role == "workers"
+                             else staffing.pair_tier(cfg, peer, name))
                     if found is not None:
                         tiers.append(found)
                 return min(tiers) if tiers else 3

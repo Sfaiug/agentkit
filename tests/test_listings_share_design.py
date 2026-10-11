@@ -20,7 +20,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
-from agentkit import command_help, config, host, menu, orch, run, status, terminal, transitions
+from agentkit import command_help, config, host, menu, orch, run, staffing, status, terminal, transitions
 from agentkit import record
 
 NOW = 1_800_000_000      # what every draw reads as the time
@@ -329,12 +329,12 @@ class Listings(Sandbox):
         state = record.read_state(directory)
         # no quota run waits on a window: the row keeps the state word, and with
         # nothing to resume it the run is his
-        self.assertEqual(run.waiting({**state, "quota_dry": False}), "")
+        self.assertEqual(staffing.waiting({**state, "quota_dry": False}), "")
         self.assertEqual(menu.run_state_word({**state, "quota_dry": False}), "needs you")
-        self.assertEqual(run.waiting({"state": "running"}), "")
+        self.assertEqual(staffing.waiting({"state": "running"}), "")
         # the sandbox's empty usage cache leaves a spent window with no known
         # hour, straight through the real reader: nobody needs to act on it
-        sentence = run.waiting(state)
+        sentence = staffing.waiting(state)
         self.assertTrue(sentence.startswith("waiting"), sentence)
         # A run that resumes itself is still working on `ak run status`.
         self.assertEqual(menu.run_state_word(state), "working")
@@ -376,8 +376,8 @@ class Listings(Sandbox):
                                    "started_at": NOW - 3600, "finished_at": None,
                                    **record.process_owner()})
         # a caller handing the scope down reads nothing further
-        with patch.object(run, "_cached_providers",
-                          wraps=run._cached_providers) as cached:
+        with patch.object(staffing, "_cached_providers",
+                          wraps=staffing._cached_providers) as cached:
             lines = status.status_details(directory, record.read_state(directory), {}, None)
             self.assertEqual(cached.call_count, 0)
         self.assertIn("waiting for a provider window", "\n".join(lines))

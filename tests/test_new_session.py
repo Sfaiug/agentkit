@@ -20,7 +20,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, menu_input
-from agentkit import config, gc, gitcall, menu, notify, orch, run, terminal, usage
+from agentkit import config, gc, gitcall, menu, notify, orch, run, staffing, terminal, usage
 from agentkit import record as run_record
 
 COLLECT, SESSIONS = usage.collect, orch.sessions    # the real ones, for the dry run
@@ -170,7 +170,7 @@ class NewSession(Sandbox):
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "make_worktree", return_value=(worktree, "ak/fixture")), \
                 patch.object(run, "exclude_junk"), \
-                patch.object(run, "pick_models", return_value=("opus", "astra")), \
+                patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                 patch.object(run, "rounds", side_effect=rounds) as started, \
                 patch.object(run, "write_result"), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -364,7 +364,7 @@ class NewSession(Sandbox):
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", return_value=(self.root / "review", "ak/pr-7")), \
                 patch.object(run, "exclude_junk"), \
-                patch.object(run, "collect_usage", side_effect=Picked), \
+                patch.object(run, "collect_usage", side_effect=Picked), patch.object(staffing, "collect_usage", side_effect=Picked), \
                 self.assertRaises(Picked):
             run.review_pr(self.cfg, directory, "https://github.com/owner/one/pull/7", {},
                           lambda _: None)

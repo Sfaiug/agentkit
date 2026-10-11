@@ -35,7 +35,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import command_help, config, terminal, turns, usage_probe, worker
+from . import command_help, config, staffing, terminal, turns, usage_probe, worker
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -1572,16 +1572,15 @@ def rows(cfg, providers):
 
 def review_pair(cfg, providers):
     """The first runnable pair, using the loop's eligibility and company preference."""
-    from . import run
     try:
-        executor, reviewer = run.pick_models(cfg, providers, None, None, lambda _: None,
+        executor, reviewer = staffing.pick_models(cfg, providers, None, None, lambda _: None,
                                              quiet=True)
     except turns.QuotaDry:
         return None
     return {"executor": executor, "reviewer": reviewer,
             "same_provider": config.model(cfg, executor)["provider"] ==
                              config.model(cfg, reviewer)["provider"],
-            "self_reviewed": run.same_model(cfg, executor, reviewer)}
+            "self_reviewed": staffing.same_model(cfg, executor, reviewer)}
 
 
 def render(cfg, providers, order, *, repo=None):

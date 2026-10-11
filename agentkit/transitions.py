@@ -215,6 +215,7 @@ def _generated(repo, source, names):
 
 
 MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as git's own
+                    # moved-line detection (--color-moved) asks before it calls lines moved
 
 
 def carried_lines(repo, base, head="HEAD"):

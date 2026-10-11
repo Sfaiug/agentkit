@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, gitcall, run, turns, worker
+from agentkit import config, gitcall, run, staffing, turns, worker
 
 
 ADAPTER = '''import json, os, pathlib, subprocess, sys, time
@@ -212,8 +212,8 @@ class ReviewerEdits(unittest.TestCase):
         self.assertIn("+reviewer artifact edit", self.archive.read_text())
 
     def test_fallback_reviewer_starts_on_the_executor_commit(self):
-        with patch.object(run, "collect_usage", return_value={}), \
-                patch.object(run, "ready_order", return_value=["spark"]):
+        with patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
+                patch.object(run, "ready_order", return_value=["spark"]), patch.object(staffing, "ready_order", return_value=["spark"]):
             self.assertEqual(self.review(
                 {"files": {"tracked.txt": "broken turn edit\n"}, "commit": True,
                  "code": 1, "text": "", "stderr": "codex is not installed"},

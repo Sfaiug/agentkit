@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, job as jobs, run, status, terminal, transitions, usage
+from agentkit import config, job as jobs, run, staffing, status, terminal, transitions, usage
 from agentkit import record
 
 
@@ -137,7 +137,7 @@ class OneProvider(unittest.TestCase):
         self.assertEqual(self.pick(), ("alpha", "alpha"))
         self.assertEqual(self.pick("beta"), ("beta", "alpha"))
         self.assertEqual(self.pick("alpha", "beta"), ("alpha", "beta"))
-        self.assertTrue(run.self_reviewed({"executor": "beta", "reviewer": "alpha"},
+        self.assertTrue(staffing.self_reviewed({"executor": "beta", "reviewer": "alpha"},
                                           self.cfg))
         self.assertIn("self-reviewed", run.launch_line(
             "id", "t", "alpha", "beta",
@@ -266,7 +266,7 @@ class OneProvider(unittest.TestCase):
     def test_handover_to_reviewers_provider_repicks_and_records_the_pair(self):
         lp = self.loop(reviewer="gamma")
         self.providers = self.meters(a=100, b=10)
-        with patch.object(run, "collect_usage", return_value=self.providers):
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual((lp.executor, lp.reviewer), ("gamma", "delta"))
         saved = record.read_state(lp.run_dir)
@@ -278,7 +278,7 @@ class OneProvider(unittest.TestCase):
         lp = self.loop(reviewer="gamma")
         self.providers = self.meters(a=100, b=10)
         self.cfg["models"]["delta"]["reviews_own_provider"] = False
-        with patch.object(run, "collect_usage", return_value=self.providers):
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual(lp.reviewer, "delta")
 
@@ -286,10 +286,10 @@ class OneProvider(unittest.TestCase):
         lp = self.loop(reviewer="gamma")
         self.providers = self.meters(a=100, b=10)
         self.cfg["defaults"]["workers"].remove("delta")
-        with patch.object(run, "collect_usage", return_value=self.providers):
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual((lp.executor, lp.reviewer), ("gamma", "gamma"))
-        self.assertTrue(run.self_reviewed(record.read_state(lp.run_dir)))
+        self.assertTrue(staffing.self_reviewed(record.read_state(lp.run_dir)))
 
     def test_handover_keeps_an_unchanged_reviewers_session(self):
         lp = self.loop(reviewer="gamma")
@@ -299,7 +299,7 @@ class OneProvider(unittest.TestCase):
         self.providers = self.meters(a=100, b=10)
         # delta is the cheaper executor, so the re-picked pair keeps gamma reviewing it
         self.providers["c"] = self.meters(b=5)["b"]
-        with patch.object(run, "collect_usage", return_value=self.providers):
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "delta")
         self.assertEqual((lp.reviewer, lp.review_sid), ("gamma", "existing-review"))
         self.assertEqual(record.read_state(lp.run_dir)["review_session"], "existing-review")
@@ -433,7 +433,7 @@ class OneProvider(unittest.TestCase):
                     "review_override": "delta"}
             job = {"opts": {"--review": reviewer}}
             with self.subTest(reviewer=reviewer, reviews_own_provider=reviews_own_provider), \
-                    patch.object(run, "collect_usage", side_effect=AssertionError("no new probe")), \
+                    patch.object(run, "collect_usage", side_effect=AssertionError("no new probe")), patch.object(staffing, "collect_usage", side_effect=AssertionError("no new probe")), \
                     patch.object(jobs, "job_allocate_run_dir", return_value=rerun_dir), \
                     patch.object(run, "prepare", side_effect=config.Error("fixture stop")) as prepare:
                 jobs.job_ladder(self.cfg, self.root, job, task, lp.run_dir, state,
@@ -464,7 +464,7 @@ class OneProvider(unittest.TestCase):
             calls.append(model)
             out.mkdir(parents=True)
             return 0, "No verdict yet." if model == silent else "VERDICT: PASS", "sid", False
-        with patch.object(run, "collect_usage", return_value=self.providers), \
+        with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers), \
                 patch.object(run, "call_retrying", side_effect=submitting(call)), \
                 patch.object(run.worker, "call", side_effect=submitting(call)):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")

@@ -19,7 +19,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, menu_input
-from agentkit import config, gc, menu, orch, run, terminal, watch
+from agentkit import config, gc, menu, orch, run, staffing, terminal, watch
 from agentkit import record
 
 
@@ -160,7 +160,7 @@ class QueuedRunFilesSeat(Sandbox):
                         patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "make_worktree", return_value=(worktree, "ak/fixture")), \
                         patch.object(run, "exclude_junk"), \
-                        patch.object(run, "pick_models", return_value=("opus", "astra")), \
+                        patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                         patch.object(run, "rounds", side_effect=rounds), \
                         patch.object(run, "write_result"), \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):

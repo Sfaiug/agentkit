@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, orch, run, watch, worktrees
+from agentkit import config, gc, gitcall, orch, run, staffing, watch, worktrees
 from agentkit import record
 from fixtures.hand_in import records
 
@@ -214,6 +214,7 @@ class OwnPr(unittest.TestCase):
                 watch, "ask_inbox", side_effect=lambda *a, **k: inbox.append(a) or 0))
             reviewed = mocks.enter_context(patch.object(run, "review", wraps=self.review_pass))
             probed = mocks.enter_context(patch.object(run, "collect_usage", return_value={}))
+            mocks.enter_context(patch.object(staffing, "collect_usage", return_value={}))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
         return state, events, inbox, reviewed, probed

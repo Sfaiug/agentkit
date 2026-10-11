@@ -44,7 +44,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (browser, command_help, config, gc, gitcall, host, notify, orch, statusbar,
+from . import (browser, command_help, config, gc, gitcall, host, notify, orch, staffing, statusbar,
                transitions, turns, update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
@@ -2402,7 +2402,6 @@ def wait_fact(wait):
             # stopped to wait on an older run's change, and started again (`leases.restart`):
             # the wait goes on with the new run
             on = state["lease_restarted"]
-        from . import run as run_mod
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
             return True, f"run {on} stalled: resume it with ak run resume {on}"
@@ -2505,7 +2504,6 @@ def wait_main(argv):
     if not seat:
         print("ak wait: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
-    from . import run as run_mod   # here, not at the top: run imports this module
     on = argv[0].strip()
     pull = transitions.PR_PARTS.match(on)      # the one pattern of a GitHub pull request URL
     if pull:
@@ -3551,9 +3549,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     home = record.get("home_account") or config.DEFAULT_ACCOUNT
     model = record["orchestrator"]
     waiting = live.get("usage_wait")
-    from . import run
     try:
-        prov = (run._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
+        prov = (staffing._cached_providers() if dry_run else usage.collect(cfg)).get(provider) or {}
     except (config.Error, OSError) as exc:
         log(f"WARN {name}: could not read {provider} usage: {exc}")
         return True
@@ -3724,7 +3721,6 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
 def health(cfg, state, dry_run, log):
     """One pass over the toolkit's seats: nudge the stalled ones, leave the working ones be."""
     from . import menu as menu_mod   # here, not at the top: the menu draws without the tick
-    from . import run as run_mod     # ... and recover_runs keeps its own
     poll_worker_token(state)   # each declared worker token, once a day: every seat reads the warning
     stalls, seats = state["stalls"], orch.sessions()
     # one pass over run.json serves every live seat; a failed read is None, never a seat
@@ -4425,12 +4421,11 @@ def _backoff_until(deaths):
 
 def _dead_where(state, run_dir):
     """The role and round a dead loop was in, for the resume log line."""
-    from . import run as run_mod
     if state.get("state") == "queued" and state.get("slot_waiting"):
         role = "slot wait"
     else:
         role = state.get("step") or "executor"
-    rnd = run_mod.started_round(run_dir, state)
+    rnd = staffing.started_round(run_dir, state)
     return role, rnd if rnd else 1
 
 
@@ -4791,7 +4786,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                         # A stuck reviewer is the loop's own fallback to replace, not the
                         # executor: only a worker turn hands over.
                         try:
-                            new = run_mod.handover_executor(
+                            new = staffing.handover_executor(
                                 state, cfg, "stalled", log=lambda line: _note_run(run_dir, line))
                         except (config.Error, OSError, ValueError, KeyError, TypeError,
                                 AttributeError):
@@ -4984,13 +4979,13 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # once a pass, and only when a run waits on a pick, never on an empty tick
                 providers, asked = usage.readiness(cfg, providers), True
             bound, review_bound = config.role_groups(
-                cfg, run_mod.run_workers(cfg, state), state.get("reviewers"))
+                cfg, staffing.run_workers(cfg, state), state.get("reviewers"))
             bound = bound if bound is not None else workers
             review_bound = review_bound if review_bound is not None else bound
             # one line per worker the pick leaves out, for the run's own log -- written only
             # when this pass resumes it, so a run waiting through tick after tick gets none
             skipped = []
-            available = run_mod.executable_models(cfg, providers, bound, now, skipped.append,
+            available = staffing.executable_models(cfg, providers, bound, now, skipped.append,
                                                  reviewers=review_bound)
             with run_record.record(run_dir) as state:
                 if state.get("state") != "exhausted":
@@ -5036,7 +5031,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             and 0 <= now - last < transitions.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
-                    reviewers = run_mod.reviewable_models(cfg, providers, review_bound, now,
+                    reviewers = staffing.reviewable_models(cfg, providers, review_bound, now,
                                                           executor=saved)
                     if not reviewers:
                         continue  # no reviewer is eligible yet; the run keeps waiting, silently
@@ -5054,13 +5049,13 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                         chosen, provider = kept
                         reviewer = None          # a kept executor keeps its pair as it is
                     else:
-                        # A handover re-picks both roles as one pair (`run.best_pair`):
+                        # A handover re-picks both roles as one pair (`staffing.best_pair`):
                         # keeping the reviewer would force a dearer executor on the run.
                         # Nothing resumes until a legal pair exists; a run with none left
                         # stays parked and waits for one.
-                        review_order = run_mod.ready_order(cfg, providers, review_bound,
+                        review_order = staffing.ready_order(cfg, providers, review_bound,
                                                            role="reviewer", quiet=True)
-                        pair = run_mod.best_pair(cfg, [n for n, _ in candidates],
+                        pair = staffing.best_pair(cfg, [n for n, _ in candidates],
                                                  review_order)
                         if pair is None:
                             chosen, provider, reviewer = None, None, None
@@ -5431,7 +5426,6 @@ def pushing_seats():
     No run.json can stop the tick from writing down the rest: a receipt half-written by a
     launch that is still starting, or one somebody edited by hand, counts for nobody.
     """
-    from . import run   # here, not at the top: run imports this module
     seats = set()
     try:
         directories = run_record.run_dirs()
@@ -5609,7 +5603,6 @@ def own_prs(state, me, log):
     GitHub itself for the ones the user opened by hand, and what was being followed already --
     a PR that has since closed is no longer in the search, and its ending is exactly the news.
     """
-    from . import run   # here, not at the top: run imports this module
     urls = {}
     for run_dir in run_record.run_dirs():
         st = run_record.read_state(run_dir)
@@ -5660,7 +5653,6 @@ def outgoing(state, me, dry_run, log):
         elif view.get("reviewDecision") and own.get("decision") != view.get("reviewDecision"):
             # the line an earlier decision left unsent in the seat's composer gets its Enter
             # first, or the next tick comes back here (`sent_pending`)
-            from . import run
             run_dir, run_state = transitions.run_for_pr(url)
             if dry_run or sent_pending(run_dir, run_state, log):
                 own["decision"] = view.get("reviewDecision")
@@ -6008,7 +6000,6 @@ def after_merge_fallback(repo_key):
     Newest by the seat's own birth, by name where two share it: the seat most likely
     to still be working the repository the target broke in.
     """
-    from . import run as run_mod   # here, not at the top: run imports this module
     try:
         seats = orch.sessions()
     except (config.Error, OSError, ValueError, AttributeError):
@@ -6088,7 +6079,6 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
 
 def after_merge_seat(run_state, repo_key):
     """The seat an after-merge notice goes to: its own when live, else the fallback."""
-    from . import run as run_mod   # here, not at the top: run imports this module
     try:
         session = transitions.launched_session(run_state)
     except config.Error:
@@ -6115,7 +6105,6 @@ def after_merge_checks(state, dry_run, log, now=None):
     instead of typing it twice; a break already told stays told when its commit slides
     out of the window, until a later green commit -- or quiet with no red left -- ends it.
     """
-    from . import run as run_mod   # here, not at the top: run imports this module
     now = time.time() if now is None else now
     episodes = state.setdefault("after_merge", {})
     if not isinstance(episodes, dict):
@@ -6419,7 +6408,7 @@ def local_passes(state, dry_run, log):
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
     """
-    from . import job as jobs, leases, retire, run
+    from . import job as jobs, leases, retire
     providers = {}
 
     def read_usage():
@@ -6429,7 +6418,7 @@ def local_passes(state, dry_run, log):
         # and this read never spends a reset. The read itself is handed on, never a copy:
         # a `usage.Readings` is what tells `readiness` to check each harness can run.
         nonlocal providers
-        providers = (run._cached_providers() if dry_run
+        providers = (staffing._cached_providers() if dry_run
                      else usage.collect(config.load(), refresh=True))
 
     return (

@@ -77,7 +77,7 @@ class HarnessSwap(unittest.TestCase):
         self.assertEqual((code, session), (0, "sess-1"))
         self.assertIn("Done.", text)
         self.assertEqual(len(self.sleeps), 2)
-        self.assertTrue(all(0 < delay <= run.SWAP_POLL for delay in self.sleeps), self.sleeps)
+        self.assertTrue(all(0 < delay <= turns.SWAP_POLL for delay in self.sleeps), self.sleeps)
         # the second start resumed the same session, after the swap ended
         self.assertEqual([args[6] for args in self.calls], ["sess-1", "sess-1"])
         self.assertTrue(any("being swapped" in line for line in self.logs), self.logs)
@@ -168,7 +168,7 @@ class HarnessSwap(unittest.TestCase):
                 patch.object(run.time, "sleep", side_effect=sleep):
             run.refuse_unready(self.cfg, read, "opus")
         self.assertEqual(len(self.sleeps), 1)
-        self.assertTrue(0 < self.sleeps[0] <= run.SWAP_POLL, self.sleeps)
+        self.assertTrue(0 < self.sleeps[0] <= turns.SWAP_POLL, self.sleeps)
         asked.assert_called_once_with("claude")
         # a swap that ended between the read and the pick is asked about again at once, and
         # one still missing its command after the swap is refused in the harness's own words

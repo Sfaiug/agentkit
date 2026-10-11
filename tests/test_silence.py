@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, host, run, status, turns, watch, worker
+from agentkit import config, gate, gitcall, host, run, staffing, status, turns, watch, worker
 from agentkit import record
 from agentkit import task as taskfile
 from test_suites_never_collide import E2E, SMOKE, lock_argv, lock_program
@@ -369,7 +369,7 @@ class Silence(unittest.TestCase):
         child = 999999998 if kind != "none" else None
         stack.enter_context(patch.object(record, "run_dirs", return_value=[directory]))
         stack.enter_context(patch.object(record, "process_active", return_value=True))
-        stack.enter_context(patch.object(run, "handover_executor", return_value=None))
+        stack.enter_context(patch.object(staffing, "handover_executor", return_value=None))
         stack.enter_context(patch.object(watch, "step_for_run",
                                          return_value=(kind, kind, child, args)))
         stack.enter_context(patch.object(watch, "loop_children",

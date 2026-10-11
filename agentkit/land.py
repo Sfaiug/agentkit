@@ -504,7 +504,7 @@ def _stack_member(repo, state, top, upstream, opened):
 
 def _landing_checks(directory, state, scratch, tip):
     """The member's own landing checks on `scratch`: its `# once` commands and the suite."""
-    from . import run, task
+    from . import task
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")

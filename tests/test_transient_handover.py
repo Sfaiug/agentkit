@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, run, usage  # noqa: E402
+from agentkit import config, run, staffing, usage  # noqa: E402
 
 
 class TransientHandover(unittest.TestCase):
@@ -89,7 +89,7 @@ class TransientHandover(unittest.TestCase):
         sleeps = []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
-                patch.object(run, "collect_usage", return_value=self.providers):
+                patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             summary = run.execute(lp, "executor", "Do the thing.", "executor")
         self.assertIn("Done by the next worker.", summary)
         self.assertEqual([args[1] for args in calls], ["alpha", "alpha", "bravo"])
@@ -123,7 +123,7 @@ class TransientHandover(unittest.TestCase):
         sleeps = []
         with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
-                patch.object(run, "collect_usage", return_value=self.providers):
+                patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
         self.assertEqual(verdict, "PASS")
         self.assertEqual([args[1] for args in calls], ["alpha", "alpha", "bravo"])
@@ -177,7 +177,7 @@ class TransientHandover(unittest.TestCase):
         sleeps = []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
-                patch.object(run, "collect_usage", return_value=self.providers):
+                patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             summary = run.execute(lp, "executor", "Do the thing.", "executor")
         self.assertIn("Done after the outage.", summary)
         self.assertEqual([args[1] for args in calls], ["alpha"] * 3)
@@ -198,7 +198,7 @@ class TransientHandover(unittest.TestCase):
         sleeps = []
         with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
-                patch.object(run, "collect_usage", return_value=self.providers):
+                patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
         self.assertEqual(verdict, "PASS")
         self.assertEqual([args[1] for args in calls], ["alpha"] * 3)
@@ -219,7 +219,7 @@ class TransientHandover(unittest.TestCase):
         sleeps = []
         with patch.object(run.worker, "call", side_effect=submitting(fake)), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
-                patch.object(run, "collect_usage", return_value=self.providers):
+                patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
             verdict = run.review(lp, "Work done.", True, "$ true\n[exit 0]")
         self.assertEqual(verdict, "PASS")
         self.assertEqual([args[1] for args in calls],

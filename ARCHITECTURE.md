@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (8.5k lines) holds most of the run side; `gitcall.py`, `turns.py`, `prompts.py` and `transitions.py` are its leaves.
+- `run.py` (7.8k lines) holds most of the run side; `gitcall.py`, `turns.py`, `prompts.py`, `transitions.py` and `staffing.py` are its leaves.
 
 ## Entry points
 
@@ -23,19 +23,20 @@
 
 - `run.py`: staffing, review, landing, hand-back, failures and delivery locks.
   Passed writable workers and automatic review-PR merges park in the line and exit;
-  foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
-  `pick_models`; for watch, status, job, gc, orch, menu, notify, usage, worker and a hook.
+  foreground callers and jobs follow records. Forks keep `land`. API: `main`; for watch, status, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.
 - `turns.py`: one model turn: the call, its retries, the handover when a window is spent, what a harness said instead of an answer, the endings it hands back (`Exhausted`, `Dead`, `Killed`, `Blocked`, `NotNeeded`, `RanDry`, `CannotRun`, `TransientHandover`), a round's turn directories and answer file, the memory cap a scope ran under, the stop of a run's process tree.
 - `prompts.py`: what a reviewer is handed and how its hand-in is weighed: the diff and done-when output it reads, the findings a fixer gets, the replay of earlier findings on a later commit and where a fix left their lines, the proofs ak runs for a finding, follow-up or dispute, the words a fixer's summary becomes, a check's output read into its first failure's line. For run and land.
 - `transitions.py`: a run's record between steps: the state words it carries (`going`, `unfinished`, `queued`, `delivery`), the history a run starts and finishes with its sizes, the pass a review saved and when it is void, the parks (exhausted, errored, on a conflict) and their retry ladders, which run supersedes another, the rounds a change spent across its runs and may still spend.
+- `staffing.py`: who executes and who reviews a run: the models a session marks for each role, ordered by the usage they have left, the pair a round gets and the refusals when none fits, the hand to the next executor when one spends its window, and the words a run waiting on a reviewer or an exhausted provider shows. For run, job, watch, usage, orch, menu and status.
 - `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
   heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
   `host_status_line`, `run_done_when`, turn/env helpers, wait notes. For run, land, tests. Leaks: gitcall's `run_child_env`, `dirty_paths`, `run_depth`; turns'
   `memory_cap_note`, `_scope_units`, `OUT_CAP`; run's `redress_seat`.
 - `status.py`: `ak run status`: the run table, one run's details and their dim lines
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
-  watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`).
+  watch. Reads transitions' state words (`going`, `unfinished`, `delivery`) and run's
+  `handback_reason`.
   Leak: run's private `_cached_providers`.
 - `stop.py`: stop/clean a run; records its stop before ending processes and releasing
   its checkout. `stop_owned_runs` and `release_session` for orch, `cmd_stop` for menu,
@@ -50,7 +51,7 @@
   memory over the base they share; a pair that cannot merge is written on the younger run as
   waiting on the older (`state/leases/`); one still before its review is stopped there, branch
   kept (`park`), and starts again once the older has landed (`restart`). Reads run records and
-  `run.going`.
+  `transitions.going`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick

@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, gate, job as jobs, land, menu, orch, run, status, stop, transitions, watch, worker, worktrees
+from agentkit import config, gate, job as jobs, land, menu, orch, run, staffing, status, stop, transitions, watch, worker, worktrees
 from agentkit import host, record
 from agentkit import task as taskfile
 
@@ -264,7 +264,7 @@ class RunStop(Sandbox):
         jobs.save_job(job_dir, job)
         # spent providers never hold it: it goes back before any budget check
         with patch.object(jobs, "job_hand_back", return_value="sent") as handed, \
-                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
+                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), patch.object(staffing, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
             rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)
@@ -329,7 +329,7 @@ class RunStop(Sandbox):
                 job_dir, job = self.old_job(f"20260101-090000-{saved['state']}-{held}", {
                     "name": "b.md", "title": "B", "after": ["a.md"], "state": held,
                     "run_id": kept.name, "from_pass": legacy})
-                with patch.object(run, "collect_usage", side_effect=AssertionError("budget")), \
+                with patch.object(run, "collect_usage", side_effect=AssertionError("budget")), patch.object(staffing, "collect_usage", side_effect=AssertionError("budget")), \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
                         patch.object(run, "cmd_merge", side_effect=AssertionError("a merge")), \
@@ -402,8 +402,8 @@ class RunStop(Sandbox):
         job_dir, job = self.old_job("20260101-090000-after-added", {
             "name": "beta.md", "title": "Beta", "state": "queued", "run_id": None,
             "task_file": str(task_file)})
-        with patch.object(run, "collect_usage", return_value={}), \
-                patch.object(run, "pick_models", return_value=("opus", "astra")), \
+        with patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
+                patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                 patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                 redirect_stdout(io.StringIO()):
             rc = jobs.run_job_loop(self.cfg, job_dir, job)
@@ -517,7 +517,7 @@ class RunStop(Sandbox):
             "name": "b.md", "title": "B", "after": ["a.md"], "state": "running",
             "run_id": None, "from_pass": {"task": "a.md", "branch": "ak/a", "tip": "tip"}})
         with patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
-                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), \
+                patch.object(run, "collect_usage", side_effect=AssertionError("budget checked")), patch.object(staffing, "collect_usage", side_effect=AssertionError("budget checked")), \
                 redirect_stdout(io.StringIO()):
             rc = jobs.run_job_loop(self.cfg, job_dir, job)
         self.assertEqual(rc, 1)

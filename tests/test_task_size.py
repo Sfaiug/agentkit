@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, history, job as jobs, run, status, task, transitions
+from agentkit import config, gc, gitcall, history, job as jobs, run, staffing, status, task, transitions
 from agentkit import record
 
 SEAT = "size-check"
@@ -95,7 +95,7 @@ class Sandbox(unittest.TestCase):
 
         def started(cfg, directory, opts, log, **_kw):
             with patch.object(gc, "disk_pressure", return_value=False), \
-                    patch.object(run, "collect_usage", side_effect=RuntimeError("before model calls")), \
+                    patch.object(run, "collect_usage", side_effect=RuntimeError("before model calls")), patch.object(staffing, "collect_usage", side_effect=RuntimeError("before model calls")), \
                     self.assertRaisesRegex(RuntimeError, "before model calls"):
                 run.loop(cfg, directory, directory / "task.md", opts, log)
             return 0

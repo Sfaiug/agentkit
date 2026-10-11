@@ -83,7 +83,6 @@ def live(repo):
     """The runs of that repository whose diffs count: going, to land (a `--no-merge` run, a
     scratch one among them, keeps its work local and stands in nobody's way), cut from a base,
     with a checkout of their own that is still there; oldest first by start."""
-    from . import run
     found = []
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
@@ -284,7 +283,6 @@ def scan(repo, log=lambda _: None, now=None):
     the record is cleared.  A holder counts only while its record, read again, says it is
     going: one this scan parked, or one that ended while it ran, holds no diff.  Returns the
     record."""
-    from . import run
     now = time.time() if now is None else now
     home.cache_clear()          # repository identity is read afresh each scan
     before = read(repo)
