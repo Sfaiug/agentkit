@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 sys.path.insert(0, str(REPO))
-from agentkit import config, host, job as jobs, run, status
+from agentkit import config, job as jobs, status, turns
 from agentkit import record
 
 
@@ -215,7 +215,7 @@ class StatusAlive(Sandbox):
             {"name": "c.md", "state": "queued", "run_id": None}])
         # the launcher and both runs' loops are gone: nothing here is probed or signalled
         with patch.object(record, "process_active", return_value=False), \
-                patch.object(run, "stop_run_tree"):
+                patch.object(turns, "stop_run_tree"):
             alone = self.status([name])
             table = self.status([])
         for text in (table, alone):
@@ -245,7 +245,7 @@ class StatusAlive(Sandbox):
         carded = self.job("20260922-090300-job-carded", tasks, finished_at=time.time() - 20,
                           card_sent={"kind": "needs", "at": time.time() - 20})
         with patch.object(record, "process_active", return_value=False), \
-                patch.object(run, "stop_run_tree"):
+                patch.object(turns, "stop_run_tree"):
             table = self.status([])
         for job_dir in (handed, carded):
             self.assertIn(f"job {job_dir.name}: 1 merged, 1 failed", table)

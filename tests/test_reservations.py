@@ -20,7 +20,7 @@ from unittest.mock import ANY, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import OLDER, YOUNGER, LiveRuns
-from agentkit import config, leases, orch, run
+from agentkit import config, gitcall, leases, orch, run
 from agentkit import record
 
 
@@ -155,7 +155,7 @@ class Reservations(LiveRuns):
 
         lp = Step(config.RUNS / YOUNGER, self.logs.append)
         with patch.object(leases, "live", live_then_the_older_ends), \
-                patch.object(run, "commit_leftovers", side_effect=Reached):
+                patch.object(gitcall, "commit_leftovers", side_effect=Reached):
             with self.assertRaises(Reached):
                 run.verify_work(lp)
         self.assertIn("WARN lease scan of", self.logs[-1])

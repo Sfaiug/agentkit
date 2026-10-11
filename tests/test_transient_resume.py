@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, gitcall, harness, run, staffing, transitions, turns, usage, watch  # noqa: E402
+from agentkit import config, gc, gitcall, run, staffing, transitions, turns, usage, watch  # noqa: E402
 from agentkit import record as run_record
 
 

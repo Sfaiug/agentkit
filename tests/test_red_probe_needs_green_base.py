@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander
 import test_red_target as red
-from agentkit import config, gate, handback, land, run, watch
+from agentkit import config, gate, gitcall, handback, land, run, watch
 from agentkit import record
 
 
@@ -357,7 +357,7 @@ class GreenBase(unittest.TestCase):
         lp, run_dir, _ = red.make_loop(self.root, wt, [f"{cmd}  # once"])
         tip = self.move_target(owner, wt)
         head = self.integrate(lp, tip)
-        real_git_out = run.git_out
+        real_git_out = gitcall.git_out
         probes = []
 
         def checkout(repo, *args, **kwargs):
@@ -366,7 +366,7 @@ class GreenBase(unittest.TestCase):
                 probes.append(args[-1])
             return real_git_out(repo, *args, **kwargs)
 
-        with patch.object(run, "git_out", side_effect=checkout):
+        with patch.object(gitcall, "git_out", side_effect=checkout):
             self.assertEqual(run.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\n"), "")
         self.assertEqual(len(probes), 2)
         self.repair.assert_not_called()

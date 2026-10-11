@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gitcall, job as jobs, run, worker
+from agentkit import gate, config, gitcall, job as jobs, run, turns, worker
 from agentkit import record
 
 OLD = "aaa1111"
@@ -263,7 +263,6 @@ class PickupNewCode(unittest.TestCase):
             return True
 
         with patch.object(run, "installed_head", return_value=NEW), \
-                patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "git", return_value=lp.base_sha):
             self.assertTrue(run.land(lp, "origin/main", fake_verify, lambda: True,
@@ -327,7 +326,7 @@ class PickupNewCode(unittest.TestCase):
             return 0
 
         with patch.object(run, "drive", side_effect=fake_drive), \
-                patch.object(run, "stop_run_tree"), \
+                patch.object(turns, "stop_run_tree"), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.resume_run(["pickup-five"]), 0)
         self.assertTrue(seen["prior"]["slot_waiting"])

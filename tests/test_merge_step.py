@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, handback, harness, host, land, notify, run, usage
+from agentkit import config, gate, gc, gitcall, handback, host, land, notify, run, usage
 from agentkit import turns as model_turns     # `turns` is a list in the tests below
 from agentkit import record
 

@@ -456,7 +456,7 @@ class RedMain(unittest.TestCase):
             start(*args, **kw)
             raise RuntimeError("crash after receipt")
 
-        with patch.object(run, "start_followups", side_effect=crash), patch.object(handback, "start_followups", side_effect=crash):
+        with patch.object(handback, "start_followups", side_effect=crash):
             land.check_line(self.turn)
             self.exhaust()
         land.check_line(self.turn)

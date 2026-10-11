@@ -18,7 +18,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home, in_account_home
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import config, gitcall, handback, notify, orch, run, usage, watch
+from agentkit import config, gitcall, notify, orch, run, usage, watch
 from agentkit import record as run_record
 
 URL = "https://github.com/me/repo/pull/7"
@@ -543,7 +543,7 @@ sys.exit(item.get("rc", 0))
         self.reply(f"pr view {URL} --json mergeStateStatus -q .mergeStateStatus", text="BLOCKED")
         with patch.object(run.worker, "call", side_effect=AssertionError("worker")), patch.object(
                 run, "integrate", return_value=True), patch.object(
-                run, "push", side_effect=AssertionError("push")), patch.object(run, "announce"), patch.object(handback, "announce"), patch.object(
+                run, "push", side_effect=AssertionError("push")), patch.object(run, "announce"), patch.object(
                 run, "git", return_value=SHA), patch.object(gitcall, "git", return_value=SHA), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 contextlib.redirect_stdout(io.StringIO()):

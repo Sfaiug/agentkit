@@ -21,7 +21,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from fixtures.sandbox import account_home
-from agentkit import config, gc, gitcall, host, notify, run, status, task, usage
+from agentkit import config, gc, gitcall, host, notify, roundloop, run, status, task, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -89,7 +89,7 @@ class V5af(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(account_home(self.root, places=(self.root,)))
         # what is checked here is not the change: its base proof is test_regression_fails_before's
-        self.stack.enter_context(patch.object(run, "needs_base_proof", return_value=False))
+        self.stack.enter_context(patch.object(roundloop, "needs_base_proof", return_value=False))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))

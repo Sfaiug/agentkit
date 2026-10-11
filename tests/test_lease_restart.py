@@ -194,9 +194,9 @@ class LeaseRestart(LiveRuns):
                 self.assertEqual((fresh / "task.md").read_text(),
                                  naming(fresh.name).replace("repo: acme", f"repo: {self.repo}"))
                 self.assertTrue((fresh / turns.REGRESSION).parent.is_dir())
-                self.assertEqual(run.regression_script(fresh).is_file(), bool(script))
+                self.assertEqual(turns.regression_script(fresh).is_file(), bool(script))
                 if script:
-                    self.assertEqual(run.regression_script(fresh).read_text(), script)
+                    self.assertEqual(turns.regression_script(fresh).read_text(), script)
 
     def test_a_holder_that_ended_with_nothing_landed_frees_the_wait_too(self):
         self.collide()

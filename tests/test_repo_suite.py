@@ -157,7 +157,7 @@ class RepoSuite(RepoSuiteFixture, unittest.TestCase):
                     self.assertEqual(lp.once, [task_once, suite])
 
                 with patch.object(run, "merge", side_effect=rebased_check), \
-                        patch.object(run, "start_followups", return_value=None), patch.object(handback, "start_followups", return_value=None):
+                        patch.object(handback, "start_followups", return_value=None):
                     state = self.launch(f"rebased-{mode}", ["true", f"{task_once}  # once"],
                                         expected="waiting" if mode == "probe" else "pass")
                 self.assertEqual(self.finals(), [["true"], [task_once, suite]], self.gates)

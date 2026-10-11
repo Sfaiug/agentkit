@@ -311,7 +311,7 @@ class WaitHistory(unittest.TestCase):
 
         with self.assertRaises(run.Stopped):
             run.land_from_line(lp, "origin/main", stopped_delivery)
-        with patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(run, "write_result"), patch.object(handback, "write_result"):
+        with patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(handback, "write_result"):
             if departure == "exhausted":
                 run.mark_state(lp.run_dir, departure, "the provider's window is spent", lp.log)
             elif departure == "interrupted":
@@ -363,7 +363,7 @@ class WaitHistory(unittest.TestCase):
                 (time, "monotonic", {"side_effect": lambda: self.clock[0]}),
                 (gate, "SLOT_POLL", {"new": 30}),
                 (gate, "frozen_runs", {"return_value": 0}),
-                (run, "redress_seat", {}), (run, "record_result", {}),
+                (run, "redress_seat", {}), (handback, "record_result", {}),
                 (record, "process_owner", {"return_value": {"pid": os.getpid()}}),
                 (host, "host_readings", {"return_value": readings}),
                 (config, "check_stop_owner", {}),

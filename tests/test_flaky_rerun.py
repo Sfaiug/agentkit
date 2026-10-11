@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, config, gitcall, host, run
+from agentkit import config, gate, gitcall, host, prompts, run
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
@@ -40,7 +40,6 @@ class FlakyRerun(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         config.RUNS.mkdir(parents=True)
         self.run_dir = config.RUNS / RUN_ID
@@ -90,7 +89,7 @@ class FlakyRerun(unittest.TestCase):
                       "starting\nFAIL: too slow under load\n\n$ true\n[exit 0]", text)
         self.assertEqual(saved.read_text(), "starting\n\nFAIL: too slow under load\n")
         self.assertEqual(run.done_when_counts(text, [cmd, "true"]), (2, 2))
-        self.assertEqual(run.failing_checks(text), [])
+        self.assertEqual(prompts.failing_checks(text), [])
         self.assertEqual(logs, [f"done-when: flaky: {cmd} failed, then passed on its re-run"])
         self.assertFalse(self.followups.parent.exists())
 
@@ -177,7 +176,7 @@ class FlakyRerun(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(self.count(), 2)
         self.assertEqual(text, f"$ {cmd}\n[exit 1]\nFAIL: still broken")
-        self.assertEqual(run.failing_checks(text), [[cmd, "FAIL: still broken"]])
+        self.assertEqual(prompts.failing_checks(text), [[cmd, "FAIL: still broken"]])
         self.assertEqual(logs, [])
         self.assertFalse(self.followups.exists())
 

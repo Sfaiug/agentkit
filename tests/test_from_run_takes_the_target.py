@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, run, staffing
+from agentkit import config, gc, gitcall, roundloop, run, staffing
 from agentkit import record
 
 
@@ -127,7 +127,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
                 self.assertEqual(self.git(lp.wt, "diff", "--name-only",
                                           f"{lp.base_sha}...HEAD"), "carried.txt")
                 lp.files = ["carried.txt"]
-                self.assertEqual(run.files_scope(lp), "")
+                self.assertEqual(roundloop.files_scope(lp), "")
 
     def test_without_origin_the_local_target_is_taken_in(self):
         self.git(self.repo, "remote", "remove", "origin")
@@ -167,7 +167,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
         self.assertEqual(run.changed_test_paths(lp), [])
         self.assertEqual(lp.base_sha, fresh)
         lp.files = ["carried.txt"]
-        self.assertEqual(run.files_scope(lp), "")
+        self.assertEqual(roundloop.files_scope(lp), "")
 
     def test_a_conflict_is_aborted_and_round_one_keeps_the_saved_branch(self):
         self.git(self.repo, "checkout", "-q", "ak/previous")

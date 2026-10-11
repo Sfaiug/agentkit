@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, host, orch, run, worker
+from agentkit import config, gate, gitcall, host, orch, prompts, run, worker
 from agentkit import record
 from test_red_target import make_loop, make_repos
 
@@ -47,7 +47,6 @@ class SuitePieces(unittest.TestCase):
             "AK_CGROUP_FILE": str(self.root / "no-cgroup"),
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}))
         config.ensure_dirs()
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(gate, "_running_commands", return_value=["fixture"]))
@@ -324,7 +323,7 @@ class SuitePieces(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(calls, {"1/2": 1, "2/2": 2})
         self.assertEqual(run.done_when_counts(text, [SUITE]), (0, 1))
-        self.assertEqual(run.failing_checks(text), [[SUITE, "FAIL: broken"]])
+        self.assertEqual(prompts.failing_checks(text), [[SUITE, "FAIL: broken"]])
         self.assertNotIn("flaky:", text)
 
     def test_a_red_first_piece_is_named_even_when_the_other_piece_passes_on_retry(self):
@@ -340,7 +339,7 @@ class SuitePieces(unittest.TestCase):
             ok, text = self.check()
         self.assertFalse(ok)
         self.assertEqual(calls, {"1/2": 2, "2/2": 2})
-        self.assertEqual(run.failing_checks(text), [[SUITE, "FAIL: broken"]])
+        self.assertEqual(prompts.failing_checks(text), [[SUITE, "FAIL: broken"]])
         self.assertIn("FAIL: broken", run.first_failure(text))
         self.assertNotIn("FAIL: timing", run.first_failure(text))
         self.assertIn("flaky:", text)

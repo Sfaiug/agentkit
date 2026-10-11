@@ -205,7 +205,7 @@ class Rule(unittest.TestCase):
                     shutil.rmtree(stale)
                 self.tmux.clear()
                 run_dir = self.finished_run(f"20260915-0001-{pr_state.lower()}", worktree)
-                with patch.object(run, "start_followups"), patch.object(handback, "start_followups") as starts:
+                with patch.object(handback, "start_followups") as starts:
                     state = self.decision(pr_state, decision, seat=self.seat())
                 lines = self.typed()
                 self.assertEqual(len(lines), 0 if pr_state == "MERGED" else 1, lines)
@@ -228,7 +228,7 @@ class Rule(unittest.TestCase):
         run_dir = self.finished_run("20260915-0001-merged")
         with patch.object(watch, "type_at_prompt") as typ, \
                 patch.object(orch, "find", return_value=self.seat()), \
-                patch.object(run, "start_followups"), patch.object(handback, "start_followups") as starts:
+                patch.object(handback, "start_followups") as starts:
             # a merge is routine: the run learns it, and no seat is owed a line
             self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))
             self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))

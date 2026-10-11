@@ -257,7 +257,7 @@ class OwnPrReview(unittest.TestCase):
         directory = config.RUNS / "unmerged"
         directory.mkdir()
         record.save_state(directory, state)
-        with patch.object(run, "start_followups"), patch.object(handback, "start_followups"):
+        with patch.object(handback, "start_followups"):
             handback.record_decision(directory, state, "merged by the maintainer", merged=True)
         self.assertTrue(record.read_state(directory)["merged"])
         self.assertEqual(history.get("unmerged")["changed_lines"], 6)

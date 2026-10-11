@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, run, transitions, watch
+from agentkit import config, menu, transitions, watch
 from agentkit import record
 
 NOW = 1_800_000_000

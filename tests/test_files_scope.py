@@ -11,7 +11,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, run, transitions
+from agentkit import config, prompts, run, transitions
 
 
 class FilesScope(unittest.TestCase):
@@ -176,7 +176,7 @@ class FilesScope(unittest.TestCase):
             ok, text = self.verify(lp, rnd)
             self.assertFalse(ok, text)
             run.same_failure(lp, ok, text)
-        self.assertEqual(run.failing_checks(text), [[cmd, message]])
+        self.assertEqual(prompts.failing_checks(text), [[cmd, message]])
         self.assertEqual(run.first_failure(text), f"`{cmd}` — {message}")
 
     def test_changed_outside_paths_do_not_hide_an_unchanged_check_failure(self):

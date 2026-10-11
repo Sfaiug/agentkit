@@ -214,8 +214,7 @@ class AfterGone(unittest.TestCase):
         on_branch = lambda wt, *args, **kw: ("refs/heads/ak/beta" if args[:1] == ("symbolic-ref",)
                                              else real_git(wt, *args, **kw))
         with patch.object(run, "git", side_effect=on_branch), \
-                patch.object(run, "in_progress", return_value=False), \
-                patch.object(run, "commit_leftovers", side_effect=run.Stopped("git commit killed")), \
+                patch.object(run, "in_progress", return_value=False), patch.object(run, "commit_leftovers", side_effect=run.Stopped("git commit killed")), \
                 patch.object(worktrees, "drop_checkout", side_effect=AssertionError("cleaned up")), \
                 patch("agentkit.browser.close_owned"):
             ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
@@ -235,8 +234,7 @@ class AfterGone(unittest.TestCase):
         on_branch = lambda wt, *args, **kw: ("refs/heads/ak/beta" if args[:1] == ("symbolic-ref",)
                                              else real_git(wt, *args, **kw))
         with patch.object(run, "git", side_effect=on_branch), \
-                patch.object(run, "in_progress", return_value=False), \
-                patch.object(run, "commit_leftovers"), \
+                patch.object(run, "in_progress", return_value=False), patch.object(run, "commit_leftovers"), \
                 patch.object(run, "dirty_paths", return_value=["src/api.py"]), \
                 patch.object(worktrees, "drop_checkout", side_effect=AssertionError("cleaned up")), \
                 patch("agentkit.browser.close_owned"):

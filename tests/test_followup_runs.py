@@ -127,8 +127,6 @@ class FollowupRuns(unittest.TestCase):
         self.stack.enter_context(patch.object(browser, "close_owned"))
         self.stack.enter_context(patch.object(run, "announce", side_effect=lambda s, d, *a:
                                               self.endings.append(handback.handback_line(s, d, self.cfg))))
-        self.stack.enter_context(patch.object(handback, "announce", side_effect=lambda s, d, *a:
-                                              self.endings.append(handback.handback_line(s, d, self.cfg))))
         config.save_session(self.cfg, "seat", self.executor,
                             [self.executor, self.reviewer], {"cwd": str(self.repo)})
 
@@ -783,15 +781,14 @@ class FollowupRuns(unittest.TestCase):
             self.logs.clear()
             self.endings.clear()
             directory, state = self.source(f"broken-{index}")
-            with patch.object(run, "start_followups", side_effect=exc), patch.object(handback, "start_followups", side_effect=exc):
+            with patch.object(run, "start_followups", side_effect=exc):
                 run.finish(dict(state), directory, self.logs.append, self.cfg)
             self.assertTrue(any("could not start" in line for line in self.logs), exc)
             self.assertTrue(self.endings, exc)
         self.logs.clear()
         directory, state = self.source("merge-fail")
         child = self.start(directory, state)[0]
-        with patch.object(run, "start_followups", side_effect=config.Error("boom")) as started, patch.object(handback, "start_followups", side_effect=config.Error("boom")), \
-                patch.object(run, "stop_run_tree", wraps=run.stop_run_tree) as stopped:
+        with patch.object(run, "start_followups", side_effect=config.Error("boom")) as started, patch.object(run, "stop_run_tree", wraps=run.stop_run_tree) as stopped:
             code, fixed = self.drive(child)
         self.assertEqual(code, 0, "\n".join(self.logs))
         self.assertTrue(fixed["merged"])

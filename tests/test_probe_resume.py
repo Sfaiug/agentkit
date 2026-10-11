@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gitcall, handback, run, turns, worker
+from agentkit import config, gitcall, handback, roundloop, run, turns, worker
 from agentkit import record
 
 
@@ -74,7 +74,7 @@ def crash(root, probe, phase):
                 if probe == "target":
                     run.target_fails(lp, "main", "$ false\n[exit 1]\n")
                 else:
-                    run.regression_fails_before(lp)
+                    roundloop.regression_fails_before(lp)
 
 
 class ProbeResume(unittest.TestCase):
@@ -185,10 +185,10 @@ class ProbeResume(unittest.TestCase):
 
     def test_finished_probes_remove_the_recovery_record(self):
         lp = make_loop(self.root)
-        with patch.object(run, "start_followups", return_value=None), patch.object(handback, "start_followups", return_value=None):
+        with patch.object(handback, "start_followups", return_value=None):
             self.assertTrue(run.target_fails(lp, "main", "$ false\n[exit 1]\n"))
         self.assert_restored()
-        self.assertEqual(run.regression_fails_before(lp), "")
+        self.assertEqual(roundloop.regression_fails_before(lp), "")
         self.assert_restored()
 
 

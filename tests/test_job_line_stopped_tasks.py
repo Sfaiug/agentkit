@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, notify, run
+from agentkit import config, job as jobs, notify
 
 
 class JobLineStoppedTasks(unittest.TestCase):

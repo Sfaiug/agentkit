@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, run, turns, worker
+from agentkit import config, roundloop, run, turns, worker
 from agentkit import record
 
 
@@ -156,7 +156,7 @@ class RegressionFailsBefore(unittest.TestCase):
         head = run.git(self.wt, "rev-parse", "HEAD")
         lp = self.loop()
         with patch.dict(os.environ, {"PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": ""}):
-            self.assertEqual(run.regression_fails_before(lp), "")
+            self.assertEqual(roundloop.regression_fails_before(lp), "")
             self.assertTrue(record.read_state(self.directory)["regression_checked"])
             base_output = (self.directory / "regression-base.log").read_text()
             self.assertIn("saw base", base_output)
@@ -177,7 +177,7 @@ class RegressionFailsBefore(unittest.TestCase):
         head = run.git(self.wt, "rev-parse", "HEAD")
         self.script.write_text("python3 tests/check.py\n")
         lp = self.loop()
-        self.assertEqual(run.regression_fails_before(lp), "")
+        self.assertEqual(roundloop.regression_fails_before(lp), "")
         self.assertIn("flaky", (self.directory / "regression-base.log").read_text())
         self.assert_restored(head)
 

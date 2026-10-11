@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted, stateful
-from agentkit import config, gate, gitcall, host, notify, run, status, stop, transitions, turns, worker
+from agentkit import config, gate, gitcall, host, notify, roundloop, run, status, stop, transitions, turns, worker
 from agentkit import record
 
 
@@ -215,7 +215,7 @@ sys.exit(1)
         code, directory, state = self.launch(rounds=3)
         self.assertEqual(code, 1, self.log(directory))
         self.assertEqual((state["state"], state["rounds"]), ("blocked", 3))
-        self.assertEqual(state["error"], run.BLOCKED_SAME)
+        self.assertEqual(state["error"], roundloop.BLOCKED_SAME)
         self.assertNotIn("extended", state)
         self.assertEqual([entry["done_when"] for entry in state["round_summaries"]], [False])
         self.assertEqual(self.extensions(directory), [])
@@ -494,9 +494,15 @@ sys.exit(1)
                 run.pending_review(lp, "Re-review after the rebase of origin/main.")
                 self.assertIn("review_pending", record.read_state(directory))
                 calls = []
-                with patch.object(run, "git", return_value=""), \
-                        patch.object(run, "git_out",
-                                     side_effect=lambda wt, *a, **k: (calls.append(a), (0, ""))[1]):
+
+                def git_out(wt, *a, **k):
+                    calls.append(a)
+                    return 0, ""
+
+                # resolve_conflicts calls git through run's names; the integration helpers it
+                # reaches on roundloop call gitcall's
+                with patch.object(run, "git", return_value=""), patch.object(gitcall, "git", return_value=""), \
+                        patch.object(gitcall, "git_out", side_effect=git_out):
                     self.assertFalse(run.resolve_conflicts(lp, "origin/main", "conflicted", "rebase"))
                 self.assertIn(("rebase", "--abort"), calls)
                 after = record.read_state(directory)
