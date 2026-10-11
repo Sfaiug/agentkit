@@ -281,7 +281,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     except OSError:
         stopped = []
     if stopped:
-        parts += ["## gitcall.Stopped checks", "", "```", *stopped, "```", ""]
+        parts += ["## Stopped checks", "", "```", *stopped, "```", ""]
     for entry in state["round_summaries"]:
         dw = {True: "done-when passed", False: "done-when failed"}.get(
             entry["done_when"], "done-when not run")
