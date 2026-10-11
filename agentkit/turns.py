@@ -16,7 +16,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import config, gitcall, hand_in, history, host, orch, record as run_record, worker
+from . import config, gitcall, hand_in, history, host, orch, record as run_record, update, worker
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 
@@ -934,7 +934,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
 
     An executor or fixer of a fix run may also write the run's regression folder.
     """
-    from . import update, usage     # here, not at the top: both reach turns
+    from . import usage     # here, not at the top: usage reaches turns
     limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit
     out_dir = Path(out_dir)
     run_dir = out_dir.parent.parent

@@ -24,7 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, hand_in, run, stop, turns, worker
+from agentkit import config, gitcall, hand_in, run, stop, turns, worker
 from fixtures.hand_in import scripted, stateful
 
 
@@ -521,14 +521,14 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(finding("api.py:2", "the flag is wrong", self.flag_fixed)), "FAIL")
         self.write('mode = "branch"\nflag = "still wrong"\n' + "".join(f"pad_{n} = {n}\n" for n in range(3000)),
                    "Rewrite the file")
-        real, diffs = run.git, []
+        real, diffs = gitcall.git, []
 
         def counting(repo, *args, **kwargs):
             if args and args[0] == "diff":
                 diffs.append(args)
             return real(repo, *args, **kwargs)
 
-        with patch.object(run, "git", side_effect=counting):
+        with patch.object(gitcall, "git", side_effect=counting):
             self.assertEqual(self.review(), "FAIL")
         self.assertLess(len(diffs), 40)
         self.assertEqual(self.records("finding"),
