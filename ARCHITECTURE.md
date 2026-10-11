@@ -26,12 +26,11 @@
   foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
   `pick_models`; for watch, status, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.
-- `turns.py`: one model turn: the endings a harness hands back (`Exhausted`, `Dead`, `Killed`, `Blocked`, `NotNeeded`, `RanDry`, `CannotRun`, `TransientHandover`); a round's turn directories and the answer file a turn leaves; the memory cap a turn's scope ran under; the stop of a run's process tree. The call and its retries still follow from `run.py`.
+- `turns.py`: one model turn: the call, its retries, the handover when a window is spent, what a harness said instead of an answer, the endings it hands back (`Exhausted`, `Dead`, `Killed`, `Blocked`, `NotNeeded`, `RanDry`, `CannotRun`, `TransientHandover`), a round's turn directories and answer file, the memory cap a scope ran under, the stop of a run's process tree.
 - `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
   heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
-  `host_status_line`, `run_done_when`, turn/env helpers and wait notes. For run, land and
-  tests. Leaks: gitcall's `run_child_env`, `dirty_paths` and `run_depth`, run's
-  `memory_cap_note`, `OUT_CAP`, `redress_seat`.
+  `host_status_line`, `run_done_when`, turn/env helpers, wait notes. For run, land, tests. Leaks: gitcall's `run_child_env`, `dirty_paths`, `run_depth`; turns'
+  `memory_cap_note`, `_scope_units`, `OUT_CAP`; run's `redress_seat`.
 - `status.py`: `ak run status`: the run table, one run's details and their dim lines
   (parked, alive, stopped, step, final check). `cmd_status` for run, `parked_line` for
   watch. Reads run's state words (`going`, `unfinished`, `delivery`, `handback_reason`).

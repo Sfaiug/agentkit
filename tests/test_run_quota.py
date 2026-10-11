@@ -96,7 +96,7 @@ class Quota(unittest.TestCase):
                         "\u0085", "\u2028", "\u2029", "\u2014", "\u00e9 "):
                 for message in ("/tmp/acme/log.txt" + gap + word, "Error:" + gap + word):
                     event = json.dumps({"type": "error", "error": message})
-                    said = run.failures(event, None)
+                    said = turns.failures(event, None)
                     with self.subTest(name=name, message=message):
                         self.assertEqual(harness.load(name).failure(said[0])[0], expected)
                         self.assertEqual(said[0].splitlines(), said)    # one record, one line
@@ -126,8 +126,8 @@ class Quota(unittest.TestCase):
                    (0, "## Summary\nDone.", "s1", False)]
         with patch.object(run.worker, "call",
                           side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
-                patch.object(run, "time", Clock(sleeps.append)):
-            code, text, session, dead = run.call_retrying(
+                patch.object(turns, "time", Clock(sleeps.append)):
+            code, text, session, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
@@ -141,8 +141,8 @@ class Quota(unittest.TestCase):
         answers = [(1, "", None, False)] * 6 + [(0, "## Summary\nDone.", "s1", False)]
         with patch.object(run.worker, "call",
                           side_effect=lambda *a, **k: calls.append(a) or answers[len(calls) - 1]), \
-                patch.object(run, "time", Clock(sleeps.append)):
-            code, text, session, dead = run.call_retrying(
+                patch.object(turns, "time", Clock(sleeps.append)):
+            code, text, session, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.root / "round-1" / "executor", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
@@ -214,7 +214,7 @@ class Quota(unittest.TestCase):
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=50)
         with patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run, "time", Clock(
+                patch.object(turns, "time", Clock(
                     MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(run.execute(lp, "executor", "Do the task.", "executor"),
@@ -243,7 +243,7 @@ class Quota(unittest.TestCase):
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run, "time", Clock(sleeps.append)), \
+                patch.object(turns, "time", Clock(sleeps.append)), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
@@ -271,14 +271,15 @@ class Quota(unittest.TestCase):
             Path(workspace, "deliverable").write_text("done")
             return 0, "## Summary\nDone.", "s-exec", False
         sent, sleeps = [], []
+        clock = Clock(sleeps.append)     # run's slot poll and turns' retries share it
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": True, "--no-worktree": True, "--bg": False}
         # This assertion needs the slot poll even when the caller sets AK_MAX_RUNS=0.
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1"}), \
                 patch.object(run.worker, "call", side_effect=submitting(turn)), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run, "time", Clock(sleeps.append)), \
-                patch.object(gate, "time", run.time), \
+                patch.object(turns, "time", clock), patch.object(run, "time", clock), \
+                patch.object(gate, "time", clock), \
                 patch.object(notify, "shaped",
                              side_effect=lambda *a, **k: sent.append((a, k)) or 0), \
                 patch.object(notify, "post", return_value=None), \
@@ -375,7 +376,7 @@ class Quota(unittest.TestCase):
         providers = self.providers(openai_used=100, anthropic_used=40, meta_used=100)
         with patch.object(run.worker, "call", side_effect=turn), \
                 patch.object(usage, "collect", return_value=providers), \
-                patch.object(run, "time", Clock(
+                patch.object(turns, "time", Clock(
                     MagicMock(side_effect=AssertionError("quota waits on nothing")))), \
                 redirect_stderr(io.StringIO()):
             with self.assertRaises(run.QuotaDry):
@@ -386,10 +387,10 @@ class Quota(unittest.TestCase):
                          [("astra", "opus", "dry")])
 
     def test_quota_words_must_stand_on_their_own(self):
-        self.assertEqual(run.ran_dry(1, "API Error: rate limit exceeded", "codex"), "rate limit")
-        self.assertIsNone(run.ran_dry(1, "wrote 4294967296 bytes in 12s", "muse"))
-        self.assertIsNone(run.ran_dry(1, "", "codex"))
-        self.assertIsNone(run.ran_dry(1, "all green", "codex"))
+        self.assertEqual(turns.ran_dry(1, "API Error: rate limit exceeded", "codex"), "rate limit")
+        self.assertIsNone(turns.ran_dry(1, "wrote 4294967296 bytes in 12s", "muse"))
+        self.assertIsNone(turns.ran_dry(1, "", "codex"))
+        self.assertIsNone(turns.ran_dry(1, "all green", "codex"))
 
     def test_quota_exhausted_run_resumes_through_the_command(self):
         run_dir, _ = self.receipt("20260916-1201-quota-resume")
@@ -451,7 +452,7 @@ class QuotaDry(unittest.TestCase):
         self.stack.enter_context(patch.object(run.notify, "shaped",
                                               side_effect=AssertionError("notification")))
         self.sleep = MagicMock()
-        self.stack.enter_context(patch.object(run, "time", Clock(self.sleep)))
+        self.stack.enter_context(patch.object(turns, "time", Clock(self.sleep)))
         self.stack.enter_context(patch.object(gate, "time", run.time))
         self.now = time.mktime(time.strptime("2026-09-15 07:00", "%Y-%m-%d %H:%M"))
         self.stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: self.now))
@@ -574,42 +575,42 @@ class QuotaDry(unittest.TestCase):
         """What `call_retrying` reads back from an out dir that harness's adapter just filled."""
         row = REFUSALS[harness]
         out = self.out_dir(name, row["events"], final=row["final"])
-        return run.harness_said(out, row["final"], harness)
+        return turns.harness_said(out, row["final"], harness)
 
     def test_v5i_codex_refusal_with_an_empty_final_md_is_quota_and_not_transient(self):
         """The Sat 23:49 exit itself: nothing in final.md, the refusal in its own event log."""
         said = self.said("codex-exit", "codex")
-        self.assertEqual(run.ran_dry(1, said, "codex"), "usage limit")
+        self.assertEqual(turns.ran_dry(1, said, "codex"), "usage limit")
         self.assertIn("usage limit", watch.quotas("codex"))
         # what happened instead before v5i: an empty final.md read as a transport death
-        self.assertEqual(run.transient(1, ""), "exited 1 with an empty final.md")
+        self.assertEqual(turns.transient(1, ""), "exited 1 with an empty final.md")
         # the refusal names when to come back, and that is parsed rather than guessed at
-        self.assertEqual(run.try_again_at(said),
+        self.assertEqual(turns.try_again_at(said),
                          time.mktime(time.strptime("2026-10-12 23:39", "%Y-%m-%d %H:%M")))
         # and a zero exit is still a worker saying what it meant to say
-        self.assertIsNone(run.ran_dry(0, said, "codex"))
+        self.assertIsNone(turns.ran_dry(0, said, "codex"))
 
     def test_v5i_claude_and_muse_refusals_match_their_own_manifest_signatures(self):
         for harness, mark in (("claude", "Usage limit reached"), ("muse", "usage limit reached")):
             with self.subTest(harness=harness):
                 said = self.said(f"{harness}-exit", harness)
                 self.assertIn(mark, watch.quotas(harness))
-                self.assertEqual(run.ran_dry(1, said, harness), mark)
+                self.assertEqual(turns.ran_dry(1, said, harness), mark)
                 # neither names a date, so the meters decide when the provider comes back
-                self.assertIsNone(run.try_again_at(said))
+                self.assertIsNone(turns.try_again_at(said))
         # a run whose own task text discusses a refusal has not been refused
         quoting = self.out_dir("quoting", "", prompt="You are the executor. Fix the handling of "
                                "\"You've hit your usage limit\" and of 429 Too Many Requests.")
         (quoting / "events.jsonl").write_text(
             '{"type":"user","text":"You are the executor. Fix the handling of \\"You\'ve hit '
             'your usage limit\\" and of 429 Too Many Requests."}')
-        self.assertIsNone(run.ran_dry(1, run.harness_said(quoting, "", "codex"), "codex"))
+        self.assertIsNone(turns.ran_dry(1, turns.harness_said(quoting, "", "codex"), "codex"))
 
     def test_v5i_muse_run_terminal_refusal_with_an_empty_final_is_quota(self):
         """The round-3 repro: Muse's terminal diagnostic alone, final.md empty, exit 1."""
         said = self.said("muse-exit", "muse")
         self.assertIn("usage limit reached", watch.quotas("muse"))
-        self.assertEqual(run.ran_dry(1, said, "muse"), "usage limit reached")
+        self.assertEqual(turns.ran_dry(1, said, "muse"), "usage limit reached")
         # the run is handed over, never an error, and the reset it holds is never spent for it
         self.providers["meta"]["resets"] = 1
         self.plan({"spark": [{"code": 1, **REFUSALS["muse"]}]})
@@ -635,8 +636,8 @@ class QuotaDry(unittest.TestCase):
             with self.subTest(harness=harness):
                 out = self.out_dir(f"{harness}-event-only", REFUSALS[harness]["events"],
                                    final="")
-                said = run.harness_said(out, "", harness)
-                self.assertEqual(run.ran_dry(1, said, harness), mark)
+                said = turns.harness_said(out, "", harness)
+                self.assertEqual(turns.ran_dry(1, said, harness), mark)
                 self.assertIn(mark, watch.quotas(harness))
 
     def test_v5i_a_muse_answer_that_mentions_the_limit_is_not_a_refusal(self):
@@ -650,8 +651,8 @@ class QuotaDry(unittest.TestCase):
             with self.subTest(shape=name):
                 events = json.dumps({"payload": {"kind": "run_terminal", "text": text}})
                 out = self.out_dir(f"muse-answer-{name}", events, final="")
-                said = run.harness_said(out, "", "muse")
-                self.assertIsNone(run.ran_dry(1, said, "muse"))
+                said = turns.harness_said(out, "", "muse")
+                self.assertIsNone(turns.ran_dry(1, said, "muse"))
                 self.assertNotIn("usage limit reached", said)
         # end to end: a transient, so the waits run and no reset is touched
         row = {"code": 1, "final": "",
@@ -659,13 +660,13 @@ class QuotaDry(unittest.TestCase):
                                                  "text": answers["heading"]}})}
         self.plan({"spark": [row, row, {"code": 0, "final": "## Summary\nDone."}]})
         lines, log = self.logged()
-        code, _, _, dead = run.call_retrying(
+        code, _, _, dead = turns.call_retrying(
             self.cfg, "spark", "the task", self.root, self.root / "round-1" / "executor",
             "executor", None, log)
         self.assertEqual((code, dead), (0, False))
         self.assertEqual(len(self.calls()), 3)
         self.assertEqual(self.sleep.call_args_list,
-                         [((delay,),) for delay in run.TRANSIENT_BACKOFF[:2]])
+                         [((delay,),) for delay in turns.TRANSIENT_BACKOFF[:2]])
         self.assertEqual((self.replenished, self.marked), ([], []))
         self.assertFalse([line for line in lines if "ran dry" in line])
 
@@ -683,24 +684,24 @@ class QuotaDry(unittest.TestCase):
         for harness, (mark, events) in rows.items():
             with self.subTest(harness=harness):
                 # long past REFUSAL_CAP, so the answer-shape test alone would call it an answer
-                self.assertGreater(len(events), run.REFUSAL_CAP)
+                self.assertGreater(len(events), turns.REFUSAL_CAP)
                 out = self.out_dir(f"{harness}-long-refusal", events, final="")
-                said = run.harness_said(out, "", harness)
-                self.assertEqual(run.ran_dry(1, said, harness), mark)
+                said = turns.harness_said(out, "", harness)
+                self.assertEqual(turns.ran_dry(1, said, harness), mark)
                 self.assertIn(mark, watch.quotas(harness))
 
     def test_v5i_a_refusal_spread_over_two_lines_is_read_whole(self):
         """The signature and the date it names need not share a line."""
         out = self.out_dir("wrapped", "", final="You've hit your usage limit.\n"
                            "Try again at Oct 12th, 2026 11:39 PM\n")
-        said = run.harness_said(out, (out / "final.md").read_text(), "codex")
-        self.assertEqual(run.ran_dry(1, said, "codex"), "usage limit")
-        self.assertEqual(run.try_again_at(said),
+        said = turns.harness_said(out, (out / "final.md").read_text(), "codex")
+        self.assertEqual(turns.ran_dry(1, said, "codex"), "usage limit")
+        self.assertEqual(turns.try_again_at(said),
                          time.mktime(time.strptime("2026-10-12 23:39", "%Y-%m-%d %H:%M")))
         # an answer that mentions the same words is an answer: it has the shape one was asked for
         answer = self.out_dir("answer", "", final="## Summary\nTaught the loop to read "
                               "\"You've hit your usage limit.\" and to try again at the date.\n")
-        self.assertIsNone(run.ran_dry(1, run.harness_said(
+        self.assertIsNone(turns.ran_dry(1, turns.harness_said(
             answer, (answer / "final.md").read_text(), "codex"), "codex"))
 
     # --- (c): a reset held is never spent for a refused worker ------------------------------
@@ -711,7 +712,7 @@ class QuotaDry(unittest.TestCase):
                              {"code": 0, "final": "## Summary\nDone."}]})
         lines, log = self.logged()
         with self.assertRaises(turns.RanDry):
-            run.call_retrying(self.cfg, "astra", "the task", self.root,
+            turns.call_retrying(self.cfg, "astra", "the task", self.root,
                               self.root / "round-1" / "executor", "executor", None, log)
         # exactly as with none held: parked until the date the refusal named, never retried
         until = time.mktime(time.strptime("2026-10-12 23:39", "%Y-%m-%d %H:%M"))
@@ -878,8 +879,8 @@ class QuotaDry(unittest.TestCase):
         stderr = "codex: connection failed: error sending request for url"
         out = self.out_dir("tool-output", events, final="")
         (out / "stderr.log").write_text(stderr)
-        said = run.harness_said(out, "", "codex")
-        self.assertIsNone(run.ran_dry(1, said, "codex"))
+        said = turns.harness_said(out, "", "codex")
+        self.assertIsNone(turns.ran_dry(1, said, "codex"))
         self.assertIn("connection failed", said)     # the diagnostics are read; the output is not
         self.assertNotIn("usage limit", said)
         self.assertNotIn("grep", said)
@@ -888,13 +889,13 @@ class QuotaDry(unittest.TestCase):
         row = {"code": 1, "final": "", "events": events, "stderr": stderr}
         self.plan({"astra": [row, row, {"code": 0, "final": "## Summary\nDone."}]})
         lines, log = self.logged()
-        code, _, _, dead = run.call_retrying(
+        code, _, _, dead = turns.call_retrying(
             self.cfg, "astra", "the task", self.root, self.root / "round-1" / "executor",
             "executor", None, log)
         self.assertEqual((code, dead), (0, False))
         self.assertEqual((self.replenished, self.marked), ([], []))
         self.assertEqual(self.sleep.call_args_list,
-                         [((delay,),) for delay in run.TRANSIENT_BACKOFF[:2]])
+                         [((delay,),) for delay in turns.TRANSIENT_BACKOFF[:2]])
         self.assertEqual(len(self.calls()), 3)
         self.assertFalse([line for line in lines if "ran dry" in line])
 

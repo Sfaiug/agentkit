@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gate, gitcall, host, land, notify, orch, run, usage, worker
+from agentkit import config, gate, gitcall, host, land, notify, orch, run, turns, usage, worker
 from agentkit import record
 
 NO_VERDICT_PROMPT = ("Your previous turn ended without ak hand-in done. Review the diff now, "
@@ -236,7 +236,7 @@ sys.exit(1)
         # one mechanism, one extra call: it finishes the background work and asks
         # for the verdict in the same turn, on the same session
         self.assertEqual(len(reviewers), 2)
-        self.assertIn(run.FINISH_IN_FOREGROUND, reviewers[1]["prompt"])
+        self.assertIn(turns.FINISH_IN_FOREGROUND, reviewers[1]["prompt"])
         self.assertIn(NO_VERDICT_PROMPT, reviewers[1]["prompt"])
         self.assertEqual(reviewers[1]["session"], ["sess-1"])
         self.assertEqual(Path(reviewers[1]["out"]).name, "reviewer-retry-foreground")

@@ -104,9 +104,9 @@ class ReviewerEdits(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "auth_ok", return_value=(True, "")))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(run.usage, "account", return_value=(None, True)))
-        self.stack.enter_context(patch.object(run, "transient_wait"))
+        self.stack.enter_context(patch.object(turns, "transient_wait"))
         self.stack.enter_context(patch.object(turns, "memory_cap_note"))
-        self.stack.enter_context(patch.object(run, "note_turn_meters"))
+        self.stack.enter_context(patch.object(turns, "note_turn_meters"))
         self.stack.enter_context(patch.object(run, "history_role_tokens"))
         self.wt = self.root / "acme"
         self.wt.mkdir()

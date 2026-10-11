@@ -25,7 +25,7 @@ from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import config, gate, gc, gitcall, host, notify, orch, run, status, usage, watch, worker
+from agentkit import config, gate, gc, gitcall, host, notify, orch, run, status, turns, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
 
@@ -164,6 +164,7 @@ class Limits(unittest.TestCase):
         # that stop a box spin, and a mock keeps a record of each turn of the spin.
         self.sleep = MagicMock()
         self.stack.enter_context(patch.object(run, "time", Clock(self.sleep)))
+        self.stack.enter_context(patch.object(turns, "time", Clock(self.sleep)))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -347,7 +348,7 @@ class Limits(unittest.TestCase):
         # three times on its own session, and astra still reviews another model
         self.assertEqual(state["executor"], "opus")
         waits = [call.args[0] for call in self.sleep.call_args_list
-                 if call.args and call.args[0] in run.TRANSIENT_BACKOFF]
+                 if call.args and call.args[0] in turns.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [60, 300, 900])
 
     # --- 3: git and gh are capped and never prompt ---------------------------

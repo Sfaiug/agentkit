@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, history, menu, run, terminal, usage, watch, worker  # noqa: E402
+from agentkit import config, harness, history, menu, run, terminal, turns, usage, watch, worker  # noqa: E402
 
 FIX = REPO / "tests/fixtures"
 ADAPTER = REPO / "adapters/grokbuild.sh"
@@ -872,9 +872,9 @@ class SpentBalance(GrokSandbox):
         (out / "events.jsonl").write_text("")
         for phrase in ("402", "Payment Required", "usage balance exhausted"):
             self.assertEqual(harness.load("grokbuild").failure(phrase)[0], harness.SPENT)
-        said = run.harness_said(out, "", "grokbuild")
-        self.assertEqual(run.ran_dry(1, said, "grokbuild"), "usage balance exhausted")
-        self.assertIsNone(run.ran_dry(0, said, "grokbuild"))
+        said = turns.harness_said(out, "", "grokbuild")
+        self.assertEqual(turns.ran_dry(1, said, "grokbuild"), "usage balance exhausted")
+        self.assertIsNone(turns.ran_dry(0, said, "grokbuild"))
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, host, retention, worker
+from . import command_help, config, host, retention, turns, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -208,7 +208,7 @@ def swapping(name):
     """Record an install or revert of harness `name` as begun, and as ended when it returns.
 
     Between the two its command is missing or half-installed, and a worker turn that starts
-    then fails for it: `swap_end` is how `run.call_retrying` tells that failure from a harness
+    then fails for it: `swap_end` is how `turns.call_retrying` tells that failure from a harness
     that cannot run.  The gates after it are not a swap, the harness is whole while they run.
     A mark that cannot be written costs a turn its retry, never the upgrade.
     """

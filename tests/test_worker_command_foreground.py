@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, call, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gate, gitcall, host, notify, run, worker
+from agentkit import config, gate, gitcall, host, notify, run, turns, worker
 from agentkit import record
 
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
@@ -161,7 +161,7 @@ sys.exit(1)
 
     @contextmanager
     def loop_sleeps(self):
-        """time.sleep patched, with the mock hearing only the waits agentkit.run asks for.
+        """time.sleep patched, with the mock hearing only the waits agentkit.run and its turns ask for.
 
         `run.time` is the time module, so the patch is every caller's -- the stdlib's too:
         `subprocess.run(timeout=...)`, which worker.call's `auth` probe uses, polls its child
@@ -171,7 +171,7 @@ sys.exit(1)
         sleep = MagicMock()
 
         def heard(seconds):
-            if sys._getframe(1).f_globals.get("__name__") in (run.__name__, gate.__name__):
+            if sys._getframe(1).f_globals.get("__name__") in (run.__name__, turns.__name__, gate.__name__):
                 sleep(seconds)
 
         with patch.object(run.time, "sleep", heard):
@@ -338,7 +338,7 @@ sys.exit(1)
         out = self.root / "run" / "round-1" / "executor"
         logged = []
         with self.loop_sleeps() as sleep:
-            code, _, _, dead = run.call_retrying(self.cfg, "opus", "task body", workspace, out,
+            code, _, _, dead = turns.call_retrying(self.cfg, "opus", "task body", workspace, out,
                                                  "executor", None, logged.append, limit=120)
         self.assertFalse(dead)
         self.assertEqual(code, 0)
@@ -346,8 +346,8 @@ sys.exit(1)
         # the attempts themselves
         self.assertEqual(len(self.calls("executor")), 4)
         self.assertEqual(sleep.call_count, 2)
-        sleep.assert_any_call(run.TRANSIENT_BACKOFF[0])
-        sleep.assert_any_call(run.TRANSIENT_BACKOFF[1])
+        sleep.assert_any_call(turns.TRANSIENT_BACKOFF[0])
+        sleep.assert_any_call(turns.TRANSIENT_BACKOFF[1])
         self.assertTrue(any(ASKING in line for line in logged))
 
     # --- (h) a background_tasks_changed event with tasks is unfinished too ---
@@ -388,7 +388,7 @@ sys.exit(1)
         out = self.root / "run" / "round-1" / "executor"
         logged = []
         with self.loop_sleeps() as sleep:
-            code, text, _, dead = run.call_retrying(self.cfg, "opus", "task body", workspace,
+            code, text, _, dead = turns.call_retrying(self.cfg, "opus", "task body", workspace,
                                                     out, "executor", None, logged.append,
                                                     limit=120)
         self.assertFalse(dead)
@@ -416,7 +416,7 @@ sys.exit(1)
         out = self.root / "run" / "round-1" / "executor"
         logged = []
         with self.loop_sleeps() as sleep:
-            code, text, _, dead = run.call_retrying(self.cfg, "opus", "task body", workspace,
+            code, text, _, dead = turns.call_retrying(self.cfg, "opus", "task body", workspace,
                                                     out, "executor", None, logged.append,
                                                     limit=120)
         self.assertFalse(dead)

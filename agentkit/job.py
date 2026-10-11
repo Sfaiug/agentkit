@@ -15,7 +15,8 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import box, config, gitcall, host, notify, orch, retention, run, task as taskfile, watch
+from . import (box, config, gitcall, host, notify, orch, retention, run, task as taskfile,
+               turns, watch)
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -724,7 +725,7 @@ def job_scoped(job):
     process, as a lone run from a terminal does.
     """
     scope = job.get("scope")
-    if not run.scope_is_real(scope):
+    if not turns.scope_is_real(scope):
         return False
     cgroup = host.process_cgroup()
     return (cgroup is not None and
@@ -1291,7 +1292,7 @@ def run_job_loop(cfg, job_dir, job):
             try:
                 providers = run.collect_usage(cfg)
                 run.pick_models(cfg, providers, opts.get("--exec"), opts.get("--review"), lambda _: None)
-            except run.Exhausted:
+            except turns.Exhausted:
                 # a pair no budget can make is not waited for: the task's run refuses it at launch
                 if not run.pair_refusal(cfg, providers, None, opts.get("--exec"),
                                     opts.get("--review")):
@@ -1477,7 +1478,7 @@ def spawn_job_bg(job_dir, relaunch=None):
                     raise config.Error(f"{job_dir.name} changed while the tick read it")
                 job["relaunches"] = [*(job.get("relaunches") or []), time.time()]
             unit = f"agentkit-job-{job_dir.name}"
-            if run.scope_is_real(job.get("scope")):
+            if turns.scope_is_real(job.get("scope")):
                 unit = orch.next_scope_unit(unit)   # an old launcher's scope may linger
             placement = {}
             cap, properties = run.run_scope_limits()

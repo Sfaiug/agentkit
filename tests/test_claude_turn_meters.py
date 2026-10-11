@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, usage  # noqa: E402
+from agentkit import config, run, turns, usage  # noqa: E402
 from agentkit.harness import claude as claude_hook  # noqa: E402
 from agentkit.harness import load as harness_plugin  # noqa: E402
 
@@ -157,7 +157,7 @@ class TurnMeters(unittest.TestCase):
         self.assertEqual(claude_hook.turn_meters(target), [])
         self.assertEqual(harness_plugin("other").turn_meters(target), [])
         self.assertFalse(usage.record_turn_meters(self.cfg, "anthropic", [], "acme-second"))
-        run.note_turn_meters(self.cfg, "opus", target, "acme-second")
+        turns.note_turn_meters(self.cfg, "opus", target, "acme-second")
         self.assertEqual((config.STATE / "usage.json").read_text(), before)
 
     def test_an_older_reading_never_replaces_a_newer_one(self):

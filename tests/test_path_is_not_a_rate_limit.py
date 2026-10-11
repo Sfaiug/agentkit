@@ -81,8 +81,8 @@ class PathIsNotARateLimit(unittest.TestCase):
 
     def test_paths_and_run_ids_are_not_limit_words(self):
         for path in PATHS:
-            # an error event is read re-encoded, as run.failures gives it
-            for said in (f"Stopped at {path}", *("\n".join(run.failures(json.dumps(
+            # an error event is read re-encoded, as turns.failures gives it
+            for said in (f"Stopped at {path}", *("\n".join(turns.failures(json.dumps(
                     {"type": "error", "error": f"Stopped at{gap}{path}"}), None))
                     for gap in (" ", "\n", "\t", "\r\n"))):
                 with self.subTest(said=said):
@@ -92,7 +92,7 @@ class PathIsNotARateLimit(unittest.TestCase):
                         self.assertEqual(harness.load(name).failure(said), (None, None), name)
                         self.assertEqual(harness.load(name).failure(said, ran=False), (None, None),
                                          name)
-                        self.assertIsNone(run.ran_dry(1, said, name), name)
+                        self.assertIsNone(turns.ran_dry(1, said, name), name)
 
     def test_real_refusals_still_count_beside_a_path(self):
         for name, refusal in REFUSALS.items():
@@ -101,7 +101,7 @@ class PathIsNotARateLimit(unittest.TestCase):
                     self.assertTrue(harness.limited(said))
                     self.assertEqual(usage.probe_refused(said), "rate limited")
                     self.assertEqual(harness.load(name).failure(said)[0], harness.LIMITED)
-                    self.assertIsNotNone(run.ran_dry(1, said, name))
+                    self.assertIsNotNone(turns.ran_dry(1, said, name))
         for said in ("HTTP/1.1 429 Too Many Requests", "429.",
                      json.dumps({"error": "429\nTry again later", "path": PATHS[0]}),
                      json.dumps({"status": 429, "path": PATHS[0]})):
@@ -128,7 +128,7 @@ class PathIsNotARateLimit(unittest.TestCase):
                     f"Stopped at /tmp/20261005-0626-fix-api.{word}",
                     f"Stopped at C:\\tmp\\t20261005-0626-fix-api-{word}"]:
                 # an error event is read re-encoded, its newlines and tabs escaped
-                event = "\n".join(run.failures(json.dumps({"type": "error", "error": message}), None))
+                event = "\n".join(turns.failures(json.dumps({"type": "error", "error": message}), None))
                 for said in (message, event):
                     with self.subTest(name=name, said=said):
                         self.assertEqual(harness.load(name).failure(said)[0], expected)
@@ -138,7 +138,7 @@ class PathIsNotARateLimit(unittest.TestCase):
                      "Error: model acme/acme-v2.6-pro does not exist",
                      "Error: model acme/acme-v2.6-pro is not supported"):
             with self.subTest(said=said):
-                self.assertEqual(run.cannot_run(1, "", said, harness="opencode"), said)
+                self.assertEqual(turns.cannot_run(1, "", said, harness="opencode"), said)
 
     def test_a_status_joined_by_a_hyphen_is_still_the_status(self):
         for said, word in (("HTTP-503", "HTTP~5##"), ("status-503", "status~5##"),
@@ -161,7 +161,7 @@ class PathIsNotARateLimit(unittest.TestCase):
             (out / "events.jsonl").write_text(json.dumps({"type": "error", "error": message}) + "\n")
             for name in names:
                 with self.subTest(name=name, message=message):
-                    said = run.harness_said(out, "The request failed.", name)
+                    said = turns.harness_said(out, "The request failed.", name)
                     self.assertEqual(harness.load(name).failure(said)[0], expected)
 
     def test_a_worker_naming_a_path_is_not_parked(self):
@@ -175,7 +175,7 @@ class PathIsNotARateLimit(unittest.TestCase):
                         patch.object(usage, "account", return_value=(None, None)), \
                         patch.object(usage, "replenish", return_value=(False, 0.0)), \
                         patch.object(usage, "mark_exhausted", return_value=2_000_000_000) as parked, \
-                        patch.object(run, "transient_wait", side_effect=AssertionError("waited")):
+                        patch.object(turns, "transient_wait", side_effect=AssertionError("waited")):
                     args = (self.cfg, "acme", "Do the task.", self.root,
                             self.root / name / "round-1" / "executor", "executor", None, lambda _: None)
                     if refusal:

@@ -66,7 +66,7 @@ class TurnLeftoverProcesses(unittest.TestCase):
                                               {"run_id": run_id, "run_depth": 0},
                                               create=True))
         self.stack.enter_context(patch.object(turns, "memory_cap_note"))
-        self.stack.enter_context(patch.object(run, "note_turn_meters"))
+        self.stack.enter_context(patch.object(turns, "note_turn_meters"))
         self.stack.enter_context(patch.object(run.usage, "account", return_value=(None, True)))
         adapter = self.root / "adapter.sh"
         adapter.write_text(f"#!{sys.executable}\n{ADAPTER}")
@@ -136,7 +136,7 @@ class TurnLeftoverProcesses(unittest.TestCase):
         self.assertTrue(any("sleep 300" in line for line in self.logs), self.logs)
         calls = self.calls()
         self.assertEqual(len(calls), 2, calls)
-        self.assertIn(run.FINISH_IN_FOREGROUND, calls[1]["prompt"])
+        self.assertIn(turns.FINISH_IN_FOREGROUND, calls[1]["prompt"])
         self.assertEqual(calls[1]["session"], ["fixture-session"])
         self.assertEqual((code, text, session, dead),
                          (0, "## Summary\nFinished.", "fixture-session", False))
@@ -164,7 +164,7 @@ class TurnLeftoverProcesses(unittest.TestCase):
         self.launch("reviewer")
         calls = self.calls()
         self.assertEqual(len(calls), 2)
-        self.assertIn(run.FINISH_IN_FOREGROUND, calls[1]["prompt"])
+        self.assertIn(turns.FINISH_IN_FOREGROUND, calls[1]["prompt"])
         self.assertIn(run.NO_VERDICT_ASK, calls[1]["prompt"])
         self.assertEqual(worker.marked_pids(self.marker), [])
 

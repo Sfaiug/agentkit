@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, status, usage  # noqa: E402
+from agentkit import config, history, run, status, turns, usage  # noqa: E402
 from agentkit import record
 
 
@@ -123,7 +123,7 @@ class HistoryTests(unittest.TestCase):
                 patch.object(run.time, "sleep", sleep):
             history.open_step("retried", "executor")
             clock[0] += 40
-            run.transient_wait(out, 60)
+            turns.transient_wait(out, 60)
             clock[0] += 20
             history.close_step("retried")
         self.assertEqual(history.get("retried")["executor_seconds"], 60)

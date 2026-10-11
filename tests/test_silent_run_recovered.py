@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, menu, notify, orch, run, status, watch
+from agentkit import config, host, menu, notify, orch, run, status, turns, watch
 from agentkit import record
 
 TASK = """---
@@ -266,7 +266,7 @@ class V5X(unittest.TestCase):
         run_dir, _ = self.make_run("20260916-0000-v5x-slow", pid=parent.pid,
                                    task_text=TASK_SLOW)
         self.age_run(run_dir, 21)
-        self.assertEqual(run.stall_minutes_for(run_dir, self.read_state(run_dir)), 20)
+        self.assertEqual(turns.stall_minutes_for(run_dir, self.read_state(run_dir)), 20)
         watch.recover_runs({}, dry_run=False, log=self.logs.append, now=time.time())
         state = self.read_state(run_dir)
         self.assertEqual(len(state["stalls"]), 1)

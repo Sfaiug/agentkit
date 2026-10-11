@@ -81,7 +81,7 @@ class Weighed(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
-        for module, name in ((run.orch, "stop_scope"), (run, "note_turn_meters"),
+        for module, name in ((run.orch, "stop_scope"), (turns, "note_turn_meters"),
                              (run, "history_role_tokens"), (turns, "memory_cap_note"),
                              (run.history, "update_run")):
             self.stack.enter_context(patch.object(module, name, return_value=None))

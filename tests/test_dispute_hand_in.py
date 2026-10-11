@@ -42,7 +42,7 @@ class DisputeHandIn(unittest.TestCase):
         for module, name, value in (
                 (worker, "auth_ok", (True, "fixture")), (worker, "marked_pids", []),
                 (worker, "kill_marked", True), (stop, "marker_pids", []),
-                (run.orch, "stop_scope", None), (run, "note_turn_meters", None),
+                (run.orch, "stop_scope", None), (turns, "note_turn_meters", None),
                 (run, "history_role_tokens", None), (turns, "memory_cap_note", None),
                 (run, "pickup_new_code", None), (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))

@@ -336,7 +336,7 @@ class TransientResume(unittest.TestCase):
         out = self.root / "round-1" / "executor"
         logs = []
         with patch.object(config, "adapter", return_value=adapter), \
-                patch.object(run, "transient_wait", side_effect=AssertionError("waited")):
+                patch.object(turns, "transient_wait", side_effect=AssertionError("waited")):
             with self.assertRaises(turns.CannotRun) as broken:
                 run.call_retrying(self.cfg, "mimo", "body", self.root, out, "executor", None,
                                   logs.append)

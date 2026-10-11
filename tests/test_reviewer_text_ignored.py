@@ -30,7 +30,7 @@ class ReviewerTextIgnored(unittest.TestCase):
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         for module, name, value in ((run, "collect_usage", {}), (run, "ready_order", []),
-                                    (run, "note_turn_meters", None), (run, "history_role_tokens", None),
+                                    (turns, "note_turn_meters", None), (run, "history_role_tokens", None),
                                     (turns, "memory_cap_note", None), (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         config.ensure_dirs()

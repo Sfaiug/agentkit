@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.sandbox import account_home
-from agentkit import config, gate as suite_gate, gitcall, orch, run, stop, watch, worker
+from agentkit import config, gate as suite_gate, gitcall, orch, run, stop, turns, watch, worker
 
 
 def fresh_id():
@@ -240,7 +240,7 @@ class RunTree(unittest.TestCase):
 
         self.enter_run_context()
         with patch.object(worker, "call", side_effect=attempt), \
-                patch.object(run, "TRANSIENT_BACKOFF", (0, 0)):
+                patch.object(turns, "TRANSIENT_BACKOFF", (0, 0)):
             code, _, _, dead = run.call_retrying(
                 cfg, "w", "do the thing", self.root, self.root / "round-1" / "executor",
                 "executor", None, lambda _: None)
@@ -495,7 +495,7 @@ class RunTree(unittest.TestCase):
                 if foreground or len(calls) == 2:
                     self._leave_marked_sleep(left, env["AGENTKIT_RUN"])
                 if len(calls) == 2:
-                    self.assertIn(run.FINISH_IN_FOREGROUND if foreground else run.NO_VERDICT_ASK,
+                    self.assertIn(turns.FINISH_IN_FOREGROUND if foreground else run.NO_VERDICT_ASK,
                                   body)
                 return 0, "rambling at length but never judging anything", None, False
             return 0, "## Findings\nnone\n\nVERDICT: PASS", None, False

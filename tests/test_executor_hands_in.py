@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import test_followup_runs as followup
 import test_review_gate as gate
-from agentkit import record, run
+from agentkit import record, run, turns
 
 
 ADAPTER = r'''import json, os, pathlib, subprocess, sys
@@ -54,7 +54,7 @@ if role != "reviewer":
 def adapters(fixture):
     fixture.stack.enter_context(patch.dict(os.environ, {
         "HAND_IN_BIN": str(gate.REPO / "bin/ak")}))
-    fixture.stack.enter_context(patch.object(run, "transient_wait",
+    fixture.stack.enter_context(patch.object(turns, "transient_wait",
                                            side_effect=AssertionError("unexpected retry")))
     for harness in {entry["harness"] for entry in fixture.cfg["models"].values()}:
         fixture.script(fixture.root / "adapters" / f"{harness}.sh", ADAPTER)

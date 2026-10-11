@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, usage, worker
+from agentkit import config, hand_in, run, turns, usage, worker
 from check4_pair import providers
 
 
@@ -74,15 +74,15 @@ def refused(cfg, model, code, out, snapshot):
     text = run.tail(out / "final.md" if out.is_dir() else out)
     said = text if not run.answered(text) else ""
     if out.is_dir():
-        said += "\n" + run.harness_said(out, text, entry["harness"], failures_only=True)
+        said += "\n" + turns.harness_said(out, text, entry["harness"], failures_only=True)
         if not text.strip():
-            said += "\n" + run.harness_said(out, text, entry["harness"])
-    word = run.ran_dry(code, said, entry["harness"])
+            said += "\n" + turns.harness_said(out, text, entry["harness"])
+    word = turns.ran_dry(code, said, entry["harness"])
     if not word:
         return ""
     read = providers(snapshot)
     record = read.get(entry["provider"], {})
-    now, until = time.time(), run.try_again_at(said)
+    now, until = time.time(), turns.try_again_at(said)
     if until is None or until <= now:
         until = usage._next_window(record, now) or now + usage.DRY_FOR
     # Keep the refusal in this check's snapshot for later smoke checks, never the host cache.

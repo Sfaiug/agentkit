@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import box, config, history, menu, run, usage, watch, worker  # noqa: E402
+from agentkit import box, config, history, menu, run, turns, usage, watch, worker  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/antigravity.sh")
 FIXTURES = REPO / "tests/fixtures"
@@ -206,9 +206,9 @@ class Antigravity(unittest.TestCase):
         self.assertIsNone(history.event_tokens(out / "events.jsonl"))
         # and the record declares itself the failure the loop reads its refusal words off
         record = json.loads((out / "events.jsonl").read_text())
-        self.assertTrue(run.is_failure(record))
-        self.assertEqual(run.failures(json.dumps(record), watch.terminal("antigravity"), handed_in=True),
-                         [json.dumps(run.without_output(record))])
+        self.assertTrue(turns.is_failure(record))
+        self.assertEqual(turns.failures(json.dumps(record), watch.terminal("antigravity"), handed_in=True),
+                         [json.dumps(turns.without_output(record))])
 
     def test_a_killed_turn_keeps_its_conversation(self):
         # killed before agy wrote session_id: the retry continues the id the stream opened with
@@ -555,12 +555,12 @@ class Antigravity(unittest.TestCase):
         (out / "events.jsonl").write_text(json.dumps({"event": "result", "result": {
             "conversation_id": "c-4290-429", "status": "ERROR", "error": unavailable,
             "usage": {"input_tokens": 14290, "total_tokens": 14290}}}) + "\n")
-        said = run.harness_said(out, "", "antigravity")
+        said = turns.harness_said(out, "", "antigravity")
         self.assertEqual(next(word for word in watch.refusals("antigravity")
                               if word.lower() in said.lower()), "UNAVAILABLE")
-        self.assertIsNone(run.ran_dry(1, said, "antigravity"))
+        self.assertIsNone(turns.ran_dry(1, said, "antigravity"))
         # while agy's own words for a spent quota still hand the round over
-        self.assertEqual(run.ran_dry(1, "RESOURCE_EXHAUSTED (code 429): quota", "antigravity"),
+        self.assertEqual(turns.ran_dry(1, "RESOURCE_EXHAUSTED (code 429): quota", "antigravity"),
                          "RESOURCE_EXHAUSTED")
         # a spent Starter quota too, on the screen and headless (agy 1.3.1)
         spent = ("Individual quota reached. Please upgrade your subscription to increase your "
@@ -568,7 +568,7 @@ class Antigravity(unittest.TestCase):
         pane = self.pane("stall").replace("You have exhausted your quota on this model.", spent)
         mark = watch.stalled_on("antigravity", watch.pane_tail(pane), "seat", lambda _: None)
         self.assertIn(mark, watch.quotas("antigravity"))
-        self.assertEqual(run.ran_dry(1, f"error: {spent}", "antigravity"), "quota reached")
+        self.assertEqual(turns.ran_dry(1, f"error: {spent}", "antigravity"), "quota reached")
         # signed out, a headless turn says so on stderr at once and then waits for a code
         out = self.root / "signed-out"
         out.mkdir()

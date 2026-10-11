@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, record
+from . import config, gitcall, record, turns
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
@@ -181,7 +181,7 @@ def paused(red):
     earlier lander kept counts no probes: it is the target's own, as that lander judged."""
     from . import run
     return (bool(red) and not red.get("run")
-            and 0 < red.get("probes", 0) <= len(run.TRANSIENT_BACKOFF))
+            and 0 < red.get("probes", 0) <= len(turns.TRANSIENT_BACKOFF))
 
 
 def _scratch(repo, commit, opened):
@@ -215,13 +215,13 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
            "at": time.time(), "probes": probes}
     note(turn, [], directory.name, red={tree: red})
     what = f"its piece AK_SHARD={piece}" if piece else "its suite"
-    if probes > len(run.TRANSIENT_BACKOFF):
+    if probes > len(turns.TRANSIENT_BACKOFF):
         log(f"{upstream} at {tip[:12]} fails {what} alone through the retry ladder: the "
             "target's own red, repaired")
         _repair(turn, directory, state, tree, red, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "
-            f"probed again in {run.transient_delay(probes) // 60} min")
+            f"probed again in {turns.transient_delay(probes) // 60} min")
     return False
 
 
@@ -299,7 +299,7 @@ def check_line(turn, log=lambda _: None):
             if paused(red):
                 # the target's tip fails a piece of its suite alone: the line waits on the
                 # retry ladder, nobody woken, and at each step the piece runs there again
-                if time.time() - red["at"] < run.transient_delay(red["probes"]):
+                if time.time() - red["at"] < turns.transient_delay(red["probes"]):
                     return
                 with ExitStack() as opened:
                     scratch, text = _scratch(repo, tip, opened)
