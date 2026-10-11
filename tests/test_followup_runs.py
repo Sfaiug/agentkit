@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 import test_proof_weighed as proof
-from agentkit import browser, config, gc, gitcall, host, job as jobs, menu, notify, orch, run, stop, task, watch, worker
+from agentkit import browser, config, gc, gitcall, host, job as jobs, menu, notify, orch, run, stop, task, transitions, watch, worker
 from agentkit import plan, record
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
@@ -327,7 +327,7 @@ class FollowupRuns(unittest.TestCase):
                 current["handed_back"] = True   # the ending delivered meanwhile
             return real(cfg)
 
-        with patch.object(run, "report_config", side_effect=marked):
+        with patch.object(run, "report_config", side_effect=marked), patch.object(transitions, "report_config", side_effect=marked):
             children = self.start(directory, record.read_state(directory))
         self.assertEqual(len(children), 2)
         self.assertEqual(config.plan_path("seat").read_text().count("- [ ] "), 1)

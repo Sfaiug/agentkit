@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config, leases, orch, run, watch, worker, worktrees
+from . import config, leases, orch, run, transitions, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -29,7 +29,7 @@ def _ending_work(name, records):
         owner = state.get("launched_session") or state.get("session")
         if supplied is not None or owner != name:
             try:
-                owner = run.launched_session(state)
+                owner = transitions.launched_session(state)
             except config.Error:
                 continue
         if owner == name:
@@ -63,8 +63,8 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
     supplied = records
     records, mine = _ending_work(name, records)
     parked = [(directory, state) for directory, state in mine
-              if (not run.going(state) or state.get("state") == "stalled")
-              and run.unfinished(state, records)]
+              if (not transitions.going(state) or state.get("state") == "stalled")
+              and transitions.unfinished(state, records)]
     if parked:
         return False, parked
     if not owed(name):
@@ -74,7 +74,7 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
     if supplied is None:
         _, mine = _ending_work(name, None)
     for _, state in mine:
-        if run.going(state) or watch.awaiting_live(state):
+        if transitions.going(state) or watch.awaiting_live(state):
             return True, []
         if since is not None and state.get("state") not in ("error", "waiting"):
             for key in ("started_at", "queued_at"):
@@ -108,8 +108,8 @@ def ways_out(state, run_dir):
     """
     run_id = Path(run_dir).name
     ways = [f"ak run status {run_id}"] if state.get("state") in run_record.ENDED else []
-    if run.failed_at_budget(state):
-        onward = run.continue_line(state, run_dir)
+    if transitions.failed_at_budget(state):
+        onward = transitions.continue_line(state, run_dir)
         ways += [onward.removeprefix("continue: ")] if onward else []
     elif not state.get("worktree") or Path(state["worktree"]).is_dir():
         ways.append(f"ak run resume {run_id}")
@@ -173,7 +173,7 @@ def stop_owned_runs(name):
         if not state:
             continue
         try:
-            if run.launched_session(state) != name:
+            if transitions.launched_session(state) != name:
                 continue
         except config.Error:
             continue
@@ -209,7 +209,7 @@ def release_session(name):
         if not state:
             continue
         try:
-            if run.launched_session(state) != name:
+            if transitions.launched_session(state) != name:
                 continue
         except config.Error:
             continue
@@ -274,9 +274,9 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
             current.pop(key, None)
         current.update(extra or {})
         run_record.save_state(run_dir, current)
-        run.history_finish(current, log)
+        transitions.history_finish(current, log)
         try:
-            run.redress_seat(run.launched_session(current))
+            run.redress_seat(transitions.launched_session(current))
         except config.Error:
             pass
         try:

@@ -15,7 +15,7 @@ from unittest.mock import ANY, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
 import test_lander_red_main as red_main
-from agentkit import config, gate, land, record, run
+from agentkit import config, gate, land, record, run, turns
 
 FLAKY = "test ! -f ../flake"     # red on every checkout while the host holds the flag
 
@@ -78,7 +78,7 @@ class RedOnTheTip(unittest.TestCase):
         land.check_line(self.turn, said.append)
         self.assertEqual(len(self.checks), 2)
         # due: the piece alone runs on the tip, still red, and the next step is longer
-        held[0] += run.TRANSIENT_BACKOFF[0]
+        held[0] += turns.TRANSIENT_BACKOFF[0]
         land.check_line(self.turn, said.append)
         self.assertEqual(self.commands()[2:], [[FLAKY]])
         self.assertEqual(self.red()["probes"], 2)
@@ -87,7 +87,7 @@ class RedOnTheTip(unittest.TestCase):
         self.assertIn("probed again in 5 min", said[-1])
         # the host recovers: the piece passes on the tip, the stack is checked and lands
         flake.unlink()
-        held[0] += run.TRANSIENT_BACKOFF[1]
+        held[0] += turns.TRANSIENT_BACKOFF[1]
         land.check_line(self.turn, said.append)
         self.assertEqual(self.commands()[3:], [[FLAKY], ["true", FLAKY]])
         self.assertIsNone(self.red())
@@ -107,7 +107,7 @@ class RedOnTheTip(unittest.TestCase):
         land.check_line(self.turn)          # red on the tip alone: the line pauses
         self.assertEqual(self.commands(), [["true", suite], [suite]])
         flake.unlink()
-        held[0] += run.TRANSIENT_BACKOFF[0]
+        held[0] += turns.TRANSIENT_BACKOFF[0]
         land.check_line(self.turn)          # the piece passes on the tip; the stack is red by its own
         self.assertEqual(self.commands()[2:], [[suite], ["true", suite]])
         self.assertIn(suite, self.wait(first)["fix"]["line"])
@@ -189,11 +189,11 @@ class RedOnTheTip(unittest.TestCase):
         self.flag()
         held = self.clock()
         land.check_line(self.turn)
-        for step in range(1, len(run.TRANSIENT_BACKOFF) + 1):
+        for step in range(1, len(turns.TRANSIENT_BACKOFF) + 1):
             held[0] += run.transient_delay(step)
             land.check_line(self.turn)
             self.assertEqual(self.red()["probes"], step + 1)
-        self.assertEqual(len(self.checks), 2 + len(run.TRANSIENT_BACKOFF))
+        self.assertEqual(len(self.checks), 2 + len(turns.TRANSIENT_BACKOFF))
         self.assertEqual(len(self.prepared), 1)
         directory, opts = self.prepared[0]
         self.assertTrue(opts["--first"])
@@ -203,7 +203,7 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.red()["run"], directory.name)
         self.wake.assert_not_called()
         land.check_line(self.turn)       # the repair holds the line from here, as before
-        self.assertEqual(len(self.checks), 2 + len(run.TRANSIENT_BACKOFF))
+        self.assertEqual(len(self.checks), 2 + len(turns.TRANSIENT_BACKOFF))
         self.assertEqual(len(self.prepared), 1)
 
     def test_green_on_the_tip_is_the_members_own_red_whatever_pass_the_target_has(self):

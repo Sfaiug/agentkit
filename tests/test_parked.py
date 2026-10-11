@@ -2,7 +2,7 @@
 
 Entirely offline. The usage providers are fake dicts, the resume is a fake hook on
 run.spawn_bg (one resume drives `cmd_resume` with the drive itself stubbed), the
-upstream sha is a stubbed run.upstream_sha (no fetch ever leaves the box), and no
+upstream sha is a stubbed transitions.upstream_sha (no fetch ever leaves the box), and no
 real adapter, model call or worker process is made anywhere in here. The stop hook
 runs against the same throwaway state as the tick.
 """
@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, host, land, menu, orch, run, status, stop, watch
+from agentkit import config, gc, gitcall, host, land, menu, orch, run, status, stop, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -121,7 +121,7 @@ class Parked(unittest.TestCase):
         self.assertEqual(state["error_retry_at"], self.now + 61 + 300)
 
     def test_parked_error_retry_climbs_the_ladder_then_holds_hourly(self):
-        self.assertEqual([run.error_retry_delay(n) for n in (0, 1, 2, 3, 4, 5, 99)],
+        self.assertEqual([transitions.error_retry_delay(n) for n in (0, 1, 2, 3, 4, 5, 99)],
                          [60, 300, 900, 1800, 3600, 3600, 3600])
         run_dir = self.receipt("20260922-1201-ladder", error_retry_at=self.now + 300,
                                error_retries=1)
@@ -255,13 +255,13 @@ class Parked(unittest.TestCase):
                                waiting_on={"ref": "origin/main", "sha": old})
         (run_dir / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
         calls = []
-        with patch.object(run, "upstream_sha", return_value=old), \
+        with patch.object(transitions, "upstream_sha", return_value=old), \
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("main has not moved")):
             watch.resume_waiting(log=self.log, now=self.now)
         self.assertEqual(self.logs, [])
         self.assertEqual(record.read_state(run_dir)["state"], "waiting")
-        with patch.object(run, "upstream_sha", return_value=new), \
+        with patch.object(transitions, "upstream_sha", return_value=new), \
                 patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
                              calls.append((d, a, expected)) or 0):
             watch.resume_waiting(log=self.log, now=self.now)
@@ -278,7 +278,7 @@ class Parked(unittest.TestCase):
                                                 "done_when": True}])
         (failed / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
         self.logs.clear()
-        with patch.object(run, "upstream_sha", return_value=new), \
+        with patch.object(transitions, "upstream_sha", return_value=new), \
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("parking launches nothing")):
             watch.resume_waiting(log=self.log, now=self.now)
@@ -293,7 +293,7 @@ class Parked(unittest.TestCase):
                              error=None, merge_note=BUDGET_NOTE,
                              round_summaries=[{"round": n} for n in (1, 2, 3)])
         (spent / "log.txt").write_text(f"not merged: {BUDGET_NOTE}\n")
-        with patch.object(run, "upstream_sha",
+        with patch.object(transitions, "upstream_sha",
                           side_effect=AssertionError("at budget: never parked")), \
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("at budget: never resumed")):
@@ -324,11 +324,11 @@ class Parked(unittest.TestCase):
                     self.assertEqual(status.cmd_status([run_dir.name]), 0)
                 self.assertIn("waiting · retry after the next merge to origin/main",
                               out.getvalue())
-                with patch.object(run, "upstream_sha", return_value=old), \
+                with patch.object(transitions, "upstream_sha", return_value=old), \
                         patch.object(run, "spawn_bg", return_value=0) as spawn:
                     watch.resume_waiting(log=self.log, now=self.now)
                     spawn.assert_not_called()
-                with patch.object(run, "upstream_sha", return_value=new), \
+                with patch.object(transitions, "upstream_sha", return_value=new), \
                         patch.object(run, "spawn_bg", return_value=0) as spawn:
                     watch.resume_waiting(log=self.log, now=self.now)
                     spawn.assert_called_once()
@@ -447,32 +447,32 @@ class Parked(unittest.TestCase):
     def test_parked_conflict_upstream_names_a_ref_that_can_move(self):
         # the fixer note ends "... of origin/main; it was aborted": the capture must
         # stop at the `;`, or the run parks on a ref that can never move
-        self.assertEqual(run.conflict_upstream({"merge_note": CONFLICT_NOTE}), "origin/main")
-        self.assertEqual(run.conflict_upstream({"merge_note": BUDGET_NOTE}), "origin/main")
-        self.assertEqual(run.conflict_upstream({"merge_note": None, "base": "main"}),
+        self.assertEqual(transitions.conflict_upstream({"merge_note": CONFLICT_NOTE}), "origin/main")
+        self.assertEqual(transitions.conflict_upstream({"merge_note": BUDGET_NOTE}), "origin/main")
+        self.assertEqual(transitions.conflict_upstream({"merge_note": None, "base": "main"}),
                          "origin/main")
 
     def test_parked_upstream_sha_accepts_only_a_full_sha(self):
         sha = "ab" * 20
         with patch.object(gitcall, "git_out", return_value=(1, "fatal: no such repo")), \
-                patch.object(run, "git", side_effect=AssertionError("no fetch, no rev")):
-            self.assertIsNone(run.upstream_sha("/nowhere", "origin/main"))
+                patch.object(gitcall, "git", side_effect=AssertionError("no fetch, no rev")):
+            self.assertIsNone(transitions.upstream_sha("/nowhere", "origin/main"))
         with patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "git", return_value="origin/main;^{commit}"):
+                patch.object(gitcall, "git", return_value="origin/main;^{commit}"):
             # what `rev-parse` echoes for a ref it cannot resolve: not a move
-            self.assertIsNone(run.upstream_sha("/nowhere", "origin/main;"))
+            self.assertIsNone(transitions.upstream_sha("/nowhere", "origin/main;"))
         with patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "git", return_value=""):
-            self.assertIsNone(run.upstream_sha("/nowhere", "origin/main"))
+                patch.object(gitcall, "git", return_value=""):
+            self.assertIsNone(transitions.upstream_sha("/nowhere", "origin/main"))
         with patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "git", return_value=sha) as rev:
-            self.assertEqual(run.upstream_sha("/nowhere", "origin/main"), sha)
+                patch.object(gitcall, "git", return_value=sha) as rev:
+            self.assertEqual(transitions.upstream_sha("/nowhere", "origin/main"), sha)
             rev.assert_called_once_with("/nowhere", "rev-parse", "origin/main^{commit}",
                                         check=False)
         with patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "git", return_value="ef" * 32):
+                patch.object(gitcall, "git", return_value="ef" * 32):
             # a sha256 repository's 64-char oids count as an answer too
-            self.assertEqual(run.upstream_sha("/nowhere", "origin/main"), "ef" * 32)
+            self.assertEqual(transitions.upstream_sha("/nowhere", "origin/main"), "ef" * 32)
 
     def test_parked_dry_run_changes_nothing_on_disk(self):
         due = self.receipt("20260922-1300-due", error_retry_at=self.now - 1,
@@ -495,7 +495,7 @@ class Parked(unittest.TestCase):
                   for d in (due, fresh, gone, waiter, failed)}
         with patch.object(run, "spawn_bg",
                           side_effect=AssertionError("a dry run launches nothing")), \
-                patch.object(run, "upstream_sha",
+                patch.object(transitions, "upstream_sha",
                              side_effect=AssertionError("a dry run fetches nothing")):
             watch.resume_errored(dry_run=True, log=self.log, now=self.now)
             watch.resume_waiting(dry_run=True, log=self.log, now=self.now)
@@ -526,9 +526,9 @@ class Parked(unittest.TestCase):
             self.assertEqual(calls[0][1], ["resume", run_dir.name])
 
     def test_parked_no_verdict_exhausted_is_not_tick_resumed(self):
-        self.assertTrue(run.reviewer_transport_dead(TRANSPORT_DEATH))
-        self.assertFalse(run.reviewer_transport_dead(NO_VERDICT))
-        self.assertFalse(run.reviewer_transport_dead(None))
+        self.assertTrue(transitions.reviewer_transport_dead(TRANSPORT_DEATH))
+        self.assertFalse(transitions.reviewer_transport_dead(NO_VERDICT))
+        self.assertFalse(transitions.reviewer_transport_dead(None))
         run_dir = self.receipt("20260922-1306-stuck", state="exhausted",
                                executor="opus", error=NO_VERDICT)
         with patch.object(run, "spawn_bg",
@@ -559,7 +559,7 @@ class Parked(unittest.TestCase):
                            round_summaries=[{"round": 1}],
                            finished_at=self.now - gc.GC_AGE - 1)
         (old / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
-        with patch.object(run, "upstream_sha",
+        with patch.object(transitions, "upstream_sha",
                           side_effect=AssertionError("never parked, never fetched")), \
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("never parked, never resumed")):
@@ -593,7 +593,7 @@ class Parked(unittest.TestCase):
                                  round_summaries=[{"round": 1}], **extra)
         (directory / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
         before = (directory / "run.json").read_bytes()
-        with patch.object(run, "upstream_sha",
+        with patch.object(transitions, "upstream_sha",
                           side_effect=AssertionError("history: never fetched")), \
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("history: never resumed")):
@@ -664,7 +664,7 @@ class Parked(unittest.TestCase):
     def test_parked_explicit_acknowledgement_cancels_error_retry(self):
         directory = self.receipt("20260923-1211-ack", error_retry_at=self.now - 1,
                                  error_retries=2)
-        run.acknowledge(directory)
+        transitions.acknowledge(directory)
         state = record.read_state(directory)
         self.assertTrue(state["recovery_acknowledged_at"])
         self.assertNotIn("error_retry_at", state)
@@ -692,7 +692,7 @@ class Parked(unittest.TestCase):
                                          waiting_on={"ref": "origin/main", "sha": "0" * 40},
                                          **extra)
                 before = (directory / "run.json").read_bytes()
-                with patch.object(run, "upstream_sha",
+                with patch.object(transitions, "upstream_sha",
                                   side_effect=AssertionError("history: never fetched")), \
                         patch.object(run, "spawn_bg",
                                      side_effect=AssertionError("history: never resumed")):
@@ -821,7 +821,7 @@ class Parked(unittest.TestCase):
                                        "handed_back": self.now})
             return "1" * 40
 
-        with patch.object(run, "upstream_sha", side_effect=fetch), \
+        with patch.object(transitions, "upstream_sha", side_effect=fetch), \
                 patch.object(run, "spawn_bg",
                              side_effect=AssertionError("handed back during fetch")):
             watch.resume_waiting(log=self.log, now=self.now)
@@ -863,7 +863,7 @@ class Parked(unittest.TestCase):
                                  finished_at=self.now - 86399, handback_pending=True)
         (directory / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
         config.rename_session("seat", "renamed")
-        with patch.object(run, "upstream_sha", return_value="1" * 40):
+        with patch.object(transitions, "upstream_sha", return_value="1" * 40):
             watch.resume_waiting(log=self.log, now=self.now)
         state = record.read_state(directory)
         self.assertEqual(state["state"], "waiting")
@@ -900,7 +900,7 @@ class Parked(unittest.TestCase):
                     return run.cmd_resume(args[1:])
 
                 with patch.object(run, "spawn_bg", side_effect=resume), \
-                        patch.object(run, "upstream_sha", return_value="1" * 40), \
+                        patch.object(transitions, "upstream_sha", return_value="1" * 40), \
                         patch.object(run, "drive", side_effect=drive), \
                         patch.object(run, "collect_usage", return_value=providers), \
                         patch.object(gc, "disk_pressure", return_value=False), \

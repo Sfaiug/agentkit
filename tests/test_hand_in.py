@@ -324,7 +324,7 @@ sys.exit(row.get("code", 0))
                     (self.root / "events.jsonl").write_text(json.dumps({"type": terminal, "result": closing}) + "\n")
                     for failures_only in (False, True):
                         said = turns.harness_said(self.root, closing, harness, failures_only=failures_only)
-                        self.assertEqual(run.harness_plugin(harness).failure(said), (None, None), said)
+                        self.assertEqual(turns.harness_plugin(harness).failure(said), (None, None), said)
                     # A real terminal error still speaks, even after the worker handed in records.
                     (self.root / "events.jsonl").write_text(json.dumps({
                         "type": terminal, "is_error": True, "error": "rate limit"}) + "\n")

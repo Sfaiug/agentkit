@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (box, config, gitcall, host, notify, orch, retention, run, task as taskfile,
-               turns, watch)
+               transitions, turns, watch)
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -304,7 +304,7 @@ def job_classify(run_state, cfg):
     if run_state.get("merged"):
         # delivered: a fact no later config -- a model removed since -- can take back
         return "merged"
-    if run.review_pass(run_state, cfg):
+    if transitions.review_pass(run_state, cfg):
         if run_state.get("no_merge") or run_state.get("scratch") or run_state.get("on_target"):
             return "passed"
         if str(run_state.get("target") or "").lower() == "none":
@@ -463,7 +463,7 @@ def job_now(job, alive, cfg=None, index=None):
             ended = run_state["state"] in record.ENDED
             # a merge is merged whatever today's config makes of its review's providers
             word = ("merged" if run_state.get("merged") else
-                    job_classify(run_state, run.report_config(cfg)) if ended else
+                    job_classify(run_state, transitions.report_config(cfg)) if ended else
                     {"waiting": "waiting to merge"}.get(run_state["state"], run_state["state"]))
             # a run that finished after the job wrote its line has new rounds to tell
             if word != task.get("state") or (
@@ -471,7 +471,7 @@ def job_now(job, alive, cfg=None, index=None):
                 task = {**task, "state": word, "verdict_line": (
                     job_verdict_line({**task, "state": word}, run_state) if ended
                     else f"{task['name']}: {word}")}
-        if task.get("verdict_line") and (handed or run.settled(run_state, index)):
+        if task.get("verdict_line") and (handed or transitions.settled(run_state, index)):
             task = {**task, "verdict_line": task["verdict_line"].replace(": needs you", "")}
         tasks.append(task)
     return {**job, "tasks": tasks}
@@ -667,10 +667,10 @@ def job_end_legacy_run(cfg, task, run_dir):
         return None
     with job_adopting(run_dir.name), record.recovery_lock(run_dir):
         state = record.read_state(run_dir) or {}
-        why = run.stands_on_dependency(state)
+        why = transitions.stands_on_dependency(state)
         if (not why or state.get("merged")
                 or state.get("state") in ("stopped", "blocked", "not_needed")
-                or record.process_active(state) or run.landing_line(state)):
+                or record.process_active(state) or transitions.landing_line(state)):
             return None
         try:
             ended = run.end_on_dependency(cfg, run_dir, state, gitcall.logger(run_dir), why)
@@ -750,10 +750,10 @@ def job_await(run_dir, poll=lambda: None):
         if not record.process_active(state):
             with job_adopting(run_dir.name):
                 state = run.reap(run_dir, state)
-            line = run.landing_line(state)
+            line = transitions.landing_line(state)
             if not (state.get("state") in record.ACTIVE or line
                     or (state.get("state") == "interrupted" and state.get("deaths")
-                        and run.tick_resumes(state))):
+                        and transitions.tick_resumes(state))):
                 return state
             if line and time.time() - asked >= JOB_PICKER_INTERVAL:
                 asked = time.time()
@@ -813,13 +813,13 @@ def job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock):
 def job_follow_waiting(run_dir, run_state, log):
     """Waiting is no ending, including when a delivery retry leaves it in the line."""
     asked = 0
-    while run_state.get("state") == "waiting" and run.tick_admission(run_state):
-        if not run.landing_line(run_state) and time.time() - asked >= JOB_PICKER_INTERVAL:
+    while run_state.get("state") == "waiting" and transitions.tick_admission(run_state):
+        if not transitions.landing_line(run_state) and time.time() - asked >= JOB_PICKER_INTERVAL:
             asked = time.time()   # each ask fetches: at the picker's rate, not every tick
             watch.resume_waiting(log=log, run=run_dir)
         time.sleep(JOB_TICK)
         run_state = record.read_state(run_dir) or run_state
-        if run_state.get("state") != "waiting" or run.landing_line(run_state):
+        if run_state.get("state") != "waiting" or transitions.landing_line(run_state):
             run_state = job_await(run_dir)
     return run_state
 
@@ -929,7 +929,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
     # really a spent round budget -- starts once more on the next executor model in
     # worker-list order
     if not task.get("rerun_attempted") and job_classify(run_state, cfg) == "failed" \
-            and (run.failed_at_budget(run_state) or job_round_shortfall(run_state)) \
+            and (transitions.failed_at_budget(run_state) or job_round_shortfall(run_state)) \
             and not run.review_failed(run_state):
         nxt = job_next_executor(cfg, task.get("executor") or run_state.get("executor"),
                                 run.run_workers(cfg, run_state))
@@ -1052,7 +1052,7 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
         if (run_state.get("state") == "queued" and run_state.get("slot_waiting") and
                 not record.process_active(run_state)) or run_state.get("state") in (
                 "interrupted", "exhausted", "stalled") or (
-                run.needs_recovery(run_state) and run_state.get("state") not in record.ENDED
+                transitions.needs_recovery(run_state) and run_state.get("state") not in record.ENDED
                 and run_state.get("state") != "waiting_login"):
             # a scoped job resumes it in a run scope of its own and follows it there
             scoped = job_scoped(job)

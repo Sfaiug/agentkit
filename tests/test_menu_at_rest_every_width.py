@@ -16,7 +16,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
-from agentkit import config, menu, orch, run, status, terminal, watch
+from agentkit import config, menu, orch, run, status, terminal, transitions, watch
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -309,9 +309,9 @@ class V5oMenu(Sandbox):
                                state="pass", merged=True, finished_at=NOW - 3600,
                                started_at=NOW - 3600 - 1800)
         records = [record.read_state(d) for d in record.run_dirs()]
-        self.assertEqual(run.superseded_by(record.read_state(failed), records), "new-merged-pass")
-        self.assertTrue(run.is_superseded(record.read_state(failed), records))
-        self.assertFalse(run.is_superseded(record.read_state(merged), records))
+        self.assertEqual(transitions.superseded_by(record.read_state(failed), records), "new-merged-pass")
+        self.assertTrue(transitions.is_superseded(record.read_state(failed), records))
+        self.assertFalse(transitions.is_superseded(record.read_state(merged), records))
         screen, _ = self.draw(100, 30)
         self.assertNotIn("old-first-pass", screen)
         # Not in the reason either: the solo seat is still working, not needing him.
@@ -357,7 +357,7 @@ class V5oMenu(Sandbox):
 
     def test_v5o_q_endings_acknowledge_but_never_reach_a_row(self):
         # The fixture's own interruption is out of the way: this is about the endings below.
-        run.acknowledge(config.RUNS / "stopped-run")
+        transitions.acknowledge(config.RUNS / "stopped-run")
         failed = self.touching("herdr-first-pass", owner="herdr-quiet",
                                repo=str(config.CODE / "agentkit"), title="Herdr first pass",
                                state="fail", verdict="FAIL", finished_at=NOW - 3 * 3600,
@@ -379,7 +379,7 @@ class V5oMenu(Sandbox):
                               repo=str(config.CODE / "agentkit"), title="Herdr third pass",
                               state="error", finished_at=NOW - 3600,
                               started_at=NOW - 3600 - 1800)
-        run.acknowledge(third)
+        transitions.acknowledge(third)
         fourth = self.touching("herdr-fourth-pass", owner="herdr-quiet",
                                repo=str(config.CODE / "agentkit"), title="Herdr fourth pass",
                                state="pass", verdict="PASS", finished_at=NOW - 4 * 3600,

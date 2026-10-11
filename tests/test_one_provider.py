@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, job as jobs, run, status, terminal, usage
+from agentkit import config, job as jobs, run, status, terminal, transitions, usage
 from agentkit import record
 
 
@@ -399,7 +399,7 @@ class OneProvider(unittest.TestCase):
             with patch.object(run, "announce") as announce:
                 self.assertEqual(run.finish(state, lp.run_dir, self.logs.append, self.cfg), 0)
             announce.assert_called_once_with(state, lp.run_dir, self.logs.append, self.cfg)
-            with patch.object(run, "launched_session", return_value="orphan"), \
+            with patch.object(run, "launched_session", return_value="orphan"), patch.object(transitions, "launched_session", return_value="orphan"), \
                     patch.object(run, "launcher_watched", return_value=False), \
                     patch.object(run.watch, "seat_closed", return_value=False), \
                     patch.object(run.watch, "revive", return_value=None) as revive:
@@ -490,7 +490,7 @@ class OneProvider(unittest.TestCase):
 
     def test_delivery_passes_cfg_and_rechecks_the_review_evidence(self):
         state = self.evidence()
-        with patch.object(run, "review_pass", wraps=run.review_pass) as check:
+        with patch.object(transitions, "review_pass", wraps=transitions.review_pass) as check:
             self.assertEqual(run.delivery(state, self.cfg), "PASS, delivered")
         check.assert_called_once_with(state, self.cfg)
         self.cfg["models"]["beta"]["reviews_own_provider"] = False

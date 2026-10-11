@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gate, gitcall, host, job, orch, run, watch, worker
+from agentkit import config, gate, gitcall, host, job, orch, run, transitions, watch, worker
 from agentkit import record
 
 
@@ -279,9 +279,9 @@ class Tick(Fixture):
         self.base = record.read_state(self.run_dir)
         for target, name, value in (
                 (record, "process_active", False),        # every loop here is gone
-                (run, "is_superseded", True),          # a later merged run did the work
-                (run, "tick_admission", True),
-                (run, "exhausted_wait", "window"),
+                (transitions, "is_superseded", True),          # a later merged run did the work
+                (transitions, "tick_admission", True),
+                (transitions, "exhausted_wait", "window"),
                 (run, "run_workers", []),
                 (run, "executable_models", []),
                 (run, "run_scope_limits", (None, [])),

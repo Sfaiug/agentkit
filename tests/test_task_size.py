@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, history, job as jobs, run, status, task
+from agentkit import config, gc, gitcall, history, job as jobs, run, status, task, transitions
 from agentkit import record
 
 SEAT = "size-check"
@@ -249,7 +249,7 @@ class Sandbox(unittest.TestCase):
         git("add", "-A")
         git("-c", "user.name=size", "-c", "user.email=size@example.invalid",
             "commit", "-qm", "work")
-        self.assertEqual(len(run.changed_files(
+        self.assertEqual(len(transitions.changed_files(
             {"worktree": str(repo), "base_sha": base})), 60)
 
     def test_review_only_history_carries_task_size(self):

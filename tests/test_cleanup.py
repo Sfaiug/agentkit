@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import browser, config, gc, gitcall, menu, orch, retention, run, stop, worktrees, watch
+from agentkit import browser, config, gc, gitcall, menu, orch, retention, run, stop, transitions, watch, worktrees
 from agentkit import record as run_record
 
 DAY = 86400
@@ -415,7 +415,7 @@ class Cleanup(Sandbox):
         worktrees.settle_run(run_record.read_state(directory), directory, lambda _message: None)
         self.assertFalse(wt.exists())
         self.assertFalse(self.branch_exists(branch))
-        self.assertEqual(run.changed_files(run_record.read_state(directory)), ["shipped.txt"])
+        self.assertEqual(transitions.changed_files(run_record.read_state(directory)), ["shipped.txt"])
 
     def test_clean_names_the_gone_scratch_workspace(self):
         directory = config.RUNS / "cleaned"

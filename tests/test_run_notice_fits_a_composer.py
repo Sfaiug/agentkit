@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch, record, run, watch, worktrees
+from agentkit import config, orch, record, run, transitions, watch, worktrees
 
 
 PR = "https://github.com/acme/widget/pull/7"
@@ -135,7 +135,7 @@ class RunNotice(Sandbox):
 
     def test_a_maintainer_decision_uses_the_same_followup_bound(self):
         directory, state = self.followups(2, pr=PR)
-        with patch.object(run, "run_for_pr", return_value=(directory, state)):
+        with patch.object(transitions, "run_for_pr", return_value=(directory, state)):
             self.assertTrue(watch.say(False, self.logs.append, "The maintainer requested changes "
                                       + "on every line " * 100, state["pr"], "fix-api"))
         self.assertIsNone(watch.too_long(self.sent[-1]))

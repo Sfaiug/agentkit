@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gitcall, history, job, land, menu, record, run, scoreboard, watch
+from agentkit import config, gate, gitcall, history, job, land, menu, record, run, scoreboard, transitions, watch
 from test_merge_step import make_loop, make_repos
 from fixtures.sandbox import Sandbox
 
@@ -85,7 +85,7 @@ class JoinLine(Sandbox):
         run.release_line(self.directory, self.lp.log)
         state = self.saved()
         self.assertFalse(record.process_active(state))
-        self.assertEqual(run.tick_admission(state), "in line to land")
+        self.assertEqual(transitions.tick_admission(state), "in line to land")
         self.assertEqual(menu.run_state_word(state), "working")
         self.assertEqual(run.seat_tallies([state]), {"acme": (1, 0, 0)})
         self.assertTrue(run.followup_open(state))
@@ -149,9 +149,9 @@ class JoinLine(Sandbox):
                         self.assertEqual(run.cmd_merge([self.directory.name]), 1)
                 state = self.saved()
                 self.assertEqual(state["waiting_on"]["ref"], "origin/main")
-                self.assertTrue(run.tick_admission(state))
+                self.assertTrue(transitions.tick_admission(state))
                 self.assertEqual(menu.run_state_word(state), "working")
-                with patch.object(run, "upstream_sha", return_value="a" * 40), \
+                with patch.object(transitions, "upstream_sha", return_value="a" * 40), \
                         patch.object(run, "spawn_bg") as spawn:
                     watch.resume_waiting(log=self.lp.log, run=self.directory)
                 spawn.assert_called_once()
@@ -425,7 +425,7 @@ class JoinLine(Sandbox):
         finished.pop("waiting_on")
         with patch.object(job, "job_await", return_value=finished) as follow, \
                 patch.object(job, "job_settle") as settle, \
-                patch.object(run, "tick_admission", return_value=False):
+                patch.object(transitions, "tick_admission", return_value=False):
             job.job_ladder(self.cfg, config.JOBS / "job", {}, {"name": "fix-api"},
                            self.directory, box["state"], box["rc"], lambda _: None, None)
         follow.assert_called_once_with(self.directory)

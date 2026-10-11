@@ -99,7 +99,8 @@ RULES = [
     {"name": "run-record writes",
      "flags": (),
      "pattern": r"\.save_state\(",
-     "home": ("agentkit/run.py", "agentkit/gate.py", "agentkit/stop.py", "agentkit/turns.py"),
+     "home": ("agentkit/run.py", "agentkit/gate.py", "agentkit/stop.py", "agentkit/turns.py",
+              "agentkit/transitions.py"),
      "max": 0},
     # A run's writer owns the temporary files and recovery lock it leaves on disk.
     {"name": "run record write",

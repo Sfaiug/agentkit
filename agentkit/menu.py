@@ -129,7 +129,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, motion, notify, orch, terminal, update, usage, worker
+from . import command_help, config, gitcall, history, motion, notify, orch, terminal, transitions, update, usage, worker
 from . import record
 from .harness import load as harness_plugin
 
@@ -779,9 +779,9 @@ def seat_runs(name, records=None):
     from . import run as _run
     runs = []
     for run_dir, state in run_records() if records is None else records:
-        if _run.launched_session(state) != name:
+        if transitions.launched_session(state) != name:
             continue
-        if _run.landing_line(state):
+        if transitions.landing_line(state):
             doing, since = "landing", state["waiting_on"].get("joined")
         elif state.get("state") == "running":
             doing = STEPS.get(state.get("step"), "building")
@@ -791,7 +791,7 @@ def seat_runs(name, records=None):
         else:
             continue
         step, model = DOING.get(doing, (doing, None))
-        pr = _run.PR_PARTS.match(state.get("review_pr") or "")
+        pr = transitions.PR_PARTS.match(state.get("review_pr") or "")
         task = (Path(state.get("task_file") or "").stem.split("-")[0]
                 or (f"#{pr.group(3)}" if pr else run_dir.name))
         # the round anything last ran in, or a step was announced in before its directory was
@@ -838,7 +838,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
 
     Five endings are his -- a FAIL, an unscheduled error, a `blocked`, an interruption
     and a PASS nobody merged -- and so is an `exhausted` run the tick cannot resume
-    (`run.exhausted_wait`), which is no ending: told or old, it stays unfinished
+    (`transitions.exhausted_wait`), which is no ending: told or old, it stays unfinished
     -- and the seat's own word would call it recovering -- until `ak run resume` or
     `ak run stop`, unless a later merged run replaced it. Nothing else is, and only
     while nobody else has it. A run parked `exhausted` on a window or a dead reviewer,
@@ -853,22 +853,22 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     and one waiting for that seat's next quiet prompt is about to be: neither is his, so
     neither is in a tally.
 
-    `index` is a `run.supersession_index` over the same states: pass it when testing
+    `index` is a `transitions.supersession_index` over the same states: pass it when testing
     many runs so one draw scans the records once instead of once per run per seat.
     """
     from . import gc, run as _run
     if state.get("recovery_acknowledged_at"):
         return False
-    if state.get("state") in ("error", "exhausted") and _run.going(state, now=now):
+    if state.get("state") in ("error", "exhausted") and transitions.going(state, now=now):
         return False  # the tick owns its retry or its resume; nothing here needs him
     if state.get("state") == "exhausted":
         # no ending: a hand-back or its age settles nothing, but a later merged
         # run does -- the work is done, elsewhere. Without the records that
         # replacement cannot be read, and the run stays his.
         if index is not None:
-            if _run.is_superseded(state, None, index, merged_only=True):
+            if transitions.is_superseded(state, None, index, merged_only=True):
                 return False
-        elif all_states is not None and _run.is_superseded(state, all_states,
+        elif all_states is not None and transitions.is_superseded(state, all_states,
                                                            merged_only=True):
             return False
         return True
@@ -885,9 +885,9 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
     if isinstance(ended, (int, float)) and not isinstance(ended, bool) and at - ended > gc.GC_AGE:
         return False
     if index is not None:
-        if _run.is_superseded(state, None, index):
+        if transitions.is_superseded(state, None, index):
             return False
-    elif all_states is not None and _run.is_superseded(state, all_states):
+    elif all_states is not None and transitions.is_superseded(state, all_states):
         return False
     if state.get("state") == "pass":
         return bool(state.get("repo")) and not (state.get("no_merge") or state.get("review_pr")
@@ -956,7 +956,7 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     at = time.time() if now is None else now
     records = run_records() if records is None else list(records)
     all_states = [state for _, state in records]
-    index = _run.supersession_index(all_states)
+    index = transitions.supersession_index(all_states)
     silent_map = {}
     for run_dir, state in records:
         age = silent_for_run(run_dir, state, now=at)
@@ -1562,9 +1562,9 @@ def session_runs(name):
         try:
             state = record.read_state(run_dir)
             word = state and state.get("state")
-            if (state and run_mod.launched_session(state) == name
+            if (state and transitions.launched_session(state) == name
                     and (word not in record.ENDED
-                         or word == "error" and run_mod.unfinished(state))):
+                         or word == "error" and transitions.unfinished(state))):
                 found.append(run_dir)
         except (OSError, ValueError, config.Error):
             continue
@@ -2117,9 +2117,9 @@ def run_state_word(state):
     from . import run
     if state.get("state") == "waiting_login":
         return run.waiting_word(state)
-    if run.going(state):
+    if transitions.going(state):
         return "working"
-    if run.needs_recovery(state) or state.get("state") in record.FAILED:
+    if transitions.needs_recovery(state) or state.get("state") in record.FAILED:
         return "needs you"
     return "done"
 
@@ -2129,9 +2129,9 @@ def run_age_secs(state):
     from . import run
     now = time.time()
     started = state.get("started_at") or 0
-    if run.needs_recovery(state):
+    if transitions.needs_recovery(state):
         return max(0.0, now - (state.get("interrupted_at") or started or now))
-    if state.get("state") in record.ACTIVE or run.landing_line(state):
+    if state.get("state") in record.ACTIVE or transitions.landing_line(state):
         return max(0.0, now - (started or now))
     if not started:
         return 0.0

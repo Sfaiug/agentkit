@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, run, watch
+from agentkit import config, job as jobs, run, transitions, watch
 from agentkit import record
 
 CONFLICT_NOTE = "the fixer did not finish the rebase of origin/main; it was aborted"
@@ -84,7 +84,7 @@ class TickResumeScope(unittest.TestCase):
                 (run_dir / "log.txt").write_text(f"not merged: {CONFLICT_NOTE}\n")
                 self.assertEqual(run.parkable_conflict(record.read_state(run_dir), run_dir,
                                                        now=self.now), not job)
-                with patch.object(run, "upstream_sha", return_value="1" * 40):
+                with patch.object(transitions, "upstream_sha", return_value="1" * 40):
                     watch.resume_waiting(log=self.logs.append, now=self.now)
                 self.assertEqual(record.read_state(run_dir)["state"],
                                  "fail" if job else "waiting")
@@ -95,7 +95,7 @@ class TickResumeScope(unittest.TestCase):
         lone = self.receipt("20261001-0103-lone", **wait)
         mine = self.receipt("20261001-0103-mine", job_id="20261001-0100-job", **wait)
         resumed = lambda d, a, **_kw: record.save_state(d, {**record.read_state(d), "state": "queued"})
-        with patch.object(run, "upstream_sha", return_value="1" * 40), \
+        with patch.object(transitions, "upstream_sha", return_value="1" * 40), \
                 patch.object(run, "spawn_bg", side_effect=resumed) as spawn:
             watch.resume_waiting(log=self.logs.append, now=self.now)
             self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone])

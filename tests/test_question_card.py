@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 import test_close_and_info
 from test_close_and_info import ESC, Menu
-from agentkit import menu, run, stop, terminal
+from agentkit import menu, run, stop, terminal, transitions
 from agentkit import record
 
 Key = terminal.Key
@@ -152,6 +152,7 @@ class QuestionCard(unittest.TestCase):
         with patch.object(record, "run_dirs", return_value=[Path(name) for name in states]), \
                 patch.object(record, "read_state", side_effect=lambda path: states[path.name]), \
                 patch.object(run, "launched_session",
+                             side_effect=lambda state: state.get("seat", "fix-api")), patch.object(transitions, "launched_session",
                              side_effect=lambda state: state.get("seat", "fix-api")):
             counted = [path.name for path in menu.session_runs("fix-api")]
         self.assertEqual(counted, ["going", "queued", "acknowledged", "retried"])

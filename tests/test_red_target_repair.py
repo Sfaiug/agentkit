@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
-from agentkit import config, run, task, watch, worker
+from agentkit import config, run, task, transitions, watch, worker
 from agentkit import record
 from fixtures.landing import landing
 
@@ -166,7 +166,7 @@ class RedTargetRepair(unittest.TestCase):
         base = {"run_id": repair.name, "launched_session": "seat", "repair_tip": "1" * 40,
                 "repair": {"target": "main", "command": "false"},
                 "followup": {"run": "parked", "text": "`false` fails", "place": "`false`"}}
-        with patch.object(run, "upstream_sha", return_value=sha):
+        with patch.object(transitions, "upstream_sha", return_value=sha):
             record.save_state(repair, {**base, "state": "running"})
             run_dir = self.parked(sha, repair.name)
             watch.resume_waiting(log=self.logs.append)
@@ -251,12 +251,12 @@ class RedTargetRepair(unittest.TestCase):
         # and the tick leaves it parked there until the target moves
         self.spawned.clear()
         waiter = self.parked(tip, name)
-        with patch.object(run, "upstream_sha", return_value=tip):
+        with patch.object(transitions, "upstream_sha", return_value=tip):
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned, [])
         # a target that moved is a new question: the next run on its red repairs it again
         moved = self.move(owner)
-        with patch.object(run, "upstream_sha", return_value=moved):
+        with patch.object(transitions, "upstream_sha", return_value=moved):
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned[:1], [(waiter.name, ["resume", waiter.name])])
         later = self.red_run("later", "seat")
@@ -281,7 +281,7 @@ class RedTargetRepair(unittest.TestCase):
                 # its waiter stays parked on it while that tip stands ...
                 self.spawned.clear()
                 waiter = self.parked(tip, name)
-                with patch.object(run, "upstream_sha", return_value=tip):
+                with patch.object(transitions, "upstream_sha", return_value=tip):
                     watch.resume_waiting(log=self.logs.append)
                 self.assertEqual(self.spawned, [])
                 # ... and one retried there anyway starts no second repair
@@ -292,7 +292,7 @@ class RedTargetRepair(unittest.TestCase):
                                  {"ref": "origin/main", "sha": tip, "repair": name})
                 # a tip no repair tried is a new red: the waiter retries and repairs it
                 tip = self.move(owner)
-                with patch.object(run, "upstream_sha", return_value=tip):
+                with patch.object(transitions, "upstream_sha", return_value=tip):
                     watch.resume_waiting(log=self.logs.append)
                 self.assertEqual(self.spawned, [(waiter.name, ["resume", waiter.name])])
                 moved = self.red_run("first", "seat")
@@ -351,7 +351,7 @@ class RedTargetRepair(unittest.TestCase):
         # its waiter stays parked on B, and one retried there starts no second repair
         self.spawned.clear()
         waiter = self.parked(tip, name)
-        with patch.object(run, "upstream_sha", return_value=tip):
+        with patch.object(transitions, "upstream_sha", return_value=tip):
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned, [])
         again = self.red_run("first", "seat")
@@ -359,7 +359,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(again["waiting_on"], {"ref": "origin/main", "sha": tip, "repair": name})
         # a target that moved past B is a new red: the waiter retries and repairs it
         moved = self.move(owner)
-        with patch.object(run, "upstream_sha", return_value=moved):
+        with patch.object(transitions, "upstream_sha", return_value=moved):
             watch.resume_waiting(log=self.logs.append)
         self.assertEqual(self.spawned, [(waiter.name, ["resume", waiter.name])])
         later = self.red_run("later", "seat")
@@ -382,7 +382,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(self.red_run("second", "other")["waiting_on"]["repair"], name)
         self.assertEqual(len(self.prepared), 1)
         waiter = self.parked(tip, name)
-        with patch.object(run, "upstream_sha", return_value=tip):
+        with patch.object(transitions, "upstream_sha", return_value=tip):
             watch.resume_waiting(log=self.logs.append)
             self.assertEqual(self.spawned, [])
             record.save_state(config.RUNS / name, {**repair, "state": "pass", "merged": True})

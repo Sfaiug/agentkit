@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, record, run, usage
+from agentkit import config, gc, gitcall, record, run, transitions, usage
 from fixtures.landing import landing
 from test_merge_step import make_repos
 
@@ -92,7 +92,7 @@ class DeliveryRetryDry(unittest.TestCase):
 
     def test_dry_landing_reviewer_waits_on_window(self):
         saved = self.merge_retry(run.QuotaDry("You've hit your weekly limit; no reviewer is left"))
-        self.assertEqual(run.exhausted_wait(saved), "window")
+        self.assertEqual(transitions.exhausted_wait(saved), "window")
         self.assertTrue(saved["quota_dry"])
 
     def test_other_landing_review_stops_clear_stale_quota(self):
@@ -100,7 +100,7 @@ class DeliveryRetryDry(unittest.TestCase):
                     config.Error("git stopped: timed out")):
             with self.subTest(exc=type(exc).__name__):
                 saved = self.merge_retry(exc, stale=True)
-                self.assertEqual(run.exhausted_wait(saved), "")
+                self.assertEqual(transitions.exhausted_wait(saved), "")
                 self.assertNotIn("quota_dry", saved)
                 self.assertNotIn("refusal_retry", saved)
 

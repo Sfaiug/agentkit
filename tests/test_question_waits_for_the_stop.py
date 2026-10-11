@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, notify, orch, watch
+from agentkit import config, notify, orch, transitions, watch
 
 NOW = 1_800_000_000
 SEAT = "fix-api"
@@ -136,7 +136,7 @@ class QuestionWaitsForTheStop(Sandbox):
         self.asks()
         run = {"run_id": "acme-parser", "state": "running", "launched_session": SEAT,
                "started_at": NOW - 60}
-        with patch("agentkit.run.going", return_value=True):
+        with patch("agentkit.run.going", return_value=True), patch("agentkit.transitions.going", return_value=True):
             answer = self.looked(PROMPT, self.stop(), [(config.RUNS / "acme-parser", run)])
         self.assertEqual(answer["word"], "needs you")
 

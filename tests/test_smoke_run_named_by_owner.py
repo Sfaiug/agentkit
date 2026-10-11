@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch
+from agentkit import config, orch, run, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -98,9 +98,9 @@ class SmokeRunNamedByOwner(unittest.TestCase):
         # the suite's merged run of the same title, the newest of all, replaces nothing
         self.merged("20260925-1800-smoke-fix", repo=str(config.TMP / "smoke-abc" / "acme"),
                     finished_at=self.now - 30)
-        self.assertIsNone(run.superseded_by(parked))
+        self.assertIsNone(transitions.superseded_by(parked))
         self.merged("20260925-1713-fix-the-smoke-test-flake")
-        self.assertEqual(run.superseded_by(parked), "20260925-1713-fix-the-smoke-test-flake")
+        self.assertEqual(transitions.superseded_by(parked), "20260925-1713-fix-the-smoke-test-flake")
 
     def test_an_owner_smoke_run_votes_for_its_seat(self):
         config.save_session(self.cfg, "suite", "fable", ["opus"])

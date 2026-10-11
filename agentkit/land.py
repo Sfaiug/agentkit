@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, turns
+from . import config, gitcall, prompts, record, transitions, turns
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
@@ -95,7 +95,7 @@ def member(state):
                  or (green_delivery(wait)
                      and state.get("state") not in record.ENDED
                      and run.followup_open(state)
-                     and (record.process_active(state) or run.tick_resumes(state))))
+                     and (record.process_active(state) or transitions.tick_resumes(state))))
             and isinstance(wait.get("line"), str)
             and type(wait.get("joined")) in (int, float))
 
@@ -199,7 +199,6 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     member's own.  Red there is the target's: the entry under `tree` counts the probe and holds
     the line (`paused`) until the retry ladder's next step, and red through the whole ladder
     starts the target's one repair (`_repair`)."""
-    from . import run
     ok, probe, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log", log,
                           shard=piece or None)
     if ok:
@@ -366,7 +365,7 @@ def check_line(turn, log=lambda _: None):
                                           and current.get("state") not in record.ENDED
                                           and (current.get("state") == "waiting"
                                                or (run.followup_open(current)
-                                                   and (record.process_active(current) or run.tick_resumes(current))))
+                                                   and (record.process_active(current) or transitions.tick_resumes(current))))
                                           and review.get("tree_sha") in (saved["review"].get("tree_sha"), tree))
                                          or ((current.get("merged") or current.get("on_target"))
                                              and review.get("tree_sha") == tree)))
@@ -513,7 +512,6 @@ def _landing_checks(directory, state, scratch, tip):
 
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
-    from . import run
     log_path = directory / f"lander-{tree}.log"
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text), "log": str(log_path),

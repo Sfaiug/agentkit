@@ -44,8 +44,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (browser, command_help, config, gc, gitcall, host, notify, orch, statusbar, turns,
-               update, usage, worker)
+from . import (browser, command_help, config, gc, gitcall, host, notify, orch, statusbar,
+               transitions, turns, update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -1979,7 +1979,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     run is parked with no scheduled resume and still needs his attention.
 
     Every argument is a fact, and every one of them is read where it is left out: `session`,
-    `cfg`, `records` and `index` (a `run.supersession_index` over the same records) are one
+    `cfg`, `records` and `index` (a `transitions.supersession_index` over the same records) are one
     draw's, handed down so a screen full of seats reads each of them once; `number` is this
     seat's number on the menu, which a gone seat's reason names; `silent` is one draw's map
     of run directory name to how long that run has been quiet; `live`/`harness` are what
@@ -2125,7 +2125,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     mine = []
     for run_dir, state in records:
         try:
-            owner = run_mod.launched_session(state)
+            owner = transitions.launched_session(state)
         except config.Error:
             owner = None
         if owner == name:
@@ -2196,7 +2196,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
     going = [(run_dir, state) for run_dir, state in mine
-             if run_mod.going(state, now=at) and state.get("state") != "stalled"]
+             if transitions.going(state, now=at) and state.get("state") != "stalled"]
     if going:
         going.sort(key=lambda pair: (pair[1].get("started_at") or 0, pair[0].name))
 
@@ -2219,7 +2219,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         starts = [s.get("started_at") for _, s in going
                   if isinstance(s.get("started_at"), (int, float))
                   and not isinstance(s.get("started_at"), bool)]
-        reason = (status_mod.parked_line(newest[1]) if run_mod.landing_line(newest[1])
+        reason = (status_mod.parked_line(newest[1]) if transitions.landing_line(newest[1])
                   else " · ".join(parts))
         return {"word": "working", "reason": reason,
                 "since": min(starts) if starts else None}
@@ -2252,14 +2252,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # A gone seat still names its own number below instead: the number
     # is the way back to the run, never the run itself.
     if index is None:
-        index = run_mod.supersession_index(records)
+        index = transitions.supersession_index(records)
     parked = [(run_dir, state) for run_dir, state in mine
               if (state.get("state") in ("error", "exhausted")
                   and menu_mod.v5o_needs_look(state, index=index, now=at))
-              or (state.get("state") == "stalled" and run_mod.unfinished(state, index=index))
-              or (state.get("state") == "waiting" and not run_mod.going(state, now=at)
-                  and run_mod.tick_admission({**state, "finished_at": at}, now=at)
-                  and not run_mod.is_superseded(state, None, index, merged_only=True))]
+              or (state.get("state") == "stalled" and transitions.unfinished(state, index=index))
+              or (state.get("state") == "waiting" and not transitions.going(state, now=at)
+                  and transitions.tick_admission({**state, "finished_at": at}, now=at)
+                  and not transitions.is_superseded(state, None, index, merged_only=True))]
     if parked and not gone:
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
         name, reason = run_dir.name, run_mod.handback_reason(first)
@@ -2288,7 +2288,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     pending = [state for _, state in mine if awaiting_live(state, now=at)]
     declared = notify.last(name, include_seen=True) if pending else None
     if pending and not (
-            parked or any(run_mod.unfinished(state, index=index) for _, state in mine)
+            parked or any(transitions.unfinished(state, index=index) for _, state in mine)
             or (last and last["kind"] != "done")
             or (declared and declared["kind"] == "done" and not notify.job_done(declared)
                 and notify.failed_declaration(declared, mine, index))):
@@ -2321,10 +2321,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
     if last and last["kind"] == "done":
         if index is None:
-            index = run_mod.supersession_index(records)
+            index = transitions.supersession_index(records)
         failed = notify.failed_declaration(last, mine, index)
         unfinished = [(d, state) for d, state in mine
-                      if run_mod.unfinished(state, index=index)]
+                      if transitions.unfinished(state, index=index)]
         if failed:
             return {"word": "needs you", "reason":
                     f"run {failed[0]} failed; declaration dropped",
@@ -2406,7 +2406,7 @@ def wait_fact(wait):
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
             return True, f"run {on} stalled: resume it with ak run resume {on}"
-        if run_mod.going(state):
+        if transitions.going(state):
             return False, ""
         ended = state.get("verdict") or state.get("state") or "ended"
         return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else "")
@@ -2507,7 +2507,7 @@ def wait_main(argv):
         return 1
     from . import run as run_mod   # here, not at the top: run imports this module
     on = argv[0].strip()
-    pull = run_mod.PR_PARTS.match(on)      # the one pattern of a GitHub pull request URL
+    pull = transitions.PR_PARTS.match(on)      # the one pattern of a GitHub pull request URL
     if pull:
         data, why = gh_json(config.RUNS, "pr", "view", on, "--json", "state")
         if not isinstance(data, dict):
@@ -3743,7 +3743,7 @@ def health(cfg, state, dry_run, log):
                 or record.get("login_back_at")):
             continue        # back already: being resumed, and no login for anybody to fix
         try:
-            owner = run_mod.launched_session(record)
+            owner = transitions.launched_session(record)
         except config.Error:
             owner = None
         if owner:
@@ -4606,7 +4606,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                     line = (f"waiting to resume {run_dir.name}: loop died ({reason}); "
                             "next try after 10 min")
                 elif action == "park":
-                    run_mod.interrupt(state, reason)
+                    transitions.interrupt(state, reason)
                     state["deaths"] = deaths
                     state.pop("resume_after", None)
                     notice = True
@@ -4708,7 +4708,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                         continue
                     last = (state.get("stalls") or [{}])[-1]
                     try:
-                        seat = run_mod.launched_session(state)
+                        seat = transitions.launched_session(state)
                     except config.Error:
                         seat = None
                     if tell_parked(run_dir.name, last.get("step") or "the run",
@@ -4776,7 +4776,7 @@ def recover_runs(cfg=None, dry_run=False, log=print, now=None):
                     entry["time"] = run_last_write(run_dir) or entry["time"]
                     state["stalls"] = [*(state.get("stalls") or [])[:-1], entry]
                     try:
-                        seat = run_mod.launched_session(state)
+                        seat = transitions.launched_session(state)
                     except config.Error:
                         seat = None
                     if tell_parked(run_dir.name, step, seat, log):
@@ -4892,7 +4892,7 @@ def resume_waiting_login(dry_run=False, log=print, now=None):
                               "stopped.")
                     for key in ("waiting_for", "login_resume_at", "login_back_at"):
                         state.pop(key, None)   # it waits on no login, so it marks none
-                    run_mod.interrupt(state, reason)
+                    transitions.interrupt(state, reason)
                     log(f"WARN {run_dir.name}: {reason}")
                     continue
                 if dry_run:
@@ -4966,7 +4966,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
             log(f"WARN the exhausted-resume pass did not run: {exc}")
             return
     found = [(run_dir, run_record.read_state(run_dir)) for run_dir in run_record.run_dirs()]
-    index = run_mod.supersession_index(
+    index = transitions.supersession_index(
         state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
         try:
@@ -4974,8 +4974,8 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 continue
             # a quota run waits on a window; a run off a dead reviewer waits on a reviewer
             # being eligible again.  Anything else exhausted waits on nobody by itself, and
-            # `run.going` reads the same test, so it keeps no seat working either.
-            waits = run_mod.exhausted_wait(state)
+            # `transitions.going` reads the same test, so it keeps no seat working either.
+            waits = transitions.exhausted_wait(state)
             if not waits:
                 continue  # only a run waiting on a window or a reviewer is tick-resumable
             transport = waits == "reviewer"
@@ -4995,10 +4995,10 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
             with run_record.record(run_dir) as state:
                 if state.get("state") != "exhausted":
                     continue
-                waits = run_mod.exhausted_wait(state)
+                waits = transitions.exhausted_wait(state)
                 if not waits:
                     continue
-                if run_mod.is_superseded(state, None, index, merged_only=True):
+                if transitions.is_superseded(state, None, index, merged_only=True):
                     # a later merged run did the work: the tick stands down, marked
                     # `replaced`, so `going` stops reading a wait nothing will lift
                     if not dry_run and not state.get("replaced"):
@@ -5033,7 +5033,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # executor's work done: its reviewer is all either waits for
                 if transport or state.get("review_pr") or state.get("review_pending"):
                     if (transport and isinstance(last, (int, float)) and not isinstance(last, bool)
-                            and 0 <= now - last < run_mod.ERROR_RETRY_CAP):
+                            and 0 <= now - last < transitions.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
                     reviewers = run_mod.reviewable_models(cfg, providers, review_bound, now,
@@ -5126,7 +5126,7 @@ def resume_errored(dry_run=False, log=print, now=None):
     from . import menu as menu_mod, run as run_mod
     now = time.time() if now is None else now
     found = [(run_dir, run_record.read_state(run_dir)) for run_dir in run_record.run_dirs()]
-    index = run_mod.supersession_index(
+    index = transitions.supersession_index(
         state for run_dir, state in found if state and not menu_mod.smoke_run(state))
     for run_dir, state in found:
         try:
@@ -5135,7 +5135,7 @@ def resume_errored(dry_run=False, log=print, now=None):
             with run_record.record(run_dir) as state:
                 if state.get("state") != "error":
                     continue
-                if run_mod.is_superseded(state, None, index, merged_only=True):
+                if transitions.is_superseded(state, None, index, merged_only=True):
                     # a later merged run did the work: the stamps go, as an
                     # inadmissible ending's do, so `going` ends with them
                     if not dry_run and ("error_retry_at" in state
@@ -5144,9 +5144,9 @@ def resume_errored(dry_run=False, log=print, now=None):
                         state.pop("error_retries", None)
                     continue
                 reason = ("cannot be resumed where it stopped"
-                          if not run_mod.error_resumable(state, run_dir) else
+                          if not transitions.error_resumable(state, run_dir) else
                           "ending is no longer admitted for automatic retry"
-                          if not run_mod.tick_admission(state, now=now) else None)
+                          if not transitions.tick_admission(state, now=now) else None)
                 if reason:
                     if "error_retry_at" in state or "error_retries" in state:
                         if dry_run:
@@ -5166,7 +5166,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                 if not (isinstance(at, (int, float)) and not isinstance(at, bool)):
                     # an old record, from before errors were scheduled: no rung
                     # survives without its hour, so the ladder starts at the bottom.
-                    run_mod.schedule_error_retry(state, now=now)
+                    transitions.schedule_error_retry(state, now=now)
                     at = state["error_retry_at"]
                 if now < at:
                     continue  # the ladder has not run out yet; a later tick fires it
@@ -5174,7 +5174,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                 retries = retries if isinstance(retries, int) and not isinstance(
                     retries, bool) and retries >= 0 else 0
                 state["error_retries"] = retries + 1
-                run_mod.schedule_error_retry(state, now=now)
+                transitions.schedule_error_retry(state, now=now)
             decided = dict(state)
             try:
                 with redirect_stdout(io.StringIO()):
@@ -5224,7 +5224,7 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
             state = run_record.read_state(run_dir)
             if not state or state.get("state") not in ("fail", "waiting"):
                 continue
-            if name := run_mod.landing_line(state):
+            if name := transitions.landing_line(state):
                 if name not in lines:
                     lines.add(name)
                     if dry_run:
@@ -5234,11 +5234,11 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                 continue    # saved verdicts also retry a wake that never started
             if state.get("job_id") and not run:
                 continue
-            if state.get("state") == "fail" and not run_mod.parkable_conflict(
+            if state.get("state") == "fail" and not transitions.parkable_conflict(
                     state, run_dir, now=now):
                 continue
             if state.get("state") == "waiting":
-                if not run_mod.tick_admission(state, now=now):
+                if not transitions.tick_admission(state, now=now):
                     continue
                 wt = state.get("worktree")
                 if not wt or not Path(wt).is_dir():
@@ -5248,8 +5248,8 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                         continue
                     with run_record.record(run_dir) as state:
                         if (state.get("state") != "waiting"
-                                or run_mod.landing_line(state)
-                                or not run_mod.tick_admission(state, now=now)):
+                                or transitions.landing_line(state)
+                                or not transitions.tick_admission(state, now=now)):
                             continue
                         wt = state.get("worktree")
                         if wt and Path(wt).is_dir():
@@ -5257,25 +5257,25 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                         reason = ("this run's worktree "
                                   f"{wt or '(none)'} is gone; it cannot be resumed where it "
                                   "stopped.")
-                        run_mod.interrupt(state, reason)
+                        transitions.interrupt(state, reason)
                     log(f"WARN {run_dir.name}: {reason}")
                     continue
                 last = state.get("waiting_resume_at")
                 if (not dry_run and isinstance(last, (int, float))
                         and not isinstance(last, bool) and 0 <= now - last < RESUME_EVERY):
                     continue  # a recent launch is still on its way, or a failure is throttled
-                ref = (state.get("waiting_on") or {}).get("ref") or run_mod.conflict_upstream(
+                ref = (state.get("waiting_on") or {}).get("ref") or transitions.conflict_upstream(
                     state)
                 if dry_run:
                     log(f"would resume {run_dir.name} after the next merge to {ref}")
                     continue
-                sha = run_mod.upstream_sha(wt, ref)
+                sha = transitions.upstream_sha(wt, ref)
                 if sha is None:
                     continue  # origin did not answer; the waiter keeps waiting, silently
                 with run_record.record(run_dir) as state:
                     if (state.get("state") != "waiting"
-                            or run_mod.landing_line(state)
-                            or not run_mod.tick_admission(state, now=now)):
+                            or transitions.landing_line(state)
+                            or not transitions.tick_admission(state, now=now)):
                         continue
                     waiting_on = state.get("waiting_on") or {}
                     if not waiting_on.get("sha"):
@@ -5296,16 +5296,16 @@ def resume_waiting(dry_run=False, log=print, now=None, run=None):
                     state["waiting_resume_at"] = now
                 decided = dict(state)
             else:
-                ref = run_mod.conflict_upstream(state)
+                ref = transitions.conflict_upstream(state)
                 if dry_run:
                     log(f"would park {run_dir.name} waiting on {ref}")
                     continue
                 wt = state.get("worktree")
-                sha = run_mod.upstream_sha(wt, ref)
+                sha = transitions.upstream_sha(wt, ref)
                 if sha is None:
                     continue  # origin did not answer; the FAIL keeps for the next pass
                 with run_record.record(run_dir) as state:
-                    if state.get("state") != "fail" or not run_mod.parkable_conflict(
+                    if state.get("state") != "fail" or not transitions.parkable_conflict(
                             state, run_dir, now=now):
                         continue
                     state.update(state="waiting", error=state.get("merge_note"),
@@ -5358,7 +5358,7 @@ def revive_seats(cfg, log):
         if not state or state.get("state") not in run_record.ACTIVE:
             continue
         try:
-            seat = run_mod.launched_session(state)
+            seat = transitions.launched_session(state)
         except config.Error:
             continue
         if seat:
@@ -5441,7 +5441,7 @@ def pushing_seats():
         try:
             state = run_record.read_state(run_dir)
             if state and wants_github(state):
-                name = run.launched_session(state)
+                name = transitions.launched_session(state)
                 if name:
                     seats.add(name)
         except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError):
@@ -5520,7 +5520,7 @@ def settled(entry, dry_run=False):
             return "pending"  # interruption requires an explicit recovery choice
     else:
         st = run.reap(run_dir, st)
-    if st.get("state") in run_record.ACTIVE or run.needs_recovery(st):
+    if st.get("state") in run_record.ACTIVE or transitions.needs_recovery(st):
         return "pending"
     if st.get("state") == "stopped":
         return "done"  # deliberately ended: never relaunched, whatever the head does
@@ -5614,7 +5614,7 @@ def own_prs(state, me, log):
     for run_dir in run_record.run_dirs():
         st = run_record.read_state(run_dir)
         if st and st.get("foreign") and st.get("pr"):
-            urls[st["pr"]] = run.launched_session(st)
+            urls[st["pr"]] = transitions.launched_session(st)
     # /issues?filter=created omits repositories we do not belong to. Search includes PRs
     # opened by hand on those repositories, as well as ones opened by our own runs.
     found, why = pages(config.RUNS, "search/issues?q=is:pr+is:open+author:@me&per_page=100", "items")
@@ -5661,7 +5661,7 @@ def outgoing(state, me, dry_run, log):
             # the line an earlier decision left unsent in the seat's composer gets its Enter
             # first, or the next tick comes back here (`sent_pending`)
             from . import run
-            run_dir, run_state = run.run_for_pr(url)
+            run_dir, run_state = transitions.run_for_pr(url)
             if dry_run or sent_pending(run_dir, run_state, log):
                 own["decision"] = view.get("reviewDecision")
                 own["decision_at"] = time.time()
@@ -5676,7 +5676,7 @@ def sent_pending(run_dir, run_state, log):
     held = (run_state or {}).get("decision_typed")
     if not held:
         return True
-    if not run.finish_typed(run.launched_session(run_state), held, log):
+    if not run.finish_typed(transitions.launched_session(run_state), held, log):
         return False
     if run_dir:
         run.mark_delivery(run_dir, run_state, decision_typed=None)
@@ -5703,7 +5703,7 @@ def say(dry_run, log, text, url, session, merged=False):
     if dry_run:
         log(f"would hand on: {text} ({url})")
         return False
-    run_dir, run_state = run.run_for_pr(url)
+    run_dir, run_state = transitions.run_for_pr(url)
     note = " ".join(text.split())
     if run_dir and not (run_state.get("merge_note") == note
                         and (not merged or run_state.get("merged"))):
@@ -5879,7 +5879,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
         if dry_run:
             log(f"would tell its launching seat: {line}")
             return "passed", None, None
-        session = run.launched_session(st)
+        session = transitions.launched_session(st)
         if run.seat_owes_nothing(st):
             # no turn of its seat's waits on this (`awaiting_live`), a repair's included:
             # recorded, never typed, and a line an earlier pass typed and never saw sent is sent
@@ -6037,7 +6037,7 @@ def after_merge_fallback(repo_key):
         if not st or not st.get("merged") or not st.get("pr"):
             continue
         try:
-            seat_name = run_mod.launched_session(st)
+            seat_name = transitions.launched_session(st)
         except config.Error:
             continue
         if seat_name not in live:
@@ -6069,7 +6069,7 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
                               f"run {run_dir.name}: a check failed after its merge.",
                               "Fix the target.")
     try:
-        session = run_mod.launched_session(run_state)
+        session = transitions.launched_session(run_state)
     except config.Error:
         session = None
     if session:
@@ -6090,7 +6090,7 @@ def after_merge_seat(run_state, repo_key):
     """The seat an after-merge notice goes to: its own when live, else the fallback."""
     from . import run as run_mod   # here, not at the top: run imports this module
     try:
-        session = run_mod.launched_session(run_state)
+        session = transitions.launched_session(run_state)
     except config.Error:
         session = None
     if session:
@@ -6303,7 +6303,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             log(f"would hand run {name} back for {check} on {target}: {line}")
             continue
         try:
-            session = run_mod.launched_session(st)
+            session = transitions.launched_session(st)
         except config.Error:
             session = None
         composed = []

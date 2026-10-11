@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 
-from . import config
+from . import config, transitions
 
 # Retired keys stay readable so older run copies still parse: `after:` is refused at launch
 # (`launch_refusal`), the time keys draw a warning.
@@ -16,7 +16,7 @@ TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re
 # 201-400 lines 43%, over 1,000 lines 20%): a task has at most this many per-round checks,
 # one behaviour a reviewer holds in one read, and a seat's own pull request's first review
 # this many added lines, generated files aside, nothing deleted counted and the blocks it
-# moves unchanged from lines it deletes left out (`run.carried_lines`).  Past either, split it.
+# moves unchanged from lines it deletes left out (`transitions.carried_lines`).  Past either, split it.
 MAX_CHECKS = 3
 MAX_PR_LINES = 400
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
