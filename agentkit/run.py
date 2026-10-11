@@ -10125,8 +10125,7 @@ def preflight(run_dir, opts, log):
                                f"review of the seat's own PR needs its orchestrator")
         if is_own:
             # the budget is the pull request's: earlier runs' rounds on it are spent
-            _, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
-                                  what=f"PR #{number}")
+            why = own_pr_budget(url, run_dir)[1]
             if why:
                 raise config.Error(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
@@ -11382,11 +11381,9 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         # landing left behind: a landing fix is only what the fixer turn pushes, and a head
         # that needs a round the change no longer has goes back to its seat
         state.pop("landing_fix", None)
-        left, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
-                                 what=f"PR #{number}")
-        if why or len(state.get("round_summaries") or []) >= left:
-            return ended(why or round_budget(taskfile.TASK_MAX_ROUNDS, pr=url,
-                                             what=f"PR #{number}")[1])
+        why = own_pr_budget(url, run_dir, len(state.get("round_summaries") or []))[1]
+        if why:
+            return ended(why)
         lp.write()
         log(f"the PR head moved to {remote['sha'][:12]} since the review; reviewing it")
         return True
@@ -11527,13 +11524,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         # the pull request's budget, less what earlier runs spent on it: this run's rounds
         # are what is left, and a fourth round is refused whichever run would spend it
-        number = PR_PARTS.match(url).group(3)
-        n_rounds, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
-                                     what=f"PR #{number}")
+        n_rounds = own_pr_budget(url, run_dir)[0]
+        why = own_pr_budget(url, run_dir, 0 if landing_fix else len(summaries))[1]
         if why:
             raise config.Error(why)
-        if len(summaries) >= n_rounds and not landing_fix:     # this run's rounds counted in
-            raise config.Error(round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, what=f"PR #{number}")[1])
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
                                    or prior.get("own_pr_wait"))
                      and prior.get("head_sha") != info["headRefOid"])
@@ -11917,6 +11911,13 @@ def change_budget(state, run_dir, asked, own=0):
     read into its arguments."""
     return round_budget(asked, pr=state.get("pr") or state.get("review_pr"),
                         change=change_of(state), exclude=run_dir, what="this change", own=own)
+
+
+def own_pr_budget(url, run_dir, own=0):
+    """`round_budget` for a seat's own pull request, `own` the rounds this run spent on it:
+    the one place its arguments are read."""
+    return round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
+                        what=f"PR #{PR_PARTS.match(url).group(3)}", own=own)
 
 
 def lineage_cap(state, run_dir):
