@@ -11329,6 +11329,20 @@ def pr_review_blocked(lp, exc):
     return lp.state
 
 
+def pr_review_failed(lp, why):
+    """A seat's own PR review's `fail` ending on a changed fact -- the PR closed, its head
+    moved under a fix, a head that needs a round the change no longer has -- for its seat to
+    decide.  Its result written, and nothing left to act on: no wait for a push, no pending
+    round, no landing fix, no place in the line."""
+    lp.state.update(state="fail", error=why, finished_at=time.time())
+    for key in ("own_pr_wait", "own_pr_round_pending", "landing_fix", "waiting_on"):
+        lp.state.pop(key, None)
+    lp.write()
+    write_result(lp.run_dir, lp.state, lp.cmds or ["(none declared)"], lp.log, lp.cfg)
+    lp.log(f"FAIL {why}")
+    return lp.state
+
+
 def fix_own_pr(cfg, run_dir, url, state, opts, log):
     """The fixer turn a FAIL on a seat's own PR gets while rounds are left.
 
@@ -11350,18 +11364,10 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
     state.update(state="running", **run_record.process_owner(), finished_at=None)
     run_record.save_state(run_dir, state)
 
-    def ended(why):
-        state.update(state="fail", error=why, finished_at=time.time())
-        state.pop("own_pr_wait", None)
-        state.pop("landing_fix", None)      # an ended run holds no landing fix
-        lp.write()
-        write_result(run_dir, state, lp.cmds or ["(none declared)"], log, cfg)
-        log(f"FAIL {why}")
-        return False
-
     current = pr_head(lp, url)
     if current.get("state") != "open":
-        return ended(f"{url} is {current.get('state', '?')}, not open")
+        pr_review_failed(lp, f"{url} is {current.get('state', '?')}, not open")
+        return False
     remote, pushed = current["head"], state.get("delivery_sha")
     if pushed == reviewed:
         # the landing's own delivery of the reviewed head, recorded before a required check
@@ -11372,7 +11378,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         if latest_worker_turn(lp.round_dir, turn) is not None and not pushed:
             # the seat pushed while the fix was made (the turn cut off before its push):
             # never pushed over its commit, never reviewed as if it were the seat's
-            return ended("the PR head moved while the fix was made; review it with a new run")
+            pr_review_failed(lp, "the PR head moved while the fix was made; review it with a new run")
+            return False
         # pushed by hand before the fix started, or after the fix was pushed: that head is
         # what the next round judges, from a checkout the round accepts, the reviewed head
         # or the fix it pushed (`own_pr_heads`)
@@ -11383,7 +11390,8 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         # change no longer has goes back to its seat
         why = own_pr_budget(url, run_dir, len(state.get("round_summaries") or []))[1]
         if why:
-            return ended(why)
+            pr_review_failed(lp, why)
+            return False
         lp.write()
         log(f"the PR head moved to {remote['sha'][:12]} since the review; reviewing it")
         return True
@@ -11422,9 +11430,11 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         current = pr_head(lp, url)
         remote = current["head"]
         if current.get("state") != "open":
-            return ended(f"{url} is {current.get('state', '?')}, not open")
+            pr_review_failed(lp, f"{url} is {current.get('state', '?')}, not open")
+            return False
         if remote["sha"] != reviewed:
-            return ended("the PR head moved while the fix was made; review it with a new run")
+            pr_review_failed(lp, "the PR head moved while the fix was made; review it with a new run")
+            return False
         if head == reviewed:
             log("the fixer committed nothing; the next round reviews this head with what it handed in")
             lp.write()
@@ -11533,16 +11543,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         why = own_pr_budget(url, run_dir, 0 if landing_fix else len(summaries))[1]
         if why and summaries and prior.get("head_sha") != info["headRefOid"]:
             # a head the seat pushed needs a round the change no longer has: the run ends
-            # with the budget's own sentence, for its seat to decide, as `fix_own_pr` ends one
-            state = {**prior, "head_sha": info["headRefOid"], "state": "fail", "error": why,
-                     "finished_at": time.time()}
-            for key in ("own_pr_wait", "own_pr_round_pending", "waiting_on"):
-                state.pop(key, None)
-            run_record.save_state(run_dir, state)
-            write_result(run_dir, state, pr_loop(cfg, run_dir, state, opts, log).cmds
-                         or ["(none declared)"], log, cfg)
-            log(f"FAIL {why}")
-            return state
+            # with the budget's own sentence, for its seat to decide
+            lp = pr_loop(cfg, run_dir, prior, opts, log)
+            lp.state["head_sha"] = info["headRefOid"]
+            return pr_review_failed(lp, why)
         if why:
             raise config.Error(why)
     advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
