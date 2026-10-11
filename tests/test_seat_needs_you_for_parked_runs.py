@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run, watch
+from agentkit import config, handback, notify, orch, run, transitions, watch
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -84,12 +84,12 @@ class SeatNeedsYouForParkedRuns(unittest.TestCase):
         # a long id and a long step: the recorded error is cut short, the command never is
         name = "20261001-0100-fix-api-a-long-integration-command-in-the"
         stalled = self.receipt(name, state="running", finished_at=None)
-        run.park_stalled(stalled, record.read_state(stalled), {"step": "done-when " + "x" * 240})
+        handback.park_stalled(stalled, record.read_state(stalled), {"step": "done-when " + "x" * 240})
         found = self.decide()
         self.assertEqual(found["word"], "needs you")
         self.assertEqual(found["reason"], f"run {name} stalled: resume it with `ak run resume {name}`")
         # what `going` means to the tick and every other caller is unchanged
-        self.assertTrue(run.going(record.read_state(stalled), now=NOW))
+        self.assertTrue(transitions.going(record.read_state(stalled), now=NOW))
 
 
 if __name__ == "__main__":

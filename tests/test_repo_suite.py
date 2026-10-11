@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, gate as check_gate, gc, gitcall, host, run, worker
+from agentkit import config, gate as check_gate, gc, gitcall, handback, host, run, worker
 
 SUITE = 'test -f AGENTS.md && printf "piece %s\\n" "${AK_SHARD:-all}"'
 
@@ -157,7 +157,7 @@ class RepoSuite(RepoSuiteFixture, unittest.TestCase):
                     self.assertEqual(lp.once, [task_once, suite])
 
                 with patch.object(run, "merge", side_effect=rebased_check), \
-                        patch.object(run, "start_followups", return_value=None):
+                        patch.object(run, "start_followups", return_value=None), patch.object(handback, "start_followups", return_value=None):
                     state = self.launch(f"rebased-{mode}", ["true", f"{task_once}  # once"],
                                         expected="waiting" if mode == "probe" else "pass")
                 self.assertEqual(self.finals(), [["true"], [task_once, suite]], self.gates)

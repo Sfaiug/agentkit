@@ -228,7 +228,7 @@ class MenuOpensOnTheSeats(Sandbox):
         self.live.discard(SEAT)
         with patch.object(notify, "shaped", return_value=0) as gone, \
                 redirect_stdout(io.StringIO()):
-            run.notify_recovery(dead, record.read_state(dead))
+            handback.notify_recovery(dead, record.read_state(dead))
         self.assertEqual(record.read_state(dead)["recovery_notified"], "needs")
         self.assertEqual(gone.call_count, 1)
         self.assertEqual(gone.call_args.kwargs["session"], SEAT)

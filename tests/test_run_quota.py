@@ -450,7 +450,7 @@ class QuotaDry(unittest.TestCase):
         self.script(self.bin / "tmux", 'import sys\n'
                     'assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv\nsys.exit(1)\n')
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
-        self.stack.enter_context(patch.object(run.notify, "shaped",
+        self.stack.enter_context(patch.object(notify, "shaped",
                                               side_effect=AssertionError("notification")))
         self.sleep = MagicMock()
         clock = Clock(self.sleep)

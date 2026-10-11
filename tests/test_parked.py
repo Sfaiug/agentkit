@@ -106,7 +106,7 @@ class Parked(unittest.TestCase):
         # the first rung is the loop's own: a minute out, rung zero, working already
         self.assertEqual(state["error_retries"], 0)
         self.assertAlmostEqual(state["error_retry_at"], state["finished_at"] + 60, delta=5)
-        self.assertTrue(run.going(state))
+        self.assertTrue(transitions.going(state))
         self.assertEqual(menu.run_state_word(state), "working")
         calls = []
         with patch.object(run, "spawn_bg", side_effect=lambda d, a, expected=None, park_as=False:
@@ -178,7 +178,7 @@ class Parked(unittest.TestCase):
         state = record.read_state(run_dir)
         self.assertNotIn("error_retry_at", state)
         self.assertNotIn("error_retries", state)
-        self.assertFalse(run.going(state))
+        self.assertFalse(transitions.going(state))
         self.assertEqual(menu.run_state_word(state), "needs you")
         with patch.object(run, "spawn_bg",
                           side_effect=AssertionError("nobody can run this task")):
@@ -543,7 +543,7 @@ class Parked(unittest.TestCase):
                              error_retries=1, launched_session="seat")
         state = record.read_state(owned)
         self.assertFalse(handback.owes_ending(state))
-        with patch.object(run, "hand_back",
+        with patch.object(handback, "hand_back",
                           side_effect=AssertionError("nothing to hand back")):
             run.announce(state, owned, self.log, self.cfg)
         # ... while an error with no scheduled retry still owes its telling
@@ -621,7 +621,7 @@ class Parked(unittest.TestCase):
                                                    "error_retries": 2})
                     before = (directory / "run.json").read_bytes()
                     original = record.read_state(directory)
-                    self.assertFalse(run.going(original))
+                    self.assertFalse(transitions.going(original))
                     self.assertEqual(menu.run_state_word(original), "needs you")
                     self.assertIn(f"run {directory.name} parked:",
                                   status.parked_line(original, now=self.now))
@@ -656,7 +656,7 @@ class Parked(unittest.TestCase):
                 state = record.read_state(directory)
                 self.assertNotIn("error_retry_at", state)
                 self.assertNotIn("error_retries", state)
-                self.assertFalse(run.going(state))
+                self.assertFalse(transitions.going(state))
                 self.assertEqual(menu.run_state_word(state), "needs you")
                 self.assertEqual(status.parked_line(state),
                                  f"run {directory.name} parked: transport failed")
@@ -669,7 +669,7 @@ class Parked(unittest.TestCase):
         self.assertTrue(state["recovery_acknowledged_at"])
         self.assertNotIn("error_retry_at", state)
         self.assertNotIn("error_retries", state)
-        self.assertFalse(run.going(state))
+        self.assertFalse(transitions.going(state))
         with patch.object(run, "spawn_bg",
                           side_effect=AssertionError("acknowledged: never resumed")):
             watch.resume_errored(log=self.log, now=self.now)
@@ -701,7 +701,7 @@ class Parked(unittest.TestCase):
                 self.assertEqual((directory / "run.json").read_bytes(), before)
                 self.assertEqual(self.logs, [])
                 state = record.read_state(directory)
-                self.assertFalse(run.going(state))
+                self.assertFalse(transitions.going(state))
                 self.assertEqual(menu.run_state_word(state), "done")
                 self.assertFalse(menu.v5o_needs_look(state, now=self.now))
                 self.assertEqual(status.parked_line(state, now=self.now),
@@ -713,7 +713,7 @@ class Parked(unittest.TestCase):
                     "https://github.com/acme/widget.git", "origin/main").name,
                     "joined": self.now - 30}
                 record.save_state(directory, state)
-                self.assertTrue(run.going(state, now=self.now))
+                self.assertTrue(transitions.going(state, now=self.now))
                 self.assertEqual(menu.run_state_word(state), "working")
                 self.assertIn("in line to land on main", status.parked_line(state, now=self.now))
                 before = (directory / "run.json").read_bytes()
@@ -807,7 +807,7 @@ class Parked(unittest.TestCase):
                                             input=payload, text=True, capture_output=True,
                                             env=env, cwd=self.root, timeout=10)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    if run.going(state, now=self.now):
+                    if transitions.going(state, now=self.now):
                         self.assertEqual(result.stdout, "")
                     else:
                         self.assertEqual(json.loads(result.stdout)["decision"], "block")
@@ -842,7 +842,7 @@ class Parked(unittest.TestCase):
                 self.assertEqual(found["word"], "needs you")
                 self.assertEqual(found["reason"], status.parked_line(state, now=self.now)
                                  if word == "error" else f"run {directory.name} waits to "
-                                 f"merge: {run.handback_reason(state)}")
+                                 f"merge: {handback.handback_reason(state)}")
                 self.assertEqual(menu.v5o_needs_look(state, now=self.now), word == "error")
                 record.save_state(directory, {**state, "finished_at": self.now - gc.GC_AGE - 1})
                 with redirect_stdout(io.StringIO()) as out:
@@ -905,7 +905,7 @@ class Parked(unittest.TestCase):
                         patch.object(run, "collect_usage", return_value=providers), patch.object(staffing, "collect_usage", return_value=providers), \
                         patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "exclude_junk"), \
-                        patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
+                        patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), patch.object(handback, "join_session_project"), \
                         patch.object(run, "rounds", side_effect=Picked):
                     if word == "error":
                         watch.resume_errored(log=self.log, now=self.now)
@@ -959,7 +959,7 @@ class Parked(unittest.TestCase):
             for key in ("error_retry_at", "error_retries", "waiting_on",
                         "waiting_resume_at", "resume_after"):
                 self.assertNotIn(key, after)
-            self.assertFalse(run.going(after))
+            self.assertFalse(transitions.going(after))
         with patch.object(run, "spawn_bg",
                           side_effect=AssertionError("stopped runs stay stopped")):
             watch.resume_errored(log=self.log, now=self.now + 3600)

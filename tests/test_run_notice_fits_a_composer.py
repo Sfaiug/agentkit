@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox
-from agentkit import config, gitcall, orch, record, run, transitions, watch, worktrees
+from agentkit import config, gitcall, handback, orch, record, run, transitions, watch, worktrees
 
 
 PR = "https://github.com/acme/widget/pull/7"
@@ -91,7 +91,7 @@ class RunNotice(Sandbox):
 
     def test_any_number_of_followups_is_counted_and_retained(self):
         directory, state = self.followups(1000)
-        line = run.handback_line(state, directory, self.cfg)
+        line = handback.handback_line(state, directory, self.cfg)
         self.assertIsNone(watch.too_long(line))
         self.assertIn("1000 review follow-ups", line)
         result = (directory / "result.md").read_text()
@@ -105,7 +105,7 @@ class RunNotice(Sandbox):
         refusal = "the check cannot run: " + "failure evidence " * 100
         handed = {"followup_plan": [{"outcome": "Fix api.py:1", "refused": refusal}],
                   "followup_runs": [f"fix-api-{i}" for i in range(100)]}
-        run.followups_handed(directory, state, handed)
+        handback.followups_handed(directory, state, handed)
         result = (directory / "result.md").read_text()
         self.assertIn(refusal, result)
         for name in handed["followup_runs"]:
@@ -115,11 +115,11 @@ class RunNotice(Sandbox):
         directory, state = self.result(followups=["api.py:1 - a defect"])
         expected = (f"run {directory.name} finished PASS not merged: --no-merge. "
                     f"Result: {directory / 'result.md'}. Decide the next step.")
-        self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
+        self.assertEqual(handback.handback_line(state, directory, self.cfg), expected)
         with patch.object(watch, "longest", return_value=len(expected)):
-            self.assertEqual(run.handback_line(state, directory, self.cfg), expected)
+            self.assertEqual(handback.handback_line(state, directory, self.cfg), expected)
         with patch.object(watch, "longest", return_value=len(expected) - 1):
-            line = run.handback_line(state, directory, self.cfg)
+            line = handback.handback_line(state, directory, self.cfg)
             self.assertIsNone(watch.too_long(line))
             self.assertIn("1 review follow-ups", line)
             self.assertNotEqual(line, expected)
@@ -128,7 +128,7 @@ class RunNotice(Sandbox):
         directory, state = self.result()
         state["merge_note"] = "é" * 250
         with patch.object(watch, "MAX_BYTES", 600):
-            line = run.handback_line(state, directory, self.cfg)
+            line = handback.handback_line(state, directory, self.cfg)
             self.assertIsNone(watch.too_long(line))
             self.assertLessEqual(len(line.encode("utf-8")), watch.MAX_BYTES)
             self.assertNotIn(state["merge_note"], line)
@@ -159,13 +159,13 @@ class RunNotice(Sandbox):
         directory, state = self.result(followups=items, handback_pending=True, merge_note=reason)
         result = directory / "result.md"
         result.write_text("# PASS\n\nFixed API.\n")  # a report saved before follow-ups were rendered
-        line = run.handback_line(state, directory, self.cfg)
+        line = handback.handback_line(state, directory, self.cfg)
         saved = result.read_text()
         self.assertIsNone(watch.too_long(line))
         self.assertIn(reason, saved)
         self.assertIn("complete reviewer evidence", saved)
         self.assertIn("Fixed API.", saved)
-        self.assertEqual(run.handback_line(state, directory, self.cfg), line)
+        self.assertEqual(handback.handback_line(state, directory, self.cfg), line)
         self.assertEqual(result.read_text(), saved)  # a retry retains the evidence without copying it
 
     def test_a_compact_recovery_retains_its_cause_and_rerun_warning(self):
@@ -176,7 +176,7 @@ class RunNotice(Sandbox):
                 patch.object(orch, "ensure", return_value=False), \
                 patch.object(watch, "orphan_fresh", return_value=True), \
                 patch.object(watch, "is_preexisting", return_value=False):
-            run.notify_recovery(directory, record.read_state(directory))
+            handback.notify_recovery(directory, record.read_state(directory))
         self.assertIsNone(watch.too_long(self.sent[-1]))
         self.assertIn("result.md", self.sent[-1])
         saved = (directory / "result.md").read_text()
@@ -237,8 +237,8 @@ class RunNotice(Sandbox):
     def test_all_report_rebuilds_keep_saved_notice_details(self):
         directory, state = self.followups(2)
         with patch.object(watch, "longest", return_value=1000000):
-            full = run.handback_line(state, directory, self.cfg)
-        self.assertTrue(run.hand_back(state, directory, self.logs.append, self.cfg))
+            full = handback.handback_line(state, directory, self.cfg)
+        self.assertTrue(handback.hand_back(state, directory, self.logs.append, self.cfg))
         result = directory / "result.md"
         saved = result.read_text()
         (directory / "task.md").write_text("# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
@@ -249,7 +249,7 @@ class RunNotice(Sandbox):
             ("stopped full result", lambda: run.record_result(directory, latest, cfg=self.cfg)),
             ("stopped short result", lambda: run.record_result(
                 directory, {**latest, "worktree": None}, cfg=self.cfg)),
-            ("maintainer result", lambda: run.record_decision(
+            ("maintainer result", lambda: handback.record_decision(
                 directory, latest, "The maintainer kept the merged change")))
         with patch.object(run, "git", return_value="(fixture diff)"), patch.object(gitcall, "git", return_value="(fixture diff)"):
             for name, rebuild in rebuilds:
@@ -261,7 +261,7 @@ class RunNotice(Sandbox):
                         self.assertIn(item, result.read_text())
         gone = {**latest, "worktree": None}
         note = "The maintainer confirmed the live fix"
-        run.record_decision(directory, gone, note)
+        handback.record_decision(directory, gone, note)
         run.record_result(directory, gone, cfg=self.cfg)
         self.assertIn(note, result.read_text())
         self.assertIn(full, result.read_text())
@@ -280,7 +280,7 @@ class RunNotice(Sandbox):
         result = directory / "result.md"
         original = "# Current attempt\n\nThe resumed attempt has not finished.\n"
         result.write_text(original)
-        self.assertFalse(run.hand_back(previous, directory, self.logs.append, self.cfg))
+        self.assertFalse(handback.hand_back(previous, directory, self.logs.append, self.cfg))
         self.assertEqual(result.read_text(), original)
         self.assertEqual((self.keys, self.sent), ([], []))
 

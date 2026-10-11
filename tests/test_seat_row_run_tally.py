@@ -297,7 +297,7 @@ class Tallies(Sandbox):
                   for path in directory.rglob("*") if path.is_file()}
         # every draw, of any size, goes back to git for nothing and starts no process
         with patch.object(record, "read_state", wraps=record.read_state) as read, \
-                patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")), \
+                patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")), patch.object(handback, "reap", side_effect=AssertionError("draw reconciled a run")), \
                 patch.object(record, "save_state", side_effect=AssertionError("draw wrote a record")), \
                 patch.object(subprocess, "run", side_effect=self.no_git), \
                 patch.object(subprocess, "Popen", side_effect=AssertionError("draw started a process")):

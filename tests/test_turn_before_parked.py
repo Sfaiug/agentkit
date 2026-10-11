@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, run, watch
+from agentkit import config, menu, run, transitions, watch
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -52,7 +52,7 @@ class TurnBeforeParked(Sandbox):
 
     def test_turn_in_flight_with_parked_run_reads_working(self):
         directory, state = self.receipt("20260101-0900-spent")
-        self.assertFalse(run.going(state, now=NOW))
+        self.assertFalse(transitions.going(state, now=NOW))
         self.assertTrue(menu.v5o_needs_look(state, now=NOW))
         found = self.decide({"hooked": "working", "hooked_at": NOW - 60},
                             [(directory, state)])

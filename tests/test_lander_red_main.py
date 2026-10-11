@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
-from agentkit import config, gate, gitcall, land, record, run, transitions, watch
+from agentkit import config, gate, gitcall, handback, land, record, run, transitions, watch
 
 SUITE = "test ! -f broken.txt"
 
@@ -456,7 +456,7 @@ class RedMain(unittest.TestCase):
             start(*args, **kw)
             raise RuntimeError("crash after receipt")
 
-        with patch.object(run, "start_followups", side_effect=crash):
+        with patch.object(run, "start_followups", side_effect=crash), patch.object(handback, "start_followups", side_effect=crash):
             land.check_line(self.turn)
             self.exhaust()
         land.check_line(self.turn)

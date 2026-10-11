@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import OLDER, TASK, YOUNGER, LiveRuns
-from agentkit import config, leases, run, stop, watch
+from agentkit import config, handback, leases, run, stop, transitions, turns, watch
 from agentkit import record
 
 
@@ -88,13 +88,13 @@ class LeaseRestart(LiveRuns):
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
         leases.scan(self.repo, now=2000)
         wait = {"kind": "run", "on": YOUNGER}
-        self.assertTrue(run.going(self.state(YOUNGER)))                   # its seat is working
+        self.assertTrue(transitions.going(self.state(YOUNGER)))                   # its seat is working
         self.assertEqual(watch.wait_fact(wait), (False, ""))
         self.land(OLDER)
         with patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
             leases.restart(log=self.logs.append, now=3000)
         fresh, = self.started_again()
-        self.assertFalse(run.going(self.state(YOUNGER)))
+        self.assertFalse(transitions.going(self.state(YOUNGER)))
         self.assertEqual(watch.wait_fact(wait), (False, ""))
         record.save_state(fresh, {**record.read_state(fresh), "state": "pass", "verdict": "PASS",
                                   "merged": True})
@@ -111,7 +111,7 @@ class LeaseRestart(LiveRuns):
             end()
         state = self.state(YOUNGER)
         self.assertEqual((state["state"], state["error"]), ("stopped", "stopped by the user"))
-        self.assertFalse(run.going(state))
+        self.assertFalse(transitions.going(state))
         self.land(OLDER)
         with patch.object(run, "spawn_bg", side_effect=AssertionError("started again")):
             leases.restart(log=self.logs.append, now=3000)
@@ -162,7 +162,7 @@ class LeaseRestart(LiveRuns):
     def test_a_parked_fix_runs_receipt_rides_into_its_restart(self):
         def naming(name):       # a fix run's task names its run, as `run.start_followups` writes it
             return (TASK.replace("Change it.", f"Exclude this run ({name}).")
-                    .replace("true", f"bash {config.RUNS / name / run.REGRESSION}"))
+                    .replace("true", f"bash {config.RUNS / name / turns.REGRESSION}"))
 
         for script in ("exit 1\n", None):          # written already, or not yet
             with self.subTest(script=script):
@@ -170,22 +170,22 @@ class LeaseRestart(LiveRuns):
                 self.collide(session="seat-a")
                 directory = config.RUNS / YOUNGER
                 (directory / "task.md").write_text(naming(YOUNGER))
-                (directory / run.REGRESSION).parent.mkdir(parents=True)
+                (directory / turns.REGRESSION).parent.mkdir(parents=True)
                 if script:
-                    (directory / run.REGRESSION).write_text(script)
+                    (directory / turns.REGRESSION).write_text(script)
                 record.save_state(directory, {
                     **record.read_state(directory), "first": True, "base_proof": "regression.sh",
                     "followup": {"run": "run-0", "text": "api.py:1 - a defect", "place": "api.py:1"}})
                 leases.scan(self.repo, now=2000)
                 # the seat's next merge with evidence at the same site starts no second fix run
                 again = {"run_id": "run-1", "repo": str(self.repo), "launched_session": "seat-a"}
-                self.assertEqual(run.open_followup(again, "api.py:1 - again"), YOUNGER)
+                self.assertEqual(handback.open_followup(again, "api.py:1 - again"), YOUNGER)
                 self.land(OLDER)
                 with patch.object(watch, "seat_closed", return_value=False), \
                         patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
                     leases.restart(log=self.logs.append, now=3000)
                 fresh, = self.started_again()
-                self.assertEqual(run.open_followup(again, "api.py:1 - again"), fresh.name)
+                self.assertEqual(handback.open_followup(again, "api.py:1 - again"), fresh.name)
                 state = record.read_state(fresh)
                 self.assertEqual(state["followup"], {"run": "run-0", "text": "api.py:1 - a defect",
                                                      "place": "api.py:1"})
@@ -193,7 +193,7 @@ class LeaseRestart(LiveRuns):
                 # its check is the script its executor may write, and the gate proves
                 self.assertEqual((fresh / "task.md").read_text(),
                                  naming(fresh.name).replace("repo: acme", f"repo: {self.repo}"))
-                self.assertTrue((fresh / run.REGRESSION).parent.is_dir())
+                self.assertTrue((fresh / turns.REGRESSION).parent.is_dir())
                 self.assertEqual(run.regression_script(fresh).is_file(), bool(script))
                 if script:
                     self.assertEqual(run.regression_script(fresh).read_text(), script)

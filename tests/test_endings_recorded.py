@@ -36,7 +36,7 @@ class RoutineEndings(HandBack):
         state = record.read_state(directory)
         self.assertTrue(state["handed_back"])
         self.assertTrue(state["reported"])
-        self.assertEqual(state["handback_note"], run.ROUTINE_NOTE)
+        self.assertEqual(state["handback_note"], handback.ROUTINE_NOTE)
         self.assertNotIn("handback_pending", state)
 
     def test_a_merged_ending_is_recorded_and_never_typed(self):
@@ -119,7 +119,7 @@ class InTheComposer(RunNotice):
                     self.assertTrue(watch.say(False, self.logs.append,
                                               "PR #7 Fix api: merged by the maintainer", PR,
                                               "fix-api", merged=True))
-                self.assertTrue(run.routine_ending(record.read_state(directory)))
+                self.assertTrue(handback.routine_ending(record.read_state(directory)))
                 self.assertEqual((self.keys, self.sent), ([], []))
 
     def test_a_maintainers_decision_is_never_typed_into_a_running_turn(self):
@@ -216,9 +216,9 @@ class InTheComposer(RunNotice):
 
     def test_a_merged_line_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
         directory, state = self.result("run-m", merged=True, pr=PR, no_merge=False)
-        line = run.handback_line(state, directory, self.cfg)
+        line = handback.handback_line(state, directory, self.cfg)
         self.composer = line                                # typed; its Enter never seen land
-        run.mark_delivery(directory, state, handback_pending=True,
+        handback.mark_delivery(directory, state, handback_pending=True,
                           handback_typed={"line": line, "seat": self.seat["created"]})
         run.announce(record.read_state(directory), directory, self.logs.append, self.cfg)
         self.assertEqual(self.sent, [line])                 # its Enter, nothing typed anew
@@ -227,7 +227,7 @@ class InTheComposer(RunNotice):
         self.assertIn("run-f finished FAIL", self.sent[-1])
         run.announce(record.read_state(directory), directory, self.logs.append, self.cfg)
         state = record.read_state(directory)
-        self.assertEqual(state["handback_note"], run.ROUTINE_NOTE)
+        self.assertEqual(state["handback_note"], handback.ROUTINE_NOTE)
         self.assertNotIn("handback_typed", state)
         self.assertEqual(len(self.sent), 2)
 

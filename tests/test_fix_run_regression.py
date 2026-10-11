@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, run, worker
+from agentkit import config, run, turns, worker
 from agentkit import record
 
 
@@ -51,7 +51,7 @@ class RegressionFailsBefore(unittest.TestCase):
         run.git(self.wt, "checkout", "-qb", "ak/fix-api")
         self.directory = self.root / "run files"
         (self.directory / "round-1").mkdir(parents=True)
-        self.script = self.directory / run.REGRESSION
+        self.script = self.directory / turns.REGRESSION
         self.script.parent.mkdir()
         self.logs = []
 

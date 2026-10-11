@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, record, run, turns, worker
+from agentkit import config, hand_in, handback, record, run, turns, worker
 
 PROSE = ("VERDICT: PASS\n\n## Findings\n- api.py:1 - prose finding - breaks callers\n\n"
          "## Follow-ups\n- api.py:1 - prose follow-up - existed before\n")
@@ -101,14 +101,14 @@ class ReviewerTextIgnored(unittest.TestCase):
                 self.lp.state["findings"] = text or ""
                 self.lp.save()
                 state = record.read_state(self.lp.run_dir)
-                self.assertTrue(run.review_failed(state))
-                reason = run.handback_reason(state)
+                self.assertTrue(handback.review_failed(state))
+                reason = handback.handback_reason(state)
                 self.assertIn("api.py:1 - handed-in defect - breaks callers", reason)
                 self.assertNotIn("prose finding", reason)
                 self.assertNotIn("fabricated", reason)
 
     def test_fail_prose_without_records_does_not_make_a_review_fail(self):
-        self.assertFalse(run.review_failed({"findings": "VERDICT: FAIL\n## Findings\n- fabricated\n"}))
+        self.assertFalse(handback.review_failed({"findings": "VERDICT: FAIL\n## Findings\n- fabricated\n"}))
 
 
 if __name__ == "__main__":

@@ -126,7 +126,9 @@ class FollowupRuns(unittest.TestCase):
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(browser, "close_owned"))
         self.stack.enter_context(patch.object(run, "announce", side_effect=lambda s, d, *a:
-                                              self.endings.append(run.handback_line(s, d, self.cfg))))
+                                              self.endings.append(handback.handback_line(s, d, self.cfg))))
+        self.stack.enter_context(patch.object(handback, "announce", side_effect=lambda s, d, *a:
+                                              self.endings.append(handback.handback_line(s, d, self.cfg))))
         config.save_session(self.cfg, "seat", self.executor,
                             [self.executor, self.reviewer], {"cwd": str(self.repo)})
 
@@ -341,7 +343,7 @@ class FollowupRuns(unittest.TestCase):
     def test_a_delivery_marked_while_the_receipt_is_written_stays_marked(self):
         directory, state = self.source(followup_checks={DEFECT: CHECK})
         real, marked = record._write_state, []
-        delivery = threading.Thread(target=lambda: marked.append(run.mark_delivery(
+        delivery = threading.Thread(target=lambda: marked.append(handback.mark_delivery(
             directory, record.read_state(directory), handed_back=123)))
 
         def write(run_dir, current, *args):
@@ -722,7 +724,7 @@ class FollowupRuns(unittest.TestCase):
                  "launched_session": "seat", "started_at": 1, "finished_at": 2,
                  "title": "Fix broken.py:1"}
         record.save_state(directory, state)
-        with patch.object(run, "launcher_world", return_value=nullcontext(False)), patch.object(handback, "launcher_world", return_value=nullcontext(False)), \
+        with patch.object(handback, "launcher_world", return_value=nullcontext(False)), patch.object(handback, "launcher_world", return_value=nullcontext(False)), patch.object(handback, "launcher_world", return_value=nullcontext(False)), \
                 patch.object(watch, "revive", side_effect=AssertionError("revived")), \
                 patch.object(notify, "shaped", side_effect=AssertionError("card")):
             self.real_announce(dict(state), directory, self.logs.append, self.cfg)
@@ -738,7 +740,7 @@ class FollowupRuns(unittest.TestCase):
         wt = self.root / "wt-fix"
         wt.mkdir()
         base = {"run_id": "fix", "followup": {"run": "parent", "text": DEFECT,
-                                              "place": run.followup_place(DEFECT)},
+                                              "place": handback.followup_place(DEFECT)},
                 "launched_session": "seat", "repo": str(self.repo)}
         blocking = [
             {"state": "running", "pid": "dead"},
@@ -770,10 +772,10 @@ class FollowupRuns(unittest.TestCase):
         with patch.object(record, "process_active", side_effect=lambda s: s.get("pid") == "live"):
             for extra in blocking:
                 record.save_state(child_dir, {**base, **extra})
-                self.assertEqual(run.open_followup(state, DEFECT), "fix", extra)
+                self.assertEqual(handback.open_followup(state, DEFECT), "fix", extra)
             for extra in quiet:
                 record.save_state(child_dir, {**base, **extra})
-                self.assertIsNone(run.open_followup(state, DEFECT), extra)
+                self.assertIsNone(handback.open_followup(state, DEFECT), extra)
 
     def test_finish_still_ends_when_followups_fail_to_start(self):
         for index, exc in enumerate((config.Error("boom"), OSError("disk gone"),
@@ -781,14 +783,14 @@ class FollowupRuns(unittest.TestCase):
             self.logs.clear()
             self.endings.clear()
             directory, state = self.source(f"broken-{index}")
-            with patch.object(run, "start_followups", side_effect=exc):
+            with patch.object(run, "start_followups", side_effect=exc), patch.object(handback, "start_followups", side_effect=exc):
                 run.finish(dict(state), directory, self.logs.append, self.cfg)
             self.assertTrue(any("could not start" in line for line in self.logs), exc)
             self.assertTrue(self.endings, exc)
         self.logs.clear()
         directory, state = self.source("merge-fail")
         child = self.start(directory, state)[0]
-        with patch.object(run, "start_followups", side_effect=config.Error("boom")) as started, \
+        with patch.object(run, "start_followups", side_effect=config.Error("boom")) as started, patch.object(handback, "start_followups", side_effect=config.Error("boom")), \
                 patch.object(run, "stop_run_tree", wraps=run.stop_run_tree) as stopped:
             code, fixed = self.drive(child)
         self.assertEqual(code, 0, "\n".join(self.logs))

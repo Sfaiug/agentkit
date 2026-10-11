@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, handback, harness, host, menu, notify, orch, run, status, transitions, turns, watch
+from agentkit import config, handback, host, menu, notify, orch, run, status, transitions, turns, watch
 from agentkit import record
 
 TASK = """---
@@ -405,7 +405,7 @@ class V5X(unittest.TestCase):
         self.assertIn("stalled 2× (done-when: bash tests/smoke.sh), recovered", out.getvalue())
         parked_dir, _ = self.make_run("20260916-0000-v5x-parked", pid=2 ** 30)
         parked = self.read_state(parked_dir)
-        run.park_stalled(parked_dir, parked,
+        handback.park_stalled(parked_dir, parked,
                          {"time": time.time(), "round": 2,
                           "step": "done-when: bash tests/smoke.sh", "action": "parked"})
         out = io.StringIO()
@@ -463,7 +463,7 @@ class V5X(unittest.TestCase):
         run_dir, _ = self.make_run("20260916-0000-v5x-retry", pid=2 ** 30,
                                    seat=None)
         parked = self.read_state(run_dir)
-        run.park_stalled(run_dir, parked,
+        handback.park_stalled(run_dir, parked,
                          {"time": time.time() - 3700, "round": 2,
                           "step": "done-when: bash tests/smoke.sh", "action": "parked"})
         self.assertFalse(self.read_state(run_dir).get("stalled_notified"))

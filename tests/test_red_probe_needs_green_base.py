@@ -7,12 +7,12 @@ import os
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander
 import test_red_target as red
-from agentkit import config, gate, land, run, watch
+from agentkit import config, gate, handback, land, run, watch
 from agentkit import record
 
 
@@ -24,7 +24,9 @@ class GreenBase(unittest.TestCase):
     def setUp(self):
         red.RedTarget.setUp(self)
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root)}))
-        self.repair = self.stack.enter_context(patch.object(run, "start_followups", return_value=None))
+        self.repair = Mock(return_value=None)   # one mock for both bindings: run's own code and the lander's
+        self.stack.enter_context(patch.object(run, "start_followups", self.repair))
+        self.stack.enter_context(patch.object(handback, "start_followups", self.repair))
 
     def move_target(self, owner, wt):
         (owner / "breakage").write_text("target moved\n")

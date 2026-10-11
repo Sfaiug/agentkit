@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, orch, record, run, watch, worktrees
+from agentkit import config, handback, orch, record, run, watch, worktrees
 
 SEAT = "acme-docs"
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
@@ -138,7 +138,7 @@ class ReceiptNeedsEnter(Sandbox):
         typed, delivered = "handback_typed", "handed_back"
 
         def tick():
-            run.hand_back(state, directory, lambda _: None, self.cfg)
+            handback.hand_back(state, directory, lambda _: None, self.cfg)
 
         tick()
         mark = record.read_state(directory)[typed]

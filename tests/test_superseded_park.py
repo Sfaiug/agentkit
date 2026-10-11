@@ -177,11 +177,11 @@ class SupersededPark(unittest.TestCase):
         # the stand-down ends what `going` reads: the wait is over, not parked
         quota_state = record.read_state(quota)
         self.assertTrue(quota_state["replaced"])
-        self.assertFalse(run.going(quota_state))
+        self.assertFalse(transitions.going(quota_state))
         errored_state = record.read_state(errored)
         self.assertNotIn("error_retry_at", errored_state)
         self.assertNotIn("error_retries", errored_state)
-        self.assertFalse(run.going(errored_state))
+        self.assertFalse(transitions.going(errored_state))
         index = transitions.supersession_index(self.records())
         self.assertEqual(status.status_state_word(quota_state, index), "done")
         self.assertEqual(status.status_state_word(errored_state, index), "done")

@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gate, gc, gitcall, handback, host, land, run, usage, watch
+from agentkit import config, gate, gc, gitcall, handback, host, land, notify, run, transitions, usage, watch
 from agentkit import record
 from test_merge_step import make_loop, make_repos
 
@@ -225,9 +225,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
                 patch.object(gc, "disk_pressure", return_value=False), \
-                patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
-                patch.object(run, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
-                patch.object(run, "hand_back", return_value=True), \
+                patch.object(notify, "shaped", side_effect=AssertionError("notification")), \
+                patch.object(handback, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
+                patch.object(handback, "hand_back", return_value=True), \
                 patch.object(run, "stop_run_tree"), \
                 patch.object(run.history, "Sampler"), \
                 patch.object(run.history, "sample_rss", return_value=None), \
@@ -281,7 +281,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                         self.assertEqual(state["review_pending"], pending)
                         self.assertEqual(state["round_summaries"], self.history)
                         self.assertEqual(len(self.events), before)
-                        self.assertTrue(run.going(state))
+                        self.assertTrue(transitions.going(state))
                         with patch.object(run, "spawn_bg", return_value=0) as launch:
                             watch.resume_errored(log=self.lp.log, now=state["error_retry_at"])
                         launch.assert_called_once_with(

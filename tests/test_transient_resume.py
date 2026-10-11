@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, gitcall, run, staffing, turns, usage, watch  # noqa: E402
+from agentkit import config, gc, gitcall, harness, run, staffing, transitions, turns, usage, watch  # noqa: E402
 from agentkit import record as run_record
 
 
@@ -170,7 +170,7 @@ class TransientResume(unittest.TestCase):
         run.interrupt(state, str(killed.exception))
         self.assertTrue(run.needs_recovery(state))
         self.assertEqual(menu.run_state_word(state), "needs you")
-        self.assertIn("killed (SIGTERM)", run.recovery_reason(state))
+        self.assertIn("killed (SIGTERM)", transitions.recovery_reason(state))
 
     def test_sigkill_resumes_once_at_once(self):
         calls, fake = self.worker([

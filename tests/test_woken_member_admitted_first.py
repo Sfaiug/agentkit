@@ -38,6 +38,7 @@ class WokenMemberAdmission(unittest.TestCase):
         self.stack.enter_context(patch.object(host, "host_readings", return_value=READINGS))
         self.stack.enter_context(patch.object(run, "redress_seat"))
         self.stack.enter_context(patch.object(handback, "redress_seat"))
+        self.stack.enter_context(patch.object(handback, "redress_seat"))
 
     def receipt(self, name, queued_at, verdict=None, word="queued"):
         directory = config.RUNS / name

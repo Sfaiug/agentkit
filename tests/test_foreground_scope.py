@@ -80,6 +80,7 @@ class ForegroundScope(Sandbox):
         self.stack.enter_context(patch.object(orch, "SLICE_WAIT", 2))
         self.stack.enter_context(patch.object(run, "redress_seat"))
         self.stack.enter_context(patch.object(handback, "redress_seat"))
+        self.stack.enter_context(patch.object(handback, "redress_seat"))
         # `ak run` itself, not this test: only that process is a run's to move
         self.stack.enter_context(patch.object(sys, "argv", [str(REPO / "bin" / "ak"), "run"]))
         self.niced, self.renice = [], None

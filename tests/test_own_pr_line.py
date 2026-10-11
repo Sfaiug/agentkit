@@ -43,7 +43,8 @@ class OwnPrLineFixture(LanderFixture):
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
-        self.stack.enter_context(patch.object(run, "launcher_world", side_effect=lambda *_: nullcontext(True)))
+        self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
+        self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
         self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
         self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
         self.stack.enter_context(patch.object(run.orch, "find", return_value={"name": "fix-api"}))
@@ -218,7 +219,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         current_failure = state["review"]["overridden"]
-        reason = run.handback_reason(state, self.cfg)
+        reason = handback.handback_reason(state, self.cfg)
         self.assertIn(current_failure, reason, f"obsolete findings hid the landing failure: {reason}")
 
     def test_wording_already_on_the_target_is_recorded_as_landed(self):
@@ -775,7 +776,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         repair.mkdir()
         record.save_state(repair, {"run_id": repair.name, "state": "fail", "merged": False,
                                   "repair_tip": tip, "repo": str(self.repo)})
-        self.assertTrue(run.repair_open(record.read_state(repair), tip))
+        self.assertTrue(handback.repair_open(record.read_state(repair), tip))
         land.note(self.turn, [], repair.name, red={tree: {
             "run": repair.name, "probe": {"sha": tip, "command": suite, "check": f"{suite}  # once",
                                          "text": f"{suite} fails on origin/main at {tip}"}}})

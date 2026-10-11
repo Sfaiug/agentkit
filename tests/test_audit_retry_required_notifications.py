@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, notify, orch, run, watch
+from agentkit import config, gc, handback, notify, orch, run, watch
 from agentkit import record as run_record
 
 URL = "http://127.0.0.1:9/hook/fixture-secret?thread_id=42"
@@ -104,7 +104,7 @@ def child():
                 # `notify_recovery` writes what its own delivery decided and nothing else
                 state.update(state="interrupted", interrupted_at=9600)
                 run_record.save_state(directory, state)
-                run.notify_recovery(directory, state)
+                handback.notify_recovery(directory, state)
         elif op == "stall":
             state = watch.load_state()
             pane = "API Error: 500"

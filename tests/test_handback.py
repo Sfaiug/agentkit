@@ -578,7 +578,7 @@ class HandBack(Sandbox):
                              round_summaries=[{}, {}, {}],
                              findings="VERDICT: PASS\n\n## Findings\n- none\n",
                              final_check={"outcome": "failed", "sha": "a" * 40, "line": scope})
-        line = run.handback_line(record.read_state(checked), checked)
+        line = handback.handback_line(record.read_state(checked), checked)
         self.assertIn(f"finished FAIL: after 3 rounds, the final check failed: {scope}. Result:",
                       line)
         self.assertNotIn("split or re-scope", line)
@@ -588,7 +588,7 @@ class HandBack(Sandbox):
                            final_check={"outcome": "failed", "sha": "a" * 40},
                            done_when_failure={"every": [], "once": [
                                ["bash tests/smoke.sh", "acceptance: FAILED"]]})
-        self.assertEqual(run.handback_reason(record.read_state(older)), "after 3 rounds, the final "
+        self.assertEqual(handback.handback_reason(record.read_state(older)), "after 3 rounds, the final "
                          "check failed: `bash tests/smoke.sh` — acceptance: FAILED")
         # a review FAIL carries its blocking findings, the first 600 characters -- saying so
         # when that cuts them short -- and never the follow-ups listed after them
@@ -598,9 +598,9 @@ class HandBack(Sandbox):
                                 f"VERDICT: FAIL\n\n## Findings\n{finding}\n\n"
                                 "## Follow-ups\n- c.py:3 - rename it - clarity\n"))
         state = record.read_state(failed)
-        self.assertEqual(run.handback_reason(state),
+        self.assertEqual(handback.handback_reason(state),
                          f"after 3 rounds, 1 open finding, cut short here: {finding[:600]}")
-        self.assertTrue(run.handback_line(state, failed).endswith(
+        self.assertTrue(handback.handback_line(state, failed).endswith(
             "three rounds spent: split or re-scope"))
 
     def test_a_long_review_and_an_overridden_pass_still_say_why(self):
@@ -616,14 +616,14 @@ class HandBack(Sandbox):
                           review_records=records(whole),
                           findings_file=str(answer))
         state = record.read_state(long)
-        said = run.handback_reason(state)
+        said = handback.handback_reason(state)
         self.assertTrue(said.startswith(
             f"after 3 rounds, 151 open findings, cut short here (every one in full: {answer}): "
             f"{first} $ echo 'fixture evidence'; exit 1 [exit 1] fixture evidence - n0.py:1 - "))
         # where it points holds every one of them
         named = answer.read_text()
         self.assertTrue(all(f"- n{i}.py:1 - " in named for i in range(150)) and first in named)
-        self.assertTrue(run.handback_line(state, long).endswith(
+        self.assertTrue(handback.handback_line(state, long).endswith(
             "three rounds spent: split or re-scope"))
         # a PASS the loop failed -- the reviewer exited 1, the checkout moved -- says so
         review = {**self.ended_review(), "verdict": "FAIL", "returncode": 1,
@@ -631,7 +631,7 @@ class HandBack(Sandbox):
         exited = self.ended("run-44", owner=SEAT, state="fail", verdict="FAIL", rounds=3,
                             round_summaries=[{}, {}, {}], review=review,
                             findings="VERDICT: PASS\n\n## Findings\n- none\n")
-        line = run.handback_line(record.read_state(exited), exited)
+        line = handback.handback_line(record.read_state(exited), exited)
         self.assertIn("finished FAIL: after 3 rounds, the reviewer said PASS but exited 1. "
                       "Result:", line)
         self.assertNotIn("split or re-scope", line)
@@ -750,7 +750,7 @@ class HandBack(Sandbox):
                                rounds=2, round_summaries=[], findings="")
         (directory / "result.md").unlink(missing_ok=True)
         self.rows = [self.live()]
-        run.notify_recovery(directory, record.read_state(directory))
+        handback.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(self.typed, [(SEAT, (
             "run run-19 finished FAIL: Run process exited or its identity changed. "
             f"Result: {directory / 'result.md'}. Decide the next step."))])
@@ -761,7 +761,7 @@ class HandBack(Sandbox):
                                finished_at=None, interrupted_at=9990, recovery_pending=True,
                                rounds=2, round_summaries=[], findings="")
         self.rows = []                      # nobody is in it any more
-        run.notify_recovery(directory, record.read_state(directory))
+        handback.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(self.reopened, [(SEAT, True)])
         self.assertEqual(len(self.typed), 1)
         self.assertIn("is unfinished:", self.typed[0][1])
@@ -772,7 +772,7 @@ class HandBack(Sandbox):
                            finished_at=None, interrupted_at=9991, recovery_pending=True,
                            rounds=2, round_summaries=[], findings="")
         with patch.object(watch, "seat_closed", return_value=True):
-            run.notify_recovery(other, record.read_state(other))
+            handback.notify_recovery(other, record.read_state(other))
         self.assertEqual([kind for kind, _, _ in self.cards], ["needs"])
 
     def test_a_task_inside_a_job_still_hands_its_own_ending_back(self):
@@ -894,12 +894,12 @@ class HandBack(Sandbox):
         stale = record.read_state(directory)
         record.save_state(directory, {**run.clear_delivery(record.read_state(directory)),
                                    "state": "running", "finished_at": None, "pid": 4242})
-        self.assertFalse(run.same_attempt(stale, record.read_state(directory)))
+        self.assertFalse(handback.same_attempt(stale, record.read_state(directory)))
         running = record.read_state(directory)
         for marks in ({"reported": True}, {"handed_back": 9991},
                       {"handback_pending": True}, {"pending_inbox": None}):
             with self.subTest(marks=marks):
-                self.assertFalse(run.mark_delivery(directory, dict(stale), **marks))
+                self.assertFalse(handback.mark_delivery(directory, dict(stale), **marks))
                 self.assertEqual(record.read_state(directory), running)
         # the new attempt ends, and its own ending is handed back as any other
         record.save_state(directory, {**record.read_state(directory), "state": "fail",
@@ -915,7 +915,7 @@ class HandBack(Sandbox):
         record.save_state(directory, {**run.clear_delivery(record.read_state(directory)),
                                    "state": "running", "finished_at": None, "pid": 4242})
         self.rows = [self.live()]
-        self.assertFalse(run.hand_back(stale, directory, self.logs.append))
+        self.assertFalse(handback.hand_back(stale, directory, self.logs.append))
         self.assertEqual(self.typed, [])
         self.assertNotIn("handback_pending", record.read_state(directory))
         self.assertIn(f"run {directory.name} has moved on since this ending", self.logs[-1])
@@ -995,7 +995,7 @@ class HandBack(Sandbox):
         stale = record.read_state(directory)            # what a draw minutes ago is holding
         self.rows = [self.live()]
         run.announce(record.read_state(directory), directory, self.logs.append)
-        run.mark_delivery(directory, stale, reported=True)
+        handback.mark_delivery(directory, stale, reported=True)
         self.assertTrue(record.read_state(directory)["handed_back"])
         self.assertFalse(handback.owes_ending(record.read_state(directory)))
 
@@ -1028,10 +1028,10 @@ class HandBack(Sandbox):
                                recovery_notified="needs", rounds=2, round_summaries=[],
                                findings="")
         self.rows = [self.live()]
-        run.notify_recovery(directory, record.read_state(directory))
+        handback.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(self.typed, [])            # the stale mark keeps it quiet
         record.save_state(directory, run.clear_delivery(record.read_state(directory)))
-        run.notify_recovery(directory, record.read_state(directory))
+        handback.notify_recovery(directory, record.read_state(directory))
         self.assertEqual(len(self.typed), 1)
 
     def test_nothing_is_collected_while_it_still_owes_its_seat_a_line(self):
@@ -1245,12 +1245,12 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         quota = self.ended("run-11", owner=SEAT, state="exhausted", quota_dry=True,
                            finished_at=None, error="every provider is spent")
-        run.notify_recovery(quota, record.read_state(quota))
+        handback.notify_recovery(quota, record.read_state(quota))
         self.assertEqual((self.typed, self.cards), ([], []))
         # nothing resumes a stop that is not a window: the seat hears it like any ending
         stuck = self.ended("run-12", owner=SEAT, state="exhausted", finished_at=None,
                            error="the reviewer gave no verdict twice")
-        run.notify_recovery(stuck, record.read_state(stuck))
+        handback.notify_recovery(stuck, record.read_state(stuck))
         self.assertEqual(self.typed, [(SEAT, (
             "run run-12 finished FAIL: the reviewer gave no verdict twice. "
             f"Result: {stuck / 'result.md'}. Decide the next step."))])
@@ -1396,8 +1396,8 @@ class HandBack(Sandbox):
         histories, settles = [], []
         followup_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         bar_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
-        with patch.object(run, "start_followups", side_effect=followup_boom), \
-                patch.object(run, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), \
+        with patch.object(run, "start_followups", side_effect=followup_boom), patch.object(handback, "start_followups", side_effect=followup_boom), \
+                patch.object(run, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",
@@ -1425,8 +1425,9 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         histories, settles = [], []
         with patch.object(run, "start_followups",
+                          side_effect=record.StopRequested("fix-child was stopped")), patch.object(handback, "start_followups",
                           side_effect=record.StopRequested("fix-child was stopped")), \
-                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), \
+                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(handback, "redress_seat"), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",
@@ -1444,6 +1445,7 @@ class HandBack(Sandbox):
         # ... and this run's own stop still aborts its ending, as the stop left it
         record.save_state(directory, {**record.read_state(directory), "state": "stopped"})
         with patch.object(run, "start_followups",
+                          side_effect=record.StopRequested("run-fixstop was stopped")), patch.object(handback, "start_followups",
                           side_effect=record.StopRequested("run-fixstop was stopped")):
             with self.assertRaises(record.StopRequested):
                 run.finish(record.read_state(directory), directory,
@@ -1596,7 +1598,7 @@ class BlockedRuns(unittest.TestCase):
         self.assertIn("- [notes/a \\[draft\\] (2) #1?%20\\`\\<x>.md](", result)
         self.assertIn("- [two%0Alines](", result)
         self.assertIn(f"Result: {directory / 'result.md'}. Workspace: {work}. Decide the next step.",
-                      run.handback_line(state, directory))
+                      handback.handback_line(state, directory))
 
     def test_a_blank_line_in_a_command_s_output_does_not_hide_what_it_said(self):
         # `run_done_when` separates records with a blank line; a command that prints one of

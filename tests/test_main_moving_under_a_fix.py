@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import config, gitcall, harness, host, run, status, transitions
+from agentkit import config, gitcall, host, run, status, transitions
 from agentkit import record
 
 

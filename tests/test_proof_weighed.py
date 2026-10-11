@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, hand_in, run, stop, turns, worker
+from agentkit import config, hand_in, handback, run, stop, turns, worker
 from fixtures.hand_in import findings_section, scripted, stateful
 
 
@@ -181,7 +181,7 @@ out = pathlib.Path(sys.argv[6])
                 finding("legacy.py:1", "reviewers own follow-up", own, kind="follow-up",
                         before=f"base {self.base}"))
         self.assertEqual(verdict, "PASS")
-        self.assertFalse(run.review_failed(self.lp.state))
+        self.assertFalse(handback.review_failed(self.lp.state))
         self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 0)
         self.assertEqual(len(self.lp.state["followups"]), 3)
         self.assertIn("proof on base", self.lp.state["followups"][0])
@@ -201,7 +201,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertEqual(self.review(finding("api.py:1", "unproven defect", command),
                                      edits={"reviewer-only": "defect\n"}), "PASS")
         self.assertEqual(self.lp.state["followups"], [])
-        self.assertFalse(run.review_failed(self.lp.state))
+        self.assertFalse(handback.review_failed(self.lp.state))
         self.assertEqual(len(self.lp.state["notes"]), 1)
         self.assertIn("loop proof passes", self.lp.state["notes"][0])
         self.assertNotIn("\nreviewer output", self.lp.state["notes"][0])

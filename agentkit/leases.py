@@ -343,7 +343,7 @@ def task_naming(run_dir, directory, repo):
     absolute -- started again by the tick, a task naming none, or a relative one, would be
     resolved in the tick's directory -- and the new run where it names the stopped one (a fix
     run's check, the regression script it may write and the run its search leaves out,
-    `run.start_followups`)."""
+    `handback.start_followups`)."""
     from . import task
     pairs, body = task.front_matter(run_dir / "task.md")
     return ("---\n" + "".join(f"{key}: {value}\n" for key, value in pairs if key != "repo")
@@ -356,7 +356,7 @@ def restart(log=print, now=None):
     naming its repository and the new run (`task_naming`), with a fix run's regression folder and
     receipt (`CARRIED`), a new run of its seat (`run.launch_for_seat`).  The stopped run names the
     new one first, and the launch follows, under the lock a stop and a seat's close take (as
-    `run.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
+    `handback.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
     and none starts twice whatever the launch did."""
     from . import handback, run, watch
     for run_dir in run_record.run_dirs():

@@ -58,7 +58,7 @@ class QueuedRunFilesSeat(Sandbox):
         opts = {"--no-merge": False, "--no-worktree": False, "--anyway": False, "--bg": False}
         with chdir(where), patch.dict(os.environ, {config.SESSION_ENV: "fix-api",
                                                    "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "4"}), \
-                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), redirect_stdout(io.StringIO()):
+                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(handback, "redress_seat"), redirect_stdout(io.StringIO()):
             run.prepare(directory, opts, lambda _: None, task_file=task_file)
         self.assertEqual(record.read_state(directory)["state"], "queued")
         return directory
@@ -162,7 +162,7 @@ class QueuedRunFilesSeat(Sandbox):
                         patch.object(run, "exclude_junk"), \
                         patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                         patch.object(run, "rounds", side_effect=rounds), \
-                        patch.object(run, "write_result"), \
+                        patch.object(run, "write_result"), patch.object(handback, "write_result"), \
                         redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                     run.loop(self.cfg, directory, directory / "task.md",
                              {"--rounds": "1", "--no-worktree": False, "--no-merge": True,

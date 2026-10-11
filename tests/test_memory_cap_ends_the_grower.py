@@ -215,7 +215,7 @@ class Loop(Sandbox):
         for policy, reason in (("continue", None), ("stop", "killed: memory cap 4 GB")):
             with patch.object(handback, "_systemctl_fields",
                               return_value=("success", f"/{CGROUP}", policy)):
-                self.assertEqual(run.memory_cap_reason(state), reason, policy)
+                self.assertEqual(handback.memory_cap_reason(state), reason, policy)
 
 
 if __name__ == "__main__":

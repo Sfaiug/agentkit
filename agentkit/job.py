@@ -458,7 +458,7 @@ def job_now(job, alive, cfg=None, index=None):
               or bool(job.get("handback_pending")))
     tasks = []
     for task in job["tasks"]:
-        run_state = run.reap(config.RUNS / task["run_id"], {}) if task.get("run_id") else {}
+        run_state = handback.reap(config.RUNS / task["run_id"], {}) if task.get("run_id") else {}
         if run_state.get("state") and (not alive or task.get("state") in JOB_TERMINAL):
             ended = run_state["state"] in record.ENDED
             # a merge is merged whatever today's config makes of its review's providers
@@ -749,7 +749,7 @@ def job_await(run_dir, poll=lambda: None):
         state = record.read_state(run_dir) or {}
         if not record.process_active(state):
             with job_adopting(run_dir.name):
-                state = run.reap(run_dir, state)
+                state = handback.reap(run_dir, state)
             line = transitions.landing_line(state)
             if not (state.get("state") in record.ACTIVE or line
                     or (state.get("state") == "interrupted" and state.get("deaths")
@@ -1043,7 +1043,7 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
     run_state = {}
     try:
         with job_adopting(run_dir.name):
-            run_state = run.reap(run_dir, record.read_state(run_dir) or {})
+            run_state = handback.reap(run_dir, record.read_state(run_dir) or {})
         if job_end_legacy_run(cfg, task, run_dir):
             with lock:
                 save_job(job_dir, job)
@@ -1249,7 +1249,7 @@ def run_job_loop(cfg, job_dir, job):
                 save()
                 continue
             with job_adopting(rundir.name):
-                state = run.reap(rundir, record.read_state(rundir) or {})
+                state = handback.reap(rundir, record.read_state(rundir) or {})
             if state.get("state") in record.ACTIVE and record.process_active(state):
                 # alive elsewhere; its own scheduler owns it: look again in a minute,
                 # not every tick (the reap takes the run's lock each time)
@@ -1320,7 +1320,7 @@ def run_job_loop(cfg, job_dir, job):
                 # an exhausted or interrupted run kept across ticks: reap it here so a live
                 # record is never adopted, then resume it in a worker, never redo it
                 with job_adopting(kept_dir.name):
-                    kept_state = run.reap(kept_dir, record.read_state(kept_dir) or {})
+                    kept_state = handback.reap(kept_dir, record.read_state(kept_dir) or {})
                 if kept_state.get("state") in record.ACTIVE \
                         and record.process_active(kept_state):
                     # alive elsewhere; its own scheduler owns it: back off like every wait
