@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, host, land, run, usage
+from agentkit import config, gate, gc, gitcall, host, land, run, turns, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -511,7 +511,7 @@ class MergeStep(unittest.TestCase):
                 return self.review_call(cfg, name, body, workspace, out, role, session, log, limit)
             asked.append((name, body))
             if len(asked) == 1:
-                raise run.RanDry(name, "quota", 1, "", session, None,
+                raise turns.RanDry(name, "quota", 1, "", session, None,
                                  "usage limit reached", True)
             return 0, resolve(wt), session, False
 

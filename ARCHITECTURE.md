@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (11.1k lines) holds most of the run side; `gitcall.py` is its first leaf.
+- `run.py` (10.8k lines) holds most of the run side; `gitcall.py` and `turns.py` are its first leaves.
 
 ## Entry points
 
@@ -26,6 +26,7 @@
   foreground callers and jobs follow records. Forks keep `land`. API: `main`, `going`,
   `pick_models`; for watch, status, job, gc, orch, menu, notify, usage, worker and a hook.
 - `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.
+- `turns.py`: one model turn: the endings a harness hands back (`Exhausted`, `Dead`, `Killed`, `Blocked`, `NotNeeded`, `RanDry`, `CannotRun`, `TransientHandover`); a round's turn directories and the answer file a turn leaves; the memory cap a turn's scope ran under; the stop of a run's process tree. The call and its retries still follow from `run.py`.
 - `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
   heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
   `host_status_line`, `run_done_when`, turn/env helpers and wait notes. For run, land and

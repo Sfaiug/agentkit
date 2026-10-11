@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, worker
+from agentkit import config, run, turns, worker
 
 
 ADAPTER = r'''import json, os, subprocess, sys, time
@@ -65,7 +65,7 @@ class TurnLeftoverProcesses(unittest.TestCase):
         self.stack.enter_context(patch.object(run._RUN_CONTEXT, "state",
                                               {"run_id": run_id, "run_depth": 0},
                                               create=True))
-        self.stack.enter_context(patch.object(run, "memory_cap_note"))
+        self.stack.enter_context(patch.object(turns, "memory_cap_note"))
         self.stack.enter_context(patch.object(run, "note_turn_meters"))
         self.stack.enter_context(patch.object(run.usage, "account", return_value=(None, True)))
         adapter = self.root / "adapter.sh"

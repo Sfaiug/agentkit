@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, history, menu, run, terminal, worker
+from agentkit import config, hand_in, history, menu, run, terminal, turns, worker
 
 
 class CatchCounts(unittest.TestCase):
@@ -31,7 +31,7 @@ class CatchCounts(unittest.TestCase):
         for key in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
             self.stack.enter_context(patch.object(config, key, config.HOME / key.lower()))
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
-        for module, name in ((worker, "kill_marked"), (run, "memory_cap_note"),
+        for module, name in ((worker, "kill_marked"), (turns, "memory_cap_note"),
                              (run, "history_role_tokens")):
             self.stack.enter_context(patch.object(module, name, return_value=None))
         self.cfg = {"models": {}, "providers": {"acme": {}, "beta": {}},

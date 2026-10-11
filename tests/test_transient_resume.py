@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, run, usage, watch  # noqa: E402
+from agentkit import config, gc, run, turns, usage, watch  # noqa: E402
 from agentkit import record as run_record
 
 
@@ -111,7 +111,7 @@ class TransientResume(unittest.TestCase):
         sleeps, logs = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            with self.assertRaises(run.RanDry) as refused:
+            with self.assertRaises(turns.RanDry) as refused:
                 run.call_retrying(self.cfg, "astra", "body", self.root,
                                   self.root / "out", "executor", None, logs.append)
         # one call, no wait: the round goes to another provider, as today
@@ -252,7 +252,7 @@ class TransientResume(unittest.TestCase):
                 logs = []
                 with patch.object(run.worker, "call", side_effect=fake), \
                         patch.object(run.time, "sleep", side_effect=AssertionError("waited")):
-                    with self.assertRaises(run.CannotRun) as broken:
+                    with self.assertRaises(turns.CannotRun) as broken:
                         run.call_retrying(self.cfg, model, "body", self.root,
                                           self.root / "out", "executor", None, logs.append)
                 self.assertEqual(len(calls), 1)
@@ -337,7 +337,7 @@ class TransientResume(unittest.TestCase):
         logs = []
         with patch.object(config, "adapter", return_value=adapter), \
                 patch.object(run, "transient_wait", side_effect=AssertionError("waited")):
-            with self.assertRaises(run.CannotRun) as broken:
+            with self.assertRaises(turns.CannotRun) as broken:
                 run.call_retrying(self.cfg, "mimo", "body", self.root, out, "executor", None,
                                   logs.append)
         self.assertIn("opencode.sh: opencode is not installed", str(broken.exception))
@@ -369,7 +369,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(run, "history_start"), \
                 patch.object(run, "exclude_junk"), \
                 patch.object(run, "collect_usage", return_value={}), \
-                patch.object(run, "review", side_effect=run.CannotRun("mimo", line)), \
+                patch.object(run, "review", side_effect=turns.CannotRun("mimo", line)), \
                 patch.object(run, "post_review", side_effect=AssertionError("posted")):
             state = run.review_pr(self.cfg, run_dir, "https://github.com/o/r/pull/1",
                                   {"--review": "mimo"}, lambda _: None)
