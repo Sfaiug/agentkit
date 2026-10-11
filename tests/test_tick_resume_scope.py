@@ -72,7 +72,7 @@ class TickResumeScope(unittest.TestCase):
                 watch.resume_errored(log=self.logs.append, now=self.now)
                 self.assertEqual(self.spawned, [] if job else [run_dir.name])
                 self.assertEqual("error_retry_at" in record.read_state(run_dir), not job)
-                self.assertEqual(run.going(record.read_state(run_dir), now=self.now), not job)
+                self.assertEqual(transitions.going(record.read_state(run_dir), now=self.now), not job)
 
     def test_b_jobs_conflict_fail_is_never_parked(self):
         for job in (None, "20261001-0100-job"):

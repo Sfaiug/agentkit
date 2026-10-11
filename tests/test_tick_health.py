@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, gc, job as jobs, notify, orch, run, usage, watch
+from agentkit import browser, config, gc, handback, job as jobs, notify, orch, run, usage, watch
 from agentkit import record
 
 
@@ -53,6 +53,7 @@ class TickHealth(unittest.TestCase):
                             (orch, "stamp"), (orch, "sweep"), (usage, "collect")):
             self.stack.enter_context(patch.object(where, name))
         self.stack.enter_context(patch.object(run, "reap", lambda _dir, state: state))
+        self.stack.enter_context(patch.object(handback, "reap", lambda _dir, state: state))
         self.tidy = self.stack.enter_context(patch.object(browser, "tidy"))
         self.incoming = self.stack.enter_context(patch.object(watch, "incoming"))
         self.outgoing = self.stack.enter_context(patch.object(watch, "outgoing"))

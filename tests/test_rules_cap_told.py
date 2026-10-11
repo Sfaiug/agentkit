@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, gitcall, record, run, worker
+from agentkit import config, gc, gitcall, handback, record, run, worker
 
 LIMIT = 64          # the test harness's read limit, far below any real one
 OLD_CUT = 8 * 1024  # where workers' rules used to be cut
@@ -121,13 +121,13 @@ class RulesCapTold(unittest.TestCase):
         state, directory = self.launch(prior=state)
         self.assertIn(body, run.repo_rules(Path(state["worktree"]), state["base_sha"]))
         self.assertFalse(any("truncated" in line for line in self.logs))
-        self.assertNotIn("cut short", run.handback_line(state, directory, self.cfg))
+        self.assertNotIn("cut short", handback.handback_line(state, directory, self.cfg))
 
     def test_handback_ignores_legacy_cut_state(self):
         self.commit_rules("x" * (OLD_CUT + 1))
         state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending",
                  "rules_truncated": True, "lessons_truncated": True}
-        line = run.handback_line(state, config.RUNS / "acme-run", self.cfg)
+        line = handback.handback_line(state, config.RUNS / "acme-run", self.cfg)
         self.assertNotIn("cut short", line)
         self.assertNotIn(str(self.path), line)
 
@@ -306,7 +306,7 @@ class RulesCapTold(unittest.TestCase):
                 self.assertEqual(state["verdict"], "FAIL")
                 self.assertIn(why, published[-1])
                 self.assertIn(why, (directory / "result.md").read_text())
-                self.assertIn(why, run.handback_reason(state))
+                self.assertIn(why, handback.handback_reason(state))
 
     def test_a_linked_agents_md_is_refused_never_read_as_rules(self):
         (self.repo / "acme-rules.md").write_text("Acme rules.\n")

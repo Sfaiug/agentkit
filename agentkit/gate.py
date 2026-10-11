@@ -1027,7 +1027,7 @@ def split_suite_run(lp, command):
             "once. Keep the check below: it reads this branch's own `tests:` line and runs "
             "pieces 1/3, 2/3 and 3/3 at the same time.\n")
     try:
-        run.start_followups(lp.state, lp.run_dir, lp.log, lp.cfg,
+        handback.start_followups(lp.state, lp.run_dir, lp.log, lp.cfg,
                             split={"command": command, "text": text, "check": check,
                                    "cost": str(path)})
     except (config.Error, OSError, run_record.StopRequested) as exc:

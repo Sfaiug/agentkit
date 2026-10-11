@@ -61,7 +61,7 @@ class ExhaustedNotGoing(Sandbox):
         _, state = self.receipt("20260101-0900-window", quota_dry=True,
                                 error="every provider is out of budget", title="Parked on a window")
         self.assertEqual(transitions.exhausted_wait(state), "window")
-        self.assertTrue(run.going(state))
+        self.assertTrue(transitions.going(state))
         self.assertEqual(menu.run_state_word(state), "working")
         found = self.decide()
         self.assertEqual((found["word"], found["reason"], found["since"]),
@@ -71,7 +71,7 @@ class ExhaustedNotGoing(Sandbox):
         directory, state = self.receipt("20260101-0900-reviewer", title="Waiting for a reviewer",
                                         error="reviewer astra died on API/transport errors")
         self.assertEqual(transitions.exhausted_wait(state), "reviewer")
-        self.assertTrue(run.going(state))
+        self.assertTrue(transitions.going(state))
         self.assertEqual(status.parked_line(state, directory.name, now=NOW),
                          "exhausted · resumes when a reviewer is eligible")
         found = self.decide()
@@ -85,7 +85,7 @@ class ExhaustedNotGoing(Sandbox):
             review_pending={"round": 3, "record": False,
                             "summary": "Re-review after the merge of origin/main"})
         self.assertEqual(transitions.exhausted_wait(state), "")
-        self.assertFalse(run.going(state))
+        self.assertFalse(transitions.going(state))
         self.assertEqual(menu.run_state_word(state), "needs you")
         found = self.decide()
         self.assertEqual(found["word"], "needs you")

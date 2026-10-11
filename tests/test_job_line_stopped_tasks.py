@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job as jobs, run
+from agentkit import config, job as jobs, notify, run
 
 
 class JobLineStoppedTasks(unittest.TestCase):
@@ -38,7 +38,7 @@ class JobLineStoppedTasks(unittest.TestCase):
             jobs, "job_hand_back",
             lambda seat, line, *args, **kwargs: self.handed.append(line) or "sent"))
         stack.enter_context(patch.object(
-            run.notify, "shaped",
+            notify, "shaped",
             lambda kind, text, **kwargs: self.cards.append((kind, text)) or 0))
         self.job_dir = self.root / "jobs" / "job-acme"
         self.job_dir.mkdir(parents=True)

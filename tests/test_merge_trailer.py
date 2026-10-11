@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, run
+from agentkit import config, gate, gc, gitcall, handback, run
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -347,7 +347,7 @@ class MergeTrailer(unittest.TestCase):
                 self.assertEqual(state["state"], "running" if own else "fail")
                 self.assertFalse(state["merged"])
                 self.assertNotIn("final_check", state)
-                self.assertNotIn("once.log", run.handback_line(state, self.directory, self.cfg))
+                self.assertNotIn("once.log", handback.handback_line(state, self.directory, self.cfg))
                 self.assertEqual((self.directory / "round-1/donewhen.log").exists(), not own)
                 self.assertFalse((self.directory / "round-1/once.log").exists())
                 result = (self.directory / "result.md").read_text()

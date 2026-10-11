@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, handback, land, record, run, transitions, usage, watch, worker
+from agentkit import config, gate, gc, gitcall, handback, land, notify, record, run, transitions, usage, watch, worker
 from fixtures.hand_in import submitting
 from test_merge_step import conflict, make_loop, make_repos, resolve
 from fixtures.sandbox import Sandbox
@@ -60,12 +60,11 @@ class LanderWakes(Sandbox):
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
         self.stack.enter_context(patch.object(run.box, "check"))
-        self.stack.enter_context(patch.object(run, "launcher_world", return_value=nullcontext(True)))
         self.stack.enter_context(patch.object(handback, "launcher_world", return_value=nullcontext(True)))
         self.stack.enter_context(patch.object(run, "place_here", return_value=None))
         self.stack.enter_context(patch.object(run, "stop_run_tree"))
-        self.stack.enter_context(patch.object(run, "hand_back", return_value=True))
-        self.stack.enter_context(patch.object(run.notify, "shaped", side_effect=AssertionError("notification")))
+        self.stack.enter_context(patch.object(handback, "hand_back", return_value=True))
+        self.stack.enter_context(patch.object(notify, "shaped", side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(run.history, "Sampler"))
         self.stack.enter_context(patch.object(run.history, "sample_rss", return_value=None))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))

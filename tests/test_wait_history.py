@@ -311,14 +311,14 @@ class WaitHistory(unittest.TestCase):
 
         with self.assertRaises(run.Stopped):
             run.land_from_line(lp, "origin/main", stopped_delivery)
-        with patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(run, "write_result"):
+        with patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(run, "write_result"), patch.object(handback, "write_result"):
             if departure == "exhausted":
                 run.mark_state(lp.run_dir, departure, "the provider's window is spent", lp.log)
             elif departure == "interrupted":
                 record.save_state(lp.run_dir, run.interrupt(record.read_state(lp.run_dir),
                                                             "a killed turn"))
             else:
-                run.park_stalled(lp.run_dir, record.read_state(lp.run_dir),
+                handback.park_stalled(lp.run_dir, record.read_state(lp.run_dir),
                                  {"step": "merge", "time": self.clock[0]})
         self.assertEqual(land.line(turn), [])
         self.assertEqual(self.waits(lp.run_dir.name), (0.0, 0.0, 50.0))
@@ -481,7 +481,7 @@ class WaitHistory(unittest.TestCase):
         for module, name, options in (
                 (time, "time", {"side_effect": lambda: self.clock[0]}),
                 (record, "process_active", {"return_value": False}),
-                (run, "memory_cap_reason", {"return_value": None}),
+                (handback, "memory_cap_reason", {"return_value": None}),
                 (land, "start_line", {"return_value": False})):
             self.stack.enter_context(patch.object(module, name, **options))
         worktree = self.root / "acme"
@@ -537,7 +537,7 @@ class WaitHistory(unittest.TestCase):
         for module, name, options in (
                 (time, "time", {"side_effect": lambda: self.clock[0]}),
                 (record, "process_active", {"return_value": False}),
-                (run, "memory_cap_reason", {"return_value": None}),
+                (handback, "memory_cap_reason", {"return_value": None}),
                 (land, "start_line", {"return_value": False})):
             self.stack.enter_context(patch.object(module, name, **options))
         worktree = self.root / "acme"

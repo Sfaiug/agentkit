@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
-from agentkit import config, handback, run, task, transitions, watch, worker
+from agentkit import config, handback, notify, run, task, transitions, watch, worker
 from agentkit import record
 from fixtures.landing import landing
 
@@ -213,10 +213,10 @@ class RedTargetRepair(unittest.TestCase):
                 def world(session):
                     yield live
                 with self.subTest(word, live=live), \
-                        patch.object(run, "launcher_world", world), patch.object(handback, "launcher_world", world), \
-                        patch.object(run, "hand_back") as hand_back, \
+                        patch.object(handback, "launcher_world", world), \
+                        patch.object(handback, "hand_back") as hand_back, \
                         patch.object(watch, "revive", return_value=None) as revive, \
-                        patch.object(run.notify, "shaped") as shaped:
+                        patch.object(notify, "shaped") as shaped:
                     run.announce(dict(state), run_dir, self.logs.append)
                     told = word in ("blocked", "failed")
                     self.assertEqual(hand_back.called, told and live)
@@ -239,8 +239,8 @@ class RedTargetRepair(unittest.TestCase):
         @contextmanager
         def world(session):
             yield True
-        with patch.object(run, "launcher_world", world), patch.object(handback, "launcher_world", world), \
-                patch.object(run, "hand_back") as hand_back:
+        with patch.object(handback, "launcher_world", world), \
+                patch.object(handback, "hand_back") as hand_back:
             run.announce(dict(blocked), repair, self.logs.append)
         hand_back.assert_called_once()
         self.assertEqual(hand_back.call_args.args[0]["error"], QUESTION)

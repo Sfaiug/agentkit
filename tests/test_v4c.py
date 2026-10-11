@@ -18,7 +18,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home, in_account_home
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import config, gitcall, orch, run, usage, watch
+from agentkit import config, gitcall, handback, notify, orch, run, usage, watch
 from agentkit import record as run_record
 
 URL = "https://github.com/me/repo/pull/7"
@@ -468,7 +468,7 @@ sys.exit(item.get("rc", 0))
             lp = self.lp()
             state = {**reviewed(), "state": status, "title": "Fix watcher", "launched_session": "missing"}
             with patch.object(orch, "find", return_value=None), patch.object(
-                    notify := run.notify, "shaped", return_value=0) as shaped:
+                    notify, "shaped", return_value=0) as shaped:
                 run.announce(state, lp.run_dir, lambda s: None)
             shaped.assert_called_once_with("needs", "Its orchestrator session missing is gone. Run "
                                             f"finished: {verdict}. Press n in the menu, then say: "
@@ -505,7 +505,7 @@ sys.exit(item.get("rc", 0))
                 state = {"review_pr": URL, "review_posted": posted, "state": verdict,
                          "launched_session": "missing"}
                 with patch.object(orch, "find", return_value=None), patch.object(
-                        run.notify, "shaped") as shaped:
+                        notify, "shaped") as shaped:
                     run.announce(state, lp.run_dir, lambda s: None)
                 shaped.assert_not_called()
 
@@ -543,7 +543,7 @@ sys.exit(item.get("rc", 0))
         self.reply(f"pr view {URL} --json mergeStateStatus -q .mergeStateStatus", text="BLOCKED")
         with patch.object(run.worker, "call", side_effect=AssertionError("worker")), patch.object(
                 run, "integrate", return_value=True), patch.object(
-                run, "push", side_effect=AssertionError("push")), patch.object(run, "announce"), patch.object(
+                run, "push", side_effect=AssertionError("push")), patch.object(run, "announce"), patch.object(handback, "announce"), patch.object(
                 run, "git", return_value=SHA), patch.object(gitcall, "git", return_value=SHA), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 contextlib.redirect_stdout(io.StringIO()):

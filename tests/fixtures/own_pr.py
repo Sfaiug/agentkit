@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, hand_in, host, orch, run, status, turns, watch, worker
+from agentkit import config, gate, gc, gitcall, hand_in, handback, host, orch, run, status, turns, watch, worker
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -95,7 +95,7 @@ class OwnPr(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **k: nullcontext()))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
-        self.stack.enter_context(patch.object(run, "launcher_world", side_effect=lambda *a, **k: nullcontext(True)))
+        self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *a, **k: nullcontext(True)))
         self.stack.enter_context(patch.object(orch, "find", return_value={"name": "fix-api"}))
         self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
         self.stack.enter_context(patch.object(host, "frozen_cgroup", return_value=None))

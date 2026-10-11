@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gate, gitcall, host, run, staffing, turns, usage, worktrees
+from agentkit import config, gate, gitcall, host, notify, run, staffing, turns, usage, worktrees
 from agentkit import record
 
 
@@ -56,7 +56,7 @@ sys.exit(1)
 ''')
         self.script(self.bin / "gh", 'raise AssertionError("unexpected external delivery")\n')
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
-        self.stack.enter_context(patch.object(run.notify, "shaped",
+        self.stack.enter_context(patch.object(notify, "shaped",
                                              side_effect=AssertionError("notification")))
         self.sleep = self.stack.enter_context(patch.object(run.time, "sleep"))
         # The fixtures rewrite a delivered scratch run into an interrupted or older record, and

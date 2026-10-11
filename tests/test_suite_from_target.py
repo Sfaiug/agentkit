@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import LanderFixture, ONCE, SUITE
 from test_repo_suite import RepoSuiteFixture
-from agentkit import config, land, run
+from agentkit import config, handback, land, run
 
 
 class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
@@ -22,7 +22,7 @@ class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
         self.git("checkout", "-q", "-b", "fix-api")
         self.commit("---\ntests: true\n---\n# acme\n")
         self.git("push", "-q", "-u", "origin", "fix-api")
-        with patch.object(run, "start_followups", return_value=None):
+        with patch.object(run, "start_followups", return_value=None), patch.object(handback, "start_followups", return_value=None):
             state = self.launch("target-suite", ["test -d ."],
                                 front="base: fix-api\ntarget: main\n", expected="waiting")
         self.assertEqual(self.finals(), [["test -d ."], ["false"]], self.gates)
@@ -51,7 +51,7 @@ class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
 
         with patch.object(run, "merge", side_effect=integrated_check), \
                 patch.object(run, "fix_final_check", return_value=False), \
-                patch.object(run, "start_followups", return_value=None):
+                patch.object(run, "start_followups", return_value=None), patch.object(handback, "start_followups", return_value=None):
             self.launch("pinned-final", ["test -d ."], from_branch="fix-api")
         self.assertEqual(self.finals(), [["test -d ."], [suite]], self.gates)
 

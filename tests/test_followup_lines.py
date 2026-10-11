@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, account_home
-from agentkit import config, plan, run, stop
+from agentkit import config, handback, plan, run, stop
 
 SEAT = "fix-api"
 OUTCOME = "Fix api.py:1 - mode is wrong"
@@ -134,7 +134,7 @@ class Planned(Sandbox):
         for ending in ({"state": "pass", "merged": True}, {"state": "not_needed"}):
             state = self.fix(**ending, finished_at=time.time())
             run.settle_delivered_line(state, lambda _: None)      # as the run ends
-            self.assertFalse(run.routine_ending(state), ending)   # its ending goes to the seat ...
+            self.assertFalse(handback.routine_ending(state), ending)   # its ending goes to the seat ...
             self.assertTrue(stop.owed(SEAT), ending)             # ... and its turn is held
         with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
             plan.require_done(SEAT)
@@ -149,7 +149,7 @@ class Planned(Sandbox):
         state = self.fix(state="pass", merged=True, finished_at=time.time())
         run.settle_delivered_line(state, lambda _: None)  # as the run ends, its line's check ...
         self.assertEqual(plan.open_lines(SEAT), [])      # ... ticked it
-        self.assertTrue(run.routine_ending(state))
+        self.assertTrue(handback.routine_ending(state))
         self.assertEqual(stop.recorded_ending(SEAT), (True, []))
 
     def test_a_delivery_runs_its_own_lines_check_once_and_an_ending_runs_none(self):
@@ -162,7 +162,7 @@ class Planned(Sandbox):
         with patch.object(plan, "fails", side_effect=lambda tree, cmd, env: ran.append(cmd) or real(tree, cmd, env)):
             run.settle_delivered_line(state, lambda _: None)
             for _ in range(3):                            # the tick offers the ending again
-                self.assertFalse(run.routine_ending(state))  # the seat's own line is still open
+                self.assertFalse(handback.routine_ending(state))  # the seat's own line is still open
         self.assertEqual(ran, ["test -f feature.txt"])   # its line's check, once; never the seat's
         self.assertEqual(plan.open_lines(SEAT), [own])
 

@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gate, gitcall, host, job, orch, run, staffing, transitions, watch, worker
+from agentkit import config, gate, gitcall, handback, host, job, orch, run, staffing, transitions, watch, worker
 from agentkit import record
 
 
@@ -244,7 +244,7 @@ class Contract(Fixture):
             record.save_state(self.run_dir, {**state, "step": "execute"})
             with record.record(self.run_dir) as current:
                 current["step"] = "done-when"
-            run.mark_delivery(self.run_dir, state, handback_pending=True)
+            handback.mark_delivery(self.run_dir, state, handback_pending=True)
         self.assertEqual(len(temps), 3)
         self.assertEqual(temps[0], temps[1])
         self.assertNotEqual(temps[1], temps[2])

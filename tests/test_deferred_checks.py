@@ -11,7 +11,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, run, worker
+from agentkit import config, run, transitions, worker
 
 
 class DeferredChecks(unittest.TestCase):
@@ -120,7 +120,7 @@ class DeferredChecks(unittest.TestCase):
                          "rounds": 1, "scratch": True, "worktree": str(root),
                          "executor": "executor", "reviewer": "reviewer",
                          "final_check": dict(where)}
-                with patch.object(run, "delivery", return_value="PASS, delivered"):
+                with patch.object(transitions, "delivery", return_value="PASS, delivered"):
                     run.write_result(root, state, ["true", "bash tests/smoke.sh # once"])
                 result = (root / "result.md").read_text()
                 self.assertIn(f"true\nbash tests/smoke.sh {suffix}", result)

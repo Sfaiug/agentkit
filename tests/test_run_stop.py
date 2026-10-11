@@ -173,7 +173,7 @@ class RunStop(Sandbox):
             run.cmd_resume([run_id])
         self.assertIn("stopped", str(refused.exception))
         # No hand-back, no card: announce is a no-op for a stopped run.
-        with patch.object(run, "hand_back",
+        with patch.object(handback, "hand_back",
                           side_effect=AssertionError("handed back")), \
                 patch("agentkit.notify.shaped",
                       side_effect=AssertionError("card sent")):
@@ -384,7 +384,7 @@ class RunStop(Sandbox):
                     record.save_state(directory, live)
                     return stale
 
-                with patch.object(run, "reap", side_effect=reap), \
+                with patch.object(run, "reap", side_effect=reap), patch.object(handback, "reap", side_effect=reap), \
                         patch.object(record, "process_active",
                                      side_effect=lambda state: state.get("pid") == 999999991), \
                         patch.object(run, "cmd_resume"), patch.object(jobs, "job_ladder"):
@@ -433,7 +433,7 @@ class RunStop(Sandbox):
                                                   "merged": True, "base_sha": "main"})
                     return dict(stale)
 
-                with patch.object(run, "reap", side_effect=reap), \
+                with patch.object(run, "reap", side_effect=reap), patch.object(handback, "reap", side_effect=reap), \
                         patch.object(run, "review_pass",
                                      side_effect=lambda state, _cfg: state.get("verdict") == "PASS"), patch.object(transitions, "review_pass",
                                      side_effect=lambda state, _cfg: state.get("verdict") == "PASS"), \
@@ -458,6 +458,7 @@ class RunStop(Sandbox):
                 task = {"name": "b.md", "title": "B", "state": "running", "run_id": kept.name}
                 job_dir, job = self.old_job(f"20260101-090000-merged-{removed}", task)
                 with patch.object(run, "reap",
+                                  side_effect=lambda directory, _state: record.read_state(directory)), patch.object(handback, "reap",
                                   side_effect=lambda directory, _state: record.read_state(directory)), \
                         redirect_stdout(io.StringIO()):
                     jobs.job_adopt_worker(cfg, job_dir, job, task, kept, threading.Lock(),
@@ -486,7 +487,7 @@ class RunStop(Sandbox):
                     return dict(stale)
 
                 followed = []
-                with patch.object(run, "reap", side_effect=reap), \
+                with patch.object(run, "reap", side_effect=reap), patch.object(handback, "reap", side_effect=reap), \
                         patch.object(record, "process_active",
                                      side_effect=lambda state: state.get("pid") == 999999991), \
                         patch.object(jobs, "job_ladder",

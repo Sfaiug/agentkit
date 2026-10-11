@@ -44,7 +44,6 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.stack.enter_context(patch.object(
             record, "process_active", lambda state: state.get("pid") in self.alive))
         self.stack.enter_context(patch.object(run, "stop_run_tree", lambda *_a, **_kw: None))
-        self.stack.enter_context(patch.object(run, "memory_cap_reason", lambda *_a, **_kw: None))
         self.stack.enter_context(patch.object(handback, "memory_cap_reason", lambda *_a, **_kw: None))
         self.resumed = []
         self.stack.enter_context(patch.object(watch, "launch_resume", self.adopt))
@@ -56,6 +55,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
         self.stack.enter_context(patch.object(watch, "seat_closed", return_value=False))
         self.stack.enter_context(patch.object(watch, "seat_closed_by_owner", return_value=False))
         self.stack.enter_context(patch.object(run, "record_result", lambda *_a, **_kw: None))
+        self.stack.enter_context(patch.object(handback, "record_result", lambda *_a, **_kw: None))
         config.ensure_dirs()
         self.now = time.time()  # reap reads the host clock, so the pass measures the same
         self.dir = config.RUNS / "20261001-0300-acme-fix-api"

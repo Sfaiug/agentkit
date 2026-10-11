@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from fixtures.sandbox import account_home
-from agentkit import config, gc, gitcall, host, job as jobs, run, usage
+from agentkit import config, gc, gitcall, host, job as jobs, notify, run, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -106,7 +106,7 @@ class V5ac(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
         self.script(self.bin / "tmux", 'import sys\nassert sys.argv[1:3] == ["-L", "agentkit-test"]\nsys.exit(1)\n')
         self.script(self.bin / "gh", 'raise AssertionError("external GitHub call")\n')
-        self.stack.enter_context(patch.object(run.notify, "shaped", side_effect=AssertionError("notification")))
+        self.stack.enter_context(patch.object(notify, "shaped", side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))

@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, job as jobs, menu, notify, orch, run, status, watch
+from agentkit import config, gate, handback, host, job as jobs, menu, notify, orch, run, status, watch
 from agentkit import record
 
 ADAPTER = r'''import json, os, pathlib, sys, time
@@ -302,7 +302,7 @@ class Slots(unittest.TestCase):
         saved, _ = self.started("resume-me")
         watch.kill_tree(victim.pid, log=lambda _: None)
         victim.wait(timeout=5)
-        with patch.object(run, "notify_recovery"):
+        with patch.object(handback, "notify_recovery"):
             run.reap(saved, record.read_state(saved))
         self.launch("occupier")
         first, _ = self.started("occupier")

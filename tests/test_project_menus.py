@@ -14,7 +14,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
-from agentkit import config, menu, notify, orch, run, statusbar, terminal, usage, watch
+from agentkit import config, handback, menu, notify, orch, run, statusbar, terminal, usage, watch
 from agentkit import record as run_record
 
 
@@ -122,7 +122,7 @@ class Projects(Sandbox):
                   for path in directory.rglob("*") if path.is_file()}
         for role in ("worker", "orchestrator", ""):
             with self.subTest(role=role), patch.dict(os.environ, {"AK_RUN_ROLE": role}), \
-                    patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")):
+                    patch.object(run, "reap", side_effect=AssertionError("draw reconciled a run")), patch.object(handback, "reap", side_effect=AssertionError("draw reconciled a run")):
                 for width, height in ((100, 30), (40, 30)):
                     screen, _ = self.draw(width, height)
                     self.assertEqual(screen, (REPO / f"tests/fixtures/v4z-{width}.txt").read_text())

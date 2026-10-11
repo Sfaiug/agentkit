@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, history, job as jobs, run, staffing, status, task, transitions
+from agentkit import config, gc, gitcall, handback, history, job as jobs, run, staffing, status, task, transitions
 from agentkit import record
 
 SEAT = "size-check"
@@ -182,11 +182,11 @@ class Sandbox(unittest.TestCase):
     def test_handback_at_budget_carries_the_split_sentence(self):
         directory = self.root / "run-1"
         directory.mkdir()
-        line = run.handback_line(self.failed_at_budget(), directory, CFG)
+        line = handback.handback_line(self.failed_at_budget(), directory, CFG)
         self.assertTrue(line.endswith("three rounds spent: split or re-scope"), line)
         # ... while a FAIL with rounds left says nothing about splitting
         below = {**self.failed_at_budget(), "round_summaries": [{}, {}]}
-        self.assertNotIn("split or re-scope", run.handback_line(below, directory, CFG))
+        self.assertNotIn("split or re-scope", handback.handback_line(below, directory, CFG))
 
     def test_history_status_reports_rounds_per_task_size(self):
         self.finished("r1", "atoll", 2, 100, 1, 100)

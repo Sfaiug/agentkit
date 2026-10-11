@@ -458,7 +458,7 @@ import subprocess
 import tempfile
 from unittest.mock import patch
 
-from agentkit import config, gc, menu, notify, orch, run, terminal, usage, watch, record
+from agentkit import config, gc, handback, menu, notify, orch, terminal, usage, watch, record
 from agentkit.harness import muse_usage
 
 with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
@@ -667,8 +667,8 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
         before = cache.read_bytes()
         with patch.object(usage, "collect", side_effect=error("bad usage")), \
                 patch.object(record, "run_dirs", return_value=[finished]), \
-                patch.object(run, "reap", side_effect=lambda d, state: state), \
-                patch.object(run, "announce") as announce, \
+                patch.object(handback, "reap", side_effect=lambda d, state: state), \
+                patch.object(handback, "announce") as announce, \
                 patch.object(config, "inbox", return_value="inbox"), \
                 patch.object(notify, "shaped", return_value=0) as question:
             assert "WARN the usage refresh did not finish" in tick()

@@ -25,7 +25,7 @@ from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import config, gate, gc, gitcall, host, notify, orch, run, status, turns, usage, watch, worker
+from agentkit import config, gate, gc, gitcall, host, notify, orch, run, status, transitions, turns, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
 
@@ -845,7 +845,7 @@ class Limits(unittest.TestCase):
         state = run_record.read_state(third)
         self.assertEqual(state["state"], "exhausted")
         self.assertTrue(run.needs_recovery(state))
-        self.assertIn("was killed after 1s", run.recovery_reason(state))
+        self.assertIn("was killed after 1s", transitions.recovery_reason(state))
 
     def test_v5f_repository_discovery_never_reads_a_stop_as_no_repository(self):
         self.repo()

@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import browser, config, gc, gitcall, menu, orch, retention, run, stop, transitions, watch, worktrees
+from agentkit import browser, config, gc, gitcall, handback, menu, orch, retention, run, stop, transitions, watch, worktrees
 from agentkit import record as run_record
 
 DAY = 86400
@@ -161,7 +161,7 @@ class Cleanup(Sandbox):
                 patch.object(watch, "type_at_prompt", return_value=True), \
                 patch.object(watch, "is_preexisting", return_value=False), \
                 redirect_stdout(io.StringIO()):
-            self.assertTrue(run.hand_back(state, directory, lambda _message: None))
+            self.assertTrue(handback.hand_back(state, directory, lambda _message: None))
         self.assertFalse(wt.exists(), "the checkout survived the hand-back")
         # The run never pushed, so the branch is the only copy of its commits.
         self.assertTrue(self.branch_exists(branch))
@@ -196,7 +196,7 @@ class Cleanup(Sandbox):
                 patch.object(watch, "type_at_prompt", return_value=True), \
                 patch.object(watch, "is_preexisting", return_value=False), \
                 redirect_stdout(io.StringIO()):
-            self.assertTrue(run.hand_back(state, directory, lambda _message: None))
+            self.assertTrue(handback.hand_back(state, directory, lambda _message: None))
         self.assertTrue(wt.is_dir(), "the hand-back took the resume's checkout")
         self.assertNotIn(str(wt), {item["path"] for item in gc.gc_plan()})
         self.assertIn("ak run resume budget --rounds 3",

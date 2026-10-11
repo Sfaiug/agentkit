@@ -2862,11 +2862,12 @@ def reconcile(run, log):
     the seat that launched it and to nobody when no seat did.  A record too broken to read
     costs that run and no other.
     """
+    from . import handback
     for run_dir in run_record.run_dirs():
         try:
             state = run_record.read_state(run_dir)
             if state is not None:
-                run.reap(run_dir, state)
+                handback.reap(run_dir, state)
         except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
             log(f"WARN cannot reconcile run {run_dir.name}: {exc}")
 
@@ -2917,7 +2918,6 @@ def state_word(session, cfg=None):
 def harness_version(harness):
     """The installed build of that harness, for a line that has to name what cannot compact."""
     if harness not in _VERSIONS:
-        from . import update   # here, not at the top: it is only wanted to name a refusal
         try:
             entry = next((h for h in update.harnesses() if h["name"] == harness), None)
             _VERSIONS[harness] = (update.version(entry) if entry else "") or "(version unknown)"
@@ -3304,7 +3304,7 @@ def cmd_stop(argv):
                     from . import statusbar   # here, not at the top: its module imports this one
                     statusbar.retell(session)   # no other bar names or counts it any more
                 # the owner ended this seat: a run of its that finishes later, or is still
-                # going, brings it back through neither run.announce nor the tick, until a seat
+                # going, brings it back through neither handback.announce nor the tick, until a seat
                 # is launched under the name again.  The hand-back reads `closed_by_owner` for
                 # the same decision, and a pause script that ends a seat writes the same mark
                 # through `mark_owner_closed`.

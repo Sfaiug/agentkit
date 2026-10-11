@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, handback, host, land, run, usage
+from agentkit import config, gate, gc, gitcall, handback, harness, host, land, notify, run, usage
 from agentkit import turns as model_turns     # `turns` is a list in the tests below
 from agentkit import record
 
@@ -342,7 +342,7 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(state["review"]["head_sha"], state["round_summaries"][-1]["head_sha"])
         state["state"] = "fail"         # what the run makes of a FAIL the merge step left
         record.save_state(run_dir, state)
-        self.assertTrue(run.handback_reason(state).startswith("after 3 rounds, open findings: "
+        self.assertTrue(handback.handback_reason(state).startswith("after 3 rounds, open findings: "
                         "- work.txt:1 - the gate is skipped - fixture defect"))
         self.assertFalse(run.integration_note(state, run_dir))
         self.assertTrue(run.failed_at_budget(state))
@@ -373,7 +373,7 @@ class MergeStep(unittest.TestCase):
         state = record.read_state(run_dir)
         self.assertEqual(state["review"]["overridden"], "the reviewer said PASS but exited 1")
         state["state"] = "fail"
-        self.assertEqual(run.handback_reason(state),
+        self.assertEqual(handback.handback_reason(state),
                          "after 1 rounds, the reviewer said PASS but exited 1; the final "
                          "check failed at landing: `bash tests/smoke.sh` — FAIL  2 the gate")
 
@@ -456,7 +456,7 @@ class MergeStep(unittest.TestCase):
                                  f"done-when or review after the {how} of origin/main did not pass")
                 self.assertEqual(len(state["round_summaries"]), 2)
                 state["state"] = "fail"
-                self.assertTrue(run.handback_reason(state).startswith("after 2 rounds, open findings: "
+                self.assertTrue(handback.handback_reason(state).startswith("after 2 rounds, open findings: "
                                 "- shared:1 - drops the target side - fixture defect"))
 
 
@@ -567,9 +567,9 @@ class MergeStep(unittest.TestCase):
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
                 patch.object(gc, "disk_pressure", return_value=False), \
-                patch.object(run, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
-                patch.object(run, "hand_back", return_value=True), \
-                patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
+                patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
+                patch.object(handback, "hand_back", return_value=True), \
+                patch.object(notify, "shaped", side_effect=AssertionError("notification")), \
                 patch.object(run, "stop_run_tree"), \
                 patch.object(run.history, "Sampler"), \
                 patch.object(run.history, "sample_rss", return_value=None), \

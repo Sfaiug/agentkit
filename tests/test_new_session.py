@@ -172,7 +172,7 @@ class NewSession(Sandbox):
                 patch.object(run, "exclude_junk"), \
                 patch.object(run, "pick_models", return_value=("opus", "astra")), patch.object(staffing, "pick_models", return_value=("opus", "astra")), \
                 patch.object(run, "rounds", side_effect=rounds) as started, \
-                patch.object(run, "write_result"), \
+                patch.object(run, "write_result"), patch.object(handback, "write_result"), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             run.loop(self.cfg, directory, task, opts, lambda _: None)
         started.assert_called_once()

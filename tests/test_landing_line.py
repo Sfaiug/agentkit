@@ -39,7 +39,7 @@ class LandingLine(Sandbox):
             with self.subTest(extra=extra):
                 member = {**state, **extra}
                 self.assertTrue(transitions.tick_admission(member, now=200000))
-                self.assertTrue(run.going(member, now=200000))
+                self.assertTrue(transitions.going(member, now=200000))
                 self.assertEqual(menu.run_state_word(member), "working")
                 self.assertFalse(menu.v5o_needs_look(member, now=200000))
 

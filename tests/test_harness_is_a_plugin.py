@@ -391,7 +391,7 @@ class ScratchRun(Fixture):
     def setUp(self):
         super().setUp()
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
-        self.stack.enter_context(patch.object(run.notify, "shaped",
+        self.stack.enter_context(patch.object(notify, "shaped",
                                              side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(run.time, "sleep"))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={

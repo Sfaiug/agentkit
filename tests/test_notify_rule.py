@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run, watch
+from agentkit import config, handback, notify, orch, run, watch
 from agentkit import record
 
 PR = "https://github.com/other/theirs/pull/7"
@@ -162,7 +162,7 @@ class Rule(unittest.TestCase):
                 self.tmux.clear()
                 state = self.decision(pr_state, decision, seat=self.seat())
                 lines = self.typed()
-                # a merge is routine: on the run, typed into no seat (`run.routine_ending`)
+                # a merge is routine: on the run, typed into no seat (`handback.routine_ending`)
                 self.assertEqual(len(lines), 0 if pr_state == "MERGED" else 1, lines)
                 for line in lines:
                     self.assertIn(expected, line)
@@ -205,7 +205,7 @@ class Rule(unittest.TestCase):
                     shutil.rmtree(stale)
                 self.tmux.clear()
                 run_dir = self.finished_run(f"20260915-0001-{pr_state.lower()}", worktree)
-                with patch.object(run, "start_followups") as starts:
+                with patch.object(run, "start_followups"), patch.object(handback, "start_followups") as starts:
                     state = self.decision(pr_state, decision, seat=self.seat())
                 lines = self.typed()
                 self.assertEqual(len(lines), 0 if pr_state == "MERGED" else 1, lines)
@@ -228,7 +228,7 @@ class Rule(unittest.TestCase):
         run_dir = self.finished_run("20260915-0001-merged")
         with patch.object(watch, "type_at_prompt") as typ, \
                 patch.object(orch, "find", return_value=self.seat()), \
-                patch.object(run, "start_followups") as starts:
+                patch.object(run, "start_followups"), patch.object(handback, "start_followups") as starts:
             # a merge is routine: the run learns it, and no seat is owed a line
             self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))
             self.assertTrue(watch.say(False, self.log.append, text, PR, "seat", merged=True))
@@ -243,7 +243,7 @@ class Rule(unittest.TestCase):
         self.log.clear()
         run_dir = self.finished_run("20260915-0001-changes")
         changes = "PR #7 Fix the parser: the maintainer requested changes"
-        real_record = run.record_decision
+        real_record = handback.record_decision
         records = []
 
         def counting(*args, **kwargs):
@@ -252,7 +252,7 @@ class Rule(unittest.TestCase):
 
         with patch.object(watch, "type_at_prompt", side_effect=[False, True]) as typ, \
                 patch.object(orch, "find", return_value=self.seat()), \
-                patch.object(run, "record_decision", side_effect=counting):
+                patch.object(handback, "record_decision", side_effect=counting):
             self.assertFalse(watch.say(False, self.log.append, changes, PR, "seat"))
             self.assertEqual(record.read_state(run_dir)["merge_note"], changes)
             self.assertTrue(watch.say(False, self.log.append, changes, PR, "seat"))
@@ -530,7 +530,7 @@ class Rule(unittest.TestCase):
         record.save_state(run_dir, interrupted)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}), \
                 patch.object(orch, "find", return_value=None):
-            run.notify_recovery(run_dir, record.read_state(run_dir))
+            handback.notify_recovery(run_dir, record.read_state(run_dir))
         self.assertEqual(self.requests, [])
         self.assertEqual(record.read_state(run_dir)["recovery_notified"], "needs")
 
@@ -562,7 +562,7 @@ class Rule(unittest.TestCase):
         record.save_state(run_dir, state)
         with patch.dict(os.environ, {notify.SINK_ENV: ""}), \
                 patch.object(orch, "find", return_value=None):
-            run.notify_recovery(run_dir, record.read_state(run_dir))
+            handback.notify_recovery(run_dir, record.read_state(run_dir))
         self.assertEqual(len(self.requests), 1)      # the owner hears it, as today
         self.assertTrue(self.requests[0][0].startswith(WEBHOOK.split("?")[0]),
                         self.requests[0][0])

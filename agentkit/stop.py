@@ -280,7 +280,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
         except config.Error:
             pass
         try:
-            run.record_result(run_dir, current, log)
+            handback.record_result(run_dir, current, log)
         except (OSError, ValueError, KeyError, TypeError):
             pass
         state = current

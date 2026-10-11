@@ -230,7 +230,7 @@ def _repair(turn, directory, state, tree, red, log):
     and is handed the red target as its own landing finding -- its next head is checked on
     its own merits, so one that repairs the target lands (see `check_line`).
     """
-    from . import run, watch
+    from . import handback, watch
     if state.get("review_pr"):
         path = directory / "target-red.log"
         path.write_text(red["probe"]["text"] + "\n")
@@ -243,7 +243,7 @@ def _repair(turn, directory, state, tree, red, log):
         watch.launch_resume(directory.name, log)
         return None
     try:
-        name = run.start_followups(state, directory, log, repair=red["probe"])
+        name = handback.start_followups(state, directory, log, repair=red["probe"])
     except record.StopRequested:
         raise
     except Exception as exc:  # a refused repair leaves the line waiting, unblamed
@@ -343,7 +343,6 @@ def check_line(turn, log=lambda _: None):
             sent, snapshots, valid = set(), dict(candidates), True
 
             def publish(answers):
-                from . import handback
                 nonlocal valid
                 if not valid:
                     return False

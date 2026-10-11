@@ -193,10 +193,10 @@ class MemoryCap(unittest.TestCase):
         result = (directory / "result.md").read_text()
         self.assertIn("killed: memory cap 4 GB", result)
         self.assertIn("## Why this run stopped", result)
-        line = run.handback_line(state, directory)
+        line = handback.handback_line(state, directory)
         self.assertIn("finished FAIL: killed: memory cap 4 GB.", line)
         self.assertIn(str(directory / "result.md"), line)
-        self.assertNotIn("rounds", run.handback_reason(state))
+        self.assertNotIn("rounds", handback.handback_reason(state))
 
     def test_the_config_key_changes_the_cap(self):
         # No key: 40% of the ceiling handed in, with no 4 GB top; no ceiling
@@ -556,7 +556,7 @@ class MemoryCap(unittest.TestCase):
         self.assertEqual(state["error"], "killed: memory cap 0.03 GB")
         self.assertIn("killed: memory cap 0.03 GB", (directory / "log.txt").read_text())
         self.assertIn("killed: memory cap 0.03 GB", (directory / "result.md").read_text())
-        self.assertIn("killed: memory cap 0.03 GB", run.handback_line(state, directory))
+        self.assertIn("killed: memory cap 0.03 GB", handback.handback_line(state, directory))
         self.assertIn(bomb_unit, self.stopped)
         self.assertNotEqual(_show(f"{bomb_unit}.scope").get("ActiveState"), "active")
         # Drop the throwaway slice (and the sleeper in it) once the readings

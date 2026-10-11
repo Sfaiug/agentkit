@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gate, gc, gitcall, history, host, job as jobs, land, notify, orch, retention, run, status, worker
+from agentkit import config, gate, gc, gitcall, handback, history, host, job as jobs, land, notify, orch, retention, run, status, worker
 from agentkit import record
 
 ADAPTER = '''import json, os, pathlib, sys, time
@@ -574,7 +574,7 @@ sys.exit(1)
         self.assertEqual(self.job_dirs(), [])
 
     def test_v5q_mute_is_thread_local_and_leaves_nothing_behind(self):
-        real_announce, real_recovery = run.announce, run.notify_recovery
+        real_announce, real_recovery = run.announce, handback.notify_recovery
         entered, release, left = threading.Event(), threading.Event(), threading.Event()
         seen = {}
 
@@ -590,7 +590,7 @@ sys.exit(1)
             self.assertTrue(entered.wait(timeout=10))
             # the other thread is muted; this one is not, and no global moved
             self.assertIs(run.announce, real_announce)
-            self.assertIs(run.notify_recovery, real_recovery)
+            self.assertIs(handback.notify_recovery, real_recovery)
             self.assertEqual(getattr(jobs._JOB_MUTE, "depth", 0), 0)
             with jobs.job_muted():
                 seen["nested"] = getattr(jobs._JOB_MUTE, "depth", 0)
@@ -601,7 +601,7 @@ sys.exit(1)
         self.assertFalse(thread.is_alive())
         self.assertEqual(seen, {"depth": 1, "nested": 1})
         self.assertIs(run.announce, real_announce)
-        self.assertIs(run.notify_recovery, real_recovery)
+        self.assertIs(handback.notify_recovery, real_recovery)
 
     def test_v5q_exhausted_attempt_waits_with_its_run_kept(self):
         a = self.task("a.md", "Alpha task")

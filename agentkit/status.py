@@ -659,7 +659,7 @@ def cmd_status(argv):
         # naming one by id still shows it
         if state and not wanted and menu.smoke_run(state):
             continue
-        state = run.reap(directory, state) if state else {"run_id": directory.name,
+        state = handback.reap(directory, state) if state else {"run_id": directory.name,
                                                      "state": "unreadable"}
         if wanted and not machine and directory in looked:
             # the look that just acknowledged an ending still shows it as it found it

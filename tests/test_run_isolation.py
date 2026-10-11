@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, config, notify, orch, run, watch
+from agentkit import config, gate, handback, notify, orch, run, watch
 
 # What a suite running inside a seat hands to the `ak run` it starts: the seat lookup
 # then sees the suite's own servers, where the live launcher seat is nowhere to be found.
@@ -122,7 +122,7 @@ class OrphanAnnounce(unittest.TestCase):
         before = {key: os.environ.get(key) for key in REDIRECT}
         with patch.dict(os.environ, REDIRECT), \
                 patch.object(orch, "watching", fake_watching), \
-                patch.object(run, "hand_back") as handed:
+                patch.object(handback, "hand_back") as handed:
             run.announce(dict(self.state), self.run_dir, lines.append)
         self.assertEqual([c[orch.SOCKET_ENV] for c in calls],
                          ["agentkit-test", None])
@@ -141,7 +141,7 @@ class OrphanAnnounce(unittest.TestCase):
         lines = []
         with patch.dict(os.environ, {"TMUX_TMPDIR": "/legit/socket-dir"}), \
                 patch.object(orch, "watching", fake_watching), \
-                patch.object(run, "hand_back") as handed:
+                patch.object(handback, "hand_back") as handed:
             run.announce(dict(self.state), self.run_dir, lines.append)
         # legitimately set: the lookup that matters keeps it, and one look is enough
         self.assertEqual(calls, ["/legit/socket-dir"])

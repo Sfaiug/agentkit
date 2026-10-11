@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gc, gitcall, job as jobs, menu, notify, orch, run, status, terminal, transitions, watch
+from agentkit import config, gc, gitcall, handback, job as jobs, menu, notify, orch, run, status, terminal, transitions, watch
 from agentkit import host, record as run_record
 
 
@@ -232,7 +232,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         queued = self.receipt("handoff", "queued", started_at=self.now)
         with patch.object(run.time, "time", return_value=self.now):
             self.assertEqual(run.reap(queued, {})["state"], "queued")
-        with patch.object(run.time, "time", return_value=self.now + run.QUEUED_GRACE + 1):
+        with patch.object(run.time, "time", return_value=self.now + handback.QUEUED_GRACE + 1):
             self.assertEqual(run.reap(queued, {})["state"], "interrupted")
 
     def test_zombie_and_parent_death_during_handoff(self):
@@ -246,7 +246,7 @@ if role == "reviewer" and (root / "fail-review").exists():
                               process_identity={"boot": "dead", "ticks": 1}, queued_at=self.now)
         with patch.object(run.time, "time", return_value=self.now):
             self.assertEqual(run.reap(queued, {})["state"], "queued")
-        with patch.object(run.time, "time", return_value=self.now + run.QUEUED_GRACE + 1):
+        with patch.object(run.time, "time", return_value=self.now + handback.QUEUED_GRACE + 1):
             self.assertEqual(run.reap(queued, {})["state"], "interrupted")
         # A delayed detached child must not turn an already reaped receipt into a new run.
         with patch.dict(os.environ, {config.RUN_DIR_ENV: str(queued)}):

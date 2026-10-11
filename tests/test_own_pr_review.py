@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, history, notify, plan, run, staffing, status, task as taskfile, watch
+from agentkit import config, gate, gc, gitcall, handback, history, notify, plan, run, staffing, status, task as taskfile, watch
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -257,8 +257,8 @@ class OwnPrReview(unittest.TestCase):
         directory = config.RUNS / "unmerged"
         directory.mkdir()
         record.save_state(directory, state)
-        with patch.object(run, "start_followups"):
-            run.record_decision(directory, state, "merged by the maintainer", merged=True)
+        with patch.object(run, "start_followups"), patch.object(handback, "start_followups"):
+            handback.record_decision(directory, state, "merged by the maintainer", merged=True)
         self.assertTrue(record.read_state(directory)["merged"])
         self.assertEqual(history.get("unmerged")["changed_lines"], 6)
 

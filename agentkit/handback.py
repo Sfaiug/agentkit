@@ -1,10 +1,10 @@
 """What a run hands back and to whom.
 
-The words of a hand-back and its verdict, the seat a run speaks for and the
-notice it gets, the delivery lock that keeps one ending from being told twice,
-the project a run files under, and the follow-ups a merged run opens.  The
-result a run writes, announcing its ending, and the recovery after a kill or a
-memory cap still follow from `run.py`.
+The result a run writes and the decision it records, the words of a hand-back
+and its verdict, the seat a run speaks for and the notice that seat or the
+owner gets, the delivery lock that keeps one ending from being told twice, the
+project a run files under, the follow-ups a merged run starts, and the recovery
+a run offers after a kill or a memory cap.
 """
 
 import fcntl
@@ -34,6 +34,7 @@ _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already
 
 
 STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is on the way; reap
+                            # leaves the record alone until then, and the resume adopts it
 
 
 def followup_place(text):
@@ -1053,3 +1054,705 @@ def launch_line(run_id, title, executor, reviewer, *, self_review=None):
         models += ", self-reviewed"
     return (f"run {run_id} launched: {title} ({models}); "
             "it counts on this bar and in the menu; you will be told when it ends")
+
+
+def park_stalled(run_dir, state, entry):
+    """Park a thrice-stalled run in state `stalled`: resumable via `ak run resume <id>`."""
+    run_dir = Path(run_dir)
+    stalls = list(state.get("stalls") or [])
+    stalls.append(entry)
+    state.update(state="stalled", stalls=stalls, finished_at=None, stalled_notified=False,
+                 error=f"stalled three times at {entry.get('step')}; parked: "
+                       f"ak run resume {run_dir.name}")
+    run_record.save_state(run_dir, state)
+    try:
+        _, body, _ = taskfile.parse_task(run_dir / "task.md")
+        cmds = taskfile.done_when(body, run_dir / "task.md")
+    except (OSError, config.Error):
+        cmds = []
+    try:
+        write_result(run_dir, state, cmds)
+    except (OSError, config.Error, ValueError, KeyError, TypeError):
+        pass
+    return state
+
+
+def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
+    """A merge hands its follow-ups on, once, under the same lock that closes the seat.
+
+    A review follow-up becomes a line in the seat's own plan, checked by its failing command,
+    and a fix run of its own with that command as its done-when: every planned item's line is
+    written in one place, once the runs are settled, however the loop ended -- deferred,
+    holding no done, where a run has the item (started here, or open with that check from
+    an earlier merge), and the seat's own to build where none does: the session marks no
+    executor, the launch failed, or a stop cut the loop short; a line an earlier merge wrote
+    is kept, its mark following.  Anything else on the list (a flaky check's
+    evidence) starts an ordinary run with a regression test of its own.  The receipt is
+    written once the list is handed
+    on: a process cut off before that hands it on again, and each item finds what the cut-off
+    one already did -- its open plan line, the fix run it started.  A fix run waits for its slot
+    from its first record on, so one the cut left before its launch is a slot wait the tick
+    resumes.  There is no collector or backlog: this ending alone gets to hand on its list.
+
+    A target failing a check on its own tip starts one the same way, before any merge:
+    `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
+    tip's `sha`, and `text` naming the tip and what the command printed there -- and its
+    run, launched ahead of the queue, makes the target pass that command again.  Its guard
+    is an open repair of the same repository, target and command instead of a receipt.
+    Returns the repair's run, started, already open, or left queued by a launch that
+    raised, or None when none is.
+    A slow suite's `split` starts the same way, with ak's task and check. Its cost record
+    keeps the receipt even after run retention, whatever the run's ending.
+    """
+    from . import gate, run, watch  # here, not at the top: run imports handback; the rest reach run
+    session = transitions.launched_session(state)
+    if (not (repair or split or state.get("merged") and state.get("followups")) or not session
+            or not state.get("repo") or state.get("scratch")
+            or (state.get("review_pr") and not state.get("own_pr"))):
+        return None
+    with watch.state_lock():
+        if not (repair or split):
+            current = run_record.read_state(run_dir) or state
+            if "followup_runs" in current:
+                state.update({key: current[key] for key in ("followup_runs", "followup_plan")
+                              if key in current})
+                return None
+            if state.get("state") != "stopped":
+                run_record.stop_check(run_dir)   # a stop that landed first ends the ending
+        if watch.seat_closed(session):
+            return None
+        request = repair or split
+        checks = {} if request else state.get("followup_checks") or {}
+        commits = {} if request else state.get("followup_commits") or {}
+        items = [request["text"]] if request else state["followups"]
+        planned = [item for item in items if item in checks]   # the seat's own, executors or not
+        repo = gitcall.main_checkout(Path(state["repo"])) if planned else None
+        record = config.session_records().get(config.resolve_session(session), {})
+        fixers = record.get("workers") != []      # a run can take a line; else the seat does
+        handed = {"followup_runs": [], "followup_plan": []}
+        taken = set()       # the items a run has: started here, or already open with the check
+
+        def plan_lines():
+            """Every planned item's line, once, however the loop ended: deferred where a run
+            has it (taken here, or open with its check from an earlier merge, which a stop
+            or a seat with no executor never asked), the seat's own to build otherwise."""
+            handed["followup_plan"] = [
+                plan_followup(session, repo, item, checks[item],
+                              commits.get(item) or state.get("base_sha"), log,
+                              deferred=item in taken or bool(open_followup(
+                                  {**state, "repo": str(repo)}, item, check=checks[item])))
+                for item in planned]
+
+        cfg = transitions.report_config(cfg)
+        if not fixers:
+            plan_lines()
+            return None if request else followups_handed(run_dir, state, handed)
+        repo = repo or gitcall.main_checkout(Path(state["repo"]))
+        target = (state.get("target") or state["base"]).removeprefix("origin/")
+        if split:
+            previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
+            if previous:
+                return previous
+        key = repair and {"target": target, "command": repair["command"]}
+        for item in items:
+            started = None if request else started_by(run_dir, item)
+            if started:
+                handed["followup_runs"].append(started)
+                taken.add(item)
+                continue
+            source = {**state, "repo": str(repo)}
+            opened = open_followup(source, item, key, repair and repair["sha"],
+                                   split and split["command"], check=checks.get(item))
+            if opened and request:
+                return opened
+            if opened:
+                taken.add(item)
+                continue
+            title = ("Split the slow test suite" if split else
+                     f"Make {target} pass `{repair['command']}` again" if repair
+                     else "Fix " + item.splitlines()[0])
+            if len(title) > 256:  # GitHub rejects a longer PR title; the item stays whole below
+                title = title[:255] + "…"
+            directory = free_run_dir(gitcall.slugify(title))
+            try:
+                directory.mkdir(parents=True)
+                check = shlex.quote(str(directory / turns.REGRESSION))
+                task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
+                        f"# {title}\n\n{item}\n\n")
+                if split:
+                    task += f"## Done when\n```bash\n{split['check']}\n```\n"
+                elif repair or item in checks:
+                    # the check is a given failing command, the target's own for a repair and the
+                    # reviewer's for a follow-up, and the run makes it pass: one task for both
+                    task += (
+                        "Your checkout starts on the target branch's tip, fetched when this run "
+                        "started: run the command below there first. If it "
+                        'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
+                        "Otherwise fix the root cause so it passes, and show it failing before the "
+                        "fix and passing afterwards in your summary. If only the owner can decide, "
+                        'run `ak hand-in blocked "<question>"`.\n\n'
+                        f"## Done when\n```bash\n{repair['check'] if repair else checks[item]}\n```\n")
+                else:
+                    task += (
+                        "Your checkout starts on the target branch's tip, fetched when this run "
+                        "started: first check that this defect still exists there. "
+                        f"Inspect {config.RUNS}/*/run.json for another open run of session {session} "
+                        f"fixing this site in {repo}; exclude this run ({directory.name}). "
+                        "If the defect is gone or another open run is fixing it, run "
+                        '`ak hand-in not-needed "<why>"`, with no edits or PR. '
+                        "Otherwise fix it with a regression test: show it failing before the fix "
+                        "and passing afterwards, and include both outputs in your summary. "
+                        f"You may write {directory / turns.REGRESSION} outside the checkout "
+                        "to run that test from the checkout; "
+                        "the loop runs it as a check. If only the owner can decide, run "
+                        '`ak hand-in blocked "<question>"`.\n\n'
+                        f"## Done when\n```bash\nbash {check}\n```\n")
+                    (directory / turns.REGRESSION.parent).mkdir()
+                (directory / "task.md").write_text(task)
+                (directory / "log.txt").touch()
+                if split:
+                    gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
+                run.launch_for_seat(directory, state, {
+                    "followup": {"run": run_dir.name, "text": item, "place": followup_place(item),
+                                 **({"check": checks[item]} if item in checks else {})},
+                    # a repair's only check is the target's own, run at landing: its
+                    # before is the lander's run of it on the target tip, where it did
+                    # not pass, and no round has a check of its own to replay on base
+                    **({"repair": key, "repair_tip": repair["sha"],
+                        "base_proof": "at landing"} if repair else {}),
+                    **({"split_suite": split["command"]} if split else {}),
+                    # a fix run with no check of the reviewer's is proven by its own
+                    # regression.sh (`regression_fails_before`), not by its checks on base
+                    **({} if repair or split or item in checks else {"base_proof": "regression.sh"}),
+                    "repo": str(repo)}, cfg, opts={"--first": True} if request else {})
+            except run_record.StopRequested as exc:
+                log(f"follow-up {directory.name} could not start: {exc}")
+                if request:
+                    return None
+                plan_lines()        # the lines of every item, this one and the rest owed
+                return followups_handed(run_dir, state, handed)
+            except (config.Error, OSError) as exc:
+                log(f"follow-up {directory.name} could not start: {exc}")
+                if split:
+                    return directory.name
+                if repair:
+                    # a launch that raised can leave its receipt queued for a slot, and the
+                    # tick starts that: it is the repair all the same
+                    return directory.name if repair_open(run_record.read_state(directory) or {},
+                                                         repair["sha"]) else None
+                continue
+            if request:
+                return directory.name
+            handed["followup_runs"].append(directory.name)
+            taken.add(item)
+        if not request:
+            plan_lines()
+            return followups_handed(run_dir, state, handed)
+
+
+def record_decision(run_dir, state, reason, merged=False):
+    """Put what the maintainer decided on the run itself, where the menu and result.md read it.
+
+    A PR of ours moving is news for the run that opened it, not for Discord: `waiting for the
+    maintainer` becomes what they did, in the one line `ak run status` already shows.
+    """
+    from . import watch  # here, not at the top: it reaches run
+    state["merge_note"] = note = " ".join(reason.split())
+    if merged:
+        state.update(merged=True, **watch.merge_record(state.get("worktree"), state.get("delivery_sha")))
+    run_record.save_state(run_dir, state)
+    if merged:
+        transitions.history_finish(state)
+        settle_delivered_line(state, gitcall.logger(run_dir))
+        start_followups(state, run_dir, gitcall.logger(run_dir))
+    result = run_dir / "result.md"
+    try:
+        if state.get("worktree") and Path(state["worktree"]).is_dir():
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"))
+        else:
+            # The worktree is gone, so the diff stat cannot be produced again: keep the result
+            # as it was written and add what has happened to it since.
+            with delivery_lock(run_dir):
+                if note not in result.read_text():
+                    with result.open("a") as fh:
+                        fh.write(f"\n## The maintainer decided\n\n{note}\n")
+    except (config.Error, OSError, KeyError):
+        pass          # the note is on the run; a result we cannot rewrite from here is not news
+    return state
+
+
+def handback_line(state, run_dir, cfg=None):
+    """The one line a finished run types into the seat that launched it.
+
+    `run <id> finished <verdict>: <why>. Result: <path>. Decide the next step.` -- an ending
+    is the orchestrator's to act on, so it gets the three things a decision needs and nothing
+    else: what happened, where the whole of it is written down, and that the next move is its
+    own.  The owner is never the fallback for a run that did not work out.  A FAIL whose
+    reviews spent the whole round budget says so and says to split: the task was too big, not
+    the worker.  A FAIL a check left behind says no such thing: more rounds of the same task
+    would not have passed it either.  A scratch run names its workspace too: the files
+    there are what it delivered.
+    """
+    workspace = (f" Workspace: {state['worktree']}."
+                 if state.get("scratch") and state.get("worktree") else "")
+    ending = f"finished {handback_verdict(state, cfg)}"
+    action = "Decide the next step."
+    line = (f"run {run_dir.name} {ending}: "
+            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
+            + action)
+    spent = len(state.get("round_summaries") or [])
+    if (state.get("state") == "fail" and (state.get("rounds") or 0) > 0
+            and spent >= (state.get("rounds") or 0) and review_failed(state)):
+        word = NUMBER_WORDS[spent] if 0 <= spent < len(NUMBER_WORDS) else str(spent)
+        split = f" {word} rounds spent: split or re-scope"
+        line += split
+        action += split
+    return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action)
+
+
+def hand_back(state, run_dir, log, cfg=None):
+    """Give the ending back to the live seat that launched it.  True when it was told.
+
+    Typed into the seat's composer through the confirmed send, and only while its harness sits
+    at its own prompt: a line typed into a turn in flight is swallowed.  Otherwise the record
+    keeps `handback_pending` and the `ak watch` tick types it at the next quiet prompt, once.
+    Call it inside `launcher_world`, so the seat is found and typed into where it was seen.
+
+    Exactly once, whoever gets here first: the deciding, the typing and the mark are one
+    stretch under `delivery_lock`, and whoever arrives second reads the record as it stands,
+    sees the line was said and says nothing.  A delivered hand-back ends every other errand
+    this run had -- `handed_back` says the ending is the orchestrator's for good, and an
+    orphan notice left pending from a death the seat has since come back from is over,
+    because the thing it was pending about has just been said.
+    """
+    from . import watch, worktrees  # here, not at the top: they reach run
+    session = transitions.launched_session(state)
+    seat = orch.find(session) or {"name": session}
+    with delivery_lock(run_dir):
+        said = run_record.read_state(run_dir) or state
+        if not same_attempt(state, said):
+            # the run was resumed since this ending: nobody is waiting on it any more, and
+            # the attempt running now will hand back an ending of its own
+            log(f"run {run_dir.name} has moved on since this ending; nothing to hand back")
+            return False
+        if already_handed_back(said):
+            state["handed_back"] = said["handed_back"]
+            log(f"run {run_dir.name} was already handed back to the {session} seat")
+            return True
+        if (said.get("state") in run_record.ENDED and not said.get("handback_pending")
+                and not said.get("notification_pending") and watch.is_preexisting(said)):
+            mark_delivery(run_dir, state, handed_back=time.time(),
+                          handback_note=watch.PREEXISTING_NOTE, handback_pending=None,
+                          handback_wait_reason=None, notification_pending=None)
+            log(f"run {run_dir.name} is a {watch.PREEXISTING_NOTE}")
+            # The seat is not going to read the tree: the ending is history.
+            worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
+            return True
+        line = handback_line(state, run_dir, cfg)
+        if watch.type_at_prompt(seat, line, log, cfg=cfg, typed=said.get("handback_typed"),
+                                receipt=lambda mark: mark_delivery(run_dir, state,
+                                                                   handback_typed=mark)):
+            mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
+                          handback_pending=None, handback_typed=None, handback_note=None,
+                          handback_wait_reason=None, notification_pending=None)
+            log(f"handed run {run_dir.name} back to the {session} seat")
+            # The seat was told. It reads result.md, not the checkout.
+            worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
+            return True
+        if not said.get("handback_pending") or state.get("handed_back"):
+            # an ending is either said or waiting to be, never both: a mark the attempt
+            # before this one left is neither, and goes with the same write
+            mark_delivery(run_dir, state, handback_pending=True, handed_back=None,
+                          handback_note=None)
+    log(f"the {session} seat is not at its prompt; the tick hands run {run_dir.name} back")
+    return False
+
+
+def announce_safely(state, run_dir, log, cfg=None):
+    """`announce`, for a caller whose own news outranks anything the hand-back can fail on."""
+    try:
+        announce(state, run_dir, log, cfg)
+    except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
+        log(f"WARN the ending was not handed back: {exc}")
+
+
+def announce(state, run_dir, log, cfg=None):
+    """The one message a run sends when it ends: to its orchestrator, or about a gone one.
+
+    A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
+    -- is recorded and never typed: nothing in it is the seat's to decide, so the seat hears
+    only an ending that needs its decision, a fail, a blocked, a pass not merged, or the end
+    of a wait its turn may have ended on, and never a line opening a turn for news it can
+    read in `ak run status` and its plan.
+
+    A run under an open seat is handed back to it -- one line into its composer saying how the
+    run ended and that the next step is its own -- because the ending is the orchestrator's and
+    never the owner's.  A run launched from no seat at all -- by hand, over ssh, from cron,
+    from a test -- has nobody to hand back to and nobody to ping: its result is on the terminal
+    it was started from and in `ak run status`.  Only an orphan
+    speaks to the owner, and first to its own seat: the seat is reopened on its saved
+    conversation and told to continue, and the owner hears only when that fails -- or when
+    there is no seat to reopen, one `ak orch stop` ended or one nothing is left of, which is
+    asked of them as before.
+
+    A run that reached a final state is an ending whatever else its record carries: a resume
+    leaves `recovery_pending` behind it, and that is not unfinished work -- there is nothing
+    left to resume -- so it hands back like any other ending rather than going round the
+    recovery path again.
+
+    A `stopped` run is the exception: the stop was deliberate, so it is handed back
+    nowhere and no card goes out for it.  A run parked `waiting` is no ending either: it
+    resumes itself after the next merge upstream, exactly as one sitting out a provider
+    window, so it is handed back nowhere and nobody is told.  An error the tick will retry
+    is the same: its retry is already scheduled, so there is no ending to tell.
+    """
+    from . import job as jobs, watch, worktrees  # here, not at the top: they reach run
+    if state.get("state") == "stopped":
+        return
+    if transitions.going(state) and state.get("state") == "error":
+        return
+    session = transitions.launched_session(state)
+    if transitions.needs_recovery(state) and state.get("state") not in run_record.ENDED:
+        # Inside a job the scheduler owns recovery: a run the job is adopting right now is
+        # resumed by the job itself seconds later, and a recovery notice would be per-task
+        # noise contradicting what happens next.
+        if getattr(jobs._JOB_MUTE, "adopt", None):
+            return
+        reap(run_dir, state)
+        return
+    if state.get("state") not in run_record.ENDED:
+        return
+    if not session:
+        return
+    if routine_ending(state):
+        with delivery_lock(run_dir):
+            current = run_record.read_state(run_dir) or state
+            if not same_attempt(state, current):
+                log(f"run {run_dir.name} has moved on since this ending; nothing to record")
+                return
+            if not finish_typed(session, current.get("handback_typed"), log, cfg):
+                log(f"run {run_dir.name}'s line already in the {session} seat waits for its "
+                    "Enter; the tick sends it")
+                return
+            if not already_handed_back(current):
+                mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
+                              handback_note=ROUTINE_NOTE, handback_pending=None,
+                              handback_typed=None, handback_wait_reason=None,
+                              notification_pending=None)
+        log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
+            "recorded, not typed")
+        # The seat reads result.md and its plan, never the checkout: the ending is history.
+        worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
+        return
+    with launcher_world(session) as live:
+        if live:
+            hand_back(state, run_dir, log, cfg)
+            return
+    if state.get("state") == "not_needed":
+        mark_delivery(run_dir, state, reported=True, handback_pending=None,
+                      handback_wait_reason=None, notification_pending=None)
+        return
+    if getattr(jobs._JOB_MUTE, "depth", 0) or jobs.job_started(state):
+        # a job task's orphan is on the job's own card, never a per-task one -- and the
+        # record has to say the ending went somewhere, or the tick, which runs in another
+        # process with no thread-local mute of its own, would offer it again on every pass
+        mark_delivery(run_dir, state, reported=True, handback_pending=None)
+        return
+    if state.get("review_pr"):
+        # A review has no executor task for the owner to continue, so no orphan card asks them
+        # to; GitHub and the inbox carry the verdict, and the watcher retries an unpublished one.
+        return
+    # History is never replayed, even when the run's own loop meets it directly -- but only
+    # when first seen unmarked; a pending mark is the record of having been seen.
+    with delivery_lock(run_dir):
+        current = run_record.read_state(run_dir) or state
+        if not same_attempt(state, current):
+            log(f"run {run_dir.name} has moved on since this ending; nothing to hand back")
+            return
+        if (not current.get("handback_pending") and not current.get("notification_pending")
+                and watch.is_preexisting(current)):
+            mark_delivery(run_dir, state, handed_back=time.time(),
+                          handback_note=watch.PREEXISTING_NOTE, handback_pending=None,
+                          handback_wait_reason=None, notification_pending=None)
+            log(f"run {run_dir.name} is a {watch.PREEXISTING_NOTE}")
+            return
+        state.update({k: current[k] for k in (
+            "handed_back", "handback_pending", "handback_note", "handback_wait_reason",
+            "notification_pending", "reported") if k in current})
+    # A seat the owner closed stays closed: the hand-back waits for its reopening, recorded as
+    # waiting with the reason, and never as a revival.  Already waiting is left alone: no
+    # rewrite and no second line every tick.
+    if watch.seat_closed_by_owner(session):
+        with delivery_lock(run_dir):
+            current = run_record.read_state(run_dir) or state
+            if not same_attempt(state, current):
+                log(f"run {run_dir.name} has moved on since this ending; nothing to hand back")
+                return
+            if (current.get("handed_back") is False and current.get("handback_pending")
+                    and current.get("handback_wait_reason") == watch.OWNER_CLOSED_REASON):
+                state.update(current)
+                return
+            mark_delivery(run_dir, state, handed_back=False, handback_pending=True,
+                          handback_wait_reason=watch.OWNER_CLOSED_REASON, handback_note=None,
+                          notification_pending=None)
+        log(f"run {run_dir.name} waits for the {session} seat "
+            f"({watch.OWNER_CLOSED_REASON})")
+        return
+    # the seat is gone, so a hand-back left pending for it is over: whatever happens below
+    # is what this run says now, and the tick must not come back here every pass for it
+    mark_delivery(run_dir, state, handback_pending=None, handback_wait_reason=None)
+    task = state.get("title") or state.get("run_id") or run_dir.name
+    verdict = "PASS" if transitions.delivery(state, transitions.report_config(cfg)).startswith("PASS") else "FAIL"
+    why = ""
+    # A pre-existing ending with a stuck card keeps its retry below, but never wakes its seat.
+    if (not watch.seat_closed(session) and watch.orphan_fresh(state, session)
+            and not watch.is_preexisting(state)):
+        log(f"the orchestrator session {session} this run was launched from is gone; "
+            "reopening it")
+        why = watch.revive(session, f"continue {task}: run {run_dir.name} finished {verdict}, "
+                                    f"result at {run_dir / 'result.md'}", log,
+                           prepare=lambda line: seat_notice(
+                               line, state, run_dir, f"run {run_dir.name} finished {verdict}."))
+        if why is None:
+            log(f"reopened {session} and asked it to continue {run_dir.name}")
+            mark_delivery(run_dir, state, reported=True, notification_pending=None)
+            return
+    log(f"the orchestrator session {session} this run was launched from is gone; "
+        "asking the user to continue the task")
+    line = (f"Its orchestrator session {session} is gone. Run finished: {verdict}. "
+            f"Press n in the menu, then say: continue {task}."
+            + (f" agentkit tried to reopen the seat and could not: {why}" if why else ""))
+    mark_delivery(run_dir, state, notification_pending=True)
+    event_id = f"orphan:{run_dir.name}:{state.get('started_at')}:{state.get('finished_at')}"
+    with speaking_for(state):
+        done = notify.shaped("needs", line, session=session, event_id=event_id) == 0
+    if done:
+        mark_delivery(run_dir, state, reported=True, notification_pending=None)
+    else:
+        log("WARN orphan notification was not accepted; retry required")
+
+
+def notify_recovery(run_dir, state):
+    """Hand an unfinished run to its seat once, or use the existing needs-you fallback.
+
+    Only for work that stopped without a verdict.  A run that reached a final state is an
+    ending, `recovery_pending` or not, and `announce` owns it: saying it here too would hand
+    the same line back twice, and escalate one already delivered to the owner once the seat
+    closed.
+    """
+    from . import job as jobs, watch  # here, not at the top: they reach run
+    if state.get("state") in run_record.ENDED or state.get("handed_back"):
+        return  # an ending is announce's, and one already said is nobody's to say again
+    if getattr(jobs._JOB_MUTE, "adopt", None):
+        return  # the job resumes this run itself; a notice would contradict what happens next
+    if state.get("state") == "stalled":
+        return  # the tick told the seat (or sent the one card) when it parked the run
+    if state.get("state") == "exhausted" and state.get("quota_dry"):
+        return  # it waits for a provider window and resumes itself there; nobody is told
+    if state.get("state") == "waiting_login":
+        return  # ... and a run waiting on a login is the one card the babysitter already sent
+    if (state.get("recovery_notified") or state.get("recovery_acknowledged_at") or
+            os.environ.get("AK_RUN_ROLE") == "worker"):
+        return
+    owner = transitions.launched_session(state)
+    if not owner:
+        return                      # a by-hand run has no originating orchestrator
+    log = gitcall.logger(run_dir)
+    # What the run says is worth reading when it is handed back, so it is written first: an
+    # interruption has no result of its own, and a resumed one would otherwise point at the
+    # attempt before it.
+    record_result(run_dir, state, log)
+    # A stop nothing will lift is an ending like any other, so the seat that launched it hears
+    # the one line every ending uses, at its own prompt, and the owner is never asked instead:
+    # a seat mid-turn leaves `handback_pending` for the tick, as a finished run does.
+    with launcher_world(owner) as live:
+        if live:
+            # marked after the hand-back's own mark, or a concurrent reap would find none
+            # and say it all over again; a line still pending is tried at the next quiet prompt
+            if hand_back(state, run_dir, log):
+                mark_delivery(run_dir, state, recovery_notified="orchestrator")
+            return
+    line = (f"Run {run_dir.name} ({notice_title(state)}) is unfinished: {transitions.recovery_reason(state)} "
+            f"Run `ak run status {run_dir.name}` to look and `ak run resume {run_dir.name}` to resume. "
+            "Do not automatically rerun it; check for effects from the interrupted attempt.")
+    # A seat the owner closed stays closed: the interruption waits with the endings, for
+    # the reopening that delivers them, and never reopens the seat itself.  Already waiting is
+    # left alone: no rewrite and no second line every tick.
+    if watch.seat_closed_by_owner(owner):
+        with delivery_lock(run_dir):
+            current = run_record.read_state(run_dir) or state
+            if not same_attempt(state, current):
+                log(f"run {run_dir.name} has moved on since this ending; nothing to hand back")
+                return
+            if (current.get("handback_pending")
+                    and current.get("handback_wait_reason") == watch.OWNER_CLOSED_REASON):
+                state.update(current)
+                return
+            mark_delivery(run_dir, state, handback_pending=True,
+                          handback_wait_reason=watch.OWNER_CLOSED_REASON)
+        log(f"run {run_dir.name} waits for the {owner} seat "
+            f"({watch.OWNER_CLOSED_REASON})")
+        return
+    # The seat is gone, so it is brought back on its own conversation and told, exactly as an
+    # ending's orphan path does; the owner hears only when there is no seat to bring back.  An
+    # interruption old enough to be history keeps its card retry below, but never wakes its seat.
+    why = ""
+    if (not watch.seat_closed(owner) and watch.orphan_fresh(state, owner)
+            and not watch.is_preexisting(state)):
+        log(f"the orchestrator session {owner} this run was launched from is gone; reopening it")
+        why = watch.revive(owner, line, log, prepare=lambda line: seat_notice(
+            line, state, run_dir, f"run {run_dir.name} is unfinished."))
+        if why is None:
+            log(f"reopened {owner} and asked it to take up {run_dir.name}")
+            mark_delivery(run_dir, state, recovery_notified="orchestrator",
+                          handback_pending=None, handback_wait_reason=None)
+            return
+        line += f" agentkit tried to reopen the seat and could not: {why}"
+    event_id = f"recovery:{run_dir.name}:{state.get('interrupted_at')}"
+    with speaking_for(state):
+        if notify.shaped("needs", line, session=owner, event_id=event_id) == 0:
+            mark_delivery(run_dir, state, recovery_notified="needs", handback_pending=None,
+                          handback_wait_reason=None)
+
+
+def conclude_memory_cap(run_dir, state, reason):
+    """End the run `fail` on its memory cap, and stop the scope that hit it.
+
+    The loop that was inside the scope is already dead, so the reason is written
+    from outside: `log.txt`, `result.md`, and the state the hand-back reads.
+    Stopping the scope is what returns the memory; the kernel has usually killed
+    the processes already, and the stop collects whatever it missed.  It is not
+    an interruption: resuming a leak repeats it.
+    """
+    state.update(state="fail", verdict="FAIL", finished_at=time.time(), error=reason)
+    for key in ("recovery_pending", "interruption_reason", "interrupted_at",
+                "waiting_for", "login_resume_at", "login_back_at"):
+        state.pop(key, None)
+    run_record.save_state(run_dir, state)
+    try:
+        with (run_dir / "log.txt").open("a") as fh:
+            fh.write(f"[{datetime.now():%H:%M:%S}] {reason}\n")
+    except OSError:
+        pass
+    record_result(run_dir, state)
+    # The reaper is outside the scope -- the loop is already dead -- so it can
+    # wait for the stop.  That is what puts the memory back before the tick
+    # moves on, instead of leaving systemctl running uncollected.
+    turns.stop_run_tree(state, wait=True)
+    transitions.history_finish(state)
+    try:
+        redress_seat(transitions.launched_session(state))
+    except config.Error:
+        pass
+    return state
+
+
+def reap(run_dir, state, memory_probe=None):
+    """Keep dead loops and abandoned launch receipts as unfinished, explicitly recoverable work.
+
+    A scope the kernel ended for its memory cap is the exception: that is a `fail`,
+    with the cap in the reason, not an interruption to resume.  `memory_probe`
+    stands in for the manager so a test can say what the scope reported without
+    asking a real one.
+    """
+    state = run_record.read_state(run_dir) or state
+    if state.get("state") not in run_record.ACTIVE and not transitions.needs_recovery(state):
+        if state.get("state") not in run_record.ENDED:
+            return state
+        # else: an ended run whose loop may have died before its final cleanup --
+        # fall through and sweep what it left behind, once per loop
+    with run_record.recovery_lock(run_dir):
+        state = run_record.read_state(run_dir) or state  # a menu snapshot may predate a resume
+        status = state.get("state")
+        if status == "queued" and state.get("slot_waiting"):
+            return state  # the tick adopts dead waiters without losing their place
+        if status == "stalled":
+            return state  # parked by the tick; only an explicit resume moves it
+        resumed_at = state.get("stall_resume_at")
+        if (status in run_record.ACTIVE and isinstance(resumed_at, (int, float))
+                and not isinstance(resumed_at, bool)
+                and 0 <= time.time() - resumed_at < STALL_RESUME_GRACE):
+            return state  # the tick stopped this loop and ordered a resume; it adopts next
+        holding = state.get("resume_after")
+        if (status in run_record.ACTIVE and isinstance(holding, (int, float))
+                and not isinstance(holding, bool) and time.time() < holding):
+            return state  # the tick is waiting out this dead loop's backoff before its next try
+        grace = (status == "queued" and
+                 (state.get("launch_pending") or not state.get("process_identity")) and
+                 time.time() - (state.get("queued_at") or state.get("started_at") or 0) < QUEUED_GRACE)
+        if status in run_record.ACTIVE and not grace and not run_record.process_active(state):
+            cap_reason = (memory_cap_reason(state, probe=memory_probe)
+                          if status == "running" else None)
+            if cap_reason:
+                # Asked before the scope is stopped: the Result and the cgroup
+                # events are what say it was the cap, and stopping drops them.
+                conclude_memory_cap(run_dir, state, cap_reason)
+            else:
+                reason = ("Queued launcher exited before starting work." if status == "queued" else
+                          "Run process exited or its identity changed.")
+                if status == "running":
+                    turns.stop_run_tree(state)
+                transitions.interrupt(state, reason)
+                last = (state.get("deaths") or [None])[-1]
+                if transitions.tick_resumes(state) and not (isinstance(last, dict) and not last.get("resumed_at")
+                                                and last.get("pid") == state.get("pid")):
+                    # Whoever notices the death records it, so the tick's dead-loop pass reads
+                    # this record as a loop to carry on rather than as an interruption somebody
+                    # was already told about -- and so it counts towards the third death. Once:
+                    # one the tick recorded and held for its backoff is already there.
+                    state["deaths"] = [*(state.get("deaths") or []),
+                                       {"at": time.time(), "pid": state.get("pid"),
+                                        "reason": reason}]
+                run_record.save_state(run_dir, state)
+        elif status == "interrupted" and not state.get("interrupted_at"):
+            transitions.interrupt(state, state.get("error") or "Earlier interruption; detection time recorded now.")
+            run_record.save_state(run_dir, state)
+        if status in ("pass", *run_record.FAILED, "exhausted", "waiting_login",
+                      "interrupted") and not run_record.process_active(state):
+            swept = [state.get("pid"), state.get("process_identity")]
+            if state.get("tree_stopped") != swept:
+                # The loop recorded its ending and died before its final cleanup, so the
+                # reaper ends what it left behind. Stamped with the loop it swept for:
+                # every activation records a new pid, so a resumed run is swept again
+                # without anyone clearing the stamp.
+                turns.stop_run_tree(state)
+                state["tree_stopped"] = swept
+                run_record.save_state(run_dir, state)
+        # A death the tick resumes is nobody's news however many reaps see it before it does,
+        # the tick's own included while it waits out a backoff.
+        if transitions.needs_recovery(state) and not (state.get("state") == "interrupted" and state.get("deaths")
+                                          and transitions.tick_resumes(state)):
+            notify_recovery(run_dir, state)
+    return state
+
+
+def record_result(run_dir, state, log=None, cfg=None):
+    """result.md for a run that stopped rather than finished.
+
+    The full report when there is a worktree to report on, else the reason and the relaunch:
+    before a worktree exists there is no diff, no rounds and no delivery, so the file carries
+    the title, no verdict, why the run stopped, and `ak run <task.md>` to try again.  Never
+    itself a reason a stop goes unreported: whatever goes wrong writing the full report, the
+    file still says what happened and what to do about it, and the caller still notifies.
+    """
+    try:
+        if state.get("worktree") and "round_summaries" in state and not state.get("review_pr"):
+            _, body, _ = taskfile.parse_task(run_dir / "task.md")
+            write_result(run_dir, state, taskfile.done_when(body, run_dir / "task.md"), log, cfg)
+            return
+    except (config.Error, OSError) as exc:
+        suffix = f"\n\n(the full result could not be written: {exc})"
+    else:
+        suffix = ""
+    try:
+        save_result(run_dir,
+            f"# {transitions.delivery(state, transitions.report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
+            f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
+            f"{state.get('error') or 'no reason was recorded'}\n\n"
+            f"relaunch: ak run {run_dir / 'task.md'}{suffix}\n\n{followup_report(state)}")
+    except OSError:
+        pass
+    else:
+        if log is not None and state.get("error"):
+            log(f"ERROR {state['error']}")
