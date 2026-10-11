@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, config, run, worker
+from agentkit import config, gate, gitcall, run, worker
 from agentkit import record
 from test_red_target import make_loop, make_repos
 
@@ -91,6 +91,7 @@ class BusySuite(unittest.TestCase):
                      "AK_RUN_LOG"):
             os.environ.pop(name, None)
         self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
+        self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
         config.RUNS.mkdir(parents=True)

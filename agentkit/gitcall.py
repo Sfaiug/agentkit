@@ -1,7 +1,7 @@
 """Git, gh and tool calls, and the checkouts they work in.
 
-Every call that reaches a repository or GitHub goes through here, with its stop handling: a
-tool that times out or asks a question raises Stopped, never an empty answer.  Beside them,
+The run side's git, gh and tool calls go through here, with their stop handling: a tool
+that times out or asks a question raises Stopped, never an empty answer.  Beside them,
 what a run reads off a checkout -- the declared suite and rules, the front matter -- and what it
 makes and cleans: worktrees, leftovers, sandboxes, the reviewer's copy and the probe checkouts.
 The run's child environment, depth and logger live here too, as every leaf starts tools.

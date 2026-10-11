@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, run, usage, watch  # noqa: E402
+from agentkit import config, gc, gitcall, run, usage, watch  # noqa: E402
 from agentkit import record as run_record
 
 
@@ -363,6 +363,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(run, "checkout_for", return_value=repo), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "git", return_value="sha"), \
+                patch.object(gitcall, "git", return_value="sha"), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \

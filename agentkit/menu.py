@@ -3314,7 +3314,6 @@ _SWITCHES_LOCK = threading.Lock()
 
 def switches_command(checkout):
     """The command a checkout's AGENTS.md names for its feature switches, or None."""
-    from . import run   # here, not at the top: run.py is the whole loop, and a menu draws without it
     return gitcall.declared(checkout, "features")
 
 

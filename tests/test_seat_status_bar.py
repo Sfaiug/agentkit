@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gc, menu, orch, run, statusbar, terminal, usage, watch
+from agentkit import config, gc, gitcall, menu, orch, run, statusbar, terminal, usage, watch
 from agentkit import host, record
 
 TALLY = "2 running · 1 needs a look"
@@ -289,6 +289,7 @@ class Writes(Sandbox):
                 patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=wt), \
                 patch.object(run, "git", return_value=""), \
+                patch.object(gitcall, "git", return_value=""), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/test")), \
                 patch.object(run, "exclude_junk", return_value=None), \
@@ -387,6 +388,7 @@ class Writes(Sandbox):
                 patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "checkout_for", return_value=wt), \
                 patch.object(run, "git", return_value=""), \
+                patch.object(gitcall, "git", return_value=""), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/test")), \
                 patch.object(run, "exclude_junk", return_value=None), \

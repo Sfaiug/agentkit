@@ -42,7 +42,6 @@ def home(path):
     """The main checkout a recorded path is of (`gitcall.main_checkout`, the one reading of a
     repository's identity): a run launched from inside a linked worktree records that
     worktree, and is of the repository it was added from.  Remembered for one scan."""
-    from . import run
     try:
         return gitcall.main_checkout(Path(path)).resolve()
     except OSError:

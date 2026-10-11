@@ -682,7 +682,6 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
     preamble = PREAMBLES[role].format(workspace=workspace)
     if GATE in preamble:
-        from . import run as loop
         if gitcall.users_declared(workspace) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")
     prompt = out_dir / "prompt.md"

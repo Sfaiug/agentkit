@@ -1182,6 +1182,7 @@ class HandBack(Sandbox):
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
+             patch.object(gitcall, "git", return_value="a" * 40), \
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
@@ -1221,6 +1222,7 @@ class HandBack(Sandbox):
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
+             patch.object(gitcall, "git", return_value="a" * 40), \
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \

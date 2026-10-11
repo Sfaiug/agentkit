@@ -111,6 +111,7 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "viewer_login", return_value=LOGIN),
             patch.object(run, "checkout_for", return_value=self.repo),
             patch.object(run, "git", return_value=""),
+            patch.object(gitcall, "git", return_value=""),
             patch.object(run, "make_worktree", return_value=(self.wt, "ak/pr-7")),
             patch.object(gitcall, "declared", return_value=None),
             patch.object(run, "exclude_junk", return_value=None),
