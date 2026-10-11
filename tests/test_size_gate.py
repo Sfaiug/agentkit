@@ -96,11 +96,19 @@ class SizeGate(Sandbox):
         # lines Git prints as `--- ` and `+++ ` inside a hunk are text, not a file's header
         body = (["-- schema", "++ counter"] + [f"line {n} = {n}" for n in range(498)]
                 + ["", "", "tail = True"])
+        # a submodule holds the module too, and the split re-indents its copy
+        lib = ("-C", "lib", "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost")
+        self.git("init", "-q", "lib")
+        (self.repo / "lib/big.py").write_text("\n".join(body) + "\n")
+        self.git(*lib, "add", "-A")
+        self.git(*lib, "commit", "-qm", "Lib")
         self.write({"big.py": "\n".join(body) + "\n"}, "A big module")
         base = self.git("rev-parse", "HEAD")
         (self.repo / "big.py").unlink()
         (self.repo / "old.py").unlink()
         (self.repo / "parts").mkdir()
+        (self.repo / "lib/big.py").write_text("".join(f"    {line}\n" for line in body))
+        self.git(*lib, "commit", "-qam", "Re-indent")
         # one half moves as it was, the other re-indented into a class; two lines are new, and
         # a line the base had once is added twice; a generated file, its name holding a space,
         # takes old.py's lines
@@ -111,11 +119,11 @@ class SizeGate(Sandbox):
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.carried_lines(self.repo, base, head), 503)
         added = run.diff_lines(self.repo, base, head, added_only=True)
-        self.assertEqual(added, 506)
+        self.assertEqual(added, 507)     # the submodule's bump is one line
         # the user's own diff settings change nothing
         (self.repo / ".git/info/attributes").write_text("* diff=blank\n")
         for key, value in (("diff.noprefix", "true"), ("diff.external", "true"),
-                           ("diff.blank.textconv", "true")):
+                           ("diff.blank.textconv", "true"), ("diff.submodule", "diff")):
             self.git("config", key, value)
         self.assertEqual(run.carried_lines(self.repo, base, head), 503)
         self.assertIsNone(run.pr_size_refusal(7, added, 503))

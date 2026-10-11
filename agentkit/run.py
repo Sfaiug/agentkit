@@ -6917,10 +6917,11 @@ def carried_lines(repo, base, head="HEAD"):
     the same diff deletes, a deleted line paired with one added line at most, so a module
     split across files adds what its new lines come to.  Generated files are left out, as
     `diff_lines` leaves them out; a blank line pairs with a deleted blank line."""
-    # the patch Git prints itself, whatever the user's config says of prefixes and drivers
+    # the patch Git prints itself, whatever the user's config says of prefixes, drivers and
+    # submodules, whose insides diff_lines never counts
     diff = git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color",
                "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
-               f"{base}...{head}", check=False)
+               "--submodule=short", f"{base}...{head}", check=False)
     added, deleted = {}, {}
     new = old = hunk = None
     for line in diff.split("\n"):
