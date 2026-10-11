@@ -13,6 +13,7 @@ generated file.
 import os
 import re
 import subprocess
+import sys
 import unittest
 
 from fixtures.sandbox import Sandbox
@@ -150,6 +151,16 @@ class SizeGate(Sandbox):
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.carried_lines(self.repo, base, head), 0)
         self.assertEqual(run.diff_lines(self.repo, base, head, added_only=True), 520)
+        # the walk grows with the diff's size, never with its boilerplate squared: no step of
+        # carried_lines per copy of a brace times its deleted copies
+        steps, code = [0], run.carried_lines.__code__
+        tracer = lambda frame, event, arg: (steps.__setitem__(0, steps[0] + 1), tracer)[1]
+        sys.settrace(lambda frame, event, arg: tracer if frame.f_code is code else None)
+        try:
+            self.assertEqual(run.carried_lines(self.repo, base, head), 0)
+        finally:
+            sys.settrace(None)
+        self.assertLessEqual(steps[0], 20 * (4000 + 300 * 4 + 520))
         # a short block that reads as moved is still new: fewer than MOVED_BLOCK letters or digits
         self.write({"new.js": "function old_1() {\n  return 1;\n}\n"}, "A short block that was in old.js")
         self.assertEqual(run.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 0)
