@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, call, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, notify, run, worker
+from agentkit import config, gate, gitcall, host, notify, run, worker
 from agentkit import record
 
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
@@ -124,7 +124,7 @@ sys.exit(1)
 ''')
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         # These adapters start no background commands; process discovery is covered by its

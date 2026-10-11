@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import records, submitting
-from agentkit import gate, config, hand_in, run, worker
+from agentkit import config, gate, gitcall, hand_in, run, worker
 from agentkit import record as run_record
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
@@ -173,7 +173,7 @@ class FollowupRule(unittest.TestCase):
         self.review(DEFECT, output=output)
         self.assert_followups([DEFECT, flake])
         url = "https://github.com/acme/project/pull/7"
-        with patch.object(run, "gh", return_value=(0, url)):
+        with patch.object(gitcall, "gh", return_value=(0, url)):
             self.assertEqual(run.open_pr(self.lp, "main"), url)
         body = (self.lp.run_dir / "pr-body.md").read_text()
         self.assertIn("- " + DEFECT, body)
@@ -194,7 +194,7 @@ class FollowupRule(unittest.TestCase):
             return original(path, *args, **kwargs)
 
         with patch.object(Path, "open", guarded), \
-                patch.object(run, "gh", return_value=(0, "https://github.com/acme/project/pull/7")):
+                patch.object(gitcall, "gh", return_value=(0, "https://github.com/acme/project/pull/7")):
             output, _ = self.gate()
             self.review(DEFECT, output=output)
             run.open_pr(self.lp, "main")
@@ -217,7 +217,7 @@ class FollowupRule(unittest.TestCase):
     def test_existing_pr_carries_the_grown_list_and_retries_a_failed_update(self):
         url = "https://github.com/acme/project/pull/7"
         self.review(DEFECT)
-        with patch.object(run, "gh", return_value=(0, url)):
+        with patch.object(gitcall, "gh", return_value=(0, url)):
             run.open_pr(self.lp, "main")
         self.review(OTHER, record=False)          # the list grew: the description follows
         bodies = []
@@ -233,7 +233,7 @@ class FollowupRule(unittest.TestCase):
             bodies.append(Path(args[5].removeprefix("body=@")).read_text())
             return (1, "update failed") if len(bodies) == 1 else (0, "")
 
-        with patch.object(run, "gh", side_effect=gh):
+        with patch.object(gitcall, "gh", side_effect=gh):
             self.assertIsNone(run.open_pr(self.lp, "main"))
             self.assertEqual(run.open_pr(self.lp, "main"), url)
             self.assertEqual(run.open_pr(self.lp, "main"), url)

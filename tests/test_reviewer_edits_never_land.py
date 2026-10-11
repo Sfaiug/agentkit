@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, run, worker
+from agentkit import config, gitcall, run, worker
 
 
 ADAPTER = '''import json, os, pathlib, subprocess, sys, time
@@ -410,7 +410,7 @@ class ReviewerEdits(unittest.TestCase):
 
     @unittest.skipIf(os.geteuid() == 0, "root can read mode-000 files")
     def test_initial_snapshot_skips_unreadable_dirty_files(self):
-        real_changes = run.reviewer_changes
+        real_changes = gitcall.reviewer_changes
 
         @contextmanager
         def unreadable(wt, out, log, **_kw):
@@ -420,7 +420,7 @@ class ReviewerEdits(unittest.TestCase):
                 dirty.chmod(0o644)
                 yield
 
-        with patch.object(run, "reviewer_changes", side_effect=unreadable):
+        with patch.object(gitcall, "reviewer_changes", side_effect=unreadable):
             self.assertEqual(self.review({}), "PASS")
         self.assertIn("keep/existing.txt", self.archive.read_text())
         self.assertTrue(any("WARN" in line and "skipped" in line and "keep/existing.txt" in line
@@ -455,7 +455,7 @@ class ReviewerEdits(unittest.TestCase):
         self.assertIn("+reviewer commit", self.archive.read_text())
 
     def test_branch_switches_and_detached_head_do_not_reach_the_fixer(self):
-        real_changes = run.reviewer_changes
+        real_changes = gitcall.reviewer_changes
 
         @contextmanager
         def check_reset(wt, out, log, **_kw):
@@ -471,7 +471,7 @@ class ReviewerEdits(unittest.TestCase):
                 {"git": [["checkout", "-q", "--detach", "HEAD~1"]]}):
             with self.subTest(row=row):
                 try:
-                    with patch.object(run, "reviewer_changes", side_effect=check_reset):
+                    with patch.object(gitcall, "reviewer_changes", side_effect=check_reset):
                         self.assertEqual(self.review(row), "PASS")
                     self.assert_restored()
                     self.assertIn("# checkout:", self.archive.read_text())
@@ -500,7 +500,7 @@ class ReviewerEdits(unittest.TestCase):
         self.head = self.git("rev-parse", "HEAD")
         (self.harness / "head").write_text(self.head)
         self.lp.validation = run.commit_identity(self.wt)
-        real_call, real_changes = worker.call, run.reviewer_changes
+        real_call, real_changes = worker.call, gitcall.reviewer_changes
 
         def unstaged(cfg, name, body, workspace, out, role, session, **kwargs):
             result = real_call(cfg, name, body, workspace, out, role, session, **kwargs)
@@ -533,7 +533,7 @@ class ReviewerEdits(unittest.TestCase):
                     self.archive.unlink()
                 self.logs.clear()
                 with patch.object(worker, "call", side_effect=unstaged), \
-                        patch.object(run, "reviewer_changes", side_effect=check_reset):
+                        patch.object(gitcall, "reviewer_changes", side_effect=check_reset):
                     self.assertEqual(self.review(
                         {"git": setup, "conflict": command, "files": {"staged.txt": "index edit\n"},
                          "stage": True}), "PASS")

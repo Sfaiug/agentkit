@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import config, retention, run
+from . import config, gitcall, retention, run
 from . import record as run_record
 
 
@@ -236,7 +236,7 @@ def run_repo_cleanup(wt, run_dir):
     left to report into, and this is exactly as if it had never been called.
     """
     try:
-        cmd = run.declared(wt, "cleanup")
+        cmd = gitcall.declared(wt, "cleanup")
         if not cmd or not Path(wt).is_dir():
             return
         target = Path(run_dir) / "cleanup.log"

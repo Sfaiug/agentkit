@@ -25,7 +25,7 @@ from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import gate, host, config, gc, notify, orch, run, status, usage, watch, worker
+from agentkit import config, gate, gc, gitcall, host, notify, orch, run, status, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
 
@@ -384,7 +384,7 @@ class Limits(unittest.TestCase):
         for tool in ("git", "gh"):
             self.script(slow / tool, 'import time\ntime.sleep(60)\n')
         with patch.dict(os.environ, {"PATH": f"{slow}:{os.environ['PATH']}"}), \
-                patch.object(run, "TOOL_CAP", 1):
+                patch.object(gitcall, "TOOL_CAP", 1):
             # a stop is never handed back as an exit code: git_out raises Stopped with the remedy
             with self.assertRaises(run.Stopped) as stopped_call:
                 run.git_out(self.work, "fetch", "origin")
@@ -392,8 +392,8 @@ class Limits(unittest.TestCase):
             self.assertIn("the remote did not answer", str(stopped_call.exception))
             with self.assertRaisesRegex(config.Error, "was killed after 1s"):
                 run.git(self.work, "fetch", "origin")
-            self.assertIsNone(run.gh(self.root, "api", "user")[0])
-            self.assertIn("the remote did not answer", run.gh(self.root, "api", "user")[1])
+            self.assertIsNone(gitcall.gh(self.root, "api", "user")[0])
+            self.assertIn("the remote did not answer", gitcall.gh(self.root, "api", "user")[1])
         # a poll keeps a real round trip's budget to the end: shrinking the last poll
         # below one manufactures a stop out of a healthy gh, and the deadline branch that
         # names the unfinished checks never runs
@@ -662,7 +662,7 @@ class Limits(unittest.TestCase):
         (self.root / "delivery").write_text("unset")
         (self.root / "slow-gh").write_text("repo view")      # the rights check never answers
         task = self.task(["true"])
-        with patch.object(run, "TOOL_CAP", 5):
+        with patch.object(gitcall, "TOOL_CAP", 5):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
         self.assertEqual(code, 1)
         self.assertEqual((state["state"], state["verdict"]), ("pass", "PASS"))
@@ -696,7 +696,7 @@ class Limits(unittest.TestCase):
         run.git(state["repo"], "branch", state["branch"], state["delivery_sha"])
         run.git(state["repo"], "worktree", "add", state["worktree"], state["branch"])
         (self.root / "slow-gh").write_text("pr view")
-        with patch.object(run, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
+        with patch.object(gitcall, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 1)
         state = run_record.read_state(directory)
         self.assertEqual(state["state"], "pass")
@@ -704,7 +704,7 @@ class Limits(unittest.TestCase):
         self.assertIn("was killed after 5s", state["merge_note"])
         self.assertIn("the remote did not answer", (directory / "result.md").read_text())
         (self.root / "slow-gh").unlink()
-        with patch.object(run, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
+        with patch.object(gitcall, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
         self.assertTrue(run_record.read_state(directory)["merged"])
 
@@ -729,7 +729,7 @@ class Limits(unittest.TestCase):
         slow.mkdir()
         self.script(slow / "git", 'import time\ntime.sleep(60)\n')
         with patch.dict(os.environ, {"PATH": f"{slow}:{os.environ['PATH']}"}), \
-                patch.object(run, "TOOL_CAP", 1):
+                patch.object(gitcall, "TOOL_CAP", 1):
             with self.assertRaisesRegex(config.Error, "was killed after 1s"):
                 run.git(self.work, "remote", check=False)
 
@@ -744,7 +744,7 @@ class Limits(unittest.TestCase):
         # verification reaches first (review runs it before the reviewer turn).
         self.plan({"move_origin": 1, "arm_git_on_review": 1, "arm_git": "ls-files --others"})
         task = self.task(["true"], rounds=2)
-        with self.git_shim(), patch.object(run, "TOOL_CAP", 5):
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 5):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
         self.assertEqual(code, 1)
@@ -817,7 +817,7 @@ class Limits(unittest.TestCase):
         # the report itself runs git; a git that has stopped must not stop the report too
         directory, state = self.stopped_run("20260914-1200-stopped")
         (self.root / "slow-git").write_text("diff --stat")
-        with self.git_shim(), patch.object(run, "TOOL_CAP", 1):
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1):
             run.record_result(directory, state)
         result = (directory / "result.md").read_text()
         self.assertIn("## Why this run stopped", result)
@@ -850,7 +850,7 @@ class Limits(unittest.TestCase):
         self.repo()
         path = self.root / "task.md"
         (self.root / "slow-git").write_text("--show-toplevel")
-        with self.git_shim(), patch.object(run, "TOOL_CAP", 1):
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1):
             # a task that names its repo never asks git in the first place
             self.assertEqual(run.task_repo({"repo": str(self.work)}, path), self.work)
             self.assertIsNone(run.task_repo({"repo": "none"}, path))
@@ -892,7 +892,7 @@ class Limits(unittest.TestCase):
         tip = run.git(self.work, "rev-parse", "origin/main^{commit}")
         self.plan({"arm_git_on_review": 1, "arm_git": f"rebase {tip}"})
         task = self.task(["true"])
-        with self.git_shim(), patch.object(run, "TOOL_CAP", 2):
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
         self.assertEqual(code, 1)
@@ -1007,7 +1007,7 @@ class Limits(unittest.TestCase):
 
         for verb in ("fetch origin", "push"):
             (self.root / "slow-git").write_text(verb)
-            with self.git_shim(), patch.object(run, "TOOL_CAP", 2):
+            with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
                 code, directory, state = self.launch(str(task), "--exec", "opus", "--review",
                                                     "astra")
             self.assertEqual(code, 1, verb)
@@ -1037,7 +1037,7 @@ class Limits(unittest.TestCase):
         (run_dir / "log.txt").touch()
         (self.root / "slow-git").write_text("--show-toplevel")
         log = run.logger(run_dir)
-        with self.git_shim(), patch.object(run, "TOOL_CAP", 1), \
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1), \
                 redirect_stdout(io.StringIO()):
             # the re-raise is what the foreground parent prints, so it carries the remedy
             with self.assertRaises(run.Stopped) as prelaunch:
@@ -1067,7 +1067,7 @@ class Limits(unittest.TestCase):
                                             verdict="PASS", merged=True, review=review)
         (self.root / "slow-git").write_text("diff --stat")
         logged = []
-        with self.git_shim(), patch.object(run, "TOOL_CAP", 1):
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1):
             run.record_result(directory, state, logged.append)
         result = (directory / "result.md").read_text()
         self.assertIn("# PASS, merged", result)             # the delivery stands
@@ -1085,7 +1085,7 @@ class Limits(unittest.TestCase):
         (self.root / "delivery").write_text("unset")
         (self.root / "slow-git").write_text("rev-parse --git-path")
         task = self.task(["true"])
-        with self.git_shim(), patch.object(run, "TOOL_CAP", 2):
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
         self.assertEqual(code, 1)
@@ -1198,7 +1198,7 @@ class Limits(unittest.TestCase):
         run.git(state["repo"], "branch", state["branch"], state["delivery_sha"])
         run.git(state["repo"], "worktree", "add", state["worktree"], state["branch"])
         (self.root / "slow-gh").write_text("pr merge")
-        real_gh = run.gh
+        real_gh = gitcall.gh
 
         def confirm_gh(cwd, *args, **kwargs):
             if "--json" in args and args[args.index("--json") + 1] == "state,headRefOid,baseRefName":
@@ -1206,7 +1206,7 @@ class Limits(unittest.TestCase):
                                       "baseRefName": "main"})
             return real_gh(cwd, *args, **kwargs)
 
-        with patch.object(run, "TOOL_CAP", 5), patch.object(run, "gh", side_effect=confirm_gh), \
+        with patch.object(gitcall, "TOOL_CAP", 5), patch.object(gitcall, "gh", side_effect=confirm_gh), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
         state = run_record.read_state(directory)
@@ -1232,7 +1232,7 @@ class Limits(unittest.TestCase):
         with patch.object(run, "require_review_pass"), \
                 patch.object(run, "git", return_value="origin"), \
                 patch.object(run, "git_out", return_value=(0, "")), \
-                patch.object(run, "gh", side_effect=[(0, ""), (4, refused)]):
+                patch.object(gitcall, "gh", side_effect=[(0, ""), (4, refused)]):
             with self.assertRaises(run.Stopped) as fork_stop:
                 run.fork_and_pr(lp, "main", "fixture/repo", "READ")
         self.assertIn("prompts are disabled", str(fork_stop.exception))

@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.landing import landing
-from agentkit import host, config, run
+from agentkit import gitcall, host, config, run
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -169,7 +169,7 @@ class FetchRefRace(unittest.TestCase):
     def test_a_ref_lock_outlasting_the_git_limit_is_reported_not_retried_forever(self):
         # The second call gets the remaining 0.5s, then one retry with that same budget.
         started = time.monotonic()
-        with patch.object(run, "TOOL_CAP", 2):
+        with patch.object(gitcall, "TOOL_CAP", 2):
             with self.assertRaises(config.Error) as error:
                 self.land(ALWAYS, LOCKED, delay=1.5)
         self.assertLess(time.monotonic() - started, 4)

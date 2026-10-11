@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, hand_in, land, record, run, worktrees, watch, worker
+from agentkit import config, gate, gc, gitcall, hand_in, land, record, run, watch, worker, worktrees
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture, climb_ladder
 
@@ -41,7 +41,7 @@ class OwnPrLineFixture(LanderFixture):
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=self.view))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "launcher_world", side_effect=lambda *_: nullcontext(True)))
         self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
@@ -254,7 +254,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
 
     def test_review_round_starts_no_suite(self):
         directory, url = self.own_pr("first", 1)
-        with patch.object(run, "gh", return_value=(0, "")):
+        with patch.object(gitcall, "gh", return_value=(0, "")):
             state = self.review(directory, url)
         self.assertEqual(self.checks, [], "a review round ran the landing suite")
         self.assertEqual(state["state"], "waiting")
@@ -319,7 +319,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(failed["verdict"], "FAIL")
         self.assertIn(f"AGENTS.md is {limit + 10} bytes", failed["findings"])
         self.assertEqual(len(self.merges), 1)
-        self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
+        self.assertLessEqual(len(gitcall.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
 
     def test_a_stack_whose_tree_passed_before_is_measured_against_its_target(self):
         # the reviewer's case: two longer rules together rebuild a tree that went green while
@@ -352,7 +352,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             self.assertTrue(self.review(first, first_url)["merged"])
             land.check_line(self.turn)
             self.assertIn(f"AGENTS.md is {limit + 10} bytes", self.wait(second)["fix"]["line"])
-        self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
+        self.assertLessEqual(len(gitcall.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
 
     def test_a_change_past_the_ceiling_only_behind_a_failed_one_lands_alone(self):
         rules = "---\nusers: none\ntests: test ! -f broken.txt\n---\n" + "".join(
@@ -398,7 +398,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             for directory, url in prs:
                 self.assertIn("land", self.wait(directory), self.wait(directory))
                 self.assertTrue(self.review(directory, url)["merged"])
-        self.assertLessEqual(len(run.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
+        self.assertLessEqual(len(gitcall.git_bytes(self.remote, "show", "main:AGENTS.md")), limit)
 
     def test_a_red_tree_gets_the_landing_fixer_and_the_fix_is_checked_without_a_round(self):
         directory, url = self.own_pr("second", 1)
@@ -626,7 +626,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         """A landing goes red -- its suite, or its required checks -- the seat pushes a fix, and
         the process dies fetching it: the next attempt still reviews that fix."""
         directory, url = self.own_pr("second", 1)
-        with patch.object(run, "gh", return_value=(0, "")):
+        with patch.object(gitcall, "gh", return_value=(0, "")):
             self.assertEqual(self.review(directory, url)["state"], "waiting")
         if red_suite:
             self.advance(**{"first.txt": "first\n"})
@@ -658,7 +658,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
 
     def test_an_earlier_rounds_push_never_overwrites_a_newer_seat_push(self):
         directory, url = self.own_pr("first", 1)
-        with patch.object(run, "gh", return_value=(0, "")):
+        with patch.object(gitcall, "gh", return_value=(0, "")):
             self.assertEqual(self.review(directory, url)["state"], "waiting")
         self.advance()
         land.check_line(self.turn)
@@ -726,7 +726,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         run.git(self.repo, "push", "origin", pr["branch"])
         pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
         self.advance(**{"broken.txt": "broken\n"})
-        with patch.object(run, "gh", return_value=(0, "")), \
+        with patch.object(gitcall, "gh", return_value=(0, "")), \
                 patch.object(watch, "seat_closed", return_value=False), \
                 patch.object(run, "prepare", side_effect=AssertionError("solo seat started a repair run")), \
                 patch.object(run, "fix_own_pr", side_effect=lambda cfg, directory, url, state, opts, log:
@@ -783,7 +783,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         run.git(self.repo, "push", "origin", pr["branch"])
         pr["head"] = run.git(self.repo, "rev-parse", "HEAD")
         self.assertFalse((self.repo / "broken.txt").exists())
-        with patch.object(run, "gh", return_value=(0, "")):
+        with patch.object(gitcall, "gh", return_value=(0, "")):
             state = self.review(directory, url)
             if state["state"] == "waiting":
                 for _ in range(3):
@@ -800,7 +800,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 patch.object(run.history, "sample_rss", return_value=None), \
                 patch.object(worktrees, "settle_run"), patch.object(run, "stop_run_tree"), \
                 patch.object(run, "finish", return_value=0), \
-                patch.object(run, "gh", return_value=(0, "")):
+                patch.object(gitcall, "gh", return_value=(0, "")):
             rc = run.review_pr_main(self.cfg, {"--review": None, "--review-pr": url},
                                     {"--bg": False}, ["--review-pr", url], directory)
         self.assertEqual((rc, record.read_state(directory)["state"]), (1, "waiting"))
@@ -821,7 +821,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
 
     def test_a_terminal_resuming_a_review_follows_it_too(self):
         directory, url = self.own_pr("first", 1)
-        with patch.object(run, "gh", return_value=(0, "")):
+        with patch.object(gitcall, "gh", return_value=(0, "")):
             self.review(directory, url)
         state = record.read_state(directory)
         state.pop("waiting_on", None)
@@ -838,7 +838,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
     def test_an_own_pr_reviewed_with_no_merge_is_never_landed(self):
         directory, url = self.own_pr("first", 1)
         opts = {"--review": None, "--review-pr": url, "--no-merge": True}
-        with patch.object(run, "gh", return_value=(0, "")):
+        with patch.object(gitcall, "gh", return_value=(0, "")):
             state = run.review_pr(self.cfg, directory, url, opts, lambda _: None)
         self.assertEqual((state["state"], state["merged"], state["no_merge"]), ("pass", False, True))
         self.assertNotIn("waiting_on", state)

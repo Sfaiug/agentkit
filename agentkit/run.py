@@ -32,9 +32,13 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (box, command_help, config, gate, gc, hand_in, history, host, job as jobs,
-               land as landing, notify, orch, record as run_record, retention, status,
-               stop, task as taskfile, update, usage, watch, worker, worktrees)
+from . import (box, command_help, config, gate, gc, gitcall, hand_in, history, host,
+               job as jobs, land as landing, notify, orch, record as run_record,
+               status, stop, task as taskfile, update, usage, watch, worker, worktrees)
+from .gitcall import (PR_PARTS, Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity,
+    commit_leftovers, default_base, dirty_paths, exclude_junk, fetch, git, git_out,
+    leftover_junk, log_is_stdout, logger, make_worktree, repo_line, repo_rules,
+    round_commands, run_depth, slugify, stopped, tool_env, tool_run, with_suite)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
 DIFF_CAP = 300 * 1024
@@ -79,15 +83,6 @@ EVENT_KINDS = ("type", "subtype", "kind", "status", "state", "level")
 EVENT_FAILED = re.compile(r"error|fail|abort", re.I)
 EVENT_OUTPUT = ("aggregated_output", "output", "stdout", "stderr", "command", "content",
                 "arguments", "tool_result", "input")
-# what a test run, a build or an editor drops next to the work, and no reviewer should ever see
-JUNK = ("__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/",
-        "node_modules/", ".DS_Store", "*.swp")
-# what the suites leave inside the checkout when a test is killed mid-way: every sandbox
-# tests/smoke.sh and the test_*.py files create there is named under this one prefix, which
-# tests/test_leftover_staged_and_sandboxes.py holds every one of them to.  The leftover sweep
-# never commits these and the loop removes them before the next turn, whatever the
-# repository's .gitignore says.
-SANDBOX_PREFIX = ".ak-test-"
 # A fix run's check, in a folder of its own: the run directory is the loop's, read-only
 # to its turns, and the executor writes this one.
 REGRESSION = Path("regression", "regression.sh")
@@ -100,7 +95,6 @@ def regression_script(run_dir):
 MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
 CHECKS_CAP = 60 * 60            # a check suite still running after an hour is not going to finish
 CHECKS_POLL = 10
-TOOL_CAP = 120                  # seconds allowed for each git or gh attempt
 PR_URL = re.compile(r"https://\S+?/pull/\d+")
 # the race a merge can lose to a merge to the target between the push and this call; the
 # answer is a retry, never an ending -- see `do_merge`
@@ -117,25 +111,14 @@ MERGE_RETRIES = 3      # how often any of them is re-fetched, re-checked and tri
 # merges: its state is asked again while UNKNOWN, and a PR it then calls CLEAN is tried once
 # more -- see `do_merge`
 NOT_MERGEABLE = re.compile(r"Pull Request is not mergeable", re.I)
-# the line a fetch prints for a ref another process holds: the ref moved under it, or git's
-# lock on it is held -- not a ref no retry can write, such as a stale name in its way; see
-# `fetch`.  `.*`, not `[^']*`: a ref name or a checkout path may hold an apostrophe
-REF_LOCKED = re.compile(r"error: cannot lock ref '.*': (?:is at \w+ but expected \w+|"
-                        r"Unable to create '.*': File exists\.)")
-# what git and gh say when the prompt they wanted was refused; each is a stop, never a wait
-PROMPTED = re.compile(r"terminal prompts disabled|could not read (?:Username|Password)|"
-                      r"prompts (?:are )?disabled|askpass", re.I)
-LIST_CAP = 500                  # files a scratch run's reviewer is shown before it is told the count
 PUSH_RIGHTS = ("ADMIN", "MAINTAIN", "WRITE")
 FORK_REMOTE = "fork"            # the remote a run adds for its fork; `origin` stays the upstream
-PR_PARTS = re.compile(r"^https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)/?$")
 CLASSIC_CHECKS_QUERY = (
     "query($owner:String!,$name:String!,$branch:String!){repository(owner:$owner,name:$name){"
     "ref(qualifiedName:$branch){branchProtectionRule{requiresStatusChecks "
     "requiredStatusChecks{context app{databaseId}}}}}}")
 NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
                 "eight", "nine", "ten")   # the hand-back spells the spent budget out
-FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
 FRONT_KEYS = ("tests", "health", "cleanup", "users", "features")
 FOLLOWUPS = re.compile(r"^(#+)[ \t]*Follow-ups\b[^\n]*$", re.M | re.I)
@@ -151,7 +134,6 @@ LOOP_NOTE = re.compile(r"^(?:Checkout changed during |done-when: stopped after |
 # on, long before the tally it ends with.  See `first_failure`.
 FAILURE_LINE = re.compile(r"^(?:FAIL(?:ED)?|ERROR|not ok)\b")
 QUEUED_GRACE = 30               # old launchers did not record the background child's identity
-_RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner
 _DELIVERY_HELD = threading.local()   # the delivery locks this thread is already inside
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
 _PICKUP_HELD = threading.local()   # delivery locks this thread holds or waits for
@@ -159,76 +141,6 @@ STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is o
                                 # leaves the record alone until then, and the resume adopts it
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
 TURN_ROLES = ("executor", "fixer", "reviewer")   # the steps that are a model's turn to continue
-
-
-class Stopped(config.Error):
-    """A git or gh that ran out of time or was refused the prompt it wanted.
-
-    Not the same as a tool that answered `no`: nothing was learned, so nothing can be decided
-    on it, and the run keeps its work for the command that picks it up once the tool works again.
-    """
-
-
-def tool_env():
-    """What git and gh are given: this run's environment, with every prompt turned off and the
-    seat's name dropped.
-
-    A headless run has no terminal to answer on, so a credential prompt is not a question --
-    it is a wait with nobody at the other end of it.
-
-    ak's git and gh speak for no seat: a merge or a push ak runs is ak's own machinery, not a
-    seat's hand, wherever it runs from (a background run, a seat's own `ak run merge`, a job).
-    Dropping $AGENTKIT_SESSION keeps the tmux and gh shims' seatless premise true by construction
-    -- they engage only on a seat's own by-hand call -- so ak's own merge is never refused.
-    """
-    env = {k: v for k, v in config.child_env().items() if k != config.SESSION_ENV}
-    env.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
-    run_id = getattr(_RUN_CONTEXT, "state", {}).get("run_id")
-    if run_id:
-        # A git or gh the loop runs is the run's own: it carries the run's marker, so
-        # detached or timeout-surviving descendants die with the run like any child.
-        # An inherited marker already comes through child_env; this is the loop's own
-        # context, which the loop never exports.
-        env[worker.RUN_MARKER] = worker.run_marker(run_id)
-    return env
-
-
-def tool_run(cmd, cwd=None, timeout=None, env=None):
-    """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
-    as `env` changes it (None drops a variable).
-
-    Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
-    callers can recover any unfinished checkout edits. The code is None on timeout;
-    a refused prompt gets credential advice, no retry. The run's outcome names the next command.
-    """
-    timeout = TOOL_CAP if timeout is None else timeout
-    # Repeating checkout edits can turn a timeout into an "already in progress" failure.
-    args = cmd[3:] if len(cmd) > 1 and cmd[0] == "git" and cmd[1] == "-C" else cmd[1:]
-    retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
-    for attempt in range(2):
-        try:
-            proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
-                                  encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                                  timeout=timeout,
-                                  env={name: value for name, value in
-                                       {**tool_env(), **(env or {})}.items() if value is not None})
-            break
-        except subprocess.TimeoutExpired:
-            if attempt or not retry:
-                tries = " on both attempts" if attempt else ""
-                return None, "", (f"`{' '.join(cmd[:3])}` was killed after {timeout:g}s{tries}: "
-                                  "the remote did not answer")
-            time.sleep(1)
-    err = proc.stderr
-    if proc.returncode != 0 and PROMPTED.search(proc.stdout + err):
-        err = (err.rstrip() + f"\n`{' '.join(cmd[:3])}` asked for a credential it may not ask for: "
-               "check `gh auth status` and the remote's credentials by hand")
-    return proc.returncode, proc.stdout, err
-
-
-def stopped(code, text):
-    """Did this call stop rather than answer -- out of time, or refused its prompt?"""
-    return code is None or (code != 0 and bool(PROMPTED.search(text)))
 
 
 def stall_minutes_for(run_dir, state):
@@ -343,243 +255,6 @@ def park_stalled(run_dir, state, entry):
     return state
 
 
-def git(repo, *args, check=True, env=None):
-    """The command's stdout, raising on failure unless `check` is off.
-
-    `check=False` tolerates a git that said no, never one that never answered: a timeout, or a
-    prompt it was refused, is not an empty result, and reading it as one is how a run loses the
-    thing it was about to do.
-    """
-    code, out, err = tool_run(["git", "-C", str(repo), *args], env=env)
-    halted = stopped(code, err)
-    if (check or halted) and code != 0:
-        raise (Stopped if halted else config.Error)(
-            f"git {' '.join(args)} failed in {repo}: {err.strip()}")
-    return out.strip()
-
-
-def git_out(repo, *args, timeout=None, env=None):
-    """(exit code, output) -- for the steps whose failure is a result to report, not an exception.
-
-    A stop is never a result: a timeout, or a prompt it was refused, raises Stopped, so no
-    caller can route it into conflict handling or read it as an ordinary non-zero exit.
-    """
-    code, out, err = tool_run(["git", "-C", str(repo), *args], timeout=timeout, env=env)
-    if stopped(code, err):
-        raise Stopped(f"git {' '.join(args)} stopped in {repo}: {(out + err).strip()}")
-    return code, (out + err).strip()
-
-
-def fetch(repo, *args, check=False, env=None):
-    """`git fetch` as `git_out` answers it; `check` raises on a failure as `git` does.
-
-    Every run's worktree shares one repository's refs, so two runs fetching at once race for
-    the same remote-tracking ref and the loser's fetch fails on git's ref lock.  That lock
-    already put the two in order: the loser goes again at once, until it goes through or
-    TOOL_CAP, counted from its first try, is spent (a timed-out call still gets one retry),
-    so a passed run is never handed back over another run's fetch.  Any other ref it could
-    not write fails the fetch at once as before.
-    """
-    deadline = time.monotonic() + TOOL_CAP
-    code, out = git_out(repo, "fetch", *args, env=env)
-    while code != 0 and time.monotonic() < deadline and ref_held(out):
-        try:
-            code, out = git_out(repo, "fetch", *args, timeout=deadline - time.monotonic(),
-                                env=env)
-        except Stopped:
-            if time.monotonic() < deadline:
-                raise       # refused a prompt, which no retry answers
-            break           # the limit ran out mid-try: the lock it kept losing is the answer
-    if check and code != 0:
-        raise config.Error(f"git fetch {' '.join(args)} failed in {repo}: {out}")
-    return code, out
-
-
-def ref_held(out):
-    """Did this failed fetch fail only on refs another process holds?
-
-    Every error it printed and every ref it rejected has to be one: a tag it would clobber
-    or a stale name beside a lost race is a failure no retry clears.  A `-q` fetch prints no
-    rejected ref, so no loop fetch is quiet.
-    """
-    failed = [line for line in out.splitlines()
-              if line.startswith(("error:", "fatal:"))
-              or line.strip().startswith("!") and not line.endswith("(unable to update local ref)")]
-    return bool(failed) and all(REF_LOCKED.fullmatch(line) for line in failed)
-
-
-def gh(cwd, *args, timeout=None):
-    """(exit code, output); the code is None when the command ran out of time.
-
-    The PR commands are handed the PR's own URL and run from the run directory rather than the
-    worktree: outside a checkout `gh pr merge --delete-branch` has no local branch to switch
-    away from, and deleting the branch out from under the run's own worktree is not what it means.
-    """
-    code, out, err = tool_run(["gh", *args], cwd=cwd, timeout=timeout)
-    return code, (out + err).strip()
-
-
-def project_env(repo):
-    """What git's environment changes to work on the checkout at `repo` and nothing else, None
-    for a variable it drops (`tool_run`).  GIT_DIR names the checkout's own `.git`, so git looks
-    nowhere else: not in a parent directory's repository when that `.git` was moved away or is
-    none (git fails instead), not where an inherited GIT_DIR points.  The other variables git
-    keeps for one repository are dropped, as git drops them entering a submodule."""
-    code, out, _err = tool_run(["git", "rev-parse", "--local-env-vars"])
-    return {**dict.fromkeys(out.split() if code == 0 else []),
-            "GIT_DIR": os.path.join(os.path.abspath(repo), ".git")}
-
-
-def agents_body(repo, ref):
-    """The body of the AGENTS.md committed at `ref` in `repo`, front matter removed: what each
-    worker's prompt carries of its repository, and each seat's rulebook of its project.
-
-    Read from git, never a checkout's file: the rules are what was merged, not what one checkout
-    holds or one piece of work is changing.  "" where there is none, where it is a link -- its
-    text is a path, not rules (`rules_check` refuses one) -- or where it cannot be read.
-    """
-    if not repo or not ref:
-        return ""
-    env = project_env(repo)
-    try:
-        listed = git(repo, "ls-tree", ref, "--", "AGENTS.md", check=False, env=env).split()
-        # the blob the listing names, never `ref` read twice: a fetch between the two reads
-        # could put a link where the listing saw a file
-        text = (git(repo, "cat-file", "blob", listed[2], check=False, env=env)
-                if listed and listed[0].startswith("100") else "")
-    except Exception:
-        return ""
-    match = FRONT.match(text)
-    return (text[match.end():] if match else text).strip()
-
-
-def repo_rules(wt, ref):
-    """The body of the repository's AGENTS.md at `ref` (`agents_body`), for every worker prompt.
-
-    ak reads only its front matter itself, and a harness loads the body on its own terms
-    (some never, some only beside no file of their own), so without this each brand
-    worked to different rules.  Read at the base commit, never the checkout: the work
-    under review cannot rewrite the rules it is judged by.
-    """
-    text = agents_body(wt, ref)
-    if not text:
-        return ""
-    return ("\n\n## Repository AGENTS.md\n"
-            "The repository's own instructions, as on the base commit. Where they differ "
-            f"from the rest of this prompt, the rest of this prompt wins.\n\n{text}\n")
-
-
-def first_command(cmd):
-    """The shell line up to its first output plumbing: `2>&1`, `|`, `&&`, `||` or `;`.
-
-    A task ends its done-when with the suite's bare command while the repository declares
-    the same command with its log plumbing, and the two are the same run: this is the text
-    before the first plumbing operator outside any quotes and outside any `$(...)`, so a
-    pipe inside a substitution is the command's own argument, never the plumbing.
-    """
-    single = double = False
-    escaped = False
-    depth = 0
-    i, end = 0, len(cmd)
-    while i < end:
-        ch = cmd[i]
-        if escaped:
-            escaped = False
-        elif ch == "\\" and not single:
-            escaped = True
-        elif ch == "'" and not double:
-            single = not single
-        elif ch == '"' and not single:
-            double = not double
-        elif not single and not double:
-            if ch == "$" and cmd[i + 1:i + 2] == "(":
-                depth += 1
-                i += 1
-            elif ch == ")" and depth:
-                depth -= 1
-            elif not depth:
-                if cmd.startswith("2>&1", i) or ch in "|;":
-                    return cmd[:i]
-                if ch == "&" and cmd[i + 1:i + 2] == "&":
-                    return cmd[:i]
-        i += 1
-    return cmd
-
-
-def declared_suite(wt, target=None, *, ref=None):
-    """The target's `tests:` suite at a pinned ref or `origin/<target>`, else the checkout's.
-
-    A change cannot loosen its own landing checks; its line applies after it merges.
-    """
-    if not ref and target:
-        ref = target if target.startswith("origin/") else f"origin/{target}"
-    suite = declared_at(wt, ref, "tests") if ref else None
-    return suite or declared(wt, "tests")
-
-
-def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
-    """Task checks, plus the declared `tests:` suite as a `# once` line when landing.
-
-    A repository names its full suite once, in AGENTS.md, rather than every task writing it
-    into every round: it runs once at landing on the commit to be merged.  A task line that is
-    the same command is that line, so it runs once, not twice;
-    so is a line that is the suite's bare first command, without its output plumbing,
-    whitespace aside.  A line already marked `# once` keeps today's meaning: only one
-    identical to the suite is that line. Without landing, keep every task check
-    as an ordinary round check, without adding the declared suite.
-    """
-    if not landing:
-        return [taskfile.split_once(cmd)[0] for cmd in cmds]
-    suite = declared_suite(wt, target, ref=ref)
-    if not suite:
-        return cmds
-    targets = {" ".join(suite.split())}
-    first = " ".join(first_command(suite).split())
-    if first:
-        targets.add(first)
-    kept = []
-    for cmd in cmds:
-        bare, once = taskfile.split_once(cmd)
-        if once:
-            if bare != suite:
-                kept.append(cmd)
-        elif " ".join(bare.split()) not in targets:
-            kept.append(cmd)
-    return kept + [f"{suite}  # once"]
-
-
-def round_commands(cmds, wt, target, *, scratch, landing):
-    """The done-when as a round runs it, in one reading for preflight, which counts its checks
-    (`task.checks_refusal`), and the loop, which runs them: a scratch task's lines with their
-    `# once` marks stripped; else the task's lines with the target's suite as the one `# once`
-    line when landing, however the task names it, and every line each round without a landing
-    (`with_suite`, which reads `origin/<target>`'s `tests:` line, else the checkout's)."""
-    if scratch:
-        return [taskfile.split_once(cmd)[0] for cmd in cmds]
-    return with_suite(cmds, wt, target, landing=landing)
-
-
-def slugify(title):
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].strip("-")
-    return slug or "task"
-
-
-def repo_line(meta, task_path):
-    """The path a task's `repo:` names, `~` expanded, or None when it names none.
-
-    `~name` for a user this host has no home for cannot be expanded, and pathlib says so with a
-    RuntimeError nothing up the stack expects: it is the task's own error, named here.
-    """
-    named = meta.get("repo") or ""
-    if named.lower() in ("", "none"):
-        return None
-    try:
-        return Path(named).expanduser()
-    except RuntimeError:
-        raise config.Error(f"{task_path}: repo {named} names a home directory this host "
-                           "does not have") from None
-
-
 def task_repo(meta, task_path, task_file=None):
     """`repo:` if the task names one, else the git repository the `ak run` was invoked from,
     else the checkout its task folder is named for.
@@ -609,25 +284,6 @@ def task_repo(meta, task_path, task_file=None):
         checkout = task_project(None, str(task_file or task_path))
         return checkout.resolve() if checkout else None
     return Path(out.strip()).resolve()
-
-
-def default_base(repo, log):
-    """The repository's default branch -- what `origin/HEAD` points at -- as `origin/<branch>`.
-
-    Not the current branch: a run started while something else is checked out still belongs on,
-    and merges into, the branch the repo calls default.
-    """
-    for attempt in (1, 2):
-        head = git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD",
-                   check=False)
-        if head:
-            return head
-        if attempt == 1:
-            # a clone made before origin had a HEAD, or a remote added by hand: ask origin once
-            git(repo, "remote", "set-head", "origin", "--auto", check=False)
-    current = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-    log(f"WARN {repo} has no origin/HEAD; basing this run on the current branch {current}")
-    return current
 
 
 def ready_order(cfg, providers, workers=None, log=None, **kwargs):
@@ -1487,7 +1143,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     entry = config.model(cfg, name)
     # Mark only the worker child; the loop's orphaned-orchestrator fallback may still speak.
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
-    env = {**run_child_env(), "AK_RUN_ROLE": "worker",
+    env = {**gitcall.run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(run_dir / "log.txt")}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
@@ -1510,7 +1166,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         if session and session == last_sid and last_dir is not None:
             named = {**named, hand_in.CONTINUE: str(last_dir / hand_in.FILE)}
         try:
-            with reviewer_checkout(workspace, target, log) if role in (
+            with gitcall.reviewer_checkout(workspace, target, log) if role in (
                     "reviewer", "reviewer-pr") else nullcontext(workspace) as cwd:
                 result = worker.turn(cfg, name, text.replace(str(Path(workspace).resolve()), str(cwd)), cwd,
                                      target, role, session, env=named, limit=limit, log=log,
@@ -1690,495 +1346,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         transient_wait(out_dir, delay)
 
 
-def dirty_paths(wt, env=None):
-    """Every uncommitted path: tracked edits (staged or not) and untracked files, no ignored ones.
-
-    Two plumbing calls rather than `status --porcelain`, whose output would have to be
-    un-quoted and split off its status column; `-z` hands back the raw paths.  `env` is the
-    reader's: an index of its own (`GIT_INDEX_FILE`) for a checkout another process works in,
-    whose own index is then neither locked nor rewritten.
-    """
-    tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False, env=env)
-    untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False, env=env)
-    return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
-
-
-def reset_checkout(wt, head, before, check=False):
-    """Discard tracked changes and only paths created since the checkout was recorded."""
-    git(wt, "reset", "--quiet", "--hard", head, check=check)
-    new = sorted(set(dirty_paths(wt)) - set(before))
-    if new:
-        git(wt, "clean", "--quiet", "-fd", "--", *(f":(literal){p}" for p in new), check=check)
-
-
-def writable_review_dirs(path, log):
-    """Git does not record directory modes; the private copy must remain removable."""
-    path = Path(path)
-    if path.is_symlink():
-        return
-    try:
-        mode = path.stat().st_mode
-        if mode & 0o700 != 0o700:
-            path.chmod(mode | 0o700)
-            log(f"WARN made reviewer directory writable for cleanup: {path}")
-        with os.scandir(path) as entries:
-            for entry in entries:
-                if entry.is_dir(follow_symlinks=False):
-                    writable_review_dirs(entry.path, log)
-    except FileNotFoundError:
-        pass
-    except OSError as exc:
-        log(f"WARN skipped {path} during reviewer cleanup: {exc}")
-
-
-@contextmanager
-def reviewer_checkout(wt, out_dir, log):
-    """Keep the reviewer's files and refs apart from the suite running in the task checkout."""
-    wt = Path(wt).resolve()
-    root = git(wt, "rev-parse", "--show-toplevel", check=False)
-    if not root or Path(root).resolve() != wt:
-        # Role-only callers can use a plain workspace inside some other repository.
-        yield wt
-        return
-    checkout = Path(out_dir).parent / "review-checkout"
-    checkout.parent.mkdir(parents=True, exist_ok=True)
-
-    def copy_files(source, destination):
-        destination.mkdir(exist_ok=True)
-        with os.scandir(source) as entries:
-            for entry in entries:
-                if source == wt and (entry.name == ".git" or entry.name.startswith(SANDBOX_PREFIX)):
-                    continue
-                target = destination / entry.name
-                try:
-                    if entry.is_dir(follow_symlinks=False):
-                        copy_files(Path(entry.path), target)
-                    elif entry.is_file(follow_symlinks=False) or entry.is_symlink():
-                        shutil.copy2(entry.path, target, follow_symlinks=False)
-                    else:
-                        log(f"WARN skipped {entry.path} in review checkout: not a regular file or link")
-                except FileNotFoundError:
-                    # The live suite can remove listed files or directories before copying.
-                    pass
-                except OSError as exc:
-                    log(f"WARN skipped {entry.path} in review checkout: {exc}")
-
-    def remove_checkout():
-        if checkout.exists():
-            writable_review_dirs(checkout, log)
-            shutil.rmtree(checkout)
-
-    with ExitStack() as stack:
-        remove_checkout()
-        stack.callback(remove_checkout)
-        # A mirror keeps the source's base refs but owns its refs and index; a linked
-        # worktree would still let a reviewer move the task branch through shared refs.
-        git(wt, "clone", "--quiet", "--shared", "--mirror", str(wt), str(checkout / ".git"))
-        # Keep the copied refs without a mirror push destination back into the source.
-        git(checkout, "config", "--remove-section", "remote.origin")
-        git(checkout, "config", "core.bare", "false")
-        git(checkout, "read-tree", git(wt, "write-tree"))
-        copy_files(wt, checkout)
-        for key in ("user.name", "user.email"):
-            value = git(wt, "config", "--get", key, check=False)
-            if value:
-                git(checkout, "config", key, value)
-        exclude = Path(git(wt, "rev-parse", "--git-path", "info/exclude"))
-        if not exclude.is_absolute():
-            exclude = wt / exclude
-        if exclude.is_file():
-            shutil.copyfile(exclude, checkout / ".git/info/exclude")
-        with reviewer_changes(checkout, out_dir, log):
-            yield checkout
-
-
-@contextmanager
-def reviewer_changes(wt, out_dir, log):
-    """A review turn's changes survive only in its round's patch, including on a failed turn."""
-    writable_review_dirs(wt, log)
-    head = git(wt, "rev-parse", "HEAD")
-    branch = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
-    before = set(dirty_paths(wt))
-    staged = git(wt, "write-tree")
-    # A private index records untracked files too, without staging artifacts for the next
-    # executor. Its tree also puts back existing dirty paths a reviewer edited or committed.
-    with tempfile.TemporaryDirectory() as tmp:
-        index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
-        git(wt, "read-tree", head, env=index)
-        skipped = []
-
-        def snapshot():
-            try:
-                git(wt, "add", "--ignore-errors", "-A", "--", ".", env=index)
-            except Stopped:
-                raise
-            except config.Error as exc:
-                skipped.append(str(exc))
-                log(f"WARN skipped unreadable reviewer paths: {exc}")
-            return git(wt, "write-tree", env=index)
-
-        tree = snapshot()
-        try:
-            yield
-        finally:
-            writable_review_dirs(wt, log)
-            after = git(wt, "rev-parse", "--verify", "--quiet", "HEAD^{commit}", check=False)
-            branch_after = git(wt, "symbolic-ref", "--quiet", "HEAD", check=False)
-            # A conflicted index has no tree, but its staged diff and entries remain readable.
-            index_diff = git(wt, "diff", "--cached", "--binary", staged)
-            tree_after = snapshot()
-            if skipped or index_diff or (after, branch_after, tree_after) != (head, branch, tree):
-                path = Path(out_dir).parent / "reviewer-changes.patch"
-                paths, patches = set(dirty_paths(wt)) - before, set()
-                with path.open("a") as saved:
-                    saved.write(f"# {Path(out_dir).name}: HEAD {head} -> {after or 'unborn HEAD'}\n")
-                    for error in skipped:
-                        saved.write("# skipped: " + error.replace("\n", "\n# ") + "\n")
-                    if branch_after != branch:
-                        saved.write(f"# checkout: {branch or 'detached HEAD'} -> "
-                                    f"{branch_after or 'detached HEAD'}\n")
-                    def save_diff(label, *args):
-                        diff = git(wt, "diff", "--binary", *args)
-                        paths.update(p for p in git(wt, "diff", "--name-only", "-z",
-                                                   *args).split("\0") if p)
-                        diff = re.sub(r"^\* Unmerged path ", "# Unmerged path ", diff, flags=re.M)
-                        if diff and diff not in patches:
-                            saved.write(f"# {label}\n{diff}\n")
-                            patches.add(diff)
-
-                    save_diff("checkout", tree, tree_after)
-                    if after:
-                        save_diff("commits", head, after)
-                    save_diff("index", "--cached", staged)
-                    unmerged = git(wt, "ls-files", "--unmerged")
-                    if unmerged:
-                        saved.write("# unmerged index\n# " + unmerged.replace("\n", "\n# ") + "\n")
-                        # Unmerged blobs can differ from the worktree, especially binary files.
-                        entries = [entry.split("\t", 1) for entry in git(
-                            wt, "ls-files", "--unmerged", "-z").split("\0") if entry]
-                        empty = git(wt, "mktree")
-                        for stage in ("1", "2", "3"):
-                            git(wt, "read-tree", "--empty", env=index)
-                            for info, name in entries:
-                                mode, blob, entry_stage = info.split()
-                                if entry_stage == stage:
-                                    git(wt, "update-index", "--add", "--cacheinfo", mode, blob,
-                                        name, env=index)
-                            save_diff(f"unmerged stage {stage}", empty,
-                                      git(wt, "write-tree", env=index))
-                if branch:
-                    git(wt, "symbolic-ref", "HEAD", branch)
-                else:
-                    git(wt, "update-ref", "--no-deref", "HEAD", head)
-                reset_checkout(wt, head, before, check=True)
-                if before:
-                    git(wt, "restore", f"--source={tree}", "--worktree", "--", ".")
-                git(wt, "read-tree", staged)
-                undone = ", ".join(sorted(paths)) or ("unreadable paths" if skipped else "")
-                if after != head:
-                    moved = f"commit {after[:12]}" if after else "unborn HEAD"
-                    undone = f"{moved} back to {head[:12]}" + (f"; {undone}" if undone else "")
-                if branch_after != branch:
-                    undone = f"checkout back to {branch or 'detached HEAD'}" + (f"; {undone}" if undone else "")
-                log(f"WARN undid reviewer changes: {undone}; saved {path}")
-
-
-def main_checkout(repo):
-    """The main checkout of the repository at `repo`: itself, or what a linked worktree was added from.
-
-    A run launched from inside a linked worktree without `repo:` records that worktree, and a
-    gate keyed on it would take a second set of turns for the same repository.  A path git
-    cannot read as a checkout -- gone, never one, or a git that never answered -- keys on
-    itself: a turn's key is not worth stopping the run over.
-    """
-    code, out, _ = tool_run(["git", "-C", str(repo), "rev-parse", "--git-common-dir"])
-    common = out.strip() if code == 0 else ""
-    return (Path(repo) / common).resolve().parent if common else Path(repo)
-
-
-@contextmanager
-def released_gate_turn():
-    """Let this thread's held gate turn go while slow work runs.
-
-    A rebase conflict, a failing check and a re-review all end in a fixer or a reviewer,
-    and a model turn held through them lands nothing for the runs queued behind.  The
-    check takes a fresh turn after the fix.
-    """
-    gate.release_turn()
-    yield
-
-
-def leftover_junk(path):
-    """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
-    parts = path.rstrip("/").split("/")
-    return (parts[0].startswith(SANDBOX_PREFIX)
-            or any(part in (run_record.RECOVERY_LOCK, "delivery.lock", "node_modules", "venv", ".venv")
-                   for part in parts))
-
-
-def commit_leftovers(wt, log, artifacts, state):
-    """Commit whatever the executor left uncommitted, so the reviewer sees a real diff.
-
-    The commit carries the run's title: a lone commit's headline becomes its squash merge's
-    subject on the target, where changelogs read it.
-
-    The reviewer only ever reads `base...HEAD`.  An executor that wrote the whole change and
-    forgot to commit would otherwise be reviewed on an empty diff -- and a review of nothing
-    is worse than no review, because it produces a verdict.
-
-    Everything the done-when commands generated is left alone.  Committing that instead earns
-    a FAIL on junk the next round's commands recreate, so the fixer can never get out of it.
-
-    Test sandboxes, run locks and dependency trees are left alone too, including symlinks,
-    whatever the repository's .gitignore says.  Anything `git check-ignore` would ignore
-    stays out as well.  Ignored junk is listed back for the count below, since
-    `dirty_paths` never sees it.
-
-    The done-when only verifies a checkout clean at HEAD, so nothing left out may stay
-    staged: a staged `venv` would fail every round as a changed checkout.  It is unstaged,
-    and a staged deletion of junk (`git rm --cached venv`) is committed with the rest.  The
-    commit is built in an index of its own: `git commit -- venv` would add the link back
-    from the worktree, and the real index keeps whatever else the executor staged.
-    """
-    real, sandbox = committable_paths(wt, artifacts)
-    status = git(wt, "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD",
-                 check=False).split("\0")
-    staged = dict(zip(status[1::2], status[::2]))
-    junk = {p for p in sandbox if p in staged}
-    gone = sorted(p for p in junk if staged[p] == "D")
-    unstage = sorted(junk - set(gone))
-    sandbox = sorted(set(sandbox) | set(ignored_sandbox_paths(wt, artifacts)))
-    if sandbox:
-        log(f"left {len(sandbox)} untracked sandbox files uncommitted: "
-            f"{', '.join(sandbox[:3])}")
-    try:
-        if unstage:
-            git(wt, "reset", "-q", "--", *unstage)
-            log(f"unstaged {len(unstage)} sandbox files the executor staged: "
-                f"{', '.join(unstage[:3])}")
-        if not real and not gone:
-            return
-        if real:
-            git(wt, "add", "--", *real)
-        with tempfile.TemporaryDirectory() as tmp:
-            index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
-            git(wt, "read-tree", "HEAD", env=index)
-            if real:
-                git(wt, "add", "--", *real, env=index)
-            if gone:
-                git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
-            git(wt, "commit", "-m", state["title"], env=index)
-    except Stopped:
-        # a git that stopped verifies nothing: the round ends on the stop, never on a review
-        # of a diff the loop did not pin
-        raise
-    except config.Error as exc:
-        log(f"WARN could not commit the executor's uncommitted changes: {exc}")
-        return
-    log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
-
-
-def committable_paths(wt, artifacts=(), env=None):
-    """(the dirty paths a commit of the checkout would take, the leftover junk it leaves): the
-    one rule of what a run's uncommitted work is.  Test sandboxes, run locks and dependency
-    trees (`leftover_junk`), whatever the repository's `.gitignore` names, and what the
-    done-when generated (`artifacts`) are left.  `env` goes to every git read."""
-    real, sandbox = [], []
-    for path in dirty_paths(wt, env):
-        if path in artifacts:
-            continue
-        if leftover_junk(path) or git_out(wt, "check-ignore", "-q", "--", path, env=env)[0] == 0:
-            sandbox.append(path)
-        else:
-            real.append(path)
-    return real, sandbox
-
-
-def ignored_sandbox_paths(wt, artifacts):
-    """Ignored sandbox files, run locks and dependencies: invisible to `dirty_paths`, still uncommitted.
-
-    Once the repository's .gitignore names the suite's sandbox prefix, a killed test's
-    sandbox never reaches the leftover sweep's classifier -- and without this listing its
-    `left N ...` log line would never fire in a real checkout.  Collapsed directory
-    entries are expanded to the files inside them, so the count is files, not sandboxes.
-    """
-    out = git(wt, "ls-files", "--others", "--ignored", "--exclude-standard", "-z",
-              check=False)
-    found = []
-    for entry in out.split("\0"):
-        if not entry or entry in artifacts:
-            continue
-        if not leftover_junk(entry):
-            continue
-        if not entry.endswith("/"):
-            found.append(entry)
-            continue
-        try:
-            members = sorted((Path(wt) / entry).rglob("*"))
-        except OSError:
-            continue
-        found.extend(str(member.relative_to(wt)) for member in members
-                     if not member.is_dir()
-                     and str(member.relative_to(wt)) not in artifacts)
-    return found
-
-
-def sweep_sandboxes(wt, log):
-    """Remove killed-test sandboxes from the worktree before a turn starts.
-
-    A test killed mid-way leaves its sandbox behind, and the next turn's executor would
-    otherwise find stub binaries and fake adapters sitting in its checkout.  Only top-level
-    names under the suite sandbox prefix are touched; anything else is the work's own.
-    """
-    try:
-        names = sorted(path.name for path in Path(wt).iterdir()
-                       if path.name.startswith(SANDBOX_PREFIX))
-    except OSError as exc:
-        log(f"WARN could not list test sandboxes in {wt}: {exc}")
-        return
-    removed = []
-    for name in names:
-        try:
-            path = Path(wt) / name
-            if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path)
-            else:
-                path.unlink()
-        except OSError as exc:
-            log(f"WARN could not remove test sandbox {name}: {exc}")
-            continue
-        removed.append(name)
-    if removed:
-        log(f"removed test sandboxes left by a killed test: {', '.join(removed)}")
-
-
-def exclude_junk(wt, log):
-    """Hide the usual build junk from git in `wt`, so no run can commit it.
-
-    The executor runs the test suite itself, long before the loop's own done-when snapshot,
-    so its `__pycache__` is already there when the leftover sweep looks -- and a sweep that
-    commits it hands the reviewer droppings to fail the round on.
-
-    `git rev-parse --git-path info/exclude` names the *shared* exclude file even inside a
-    linked worktree: git keeps `info/` in the common dir, so `.git/worktrees/<id>/info/exclude`
-    can be written but is never read (checked on git 2.39.5).  The file therefore belongs to
-    the repo rather than to this run, and is treated the way `--no-worktree` demands either
-    way: only the patterns it is missing are appended, and nothing is ever rewritten.
-
-    Failing to write it ends the run.  The guarantee is that junk never reaches a commit, and
-    a run that carried on with git still seeing `__pycache__` would break it the first time
-    the sweep looked -- before any model call, so nothing is wasted by stopping here.
-    """
-    try:
-        path = Path(git(wt, "rev-parse", "--git-path", "info/exclude"))
-        if not path.is_absolute():
-            path = Path(wt) / path
-        text = path.read_text(errors="replace") if path.exists() else ""
-        missing = [pat for pat in JUNK if pat not in text.splitlines()]
-        if not missing:
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as fh:
-            fh.write(("" if not text or text.endswith("\n") else "\n")
-                     + "# agentkit: build junk a run must never commit\n"
-                     + "".join(f"{pat}\n" for pat in missing))
-    except Stopped:
-        # a git that stopped is not a git that said no: it takes the same path as every other
-        # stopped tool -- `exhausted`, remedy in log and result, resumable -- never `error`
-        raise
-    except (config.Error, OSError) as exc:
-        raise config.Error(f"cannot exclude build junk in {wt}: {exc}; without that git would "
-                           "hand the executor's own __pycache__ to the leftover sweep")
-    log(f"excluded build junk in {path}: {', '.join(missing)}")
-
-
-def listing(work):
-    """Every file in the workspace with its size: what a scratch run has instead of a diff."""
-    root = Path(work)
-    try:
-        paths = sorted(p for p in root.rglob("*") if not p.is_dir())
-    except OSError as exc:
-        return f"(cannot read {root}: {exc})"
-    rows = []
-    for path in paths[:LIST_CAP]:
-        try:
-            size = path.stat().st_size
-        except OSError:
-            size = 0        # a dangling symlink is still a file the reviewer should see
-        rows.append(f"{size:>10}  {path.relative_to(root)}")
-    if len(paths) > LIST_CAP:
-        rows.append(f"... and {len(paths) - LIST_CAP} more files")
-    return "\n".join(rows) or "(the workspace is empty)"
-
-
-def links(work):
-    """Every file in the workspace as a link to it, uncapped: result.md's deliverables.
-
-    Whatever the name, the link reaches the file: the destination is percent-encoded, the
-    few characters that would end the text early are escaped, and a control character is
-    shown encoded, since a line break would end the link.
-    """
-    root = Path(work)
-    try:
-        paths = sorted(p for p in root.rglob("*") if not p.is_dir())
-    except OSError as exc:
-        return f"(cannot read {root}: {exc})"
-    rows = []
-    for path in paths:
-        text = "".join("\\" + c if c in "\\[]`<" else c if c.isprintable()
-                       else quote(c, errors="surrogateescape")
-                       for c in str(path.relative_to(root)))
-        rows.append(f"- [{text}]({quote(os.fsencode(path))})")
-    return "\n".join(rows) or "(the workspace is empty)"
-
-
-# The reason ak locks a checkout it makes under ~/.agentkit/wt while git makes it.  Git writes
-# a reason as given, in every language, so a maker killed before it unlocks leaves a checkout
-# gc knows holds nothing yet.
-MAKING = "ak is making this checkout"
-
-
-def add_worktree(repo, path, *args, mark=None):
-    """(exit code, output) of `git worktree add` making `path`, locked as `MAKING` until git
-    has made it and, given `mark`, that file is in the checkout's own git directory."""
-    code, out = git_out(repo, "worktree", "add", "--lock", "--reason", MAKING, str(path), *args)
-    if code == 0:
-        if mark:
-            (Path(git(path, "rev-parse", "--absolute-git-dir")) / mark).touch()
-        code, out = git_out(repo, "worktree", "unlock", str(path))
-    return code, out
-
-
-def make_worktree(repo, run_id, slug, base):
-    # The name has to be free on the remote too: two runs that picked the same one locally both
-    # push it, and the second is rejected with `stale info` after its work has passed -- a PASS
-    # that cannot be delivered.  One ls-remote answers for all of them, bounded so an
-    # unreachable origin cannot hold the run: no `origin`, no network, a credential prompt, a
-    # timeout or any other error means the empty set and local-only naming, exactly as before,
-    # because naming is not worth failing a run over.
-    taken = set()
-    try:
-        code, out, _ = tool_run(["git", "-C", str(repo), "ls-remote", "--heads", "origin",
-                                 f"refs/heads/ak/{slug}*"], timeout=60)
-        if code == 0:
-            for line in out.splitlines():
-                _, _, ref = line.partition("\t")
-                if ref.startswith("refs/heads/"):
-                    taken.add(ref[len("refs/heads/"):])
-    except (OSError, ValueError, subprocess.SubprocessError):
-        pass
-    branch, suffix = f"ak/{slug}", 1
-    while branch in taken or git(repo, "rev-parse", "--verify", "--quiet",
-                                 f"refs/heads/{branch}", check=False):
-        suffix += 1
-        branch = f"ak/{slug}-{suffix}"
-    wt = config.WT / run_id
-    code, out = add_worktree(repo, wt, "-b", branch, base)
-    if code:
-        raise config.Error(f"git worktree add {wt} failed in {repo}: {out}")
-    return wt, branch
-
-
 class Loop:
     """One run's moving parts, shared by the round loop and the merge pipeline.
 
@@ -2217,7 +1384,7 @@ class Loop:
         self.written = copy.deepcopy(state)
         if probe := state.get("probe_checkout"):
             log("--- resuming: restoring the interrupted probe's checkout")
-            restore_probe_checkout(self, **probe)
+            gitcall.restore_probe_checkout(self, **probe)
 
     def role(self, name):
         """The preamble this run's workers get: a scratch run has no commits to talk about."""
@@ -2710,7 +1877,7 @@ def execute(lp, role, text, name):
         lp.state.update(step="executor", step_at=time.time())
         lp.save()
     if not getattr(lp, "scratch", False) and not lp.state.get("review_pr"):
-        sweep_sandboxes(lp.wt, lp.log)
+        gitcall.sweep_sandboxes(lp.wt, lp.log)
     # Read the open attempt before free_dir creates the next one, or the empty new
     # directory would look like a turn that recorded no session.  Off `dir`, which is
     # what free_dir writes through, so the round is read exactly where it is written.
@@ -2819,11 +1986,6 @@ def execute(lp, role, text, name):
         return worker_result(lp, summary, out)
 
 
-def commit_identity(wt):
-    return {"head_sha": git(wt, "rev-parse", "HEAD"),
-            "tree_sha": git(wt, "rev-parse", "HEAD^{tree}")}
-
-
 def plan_context(seat):
     """The seat's open plan lines (`plan.open_lines`), for the review of its own PR: the
     outcomes the user agreed to, each with the check that proves it and the project it is
@@ -2840,7 +2002,7 @@ def plan_context(seat):
 
 def suite_evidence(lp, cmds, identity):
     """Keep the checked tree: integration can carry the SHA without running the suite again."""
-    suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
+    suite = gitcall.declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     return {"suite": suite, "tree_sha": identity.get("tree_sha")} if suite and suite in cmds else {}
 
 
@@ -2871,26 +2033,6 @@ def files_scope(lp):
     return "outside files: " + ", ".join(outside) if outside else ""
 
 
-def rules_bytes(repo, rev):
-    """The bytes of AGENTS.md at `rev` as a checkout holds it, Git's line-end conversion and
-    filters applied: what a harness reads, not the stored blob, and read as bytes, since a text
-    read would fold CRLF to LF.  None where `rev` has no AGENTS.md file -- none, or a link,
-    whose text is a path -- and config.Error, with what git said, where it cannot be read."""
-    entry = git(repo, "ls-tree", rev, "--", "AGENTS.md")
-    if not entry or entry.startswith("120000 "):
-        return None
-    try:
-        read = subprocess.run(["git", "-C", str(repo), "cat-file", "--filters", f"{rev}:AGENTS.md"],
-                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
-                              env=tool_env())
-    except subprocess.TimeoutExpired as exc:
-        raise Stopped(f"git cat-file --filters {rev}:AGENTS.md was killed after {TOOL_CAP:g}s "
-                      f"in {repo}") from exc
-    if read.returncode != 0:
-        raise config.Error(read.stderr.decode("utf-8", "replace").strip())
-    return read.stdout
-
-
 def rules_check(lp):
     """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
     Git filter, more than a harness reads of it, or a front matter line ak does not read.
@@ -2909,7 +2051,7 @@ def rules_check(lp):
         return "AGENTS.md must not go through a Git filter: ak reads its front matter as committed."
     ceiling = config.instruction_ceiling()
     try:
-        held = rules_bytes(lp.wt, "HEAD")
+        held = gitcall.rules_bytes(lp.wt, "HEAD")
     except Stopped:
         raise
     except config.Error as exc:
@@ -2930,7 +2072,7 @@ def rules_check(lp):
 
 def unknown_front_lines(text):
     """The front matter lines of AGENTS.md text whose name ak never reads, as written."""
-    match = FRONT.match(text)
+    match = gitcall.FRONT.match(text)
     if not match:
         return []
     return [line.strip() for line in match.group(1).splitlines()
@@ -3061,7 +2203,7 @@ def replay_checkout(lp, head, paths):
                                          ("DATE", when))})
             yield checkout
         finally:
-            worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
+            worker.kill_marked(gitcall.run_child_env().get(worker.RUN_MARKER), log=lp.log)
 
 
 def regression_fails_before(lp):
@@ -3471,7 +2613,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         commits = {} if request else state.get("followup_commits") or {}
         items = [request["text"]] if request else state["followups"]
         planned = [item for item in items if item in checks]   # the seat's own, executors or not
-        repo = main_checkout(Path(state["repo"])) if planned else None
+        repo = gitcall.main_checkout(Path(state["repo"])) if planned else None
         record = config.session_records().get(config.resolve_session(session), {})
         fixers = record.get("workers") != []      # a run can take a line; else the seat does
         handed = {"followup_runs": [], "followup_plan": []}
@@ -3492,7 +2634,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
         if not fixers:
             plan_lines()
             return None if request else followups_handed(run_dir, state, handed)
-        repo = repo or main_checkout(Path(state["repo"]))
+        repo = repo or gitcall.main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
         if split:
             previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
@@ -3839,10 +2981,10 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
         branch = git(lp.wt, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
         before = set(dirty_paths(lp.wt))
         paths = changed_test_paths(lp, tests_from) if tests_from else []
-        save_probe_checkout(lp, head, branch, before, f"proof on {revision}")
+        gitcall.save_probe_checkout(lp, head, branch, before, f"proof on {revision}")
     try:
         if not lp.scratch:
-            reset_checkout(lp.wt, head, before)
+            gitcall.reset_checkout(lp.wt, head, before)
             git(lp.wt, "checkout", "--quiet", "--detach", revision)
             if paths:
                 git(lp.wt, "restore", f"--source={tests_from}", "--staged", "--worktree", "--",
@@ -3872,10 +3014,10 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
         return {"returncode": code, "output": output, "killed": killed}
     finally:
         try:
-            worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
+            worker.kill_marked(gitcall.run_child_env().get(worker.RUN_MARKER), log=lp.log)
         finally:
             if not lp.scratch:
-                restore_probe_checkout(lp, head, branch, before, f"proof on {revision}")
+                gitcall.restore_probe_checkout(lp, head, branch, before, f"proof on {revision}")
 
 
 def quoted_sites(lp, submitted, head):
@@ -4204,7 +3346,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.save()
     checks, delta, replayed, listed = "", None, [], None
     if lp.scratch:
-        work = whole = f"## Workspace ({lp.wt})\n```\n{listing(lp.wt)}\n```"
+        work = whole = f"## Workspace ({lp.wt})\n```\n{gitcall.listing(lp.wt)}\n```"
     else:
         head = "HEAD"
         if lp.state.get("review_pr"):
@@ -4996,7 +4138,7 @@ def integrate(lp, upstream):
         abort_stopped_integration(lp, how)
         raise
     if rc != 0:
-        with released_gate_turn():
+        with gitcall.released_gate_turn():
             resolved = resolve_conflicts(lp, upstream, out, how, tip)
         if not resolved:
             return False
@@ -5046,7 +4188,7 @@ def integrate(lp, upstream):
                 if post_identity is None:
                     if not lp.state.get("review_pending"):
                         pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                    with released_gate_turn():
+                    with gitcall.released_gate_turn():
                         passed = (resume_review(lp) == "PASS"
                                   or fix_after_failed_review(lp, upstream, how))
                     if not passed:
@@ -5066,7 +4208,7 @@ def integrate(lp, upstream):
                         if new_identity != post_identity or landing_review:
                             if not lp.state.get("review_pending"):
                                 pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                            with released_gate_turn():
+                            with gitcall.released_gate_turn():
                                 passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
                                           or fix_after_failed_review(lp, upstream, how))
                             if not passed:
@@ -5110,7 +4252,7 @@ def integrate(lp, upstream):
                                    f"fixer {lp.executor} (done-when after the {how})")
                             fix = (f"{lp.context}\n\n## The done-when commands failed. "
                                    f"Fix the root cause.\n```\n{failing_blocks(dw_log)}\n```")
-                            with released_gate_turn():
+                            with gitcall.released_gate_turn():
                                 summary = landing_fixer(lp, fix, "rerun-fixer")
                                 lp.state["review_pending"]["summary"] = summary
                                 lp.save()
@@ -5129,7 +4271,7 @@ def integrate(lp, upstream):
             else:
                 if not lp.state.get("review_pending"):
                     pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                with released_gate_turn():
+                with gitcall.released_gate_turn():
                     passed = (resume_review(lp) == "PASS"
                               or fix_after_failed_review(lp, upstream, how))
                 if not passed:
@@ -5233,7 +4375,7 @@ def refresh_pr_body(lp):
         return note(lp, f"cannot update the description of {lp.state['pr']}: not a PR URL",
                     failed=True)
     api, owner, repo, number = parts
-    rc, out = gh(lp.wt, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
+    rc, out = gitcall.gh(lp.wt, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
                  "-F", f"body=@{pending}")
     if rc != 0:
         if stopped(rc, out):
@@ -5249,14 +4391,14 @@ def open_pr(lp, target_branch):
         return lp.state["pr"] if refresh_pr_body(lp) else None
     path = lp.run_dir / "pr-body.md"
     path.write_text(pr_body(lp.state))
-    rc, out = gh(lp.wt, "pr", "create", "--base", target_branch, "--head", lp.state["branch"],
+    rc, out = gitcall.gh(lp.wt, "pr", "create", "--base", target_branch, "--head", lp.state["branch"],
                  "--title", lp.state["title"], "--body-file", str(path))
     # gh names the existing PR in the error it refuses a duplicate with, so one regex covers both
     found = PR_URL.search(out)
     view = None
     if not found:
         # the create may still have happened server-side: the view says so, or stops too
-        vrc, view = gh(lp.wt, "pr", "view", lp.state["branch"], "--json", "url", "-q", ".url")
+        vrc, view = gitcall.gh(lp.wt, "pr", "view", lp.state["branch"], "--json", "url", "-q", ".url")
         found = None if stopped(vrc, view) else PR_URL.search(view)
     if not found:
         if stopped(rc, out) or (view is not None and stopped(vrc, view)):
@@ -5369,7 +4511,7 @@ def checks(lp, url):
                     if (check["conclusion"] == "cancelled" and rerun.get(check["id"]) != 0
                             and check["app"].get("slug") == "github-actions"):
                         # GitHub refuses a job's rerun while its workflow still runs: next poll
-                        rc, out = gh(lp.run_dir, *api, "-X", "POST",
+                        rc, out = gitcall.gh(lp.run_dir, *api, "-X", "POST",
                                      f"repos/{owner}/{repo}/actions/jobs/{check['id']}/rerun")
                         if stopped(rc, out):
                             raise Stopped(out)
@@ -5451,7 +4593,7 @@ def rights(lp):
     all -- which is not the same as saying it does not know.  Pushing on the strength of it
     would deliver on an assumption, so that ends the delivery with its remedy instead.
     """
-    rc, out = gh(lp.wt, "repo", "view", "--json", "nameWithOwner,viewerPermission")
+    rc, out = gitcall.gh(lp.wt, "repo", "view", "--json", "nameWithOwner,viewerPermission")
     if stopped(rc, out):
         raise Stopped(out)
     try:
@@ -5476,7 +4618,7 @@ def fork_and_pr(lp, target_branch, upstream_repo, permission):
     if FORK_REMOTE not in git(lp.wt, "remote", check=False).split():
         # --remote-name keeps `origin` pointing upstream, which is what the diff and the PR are
         # against; an existing fork is reused, gh only adds the remote for it
-        rc, out = gh(lp.wt, "repo", "fork", "--remote", "--remote-name", FORK_REMOTE)
+        rc, out = gitcall.gh(lp.wt, "repo", "fork", "--remote", "--remote-name", FORK_REMOTE)
         if rc != 0:
             if stopped(rc, out):
                 raise Stopped(out)
@@ -5486,7 +4628,7 @@ def fork_and_pr(lp, target_branch, upstream_repo, permission):
         return note(lp, f"pushing {branch} to the fork failed: {out[-400:]}", failed=True)
     lp.log(f"--- merge: pushed {branch} to {FORK_REMOTE}")
     if not lp.state.get("pr"):
-        rc, me = gh(lp.run_dir, "api", "user", "-q", ".login")
+        rc, me = gitcall.gh(lp.run_dir, "api", "user", "-q", ".login")
         # classify before reducing to the last line: the remedy tool_run appends is the last
         # line, and it matches none of PROMPTED's patterns, so a refused prompt checked after
         # the reduction would never read as the stop it is
@@ -5498,7 +4640,7 @@ def fork_and_pr(lp, target_branch, upstream_repo, permission):
                         failed=True)
         path = lp.run_dir / "pr-body.md"
         path.write_text(pr_body(lp.state))
-        rc, out = gh(lp.wt, "pr", "create", "--repo", upstream_repo, "--base", target_branch,
+        rc, out = gitcall.gh(lp.wt, "pr", "create", "--repo", upstream_repo, "--base", target_branch,
                      "--head", f"{me}:{branch}", "--title", lp.state["title"],
                      "--body-file", str(path))
         found = PR_URL.search(out)
@@ -5524,7 +4666,7 @@ def add_suite_trailer(lp, message, trailer):
 
 def merge_body(lp, head, url=None):
     checked = lp.state.get("final_check") or {}
-    suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
+    suite = gitcall.declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
             and checked.get("sha") == head and checked.get("tree_sha")
             and checked.get("tested", checked["tree_sha"]) == checked["tree_sha"]
@@ -5583,7 +4725,7 @@ def merged_anyway(lp, url, upstream):
     delivery into its target is this run's work: a head another writer replaced, or a PR
     retargeted and merged elsewhere, is not.
     """
-    src, view = gh(lp.run_dir, "pr", "view", url, "--json", "state,headRefOid,baseRefName")
+    src, view = gitcall.gh(lp.run_dir, "pr", "view", url, "--json", "state,headRefOid,baseRefName")
     if stopped(src, view):
         raise Stopped(view)
     try:
@@ -5623,7 +4765,7 @@ def do_merge(lp, url, upstream):
                     if not integrated(lp.wt, upstream):
                         return rejoin_line(lp, upstream, "the PR's target moved")
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
-                rc, out = gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
+                rc, out = gitcall.gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
                              "--match-head-commit", lp.state["delivery_sha"], *body)
             if rc == 0 or stopped(rc, out):
                 break
@@ -5648,7 +4790,7 @@ def do_merge(lp, url, upstream):
             frc, fetched = fetch(lp.wt, "origin")
             if frc != 0:
                 return note(lp, f"git fetch origin failed: {fetched[-400:]}", failed=True)
-            vrc, view = gh(lp.run_dir, "pr", "view", url, "--json",
+            vrc, view = gitcall.gh(lp.run_dir, "pr", "view", url, "--json",
                            "state,mergeable,headRefOid,baseRefName")
             if stopped(vrc, view):
                 raise Stopped(view)
@@ -5698,7 +4840,7 @@ def do_merge(lp, url, upstream):
         for polled in range(MERGE_RETRIES + 1):
             if polled:
                 time.sleep(CHECKS_POLL)     # GitHub still working out a head pushed just now
-            vrc, why = gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
+            vrc, why = gitcall.gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
                           "-q", ".mergeStateStatus")
             if not refused or vrc != 0 or why != "UNKNOWN":
                 break
@@ -5802,44 +4944,6 @@ def _branch_only_path(wt, cmd, head, tip):
     return None
 
 
-def save_probe_checkout(lp, head, branch, before, label):
-    """A hard exit skips finally: record recovery before Git can detach the checkout."""
-    lp.state["probe_checkout"] = {"head": head, "branch": branch,
-                                  "before": sorted(before), "label": label}
-    lp.write()
-
-
-def restore_probe_checkout(lp, head, branch, before, label):
-    """Discard probe edits; keep recovery pending until the original checkout is restored."""
-    stopped = None
-    restored = False
-    try:
-        reset_checkout(lp.wt, "HEAD", before)
-    except Stopped as exc:
-        stopped = exc
-    try:
-        git(lp.wt, "checkout", "--quiet", branch or head, check=False)
-        if git(lp.wt, "rev-parse", "HEAD", check=False) != head:
-            git(lp.wt, "checkout", "--quiet", head, check=False)
-        restored = (git(lp.wt, "rev-parse", "HEAD", check=False) == head
-                    and (not branch or git(lp.wt, "symbolic-ref", "--quiet", "--short",
-                                           "HEAD", check=False) == branch)
-                    and git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
-                    and not (set(dirty_paths(lp.wt)) - set(before)))
-        if not restored:
-            lp.log(f"WARN the probe of {label} did not restore {branch or head[:12]} "
-                   "cleanly; checkout recovery is still pending")
-    except Stopped as exc:
-        stopped = stopped or exc
-    if restored:
-        lp.state.pop("probe_checkout", None)
-        lp.write()
-    if stopped is not None:
-        raise stopped
-    if not restored:
-        raise config.Error(f"could not restore the checkout after the probe of {label}")
-
-
 def target_fails(lp, upstream, dw_log):
     """What the first failing landing command says on a red target tip with a green old
     base; "" when it needs the branch.  An unchanged base needs only the tip probe.
@@ -5899,7 +5003,7 @@ def target_fails(lp, upstream, dw_log):
 
     def probe(sha, where):
         label = f"`{cmd}` on {where}"
-        save_probe_checkout(lp, head, branch, before, label)
+        gitcall.save_probe_checkout(lp, head, branch, before, label)
         try:
             rc, _ = git_out(lp.wt, "checkout", "--quiet", "--detach", sha)
             if rc != 0:
@@ -5924,13 +5028,13 @@ def target_fails(lp, upstream, dw_log):
                     began += gate.busy_turn(lp.run_dir, probe_log, lp.log)
             memory_cap_note(lp.run_dir, lp.log)
             # as after a gate: a command that exited may still have left processes behind
-            worker.kill_marked(run_child_env().get(worker.RUN_MARKER), log=lp.log)
+            worker.kill_marked(gitcall.run_child_env().get(worker.RUN_MARKER), log=lp.log)
             with probe_log.open("rb") as said:
                 said.seek(start)
                 output = said.read().decode(errors="replace")
             return code, output, killed
         finally:
-            restore_probe_checkout(lp, head, branch, before, label)
+            gitcall.restore_probe_checkout(lp, head, branch, before, label)
 
     result = probe(tip, upstream)
     if result is None:
@@ -6017,7 +5121,7 @@ def fix_final_check(lp, upstream, text):
                                   "passed_head_sha": passed_review_head(lp.state),
                                   "record": False}
     lp.save()
-    with released_gate_turn():
+    with gitcall.released_gate_turn():
         summary = landing_fixer(lp, fix, "final-fixer")
         lp.state["review_pending"]["summary"] = summary
         lp.save()
@@ -6063,7 +5167,7 @@ def final_check(lp, upstream):
     record = lp.state.get("final_check") or {}
     if (now and record.get("outcome") == "passed" and record.get("where") == "landing"
             and record.get("sha") == now
-            and record.get("suite") == declared_suite(lp.wt, lp.target,
+            and record.get("suite") == gitcall.declared_suite(lp.wt, lp.target,
                                                        ref=lp.state.get("target_sha"))):
         try:
             reviewed = current_review(lp)
@@ -6075,7 +5179,7 @@ def final_check(lp, upstream):
     fixed = 0       # the fixer rounds this run has spent on these commands here
     while True:
         sha = git(lp.wt, "rev-parse", "HEAD")
-        suite = declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
+        suite = gitcall.declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
         # A rebase or fixer can change the declaration loaded into lp.once. Rebuild
         # it from the task so only the inherited suite is replaced, including for probes.
         task = lp.run_dir / "task.md"
@@ -6253,7 +5357,7 @@ def land_from_line(lp, upstream, deliver):
                                            "tested": wait.get("tested") or (
                                                landing.passed(turn, wait["land"]) or {}).get(
                                                    "tested", identity["tree_sha"]),
-                                           "suite": declared_suite(lp.wt, lp.target, ref=tip)}
+                                           "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip)}
                 lp.write()
                 result = deliver()
                 if "fix" not in lp.state.get("waiting_on", {}):
@@ -7070,7 +6174,7 @@ def history_finish(state, log=None):
     if repo and state.get("base_sha"):
         try:
             # no file, or a link, hands its workers no rules: 0, where a failed read stays unknown
-            rules = len(rules_bytes(repo, state["base_sha"]) or b"")
+            rules = len(gitcall.rules_bytes(repo, state["base_sha"]) or b"")
         except (config.Error, OSError, ValueError, TypeError):
             pass
     history.finish_run(state.get("run_id"), repo=state.get("repo"),
@@ -7425,7 +6529,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         # no branch, no PR, no merge: the files are where this run's work went
         parts += [f"workspace: {wt}",
                   f"executor: {state['executor']}   reviewer: {state['reviewer']}",
-                  "", "## Deliverables", links(wt)]
+                  "", "## Deliverables", gitcall.links(wt)]
     else:
         try:
             stat = git(wt, "diff", "--stat", f"{state['base_sha']}...HEAD", check=False) or "(no changes)"
@@ -8546,13 +7650,6 @@ def pickup_new_code(lp, execv=None, current=None):
     return True
 
 
-def run_depth():
-    value = os.environ.get("AK_RUN_DEPTH", "0")
-    if not value.isascii() or not value.isdigit():
-        raise config.Error("AK_RUN_DEPTH must be a non-negative integer")
-    return int(value)
-
-
 def seat_refusal(opts, flags):
     """Why a seat's launch is refused: a seat names no model, no place in the queue and no
     second run of a change under way, since ak picks the models by budget, decides what goes
@@ -8592,20 +7689,6 @@ def depth_refused():
     print(f"a worker's worker may not start runs (depth {depth}); "
           "only the orchestrator, and a worker for its tests, may", file=sys.stderr)
     return True
-
-
-def run_child_env():
-    """The next depth and the run's marker, including to a job thread's done-when commands."""
-    state = getattr(_RUN_CONTEXT, "state", {})
-    env = {**config.seatless_env(),
-           "AK_RUN_DEPTH": str(state.get("run_depth", run_depth()) + 1),
-           "AK_PARENT_RUN": state.get("parent_run") or state.get("run_id") or
-                            os.environ.get("AK_PARENT_RUN", "")}
-    if state.get("run_id"):
-        # The marker every process of this run carries, so the run's end -- and every
-        # killed turn, every retry and every finished gate -- finds them however detached.
-        env[worker.RUN_MARKER] = worker.run_marker(state["run_id"])
-    return env
 
 
 @contextmanager
@@ -9859,34 +8942,11 @@ def note_in(path):
     return note
 
 
-def log_is_stdout(run_dir):
-    """Detached wakes already write the log; following it would feed it back into itself."""
-    try:
-        return os.path.samefile(run_dir / "log.txt", sys.stdout.fileno())
-    except (AttributeError, OSError, ValueError):
-        return False
-
-
 def foreground_cli(run_dir):
     return (not getattr(jobs._JOB_MUTE, "depth", 0)
             and threading.current_thread() is threading.main_thread()
             and Path(sys.argv[0]).resolve() == (config.REPO / "bin" / "ak").resolve()
             and not log_is_stdout(run_dir))
-
-
-def logger(run_dir):
-    def log(message):
-        line = f"[{datetime.now():%H:%M:%S}] {message}"
-        try:
-            print(line, flush=True)
-        except BrokenPipeError:
-            # whoever read the launch stopped reading (`| head`): that ends the reading, never
-            # the run, whose log keeps every line; later prints go nowhere
-            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-        if not log_is_stdout(run_dir):
-            with (run_dir / "log.txt").open("a") as fh:
-                fh.write(line + "\n")
-    return log
 
 
 def launch_session(run_dir):
@@ -10873,7 +9933,7 @@ def gh_json(cwd, *args, timeout=None):
     A stop is never an empty answer: a timeout, or a prompt it was refused, raises Stopped,
     so no caller can deliver on the strength of a gh that said nothing at all.
     """
-    rc, out = gh(cwd, *args, timeout=timeout)
+    rc, out = gitcall.gh(cwd, *args, timeout=timeout)
     if stopped(rc, out):
         raise Stopped(out)
     if rc != 0:
@@ -10935,15 +9995,15 @@ def text_only_pr(repo, base, head):
     """
     raw = ("--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", "-z")
     try:
-        trees = [git_bytes(repo, "ls-tree", "-r", "-z", ref) for ref in (base, head)]
+        trees = [gitcall.git_bytes(repo, "ls-tree", "-r", "-z", ref) for ref in (base, head)]
         if any(meta.split(" ", 1)[0] not in ("100644", "100755")
                for tree in trees for meta, _, name in (entry.partition("\t")
                                                        for entry in tree.split("\0") if entry)
                if Path(name).name.upper() == "AGENTS.MD"):
             return False        # an AGENTS.md anywhere that is a link or a submodule
-        entries = git_bytes(repo, "diff", "--raw", *raw, base, head, "--").split("\0")
+        entries = gitcall.git_bytes(repo, "diff", "--raw", *raw, base, head, "--").split("\0")
         modes = [entry.split()[:2] for entry in entries[0::2] if entry.startswith(":")]
-        entries = git_bytes(repo, "diff", "--numstat", *raw, base, head, "--").split("\0")
+        entries = gitcall.git_bytes(repo, "diff", "--numstat", *raw, base, head, "--").split("\0")
     except (config.Error, Stopped):
         return False        # a diff nobody could read cannot be shown to be wording
     files = [entry.split("\t", 2) for entry in entries if entry]
@@ -10966,23 +10026,9 @@ def text_only_pr(repo, base, head):
 def text_blob(repo, ref, path):
     """Do the bytes `path` names at `ref` read back, with no NUL among them?"""
     try:
-        return "\0" not in git_bytes(repo, "cat-file", "blob", f"{ref}:{path}")
+        return "\0" not in gitcall.git_bytes(repo, "cat-file", "blob", f"{ref}:{path}")
     except (config.Error, Stopped):
         return False
-
-
-def git_bytes(repo, *args):
-    """git's output with every byte kept (surrogateescape), names included: a carriage return or
-    a byte that is not UTF-8 stays itself, and handed back to git names the same file."""
-    try:
-        proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                              stdin=subprocess.DEVNULL, timeout=TOOL_CAP, env=tool_env())
-    except subprocess.TimeoutExpired:
-        raise Stopped(f"git {' '.join(args[:2])} ran past {TOOL_CAP:g}s in {repo}")
-    if proc.returncode:
-        raise config.Error(f"git {' '.join(args[:2])} failed in {repo}: "
-                           f"{proc.stderr.decode(errors='replace').strip()}")
-    return proc.stdout.decode("utf-8", "surrogateescape")
 
 
 def viewer_login():
@@ -11044,63 +10090,12 @@ def checkout_for(name_with_owner, log):
         raise config.Error(f"{target} exists and is not a clone of {name_with_owner}")
     config.CODE.mkdir(mode=0o700, parents=True, exist_ok=True)
     log(f"cloning {name_with_owner} into {target}")
-    rc, out = gh(config.CODE, "repo", "clone", name_with_owner, str(target), "--", "-q")
+    rc, out = gitcall.gh(config.CODE, "repo", "clone", name_with_owner, str(target), "--", "-q")
     if rc != 0:
         if stopped(rc, out):
             raise Stopped(out)
         raise config.Error(f"gh repo clone {name_with_owner} failed: {out[-400:]}")
     return target
-
-
-def declared(wt, key):
-    """`key`'s value in the front matter of the checkout's AGENTS.md as written, or None."""
-    try:
-        text = (Path(wt) / "AGENTS.md").read_text(errors="replace")
-    except OSError:
-        return None
-    return front_value(text, key)
-
-
-def front_value(text, key):
-    """`key`'s value in AGENTS.md front matter text as written, or None."""
-    match = FRONT.match(text)
-    if not match:
-        return None
-    for line in match.group(1).splitlines():
-        name, sep, value = line.strip().partition(":")
-        if sep and name.strip() == key and value.strip():
-            return value.strip()
-    return None
-
-
-def declared_at(wt, ref, key):
-    """`key`'s value in the front matter of AGENTS.md at `ref`, or None.
-
-    A read that fails or runs slow is no declaration, never a failed run: the ref may
-    not exist yet, the file may not be there, or git may be waiting on a prompt or a
-    network nobody here can answer, and any of those leaves the run with what its own
-    checkout says.
-    """
-    try:
-        text = git(wt, "show", f"{ref}:AGENTS.md", check=False)
-    except Exception:
-        return None
-    if not text:
-        return None
-    return front_value(text, key)
-
-
-def users_declared(wt):
-    """The checkout's `users:` answer, `real` or `none`, or None until the owner is asked.
-
-    Read as the YAML scalar it is: `users: "real"  # launched in May` says `real`, and a
-    comment or quotes left on the word would quietly drop the reviewer's rule for it.  Only
-    this word is unwrapped; a `tests:` command is a shell line and keeps what it says.
-    """
-    value = re.sub(r"(^|\s)#.*", "", declared(wt, "users") or "").strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-        value = value[1:-1].strip()
-    return value or None
 
 
 def post_review(lp, url, verdict):
@@ -11132,7 +10127,7 @@ def post_review(lp, url, verdict):
         + overridden_section(lp.state) + lp.findings.strip() + "\n", lp.run_dir.name))
     how = "COMMENT" if verdict == "PASS" or lp.state.get("own_pr") else "REQUEST_CHANGES"
     owner, repo, number = PR_PARTS.match(url).groups()
-    rc, out = gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",
+    rc, out = gitcall.gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",
                  "--method", "POST", "-f", f"commit_id={head}", "-f", f"event={how}",
                  "-F", f"body=@{path}")
     lp.state["review_posted"] = rc == 0
@@ -11546,7 +10541,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             git(wt, "reset", "--hard", head)
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
-    tests = declared_suite(wt, base, ref=target_sha)
+    tests = gitcall.declared_suite(wt, base, ref=target_sha)
     # an own PR's suite runs once, at landing; somebody else's PR has no line behind it --
     # only the inbox's yes -- so its suite runs here, in its one review round
     cmds = [f"{tests}  # once" if is_own else tests] if tests else []

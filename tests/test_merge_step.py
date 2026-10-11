@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import gate, host, config, gc, land, run, usage
+from agentkit import config, gate, gc, gitcall, host, land, run, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -752,7 +752,7 @@ class MergeStep(unittest.TestCase):
                     return False
             return run.do_merge(lp, URL, "origin/main")
 
-        with patch.object(run, "gh", side_effect=fake_gh), \
+        with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(run, "wait_checks", side_effect=checks), \
                 patch.object(run.time, "sleep"):
             self.assertFalse(landing(lp, deliver))
@@ -779,7 +779,7 @@ class MergeStep(unittest.TestCase):
                                       "headRefOid": lp.state["delivery_sha"], "baseRefName": "main"})
             raise AssertionError(f"unexpected gh: {args[:4]}")
 
-        with patch.object(run, "gh", side_effect=fake_gh), \
+        with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(run.time, "sleep") as slept:
             self.assertFalse(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(len(merges), 4)                      # the first try and three retries
@@ -807,7 +807,7 @@ class MergeStep(unittest.TestCase):
                                       "UNKNOWN" if seen.count("view") == 1 else "MERGEABLE"})
             raise AssertionError(args)
 
-        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
+        with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view", "view", "merge"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
@@ -829,7 +829,7 @@ class MergeStep(unittest.TestCase):
                                       "baseRefName": "main", "mergeable": "UNKNOWN"})
             raise AssertionError(args)
 
-        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
+        with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view"])
         self.assertTrue(record.read_state(run_dir)["merged"])
@@ -850,7 +850,7 @@ class MergeStep(unittest.TestCase):
                                       "baseRefName": "main", "mergeable": "MERGEABLE"})
             raise AssertionError(args)
 
-        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
+        with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["merge", "view", "merge"])
         self.assertTrue(record.read_state(run_dir)["merged"])
@@ -881,7 +881,7 @@ class MergeStep(unittest.TestCase):
                                               "baseRefName": "main", "mergeable": "MERGEABLE"})
                     raise AssertionError(args)
 
-                with patch.object(run, "gh", side_effect=fake_gh), \
+                with patch.object(gitcall, "gh", side_effect=fake_gh), \
                         patch.object(run.time, "sleep") as slept:
                     self.assertEqual(bool(landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))),
                                      merged)
@@ -916,7 +916,7 @@ class MergeStep(unittest.TestCase):
                                               "baseRefName": "main", "mergeable": "MERGEABLE"})
                     raise AssertionError(args)
 
-                with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+                with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
                     self.assertEqual(bool(landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))),
                                      merged)
                 self.assertEqual(seen, ["merge", "view", "merge"] if merged else ["merge", "view"])
@@ -943,7 +943,7 @@ class MergeStep(unittest.TestCase):
                                       "baseRefName": "main", "mergeable": "MERGEABLE"})
             raise AssertionError(args)
 
-        with patch.object(run, "gh", side_effect=fake_gh), \
+        with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(run, "checks", return_value=(True, "")), \
                 patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                              landing(lp, deliver=deliver)), \
@@ -974,7 +974,7 @@ class MergeStep(unittest.TestCase):
                                       "baseRefName": "main", "mergeable": "MERGEABLE"})
             raise AssertionError(args)
 
-        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+        with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(len(merges), run.MERGE_RETRIES + 1)
         state = record.read_state(run_dir)
@@ -1000,7 +1000,7 @@ class MergeStep(unittest.TestCase):
                                       "baseRefName": "main"})
             raise AssertionError(args)
 
-        with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+        with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(len([call for call in seen if call[0] == "merge"]), 1)
         state = record.read_state(run_dir)
@@ -1031,7 +1031,7 @@ class MergeStep(unittest.TestCase):
                         return 0, json.dumps(pr)
                     raise AssertionError(args)
 
-                with patch.object(run, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
+                with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
                     try:
                         answered = landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))
                     except run.Stopped:
@@ -1052,7 +1052,7 @@ class MergeStep(unittest.TestCase):
                                       "base": {"ref": "release"}})
             raise AssertionError(args)
 
-        with patch.object(run, "gh", side_effect=fake_gh), \
+        with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(run, "checks", return_value=(True, "")), \
                 patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                              landing(lp, deliver=deliver)), \
@@ -1081,7 +1081,7 @@ class MergeStep(unittest.TestCase):
                         return answer
                     raise AssertionError(args)
 
-                with patch.object(run, "gh", side_effect=fake_gh), \
+                with patch.object(gitcall, "gh", side_effect=fake_gh), \
                         patch.object(run, "checks", return_value=(True, "")), \
                         patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                                      landing(lp, deliver=deliver)), \

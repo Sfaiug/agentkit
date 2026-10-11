@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 import test_proof_weighed as proof
-from agentkit import host, browser, config, gc, job as jobs, menu, notify, orch, run, stop, task, watch, worker
+from agentkit import browser, config, gc, gitcall, host, job as jobs, menu, notify, orch, run, stop, task, watch, worker
 from agentkit import plan, record
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
@@ -113,7 +113,7 @@ class FollowupRuns(unittest.TestCase):
         self.git(self.repo, "add", ".")
         self.git(self.repo, "commit", "-qm", "Existing defect")
         self.git(self.repo, "push", "-qu", "origin", "main")
-        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run.landing, "start_line"))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, upstream, deliver:
                                             landing(lp, deliver)))
@@ -316,8 +316,8 @@ class FollowupRuns(unittest.TestCase):
     def test_a_handoff_cut_off_before_its_receipt_hands_its_list_on_again(self):
         flaky = "flaky: python3 -m unittest passed only on its re-run"
         directory, state = self.source(followups=[DEFECT, flaky], followup_checks={DEFECT: CHECK})
-        for step in ("main_checkout", "report_config"):   # before anything, after the plan line
-            with patch.object(run, step, side_effect=KeyboardInterrupt), \
+        for module, step in ((gitcall, "main_checkout"), (run, "report_config")):   # before anything, after the plan line
+            with patch.object(module, step, side_effect=KeyboardInterrupt), \
                     self.assertRaises(KeyboardInterrupt):
                 self.start(directory, record.read_state(directory))
         real = run.report_config

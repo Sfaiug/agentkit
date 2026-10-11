@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import gate, hand_in, host, config, gc, orch, run, status, watch, worker
+from agentkit import config, gate, gc, gitcall, hand_in, host, orch, run, status, watch, worker
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -89,7 +89,7 @@ class OwnPr(unittest.TestCase):
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=self.view))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                                              landing(lp, deliver=deliver)))
         self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **k: nullcontext()))

@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, record
+from . import config, gitcall, record
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
@@ -204,7 +204,7 @@ def _scratch(repo, commit, opened):
     from . import run
     scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
     opened.callback(os.close, os.open(scratch, os.O_RDONLY))
-    code, out = run.add_worktree(repo, scratch, "--detach", commit, mark=SCRATCH_MARK)
+    code, out = gitcall.add_worktree(repo, scratch, "--detach", commit, mark=SCRATCH_MARK)
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
     return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {commit} failed\n{out}")
 
@@ -571,7 +571,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                _landing_checks(member, saved, scratch, tip)))
             if not stacks:
                 break
-            suite = run.declared_suite(stacks[0][2], ref=tip)
+            suite = gitcall.declared_suite(stacks[0][2], ref=tip)
             if limit is None:
                 limit = gate.whole_checks_that_fit(suite)
             # Only this lander's ak commit answers: another's pass or failure is checked again.

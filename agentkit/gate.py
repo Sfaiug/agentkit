@@ -15,7 +15,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, history, host, orch, run, watch, worker
+from . import config, gitcall, history, host, orch, run, watch, worker
 from . import land as landing
 from . import record as run_record
 
@@ -910,7 +910,7 @@ def suite_env():
     `SUITE_BUSY`, and `busy_turn` gives the turn back.  Never inherited: a loop started below
     a suite holds none of that suite's turn.
     """
-    env = run.run_child_env()
+    env = gitcall.run_child_env()
     env.pop("AK_HEAVY_TURN", None)
     env.pop("AK_SHARD", None)
     if getattr(_GATE_HELD, "hold", None) is not None:
@@ -971,7 +971,7 @@ def piece_of(command):
 def suite_cost(command, cwd, run_dir):
     """A repository and suite's measured scheduling cost, or the initial estimate."""
     state = run_record.read_state(run_dir) or {} if run_dir else {}
-    repo = Path(state.get("repo") or run.main_checkout(cwd)).resolve()
+    repo = Path(state.get("repo") or gitcall.main_checkout(cwd)).resolve()
     key = hashlib.sha256(f"{repo}\n{command}".encode()).hexdigest()
     path = config.STATE / f"suite-{key}.json"
     try:
@@ -1005,7 +1005,7 @@ def write_suite_cost(path, updates):
 
 def check_suite_pieces():
     """The split run checks its branch's declaration, never the target's fallback."""
-    command = run.declared(Path.cwd(), "tests")
+    command = gitcall.declared(Path.cwd(), "tests")
     if not command or not names_shard(command):
         raise SystemExit("The branch's tests: line must name AK_SHARD")
     env = suite_env()
@@ -1435,7 +1435,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     log_path.write_text(text)
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.
-    worker.kill_marked(run.run_child_env().get(worker.RUN_MARKER), log=log)
+    worker.kill_marked(gitcall.run_child_env().get(worker.RUN_MARKER), log=log)
     artifacts.update(set(run.dirty_paths(cwd)) - before)
     return ok, text
 

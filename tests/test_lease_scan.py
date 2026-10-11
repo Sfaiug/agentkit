@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import LiveRuns
-from agentkit import config, leases, run, watch
+from agentkit import config, gitcall, leases, run, watch
 from agentkit import record
 
 
@@ -190,13 +190,13 @@ class LeaseScan(LiveRuns):
         self.edit(older, "api.py", 5, "older's line 5", commit=True)
         self.edit(younger, "api.py", 5, "younger's line 5")
         self.assertEqual(leases.scan(self.repo, self.logs.append, now=2000)["20260101-1000-younger"]["since"], 2000)
-        listed = run.committable_paths
+        listed = gitcall.committable_paths
 
         def with_a_temp_file_gone(worktree, artifacts=(), env=None):
             real, junk = listed(worktree, artifacts, env=env)
             return real + ["gone.tmp"], junk          # written and removed under the scan's feet
 
-        with patch.object(run, "committable_paths", side_effect=with_a_temp_file_gone), \
+        with patch.object(gitcall, "committable_paths", side_effect=with_a_temp_file_gone), \
                 patch.dict(os.environ, {"LANG": "de_DE.UTF-8", "LC_ALL": "de_DE.UTF-8"}):   # git's words in any language
             found = leases.scan(self.repo, self.logs.append, now=2100)
         self.assertEqual(found["20260101-1000-younger"], {"waits_on": "20260101-0900-older",

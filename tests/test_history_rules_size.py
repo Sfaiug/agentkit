@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, status  # noqa: E402
+from agentkit import config, gitcall, history, run, status  # noqa: E402
 
 
 class RulesSize(unittest.TestCase):
@@ -60,7 +60,7 @@ class RulesSize(unittest.TestCase):
         (self.acme / "AGENTS.md").write_text("# Acme\n\nShip small.\nTest first.\n")
         self.commit("more rules")
         self.assertEqual(self.finish("r1", base, 100), handed)
-        self.assertEqual(len(run.rules_bytes(self.acme, base)), handed)
+        self.assertEqual(len(gitcall.rules_bytes(self.acme, base)), handed)
 
     def test_a_run_handed_no_file_clears_the_size_and_a_failed_read_keeps_it(self):
         def line():
