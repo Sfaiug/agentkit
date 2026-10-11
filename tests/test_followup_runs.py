@@ -627,7 +627,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertIn("[exit 0]", (child / "round-1/donewhen.log").read_text())
         calls = [json.loads(line) for line in (self.root / "harness/calls.jsonl").read_text().splitlines()]
         self.assertEqual([c["role"] for c in calls], ["executor", "reviewer"])
-        self.assertIn("First fetch the target branch", calls[0]["prompt"])
+        self.assertIn("starts on the target branch's tip, fetched when this run started", calls[0]["prompt"])
         self.assertIn("another open run of session seat", calls[0]["prompt"])
         self.assertEqual(len(fixed["followup_runs"]), 1)     # the fix run's own follow-up gets a run too
         found = fixed["followups"][0]
@@ -657,6 +657,28 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn("not needed: ", (child / "result.md").read_text())
             self.assertIn("finished DONE: not needed:", self.endings[-1])
         self.assertEqual(self.gh_calls, [])
+
+    def test_a_fix_run_that_cannot_fetch_its_target_waits_for_a_resume(self):
+        directory, state = self.source()
+        child = self.start(directory, state)[0]
+        fetch = run.fetch
+
+        def offline(cwd, *args, **kw):      # only the fetch the run cuts its checkout after
+            if "+refs/heads/*:refs/remotes/origin/*" in args:
+                return 1, "Could not resolve host"
+            return fetch(cwd, *args, **kw)
+        with patch.object(run, "fetch", side_effect=offline):
+            code, ended = self.drive(child, "gone")
+        self.assertEqual(code, 1)
+        self.assertEqual(ended["state"], "exhausted")
+        self.assertIn("could not fetch main from origin", ended["error"])
+        self.assertTrue(run.needs_recovery(ended))
+        self.assertNotIn("worktree", ended)         # a resume starts it afresh, fetch first
+        self.assertFalse((self.root / "harness/calls.jsonl").exists())
+        (self.root / "mode").write_text("fix")
+        with patch.object(record, "process_active", return_value=False):
+            self.assertEqual(run.resume_run([child.name]), 0, "\n".join(self.logs))
+        self.assertTrue(record.read_state(child)["merged"])
 
     def test_owner_question_ends_blocked_and_reaches_the_session(self):
         directory, state = self.source()
