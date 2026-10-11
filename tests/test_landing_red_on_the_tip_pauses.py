@@ -164,11 +164,10 @@ class RedOnTheTip(unittest.TestCase):
         self.assertFalse((first / "target-probe.log").exists())
         self.assertIsNone(self.red())
 
-    def test_a_killed_piece_runs_the_suite_whole_on_the_tip(self):
-        # piece 1 talks and passes, piece 2 goes silent while the host holds the flag: its
-        # kill stops piece 1 too, recorded alike, so no log tells which piece hung
-        suite = ('case "$AK_SHARD" in 1/*) for i in 1 2 3 4 5 6; do echo tick; sleep 1; done;; '
-                 '*) if test -f ../flake; then sleep 30; fi;; esac')
+    def killed(self, piece):
+        """Piece 2 goes silent while the host holds the flag and is killed; its kill stops
+        `piece` 1 too, never retried: the suite whole runs on the tip and nobody is woken."""
+        suite = f'case "$AK_SHARD" in 1/*) {piece};; *) if test -f ../flake; then sleep 30; fi;; esac'
         self.declare(suite)
         first = self.member()
         with record.record(first) as state:
@@ -180,6 +179,14 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.commands(), [["true", suite], [suite]])
         self.assertEqual(self.red()["probe"]["piece"], "")
         self.wake.assert_not_called()
+
+    def test_a_killed_piece_runs_the_suite_whole_on_the_tip(self):
+        # piece 1 talks and passes, stopped by the kill and recorded alike
+        self.killed("for i in 1 2 3 4 5 6; do echo tick; sleep 1; done")
+
+    def test_a_red_piece_beside_a_killed_one_runs_the_suite_whole_on_the_tip(self):
+        # piece 1 fails its first run only, a flake the kill leaves unretried
+        self.killed("test -f ../ran1 || { touch ../ran1; exit 1; }")
 
     def test_a_target_suite_that_changes_its_checkout_blames_no_member(self):
         self.declare("printf more >> base.txt")

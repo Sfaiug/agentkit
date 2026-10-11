@@ -179,15 +179,15 @@ def start_line(turn, log=lambda _: None):
 def red_suite_piece(text, suite):
     """What of `suite` the lander log `text` shows red: the piece that exited red
     (`AK_SHARD=k/N`), else "" for the suite whole -- run whole, a piece killed (its siblings
-    are stopped with it and recorded alike), or a checkout the checks changed -- or None where
-    there is no suite or what failed was not it: a `# once` check of the member's own, which
-    no target answers for."""
+    are stopped with it, never retried, so no red beside it is one piece's), or a checkout the
+    checks changed -- or None where there is no suite or what failed was not it: a `# once`
+    check of the member's own, which no target answers for."""
     from . import run
     failed = [command for command, _ in run.failing_checks(text)]
     if not suite or failed[:1] not in ([], [suite]):
         return None
-    found = re.search(r"^--- AK_SHARD=(\S+) ---\n\[exit [1-9]\d*\]", text, re.M)
-    return found.group(1) if found else ""
+    red = re.findall(r"^--- AK_SHARD=(\S+) ---\n\[(exit [1-9]|killed)", text, re.M)
+    return "" if not red or any(how == "killed" for _, how in red) else red[0][0]
 
 
 def paused(red):
