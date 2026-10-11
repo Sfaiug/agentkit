@@ -1649,10 +1649,10 @@ def file_projectless(found, runs):
 
     A seat not yet filed by its orchestrator stays under no project until one of its runs
     votes.  `runs` are the run records the menu's draw or the tick has read anyway, so no
-    run.json is read twice.  `run.join_session_project` files it under its lock, and a seat
+    run.json is read twice.  `handback.join_session_project` files it under its lock, and a seat
     with no record is left alone.
     """
-    from . import run
+    from . import handback
     orphans = {session["name"]: [] for session in found if not session.get("repo")}
     if orphans and runs:
         for state in runs:
@@ -1662,8 +1662,8 @@ def file_projectless(found, runs):
                 continue
     for session in found:
         states = orphans.get(session["name"])
-        if states and run.session_vote(session["name"], states):
-            session["repo"] = run.join_session_project(session["name"], states)
+        if states and handback.session_vote(session["name"], states):
+            session["repo"] = handback.join_session_project(session["name"], states)
 
 
 BACK = object()  # Esc at a new-seat question: back to the menu, nothing created
@@ -3159,10 +3159,10 @@ def cmd_list(argv):
         print("no orchestrator session; `ak orch <name>` starts one")
         print_slice()
         return 0
-    from . import menu, run   # here, not at the top: menu imports this module
+    from . import handback, menu  # here, not at the top: menu imports this module
     cfg = config.load()
     # the same tally each seat's menu row carries, from the same one pass over the records
-    tallies = run.seat_tallies(state for _, state in menu.run_records())
+    tallies = handback.seat_tallies(state for _, state in menu.run_records())
     # each seat's record is read once here and carried into the table, which
     # would otherwise read every seat again for the same rows
     selections, warnings = {}, []

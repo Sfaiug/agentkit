@@ -18,7 +18,7 @@ from unittest.mock import patch
 from fixtures.sandbox import REPO, Sandbox
 from types import SimpleNamespace
 
-from agentkit import config, record, run, task as taskfile
+from agentkit import config, record, run, task as taskfile, transitions
 
 URL = "https://github.com/acme/widget/pull/7"
 OTHER = "https://github.com/acme/widget/pull/8"
@@ -210,7 +210,7 @@ class RoundsPerPr(Sandbox):
         state = record.read_state(b)
         self.assertTrue(run.failed_at_budget(state))
         self.assertEqual(run.lineage_cap(state, b), 1)
-        self.assertEqual(run.continue_line(state, b), "")       # nothing to spend: no way on
+        self.assertEqual(transitions.continue_line(state, b), "")       # nothing to spend: no way on
         with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
             with self.assertRaises(config.Error) as refused:
                 run.resume_run(["20260101-0700-b", "--rounds", "3"])
@@ -221,7 +221,7 @@ class RoundsPerPr(Sandbox):
             **record.read_state(config.RUNS / "20260101-0600-a"),
             "round_summaries": [{"round": 1, "verdict": "FAIL", "summary": ""}]})
         self.assertEqual(run.lineage_cap(state, b), 2)
-        self.assertEqual(run.continue_line(state, b), "continue: ak run resume 20260101-0700-b --rounds 2")
+        self.assertEqual(transitions.continue_line(state, b), "continue: ak run resume 20260101-0700-b --rounds 2")
         with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
             with self.assertRaises(config.Error) as refused:
                 run.resume_run(["20260101-0700-b"])

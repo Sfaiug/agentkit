@@ -104,8 +104,8 @@ def before_review(state):
     loop in its executor turn or at ak's commit step, where what it built can still be set
     aside.  A pull request's review builds nothing to set aside, a job's task is its job's to
     settle, as `transitions.parkable_conflict` leaves it, and a red target's repair and a suite's split
-    are waited on: stopped, either would hold its line (`run.repair_open`) or its suite
-    (`run.open_followup`) for good."""
+    are waited on: stopped, either would hold its line (`handback.repair_open`) or its suite
+    (`handback.open_followup`) for good."""
     return (not any(state.get(key) for key in ("review_pr", "job_id", "repair", "split_suite",
                                                "round_summaries"))
             and state.get("step") in (None, "executor", "done-when"))
@@ -358,7 +358,7 @@ def restart(log=print, now=None):
     new one first, and the launch follows, under the lock a stop and a seat's close take (as
     `run.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
     and none starts twice whatever the launch did."""
-    from . import run, watch
+    from . import handback, run, watch
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
         if not state or not parked(state) or not isinstance(state["lease_wait"].get("on"), str):
@@ -369,7 +369,7 @@ def restart(log=print, now=None):
         if holder and transitions.going(holder, now=now):
             continue
         why = f"{wait['on']} {'has landed' if holder and holder.get('merged') else 'is over'}"
-        directory = run.free_run_dir(run_dir.name.split("-", 2)[-1])
+        directory = handback.free_run_dir(run_dir.name.split("-", 2)[-1])
         session = transitions.launched_session(state)
         with watch.state_lock():
             with run_record.recovery_lock(run_dir):

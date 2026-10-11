@@ -88,7 +88,7 @@ class SupersededPark(unittest.TestCase):
                      verdict="PASS", merged=True, branch="run-y",
                      round_summaries=[{}], error=None,
                      started_at=self.now - 300, finished_at=self.now - 60)
-        index = run.supersession_index(self.records())
+        index = transitions.supersession_index(self.records())
         state = record.read_state(parked)
         self.assertTrue(transitions.is_superseded(state, None, index))
         self.assertTrue(run.settled(state, index))
@@ -105,7 +105,7 @@ class SupersededPark(unittest.TestCase):
                      verdict="FAIL", branch="run-y", round_summaries=[{}],
                      error="the done-when failed",
                      started_at=self.now - 300, finished_at=self.now - 60)
-        index = run.supersession_index(self.records())
+        index = transitions.supersession_index(self.records())
         state = record.read_state(parked)
         self.assertFalse(run.settled(state, index))
         self.assertTrue(run.unfinished(state, index=index))
@@ -121,7 +121,7 @@ class SupersededPark(unittest.TestCase):
                      round_summaries=[{}], error=None,
                      started_at=self.now - 300, finished_at=None)
         records = self.records()
-        index = run.supersession_index(records)
+        index = transitions.supersession_index(records)
         state = record.read_state(parked)
         # the orchestrator took the work up again, but it has not merged
         self.assertEqual(transitions.superseded_by(state, records), "20260925-1713-relaunch")
@@ -182,7 +182,7 @@ class SupersededPark(unittest.TestCase):
         self.assertNotIn("error_retry_at", errored_state)
         self.assertNotIn("error_retries", errored_state)
         self.assertFalse(run.going(errored_state))
-        index = run.supersession_index(self.records())
+        index = transitions.supersession_index(self.records())
         self.assertEqual(status.status_state_word(quota_state, index), "done")
         self.assertEqual(status.status_state_word(errored_state, index), "done")
         # ... and the seat's standing done is done, not working above it

@@ -88,13 +88,13 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
 def member(state):
     """Whether a record holds a place in its line: parked, or a green delivery that continues
     itself."""
-    from . import run
+    from . import handback
     wait = state.get("waiting_on")
     return (isinstance(wait, dict) and not state.get("merged")
             and (state.get("state") == "waiting"
                  or (green_delivery(wait)
                      and state.get("state") not in record.ENDED
-                     and run.followup_open(state)
+                     and handback.followup_open(state)
                      and (record.process_active(state) or transitions.tick_resumes(state))))
             and isinstance(wait.get("line"), str)
             and type(wait.get("joined")) in (int, float))
@@ -262,7 +262,7 @@ def check_line(turn, log=lambda _: None):
     can resume or stop during its check: only an unchanged, processless parked record gets
     the verdict.  The recovery lock covers that write and the wake, never the suite.
     """
-    from . import run, watch
+    from . import handback, run, watch
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
     with turn.with_suffix(".lander.lock").open("a") as lock:
@@ -319,7 +319,7 @@ def check_line(turn, log=lambda _: None):
                     name = _repair(turn, directory, state, target_tree, red, log)
                     if not name:
                         return
-                elif not run.repair_open(repair, red["probe"]["sha"]):
+                elif not handback.repair_open(repair, red["probe"]["sha"]):
                     name = None
                 if name and directory.name != name:
                     continue
@@ -343,6 +343,7 @@ def check_line(turn, log=lambda _: None):
             sent, snapshots, valid = set(), dict(candidates), True
 
             def publish(answers):
+                from . import handback
                 nonlocal valid
                 if not valid:
                     return False
@@ -364,7 +365,7 @@ def check_line(turn, log=lambda _: None):
                                     and ((current.get("waiting_on") == saved["waiting_on"]
                                           and current.get("state") not in record.ENDED
                                           and (current.get("state") == "waiting"
-                                               or (run.followup_open(current)
+                                               or (handback.followup_open(current)
                                                    and (record.process_active(current) or transitions.tick_resumes(current))))
                                           and review.get("tree_sha") in (saved["review"].get("tree_sha"), tree))
                                          or ((current.get("merged") or current.get("on_target"))

@@ -370,7 +370,7 @@ def owed(name, line, proven=None):
 
 def taken(name, line, delivered=False):
     """Whether a deferred line is a run's: one of the seat's with the line's check in the
-    line's project is on its way with it (`run.open_followup`) or, with `delivered`, merged
+    line's project is on its way with it (`handback.open_followup`) or, with `delivered`, merged
     or found it not needed since the line was written, for the done's work (`outcomes`).
     Read with the line, never written at an ending: once the fix run ended, whichever way,
     the line is the seat's own until its check passes, which a delivery runs at once
@@ -380,8 +380,8 @@ def taken(name, line, delivered=False):
         return False
     repo = place(name, found["project"])
     written = time.mktime(time.strptime(found["when"], STAMP))
-    from . import run   # here, not at the top: the loop is heavy for a seat's small verb
-    return bool(repo and run.open_followup({"repo": str(repo.resolve()), "launched_session": name},
+    from . import handback  # here, not at the top: the loop is heavy for a seat's small verb
+    return bool(repo and handback.open_followup({"repo": str(repo.resolve()), "launched_session": name},
                                            "", check=found["check"],
                                            held=written if delivered else None))
 

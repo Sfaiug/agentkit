@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch, run, watch
+from agentkit import config, handback, notify, orch, run, watch
 from agentkit import record
 
 
@@ -45,6 +45,7 @@ class DeadLoopCardAndPark(unittest.TestCase):
             record, "process_active", lambda state: state.get("pid") in self.alive))
         self.stack.enter_context(patch.object(run, "stop_run_tree", lambda *_a, **_kw: None))
         self.stack.enter_context(patch.object(run, "memory_cap_reason", lambda *_a, **_kw: None))
+        self.stack.enter_context(patch.object(handback, "memory_cap_reason", lambda *_a, **_kw: None))
         self.resumed = []
         self.stack.enter_context(patch.object(watch, "launch_resume", self.adopt))
         self.cards = []

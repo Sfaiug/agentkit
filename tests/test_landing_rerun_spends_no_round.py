@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import gate, host, config, gc, land, run, usage, watch
+from agentkit import config, gate, gc, gitcall, handback, host, land, run, usage, watch
 from agentkit import record
 from test_merge_step import make_loop, make_repos
 
@@ -226,7 +226,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
-                patch.object(run, "launcher_world", return_value=nullcontext(True)), \
+                patch.object(run, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
                 patch.object(run, "hand_back", return_value=True), \
                 patch.object(run, "stop_run_tree"), \
                 patch.object(run.history, "Sampler"), \
@@ -270,7 +270,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                         reason = ("git fetch origin failed" if fault == "fetch" else
                                   "origin/main does not exist on origin")
                         result = (1, "origin unavailable") if fault == "fetch" else (0, "")
-                        with patch.object(run, "fetch", return_value=result):
+                        with patch.object(run, "fetch", return_value=result), patch.object(gitcall, "fetch", return_value=result):
                             try:
                                 run.cmd_resume([self.run_dir.name])
                             except config.Error as exc:

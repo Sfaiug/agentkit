@@ -15,7 +15,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gc, menu, orch, retention, run, terminal, watch
+from agentkit import config, gc, handback, menu, orch, retention, run, terminal, watch
 from agentkit import record as run_record
 
 NOW = 1_800_000_000
@@ -275,7 +275,7 @@ class Projects(Sandbox):
         rows = sum(1 for state in states
                    if menu.v5o_needs_look(state, states, None, NOW)
                    and run.launched_session(state) == seat["name"])
-        tallies = run.seat_tallies(states, now=NOW)
+        tallies = handback.seat_tallies(states, now=NOW)
         self.assertEqual(rows, 2)                      # fresh-fail and unmerged
         self.assertEqual(tallies[seat["name"]][1], rows)
         # the parked run is going, and counts as going in the tally

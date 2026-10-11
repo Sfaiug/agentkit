@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 import test_proof_weighed as proof
-from agentkit import browser, config, gc, gitcall, host, job as jobs, menu, notify, orch, run, stop, task, transitions, watch, worker
+from agentkit import browser, config, gc, gitcall, handback, host, job as jobs, menu, notify, orch, run, stop, task, transitions, watch, worker
 from agentkit import plan, record
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
@@ -522,10 +522,10 @@ class FollowupRuns(unittest.TestCase):
         # ... and the ending says so: the lines are the seat's own to build, not deferred
         ending = (directory / "result.md").read_text()
         self.assertIn("now in your plan, yours to build: Fix broken.py:1", ending)
-        self.assertNotIn("deferred", run.planned_followups(ended))
+        self.assertNotIn("deferred", handback.planned_followups(ended))
 
     def test_the_ending_offers_a_recheck_as_making_the_line_the_seats_only_for_a_deferred_one(self):
-        ending = run.planned_followups({"followup_plan": [
+        ending = handback.planned_followups({"followup_plan": [
             {"outcome": "Fix a.py:1 - x", "deferred": True}, {"outcome": "Fix b.py:2 - y", "deferred": False}]})
         deferred, owed = ending.split("Review follow-ups now in your plan, yours to build")
         self.assertIn("puts your own test in its place and makes the line yours. ", deferred)
@@ -546,7 +546,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(kept.replace(plan.DEFERRED, ""), line)
         self.assertTrue(plan.deferred(kept))
         self.assertIn("now deferred in your plan: Fix broken.py:1", (later / "result.md").read_text())
-        self.assertNotIn("yours to build", run.planned_followups(record.read_state(later)))
+        self.assertNotIn("yours to build", handback.planned_followups(record.read_state(later)))
 
     def test_a_followup_whose_run_could_not_start_keeps_its_line_owed(self):
         other = "python3 -c 'from other import ratio; ratio(0)'"
@@ -599,7 +599,7 @@ class FollowupRuns(unittest.TestCase):
             children = self.start(directory, state)
         receipts = [record.read_state(child) for child in children]
         self.assertTrue(all(s["state"] == "queued" and s["slot_waiting"] for s in receipts))
-        self.assertEqual(run.seat_tallies(receipts)["seat"][0], 2)
+        self.assertEqual(handback.seat_tallies(receipts)["seat"][0], 2)
         with patch.object(stop, "cmd_stop") as stopped:
             stop.stop_owned_runs("seat")
         self.assertEqual({call.args[0][0] for call in stopped.call_args_list}, {c.name for c in children})
@@ -722,7 +722,7 @@ class FollowupRuns(unittest.TestCase):
                  "launched_session": "seat", "started_at": 1, "finished_at": 2,
                  "title": "Fix broken.py:1"}
         record.save_state(directory, state)
-        with patch.object(run, "launcher_world", return_value=nullcontext(False)), \
+        with patch.object(run, "launcher_world", return_value=nullcontext(False)), patch.object(handback, "launcher_world", return_value=nullcontext(False)), \
                 patch.object(watch, "revive", side_effect=AssertionError("revived")), \
                 patch.object(notify, "shaped", side_effect=AssertionError("card")):
             self.real_announce(dict(state), directory, self.logs.append, self.cfg)

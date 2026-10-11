@@ -9,7 +9,7 @@ or an exhausted provider shows.
 import json
 import time
 
-from . import config, transitions, turns
+from . import config, transitions, turns, update
 
 
 def collect_usage(cfg):
@@ -17,7 +17,7 @@ def collect_usage(cfg):
 
     A concurrent cache publisher must not abort a run that already owns a slot.
     """
-    from . import usage  # here, not at the top: it reaches run
+    from . import usage  # here, not at the top: usage imports staffing
     try:
         read = usage.collect(cfg)
     except FileNotFoundError as exc:
@@ -88,7 +88,7 @@ def ready_order(cfg, providers, workers=None, log=None, **kwargs):
     before any budget rule reads the list, so a subscription nobody can run keeps no payg
     provider out; `log`, on the one call of a pick that gives a role, says so in one line.
     """
-    from . import usage  # here, not at the top: it reaches run
+    from . import usage  # here, not at the top: usage imports staffing
     skip = {}
     if getattr(providers, "harnesses", None):
         skip = {name: usage.unready(cfg, name, providers) for name in config.offered(cfg)}
@@ -108,7 +108,7 @@ def refuse_unready(cfg, providers, name):
     Not on an answer an install or revert of that harness overlapped: its command was missing
     then, so the swap is waited out and the harness asked again, as a failed turn's is.
     """
-    from . import update, usage  # here, not at the top: these reach run
+    from . import usage  # here, not at the top: usage imports staffing
     why = usage.unready(cfg, name, providers)
     harness = config.model(cfg, name)["harness"]
     if why and update.swap_end(harness, providers.asked_at, time.time()):
@@ -187,7 +187,7 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     marked self-reviewed.  Legacy explicit names remain unbound; only automatic candidates
     fall back to the configured worker selection.
     """
-    from . import usage  # here, not at the top: it reaches run
+    from . import usage  # here, not at the top: usage imports staffing
     listed, review_list = config.role_groups(cfg, workers, reviewers)
     bound_exec = listed is not None
     bound_review = review_list is not None or bound_exec
@@ -490,7 +490,7 @@ def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None)
     window.  The tick's availability and the waiting words share this one rule.  `log`
     is told each worker left out because its harness cannot run, as `ready_order` says it.
     """
-    from . import usage  # here, not at the top: it reaches run
+    from . import usage  # here, not at the top: usage imports staffing
     try:
         order = ready_order(cfg, providers, workers=workers, log=log, role="executor",
                             quiet=True, reviewers=reviewers)
@@ -528,7 +528,7 @@ def reviewable_models(cfg, providers, workers, now, executor=None):
     the legality check has nothing to check against, so every available model
     counts.
     """
-    from . import usage  # here, not at the top: it reaches run
+    from . import usage  # here, not at the top: usage imports staffing
     try:
         order = ready_order(cfg, providers, workers=workers, role="reviewer",
                             quiet=True)

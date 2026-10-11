@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 from fixtures.sandbox import REPO
 import sys
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, job as jobs, orch, run, watch
+from agentkit import config, handback, host, job as jobs, orch, run, watch
 from agentkit import record
 
 
@@ -85,7 +85,7 @@ class RunScope(unittest.TestCase):
                 (orch, "stop_scope", lambda scope, log=None, wait=False:
                     self.stopped.append((scope, wait)) or True),
                 (record, "process_active", lambda state: state.get("pid") in self.live),
-                (run, "_scope_oom_probe", lambda state: ("success", 0)),
+                (handback, "_scope_oom_probe", lambda state: ("success", 0)),
                 (run.worker, "kill_marked", lambda run_id, log=None, exact=False: True),
                 (run.time, "sleep", finish)):
             self.stack.enter_context(patch.object(where, name, side_effect=fake))

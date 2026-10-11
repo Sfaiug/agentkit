@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import stateful
-from agentkit import config, gitcall, hand_in, run, turns, worker
+from agentkit import config, gitcall, hand_in, run, turns, update, worker
 
 
 class HandIn(unittest.TestCase):
@@ -223,7 +223,7 @@ sys.exit(row.get("code", 0))
                                         (worker, "marked_pids", []), (run, "collect_usage", {}),
                                         (run, "ready_order", ["spark"]), (turns, "note_turn_meters", None),
                                         (run, "history_role_tokens", None), (turns, "memory_cap_note", None),
-                                        (turns, "transient_wait", None), (run.update, "swap_end", None),
+                                        (turns, "transient_wait", None), (update, "swap_end", None),
                                         (run.usage, "account", (None, True)), (run.history, "update_run", None)):
                 stack.enter_context(patch.object(module, name, return_value=value))
             for override in overrides:
@@ -390,7 +390,7 @@ sys.exit(row.get("code", 0))
                         overrides.append(patch.object(run.usage, "account", side_effect=[
                             ("default", True), ("second", True), ("second", True)]))
                     elif reason == "swap":
-                        overrides.append(patch.object(run.update, "swap_end", side_effect=[1, 0]))
+                        overrides.append(patch.object(update, "swap_end", side_effect=[1, 0]))
                     elif reason == "signal":
                         code, text = -15, ""
                     elif reason == "foreground":

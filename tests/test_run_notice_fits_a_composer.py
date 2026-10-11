@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch, record, run, transitions, watch, worktrees
+from agentkit import config, gitcall, orch, record, run, transitions, watch, worktrees
 
 
 PR = "https://github.com/acme/widget/pull/7"
@@ -58,7 +58,7 @@ class RunNotice(Sandbox):
             "rounds": 3, "round_summaries": [], "findings": "", "branch": "ak/fix-api",
             "base_sha": "a" * 40, "worktree": str(self.root), **extra})
         state = record.read_state(directory)
-        with patch.object(run, "git", return_value="(fixture diff)"):
+        with patch.object(run, "git", return_value="(fixture diff)"), patch.object(gitcall, "git", return_value="(fixture diff)"):
             run.write_result(directory, state, [])
         return directory, state
 
@@ -219,7 +219,7 @@ class RunNotice(Sandbox):
             watch.after_merge_checks(episodes, False, self.logs.append, now=10000)
             return "(fixture diff)"
 
-        with patch.object(run, "git", side_effect=during_diff), \
+        with patch.object(run, "git", side_effect=during_diff), patch.object(gitcall, "git", side_effect=during_diff), \
                 patch.object(watch, "after_merge_sha", return_value="a" * 40), \
                 patch.object(watch, "after_merge_health", return_value=None), \
                 patch.object(watch, "gh_json", return_value=([{"check_runs": [{
@@ -251,7 +251,7 @@ class RunNotice(Sandbox):
                 directory, {**latest, "worktree": None}, cfg=self.cfg)),
             ("maintainer result", lambda: run.record_decision(
                 directory, latest, "The maintainer kept the merged change")))
-        with patch.object(run, "git", return_value="(fixture diff)"):
+        with patch.object(run, "git", return_value="(fixture diff)"), patch.object(gitcall, "git", return_value="(fixture diff)"):
             for name, rebuild in rebuilds:
                 with self.subTest(writer=name):
                     result.write_text(saved)

@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, host, menu, notify, orch, run, status, turns, watch
+from agentkit import config, handback, harness, host, menu, notify, orch, run, status, transitions, turns, watch
 from agentkit import record
 
 TASK = """---
@@ -101,7 +101,7 @@ class V5X(unittest.TestCase):
         self.stack.enter_context(patch.object(
             notify, "shaped",
             side_effect=lambda kind, text, **kw: self.cards.append((kind, text, kw)) or 0))
-        self.stack.enter_context(patch.object(run, "launcher_watched", return_value=False))
+        self.stack.enter_context(patch.object(handback, "launcher_watched", return_value=False))
         self.stack.enter_context(patch.object(orch, "find", return_value=None))
         self.procs = []
         self.addCleanup(self.kill_procs)
@@ -302,7 +302,7 @@ class V5X(unittest.TestCase):
 
     def test_v5x_third_stall_parks_and_types_into_launching_seat(self):
         parent = self.spawn_loop(self.gate_child())
-        with patch.object(run, "launcher_watched", return_value=True), \
+        with patch.object(handback, "launcher_watched", return_value=True), \
                 patch.object(orch, "find", return_value={"name": "seat1"}):
             run_dir, _ = self.make_run(
                 "20260916-0000-v5x-third",
@@ -318,7 +318,7 @@ class V5X(unittest.TestCase):
         self.assertEqual(state["stalls"][-1]["action"], "parked")
         self.assertTrue(state.get("stalled_notified"), "a told seat records its notice")
         self.assertIn("stall:", (run_dir / "log.txt").read_text())
-        self.assertEqual(run.continue_line(state), f"continue: ak run resume {run_dir.name}")
+        self.assertEqual(transitions.continue_line(state), f"continue: ak run resume {run_dir.name}")
         self.assertIn(f"ak run resume {run_dir.name}", (run_dir / "result.md").read_text())
         self.assertEqual(len(self.typed), 1)
         seat, line = self.typed[0]

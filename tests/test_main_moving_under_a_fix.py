@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import config, gitcall, host, run, status
+from agentkit import config, gitcall, harness, host, run, status, transitions
 from agentkit import record
 
 
@@ -525,7 +525,7 @@ class V5aa(unittest.TestCase):
             # integration resume with no executor turn (v5aj)
             self.assertFalse(run.failed_in_integration(record.read_state(run_dir), run_dir))
             self.assertTrue(run.judged_in_integration(record.read_state(run_dir), run_dir))
-            self.assertEqual(run.continue_line(record.read_state(run_dir), run_dir),
+            self.assertEqual(transitions.continue_line(record.read_state(run_dir), run_dir),
                              f"continue: ak run resume {run_dir.name}")
 
     def test_v5aa_base_sha_is_the_pinned_commit_not_the_moving_name(self):

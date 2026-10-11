@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, hand_in, land, record, run, watch, worker, worktrees
+from agentkit import config, gate, gc, gitcall, hand_in, handback, land, record, run, watch, worker, worktrees
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture, climb_ladder
 
@@ -44,6 +44,7 @@ class OwnPrLineFixture(LanderFixture):
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "launcher_world", side_effect=lambda *_: nullcontext(True)))
+        self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
         self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
         self.stack.enter_context(patch.object(run.orch, "find", return_value={"name": "fix-api"}))
         fetch = run.fetch
@@ -52,6 +53,7 @@ class OwnPrLineFixture(LanderFixture):
             return (0, "") if any(arg.startswith("pull/") for arg in args) else fetch(repo, remote, *args, **kw)
 
         self.stack.enter_context(patch.object(run, "fetch", side_effect=local_fetch))
+        self.stack.enter_context(patch.object(gitcall, "fetch", side_effect=local_fetch))
 
     def tell(self, _seat, text, *_args, **_kw):
         self.notices.append(text)
@@ -502,7 +504,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 self.push_fix(url)
             return git_out(cwd, *args, **kw)
 
-        with patch.object(run, "git_out", side_effect=race):
+        with patch.object(run, "git_out", side_effect=race), patch.object(gitcall, "git_out", side_effect=race):
             with self.assertRaisesRegex(config.Error, "pushing to the PR branch failed"):
                 self.review(directory, url)
         self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), self.prs[url]["head"])
@@ -523,7 +525,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 raise InterruptedError("the push completed before the run died")
             return answer
 
-        with patch.object(run, "git_out", side_effect=killed):
+        with patch.object(run, "git_out", side_effect=killed), patch.object(gitcall, "git_out", side_effect=killed):
             with self.assertRaises(InterruptedError):
                 self.review(directory, url)
         self.assertTrue(self.review(directory, url)["merged"])
@@ -645,7 +647,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 raise InterruptedError("the process died fetching the seat's fix")
             return fetch(repo, remote, *args, **kw)
 
-        with patch.object(run, "fetch", side_effect=dies), self.assertRaises(InterruptedError):
+        with patch.object(run, "fetch", side_effect=dies), patch.object(gitcall, "fetch", side_effect=dies), self.assertRaises(InterruptedError):
             self.review(directory, url)
         state = self.review(directory, url)
         self.assertEqual((state["head_sha"], state["state"]), (newest, "waiting"))
@@ -672,7 +674,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 self.prs[url]["head"] = run.git(self.remote, "rev-parse", self.prs[url]["branch"])
             return result
 
-        with patch.object(run, "git_out", side_effect=pushed), \
+        with patch.object(run, "git_out", side_effect=pushed), patch.object(gitcall, "git_out", side_effect=pushed), \
                 patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
                 patch.object(run, "fix_own_pr", return_value=False):
             earlier = self.review(directory, url)["delivery_sha"]

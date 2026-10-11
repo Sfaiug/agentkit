@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gate, gitcall, host, land, notify, orch, run, turns, usage, worker
+from agentkit import config, gate, gitcall, host, land, notify, orch, run, transitions, turns, usage, worker
 from agentkit import record
 
 NO_VERDICT_PROMPT = ("Your previous turn ended without ak hand-in done. Review the diff now, "
@@ -262,7 +262,7 @@ sys.exit(1)
         self.assertIsNone(state.get("verdict"))
         self.assertEqual(state.get("review_pending", {}).get("round"), 1)
         self.assertIn("gave no verdict twice", state.get("error", ""))
-        self.assertEqual(run.continue_line(state, directory),
+        self.assertEqual(transitions.continue_line(state, directory),
                          f"continue: ak run resume {directory.name}")
 
     def test_v5aj_two_no_verdicts_fall_back_to_spare(self):
@@ -293,7 +293,7 @@ sys.exit(1)
         self.assertIn("gave no verdict twice", state.get("error", ""))
         self.assertIn("gave no verdict twice", self.log(directory))
         self.assertEqual(len(self.calls("reviewer")), 2)
-        self.assertEqual(run.continue_line(state, directory),
+        self.assertEqual(transitions.continue_line(state, directory),
                          f"continue: ak run resume {directory.name}")
         executors_before = len(self.calls("executor"))
         self.assertEqual(executors_before, 1)
@@ -395,7 +395,7 @@ sys.exit(1)
             "[00:00:00] WARN not merged: done-when or review after the rebase "
             "of origin/main did not pass\n")
         self.assertFalse(run.failed_in_integration(record.read_state(run_dir), run_dir))
-        self.assertEqual(run.continue_line(record.read_state(run_dir), run_dir),
+        self.assertEqual(transitions.continue_line(record.read_state(run_dir), run_dir),
                          f"continue: ak run resume {run_dir.name}")
         self.reviews(PASS)
         URL = "https://github.com/fixture/repo/pull/1"

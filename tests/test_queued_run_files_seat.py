@@ -19,7 +19,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox, menu_input
-from agentkit import config, gc, menu, orch, run, staffing, terminal, watch
+from agentkit import config, gc, handback, menu, orch, run, staffing, terminal, watch
 from agentkit import record
 
 
@@ -58,7 +58,7 @@ class QueuedRunFilesSeat(Sandbox):
         opts = {"--no-merge": False, "--no-worktree": False, "--anyway": False, "--bg": False}
         with chdir(where), patch.dict(os.environ, {config.SESSION_ENV: "fix-api",
                                                    "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "4"}), \
-                patch.object(run, "redress_seat"), redirect_stdout(io.StringIO()):
+                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), redirect_stdout(io.StringIO()):
             run.prepare(directory, opts, lambda _: None, task_file=task_file)
         self.assertEqual(record.read_state(directory)["state"], "queued")
         return directory
@@ -79,7 +79,7 @@ class QueuedRunFilesSeat(Sandbox):
         state = record.read_state(directory)
         self.assertEqual(state["repo"], str(self.acme))
         self.assertNotIn("worktree", state)
-        self.assertEqual(run.run_project(state), self.acme)
+        self.assertEqual(handback.run_project(state), self.acme)
         self.assertEqual(self.repo(), str(self.acme))
 
     def test_a_projectless_seat_whose_queued_runs_name_one_checkout_is_filed_at_the_next_draw(self):
@@ -146,14 +146,14 @@ class QueuedRunFilesSeat(Sandbox):
                 directory = self.launch(name, repo, task_file, where)
                 # read from anywhere, by a draw, a tick or a later launch: the same vote
                 with chdir(self.beta if where != self.beta else self.acme):
-                    self.assertEqual(run.run_project(record.read_state(directory)), project)
+                    self.assertEqual(handback.run_project(record.read_state(directory)), project)
                 self.assertEqual(self.repo(), str(project))
                 worktree = self.root / f"wt-{name}"
                 worktree.mkdir()
                 seen = []
 
                 def rounds(lp):
-                    seen.append((run.run_project(lp.state), self.repo()))
+                    seen.append((handback.run_project(lp.state), self.repo()))
 
                 with chdir(where), patch.dict(os.environ, {
                             config.SESSION_ENV: "other", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}), \
@@ -171,13 +171,13 @@ class QueuedRunFilesSeat(Sandbox):
         # A receipt from before the field: the same vote queued and once it works in `beta`.
         legacy = record.read_state(self.waiting("legacy", None, task_file=str(tasks / "check.md")))
         for state in (legacy, {**legacy, "repo": str(self.beta), "scratch": False}):
-            self.assertEqual(run.run_project(state), self.acme)
+            self.assertEqual(handback.run_project(state), self.acme)
 
     def test_legacy_runs_with_a_relative_repo_keep_the_checkout_they_worked_in(self):
         # Two runs from before `project`, whose task says `repo: .`, worked in `acme`: they vote
         # for the checkout their record names, and one new `beta` run does not refile their seat.
         # Before such a run starts nobody else knows what `.` meant, and it has no vote.
-        self.assertIsNone(run.run_project(record.read_state(self.waiting("q1", "."))))
+        self.assertIsNone(handback.run_project(record.read_state(self.waiting("q1", "."))))
         for name in ("l1", "l2"):
             directory = self.waiting(name, ".", state="pass", slot_waiting=False)
             record.save_state(directory, {**record.read_state(directory), "repo": str(self.acme)})

@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, host, land, run, usage
+from agentkit import config, gate, gc, gitcall, handback, host, land, run, usage
 from agentkit import turns as model_turns     # `turns` is a list in the tests below
 from agentkit import record
 
@@ -567,7 +567,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
                 patch.object(gc, "disk_pressure", return_value=False), \
-                patch.object(run, "launcher_world", return_value=nullcontext(True)), \
+                patch.object(run, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
                 patch.object(run, "hand_back", return_value=True), \
                 patch.object(run.notify, "shaped", side_effect=AssertionError("notification")), \
                 patch.object(run, "stop_run_tree"), \

@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, host, orch, run, turns, worker
+from agentkit import config, gate, handback, host, orch, run, turns, worker
 from agentkit import record
 
 SCOPE = "agentkit-run-20260930-2300-acme"
@@ -213,7 +213,7 @@ class Loop(Sandbox):
         self.kills(2)
         state = record.read_state(self.run_dir)
         for policy, reason in (("continue", None), ("stop", "killed: memory cap 4 GB")):
-            with patch.object(run, "_systemctl_fields",
+            with patch.object(handback, "_systemctl_fields",
                               return_value=("success", f"/{CGROUP}", policy)):
                 self.assertEqual(run.memory_cap_reason(state), reason, policy)
 

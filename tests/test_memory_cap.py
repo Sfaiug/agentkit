@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, host, job as jobs, orch, run, turns, worker
+from agentkit import config, handback, host, job as jobs, orch, run, turns, worker
 from agentkit import record
 
 
@@ -278,7 +278,7 @@ class MemoryCap(unittest.TestCase):
                 patch.object(orch, "stop_scope", side_effect=lambda scope, log=None, wait=False:
                              self.stopped.append((scope, wait)) or True), \
                 patch.object(record, "process_active", side_effect=lambda s: s.get("pid") in live), \
-                patch.object(run, "_scope_oom_probe", side_effect=lambda s: (
+                patch.object(handback, "_scope_oom_probe", side_effect=lambda s: (
                     ("oom-kill", 1) if s.get("scope") == f"agentkit-run-{leaking}"
                     else ("success", 0))), \
                 patch.object(run.time, "sleep", side_effect=finish), \
@@ -448,7 +448,7 @@ class MemoryCap(unittest.TestCase):
                 patch.object(subprocess, "run", side_effect=command),
                 patch(f"{__name__}._show", side_effect=show),
                 patch.object(record, "process_active", return_value=False),
-                patch.object(run, "_scope_oom_probe", return_value=("oom-kill", 1)),
+                patch.object(handback, "_scope_oom_probe", return_value=("oom-kill", 1)),
                 patch.object(orch, "stop_scope", return_value=True)):
             self.stack.enter_context(mocked)
         self.check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure()

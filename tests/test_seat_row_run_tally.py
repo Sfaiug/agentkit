@@ -18,7 +18,7 @@ import unittest
 
 from fixtures.sandbox import REPO, Sandbox
 from test_seat_status_bar import offline
-from agentkit import config, menu, orch, run, terminal, watch
+from agentkit import config, handback, menu, orch, run, terminal, watch
 from agentkit import record
 
 NOW = 1_800_000_000      # what every draw and tally reads as the time
@@ -111,7 +111,7 @@ class Tallies(Sandbox):
                   {"launched_session": "b", "state": "pass", "merged": False, "finished_at": NOW - 60},
                   {"state": "running"},                            # launched from no seat: nobody's
                   {"launched_session": ["bad"], "state": "running"}]
-        self.assertEqual(run.seat_tallies(states, now=NOW), {"a": (2, 0, 1), "b": (0, 0, 2)})
+        self.assertEqual(handback.seat_tallies(states, now=NOW), {"a": (2, 0, 1), "b": (0, 0, 2)})
         self.assertEqual(menu.tally((2, 0, 1)), "2 running · 1 merged")
         self.assertEqual(menu.tally((0, 0, 2)), "0 running · 2 merged")
         found = self.tallies()
@@ -125,24 +125,24 @@ class Tallies(Sandbox):
                 states = [{"launched_session": "s", "state": word, "finished_at": NOW - 2 * DAY},
                           {"launched_session": "s", "state": "pass", "merged": True, "finished_at": NOW - 60},
                           {"launched_session": "s", "state": "running"}]
-                self.assertEqual(run.seat_tallies(states, now=NOW), {"s": (1, 1, 1)})
+                self.assertEqual(handback.seat_tallies(states, now=NOW), {"s": (1, 1, 1)})
                 self.assertEqual(menu.tally((1, 1, 1)), "1 running · 1 needs you")
                 states[0]["recovery_acknowledged_at"] = NOW - 30    # acknowledged: it is not a look
-                self.assertEqual(run.seat_tallies(states, now=NOW), {"s": (1, 0, 1)})
+                self.assertEqual(handback.seat_tallies(states, now=NOW), {"s": (1, 0, 1)})
         # a run parked on a provider window or a stall resumes itself: it is nobody's look,
         # and it is still going -- the figure the seat's own reason counts, so `1 running`
         # on the row and `1 running` here can never be about different runs
         for word in ("exhausted", "stalled"):
             parked = {"launched_session": "s", "state": word, "finished_at": NOW - 2 * DAY,
                       "quota_dry": word == "exhausted"}
-            self.assertEqual(run.seat_tallies([parked], now=NOW), {"s": (1, 0, 0)}, word)
+            self.assertEqual(handback.seat_tallies([parked], now=NOW), {"s": (1, 0, 0)}, word)
         # an ending ages out with the week, acknowledged or not: after gc.GC_AGE it
         # counts for nobody, and r is where it is still listed
         for word in ("interrupted", "fail", "error"):
             old = {"launched_session": "s", "state": word, "finished_at": NOW - 20 * DAY}
-            self.assertEqual(run.seat_tallies([old], now=NOW), {"s": (0, 0, 0)}, word)
+            self.assertEqual(handback.seat_tallies([old], now=NOW), {"s": (0, 0, 0)}, word)
             fresh = {"launched_session": "s", "state": word, "finished_at": NOW - 6 * DAY}
-            self.assertEqual(run.seat_tallies([fresh], now=NOW), {"s": (0, 1, 0)}, word)
+            self.assertEqual(handback.seat_tallies([fresh], now=NOW), {"s": (0, 1, 0)}, word)
         # the tally reads the same test the seat row's reason does
         self.assertTrue(menu.v5o_needs_look({"state": "fail", "finished_at": NOW - 6 * DAY},
                                             now=NOW))
@@ -156,14 +156,14 @@ class Tallies(Sandbox):
                   {"launched_session": "s", "state": "pass", "merged": True, "finished_at": NOW + 60},
                   {"launched_session": "s", "state": "pass", "merged": True, "finished_at": "yesterday"},
                   {"launched_session": "s", "state": "pass", "merged": True, "started_at": NOW - DAY}]
-        self.assertEqual(run.seat_tallies(states, now=NOW), {"s": (0, 0, 2)})
-        self.assertEqual(run.seat_tallies(states, now=NOW + 2), {"s": (0, 0, 1)})
+        self.assertEqual(handback.seat_tallies(states, now=NOW), {"s": (0, 0, 2)})
+        self.assertEqual(handback.seat_tallies(states, now=NOW + 2), {"s": (0, 0, 1)})
         self.assertEqual(self.tallies()["atoll-fix"], "0 running · 3 merged")   # four merges, one is 8 days old
 
     def test_v5g_d_no_runs_gives_no_runs_yet(self):
         self.assertEqual(menu.tally(None), "no runs yet")
         self.assertEqual(self.tallies()["scribe"], "no runs yet")
-        self.assertNotIn("scribe", run.seat_tallies(state for _, state in menu.run_records()))
+        self.assertNotIn("scribe", handback.seat_tallies(state for _, state in menu.run_records()))
         # a seat whose only run is older than the week has runs, and says so
         self.merged("scribe-old", "scribe", NOW - 30 * DAY)
         self.assertEqual(self.tallies()["scribe"], "0 running · 0 merged")

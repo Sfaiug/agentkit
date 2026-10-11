@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, gc, menu, notify, orch, run, status, terminal, usage, watch
+from agentkit import config, gate, gc, handback, host, menu, notify, orch, run, status, terminal, usage, watch
 from agentkit import record
 
 SEAT = "seat-v5m"          # the seat every one of these runs is launched from
@@ -295,7 +295,7 @@ class NothingBelowTheLoopHasASeat(Sandbox):
         self.assertEqual(menu.run_records(), [])
         self.assertFalse(hasattr(menu, "runs_listing"))
         self.assertEqual([group["runs"] for group in self.overview().values()], [[]])
-        self.assertEqual(run.seat_tallies([s for _, s in menu.run_records()]), {})
+        self.assertEqual(handback.seat_tallies([s for _, s in menu.run_records()]), {})
         groups = self.overview()
         self.assertEqual(groups["no project"]["rows"][0][1], SEAT)
         self.assertEqual(groups["no project"]["rows"][0][-1], menu.tally(None))

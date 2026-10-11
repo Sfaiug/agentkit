@@ -166,7 +166,7 @@ class Sandbox(unittest.TestCase):
         run_dir.mkdir(parents=True)
         state = {**self.failed_at_budget(), "run_id": run_dir.name, "worktree": str(self.root)}
         record.save_state(run_dir, state)
-        self.assertEqual(run.continue_line(state), "")
+        self.assertEqual(transitions.continue_line(state), "")
         with self.assertRaisesRegex(config.Error, r"^run-1 FAILed at its round budget \(3\); "
                                                   r"3 review rounds spent on this change across 1 run: "
                                                   r"3 per pull request is the budget; split or redesign it$"):
@@ -174,7 +174,7 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(record.read_state(run_dir)["state"], "fail")
         # a budget set below three may still be raised to it, and no further
         below = {**state, "rounds": 1, "round_summaries": [{}]}
-        self.assertEqual(run.continue_line(below),
+        self.assertEqual(transitions.continue_line(below),
                          f"continue: ak run resume {run_dir.name} --rounds 3")
 
     # --- the hand-back and the history -------------------------------------
@@ -276,7 +276,7 @@ class Sandbox(unittest.TestCase):
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "git", return_value="sha"), \
                 patch.object(gitcall, "git", return_value="sha"), \
-                patch.object(run, "fetch", return_value=(0, "")), \
+                patch.object(run, "fetch", return_value=(0, "")), patch.object(gitcall, "fetch", return_value=(0, "")), \
                 patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(gitcall, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \

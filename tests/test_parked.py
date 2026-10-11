@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, host, land, menu, orch, run, staffing, status, stop, transitions, watch
+from agentkit import config, gc, gitcall, handback, host, land, menu, orch, run, staffing, status, stop, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -336,7 +336,7 @@ class Parked(unittest.TestCase):
                                      (run_dir, ["resume", run_dir.name]))
                 waiting = record.read_state(run_dir)
                 self.assertEqual(waiting["state"], "waiting")
-                self.assertNotIn("--rounds", run.continue_line(waiting, run_dir))
+                self.assertNotIn("--rounds", transitions.continue_line(waiting, run_dir))
                 with patch.object(run, "commit_identity", return_value=identity), \
                         patch.object(run, "drive", return_value=0):
                     self.assertEqual(run.cmd_resume([run_dir.name]), 0)
@@ -429,7 +429,7 @@ class Parked(unittest.TestCase):
                     "run_id": "replacement", "title": original["title"],
                     "state": "pass", "merged": True, "finished_at": self.now - 10,
                     "launched_session": "another-seat"}))
-            for index in (None, run.supersession_index(records)):
+            for index in (None, transitions.supersession_index(records)):
                 for word, detail, live, notice in (
                         ("working", "", {"hooked": "working",
                                           "hooked_at": self.now - 20}, None),
@@ -542,7 +542,7 @@ class Parked(unittest.TestCase):
         owned = self.receipt("20260922-1307-quiet", error_retry_at=self.now + 300,
                              error_retries=1, launched_session="seat")
         state = record.read_state(owned)
-        self.assertFalse(run.owes_ending(state))
+        self.assertFalse(handback.owes_ending(state))
         with patch.object(run, "hand_back",
                           side_effect=AssertionError("nothing to hand back")):
             run.announce(state, owned, self.log, self.cfg)
@@ -551,7 +551,7 @@ class Parked(unittest.TestCase):
                             launched_session="seat")
         record.save_state(bare, {**record.read_state(bare),
                               "worktree": str(self.root / "nowhere")})
-        self.assertTrue(run.owes_ending(record.read_state(bare)))
+        self.assertTrue(handback.owes_ending(record.read_state(bare)))
 
     def test_parked_old_conflict_fail_is_never_parked(self):
         old = self.receipt("20260922-1309-old", state="fail", verdict="FAIL",
@@ -739,7 +739,7 @@ class Parked(unittest.TestCase):
             state = {**original, **extra}
             record.save_state(directory, state)
             records = [(directory, state)]
-            for index in (None, run.supersession_index(records)):
+            for index in (None, transitions.supersession_index(records)):
                 for word, live, notice in (
                         ("working", {"hooked": "working", "hooked_at": self.now - 20}, None),
                         ("done", {}, {"kind": "done", "text": "Shipped it", "time": self.now}),
@@ -765,7 +765,7 @@ class Parked(unittest.TestCase):
                             self.assertEqual(found["word"], word)
                         self.assertFalse(menu.v5o_needs_look(state, now=self.now))
                         self.assertTrue(all(counts == (0, 0, 0) for counts in
-                                            run.seat_tallies([state], now=self.now).values()))
+                                            handback.seat_tallies([state], now=self.now).values()))
                         if found["word"] != "needs you":
                             for at in (self.now, self.now + 120):
                                 self.assertEqual(watch.notify.transition(
@@ -905,7 +905,7 @@ class Parked(unittest.TestCase):
                         patch.object(run, "collect_usage", return_value=providers), patch.object(staffing, "collect_usage", return_value=providers), \
                         patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "exclude_junk"), \
-                        patch.object(run, "join_session_project"), \
+                        patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
                         patch.object(run, "rounds", side_effect=Picked):
                     if word == "error":
                         watch.resume_errored(log=self.log, now=self.now)

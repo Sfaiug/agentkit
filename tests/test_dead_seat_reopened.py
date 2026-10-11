@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, notify, orch, run, watch
+from agentkit import config, handback, notify, orch, run, watch
 from agentkit import record as run_record
 
 SEAT = "seat"
@@ -33,7 +33,7 @@ class V5s(Sandbox):
         self.stack.enter_context(patch.object(orch, "listing", lambda *_a, **_k: list(self.rows)))
         self.stack.enter_context(patch.object(
             orch, "tmux_out", side_effect=AssertionError("tmux was called")))
-        self.stack.enter_context(patch.object(run, "launcher_watched", return_value=False))
+        self.stack.enter_context(patch.object(handback, "launcher_watched", return_value=False))
         self.logs, self.typed, self.cards, self.slept, self.reopened = [], [], [], [], []
         self.back = "resumed"    # what the fake `ensure` answers, or the error it raises
         self.sent = True         # what the fake confirmed send answers

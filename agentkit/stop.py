@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import config, leases, orch, run, transitions, watch, worker, worktrees
+from . import config, handback, leases, orch, run, transitions, watch, worker, worktrees
 from . import job as jobs
 from . import record as run_record
 
@@ -276,7 +276,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
         run_record.save_state(run_dir, current)
         transitions.history_finish(current, log)
         try:
-            run.redress_seat(transitions.launched_session(current))
+            handback.redress_seat(transitions.launched_session(current))
         except config.Error:
             pass
         try:
