@@ -111,7 +111,8 @@ class ProofMustRun(unittest.TestCase):
         # the reviewer's probe.py never lands, so ak's replay of its proof exits 2 again and blocks
         self.assertEqual(self.lp.state["verdict"], "FAIL")
         self.assertEqual([row.get("replayed") for row in self.lp.state["review_records"]
-                          if row["kind"] == "finding"], ["still failing; it blocks until its proof passes"])
+                          if row["kind"] == "finding"],
+                         ["still failing; it blocks until its proof passes; the fix changed its line"])
         self.assertEqual(self.lp.state["followups"], [])
 
     def test_a_proof_that_cannot_start_on_base_does_not_prove_an_old_defect(self):

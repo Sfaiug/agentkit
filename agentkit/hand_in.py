@@ -239,7 +239,16 @@ def checked(argv, workspace, role="reviewer", findings=()):
         raise config.Error("a follow-up without --before needs --run: its command becomes the check that fixes it")
     if kind != "follow-up" and "--before" in flags:
         raise config.Error("use follow-up for a defect that existed before the task")
-    root, path, line = checked_site(site, workspace, flags.get("--quote"))
+    try:
+        root, path, line = checked_site(site, workspace, flags.get("--quote"))
+    except config.Error:
+        listed = next((row for row in findings if site == f"{row['path']}:{row['line']}"), None)
+        if listed is None or "--quote" in flags:
+            raise
+        # a fix deleted the line or the file this finding was handed or listed at: the site it
+        # was named at is still its own, to dispute or to hand in again by a command
+        root = Path(workspace).resolve()
+        path, line = root / listed["path"], int(listed["line"])
     command = flags.get("--run")
     # A follow-up's command becomes a plan check, run on a fresh checkout of the default branch.
     if kind == "follow-up" and command and (len(command.strip().splitlines()) != 1
