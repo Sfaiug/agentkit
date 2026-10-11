@@ -1161,7 +1161,7 @@ def round_allowed(lp):
     left, why = change_budget(lp.state, lp.run_dir, lp.rounds, own=lp.rnd)
     if left < 1:
         lp.log(f"BLOCKED {why}")
-        raise turns.Blocked(why, f"## turns.Blocked\n\n{why}")
+        raise turns.Blocked(why, f"## Blocked\n\n{why}")
     return True
 
 
