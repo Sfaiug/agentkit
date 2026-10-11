@@ -905,7 +905,7 @@ class Parked(unittest.TestCase):
                         patch.object(run, "collect_usage", return_value=providers), patch.object(staffing, "collect_usage", return_value=providers), \
                         patch.object(gc, "disk_pressure", return_value=False), \
                         patch.object(run, "exclude_junk"), \
-                        patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), patch.object(handback, "join_session_project"), \
+                        patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
                         patch.object(run, "rounds", side_effect=Picked):
                     if word == "error":
                         watch.resume_errored(log=self.log, now=self.now)

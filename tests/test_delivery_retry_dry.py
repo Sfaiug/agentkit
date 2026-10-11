@@ -36,8 +36,6 @@ class DeliveryRetryDry(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "stop_run_tree"))
         _, _, self.wt = make_repos(self.root)
         self.stack.enter_context(patch.object(handback, "launcher_world", return_value=nullcontext(True)))
-        self.stack.enter_context(patch.object(handback, "launcher_world", return_value=nullcontext(True)))
-        self.stack.enter_context(patch.object(handback, "launcher_world", return_value=nullcontext(True)))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))

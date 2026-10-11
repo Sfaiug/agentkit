@@ -479,7 +479,7 @@ def redress_seat(session):
     except OSError:
         pass   # the next draw's own read, or the menu's timer, catches up
     publish = shlex.join([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
-                          "from agentkit import handback; publish_seat(sys.argv[2])",
+                          "from agentkit import handback; handback.publish_seat(sys.argv[2])",
                           str(config.REPO), session])
     try:
         # silent and always 0: tmux shows a job's output, or its failure, in the seat's pane
@@ -1326,7 +1326,7 @@ def hand_back(state, run_dir, log, cfg=None):
     orphan notice left pending from a death the seat has since come back from is over,
     because the thing it was pending about has just been said.
     """
-    from . import watch, worktrees  # here, not at the top: they reaches run
+    from . import watch, worktrees  # here, not at the top: they reach run
     session = transitions.launched_session(state)
     seat = orch.find(session) or {"name": session}
     with delivery_lock(run_dir):
@@ -1541,7 +1541,7 @@ def notify_recovery(run_dir, state):
     the same line back twice, and escalate one already delivered to the owner once the seat
     closed.
     """
-    from . import job as jobs, watch  # here, not at the top: they reaches run
+    from . import job as jobs, watch  # here, not at the top: they reach run
     if state.get("state") in run_record.ENDED or state.get("handed_back"):
         return  # an ending is announce's, and one already said is nobody's to say again
     if getattr(jobs._JOB_MUTE, "adopt", None):

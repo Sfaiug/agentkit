@@ -567,7 +567,7 @@ class MergeStep(unittest.TestCase):
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=["opus", "astra"]), \
                 patch.object(gc, "disk_pressure", return_value=False), \
-                patch.object(handback, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
+                patch.object(handback, "launcher_world", return_value=nullcontext(True)), \
                 patch.object(handback, "hand_back", return_value=True), \
                 patch.object(notify, "shaped", side_effect=AssertionError("notification")), \
                 patch.object(run, "stop_run_tree"), \

@@ -213,7 +213,7 @@ class RedTargetRepair(unittest.TestCase):
                 def world(session):
                     yield live
                 with self.subTest(word, live=live), \
-                        patch.object(handback, "launcher_world", world), patch.object(handback, "launcher_world", world), patch.object(handback, "launcher_world", world), \
+                        patch.object(handback, "launcher_world", world), \
                         patch.object(handback, "hand_back") as hand_back, \
                         patch.object(watch, "revive", return_value=None) as revive, \
                         patch.object(notify, "shaped") as shaped:
@@ -239,7 +239,7 @@ class RedTargetRepair(unittest.TestCase):
         @contextmanager
         def world(session):
             yield True
-        with patch.object(handback, "launcher_world", world), patch.object(handback, "launcher_world", world), patch.object(handback, "launcher_world", world), \
+        with patch.object(handback, "launcher_world", world), \
                 patch.object(handback, "hand_back") as hand_back:
             run.announce(dict(blocked), repair, self.logs.append)
         hand_back.assert_called_once()

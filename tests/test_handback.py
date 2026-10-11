@@ -1397,7 +1397,7 @@ class HandBack(Sandbox):
         followup_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         bar_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         with patch.object(run, "start_followups", side_effect=followup_boom), patch.object(handback, "start_followups", side_effect=followup_boom), \
-                patch.object(run, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), \
+                patch.object(run, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",
@@ -1427,7 +1427,7 @@ class HandBack(Sandbox):
         with patch.object(run, "start_followups",
                           side_effect=record.StopRequested("fix-child was stopped")), patch.object(handback, "start_followups",
                           side_effect=record.StopRequested("fix-child was stopped")), \
-                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(handback, "redress_seat"), \
+                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), \
                 patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",

@@ -234,7 +234,7 @@ class ResumeMidturn(unittest.TestCase):
         # The manager is never asked here, and the scope named above is never started:
         # what this pins is that the pass asks at all, and leaves the `fail` reap
         # concludes to reap rather than carrying a leak on.
-        with patch.object(handback, "memory_cap_reason", return_value="killed: memory cap 4 GB"), patch.object(handback, "memory_cap_reason", return_value="killed: memory cap 4 GB"), patch.object(handback, "memory_cap_reason", return_value="killed: memory cap 4 GB"):
+        with patch.object(handback, "memory_cap_reason", return_value="killed: memory cap 4 GB"):
             watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
         self.assertEqual(self.resumed, [])
         self.assertNotIn("deaths", record.read_state(directory))

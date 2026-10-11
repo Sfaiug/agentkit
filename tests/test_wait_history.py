@@ -225,7 +225,7 @@ class WaitHistory(unittest.TestCase):
 
         with patch.object(gate, "claim_slot", side_effect=claim), \
                 patch.object(time, "sleep", side_effect=sleep), \
-                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(handback, "redress_seat"), \
+                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), \
                 patch.object(gate, "slot_note", return_value="waiting for a slot"):
             gate.wait_for_slot(lp.run_dir)
         lp.state = record.read_state(lp.run_dir)
@@ -311,7 +311,7 @@ class WaitHistory(unittest.TestCase):
 
         with self.assertRaises(run.Stopped):
             run.land_from_line(lp, "origin/main", stopped_delivery)
-        with patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(run, "write_result"), patch.object(handback, "write_result"):
+        with patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(run, "write_result"), patch.object(handback, "write_result"):
             if departure == "exhausted":
                 run.mark_state(lp.run_dir, departure, "the provider's window is spent", lp.log)
             elif departure == "interrupted":

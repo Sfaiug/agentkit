@@ -139,7 +139,7 @@ class JoinLine(Sandbox):
                 with patch.object(run, "land", side_effect=park), \
                         patch.object(run, "pr_view", return_value=info), \
                         patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
-                        patch.object(run, "rounds"), patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), patch.object(handback, "join_session_project"), \
+                        patch.object(run, "rounds"), patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
                         patch.object(run, "finish", return_value=1):
                     if attempt == "loop":
                         run.loop(self.cfg, self.directory, self.directory / "task.md",

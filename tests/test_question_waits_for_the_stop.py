@@ -136,7 +136,7 @@ class QuestionWaitsForTheStop(Sandbox):
         self.asks()
         run = {"run_id": "acme-parser", "state": "running", "launched_session": SEAT,
                "started_at": NOW - 60}
-        with patch("agentkit.transitions.going", return_value=True), patch("agentkit.transitions.going", return_value=True):
+        with patch("agentkit.transitions.going", return_value=True):
             answer = self.looked(PROMPT, self.stop(), [(config.RUNS / "acme-parser", run)])
         self.assertEqual(answer["word"], "needs you")
 

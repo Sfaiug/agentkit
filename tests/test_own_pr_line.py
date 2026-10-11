@@ -44,8 +44,6 @@ class OwnPrLineFixture(LanderFixture):
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
-        self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
-        self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
         self.stack.enter_context(patch.object(watch, "type_at_prompt", side_effect=self.tell))
         self.stack.enter_context(patch.object(run.orch, "find", return_value={"name": "fix-api"}))
         fetch = run.fetch

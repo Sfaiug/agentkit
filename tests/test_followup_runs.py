@@ -724,7 +724,7 @@ class FollowupRuns(unittest.TestCase):
                  "launched_session": "seat", "started_at": 1, "finished_at": 2,
                  "title": "Fix broken.py:1"}
         record.save_state(directory, state)
-        with patch.object(handback, "launcher_world", return_value=nullcontext(False)), patch.object(handback, "launcher_world", return_value=nullcontext(False)), patch.object(handback, "launcher_world", return_value=nullcontext(False)), \
+        with patch.object(handback, "launcher_world", return_value=nullcontext(False)), \
                 patch.object(watch, "revive", side_effect=AssertionError("revived")), \
                 patch.object(notify, "shaped", side_effect=AssertionError("card")):
             self.real_announce(dict(state), directory, self.logs.append, self.cfg)
