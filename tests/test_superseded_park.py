@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, status, watch
+from agentkit import config, menu, notify, orch, run, status, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -90,7 +90,7 @@ class SupersededPark(unittest.TestCase):
                      started_at=self.now - 300, finished_at=self.now - 60)
         index = run.supersession_index(self.records())
         state = record.read_state(parked)
-        self.assertTrue(run.is_superseded(state, None, index))
+        self.assertTrue(transitions.is_superseded(state, None, index))
         self.assertTrue(run.settled(state, index))
         self.assertFalse(run.unfinished(state, index=index))
         self.assertFalse(menu.v5o_needs_look(state, index=index, now=self.now))
@@ -124,9 +124,9 @@ class SupersededPark(unittest.TestCase):
         index = run.supersession_index(records)
         state = record.read_state(parked)
         # the orchestrator took the work up again, but it has not merged
-        self.assertEqual(run.superseded_by(state, records), "20260925-1713-relaunch")
-        self.assertIsNone(run.superseded_by(state, records, merged_only=True))
-        self.assertIsNone(run.superseded_by(state, None, index, merged_only=True))
+        self.assertEqual(transitions.superseded_by(state, records), "20260925-1713-relaunch")
+        self.assertIsNone(transitions.superseded_by(state, records, merged_only=True))
+        self.assertIsNone(transitions.superseded_by(state, None, index, merged_only=True))
         self.assertFalse(run.settled(state, index))
         self.assertTrue(run.unfinished(state, index=index))
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))

@@ -20,7 +20,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
-from agentkit import host, command_help, config, menu, orch, run, status, terminal
+from agentkit import command_help, config, host, menu, orch, run, status, terminal, transitions
 from agentkit import record
 
 NOW = 1_800_000_000      # what every draw reads as the time
@@ -443,8 +443,8 @@ class Listings(Sandbox):
         index = run.supersession_index(records)
         relaunched = record.read_state(config.RUNS / "20260101-0604-relaunched")
         for kwargs in ({"records": records}, {"index": index}):
-            self.assertEqual(run.superseded_by(relaunched, **kwargs), continued.name)
-            self.assertIsNone(run.superseded_by(record.read_state(
+            self.assertEqual(transitions.superseded_by(relaunched, **kwargs), continued.name)
+            self.assertIsNone(transitions.superseded_by(record.read_state(
                 config.RUNS / "20260101-0612-elsewhere"), **kwargs))
         table = self.status([])
         rows = {name: next(line for line in table.splitlines() if line.startswith(name))

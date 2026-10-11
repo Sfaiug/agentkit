@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
-from agentkit import config, gate, gitcall, land, record, run, watch
+from agentkit import config, gate, gitcall, land, record, run, transitions, watch
 
 SUITE = "test ! -f broken.txt"
 
@@ -378,7 +378,7 @@ class RedMain(unittest.TestCase):
                 with record.record(repair) as state:
                     state.update(state=ending, slot_waiting=False, finished_at=time.time())
                     if ending == "error":
-                        run.schedule_error_retry(state)
+                        transitions.schedule_error_retry(state)
                 land.check_line(self.turn)
                 self.assertEqual(len(self.prepared), 1)
                 self.assertEqual(len(self.checks), 3)

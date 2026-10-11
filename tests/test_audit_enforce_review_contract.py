@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gate, gitcall, host, run, usage, worktrees
+from agentkit import config, gate, gitcall, host, run, turns, usage, worktrees
 from agentkit import record
 
 
@@ -207,8 +207,8 @@ sys.exit(row["code"])
         self.assertTrue(run.review_pass(state, self.cfg))
         self.assertEqual([r["session"] for r in self.calls("reviewer")], [[], ["session-astra"]])
         waits = [c.args[0] for c in self.sleep.call_args_list
-                 if c.args and c.args[0] in run.TRANSIENT_BACKOFF]
-        self.assertEqual(waits, [run.TRANSIENT_BACKOFF[0]])
+                 if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
+        self.assertEqual(waits, [turns.TRANSIENT_BACKOFF[0]])
         self.assertIn("HTTP 503", (directory / "round-1/reviewer/final.md").read_text())
         self.assertTrue((directory / "round-1/reviewer-retry1/stderr.log").exists())
 
@@ -223,7 +223,7 @@ sys.exit(row["code"])
                          config.model(self.cfg, "spark")["provider"])
         self.assertEqual(self.calls("reviewer")[-1]["session"], [])
         waits = [c.args[0] for c in self.sleep.call_args_list
-                 if c.args and c.args[0] in run.TRANSIENT_BACKOFF]
+                 if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [])
 
     def test_exhausted_reviewers_wait_and_resume_review_without_reexecuting(self):
@@ -238,7 +238,7 @@ sys.exit(row["code"])
         self.assertEqual([r["model"] for r in self.calls("reviewer")],
                          ["astra", "spark", "fable", "opus"])
         waits = [c.args[0] for c in self.sleep.call_args_list
-                 if c.args and c.args[0] in run.TRANSIENT_BACKOFF]
+                 if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [])
         artifacts = {p: p.read_text() for p in directory.glob("round-1/reviewer*/final.md")}
         self.assertEqual(len(artifacts), 4)

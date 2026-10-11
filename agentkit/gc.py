@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from . import config, gitcall, host, job as jobs, land, orch, proc_snapshot, record, retention, run, worktrees
+from . import config, gitcall, host, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -92,9 +92,9 @@ def stale_seat_files(now):
         return []                # a tmux that cannot be asked is no proof of absence
     for directory in retention.children(config.RUNS):
         state = retention.read_json(directory / "run.json")
-        if state and (run.unfinished(state) or state.get("handback_pending")):
+        if state and (transitions.unfinished(state) or state.get("handback_pending")):
             try:
-                held.add(run.launched_session(state))
+                held.add(transitions.launched_session(state))
             except config.Error:
                 pass
     found = []
@@ -593,7 +593,7 @@ def gc_candidates(now=None):
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
                 and not record.writing(directory) and retention.safe(directory)):
             try:
-                owner = run.launched_session(state)
+                owner = transitions.launched_session(state)
             except config.Error:
                 owner = ""
                 keep_for_seat = True
@@ -813,7 +813,7 @@ def gc(report, automatic=False):
                                 continue
                             if item.get("whole"):
                                 try:
-                                    owner = run.launched_session(state or {})
+                                    owner = transitions.launched_session(state or {})
                                 except config.Error:
                                     continue
                                 if session_lives(owner) or not worktrees.provably_final(state or {}):

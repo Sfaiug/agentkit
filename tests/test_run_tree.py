@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.sandbox import account_home
-from agentkit import config, gate as suite_gate, gitcall, orch, run, stop, turns, watch, worker
+from agentkit import config, gate as suite_gate, gitcall, orch, run, stop, transitions, turns, watch, worker
 
 
 def fresh_id():
@@ -339,7 +339,7 @@ class RunTree(unittest.TestCase):
             return True
 
         with patch.object(config, "load", return_value={}), \
-                patch.object(run, "review_pass", return_value=True), \
+                patch.object(run, "review_pass", return_value=True), patch.object(transitions, "review_pass", return_value=True), \
                 patch.object(run, "require_review_pass"), \
                 patch.object(run, "merge", side_effect=fake_merge), \
                 patch.object(run, "finish", return_value=0) as done:

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, land, record, run, usage, watch, worker
+from agentkit import config, gate, gc, gitcall, land, record, run, transitions, usage, watch, worker
 from fixtures.hand_in import submitting
 from test_merge_step import conflict, make_loop, make_repos, resolve
 from fixtures.sandbox import Sandbox
@@ -474,7 +474,7 @@ class LanderWakes(Sandbox):
     def test_target_waiter_tick_leaves_line_members_to_the_lander(self):
         self.park()
         state = record.read_state(self.directory)
-        with patch.object(run, "upstream_sha", side_effect=AssertionError("target probe")):
+        with patch.object(transitions, "upstream_sha", side_effect=AssertionError("target probe")):
             watch.resume_waiting(run=self.directory)
         self.assertEqual(record.read_state(self.directory), state)
 

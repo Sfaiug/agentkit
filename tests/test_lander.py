@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gc, land, record, run, watch, worker
+from agentkit import config, gate, gc, land, record, run, turns, watch, worker
 
 SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
@@ -31,7 +31,7 @@ def climb_ladder(turn):
     path = land._trees(turn)[0]
     data = json.loads(path.read_text())
     for entry in data["red"].values():
-        entry.update(probes=len(run.TRANSIENT_BACKOFF), at=0)
+        entry.update(probes=len(turns.TRANSIENT_BACKOFF), at=0)
     path.write_text(json.dumps(data))
     land.check_line(turn)
 

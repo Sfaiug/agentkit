@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 SLEEP = time.sleep                  # the real one, kept where a fixture needs to wait
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import host, config, gc, job as jobs, menu, notify, orch, run, stop, status, terminal, usage, watch, worker
+from agentkit import config, gc, host, job as jobs, menu, notify, orch, run, status, stop, terminal, turns, usage, watch, worker
 from agentkit import record
 
 # A fake harness, in the two shapes a turn can take: one that authenticates and answers, and
@@ -249,7 +249,7 @@ class Login(unittest.TestCase):
         not a wait, and only the transient delays are being counted here.
         """
         return [call.args[0] for call in self.sleep.call_args_list
-                if call.args and call.args[0] in run.TRANSIENT_BACKOFF]
+                if call.args and call.args[0] in turns.TRANSIENT_BACKOFF]
 
     def repo(self):
         work = self.root / "repo"

@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, job as jobs, land, menu, record, run, status, watch
+from agentkit import config, history, job as jobs, land, menu, record, run, status, transitions, watch
 
 
 class LandingLine(Sandbox):
@@ -38,7 +38,7 @@ class LandingLine(Sandbox):
                       {"recovery_acknowledged_at": 9000}):
             with self.subTest(extra=extra):
                 member = {**state, **extra}
-                self.assertTrue(run.tick_admission(member, now=200000))
+                self.assertTrue(transitions.tick_admission(member, now=200000))
                 self.assertTrue(run.going(member, now=200000))
                 self.assertEqual(menu.run_state_word(member), "working")
                 self.assertFalse(menu.v5o_needs_look(member, now=200000))
@@ -46,7 +46,7 @@ class LandingLine(Sandbox):
     def test_ticks_and_manual_resumes_leave_the_member_record_alone(self):
         directory = self.member()
         before = (directory / "run.json").read_bytes()
-        with patch.object(run, "upstream_sha", side_effect=AssertionError("no fetch")), \
+        with patch.object(transitions, "upstream_sha", side_effect=AssertionError("no fetch")), \
                 patch.object(run, "spawn_bg", side_effect=AssertionError("no worker")), \
                 patch.object(config, "load", side_effect=AssertionError("no replay")):
             for dry_run in (True, False):
@@ -74,8 +74,8 @@ class LandingLine(Sandbox):
             record.save_state(directory, {**record.read_state(directory), "waiting_on": joined})
             return "1" * 40
 
-        with patch.object(run, "tick_admission", return_value=True), \
-                patch.object(run, "upstream_sha", side_effect=fetch), \
+        with patch.object(transitions, "tick_admission", return_value=True), \
+                patch.object(transitions, "upstream_sha", side_effect=fetch), \
                 patch.object(run, "spawn_bg", side_effect=AssertionError("only the lander")):
             watch.resume_waiting(log=lambda _: self.fail("no tick note"))
         state = record.read_state(directory)

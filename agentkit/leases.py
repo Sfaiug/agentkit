@@ -17,7 +17,7 @@ stoppable, so its owner's stop or its seat's close calls the restart off.  A you
 the review of a pull request, a job's task, a red target's repair and a suite's split are
 only written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
-only while its run is going (`run.going`), is to land and its checkout is there; a record
+only while its run is going (`transitions.going`), is to land and its checkout is there; a record
 whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
 """
 
@@ -31,7 +31,7 @@ import shutil
 import tempfile
 import time
 
-from . import config, gitcall, turns
+from . import config, gitcall, transitions, turns
 from . import record as run_record
 
 DIR = "leases"
@@ -88,7 +88,7 @@ def live(repo):
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
         if (not state or state.get("no_merge") or not state.get("base_sha")
-                or not run.going(state) or state.get("lease_wait") or not same_repo(state.get("repo"), repo)):
+                or not transitions.going(state) or state.get("lease_wait") or not same_repo(state.get("repo"), repo)):
             continue
         worktree = Path(state.get("worktree") or "")
         if (not state.get("worktree") or not worktree.is_dir()
@@ -104,7 +104,7 @@ def before_review(state):
     """Whether the run is a build with nothing reviewed yet: no round with a verdict, and its
     loop in its executor turn or at ak's commit step, where what it built can still be set
     aside.  A pull request's review builds nothing to set aside, a job's task is its job's to
-    settle, as `run.parkable_conflict` leaves it, and a red target's repair and a suite's split
+    settle, as `transitions.parkable_conflict` leaves it, and a red target's repair and a suite's split
     are waited on: stopped, either would hold its line (`run.repair_open`) or its suite
     (`run.open_followup`) for good."""
     return (not any(state.get(key) for key in ("review_pr", "job_id", "repair", "split_suite",
@@ -295,7 +295,7 @@ def scan(repo, log=lambda _: None, now=None):
         for older in runs[:at]:
             files = collide(repo, older, younger, trees)
             holder = run_record.read_state(config.RUNS / older["run"]) or {}
-            if not files or not run.going(holder) or parked(holder):
+            if not files or not transitions.going(holder) or parked(holder):
                 continue        # one this scan parked, or that ended, holds no diff
             kept = before.get(younger["run"]) or {}
             since = kept.get("since") if kept.get("waits_on") == older["run"] else None
@@ -368,11 +368,11 @@ def restart(log=print, now=None):
         wait = state["lease_wait"]
         holder_dir = config.RUNS / wait["on"]
         holder = run_record.read_state(holder_dir) if holder_dir.is_dir() else None
-        if holder and run.going(holder, now=now):
+        if holder and transitions.going(holder, now=now):
             continue
         why = f"{wait['on']} {'has landed' if holder and holder.get('merged') else 'is over'}"
         directory = run.free_run_dir(run_dir.name.split("-", 2)[-1])
-        session = run.launched_session(state)
+        session = transitions.launched_session(state)
         with watch.state_lock():
             with run_record.recovery_lock(run_dir):
                 state = run_record.read_state(run_dir) or {}

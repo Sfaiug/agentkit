@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO))
 from test_handback import SEAT, HandBack
 from test_health_after_merge import NOW, PR, SEAT as MERGED_SEAT, HealthAfterMerge
 from test_run_notice_fits_a_composer import RunNotice
-from agentkit import config, orch, run, stop, watch
+from agentkit import config, orch, run, stop, transitions, watch
 from agentkit import record
 
 OPEN = "- [ ] the parser parses\n"     # a plan line the seat still owes
@@ -115,7 +115,7 @@ class InTheComposer(RunNotice):
             with self.subTest(at_prompt=prompt):
                 directory, state = self.result(f"run-{prompt}", pr=PR)
                 with patch.object(watch, "at_prompt", return_value=prompt), \
-                        patch.object(run, "run_for_pr", return_value=(directory, state)):
+                        patch.object(transitions, "run_for_pr", return_value=(directory, state)):
                     self.assertTrue(watch.say(False, self.logs.append,
                                               "PR #7 Fix api: merged by the maintainer", PR,
                                               "fix-api", merged=True))
@@ -125,12 +125,12 @@ class InTheComposer(RunNotice):
     def test_a_maintainers_decision_is_never_typed_into_a_running_turn(self):
         directory, state = self.result("run-d", merged=False, pr=PR)
         with patch.object(watch, "at_prompt", return_value=False), \
-                patch.object(run, "run_for_pr", return_value=(directory, state)):
+                patch.object(transitions, "run_for_pr", return_value=(directory, state)):
             self.assertFalse(watch.say(False, self.logs.append, "The maintainer requested changes",
                                        PR, "fix-api"))
         self.assertEqual((self.keys, self.sent), ([], []))      # the tick retries at a quiet prompt
         with patch.object(watch, "at_prompt", return_value=True), \
-                patch.object(run, "run_for_pr", return_value=(directory, state)):
+                patch.object(transitions, "run_for_pr", return_value=(directory, state)):
             self.assertTrue(watch.say(False, self.logs.append, "The maintainer requested changes",
                                       PR, "fix-api"))
         self.assertEqual(len(self.sent), 1)
@@ -145,7 +145,7 @@ class InTheComposer(RunNotice):
 
     def test_a_decision_left_in_the_composer_is_sent_and_holds_no_later_ending_back(self):
         directory, state = self.result("run-d", merged=False, pr=PR)
-        with patch.object(run, "run_for_pr", return_value=(directory, state)):
+        with patch.object(transitions, "run_for_pr", return_value=(directory, state)):
             with patch.object(orch, "tmux_out", side_effect=self.enter_lost):
                 self.assertFalse(watch.say(False, self.logs.append, DECISION, PR, "fix-api"))
             self.assertIn(DECISION, self.composer)
@@ -163,7 +163,7 @@ class InTheComposer(RunNotice):
             with self.subTest(merged=merged):
                 directory, _ = self.result(f"run-{merged}", merged=False, pr=PR)
                 self.sent.clear()
-                with patch.object(run, "run_for_pr", side_effect=lambda _url: (
+                with patch.object(transitions, "run_for_pr", side_effect=lambda _url: (
                         directory, record.read_state(directory))):
                     with patch.object(orch, "tmux_out", side_effect=self.enter_lost):
                         self.assertFalse(watch.say(False, self.logs.append, DECISION, PR,
@@ -181,7 +181,7 @@ class InTheComposer(RunNotice):
         directory, state = self.result("run-d", merged=False, pr=PR)
         reads = iter([False, True])                         # its Enter not yet read off the tty
         with patch.object(watch, "pane_unread", side_effect=lambda *_a: next(reads, False)), \
-                patch.object(run, "run_for_pr", return_value=(directory, state)):
+                patch.object(transitions, "run_for_pr", return_value=(directory, state)):
             told = [watch.say(False, self.logs.append, DECISION, PR, "fix-api") for _ in range(2)]
         self.assertEqual((told, len(self.sent)), ([False, True], 1))
 

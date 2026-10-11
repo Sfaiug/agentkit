@@ -45,7 +45,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, gitcall, guard, host, motion, plan, retention, terminal, update, usage
+from . import command_help, config, gitcall, guard, host, motion, plan, retention, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -1633,7 +1633,7 @@ def session_projects(kept):
             state = run_record.read_state(directory) or {}
             if menu.smoke_run(state):
                 continue
-            name = run.launched_session(state)
+            name = transitions.launched_session(state)
             repo = state.get("repo")
             if name in votes and isinstance(repo, str) and repo:
                 votes[name][repo] += 1
@@ -1657,7 +1657,7 @@ def file_projectless(found, runs):
     if orphans and runs:
         for state in runs:
             try:
-                orphans.get(run.launched_session(state), []).append(state)
+                orphans.get(transitions.launched_session(state), []).append(state)
             except config.Error:
                 continue
     for session in found:
@@ -2657,9 +2657,9 @@ def sweep(log):
     protected = set()
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory)
-        if state and run.unfinished(state):
+        if state and transitions.unfinished(state):
             try:
-                protected.add(run.launched_session(state))
+                protected.add(transitions.launched_session(state))
             except (config.Error, TypeError, ValueError, AttributeError) as exc:
                 log(f"WARN cannot identify the owner of {directory.name}: {exc}")
     now = time.time()
@@ -3406,8 +3406,8 @@ def in_flight(name, repo):
         lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
-        seat = run.launched_session(state)
-        if seat in seats and not menu.smoke_run(state) and run.going(state):
+        seat = transitions.launched_session(state)
+        if seat in seats and not menu.smoke_run(state) and transitions.going(state):
             seats[seat][1].update(changed_files(state, directory))
     return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
 

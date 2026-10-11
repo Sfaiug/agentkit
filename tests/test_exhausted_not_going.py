@@ -1,7 +1,7 @@
 """An `exhausted` run keeps its seat working only while the tick can resume it by itself.
 
 A quota run waits on a window and a run off a dead reviewer waits on a reviewer: those two
-`watch.resume_exhausted` brings back, by the one test `run.exhausted_wait` holds, so they
+`watch.resume_exhausted` brings back, by the one test `transitions.exhausted_wait` holds, so they
 are going.  Any other `exhausted` run -- rounds spent, a stopped tool, no verdict -- waits
 on nobody: it is not going, its seat reads `needs you` with the run's hand-back, and it
 counts as needing him, never as running.  Offline: a fake seat, fake run receipts, the real ladder.
@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, notify, orch, run, status, watch, worker
+from agentkit import config, menu, notify, orch, run, status, transitions, watch, worker
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -60,7 +60,7 @@ class ExhaustedNotGoing(Sandbox):
     def test_a_quota_dry_run_keeps_its_seat_working(self):
         _, state = self.receipt("20260101-0900-window", quota_dry=True,
                                 error="every provider is out of budget", title="Parked on a window")
-        self.assertEqual(run.exhausted_wait(state), "window")
+        self.assertEqual(transitions.exhausted_wait(state), "window")
         self.assertTrue(run.going(state))
         self.assertEqual(menu.run_state_word(state), "working")
         found = self.decide()
@@ -70,7 +70,7 @@ class ExhaustedNotGoing(Sandbox):
     def test_b_run_off_a_dead_reviewer_keeps_its_seat_working(self):
         directory, state = self.receipt("20260101-0900-reviewer", title="Waiting for a reviewer",
                                         error="reviewer astra died on API/transport errors")
-        self.assertEqual(run.exhausted_wait(state), "reviewer")
+        self.assertEqual(transitions.exhausted_wait(state), "reviewer")
         self.assertTrue(run.going(state))
         self.assertEqual(status.parked_line(state, directory.name, now=NOW),
                          "exhausted · resumes when a reviewer is eligible")
@@ -84,7 +84,7 @@ class ExhaustedNotGoing(Sandbox):
             recovery_notified="orchestrator",
             review_pending={"round": 3, "record": False,
                             "summary": "Re-review after the merge of origin/main"})
-        self.assertEqual(run.exhausted_wait(state), "")
+        self.assertEqual(transitions.exhausted_wait(state), "")
         self.assertFalse(run.going(state))
         self.assertEqual(menu.run_state_word(state), "needs you")
         found = self.decide()
@@ -121,7 +121,7 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual(self.decide()["word"], "done")
         index = run.supersession_index(state for _, state in menu.run_records())
         reread = record.read_state(directory)
-        self.assertTrue(run.is_superseded(reread, None, index))
+        self.assertTrue(transitions.is_superseded(reread, None, index))
         self.assertTrue(run.settled(reread, index))
         self.assertEqual(status.status_state_word(reread, index), "done")
 

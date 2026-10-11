@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import host, config, orch, run, watch, worker
+from agentkit import config, host, orch, run, transitions, watch, worker
 from agentkit import record
 
 WEEK = 604800
@@ -61,7 +61,7 @@ class FailedLaunch(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=self.fork))
         self.stack.enter_context(patch.object(worker, "auth_ok",
                                               return_value=(True, "claude: logged in")))
-        self.stack.enter_context(patch.object(run, "upstream_sha", return_value="1" * 40))
+        self.stack.enter_context(patch.object(transitions, "upstream_sha", return_value="1" * 40))
         config.ensure_dirs()
         self.cfg = config.load()
         config.save_session(self.cfg, "seat", "fable", ["opus", "astra", "spark"])

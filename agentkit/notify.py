@@ -45,7 +45,7 @@ from http.client import HTTPException
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import command_help, config, retention
+from . import command_help, config, retention, transitions
 from . import record as run_record
 from . import harness
 
@@ -894,7 +894,7 @@ def failed_declaration(notice, mine, index=None):
     """A run the declaration waited on failed; earlier jobs do not invalidate a new done.
 
     A failure a later merged run replaced is not one: the work it waited on is done,
-    elsewhere. `index` is a `run.supersession_index` over the run records; without
+    elsewhere. `index` is a `transitions.supersession_index` over the run records; without
     one supersession is not read.
     """
     from . import run as run_mod    # here, not at the top: the loop imports this module
@@ -905,7 +905,7 @@ def failed_declaration(notice, mine, index=None):
                  (isinstance(state.get("finished_at"), (int, float))
                   and state["finished_at"] >= stamp))
             and not (index is not None
-                     and run_mod.is_superseded(state, None, index, merged_only=True))]
+                     and transitions.is_superseded(state, None, index, merged_only=True))]
 
 
 def _close_card(session, card, status):
@@ -1140,14 +1140,14 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             card = _card_read(name)
             records = menu.run_records()
             mine = [(directory, state) for directory, state in records
-                    if run.launched_session(state) == name]
+                    if transitions.launched_session(state) == name]
             declared = last(name, include_seen=True)
             if declared and declared.get("seen") and declared.get("kind") == "done":
                 # Already dropped: no second log line, but later words still card.
                 declared = None
             if declared and declared["kind"] == "done":
                 failed = failed_declaration(
-                    declared, mine, run.supersession_index(records))
+                    declared, mine, transitions.supersession_index(records))
                 if failed:
                     extra = {k: v for k, v in declared.items() if k not in ("session", "kind", "text")}
                     record(name, "done", declared["text"], **extra, seen=True)
@@ -1436,8 +1436,8 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         if completion:
             extra["completion"] = completion
         extra["runs"] = [directory.name for directory, state in menu.run_records()
-                         if run.launched_session(state) == name and
-                         (run.going(state) or run.unfinished(state))]
+                         if transitions.launched_session(state) == name and
+                         (transitions.going(state) or transitions.unfinished(state))]
     if at is not None:
         extra["time"] = at
     record(name, kind, text, **extra)

@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import config, gitcall, retention, run
+from . import config, gitcall, retention, run, transitions
 from . import record as run_record
 
 
@@ -103,10 +103,10 @@ def resume_holds_tree(state, run_dir=None):
     if not isinstance(state, dict):
         return False
     try:
-        return bool(run.needs_recovery(state) or run.failed_at_budget(state)
+        return bool(transitions.needs_recovery(state) or transitions.failed_at_budget(state)
                     or (state.get("state") == "error" and state.get("own_pr_round_pending"))
-                    or run.failed_in_integration(state, run_dir)
-                    or run.judged_in_integration(state, run_dir))
+                    or transitions.failed_in_integration(state, run_dir)
+                    or transitions.judged_in_integration(state, run_dir))
     except (OSError, ValueError, TypeError, AttributeError):
         return False
 

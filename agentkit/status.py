@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 
-from . import config, gate, gc, gitcall, history, host, orch, run, scoreboard, stop
+from . import config, gate, gc, gitcall, history, host, orch, run, scoreboard, stop, transitions
 from . import job as jobs
 from . import land as landing
 from . import record as run_record
@@ -27,7 +27,7 @@ def parked_line(state, run_id=None, now=None):
     """
     now = time.time() if now is None else now
     name = run_id or state.get("run_id") or "?"
-    line = run.landing_line(state)
+    line = transitions.landing_line(state)
     if line:
         ahead = [directory.name for directory, _ in landing.line(config.RUNS / line)]
         place = ahead.index(name) + 1 if name in ahead else len(ahead) + 1
@@ -36,7 +36,7 @@ def parked_line(state, run_id=None, now=None):
         target = (state.get("target") or state.get("base") or "main").removeprefix("origin/")
         return f"waiting · {place}{suffix} in line to land on {target}"
     word = state.get("state")
-    admission = run.tick_admission(state, now=now) if word in ("error", "waiting") else ""
+    admission = transitions.tick_admission(state, now=now) if word in ("error", "waiting") else ""
     admitted = f" · {admission}" if admission else ""
     if word in ("error", "waiting") and not admission:
         return f"run {name} parked: {run.handback_reason(state)}"
@@ -51,9 +51,9 @@ def parked_line(state, run_id=None, now=None):
                 return "error · retry due" + admitted
         return f"run {name} parked: {run.handback_reason(state)}"
     if word == "waiting":
-        ref = (state.get("waiting_on") or {}).get("ref") or run.conflict_upstream(state)
+        ref = (state.get("waiting_on") or {}).get("ref") or transitions.conflict_upstream(state)
         return f"waiting · retry after the next merge to {ref}" + admitted
-    if word == "exhausted" and run.exhausted_wait(state) == "reviewer":
+    if word == "exhausted" and transitions.exhausted_wait(state) == "reviewer":
         return "exhausted · resumes when a reviewer is eligible"
     return ""
 
@@ -248,7 +248,7 @@ def status_word(state, cfg=None):
         return "merged"
     if state.get("pr"):
         return "PR open"
-    word = run.delivery(state, run.report_config(cfg))
+    word = transitions.delivery(state, transitions.report_config(cfg))
     return word[len("PASS, "):] if word.startswith("PASS, ") else ""
 
 
@@ -276,7 +276,7 @@ def actionable(state):
                         and not state.get("merged") and not state.get("no_merge")
                         and not state.get("on_target")
                         and not state.get("review_pr") and not state.get("review_posted"))
-    return bool(run.unfinished(state) or recent_failure or pending_delivery)
+    return bool(transitions.unfinished(state) or recent_failure or pending_delivery)
 
 
 def status_key(pair):
@@ -322,13 +322,13 @@ def resume_age(state, now=None):
     if not isinstance(at, (int, float)) or isinstance(at, bool):
         return ""
     now = time.time() if now is None else now
-    if not 0 <= now - at <= run.RESUME_VISIBLE:
+    if not 0 <= now - at <= transitions.RESUME_VISIBLE:
         return ""
     clock = time.strftime("%H:%M", time.localtime(at))
     if note.get("restarted"):
         return f"resumed {clock} · turn restarted"
     role = note.get("role") or "executor"
-    what = f"the {role}'s turn" if role in run.TURN_ROLES else f"the {role}"
+    what = f"the {role}'s turn" if role in transitions.TURN_ROLES else f"the {role}"
     return f"resumed {clock} · continued {what}"
 
 
@@ -362,7 +362,7 @@ def status_state_word(state, index=None):
     """
     from . import menu
     word = menu.run_state_word(state)
-    return "done" if word == "needs you" and run.settled(state, index) else word
+    return "done" if word == "needs you" and transitions.settled(state, index) else word
 
 
 def status_id_cell(name, room):
@@ -536,7 +536,7 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {checked}")
     if state.get("first"):
         lines.append("  first")
-    stalled = run.stall_summary(state)
+    stalled = transitions.stall_summary(state)
     if stalled:
         lines.append(f"  {stalled}")
     lines.extend(death_lines(state))
@@ -544,8 +544,8 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
         lines.append(f"  {gate.slot_note(state)}")
     elif gate.gate_turn_note(state):
         lines.append(f"  {gate.gate_turn_note(state)}")
-    if run.needs_recovery(state):
-        reason = run.recovery_reason(state)
+    if transitions.needs_recovery(state):
+        reason = transitions.recovery_reason(state)
         wait = run.waiting(state, providers=providers, cfg=cfg)
         # a run sitting out a provider window resumes itself: the lines say
         # what it waits for, never that the owner should reach for its number
@@ -569,7 +569,7 @@ def status_details(directory, state, providers=None, cfg=None, index=None):
             lines.append("  " + terminal.styled(living, "dim"))
         if ended:
             lines.append("  " + terminal.styled(ended, "dim"))
-    onward = run.continue_line(state, directory)
+    onward = transitions.continue_line(state, directory)
     if onward:
         lines.append(f"  {onward}")
     return lines
@@ -611,7 +611,7 @@ def cmd_status(argv):
     from . import menu
     # Whether a run was superseded asks every record, whichever run or job is shown, but
     # never the smoke suite's own, as on the menu.
-    index = None if machine else run.supersession_index(
+    index = None if machine else transitions.supersession_index(
         state for state in map(run_record.read_state, run_record.run_dirs()) if state and not menu.smoke_run(state))
     if wanted:
         for directory, job in receipts:
@@ -623,7 +623,7 @@ def cmd_status(argv):
                     return 0
                 print(gate.host_status_line())
                 alive = jobs.reap_job(directory, job)
-                shown = jobs.job_now(job, alive, run.report_config(), index)
+                shown = jobs.job_now(job, alive, transitions.report_config(), index)
                 print(jobs.job_block_line(shown))
                 if not alive:
                     print(jobs.job_gone_line(directory, job))
@@ -644,7 +644,7 @@ def cmd_status(argv):
         looked = set()
         for single in dirs:
             try:
-                if run.mark_looked_at(single):
+                if transitions.mark_looked_at(single):
                     looked.add(single)
             except (OSError, ValueError):
                 pass
@@ -666,7 +666,7 @@ def cmd_status(argv):
             state = {**state, "recovery_acknowledged_at": None}
         # An admitted error or merge wait still belongs to the tick. Once admission
         # ends it ages out of the listing like any other ending, stale stamp or not.
-        live = run.going(state) and state.get("state") in ("waiting", "error")
+        live = transitions.going(state) and state.get("state") in ("waiting", "error")
         if (not wanted and not show_history and state.get("state") not in (*run_record.ACTIVE, "stalled",
                                                                   "unreadable")
                 and not actionable(state) and not live and
@@ -687,7 +687,7 @@ def cmd_status(argv):
     shown_jobs = 0
     if not wanted:
         now = time.time()
-        job_cfg = run.report_config() if receipts else None
+        job_cfg = transitions.report_config() if receipts else None
         for directory, job in sorted(receipts, key=lambda pair: pair[1].get("started_at") or 0,
                                      reverse=True):
             finished = job.get("finished_at")
@@ -707,7 +707,7 @@ def cmd_status(argv):
         print(f"no current runs in {config.RUNS}")
     if plain:
         # Read one config for the delivery and waiting words; only waiting needs usage.
-        plain_cfg = run.report_config()
+        plain_cfg = transitions.report_config()
         plain_providers = (run._cached_providers() if any(
             state.get("state") == "exhausted" for _, state in found) else {})
         # a `waiting_login` row names its harness out of run.json and reads no meters
@@ -726,11 +726,11 @@ def cmd_status(argv):
             if state.get("extended"):
                 line += (f"  round {len(state.get('round_summaries') or [])}/{state['rounds']} "
                          f"(+{state['extended']})")
-            stalled = run.stall_summary(state)
+            stalled = transitions.stall_summary(state)
             if stalled:
                 line += f"  {stalled}"
-            if run.needs_recovery(state):
-                line += f"  {run.recovery_reason(state)}; ak run resume {d.name} offers recovery"
+            if transitions.needs_recovery(state):
+                line += f"  {transitions.recovery_reason(state)}; ak run resume {d.name} offers recovery"
             if state.get("state") == "blocked":
                 line += f"  blocked: {' '.join((state.get('error') or '').split())}"
             if state.get("pr"):
@@ -749,7 +749,7 @@ def cmd_status(argv):
                 from . import terminal as _terminal
                 line += f"  {_terminal.styled(waiting, 'dim')}"
             print(line)
-            if run.landing_line(state):
+            if transitions.landing_line(state):
                 print(f"  {parked_line(state, d.name)}")
             elif state.get("state") == "queued":
                 print(f"  {gate.slot_note(state)}")
@@ -777,7 +777,7 @@ def cmd_status(argv):
                 print(f"  {checked}")
             for death in death_lines(state):
                 print(death)
-            onward = run.continue_line(state, d)
+            onward = transitions.continue_line(state, d)
             if onward:
                 print(f"  {onward}")
     else:
@@ -793,7 +793,7 @@ def cmd_status(argv):
             # and the config are read once for the waiting lines, never per
             # row -- and nothing is read when no run waits. With no rows there
             # is no header either: `no current runs` above is the whole answer.
-            if any(run.needs_recovery(state) for _, state in found):
+            if any(transitions.needs_recovery(state) for _, state in found):
                 try:
                     scope_cfg = config.load()
                 except config.Error:

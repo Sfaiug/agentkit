@@ -17,7 +17,7 @@ import sys
 import unittest
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, record, run, task as taskfile
+from agentkit import config, record, run, task as taskfile, transitions
 
 
 class SizeGate(Sandbox):
@@ -161,7 +161,7 @@ class SizeGate(Sandbox):
 
     def traced(self, *args):
         """`run.carried_lines(*args)` and the Python steps it and its windows took."""
-        steps, codes = [0], (run.carried_lines.__code__, run._windows.__code__)
+        steps, codes = [0], (run.carried_lines.__code__, transitions._windows.__code__)
         tracer = lambda frame, event, arg: (steps.__setitem__(0, steps[0] + 1), tracer)[1]
         sys.settrace(lambda frame, event, arg: tracer if frame.f_code in codes else None)
         try:
@@ -173,7 +173,7 @@ class SizeGate(Sandbox):
         # a punctuation-only line starts no window, however long its run, so a maze split into
         # levels is walked once, not once per row; a header every file opens on pairs each of
         # its deleted copies with one added copy, in order, so copies never multiply
-        self.assertEqual(run._windows(["#" * 40] * 3 + ["the exit of the maze is on the last row"]),
+        self.assertEqual(transitions._windows(["#" * 40] * 3 + ["the exit of the maze is on the last row"]),
                          [None, None, None, ("the exit of the maze is on the last row",)])
         self.git("checkout", "-q", self.base)
         self.git("checkout", "-qb", "runs")

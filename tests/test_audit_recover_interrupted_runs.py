@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gc, gitcall, job as jobs, menu, notify, orch, run, status, terminal, watch
+from agentkit import config, gc, gitcall, job as jobs, menu, notify, orch, run, status, terminal, transitions, watch
 from agentkit import host, record as run_record
 
 
@@ -304,7 +304,7 @@ if role == "reviewer" and (root / "fail-review").exists():
         (workspace / "deliverable").write_text("keep me")
         self.screen("")  # drawing the list is not acknowledgment
         self.assertIn(directory, dict(menu.run_records()))
-        run.acknowledge(directory)
+        transitions.acknowledge(directory)
         state = run_record.read_state(directory)
         self.assertTrue(state["recovery_acknowledged_at"])
         self.assertEqual(state["state"], "interrupted")
