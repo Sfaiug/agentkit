@@ -6979,11 +6979,17 @@ def _generated(repo, source, names):
     return {name for name, attr in zip(names, attrs) if attr.lower() in ("set", "true")}
 
 
+MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as git's own
+                    # moved-line detection (--color-moved) asks before it calls lines moved
+
+
 def carried_lines(repo, base, head="HEAD"):
-    """Added lines a reviewer need not read: each with the text, whitespace aside, of a line
-    the same diff deletes, a deleted line paired with one added line at most, so a module
-    split across files adds what its new lines come to.  Generated files are left out, as
-    `diff_lines` leaves them out; a blank line pairs with a deleted blank line."""
+    """Added lines a reviewer need not read: the blocks moved unchanged, whitespace aside, from
+    lines the same diff deletes -- a run of added lines reading as a run of deleted lines of one
+    file, each deleted line paired once, the block holding at least MOVED_BLOCK alphanumeric
+    characters -- so a new blank line or brace that reads as a deleted one is not moved, and a
+    module split across files adds what its new lines come to.  Generated files are left out,
+    as `diff_lines` leaves them out."""
     # the patch Git prints itself, whatever the user's config says of prefixes, drivers and
     # submodules, whose insides diff_lines never counts
     diff = git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color",
@@ -7003,14 +7009,39 @@ def carried_lines(repo, base, head="HEAD"):
             elif line.startswith("+++ b/"):
                 new = line[6:].removesuffix("\t")
         elif line.startswith("+") and new is not None:
-            added.setdefault(new, Counter())[" ".join(line[1:].split())] += 1
+            added.setdefault(new, []).append(" ".join(line[1:].split()))
         elif line.startswith("-") and old is not None:
-            deleted.setdefault(old, Counter())[" ".join(line[1:].split())] += 1
+            deleted.setdefault(old, []).append(" ".join(line[1:].split()))
     skip_new = _generated(repo, head, sorted(added))
     skip_old = _generated(repo, base, sorted(deleted))
-    gone = sum((lines for name, lines in deleted.items() if name not in skip_old), Counter())
-    came = sum((lines for name, lines in added.items() if name not in skip_new), Counter())
-    return sum((came & gone).values())
+    gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
+    where = {}      # a deleted line's text -> where it stands; a block starts on a line with text
+    for name, lines in gone.items():
+        for at, text in enumerate(lines):
+            if text:
+                where.setdefault(text, []).append((name, at))
+    used = {name: set() for name in gone}
+    carried = 0
+    for name, lines in added.items():
+        if name in skip_new:
+            continue
+        i = 0
+        while i < len(lines):
+            best, span = 0, None
+            for file, at in where.get(lines[i], ()):
+                source, held, length = gone[file], used[file], 0
+                while (i + length < len(lines) and at + length < len(source)
+                       and at + length not in held and source[at + length] == lines[i + length]):
+                    length += 1
+                if length > best:
+                    best, span = length, (file, at)
+            if best and sum(ch.isalnum() for ch in "".join(lines[i:i + best])) >= MOVED_BLOCK:
+                used[span[0]].update(range(span[1], span[1] + best))
+                carried += best
+                i += best
+            else:
+                i += 1
+    return carried
 
 
 def history_finish(state, log=None):
