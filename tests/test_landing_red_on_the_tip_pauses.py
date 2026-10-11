@@ -97,6 +97,23 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.prepared, [])
         self.assert_cleaned()
 
+    def test_a_pause_lifted_by_a_green_probe_runs_no_second_probe_for_the_members_own_red(self):
+        suite = f"{FLAKY} && test ! -f broken.txt"
+        self.declare(suite)
+        first = self.member(**{"broken.txt": "the branch's own breakage\n"})
+        self.advance()
+        flake = self.flag()
+        held = self.clock()
+        land.check_line(self.turn)          # red on the tip alone: the line pauses
+        self.assertEqual(self.commands(), [["true", suite], [suite]])
+        flake.unlink()
+        held[0] += run.TRANSIENT_BACKOFF[0]
+        land.check_line(self.turn)          # the piece passes on the tip; the stack is red by its own
+        self.assertEqual(self.commands()[2:], [[suite], ["true", suite]])
+        self.assertIn(suite, self.wait(first)["fix"]["line"])
+        self.wake.assert_called_once_with(first.name, ANY)
+        self.assertIsNone(self.red())
+
     def test_a_sharded_suites_red_piece_alone_runs_on_the_tip(self):
         suite = 'case "$AK_SHARD" in 2/*) test ! -f ../flake;; *) true;; esac'
         self.declare(suite)

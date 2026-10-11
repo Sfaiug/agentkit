@@ -285,7 +285,7 @@ def check_line(turn, log=lambda _: None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
-        target, prefix = None, []
+        target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
         members = line(turn)
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
@@ -319,9 +319,11 @@ def check_line(turn, log=lambda _: None):
                     if scratch is None:
                         log(f"WARN {text.splitlines()[-1]}")
                         return
+                    piece = red["probe"].get("piece") or ""
                     if not _probe_tip(turn, directory, state, scratch, tip, upstream, target_tree,
-                                      red["probe"]["command"], red["probe"].get("piece") or "", log):
+                                      red["probe"]["command"], piece, log):
                         return
+                tip_green.add(piece)
                 red = None
             # a PR waits on no repair: its own tree is checked, and lands if it mends the target
             if (red and (passed(turn, target_tree) or {}).get("tested") != target_tree
@@ -399,8 +401,8 @@ def check_line(turn, log=lambda _: None):
                         watch.launch_resume(member.name, log)
                 return True
 
-            verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log,
-                                      prefix=prefix, ready=publish) if checked else {directory: verdict})
+            verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,
+                                      ready=publish, tip_green=tip_green) if checked else {directory: verdict})
             if not verdicts:
                 return
             if publish(verdicts) and checked:
@@ -504,7 +506,8 @@ def _check_tree(directory, state, scratch, tree, checks, log):
     return {"land": tree} if ok else {"fix": {"line": run.first_failure(text), "log": str(log_path)}}
 
 
-def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None):
+def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
+                   tip_green=None):
     from . import gate, run
     if prefix:
         wait = prefix[-1][1]["waiting_on"]
@@ -517,7 +520,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     config.WT.mkdir(parents=True, exist_ok=True)
     pending, verdicts = list(members), {}
     heads = {}      # each PR's head on GitHub, read once a pass
-    tip_green = set()   # the pieces the target's tip passed on this pass
+    tip_green = set(tip_green or ())   # the pieces the target's tip passed on this pass, the
+                                       # pass's own re-probe of a paused piece included
     limit = None
     while pending:
         with ExitStack() as opened:
