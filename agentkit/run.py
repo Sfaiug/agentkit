@@ -11195,6 +11195,8 @@ def fail_pr_landing(lp, failure, landing=True):
     else:
         if landing:
             lp.state["merge_note"] = f"landing failed {reds} times: {failure['line']}"
+        # the count bounds one landing; a person who resumes the ended run starts a new one
+        lp.state.pop("landing_reds", None)
         lp.state.update(state="fail", finished_at=time.time())
     lp.write()
     return False
@@ -11376,6 +11378,16 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         # or the fix it pushed (`own_pr_heads`)
         if not pushed and head != reviewed:
             git(lp.wt, "reset", "--hard", reviewed)
+        # the seat's own head is reviewed as a round, as any new head is, whatever red the
+        # landing left behind: a landing fix is only what the fixer turn pushes, and a head
+        # that needs a round the change no longer has goes back to its seat
+        state.pop("landing_fix", None)
+        left, why = round_budget(taskfile.TASK_MAX_ROUNDS, pr=url, exclude=run_dir,
+                                 what=f"PR #{number}")
+        if why or len(state.get("round_summaries") or []) >= left:
+            return ended(why or round_budget(taskfile.TASK_MAX_ROUNDS, pr=url,
+                                             what=f"PR #{number}")[1])
+        lp.write()
         log(f"the PR head moved to {remote['sha'][:12]} since the review; reviewing it")
         return True
     if not (pushed and pushed != reviewed and head == pushed):

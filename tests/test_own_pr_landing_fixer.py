@@ -203,6 +203,49 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.assertNotIn("landing_fix", state)
         self.assertEqual(self.merges, [])
 
+    def test_a_head_the_seat_pushed_after_a_landing_red_spends_a_round(self):
+        directory, url = self.red_landing()
+        self.push_fix(url)
+        with patch.object(run, "execute", side_effect=AssertionError("a fixer turn over the seat push")):
+            state = self.review(directory, url)
+        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertNotIn("landing_fix", state)
+        self.assertEqual(state["state"], "waiting")
+
+    def test_past_the_budget_a_head_the_seat_pushed_after_a_landing_red_is_not_reviewed(self):
+        directory, url = self.own_pr("second", 1)
+        self.review(directory, url)
+        with record.record(directory) as state:
+            first = state["round_summaries"][0]
+            state["round_summaries"] = [{**first, "round": n} for n in (1, 2, 3)]
+        self.advance(**{"first.txt": "first\n"})
+        land.check_line(self.turn)
+        self.assertIn("fix", self.wait(directory))
+        self.push_fix(url)
+        with patch.object(run, "execute", side_effect=AssertionError("a fixer turn over the seat push")):
+            state = self.review(directory, url)
+        self.assertEqual(state["state"], "fail")
+        self.assertIn("3 review rounds spent on PR #1", state["error"])
+        self.assertEqual(len(self.reviews), 1)
+        self.assertNotIn("landing_fix", state)
+
+    def test_a_run_a_fourth_red_landing_ended_counts_its_reds_again_when_resumed(self):
+        directory, url = self.red_landing()
+        with record.record(directory) as state:
+            state["landing_reds"] = run.CONFLICT_ROUNDS
+        with patch.object(run, "fix_own_pr", return_value=False):
+            state = self.review(directory, url)
+        self.assertIn("landing failed 4 times", state["merge_note"])
+        self.assertNotIn("landing_reds", state)
+        state = self.review(directory, url)          # resumed: a review round, then the line again
+        self.assertEqual(state["state"], "waiting", state.get("error"))
+        land.check_line(self.turn)
+        self.assertIn("fix", self.wait(directory))
+        with patch.object(run, "fix_own_pr", return_value=False) as fixer:
+            state = self.review(directory, url)
+        self.assertTrue(fixer.called, state.get("merge_note"))
+        self.assertEqual(state["landing_reds"], 1)
+
     def test_a_head_moved_under_delivery_is_reviewed_as_a_round(self):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)
