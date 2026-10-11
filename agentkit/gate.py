@@ -953,7 +953,19 @@ def flaky_key(line):
 
 
 def names_shard(command):
-    return re.search(r"\bAK_SHARD\b", command) is not None
+    return re.search(r"\bAK_SHARD\b", command) is not None and piece_of(command) is None
+
+
+def piece_command(shard, suite):
+    """One piece of a sharded suite as a command of its own: the suite with its share set,
+    run on one turn and never split again (`names_shard`)."""
+    return f"export AK_SHARD={shard}; {suite}"
+
+
+def piece_of(command):
+    """(the share, the suite) of a command `piece_command` wrote, else None."""
+    found = re.match(r"export AK_SHARD=(\S+); (.*)\Z", command, re.S)
+    return (found.group(1), found.group(2)) if found else None
 
 
 def suite_cost(command, cwd, run_dir):
@@ -1105,8 +1117,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     """
     env = suite_env()
     if not names_shard(command):
-        path = suite_cost(command, cwd, run_dir)[0] if measure else None
-        measured = _SuiteMeasure(run_dir) if measure else None
+        # one piece run alone measures nothing: its cost is the suite's, already kept
+        path = suite_cost(command, cwd, run_dir)[0] if measure and not piece_of(command) else None
+        measured = _SuiteMeasure(run_dir) if path else None
         aborting = kwargs.pop("abort", None)
         def abort():
             if measured:

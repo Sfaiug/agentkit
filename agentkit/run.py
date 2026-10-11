@@ -3712,6 +3712,16 @@ def failing_checks(dw_log):
     return found
 
 
+def first_failing_command(dw_log):
+    """The first command a gate log records as failed -- `$ cmd` then `[exit n]`, `[killed at
+    the limit]` or `[not run: ...]` -- or None where every record says `exit 0`."""
+    for record in (dw_log or "").split("\n\n"):
+        match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
+        if match and match.group(2) != "exit 0":
+            return match.group(1)
+    return None
+
+
 def first_failure(dw_log):
     """The first failing command and the line that says what failed: one line, for a person.
 
@@ -5996,12 +6006,14 @@ def failing_blocks(text, cap=OUT_CAP):
     return f"{named}\n\n... the end of the output:\n{text[-cap:]}" if named else text[-cap:]
 
 
-def red_target_text(cmd, upstream, tip, output):
-    """What a red target's repair is told: the command, where it fails, and what it printed
-    there, read as a fixer reads a failed check -- indented, so nothing it printed reads as a
-    heading or a fence of the task."""
+def red_target_text(cmd, upstream, tip, output, piece=None):
+    """What a red target's repair is told: the command (its red `piece`, `AK_SHARD=k/N`, named
+    where the suite ran in pieces), where it fails, and what it printed there, read as a fixer
+    reads a failed check -- indented, so nothing it printed reads as a heading or a fence of
+    the task."""
     printed = "\n".join("    " + line for line in failing_blocks(output).splitlines())
-    return (f"`{cmd}` fails on {upstream} at {tip}, the target's own tip, whichever branch runs "
+    what = f"`{cmd}`" + (f", its piece AK_SHARD={piece}," if piece else "")
+    return (f"{what} fails on {upstream} at {tip}, the target's own tip, whichever branch runs "
             f"it. What it printed there:\n\n{printed}")
 
 
