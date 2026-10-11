@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (5.2k lines) holds most of the run side; `gitcall.py`, `turns.py`, `prompts.py`, `transitions.py`, `staffing.py`, `handback.py` and `roundloop.py` are its leaves.
+- `run.py` (4.7k lines) holds most of the run side; `gitcall.py`, `turns.py`, `prompts.py`, `transitions.py`, `staffing.py`, `handback.py` and `roundloop.py` are its leaves.
 
 ## Entry points
 
@@ -21,7 +21,7 @@
 
 ## agentkit/
 
-- `run.py`: the loop over a task's rounds, the executor's and the reviewer's turns, its integration and final check, landing and failures, and a pull request's review.
+- `run.py`: the loop over a task's rounds, its integration and final check, landing and failures, and a pull request's review.
   Passed writable workers and automatic review-PR merges park in the line and exit;
   foreground callers and jobs follow records. Forks keep `land`. API: `main`; for watch, job, gc, orch.
 - `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.

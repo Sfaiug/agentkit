@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, handback, land, notify, record, run, transitions, turns, usage, watch, worker
+from agentkit import config, gate, gc, gitcall, handback, land, notify, record, roundloop, run, transitions, turns, usage, watch, worker
 from fixtures.hand_in import submitting
 from test_merge_step import conflict, make_loop, make_repos, resolve
 from fixtures.sandbox import Sandbox
@@ -53,8 +53,8 @@ class LanderWakes(Sandbox):
         self.fixer_inputs = []
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
-        self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
+        self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
+        self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "rights", return_value=("acme/widget", "WRITE")))
         self.stack.enter_context(patch.object(run, "checks", side_effect=lambda *a: self.check_result))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
@@ -257,7 +257,7 @@ class LanderWakes(Sandbox):
                               (worker.LoginExpired("claude", "sign in again"), "waiting_login")):
             with self.subTest(state=word):
                 record.save_state(self.directory, copy.deepcopy(parked))
-                with patch.object(run, "execute", side_effect=failure), redirect_stdout(io.StringIO()):
+                with patch.object(roundloop, "execute", side_effect=failure), redirect_stdout(io.StringIO()):
                     result = run.cmd_resume([self.directory.name])
                 saved = record.read_state(self.directory)
                 self.assertEqual((result, saved["state"]), (1, word))
@@ -407,7 +407,7 @@ class LanderWakes(Sandbox):
                 self.commit(self.wt, "fix the recorded suite failure")
             return summary
 
-        with patch.object(run, "execute", side_effect=fixer):
+        with patch.object(roundloop, "execute", side_effect=fixer):
             self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
@@ -459,7 +459,7 @@ class LanderWakes(Sandbox):
             self.fixer(lp, role, text, name, **kw)
             return ""
 
-        with patch.object(run, "execute", side_effect=fixer):
+        with patch.object(roundloop, "execute", side_effect=fixer):
             self.assertEqual(run.cmd_resume([self.directory.name]), 1)
             saved = record.read_state(self.directory)
             self.assertEqual(saved["state"], "exhausted")

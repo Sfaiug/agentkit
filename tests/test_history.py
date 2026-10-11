@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, run, status, turns, usage  # noqa: E402
+from agentkit import config, history, run, status, transitions, turns, usage  # noqa: E402
 from agentkit import record
 
 
@@ -254,7 +254,7 @@ class HistoryTests(unittest.TestCase):
         history.start_run("r1")
         env = {"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}
         with patch.dict(os.environ, env), \
-                patch.object(run, "call_retrying", side_effect=killed_after_spending):
+                patch.object(turns, "call_retrying", side_effect=killed_after_spending):
             for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
                 os.environ.pop(name, None)
             with self.assertRaises(run.Killed):
@@ -313,8 +313,8 @@ class HistoryTests(unittest.TestCase):
                                    "provider": "anthropic"}},
                "providers": {"meta": {}, "anthropic": {}}}
         with patch.dict(os.environ, {"XDG_DATA_HOME": str(self.home / "data")}):
-            run.history_role_tokens("r1", "reviewer", out, cfg=cfg, model="spark")
-            run.history_role_tokens("r1", "executor", out, cfg=cfg, model="opus")
+            transitions.history_role_tokens("r1", "reviewer", out, cfg=cfg, model="spark")
+            transitions.history_role_tokens("r1", "executor", out, cfg=cfg, model="opus")
         self.assertEqual(history.get("r1")["reviewer_tokens"], 850)
         self.assertIsNone(history.get("r1")["executor_tokens"])
 
@@ -381,7 +381,7 @@ class HistoryTests(unittest.TestCase):
         for directory, tokens in ((first, 100), (retry, 50)):
             (directory / "events.jsonl").write_text(
                 json.dumps({"type": "result", "total_token_usage": {"tokens": tokens}}) + "\n")
-        run.history_role_tokens("r1", "executor", first)
+        transitions.history_role_tokens("r1", "executor", first)
         self.assertEqual(history.get("r1")["executor_tokens"], 150)
 
 

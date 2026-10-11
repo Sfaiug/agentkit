@@ -111,7 +111,7 @@ class TurnLeftoverProcesses(unittest.TestCase):
 
     def launch(self, role="executor"):
         out = self.root / "run" / "round-1" / role
-        return run.call_retrying(self.cfg, "w", "task body", self.root, out,
+        return turns.call_retrying(self.cfg, "w", "task body", self.root, out,
                                  role, None, self.logs.append, limit=30)
 
     def calls(self):
@@ -165,7 +165,7 @@ class TurnLeftoverProcesses(unittest.TestCase):
         calls = self.calls()
         self.assertEqual(len(calls), 2)
         self.assertIn(turns.FINISH_IN_FOREGROUND, calls[1]["prompt"])
-        self.assertIn(run.NO_VERDICT_ASK, calls[1]["prompt"])
+        self.assertIn(turns.NO_VERDICT_ASK, calls[1]["prompt"])
         self.assertEqual(worker.marked_pids(self.marker), [])
 
     def test_second_unfinished_turn_is_stopped_and_warned_without_a_third_call(self):

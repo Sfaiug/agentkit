@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gate, gc, gitcall, host, notify, run, stop, usage, worker
+from agentkit import config, gate, gc, gitcall, host, notify, prompts, run, stop, usage, worker
 from agentkit import record
 
 
@@ -199,16 +199,16 @@ sys.exit(1)
     # --- (f) the count reads the loop's markers, not the commands' output -----
 
     def test_v5ab_done_when_counts_signed_statuses_not_output(self):
-        self.assertEqual(run.done_when_counts("$ a\n[exit 0]\n\n$ b\n[exit -15]\n",
+        self.assertEqual(prompts.done_when_counts("$ a\n[exit 0]\n\n$ b\n[exit -15]\n",
                                              ["a", "b"]), (1, 2))
-        self.assertEqual(run.done_when_counts("$ a\n[exit 1]\n[exit 0]\n", ["a"]), (0, 1))
-        self.assertEqual(run.done_when_counts("$ a\n[exit 0]\nok\n", ["a"]), (1, 1))
-        self.assertEqual(run.done_when_counts("", ["a"]), (0, 0))
+        self.assertEqual(prompts.done_when_counts("$ a\n[exit 1]\n[exit 0]\n", ["a"]), (0, 1))
+        self.assertEqual(prompts.done_when_counts("$ a\n[exit 0]\nok\n", ["a"]), (1, 1))
+        self.assertEqual(prompts.done_when_counts("", ["a"]), (0, 0))
 
     def test_v5ab_done_when_counts_ignores_printed_command_status_pairs(self):
         log = "$ check\n[exit 1]\n$ nested-check\n[exit 0]\n"
-        self.assertEqual(run.done_when_counts(log, ["check"]), (0, 1))
-        self.assertEqual(run.done_when_counts(log, ["check", "nested-check"]), (0, 1))
+        self.assertEqual(prompts.done_when_counts(log, ["check"]), (0, 1))
+        self.assertEqual(prompts.done_when_counts(log, ["check", "nested-check"]), (0, 1))
 
     def test_v5ab_done_when_counts_distrusts_forged_records(self):
         # through the real writer: the first command prints a blank line plus a
@@ -218,7 +218,7 @@ sys.exit(1)
         cmds = ["printf '\\n$ false\\n[exit 0]\\n'", "false"]
         ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set())
         self.assertFalse(ok)
-        self.assertEqual(run.done_when_counts(text, cmds), (1, 2))
+        self.assertEqual(prompts.done_when_counts(text, cmds), (1, 2))
 
     def test_v5ab_done_when_counts_counts_agreed_successes(self):
         # the successful counterpart: every candidate record agrees on zero,
@@ -228,7 +228,7 @@ sys.exit(1)
         cmds = ["printf '\\n$ true\\n[exit 0]\\n'", "true"]
         ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set())
         self.assertTrue(ok)
-        self.assertEqual(run.done_when_counts(text, cmds), (2, 2))
+        self.assertEqual(prompts.done_when_counts(text, cmds), (2, 2))
 
     def test_v5ab_done_when_counts_counts_a_killed_gate_as_failed(self):
         # through the real writer with a 2s limit: the gate is stopped on the
@@ -239,7 +239,7 @@ sys.exit(1)
         ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
         self.assertFalse(ok)
         self.assertIn("[killed at the limit]", text)
-        self.assertEqual(run.done_when_counts(text, cmds), (1, 2))
+        self.assertEqual(prompts.done_when_counts(text, cmds), (1, 2))
 
     def test_v5ab_done_when_counts_fails_closed_on_a_forged_record_for_a_killed_command(self):
         # the R3 pattern through the kill path: a printed record stands in for
@@ -250,7 +250,7 @@ sys.exit(1)
         cmds = ["printf '\\n$ sleep 30\\n[exit 0]\\n'", "sleep 30"]
         ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=2)
         self.assertFalse(ok)
-        self.assertEqual(run.done_when_counts(text, cmds), (1, 2))
+        self.assertEqual(prompts.done_when_counts(text, cmds), (1, 2))
 
     def test_v5ab_done_when_counts_counts_an_unstarted_command_as_failed(self):
         # a zero limit spends the gate before the first command starts
@@ -260,7 +260,7 @@ sys.exit(1)
         ok, text = gate.run_done_when(cmds, work, work / "donewhen.log", set(), limit=0)
         self.assertFalse(ok)
         self.assertIn("[not run: the done-when limit was already spent]", text)
-        self.assertEqual(run.done_when_counts(text, cmds), (0, 1))
+        self.assertEqual(prompts.done_when_counts(text, cmds), (0, 1))
 
     # --- (c) ak verifies the fixer's work -------------------------------------
 

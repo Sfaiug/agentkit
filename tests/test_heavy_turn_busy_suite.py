@@ -90,7 +90,6 @@ class BusySuite(unittest.TestCase):
         for name in ("AK_MAX_RUNS", "AK_HOST_READINGS", "AK_HEAVY_TURN", "AK_PARENT_RUN",
                      "AK_RUN_LOG"):
             os.environ.pop(name, None)
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))

@@ -1,13 +1,14 @@
 """A round's steps.
 
-The loop's own state, a worker's result and the disputes it records, the
-verification of the work (its checks, the rules, the base proof and the replay
-of a regression), the reviewer's checkout, the same failure seen twice, the
-target's own failure, and what an integration needs: its base, its patch id,
-its parks and its aborts.
+The loop's own state, the executor's turn and the result its worker hands in,
+the verification of the work (its checks, the rules, the base proof and the
+replay of a regression), the reviewer's turn and the checkout it keeps, the
+same failure seen twice, the target's own failure, and what an integration
+needs: its base, its patch id, its parks and its aborts.
 """
 
 import copy
+import json
 import os
 import re
 import shlex
@@ -17,7 +18,8 @@ import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
-from . import config, gitcall, hand_in, handback, history, prompts, record as run_record, task as taskfile, transitions, turns, worker
+from . import (config, gitcall, hand_in, handback, history, prompts, record as run_record, staffing,
+               task as taskfile, transitions, turns, worker)
 
 
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
@@ -313,7 +315,7 @@ def own_checks(lp):
     """What judges this change each round: the task's per-round checks as the gate runs them
     -- `with_suite` has already moved any line that is the declared suite to landing -- less
     a suite split into shards (`AK_SHARD`), which is the repository's, not the change's."""
-    from . import gate  # here, not at the top: gate imports watch, which imports gc, which imports run
+    from . import gate  # here, not at the top: it reaches run
     return [cmd for cmd in lp.every if not gate.names_shard(cmd)]
 
 
@@ -336,7 +338,7 @@ def fails_on_base(lp):
     rounds and resumes.  Scratch runs have no base, and a PR review owes none: its own checks
     are its plan's lines, which fail on the default branch when written.
     """
-    from . import gate  # here, not at the top: gate imports watch, which imports gc, which imports run
+    from . import gate  # here, not at the top: it reaches run
     cmds = own_checks(lp)
     if not cmds:
         return "the task has no check of its own that runs each round"
@@ -454,7 +456,7 @@ def verify_work(lp, cmds=None):
     Runs `cmds`, or the run's per-round commands when none are given. Checks deferred
     to landing run through `final_check`.
     """
-    from . import gate  # here, not at the top: gate imports watch, which imports gc, which imports run
+    from . import gate  # here, not at the top: it reaches run
     if cmds is None:
         cmds = lp.every
     lp.step("done-when")
@@ -834,7 +836,7 @@ def target_fails(lp, upstream, dw_log):
     clean.  A probe of a `# once` command takes a heavy-suite turn; any other probe runs
     light, as the check it repeats did.
     """
-    from . import gate  # here, not at the top: gate imports watch, which imports gc, which imports run
+    from . import gate  # here, not at the top: it reaches run
     if (lp.state.get("waiting_on") or {}).get("line"):
         return ""     # a line member fixes its own red, without assigning it to another run
     failed = prompts.failing_checks(dw_log)
@@ -929,3 +931,497 @@ def target_fails(lp, upstream, dw_log):
     except Exception as exc:  # noqa: BLE001 - the park matters, not its repair
         lp.log(f"WARN no repair of {upstream} could start: {exc}")
     return prompts.first_failure(f"$ {cmd}\n[exit {code}]\n{output}")
+
+
+def execute(lp, role, text, name):
+    """One executor/fixer turn of the current round.  Returns its summary.
+
+    A provider that runs dry mid-round does not end the round: the turn goes to a model
+    on a provider that refused nothing yet, in a fresh out dir on a fresh session. Only
+    when no provider is left does the round stop -- `exhausted` and resumable, never an
+    error for a window that refills.  A turn that fails on the provider twice in a row
+    hands over the same way, told another model started it; with nobody else to take it
+    the same session is resumed, indefinitely, inside `call_retrying`.
+
+    A harness that cannot authenticate is neither: no other provider is asked, because the
+    work is fine and only the login is not, and the run parks `waiting_login` on the session
+    this turn left behind.  A turn killed by signal twice within a minute is neither either:
+    the run parks as an interruption, reading `needs you` with the signal for a reason.
+
+    A turn that hands in blocked says the task cannot
+    be done as written: that ends the run here, with no done-when gate, no reviewer and no
+    further round, because there is nothing to judge and nothing another round would change.
+    """
+    lp.state.update(verdict=None, review=None)
+    if hasattr(lp, "step"):
+        lp.step("executor")
+    else:
+        lp.state.update(step="executor", step_at=time.time())
+        lp.save()
+    if not getattr(lp, "scratch", False) and not lp.state.get("review_pr"):
+        gitcall.sweep_sandboxes(lp.wt, lp.log)
+    # Read the open attempt before free_dir creates the next one, or the empty new
+    # directory would look like a turn that recorded no session.  Off `dir`, which is
+    # what free_dir writes through, so the round is read exactly where it is written.
+    rd = lp.dir(name).parent
+    kind, sid = turns.open_turn(rd, name) if rd.is_dir() else (None, None)
+    previous = turns.latest_turn(rd, name) if kind else None
+    if previous is not None:
+        record_disputes(lp, previous)
+    out, body, dry = turns.free_dir(lp, name), text, set()
+
+    def handover(detail):
+        return staffing.hand_executor(lp, "transient", detail, dry)
+    # Only a turn whose body was replaced by the handover has a conversation that can be
+    # refused, and only that turn hands the original prompt and the notice down.
+    resume = {}
+    note = None
+    if kind == "resume":
+        body = turns.host_ended_prompt(lp.state)
+        lp.exec_sid = sid
+        note = {"at": time.time(), "role": role, "restarted": False}
+        lp.state["resume_notice"] = note
+        resume = {"fresh_body": text, "resume_note": note, "previous": previous}
+    elif kind == "fresh":
+        # The host cut the turn off before a session id was recorded. A fresh
+        # conversation gets the original prompt; an older id must not be resumed.
+        lp.exec_sid = None
+        note = {"at": time.time(), "role": role, "restarted": True}
+        lp.state["resume_notice"] = note
+    # The ask's directory survives a host interruption, so resuming it cannot buy a third ask.
+    closing_asked = previous is not None and ((previous / "final.md").exists()
+                       or "-retry-hand-in" in previous.name or "-retry-foreground" in previous.name)
+    if closing_asked:
+        body = turns.NO_CLOSING_ASK
+        out = turns.free_dir(lp, f"{previous.name}-retry-hand-in")
+    if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
+        findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
+        if findings.is_file():
+            resume["findings"] = findings
+    while True:
+        # read once the attempt ends, however it ends -- a refused, parked or killed turn spent
+        # tokens too -- off its own model and directory, which a handover below moves on from
+        model, attempt = lp.executor, out
+        try:
+            code, summary, lp.exec_sid, dead = turns.call_retrying(lp.cfg, lp.executor, body, lp.wt,
+                                                             out, lp.role(role), lp.exec_sid,
+                                                             lp.log, lp.turn_limit,
+                                                             handover=handover, **resume)
+        except worker.LoginExpired as expired:
+            lp.exec_sid = expired.session or lp.exec_sid
+            lp.save()           # the parked conversation is in run.json before the run parks
+            raise
+        except turns.Killed as killed:
+            lp.exec_sid = killed.session or lp.exec_sid
+            lp.save()           # the killed conversation is in run.json before the run parks
+            raise
+        except turns.CannotRun as broken:
+            # Another provider, the way a spent window goes; with nobody left, the run is
+            # blocked on the harness's own line.  The turn never ran, so it left nothing
+            # for the next model to be told about.
+            if staffing.hand_executor(lp, "cannot run", broken.detail, dry) is None:
+                raise
+            body = text
+            closing_asked = False
+            out = turns.free_dir(lp, f"{name}-{lp.executor}")
+            continue
+        except turns.RanDry as refused:
+            lp.exec_sid = refused.session
+            refused.remember(lp.state)
+            lp.save()           # the refused session is named in run.json before it is dropped
+            before = lp.executor
+            new = staffing.hand_executor(lp, refused.why, refused.detail, dry)
+            if new is None:
+                raise turns.QuotaDry(f"{role} {before} ran dry on {refused.mark!r}: {refused.detail}; "
+                               f"no other provider can execute; "
+                               + ("retrying in ten minutes. " if lp.state.get("refusal_retry")
+                                  else "resume when a meter refills. ") +
+                               f"See {out}*/stderr.log")
+            body = f"{prompts.HANDOVER.format(before=before)}\n\n{text}"
+            closing_asked = False
+            out = turns.free_dir(lp, f"{name}-{lp.executor}")
+            continue
+        except turns.TransientHandover as handed:
+            # hand_executor already moved the role inside the callback; the new model
+            # joins a round another started, in a fresh out dir on a fresh session.
+            body = f"{prompts.HANDOVER.format(before=handed.before)}\n\n{text}"
+            closing_asked = False
+            out = turns.free_dir(lp, f"{name}-{lp.executor}")
+            continue
+        finally:
+            transitions.history_role_tokens(lp.state.get("run_id"), "executor", attempt, lp.log,
+                                lp.cfg, model)
+            record_disputes(lp, attempt)
+        if code != 0:
+            lp.log(f"WARN {role} {turns.killed_word(code) or f'exited {code}'}; "
+                   f"see {out / 'stderr.log'}")
+        lp.save()
+        submitted = prompts.review_records(out, summary)
+        if (not (submitted is not None and submitted.closing) and not closing_asked
+                and not list(out.parent.glob(f"{out.name}-retry*foreground*"))):
+            lp.log(f"{role} {lp.executor} gave no closing; asking once more")
+            resume["previous"] = prompts.written_answer(out, summary).parent
+            body = turns.NO_CLOSING_ASK
+            closing_asked = True
+            out = turns.free_dir(lp, f"{resume['previous'].name}-retry-hand-in")
+            continue
+        return worker_result(lp, summary, out)
+
+
+def review(lp, summary, ok, dw_log, preface="", record=True):
+    """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
+
+    A repo run is judged on its diff.  A scratch run has no commits at all -- what it produced
+    is the files it left in the workspace, so that listing is what the reviewer is given.
+
+    The reviewer judges that work against the done-when output the loop already ran on the
+    commit under review; it is told so, with the commit and the exit counts, and not to run
+    the commands again.  A run that lands defers its suite and `# once` commands to landing,
+    and the reviewer is told their absence from the input is by design.
+
+    `record` is off for landing re-review and the merge pipeline's fixer rounds: they are not task rounds
+    and must not spend one, so no summary of them enters the rounds' own history.
+    The verdict is recorded either way, because delivery is decided
+    on it.
+    """
+    passed_head = passed_review_head(lp.state)
+    # where this review began on its reviewer's session, kept from its first entry across
+    # parks; a pending record that holds none was written before any turn of it ran
+    pending = lp.state.get("review_pending") or {}
+    since = pending["since"] if "since" in pending else str(
+        turns.review_turn(lp.dir("reviewer").parent, lp.review_sid) or "")
+    # the commit the last review judged (`delta_from`, written by every review) and its findings,
+    # what a later round replays, kept on the pending record so no dying attempt overwrites them
+    delta_from = lp.state.get("delta_from")
+    earlier = prompts.earlier_findings(lp)
+    lp.state.update(verdict=None, review=None,
+                    review_pending={"round": lp.rnd, "summary": summary, "since": since,
+                                    "earlier": earlier,
+                                    **({"passed_head_sha": passed_head} if passed_head else {})})
+    if not record:
+        lp.state["review_pending"]["record"] = False
+    if hasattr(lp, "step"):
+        lp.step("reviewer")
+    else:
+        lp.state.update(step="reviewer", step_at=time.time())
+        lp.save()
+    checks, delta, replayed, listed = "", None, [], None
+    if lp.scratch:
+        work = whole = f"## Workspace ({lp.wt})\n```\n{gitcall.listing(lp.wt)}\n```"
+    else:
+        head = "HEAD"
+        if lp.state.get("review_pr"):
+            head = lp.state["head_sha"]
+            restore_review_checkout(lp, "tests")
+        else:
+            gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+        diff = prompts.capped(lp, gitcall.git(lp.wt, "diff", f"{lp.base_sha}...{head}", check=False))
+        work = whole = f"## Diff ({lp.base}...HEAD in {lp.wt})\n```diff\n{diff}\n```"
+        at = gitcall.git(lp.wt, "rev-parse", head)
+        # a later round judges what changed since the last review, where that review handed
+        # in findings for a fix to answer: after a FAIL on the checks alone, and in a landing
+        # re-review (`record` off: the repair that brought it here is nobody's fix round),
+        # the whole change is judged again
+        delta = prompts.reviewed_before(lp, delta_from, at) if record and earlier else None
+        if record and delta_from and earlier:
+            # a later round, on a new commit or the same again: ak re-proves the earlier findings.
+            # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh,
+            # and a quote is no failing proof: both are listed, not replayed
+            disputed = {(row["path"], row["line"]) for row in prompts.dispute_rows(lp)}
+            proven = [row for row in earlier if "run" in (row.get("evidence") or {})
+                      and (row["path"], row["line"]) not in disputed]
+            left = [(row, "disputed by the fixer: hand it in again to uphold it"
+                     if (row["path"], row["line"]) in disputed
+                     else "a quote, which ak cannot re-prove: hand it in again if it still stands")
+                    for row in earlier if row not in proven]
+            replayed = prompts.replay_findings(lp, proven, at)
+            # each earlier finding is listed, and handed to the reviewer's turn, where it
+            # stands on this commit (`placed`): the one site a hand-in upholds it at
+            standing = {id(row): prompts.placed(lp, row, delta, at)[0] for row in earlier}
+            listed = lp.round_dir / "earlier.json"
+            listed.parent.mkdir(parents=True, exist_ok=True)
+            listed.write_text(json.dumps([{**row, "line": standing[id(row)]} for row in earlier]))
+            shown = [({**row, "line": standing[id(row)]}, now, failing) for row, now, failing in replayed]
+            told = [({**row, "line": standing[id(row)]}, why) for row, why in left]
+            if delta:
+                changed = prompts.capped(lp, gitcall.git(lp.wt, "diff", delta, head, check=False))
+                work = (f"## Fix delta ({delta[:12]}...HEAD in {lp.wt}; what changed since the "
+                        f"last review)\n```diff\n{changed}\n```\n\n{prompts.replay_section(shown, told, delta)}")
+            else:
+                work = f"{whole}\n\n{prompts.replay_section(shown, told, None)}"
+        paths = prompts.changed_test_paths(lp, head)
+        if paths:
+            # Leave room for full names, including git's quoted non-ASCII paths.
+            width = max(len(p.encode()) * 4 + 2 for p in paths)
+            stat = gitcall.git(lp.wt, "diff", f"--stat={width + 80},{width}", "--no-renames",
+                       f"{lp.base_sha}...{head}", "--", *(f":(literal){p}" for p in paths))
+            checks = ("## Checks the executor changed\n```\n"
+                      + "\n".join(stat.splitlines()[:-1]) + "\n```\n\n")
+    identity = {} if lp.scratch else gitcall.commit_identity(lp.wt)
+    disputes = prompts.review_disputes(lp, identity.get("head_sha"))
+    validation = getattr(lp, "validation", identity if lp.state.get("review_pr") else {})
+    # A hand-built stand-in for the loop (as in test_v4c) carries no commands; the real
+    # Loop always does, and only then are markers attributed to their commands.
+    passed, total = prompts.done_when_counts(dw_log, getattr(lp, "cmds", None))
+    if lp.scratch:
+        heading = f"## Done-when output (run by the loop; {passed} of {total} commands exited 0)"
+    else:
+        heading = (f"## Done-when output (run by the loop on commit "
+                   f"{identity.get('head_sha', '')[:12]}; {passed} of {total} commands exited 0)")
+    deferred = ""
+    if getattr(lp, "once", ()):
+        deferred = ("\n".join(f"runs once at landing on the commit to be merged: {cmd}"
+                               for cmd in lp.once)
+                    + "\nThese run at landing; their absence here is by design "
+                      "and is never a finding.")
+    flaky = ""
+    if re.search(r"^flaky: ", dw_log or "", re.M):
+        flaky = ("A `flaky:` record is ak's own rule, not a weakened check: a done-when command "
+                 "that fails runs once more at once, and it passes if that re-run does.")
+    lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
+
+    def body_with(section):
+        text = (f"{lp.body}\n\n{section}\n\n"
+                + (disputes.text + "\n" if disputes.disputes else "")
+                + f"## Executor summary\n{summary}\n\n{heading}\n"
+                + (f"{deferred}\n" if deferred else "")
+                + (f"{flaky}\n" if flaky else "")
+                + f"```\n{dw_log}\n```")
+        if preface:
+            text = f"{preface}\n\n{text}"
+        return checks + text
+    rbody = body_with(work)
+    # a conversation that resumes holds the whole change already; one that cannot gets it too
+    rbody_whole = body_with(f"{whole}\n\n{work}") if delta else rbody
+    # A review cut off mid-turn is continued where it was, fallback model and all: the
+    # attempt after a fallback wrote under `reviewer-<model>`, and asking `reviewer` for
+    # it would start the review over in a directory beside the one holding its session.
+    # The round is read off `dir`, which is what free_dir writes through.
+    rd = lp.dir("reviewer").parent
+    name = turns.open_review(rd)[0] or "reviewer"
+    def fall_back(reason, out, allow_self=True, ending=turns.Exhausted):
+        """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
+        # Recheck at the point of fallback, including spares from saved/legacy callers, and
+        # against the meters as they read now: a spare whose own provider has run dry is none.
+        try:
+            providers = staffing.collect_usage(lp.cfg)
+        except config.Error as exc:
+            providers = {}      # meters nobody could read withhold no spare from a dead review
+            lp.log(f"WARN could not read the meters before falling back: {exc}")
+        order = staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state), lp.log,
+                            role="reviewer", repo=lp.state.get("repo"))
+        own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
+        exec_for_rule = own or lp.executor
+        writers = staffing.head_writers(lp.state)        # everyone who wrote part of the head
+        spares = staffing.reviewer_order(lp.cfg, writers,
+                                [n for n in order if n in lp.spares and n != lp.reviewer])
+        if not allow_self:
+            # A flake waits unless another model can review: only a reviewer that cannot
+            # come back settles for the executor's own model.  The filter is local, so a
+            # later fallback with a real reason still finds it.
+            offered = [n for n in spares
+                       if not any(staffing.same_model(lp.cfg, wrote, n) for wrote in writers)]
+        else:
+            offered = spares
+        if not offered:
+            raise ending(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
+                            f"to review; waiting for review. See {out}*/stderr.log")
+        lp.reviewer, lp.review_sid = offered.pop(0), None
+        lp.spares = [n for n in spares if n != lp.reviewer]
+        lp.save()
+        # said only where it is true: a spare may share the executor's company
+        theirs, spare = transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
+        lp.log(f"WARN reviewer fell back to {lp.reviewer}"
+               f"{' on another provider' if theirs not in (None, spare) else ''}")
+        return f"reviewer-{lp.reviewer}"
+    ask = None      # where the answer that gave no verdict is, for the call asking once more
+    while True:
+        if not lp.executor and not lp.state.get("review_pr"):
+            raise config.Error("task review requires a recorded executor")
+        exec_provider, review_provider = transitions.review_providers(lp.cfg, lp.executor, lp.reviewer)
+        # The open attempt is read before free_dir creates the next directory.
+        turn_kind, turn_sid = turns.open_turn(rd, name)
+        out = turns.free_dir(lp, name)
+        body = rbody if lp.review_sid else rbody_whole
+        asked_body, note, resume = body, None, {}
+        if ask:
+            asked_body, resume, ask = turns.NO_VERDICT_ASK, {"fresh_body": rbody_whole, "previous": ask}, None
+        elif turn_kind == "resume":
+            asked_body = turns.host_ended_prompt(lp.state)
+            lp.review_sid = turn_sid
+            note = {"at": time.time(), "role": "reviewer", "restarted": False}
+            lp.state["resume_notice"] = note
+            resume = {"fresh_body": rbody_whole, "resume_note": note, "previous": turns.latest_turn(rd, name)}
+        elif turn_kind == "fresh":
+            asked_body = rbody_whole
+            lp.review_sid = None
+            note = {"at": time.time(), "role": "reviewer", "restarted": True}
+            lp.state["resume_notice"] = note
+        else:
+            # a conversation that cannot resume after all starts fresh on the whole change
+            resume = {"previous": turns.review_turn(rd, lp.review_sid, since), "fresh_body": rbody_whole}
+        why, ending = "died on API/transport errors", turns.Exhausted
+        model = lp.reviewer     # a fallback below moves on from it before its tokens are read
+        reviewed = config.model(lp.cfg, model)
+        review_harness, review_model = reviewed["harness"], reviewed["model"]
+
+        def handover(detail, out=out):
+            try:
+                return fall_back(detail, out, allow_self=False)
+            except turns.Exhausted:
+                return None
+        try:
+            code, text, lp.review_sid, dead = turns.call_retrying(lp.cfg, lp.reviewer, asked_body,
+                                                            lp.wt, out, lp.role("reviewer"),
+                                                            lp.review_sid, lp.log,
+                                                            lp.turn_limit,
+                                                            handover=handover, findings=listed,
+                                                            **resume)
+        except worker.LoginExpired as expired:
+            lp.review_sid = expired.session or lp.review_sid
+            lp.save()           # the parked conversation is in run.json before the run parks
+            raise
+        except turns.Killed as killed:
+            lp.review_sid = killed.session or lp.review_sid
+            lp.save()           # the killed conversation is in run.json before the run parks
+            raise
+        except turns.CannotRun as broken:
+            # The spares road, as for a spent window; with no spare left, the run is blocked
+            # on the harness's own line rather than waiting for a meter it is not short of.
+            try:
+                name = fall_back(broken.detail, out)
+            except turns.Exhausted:
+                raise broken from None
+            continue
+        except turns.TransientHandover as handed:
+            # fall_back already moved the role inside the callback; the spare reviews
+            # in a fresh out dir on a fresh session.
+            name = handed.new
+            continue
+        except turns.RanDry as dry:
+            # A spent window is the other way a reviewer stops without judging the diff, so it
+            # takes the same road out: the spares, checked against the executor and config.
+            dry.remember(lp.state)
+            code, text, lp.review_sid, dead, why = dry.code, dry.text, dry.session, True, dry.detail
+            ending = dry.ending
+        finally:
+            transitions.history_role_tokens(lp.state.get("run_id"), "reviewer", out, lp.log, lp.cfg, model)
+        if code != 0:
+            lp.log(f"WARN reviewer {turns.killed_word(code) or f'exited {code}'}; "
+                   f"see {out / 'stderr.log'}")
+        if dead:
+            prompts.record_findings(lp, out, text)
+            lp.save()
+            name = fall_back(why, out, ending=ending)
+            continue
+        submitted = prompts.review_records(out, text)
+        if submitted is not None and submitted.done:
+            break
+        # A missing verdict is a reviewer that has not answered, never an answer: ask the
+        # same session once more, same round, no backoff, through the same call as the
+        # review itself, so a window spent on the ask is a spent window and waits for its
+        # refill.  When the turn already spent its one extra call finishing background
+        # work in the foreground, that call already carried the verdict ask, so a second
+        # silence means the reviewer is gone: no round is recorded, same as a dead reviewer.
+        if asked_body == turns.NO_VERDICT_ASK or list(lp.round_dir.glob(f"{out.name}*foreground*")):
+            prompts.record_findings(lp, out, text)
+            lp.save()
+            name = fall_back("gave no verdict twice", out)
+            continue
+        lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
+        ask = prompts.written_answer(out, text).parent
+
+    checkout_changed = not lp.scratch and (
+        identity != validation or gitcall.commit_identity(lp.wt) != identity
+        or (not lp.state.get("review_pr") and gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
+    submitted = prompts.weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
+    upheld = {(row["path"], row["line"]) for row in submitted.findings}
+    for row in disputes.disputes:
+        # a dispute's finding is upheld wherever the fix left its line: moved, at the anchor
+        # of its removal, or among the lines the fix put in its place
+        lines = prompts.moved_lines(lp, row["path"], row["line"], delta, identity.get("head_sha"))[0]
+        if not any((row["path"], at) in upheld for at in lines):
+            dropped = lp.state.setdefault("disputes", [])
+            text_dispute = "Dropped: " + hand_in.item_text(row)
+            if text_dispute not in dropped:
+                dropped.append(text_dispute)
+    lp.state.pop("dispute_files", None)
+    verdict = submitted.verdict
+    overridden = None       # why the loop failed what the reviewer passed, for the hand-back
+    if code != 0 and verdict == "PASS":
+        verdict = "FAIL"
+        overridden = f"the reviewer said PASS but {turns.killed_word(code) or f'exited {code}'}"
+        lp.log(f"WARN {overridden}; overriding to FAIL")
+    if ok is False and verdict == "PASS":
+        verdict = "FAIL"
+        # the check that failed, by name: the reviewer's text says PASS, and it is what is read
+        checks = [line for line in (dw_log or "").splitlines() if prompts.LOOP_NOTE.match(line)]
+        overridden = "; ".join(["the reviewer said PASS while done-when is failing", *checks])
+        lp.log(f"WARN {overridden}; overriding to FAIL")
+    if checkout_changed or (not lp.scratch and (
+            gitcall.commit_identity(lp.wt) != identity or (not lp.state.get("review_pr") and
+                                                   gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))):
+        verdict = "FAIL"
+        overridden = "the checkout changed after verification"
+        lp.log(f"WARN {overridden}; overriding to FAIL")
+    prompts.record_findings(lp, out, text, submitted=submitted)
+    lp.state["notes"] = submitted.notes
+    # kept whatever the verdict, every round's, with the commit each was proven on for its plan
+    # line; each defect once, whichever round proved it: the same defect handed in again on a
+    # later head differs only in its proof, which names that head, and the first one is kept
+    known = set((lp.state.get("followup_defects") or {}).values())
+    fresh = []
+    for item, defect in submitted.followup_defects.items():
+        if defect not in known:
+            known.add(defect)
+            fresh.append(item)
+    lp.state["followups"] = (lp.state.get("followups") or []) + fresh
+    for key, found in (("followup_checks", submitted.followup_checks),
+                       ("followup_commits", submitted.followup_commits),
+                       ("followup_defects", submitted.followup_defects)):
+        lp.state[key] = {**(lp.state.get(key) or {}), **{item: found[item] for item in fresh if item in found}}
+    if verdict == "PASS":
+        prompts.record_flakes(lp.state, dw_log)
+        # A landing re-review with a pending suite keeps the task's probe base.
+        if not getattr(lp, "once", ()) or (record and not lp.state.get("landing")):
+            passed_head = validation.get("head_sha")
+    passed = {"passed_head_sha": passed_head} if passed_head else {}
+    if record:
+        lp.state["round_summaries"].append(
+            {"round": lp.rnd, "verdict": verdict, "done_when": ok,
+             "finding_count": len(submitted.findings),
+             "summary": summary.strip()[-4000:], **validation, **passed})
+    lp.log(f"round {lp.rnd} verdict: {verdict}")
+    lp.state["verdict"] = verdict
+    lp.state["review"] = {"executor": lp.executor, "executor_provider": exec_provider,
+                          "reviewer": lp.reviewer, "reviewer_provider": review_provider,
+                          "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
+                          **({"overridden": overridden} if overridden else {})}
+    lp.state.pop("review_pending", None)
+    if validation.get("head_sha"):
+        lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
+    lp.save()
+    own = hand_in.Review([row for row in submitted.records if not row.get("replayed")])   # ak's replays are no reviewer's catch
+    history.record_review(lp.state.get("run_id"), str(out),
+                          harness=review_harness, model=review_model,
+                          blocking=len(own.findings), followup=len(own.preexisting),
+                          note=len(own.notes), log=lp.log)
+    return verdict
+
+
+def landing_fixer(lp, text, name):
+    """Give any landing fixer the line's red output and remember its completed turn."""
+    wait = lp.state.get("waiting_on") or {}
+    failure = wait.get("fix") if wait.get("line") else None
+    if failure and name != "final-fixer":
+        # An unrelated conflict or light check must not hide the lander's failure.
+        output = Path(failure["log"]).read_text(errors="replace")
+        text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
+                 f"{prompts.failing_blocks(output)}\n```")
+    summary = execute(lp, "fixer", text, name)
+    if failure:
+        # Save the actual fixer with its summary before a check or review can stop.
+        lp.state["waiting_on"]["fixed"] = True
+        lp.state["review_pending"]["summary"] = summary
+        lp.save()
+    return summary

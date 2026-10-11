@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import finding_count, reported, scripted, stateful
-from agentkit import config, gate, gitcall, host, notify, roundloop, run, status, stop, transitions, turns, worker
+from agentkit import config, gate, gitcall, host, notify, prompts, roundloop, run, status, stop, transitions, turns, worker
 from agentkit import record
 
 
@@ -417,7 +417,7 @@ sys.exit(1)
         resumed = self.calls("executor")[2]["prompt"]
         self.assertIn(first, resumed)
         self.assertNotIn("HTTP 503", resumed)
-        self.assertEqual(run.written_answer(second / "reviewer", wide),
+        self.assertEqual(prompts.written_answer(second / "reviewer", wide),
                          second / "reviewer-retry1" / "final.md")
 
     # --- what a run saved before this change still carries ----------------

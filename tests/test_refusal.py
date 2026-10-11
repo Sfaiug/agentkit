@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run, turns, usage, watch  # noqa: E402
+from agentkit import config, run, staffing, turns, usage, watch  # noqa: E402
 from agentkit import record
 
 
@@ -93,7 +93,7 @@ class RefusalTests(unittest.TestCase):
         lines, sleeps = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, _, session, dead = run.call_retrying(
+            code, _, session, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.out, "executor",
                 None, lines.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
@@ -111,7 +111,7 @@ class RefusalTests(unittest.TestCase):
         lines, sleeps = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, _, _, dead = run.call_retrying(
+            code, _, _, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.out, "executor",
                 None, lines.append)
         self.assertEqual((code, dead, len(calls)), (0, False, 2))
@@ -126,7 +126,7 @@ class RefusalTests(unittest.TestCase):
         sleeps = []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, _, _, dead = run.call_retrying(
+            code, _, _, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.out, "executor", None,
                 lambda _: None)
         self.assertEqual((code, dead, len(calls), sleeps), (0, False, 3, [60, 300]))
@@ -138,7 +138,7 @@ class RefusalTests(unittest.TestCase):
             events='{"type":"stream_error","message":"429 Too Many Requests; retrying"}',
             stderr="[warn] request failed: rate limit; retried and succeeded")
         with patch.object(run.worker, "call", side_effect=fake):
-            code, text, _, dead = run.call_retrying(
+            code, text, _, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.out, "executor", None,
                 lambda _: None)
         self.assertEqual((code, dead, len(calls)), (0, False, 1))
@@ -152,7 +152,7 @@ class RefusalTests(unittest.TestCase):
             events=('{"type":"stream_error","error":{"message":"rate limit reached, '
                     'retrying in 2s"}}\n{"type":"turn.completed"}'))
         with patch.object(run.worker, "call", side_effect=fake):
-            code, text, _, dead = run.call_retrying(
+            code, text, _, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.out, "executor", None,
                 lambda _: None)
         self.assertEqual((code, dead, len(calls)), (0, False, 1))
@@ -167,7 +167,7 @@ class RefusalTests(unittest.TestCase):
         lines, sleeps = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, _, _, dead = run.call_retrying(
+            code, _, _, dead = turns.call_retrying(
                 self.cfg, "astra", "body", self.root, self.out, "executor",
                 None, lines.append)
         self.assertEqual((code, dead, len(calls)), (0, False, 2))
@@ -181,7 +181,7 @@ class RefusalTests(unittest.TestCase):
             events='{"type":"turn.failed","error":{"message":"usage limit"}}')
         with patch.object(run.worker, "call", side_effect=fake):
             with self.assertRaises(turns.RanDry):
-                run.call_retrying(self.cfg, "astra", "body", self.root,
+                turns.call_retrying(self.cfg, "astra", "body", self.root,
                                   self.out, "executor", None, lambda _: None)
         self.assertEqual(len(calls), 1)
         self.assertEqual(self.marked[0][0], "openai")
@@ -193,7 +193,7 @@ class RefusalTests(unittest.TestCase):
         sleeps = []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, _, _, dead = run.call_retrying(
+            code, _, _, dead = turns.call_retrying(
                 self.cfg, "opus", "body", self.root, self.out, "executor",
                 None, lambda _: None)
         self.assertEqual((code, dead, len(calls)), (0, False, 2))
@@ -208,7 +208,7 @@ class RefusalTests(unittest.TestCase):
         calls, fake = self.worker(
             events='{"type":"turn.failed","error":{"message":"You have hit your usage limit"}}')
         with patch.object(run.worker, "call", side_effect=fake), \
-                patch.object(run, "hand_executor", return_value=None):
+                patch.object(staffing, "hand_executor", return_value=None):
             with self.assertRaises(run.QuotaDry) as parked:
                 run.execute(lp, "executor", "body", "executor")
         self.assertEqual(len(calls), 1)

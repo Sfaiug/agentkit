@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import stateful  # noqa: E402
-from agentkit import config, run, turns, usage  # noqa: E402
+from agentkit import config, turns, usage  # noqa: E402
 
 # The bearer token out of the `-H @file` header, and the answer from `resp-<token>`: the
 # code on the first line, the body on the rest.
@@ -150,7 +150,7 @@ class Accounts(unittest.TestCase):
     def turn(self):
         out = self.root / "run" / "round-1" / "executor"
         out.parent.mkdir(parents=True, exist_ok=True)
-        return run.call_retrying(self.cfg, "opus", "Do the task.", self.work, out, "executor",
+        return turns.call_retrying(self.cfg, "opus", "Do the task.", self.work, out, "executor",
                                  None, self.lines.append, limit=120)
 
     def calls(self):

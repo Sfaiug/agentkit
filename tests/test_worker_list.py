@@ -149,8 +149,8 @@ class WorkerList(unittest.TestCase):
                         run.pick_models(self.cfg, providers, executor, reviewer,
                                         self.logs.append, workers=workers, resuming=resuming)
             lp = self.loop("beta", "delta", workers)
-            with patch.object(run, "collect_usage", return_value=providers), patch.object(staffing, "collect_usage", return_value=providers):
-                self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "delta")
+            with patch.object(staffing, "collect_usage", return_value=providers):
+                self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "delta")
             self.assertEqual(lp.reviewer, "alpha")
 
     def test_lagging_fable_listed_ranks_by_budget_alone(self):
@@ -180,7 +180,7 @@ class WorkerList(unittest.TestCase):
         # list left it out: the stalled turn's handover lands inside the list all the same
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "beta"])
         state = {**lp.state, "review_session": "saved-review"}
-        with patch.object(run, "collect_usage", return_value=self.providers(a=100, c=0)), patch.object(staffing, "collect_usage", return_value=self.providers(a=100, c=0)), \
+        with patch.object(staffing, "collect_usage", return_value=self.providers(a=100, c=0)), \
                 redirect_stderr(io.StringIO()):
             self.assertEqual(staffing.handover_executor(state, self.cfg, "stalled"), "gamma")
         self.assertIn(state["executor"], ["alpha", "gamma", "beta"])
@@ -366,9 +366,8 @@ class WorkerList(unittest.TestCase):
                 record.save_state(lp.run_dir, lp.state)
                 refusal = turns.RanDry("gamma", "b", 1, "usage limit reached", None,
                                      self.now + 3600, "usage limit reached", True)
-                with patch.object(run, "call_retrying", side_effect=refusal), \
-                        patch.object(run, "collect_usage",
-                                     return_value=usage.Readings(self.providers(b=100))), patch.object(staffing, "collect_usage",
+                with patch.object(turns, "call_retrying", side_effect=refusal), \
+                        patch.object(staffing, "collect_usage",
                                      return_value=usage.Readings(self.providers(b=100))), \
                         redirect_stderr(io.StringIO()):
                     with self.assertRaises(run.Exhausted) as parked:
@@ -418,7 +417,7 @@ class WorkerList(unittest.TestCase):
             with self.assertRaises(run.Exhausted) as parked:
                 run.review(lp, "Review the work.", None, "")
         self.assertEqual(len(asked), 2)
-        self.assertTrue(asked[1].endswith(run.NO_VERDICT_ASK))
+        self.assertTrue(asked[1].endswith(turns.NO_VERDICT_ASK))
         run.park_exhausted(lp.state, parked.exception)
         record.save_state(lp.run_dir, lp.state)
         refilled = usage.Readings(self.providers(b=10))
@@ -621,9 +620,9 @@ class WorkerList(unittest.TestCase):
         # roles are re-picked instead, so the cheapest legal pair runs
         lp = self.loop("alpha", "gamma", ["alpha", "gamma", "delta"])
         lp.review_sid = "saved-review"
-        with patch.object(run, "collect_usage", return_value=self.providers(c=30)), patch.object(staffing, "collect_usage", return_value=self.providers(c=30)), \
+        with patch.object(staffing, "collect_usage", return_value=self.providers(c=30)), \
                 redirect_stderr(io.StringIO()):
-            self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "gamma")
+            self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "gamma")
         self.assertEqual((lp.executor, lp.reviewer), ("gamma", "delta"))
         self.assertIsNone(lp.review_sid)
         self.assertTrue(any("reviewer re-picked for executor gamma: gamma -> delta"

@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import box, config, history, menu, run, turns, usage, watch, worker  # noqa: E402
+from agentkit import box, config, history, menu, transitions, turns, usage, watch, worker  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/antigravity.sh")
 FIXTURES = REPO / "tests/fixtures"
@@ -596,7 +596,7 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(history.event_tokens(retry / "events.jsonl"), 12198)
         with patch.object(config, "HOME", self.home):
             history.start_run("r1")
-            run.history_role_tokens("r1", "executor", out)
+            transitions.history_role_tokens("r1", "executor", out)
             row = history.get("r1")
         self.assertEqual(row["executor_tokens"], 36090)
 

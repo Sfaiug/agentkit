@@ -241,7 +241,7 @@ class RunTree(unittest.TestCase):
         self.enter_run_context()
         with patch.object(worker, "call", side_effect=attempt), \
                 patch.object(turns, "TRANSIENT_BACKOFF", (0, 0)):
-            code, _, _, dead = run.call_retrying(
+            code, _, _, dead = turns.call_retrying(
                 cfg, "w", "do the thing", self.root, self.root / "round-1" / "executor",
                 "executor", None, lambda _: None)
         self.assertEqual(code, 0)
@@ -284,7 +284,7 @@ class RunTree(unittest.TestCase):
             return 0, "## Summary\nall done", None, False
 
         with patch.object(worker, "call", side_effect=attempt):
-            run.call_retrying(cfg, "w", "do the thing", self.root, self.root / "round-1" / "executor",
+            turns.call_retrying(cfg, "w", "do the thing", self.root, self.root / "round-1" / "executor",
                               "executor", None, lambda _: None)
         self.assertTrue(seen["worker"].startswith(f"{self.marker}/turn-"))
 
@@ -495,13 +495,13 @@ class RunTree(unittest.TestCase):
                 if foreground or len(calls) == 2:
                     self._leave_marked_sleep(left, env["AGENTKIT_RUN"])
                 if len(calls) == 2:
-                    self.assertIn(turns.FINISH_IN_FOREGROUND if foreground else run.NO_VERDICT_ASK,
+                    self.assertIn(turns.FINISH_IN_FOREGROUND if foreground else turns.NO_VERDICT_ASK,
                                   body)
                 return 0, "rambling at length but never judging anything", None, False
             return 0, "## Findings\nnone\n\nVERDICT: PASS", None, False
 
         with patch.object(worker, "call", side_effect=submitting(attempt)), \
-                patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
+                patch.object(staffing, "collect_usage", return_value={}), \
                 patch.object(run.usage, "pick_order", return_value=["spare"]):
             self.assertEqual(run.review(lp, "did stuff", True, "$ true\n[exit 0]"), "PASS")
         self.assertEqual(calls, ["rev", "rev", "spare"])

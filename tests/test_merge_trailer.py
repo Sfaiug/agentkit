@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, handback, run
+from agentkit import config, gate, gc, gitcall, handback, run, turns
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -310,7 +310,7 @@ class MergeTrailer(unittest.TestCase):
             mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))
             mocks.enter_context(patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                                              landing(lp, deliver=deliver)))
-            mocks.enter_context(patch.object(run, "call_retrying", side_effect=submitting((
+            mocks.enter_context(patch.object(turns, "call_retrying", side_effect=submitting((
                 0, ("## Findings\n- work.txt:1 - wrong edge case - a broken result\n" if verdict == "FAIL"
                     else "## Findings\n- none\n") + f"VERDICT: {verdict}", "fixture-session", False))))
             # One round: a failed own-PR review now waits for the seat to push fixes.

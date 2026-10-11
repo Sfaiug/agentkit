@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import box, config, run, worker
+from agentkit import box, config, run, turns, worker
 
 
 ADAPTER = r'''import json, os, signal, subprocess, sys, time
@@ -952,13 +952,13 @@ class WorkerBox(unittest.TestCase):
                     "BOX_LEAK": "0", "BOX_SIGNAL": str(sig)}):
                 code, _, _, killed, left = self.turn()
                 self.assertEqual((code, killed, left), (-sig, False, False))
-                self.assertEqual(run.killed_word(code), f"killed ({sig.name})")
+                self.assertEqual(turns.killed_word(code), f"killed ({sig.name})")
         for status in (137, 143):
             with self.subTest(exit=status), patch.dict(os.environ, {
                     "BOX_LEAK": "0", "BOX_EXIT": str(status)}):
                 code, _, _, killed, left = self.turn()
                 self.assertEqual((code, killed, left), (status, False, False))
-                self.assertIsNone(run.killed_word(code))
+                self.assertIsNone(turns.killed_word(code))
 
     def test_commands_that_cannot_start_keep_shell_exit_codes(self):
         program = self.root / "unavailable"

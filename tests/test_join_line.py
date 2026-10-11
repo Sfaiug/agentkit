@@ -13,7 +13,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gitcall, handback, history, job, land, menu, record, run, scoreboard, staffing, transitions, turns, watch
+from agentkit import (config, gate, gitcall, handback, history, job, land, menu, record, run,
+                      scoreboard, transitions, turns, watch)
 from test_merge_step import make_loop, make_repos
 from fixtures.sandbox import Sandbox
 
@@ -139,8 +140,7 @@ class JoinLine(Sandbox):
                 record.save_state(self.directory, copy.deepcopy(before))
                 with patch.object(run, "land", side_effect=park), \
                         patch.object(run, "pr_view", return_value=info), \
-                        patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
-                        patch.object(run, "rounds"), patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
+                        patch.object(run, "collect_usage", return_value={}), patch.object(run, "rounds"), patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
                         patch.object(run, "finish", return_value=1):
                     if attempt == "loop":
                         run.loop(self.cfg, self.directory, self.directory / "task.md",

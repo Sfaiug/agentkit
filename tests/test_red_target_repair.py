@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
-from agentkit import config, handback, notify, run, task, transitions, watch, worker
+from agentkit import config, handback, notify, roundloop, run, task, transitions, watch, worker
 from agentkit import record
 from fixtures.landing import landing
 
@@ -336,7 +336,7 @@ class RedTargetRepair(unittest.TestCase):
 
         def blocked(*_args, **_kw):
             raise run.Blocked(QUESTION, f"## Blocked\n{QUESTION}")
-        with patch.object(run, "execute", side_effect=blocked), \
+        with patch.object(roundloop, "execute", side_effect=blocked), \
                 patch.object(run, "rights", return_value=("acme/app", "WRITE")), \
                 patch.object(run, "join_line", side_effect=lambda lp, upstream, deliver:
                              landing(lp, deliver)), \

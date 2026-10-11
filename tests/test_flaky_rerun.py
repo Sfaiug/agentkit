@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, host, prompts, run
+from agentkit import config, gate, gitcall, host, prompts
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
@@ -88,7 +88,7 @@ class FlakyRerun(unittest.TestCase):
                       f"failed output: {saved}\n"
                       "starting\nFAIL: too slow under load\n\n$ true\n[exit 0]", text)
         self.assertEqual(saved.read_text(), "starting\n\nFAIL: too slow under load\n")
-        self.assertEqual(run.done_when_counts(text, [cmd, "true"]), (2, 2))
+        self.assertEqual(prompts.done_when_counts(text, [cmd, "true"]), (2, 2))
         self.assertEqual(prompts.failing_checks(text), [])
         self.assertEqual(logs, [f"done-when: flaky: {cmd} failed, then passed on its re-run"])
         self.assertFalse(self.followups.parent.exists())
@@ -203,7 +203,7 @@ class FlakyRerun(unittest.TestCase):
         saved, excerpt = self.evidence(text, f"{cmd} (AK_SHARD=2/2)")
         self.assertEqual(saved.read_text(), "FAIL: under load\n")
         self.assertEqual(excerpt, "FAIL: under load")
-        self.assertEqual(run.done_when_counts(text, [cmd]), (1, 1))
+        self.assertEqual(prompts.done_when_counts(text, [cmd]), (1, 1))
 
     def test_a_stop_during_the_rerun_ends_the_gate_as_a_stop_mid_list_does(self):
         # the re-run marks the record stopped, as `ak run stop` does, and is killed by it

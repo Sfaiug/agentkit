@@ -149,8 +149,7 @@ class PickupNewCode(unittest.TestCase):
             return "## Summary\nWork."
 
         with patch.object(run, "installed_head", return_value=NEW), \
-                patch.object(run, "execute", side_effect=fake_execute), \
-                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]\n")), \
+                patch.object(run, "execute", side_effect=fake_execute), patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]\n")), \
                 patch.object(run, "review", return_value="FAIL"):
             run.rounds(lp, execv=fake_exec)
         self.assertEqual(len(calls), 1)

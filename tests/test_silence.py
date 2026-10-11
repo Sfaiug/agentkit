@@ -61,7 +61,6 @@ class Silence(unittest.TestCase):
                                 "AGENTKIT_SESSION": "", "AGENTKIT_DISCORD_WEBHOOK": "off",
                                 "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
                                 "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}).start()
-        patch.object(run, "dirty_paths", return_value=[]).start()
         patch.object(gitcall, "dirty_paths", return_value=[]).start()
         patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -216,7 +215,7 @@ class Silence(unittest.TestCase):
         out = self.root / "turns" / "executor"
         with patch.object(worker.time, "monotonic", side_effect=Clock(600, self.emitted(out))), \
                 patch.object(turns, "TRANSIENT_BACKOFF", (0, 0)):
-            code, text, sid, dead = run.call_retrying(
+            code, text, sid, dead = turns.call_retrying(
                 cfg, "fixture", "do it", self.root, out, "executor", None, logs.append)
         self.assertEqual((code, sid, dead), (0, "sid", False))
         self.assertIn("Finished", text)
@@ -252,7 +251,7 @@ class Silence(unittest.TestCase):
                 patch.object(worker, "ACTIVITY_POLL", .05), \
                 patch.object(turns, "transient_wait", side_effect=AssertionError(
                     "the chatty turn must finish without retries")):
-            code, text, _, dead = run.call_retrying(
+            code, text, _, dead = turns.call_retrying(
                 cfg, "fixture", "do it", self.root, out,
                 "executor", None, lambda _: None)
         self.assertEqual((code, dead), (0, False))
@@ -470,7 +469,7 @@ class Silence(unittest.TestCase):
                 with patch.object(worker.time, "monotonic",
                                   side_effect=Clock(600, self.emitted(out))), \
                         patch.object(turns, "TRANSIENT_BACKOFF", (0, 0, 0, 0, 0)):
-                    code, text, _, dead = run.call_retrying(
+                    code, text, _, dead = turns.call_retrying(
                         cfg, "fixture", "do it", self.root, out, "executor", None, lambda _: None)
                 self.assertEqual((code, dead), (0, False))
                 self.assertIn("Finished", text)

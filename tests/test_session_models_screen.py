@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, gate, handback, menu, run, terminal, update, usage
+from agentkit import config, gate, menu, run, staffing, terminal, update, usage
 from agentkit import record as run_record
 
 
@@ -139,8 +139,7 @@ class SessionModels(Sandbox):
         selected = self.selected("fix-api")
         menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {})
         with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}), \
-                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), \
-                patch.object(run, "history_start"), patch.object(gate, "claim_slot"):
+                patch.object(run, "redress_seat"), patch.object(run, "history_start"), patch.object(gate, "claim_slot"):
             directory = config.RUNS / "next-run"
             directory.mkdir()
             run.capture_launch(directory, cfg=self.cfg)
@@ -152,7 +151,7 @@ class SessionModels(Sandbox):
         selected = self.selected("fix-api")
         menu.session_mark(self.cfg, "fix-api", selected, "spark", 2, {})
         self.assertEqual(run.run_workers(self.cfg, going), ["opus", "astra"])
-        self.assertEqual(run.run_reviewers(self.cfg, going), ["astra"])
+        self.assertEqual(staffing.run_reviewers(self.cfg, going), ["astra"])
 
     def test_the_body_holds_the_current_groups_and_a_spent_note(self):
         spent = usage.Readings({"anthropic": {"meters": [{

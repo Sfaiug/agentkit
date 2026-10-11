@@ -90,7 +90,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assert_restored(head)
         lp.state["step"] = "reviewer"
         self.assertIsNone(run.settled_gate(lp))
-        with patch.object(run, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))):
+        with patch.object(turns, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))):
             self.assertEqual(run.review(lp, "Fixture summary", ok, text), "FAIL")
 
     def test_a_run_started_before_the_check_had_its_folder_keeps_its_gate(self):

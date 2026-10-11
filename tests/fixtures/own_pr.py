@@ -21,7 +21,8 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, hand_in, handback, host, orch, run, status, turns, watch, worker
+from agentkit import (config, gate, gc, gitcall, hand_in, handback, host, orch, run, status, turns,
+                      watch, worker)
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"

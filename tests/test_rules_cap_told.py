@@ -318,7 +318,7 @@ class RulesCapTold(unittest.TestCase):
         with self.subTest(case="added"):
             failure = run.rules_check(lp)
             self.assertTrue(failure.startswith("AGENTS.md is a link"), failure)
-            self.assertTrue(run.LOOP_NOTE.match(failure))
+            self.assertTrue(prompts.LOOP_NOTE.match(failure))
             self.assertEqual(run.repo_rules(self.repo, "HEAD"), "")
         with self.subTest(case="added, no harness limit"), \
                 patch.object(config, "manifests", return_value=iter([("acme", {})])):
@@ -351,7 +351,7 @@ class RulesCapTold(unittest.TestCase):
         failure = run.rules_check(lp)
         self.assertEqual(failure, "AGENTS.md must not go through a Git filter: ak reads its "
                                   "front matter as committed.")
-        self.assertTrue(run.LOOP_NOTE.match(failure))
+        self.assertTrue(prompts.LOOP_NOTE.match(failure))
 
     def test_unavailable_tracked_rules_fail_the_check(self):
         lp = self.loop()
@@ -365,7 +365,7 @@ class RulesCapTold(unittest.TestCase):
         self.assertTrue(failure.startswith("AGENTS.md could not be read as a checkout holds it"),
                         f"Tracked AGENTS.md with an unavailable blob passed: {failure!r}")
         self.assertIn(f"{LIMIT} bytes acme reads of it is unknown", failure)
-        self.assertTrue(run.LOOP_NOTE.match(failure))
+        self.assertTrue(prompts.LOOP_NOTE.match(failure))
 
     def test_removed_oversized_rules_pass_checks(self):
         self.commit_rules("x" * (LIMIT + 1))
@@ -397,8 +397,7 @@ class RulesCapTold(unittest.TestCase):
                 fixes.append(text)
             return "## Summary\nAcme work."
 
-        with patch.object(run, "execute", side_effect=execute), \
-                patch.object(run, "pickup_new_code", return_value=False):
+        with patch.object(run, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False):
             run.rounds(lp)
         self.assertEqual(len(fixes), 1)
         self.assertIn(f"AGENTS.md is {LIMIT + 1} bytes", fixes[0])

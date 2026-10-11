@@ -24,7 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gitcall, hand_in, run, stop, turns, worker
+from agentkit import config, gitcall, hand_in, prompts, run, stop, transitions, turns, worker
 from fixtures.hand_in import scripted, stateful
 
 
@@ -58,7 +58,7 @@ class BlockingGate(unittest.TestCase):
         for module, name, value in (
                 (worker, "auth_ok", (True, "fixture")), (worker, "marked_pids", []),
                 (worker, "kill_marked", True), (stop, "marker_pids", []), (run.orch, "stop_scope", None),
-                (turns, "note_turn_meters", None), (run, "history_role_tokens", None),
+                (turns, "note_turn_meters", None), (transitions, "history_role_tokens", None),
                 (turns, "memory_cap_note", None), (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         config.ensure_dirs()
@@ -234,7 +234,7 @@ out = pathlib.Path(sys.argv[6])
     def test_a_reviewer_asked_once_more_that_cannot_resume_starts_on_the_whole_change(self):
         self.assertEqual(self.review(finding("api.py:1", "mode is wrong", self.mode_fixed)), "FAIL")
         self.write('mode = "fixed"\nflag = "branch"\nextra = 1\n', "Fix the mode")
-        real, bodies = run.call_retrying, []
+        real, bodies = turns.call_retrying, []
         def no_verdict_first(cfg, name, body, workspace, out_dir, role, session, log, *args, **kw):
             bodies.append(kw.get("fresh_body"))
             if len(bodies) > 1:
@@ -242,7 +242,7 @@ out = pathlib.Path(sys.argv[6])
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             (Path(out_dir) / "final.md").write_text("No verdict yet.")
             return 0, "No verdict yet.", session, False
-        self.stack.enter_context(patch.object(run, "call_retrying", no_verdict_first))
+        self.stack.enter_context(patch.object(turns, "call_retrying", no_verdict_first))
         self.assertEqual(self.review(), "PASS")
         # the ask once more resumes the conversation that holds the whole change; the fresh
         # conversation a failed resume starts gets the whole change beside the fix delta
@@ -352,7 +352,7 @@ out = pathlib.Path(sys.argv[6])
         self.lp.state["review_pending"] = {"earlier": [{"kind": "finding", "path": "api.py", "line": 2,
                                                         "what": "flag is wrong", "evidence": {"run": self.flag_fixed}}]}
         self.lp.state["review_records"] = []
-        self.assertEqual([row["line"] for row in run.earlier_findings(self.lp)], [2])
+        self.assertEqual([row["line"] for row in prompts.earlier_findings(self.lp)], [2])
 
     def test_a_touched_line_still_failing_is_one_finding_with_the_reviewers_own(self):
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
@@ -436,7 +436,7 @@ out = pathlib.Path(sys.argv[6])
         reviewed = self.head
         # a push rebased onto a main that grew above the value: the finding moves with its line
         self.on_main("# top\n# a\n# b\n# c\nvalue = 1\n", "Main grows a line above")
-        self.assertEqual(run.moved_lines(self.lp, "api.py", 4, reviewed, self.head), (range(5, 6), False))
+        self.assertEqual(prompts.moved_lines(self.lp, "api.py", 4, reviewed, self.head), (range(5, 6), False))
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("finding"), [("api.py", 5, "still failing; it blocks until its proof passes")])
 

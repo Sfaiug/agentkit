@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 import test_proof_weighed as proof
-from agentkit import hand_in, run
+from agentkit import hand_in, prompts, run
 
 
 class QuoteRechecked(unittest.TestCase):
@@ -26,7 +26,7 @@ class QuoteRechecked(unittest.TestCase):
         file = hand_in.start(self.directory, self.wt)
         with Path(file).open("a") as output:
             output.write("".join(json.dumps(row) + "\n" for row in [*rows, {"kind": "done"}]))
-        return run.weigh_review(self.lp, hand_in.read(file), head or self.head)
+        return prompts.weigh_review(self.lp, hand_in.read(file), head or self.head)
 
     def test_a_line_added_by_the_reviewer_is_a_note_and_starts_no_fix_round(self):
         quote = "reviewer_only = True"

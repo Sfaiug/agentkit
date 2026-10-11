@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import config, gitcall, host, run, status, transitions
+from agentkit import config, gitcall, host, roundloop, run, status, transitions, turns
 from agentkit import record
 
 
@@ -137,7 +137,7 @@ class V5aa(unittest.TestCase):
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()
         # Keep review bookkeeping real across laps; only the model call is fake.
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
+        self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run.worker, "marked_pids", return_value=[]))
 
     def reviewer(self, cfg, name, body, workspace, out, role, session, log, limit=None, **_kw):
@@ -226,7 +226,7 @@ class V5aa(unittest.TestCase):
             run.git_out(wt, "fetch", "origin")
             return "## Summary\nResolved both sides."
 
-        with patch.object(run, "execute", side_effect=fixer), \
+        with patch.object(roundloop, "execute", side_effect=fixer), \
                 patch.object(run, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
         text = self.log_text(run_dir)
@@ -256,7 +256,7 @@ class V5aa(unittest.TestCase):
             calls.append(name)
             return "## Summary\nDid nothing."
 
-        with patch.object(run, "execute", side_effect=fixer):
+        with patch.object(roundloop, "execute", side_effect=fixer):
             self.assertFalse(run.integrate(lp, "origin/main"))
         text = self.log_text(run_dir)
         self.assertIn("did not finish", text)
@@ -367,7 +367,7 @@ class V5aa(unittest.TestCase):
                 raise AssertionError("resume must not spend an executor round")
 
             with mock_patch.object(gitcall, "gh", side_effect=fake_gh), \
-                    mock_patch.object(run, "execute", side_effect=no_execute):
+                    mock_patch.object(roundloop, "execute", side_effect=no_execute):
                 self.assertEqual(run.cmd_resume([run_dir.name]), 0)
             self.assertEqual(calls, [])
             after = record.read_state(run_dir)
@@ -472,7 +472,7 @@ class V5aa(unittest.TestCase):
                 raise AssertionError("resume must not spend an executor round")
 
             with mock_patch.object(gitcall, "gh", side_effect=fake_gh), \
-                    mock_patch.object(run, "execute", side_effect=no_execute):
+                    mock_patch.object(roundloop, "execute", side_effect=no_execute):
                 self.assertEqual(run.cmd_resume([run_dir.name, "--rounds", "3"]), 0)
             self.assertEqual(calls, [])
             after = record.read_state(run_dir)

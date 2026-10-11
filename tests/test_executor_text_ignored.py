@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, turns, worker
+from agentkit import config, hand_in, run, staffing, transitions, turns, worker
 
 
 class ExecutorTextIgnored(unittest.TestCase):
@@ -25,7 +25,7 @@ class ExecutorTextIgnored(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
-        for module, name in ((turns, "note_turn_meters"), (run, "history_role_tokens"),
+        for module, name in ((turns, "note_turn_meters"), (transitions, "history_role_tokens"),
                              (turns, "memory_cap_note"), (run.history, "update_run"),
                              (run, "pickup_new_code")):
             self.stack.enter_context(patch.object(module, name, return_value=None))
@@ -73,7 +73,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         review.assert_called_once()
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(self.calls[1][1], "fixture-session")
-        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
         self.assertNotIn("not_needed", self.lp.state)
         self.assertEqual(run.continuation(self.lp), "done-when")
 
@@ -92,13 +92,13 @@ class ExecutorTextIgnored(unittest.TestCase):
         with patch.object(worker, "turn", side_effect=self.turn):
             self.assertEqual(run.execute(self.lp, "fixer", "Fix the task.", "fixer"), self.text)
         self.assertEqual(len(self.calls), 2)
-        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
         self.assertEqual(self.calls[1][1], "fixture-session")
         self.assertEqual(run.continuation(self.lp), "done-when")
 
     def test_task_quoting_the_closing_ask_still_needs_hand_in(self):
         self.text = "## Blocked"
-        self.lp.context = "Document this prompt: " + run.NO_CLOSING_ASK
+        self.lp.context = "Document this prompt: " + turns.NO_CLOSING_ASK
         self.checked()
 
     def test_empty_record_channel_still_needs_the_extra_ask(self):
@@ -113,7 +113,7 @@ class ExecutorTextIgnored(unittest.TestCase):
                   self.lp.dir("executor"), self.lp.role("executor"))
         self.lp.rnd = 0
         self.checked()
-        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
 
     def test_restart_after_a_resumed_turn_and_its_ask_does_not_ask_again(self):
         self.text = "## Summary\nwork"
@@ -137,7 +137,7 @@ class ExecutorTextIgnored(unittest.TestCase):
 
     def test_restart_after_a_handover_and_its_ask_does_not_ask_again(self):
         self.text = "## Summary\nwork"
-        call_retrying = run.call_retrying
+        call_retrying = turns.call_retrying
 
         def call(cfg, model, body, cwd, out, *args, **kw):
             if model == "opus":
@@ -150,8 +150,8 @@ class ExecutorTextIgnored(unittest.TestCase):
             lp.executor, lp.exec_sid = "fable", None
             return lp.executor
 
-        with patch.object(run, "call_retrying", side_effect=call), \
-                patch.object(run, "hand_executor", side_effect=handover), \
+        with patch.object(turns, "call_retrying", side_effect=call), \
+                patch.object(staffing, "hand_executor", side_effect=handover), \
                 patch.object(worker, "turn", side_effect=self.turn), \
                 patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
                 patch.object(run, "review", return_value="PASS") as review:
@@ -244,7 +244,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         review.assert_called_once()
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self.calls[0][1], "fixture-session")
-        self.assertIn(run.NO_CLOSING_ASK, self.calls[0][0])
+        self.assertIn(turns.NO_CLOSING_ASK, self.calls[0][0])
         self.assertEqual(run.continuation(self.lp), "done-when")
         self.assertIn(work, review.call_args.args[1])
 
@@ -266,7 +266,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         with patch.object(worker, "turn", side_effect=self.turn), \
                 self.assertRaisesRegex(run.Blocked, self.closing[1]):
             run.execute(self.lp, "executor", "Do the task.", "executor")
-        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
         self.assertEqual(self.calls[1][1], "fixture-session")
 
     def test_extra_followup_turn_can_hand_in_not_needed(self):
@@ -277,7 +277,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         with patch.object(worker, "turn", side_effect=self.turn), \
                 self.assertRaisesRegex(run.NotNeeded, self.closing[1]):
             run.execute(self.lp, "executor", "Do the task.", "executor")
-        self.assertIn(run.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
         self.assertEqual(self.calls[1][1], "fixture-session")
 
 

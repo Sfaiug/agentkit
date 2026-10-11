@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, orch, run, watch  # noqa: E402
+from agentkit import config, history, orch, transitions, watch  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/opencode.sh")
 FIXTURES = REPO / "tests/fixtures"
@@ -725,7 +725,7 @@ cat "$dir/bridge-eval"
         self.assertEqual(history.event_tokens(out / "events.jsonl"), 175)
         with patch.object(config, "HOME", self.home):
             history.start_run("r1")
-            run.history_role_tokens("r1", "executor", out)
+            transitions.history_role_tokens("r1", "executor", out)
             row = history.get("r1")
         self.assertEqual(row["executor_tokens"], 190)
 

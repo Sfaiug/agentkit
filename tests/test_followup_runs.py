@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 import test_proof_weighed as proof
-from agentkit import browser, config, gc, gitcall, handback, host, job as jobs, menu, notify, orch, run, stop, task, transitions, watch, worker
+from agentkit import browser, config, gc, gitcall, handback, host, job as jobs, menu, notify, orch, run, staffing, stop, task, transitions, watch, worker
 from agentkit import plan, record
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
@@ -223,7 +223,7 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(receipt["reviewers"], [self.reviewer])
         parent = record.read_state(directory)
         self.assertEqual(run.run_workers(self.cfg, parent), [self.executor, self.reviewer])
-        self.assertEqual(run.run_reviewers(self.cfg, parent), [self.executor])
+        self.assertEqual(staffing.run_reviewers(self.cfg, parent), [self.executor])
         config.session_path("seat").unlink()   # a seat made by hand: a pane, no record
         directory, state = self.source("no-record", reviewers=[self.executor], followups=[OTHER])
         with patch.object(orch, "find", return_value={"name": "seat"}):

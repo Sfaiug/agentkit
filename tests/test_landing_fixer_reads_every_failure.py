@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import prompts, run
+from agentkit import prompts, roundloop, run
 
 EARLY = ("FAIL  tests/test_acme_limits.py: exit 1 after 177s, its last lines:\n"
          "      FileNotFoundError: [Errno 2] No such file or directory: 'taken'\n")
@@ -67,7 +67,7 @@ class LandingFixer(unittest.TestCase):
             seen.append(text)
             raise Handed
 
-        with patch.object(run, "execute", side_effect=execute), self.assertRaises(Handed):
+        with patch.object(roundloop, "execute", side_effect=execute), self.assertRaises(Handed):
             run.landing_fixer(lp, "## Resolve the rebase conflict.", "rebase-fixer")
         self.assertIn(EARLY.rstrip(), seen[0])
         self.assertIn(LATE.rstrip(), seen[0])

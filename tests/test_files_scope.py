@@ -11,7 +11,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, prompts, run, transitions
+from agentkit import config, prompts, run, transitions, turns
 
 
 class FilesScope(unittest.TestCase):
@@ -156,10 +156,9 @@ class FilesScope(unittest.TestCase):
                 fixes.append(text)
             return "## Summary\nFixture changes."
 
-        with patch.object(run, "execute", side_effect=execute), \
-                patch.object(run, "pickup_new_code", return_value=False), \
-                patch.object(run, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))), \
-                patch.object(run, "review_providers", return_value=("provider-a", "provider-b")), patch.object(transitions, "review_providers", return_value=("provider-a", "provider-b")):
+        with patch.object(run, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False), \
+                patch.object(turns, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))), \
+                patch.object(transitions, "review_providers", return_value=("provider-a", "provider-b")):
             run.rounds(lp)
         self.assertEqual(len(fixes), 1)
         self.assertIn("outside files: notes.txt", fixes[0])

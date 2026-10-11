@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, gate, gitcall, host, land, roundloop, run
+from agentkit import config, gate, gitcall, host, land, roundloop, run, turns
 from agentkit import record
 
 
@@ -113,8 +113,8 @@ class RedTarget(unittest.TestCase):
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()
         self.turns, self.reviews = [], []
-        self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.review_call)))
+        self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
+        self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.review_call)))
 
     def fixer(self, lp, role, text, name):
         self.turns.append(name)
@@ -367,7 +367,7 @@ class RedTarget(unittest.TestCase):
                 raise run.Stopped("fixture stop")
             return real_git(repo, *args, **kwargs)
 
-        # the probe checkouts are gitcall's own: their git is patched there, beside run's
+        # the probe checkouts are gitcall's own: their git is patched there
         with patch.object(gitcall, "git", side_effect=stopping_git):
             with self.assertRaises(run.Stopped):
                 run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n")

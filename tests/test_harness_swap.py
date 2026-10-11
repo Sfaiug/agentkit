@@ -56,7 +56,7 @@ class HarnessSwap(unittest.TestCase):
             return code, text, None if code == 127 else "sess-1", False
 
         with patch.object(run.worker, "call", side_effect=fake):
-            return run.call_retrying(self.cfg, "opus", "body", self.root,
+            return turns.call_retrying(self.cfg, "opus", "body", self.root,
                                      self.root / "run" / "round-1" / "executor", "executor",
                                      session, self.logs.append)
 

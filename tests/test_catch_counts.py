@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, history, menu, run, staffing, terminal, turns, worker
+from agentkit import config, hand_in, history, menu, run, staffing, terminal, transitions, turns, worker
 
 
 class CatchCounts(unittest.TestCase):
@@ -32,7 +32,7 @@ class CatchCounts(unittest.TestCase):
             self.stack.enter_context(patch.object(config, key, config.HOME / key.lower()))
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
         for module, name in ((worker, "kill_marked"), (turns, "memory_cap_note"),
-                             (run, "history_role_tokens")):
+                             (transitions, "history_role_tokens")):
             self.stack.enter_context(patch.object(module, name, return_value=None))
         self.cfg = {"models": {}, "providers": {"acme": {}, "beta": {}},
                     "defaults": {"orchestrator": "builder", "workers": ["builder"],
@@ -101,7 +101,7 @@ class CatchCounts(unittest.TestCase):
         return call
 
     def review(self, lp, rows=(), *, record=True):
-        with patch.object(run, "call_retrying", side_effect=self.turn(list(rows))):
+        with patch.object(turns, "call_retrying", side_effect=self.turn(list(rows))):
             return run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n", record=record)
 
     def screen(self, name="reviewer", width=120):
@@ -183,10 +183,10 @@ class CatchCounts(unittest.TestCase):
         def extra(*args, **kwargs):
             return (*call(*args, **kwargs), False)
 
-        with patch.object(run, "call_retrying", side_effect=call), \
+        with patch.object(turns, "call_retrying", side_effect=call), \
                 patch.object(worker, "turn", side_effect=extra), \
-                patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
-                patch.object(run, "ready_order", return_value=[]), patch.object(staffing, "ready_order", return_value=[]):
+                patch.object(staffing, "collect_usage", return_value={}), \
+                patch.object(staffing, "ready_order", return_value=[]):
             with self.assertRaises(run.Exhausted):
                 run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n")
         self.assert_unused()

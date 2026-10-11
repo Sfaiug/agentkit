@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.landing import landing
 from fixtures.sandbox import account_home
-from agentkit import host, config, run
+from agentkit import host, config, run, turns
 from agentkit import record
 
 GUIDE = "docs/guide.md"
@@ -117,7 +117,7 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.stack.enter_context(patch.object(
             run, "execute", side_effect=AssertionError("unexpected fixer turn")))
         self.stack.enter_context(patch.object(
-            run, "call_retrying", side_effect=AssertionError("unexpected reviewer turn")))
+            turns, "call_retrying", side_effect=AssertionError("unexpected reviewer turn")))
         self.delivered = []
 
     def cmds(self, check="true", once=True):

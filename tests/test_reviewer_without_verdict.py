@@ -14,7 +14,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gate, gitcall, host, land, notify, orch, run, transitions, turns, usage, worker
+from agentkit import (config, gate, gitcall, host, land, notify, orch, roundloop, run, transitions,
+                      turns, usage)
 from agentkit import record
 
 NO_VERDICT_PROMPT = ("Your previous turn ended without ak hand-in done. Review the diff now, "
@@ -354,7 +355,7 @@ sys.exit(1)
         self.assertEqual(after.get("findings", ""), "")
         # The same commit re-reviews with no executor turn once the reviewer answers.
         self.reviews(PASS)
-        with patch.object(run, "execute", side_effect=AssertionError("no executor turn")):
+        with patch.object(run, "execute", side_effect=AssertionError("no executor turn")), patch.object(roundloop, "execute", side_effect=AssertionError("no executor turn")):
             self.assertEqual(run.resume_review(lp), "PASS")
         self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head_rebased)
         resumed = record.read_state(run_dir)

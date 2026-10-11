@@ -21,7 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gc, gitcall, menu, orch, run, staffing, statusbar, terminal, usage, watch
+from agentkit import config, gc, gitcall, menu, orch, run, staffing, statusbar, terminal, usage
 from agentkit import host, record
 
 TALLY = "2 running · 1 needs a look"
