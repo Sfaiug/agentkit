@@ -149,22 +149,59 @@ class SizeGate(Sandbox):
         self.write({"new.js": "".join(f"function fresh_{n}(x) {{\n  return x * {n};\n}}\n\n" for n in range(130))},
                    "Fresh code in its place")
         head = self.git("rev-parse", "HEAD")
-        self.assertEqual(run.carried_lines(self.repo, base, head), 0)
         self.assertEqual(run.diff_lines(self.repo, base, head, added_only=True), 520)
         # the walk grows with the diff's size, never with its boilerplate squared: no step of
-        # carried_lines per copy of a brace times its deleted copies
-        steps, code = [0], run.carried_lines.__code__
-        tracer = lambda frame, event, arg: (steps.__setitem__(0, steps[0] + 1), tracer)[1]
-        sys.settrace(lambda frame, event, arg: tracer if frame.f_code is code else None)
-        try:
-            self.assertEqual(run.carried_lines(self.repo, base, head), 0)
-        finally:
-            sys.settrace(None)
-        self.assertLessEqual(steps[0], 20 * (4000 + 300 * 4 + 520))
+        # carried_lines or its windows per copy of a brace times its deleted copies
+        carried, steps = self.traced(self.repo, base, head)
+        self.assertEqual(carried, 0)
+        self.assertLessEqual(steps, 20 * (4000 + 300 * 4 + 520))
         # a short block that reads as moved is still new: fewer than MOVED_BLOCK letters or digits
         self.write({"new.js": "function old_1() {\n  return 1;\n}\n"}, "A short block that was in old.js")
         self.assertEqual(run.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 0)
 
+    def traced(self, *args):
+        """`run.carried_lines(*args)` and the Python steps it and its windows took."""
+        steps, codes = [0], (run.carried_lines.__code__, run._windows.__code__)
+        tracer = lambda frame, event, arg: (steps.__setitem__(0, steps[0] + 1), tracer)[1]
+        sys.settrace(lambda frame, event, arg: tracer if frame.f_code in codes else None)
+        try:
+            return run.carried_lines(*args), steps[0]
+        finally:
+            sys.settrace(None)
+
+    def test_punctuation_runs_and_repeated_headers_cost_the_diffs_size(self):
+        # a punctuation-only line starts no window, however long its run, so a maze split into
+        # levels is walked once, not once per row; a header every file opens on pairs each of
+        # its deleted copies with one added copy, in order, so copies never multiply
+        self.assertEqual(run._windows(["#" * 40] * 3 + ["the exit of the maze is on the last row"]),
+                         [None, None, None, ("the exit of the maze is on the last row",)])
+        self.git("checkout", "-q", self.base)
+        self.git("checkout", "-qb", "runs")
+        row = "#" + "." * 38 + "#\n"
+        header = ("// Copyright 2026 The Acme Authors. All rights reserved.\n"
+                  "// Use of this source code is governed by a BSD-style\n"
+                  "// license that can be found in the LICENSE file.\n\n")
+        (self.repo / "lib1").mkdir()
+        self.write({"maze.txt": row * 3000 + "the exit of the maze is on the last row\n",
+                    **{f"lib1/m{n}.go": header + f"package lib1\n\nfunc A{n}() int {{ return {n} }}\n"
+                       + "".join(f"var a{n}_{k} = {k}\n" for k in range(6))
+                       for n in range(300)}}, "A maze and a library")
+        base = self.git("rev-parse", "HEAD")
+        (self.repo / "maze.txt").unlink()
+        self.git("rm", "-rq", "lib1")
+        (self.repo / "lib2").mkdir()
+        self.write({**{f"level{n}.txt": row * 1000 + f"the exit of level {n} is on the last row\n"
+                       for n in range(3)},
+                    **{f"lib2/n{n}.go": header + f"package lib2\n\nfunc B{n}() int {{ return {n} * 7 }}\n"
+                       + "".join(f"var b{n}_{k} = {k} * 7\n" for k in range(6))
+                       for n in range(300)}}, "Three levels and the next library")
+        head = self.git("rev-parse", "HEAD")
+        carried, steps = self.traced(self.repo, base, head)
+        # each deleted header carries one added header; a file git pairs as a rename shows no
+        # header in the diff at all, so the count is the whole adds' under lib2
+        whole = self.git("diff", "--name-only", "--find-renames", "--diff-filter=A", f"{base}..{head}")
+        self.assertEqual(carried, 4 * sum(name.startswith("lib2/") for name in whole.splitlines()))
+        self.assertLessEqual(steps, 20 * (3001 + 3003 + 2 * 300 * 13))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

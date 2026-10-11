@@ -12,6 +12,7 @@ PR merges on PASS with green checks; anyone else's asks the inbox. The seat's ow
 translation PRs skip review and join the line like any passed review.
 """
 
+from bisect import bisect_left
 import copy
 import difflib
 import fcntl
@@ -29,6 +30,7 @@ import time
 from collections import Counter
 from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime
+from itertools import accumulate
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -6996,34 +6998,33 @@ def carried_lines(repo, base, head="HEAD"):
                "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
                "--submodule=short", f"{base}...{head}", check=False)
     added, deleted = {}, {}
-    new = old = hunk = None
-    for line in diff.split("\n"):
-        if line.startswith("diff --git "):
-            new = old = hunk = None
-        elif line.startswith("@@"):
-            hunk = True
-        elif not hunk:
-            # a file's header, where Git ends a name holding a space with a tab
-            if line.startswith("--- a/"):
-                old = line[6:].removesuffix("\t")
-            elif line.startswith("+++ b/"):
-                new = line[6:].removesuffix("\t")
-        elif line.startswith("+") and new is not None:
-            added.setdefault(new, []).append(" ".join(line[1:].split()))
-        elif line.startswith("-") and old is not None:
-            deleted.setdefault(old, []).append(" ".join(line[1:].split()))
+    # the patch file by file: a file's header names its sides, where Git ends a name holding
+    # a space with a tab, and its hunks hold the lines; a content line never starts a line of
+    # the patch bare, so neither the file split nor the first hunk's mark can land inside one
+    for chunk in ("\n" + diff).split("\ndiff --git ")[1:]:
+        header, _, body = chunk.partition("\n@@")
+        lines = body.split("\n")
+        old = re.search(r"^--- a/(.*?)\t?$", header, re.M)
+        new = re.search(r"^\+\+\+ b/(.*?)\t?$", header, re.M)
+        if new:
+            added[new.group(1)] = [" ".join(line[1:].split()) for line in lines if line[:1] == "+"]
+        if old:
+            deleted[old.group(1)] = [" ".join(line[1:].split()) for line in lines if line[:1] == "-"]
     skip_new = _generated(repo, head, sorted(added))
     skip_old = _generated(repo, base, sorted(deleted))
     gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
     # each deleted position is indexed by the run of lines from it that first reaches
     # MOVED_BLOCK alphanumerics: an added line starting no such run (a lone brace, a blank)
-    # matches nothing, so the walk grows with the diff's size, never with its copies squared
+    # matches nothing, and an added block takes the first deleted block under its key not yet
+    # paired, each key's list consumed in order, so the walk grows with the diff's size, never
+    # with its copies squared
     where = {}
     for name, lines in gone.items():
         for at, key in enumerate(_windows(lines)):
             if key:
                 where.setdefault(key, []).append((name, at))
     used = {name: set() for name in gone}
+    cursor = {}     # how far each key's deleted positions are consumed
     carried = 0
     for name, lines in added.items():
         if name in skip_new:
@@ -7031,18 +7032,26 @@ def carried_lines(repo, base, head="HEAD"):
         keys = _windows(lines)
         i = 0
         while i < len(lines):
-            best, span = 0, None
-            for file, at in where.get(keys[i], ()) if keys[i] else ():
+            key, length = keys[i], 0
+            candidates = where.get(key, ()) if key else ()
+            at = cursor.get(key, 0)
+            while at < len(candidates):
+                file, start = candidates[at]
                 source, held, length = gone[file], used[file], 0
-                while (i + length < len(lines) and at + length < len(source)
-                       and at + length not in held and source[at + length] == lines[i + length]):
+                while (i + length < len(lines) and start + length < len(source)
+                       and start + length not in held
+                       and source[start + length] == lines[i + length]):
                     length += 1
-                if length > best:
-                    best, span = length, (file, at)
-            if best >= len(keys[i] or ()) and best:
-                used[span[0]].update(range(span[1], span[1] + best))
-                carried += best
-                i += best
+                at += 1
+                if length >= len(key):
+                    used[file].update(range(start, start + length))
+                    break
+                length = 0      # a deleted block paired already, or cut by one: never again
+            if key:
+                cursor[key] = at
+            if length:
+                carried += length
+                i += length
             else:
                 i += 1
     return carried
@@ -7050,17 +7059,15 @@ def carried_lines(repo, base, head="HEAD"):
 
 def _windows(lines):
     """For each position in `lines`, the run of lines from it that first holds MOVED_BLOCK
-    alphanumeric characters, as a tuple, or None where the lines end first: what a moved
-    block starting there must read as, whole."""
-    counts = [sum(ch.isalnum() for ch in line) for line in lines]
-    out, j, total = [], 0, 0
-    for i in range(len(lines)):
-        while j < len(lines) and total < MOVED_BLOCK:
-            total += counts[j]
-            j += 1
-        out.append(tuple(lines[i:j]) if total >= MOVED_BLOCK else None)
-        total -= counts[i]
-    return out
+    alphanumeric characters, as a tuple, or None where the lines end first or the line itself
+    holds no letter or digit: what a moved block starting there must read as, whole.  A run
+    of punctuation-only lines (a maze, a banner, blank lines) builds no window of its own,
+    however long it runs."""
+    counts = [sum(map(str.isalnum, line)) for line in lines]     # no frame per character
+    totals = list(accumulate(counts, initial=0))                 # alphanumerics before each line
+    ends = [bisect_left(totals, before + MOVED_BLOCK) for before in totals[:-1]]
+    return [tuple(lines[at:end]) if counts[at] and end <= len(lines) else None
+            for at, end in enumerate(ends)]
 
 
 def history_finish(state, log=None):
