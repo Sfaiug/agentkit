@@ -595,19 +595,6 @@ def main_checkout(repo):
     return (Path(repo) / common).resolve().parent if common else Path(repo)
 
 
-@contextmanager
-def released_gate_turn():
-    """Let this thread's held gate turn go while slow work runs.
-
-    A rebase conflict, a failing check and a re-review all end in a fixer or a reviewer,
-    and a model turn held through them lands nothing for the runs queued behind.  The
-    check takes a fresh turn after the fix.
-    """
-    from . import gate     # here, not at the top: gate imports run, which imports this module
-    gate.release_turn()
-    yield
-
-
 def leftover_junk(path):
     """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
     parts = path.rstrip("/").split("/")

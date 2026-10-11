@@ -93,7 +93,7 @@ class NoSandboxCommit(unittest.TestCase):
         run.git(self.repo, "commit", "-m", "ignore logs")
         (self.repo / "debug.log").write_text("noise\n")
         (self.repo / "feature.py").write_text("new = True\n")
-        with patch.object(run, "dirty_paths", return_value=["debug.log", "feature.py"]):
+        with patch.object(gitcall, "dirty_paths", return_value=["debug.log", "feature.py"]):
             run.commit_leftovers(self.repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(), ["feature.py"])
 

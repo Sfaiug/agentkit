@@ -1348,6 +1348,18 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         transient_wait(out_dir, delay)
 
 
+@contextmanager
+def released_gate_turn():
+    """Let this thread's held gate turn go while slow work runs.
+
+    A rebase conflict, a failing check and a re-review all end in a fixer or a reviewer,
+    and a model turn held through them lands nothing for the runs queued behind.  The
+    check takes a fresh turn after the fix.
+    """
+    gate.release_turn()
+    yield
+
+
 class Loop:
     """One run's moving parts, shared by the round loop and the merge pipeline.
 
@@ -4140,7 +4152,7 @@ def integrate(lp, upstream):
         abort_stopped_integration(lp, how)
         raise
     if rc != 0:
-        with gitcall.released_gate_turn():
+        with released_gate_turn():
             resolved = resolve_conflicts(lp, upstream, out, how, tip)
         if not resolved:
             return False
@@ -4190,7 +4202,7 @@ def integrate(lp, upstream):
                 if post_identity is None:
                     if not lp.state.get("review_pending"):
                         pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                    with gitcall.released_gate_turn():
+                    with released_gate_turn():
                         passed = (resume_review(lp) == "PASS"
                                   or fix_after_failed_review(lp, upstream, how))
                     if not passed:
@@ -4210,7 +4222,7 @@ def integrate(lp, upstream):
                         if new_identity != post_identity or landing_review:
                             if not lp.state.get("review_pending"):
                                 pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                            with gitcall.released_gate_turn():
+                            with released_gate_turn():
                                 passed = (resume_review(lp, verified=(ok, dw_log)) == "PASS"
                                           or fix_after_failed_review(lp, upstream, how))
                             if not passed:
@@ -4254,7 +4266,7 @@ def integrate(lp, upstream):
                                    f"fixer {lp.executor} (done-when after the {how})")
                             fix = (f"{lp.context}\n\n## The done-when commands failed. "
                                    f"Fix the root cause.\n```\n{failing_blocks(dw_log)}\n```")
-                            with gitcall.released_gate_turn():
+                            with released_gate_turn():
                                 summary = landing_fixer(lp, fix, "rerun-fixer")
                                 lp.state["review_pending"]["summary"] = summary
                                 lp.save()
@@ -4273,7 +4285,7 @@ def integrate(lp, upstream):
             else:
                 if not lp.state.get("review_pending"):
                     pending_review(lp, f"Re-review after the {how} of {upstream}.")
-                with gitcall.released_gate_turn():
+                with released_gate_turn():
                     passed = (resume_review(lp) == "PASS"
                               or fix_after_failed_review(lp, upstream, how))
                 if not passed:
@@ -5123,7 +5135,7 @@ def fix_final_check(lp, upstream, text):
                                   "passed_head_sha": passed_review_head(lp.state),
                                   "record": False}
     lp.save()
-    with gitcall.released_gate_turn():
+    with released_gate_turn():
         summary = landing_fixer(lp, fix, "final-fixer")
         lp.state["review_pending"]["summary"] = summary
         lp.save()

@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, job as jobs, run, worker
+from agentkit import gate, config, gitcall, job as jobs, run, worker
 from agentkit import record
 
 OLD = "aaa1111"
@@ -264,6 +264,7 @@ class PickupNewCode(unittest.TestCase):
 
         with patch.object(run, "installed_head", return_value=NEW), \
                 patch.object(run, "git_out", return_value=(0, "")), \
+                patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(run, "git", return_value=lp.base_sha):
             self.assertTrue(run.land(lp, "origin/main", fake_verify, lambda: True,
                                      execv=fake_exec))
