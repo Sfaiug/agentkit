@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.landing import landing
 from fixtures.sandbox import account_home
-from agentkit import gate, host, config, run, worker
+from agentkit import config, gate, gitcall, host, run, worker
 from agentkit import record
 
 
@@ -131,7 +131,7 @@ class LandTipAtTurn(unittest.TestCase):
         lp = make_run(self.root, remote, "acme",
                       [f"echo \"every $(git rev-parse HEAD) $(cat tip.txt)\" >> {self.counter}  # once",
                        f"echo \"once $(git rev-parse HEAD)\" >> {self.counter}  # once"])
-        repo = run.main_checkout(lp.state["repo"])
+        repo = gitcall.main_checkout(lp.state["repo"])
         holder = gate.gate_lock(repo, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
@@ -217,7 +217,7 @@ class LandTipAtTurn(unittest.TestCase):
         state["round_summaries"][-1].update(head_sha=head, tree_sha=tree)
         record.save_state(lp.run_dir, state)
         lp.state = state
-        repo = run.main_checkout(lp.state["repo"])
+        repo = gitcall.main_checkout(lp.state["repo"])
         seen = {}
 
         def fixer(lp, role, text, name):

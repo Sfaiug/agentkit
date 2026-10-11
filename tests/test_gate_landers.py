@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, config, run, worker
+from agentkit import config, gate, gitcall, run, worker
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # a main checkout as the records name it; never opened
@@ -93,7 +93,7 @@ class GateLanders(unittest.TestCase):
         """
         directory = self.record(name, repo, first, landing)
         state = run_record.read_state(directory)
-        mark = {"pid": state["pid"], "of": str(run.main_checkout(repo)), "since": since}
+        mark = {"pid": state["pid"], "of": str(gitcall.main_checkout(repo)), "since": since}
         if landing:
             mark["landing"] = True
             (directory / "landing_since").write_text(
@@ -138,7 +138,7 @@ class GateLanders(unittest.TestCase):
         self.assertLessEqual(lander_first, lander_mark["since"])
         # and its record says the start its file says: a waiter on older code reads the record
         self.assertIn((lander_first, "landing-waiter"), gate._landing_waiters())
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter", round_since))
         self.assertFalse(gate._gate_waiter_before(repo, "landing-waiter", lander_first, True))
         fcntl.flock(holder, fcntl.LOCK_UN)
@@ -167,7 +167,7 @@ class GateLanders(unittest.TestCase):
         checker = threading.Thread(target=check, daemon=True)
         checker.start()
         self.until(gate.landing_waits, "the checker to wait for a turn")
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter",
                                                  self.turn("round-waiter")["since"]))
         readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
@@ -240,7 +240,7 @@ class GateLanders(unittest.TestCase):
     def test_a_landing_wait_ranks_by_its_file_alone(self):
         # Its record's marker may say otherwise -- a clock set back between the two reads --
         # and two waiters that each ranked the other first would both give a free turn away.
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         lander = self.record("record-lander", ACME, landing=True)
         state = run_record.read_state(lander)
         state["gate_turn"] = {"pid": state["pid"], "of": str(repo), "since": 1000,
@@ -259,7 +259,7 @@ class GateLanders(unittest.TestCase):
         shared = (config.RUNS / ".heavy-landing.wait").open("a")
         self.addCleanup(shared.close)
         fcntl.flock(shared, fcntl.LOCK_SH)
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate.landing_waits())
         self.assertTrue(gate._gate_waiter_before(repo, "round", time.time()))
         self.assertTrue(gate._gate_waiter_before(repo, "younger", 2000, True))
@@ -273,7 +273,7 @@ class GateLanders(unittest.TestCase):
         # Its holder is gone, so nothing holds its file: no round check or new run waits on it.
         dead = config.RUNS / ".landing-wait-gone"
         dead.write_text('{"since": 1, "run_id": "gone"}')
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertFalse(gate._gate_waiter_before(repo, "round", time.time()))
         self.assertFalse(gate.landing_waits())
         self.assertFalse(dead.exists())
@@ -304,7 +304,7 @@ class GateLanders(unittest.TestCase):
         new = {"run_id": "new-run", "run_depth": 0}
         self.assertFalse(gate.claim_slot(new, 0, readings))   # its first steady poll
         self.assertTrue(gate.claim_slot(new, 0, readings))
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertFalse(gate._gate_waiter_before(repo, "round", time.time() - 60))
         fcntl.flock(holder, fcntl.LOCK_UN)
         checker.join(20)
@@ -315,7 +315,7 @@ class GateLanders(unittest.TestCase):
         # landing wait began at 1000, ahead of the new lander's 2000
         self.waiter("old-lander", ACME, 3000, landing=True, landing_since=1000)
         self.waiter("new-lander", ACME, 2000, landing=True, landing_since=2000)
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "new-lander", 2000, True))
         self.assertFalse(gate._gate_waiter_before(repo, "old-lander", 1000, True))
         # between landers a later --first waits its turn like the rest
@@ -333,7 +333,7 @@ class GateLanders(unittest.TestCase):
         # and a later retry's wait keeps it
         early = self.record("seed-early", ACME, landing=True)
         late = self.record("seed-late", ACME, landing=True)
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         clock = [1000.0]
         with patch.object(gate.time, "time", side_effect=lambda: clock[0]):
             self.assertEqual(gate.mark_gate_wait(early, repo), 1000.0)
@@ -362,7 +362,7 @@ class GateLanders(unittest.TestCase):
     def test_round_waiters_keep_wait_order_without_landers(self):
         self.waiter("early", ACME, 1000)
         self.waiter("late", ACME, 2000)
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "late", 2000))
         self.assertFalse(gate._gate_waiter_before(repo, "early", 1000))
 
@@ -376,7 +376,7 @@ class GateLanders(unittest.TestCase):
                              wt=self.root / "wt", base_sha="base0001", once=[],
                              log=logs.append, no_pickup=True,
                              write=lambda: run_record.save_state(run_dir, lp.state))
-        repo = run.main_checkout(ACME)
+        repo = gitcall.main_checkout(ACME)
 
         def verify():
             on_disk = run_record.read_state(run_dir)
@@ -394,8 +394,10 @@ class GateLanders(unittest.TestCase):
             self.assertTrue(run_record.read_state(run_dir).get("landing"))
             return True
 
+        # `fetch` runs inside gitcall: its git_out is gitcall's own, beside run's
         with patch.object(run, "git", return_value="base0001"), \
-                patch.object(run, "git_out", return_value=(0, "")):
+                patch.object(run, "git_out", return_value=(0, "")), \
+                patch.object(gitcall, "git_out", return_value=(0, "")):
             self.assertTrue(run.land(lp, "origin/main", verify, deliver,
                                      execv=lambda *a: self.fail("no pickup here")))
         self.assertNotIn("landing", lp.state)

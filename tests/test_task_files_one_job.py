@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, gc, history, job as jobs, land, notify, orch, retention, run, status, worker
+from agentkit import config, gate, gc, gitcall, history, host, job as jobs, land, notify, orch, retention, run, status, worker
 from agentkit import record
 
 ADAPTER = '''import json, os, pathlib, sys, time
@@ -93,7 +93,7 @@ sys.exit(1)
 ''')
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.shaped = self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(orch, "watching", return_value=True))

@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.sandbox import account_home
-from agentkit import gate as suite_gate, config, gc, run, status, worker
+from agentkit import config, gate as suite_gate, gc, gitcall, run, status, worker
 from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"
@@ -50,7 +50,7 @@ class SuiteInRound(unittest.TestCase):
         self.stack.enter_context(patch.object(run.usage, "pick_order",
                                              return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.worker)))
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub")))
         self.stack.enter_context(patch.object(
             run, "merge", side_effect=lambda lp: run.final_check(lp, "origin/main")))
 

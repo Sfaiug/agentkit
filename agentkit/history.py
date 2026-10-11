@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from statistics import median
 
-from . import config, host, record
+from . import config, gitcall, host, record
 
 _LOCK = threading.Lock()
 SUMMARY_TASKS = 20    # the status line looks back over this many finished runs per repo
@@ -506,7 +506,7 @@ def size_summary(repo, limit=SUMMARY_TASKS):
 
 
 def rules_size(repo):
-    """The bytes of `repo`'s AGENTS.md its last finished run was handed (`run.rules_bytes` at
+    """The bytes of `repo`'s AGENTS.md its last finished run was handed (`gitcall.rules_bytes` at
     its base, 0 where it was handed none), or None where no finished run recorded one."""
     _ensure_migrated()
     try:

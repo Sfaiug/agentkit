@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, notify, run, stop, task, watch, worker
+from agentkit import config, gitcall, notify, run, stop, task, watch, worker
 from agentkit import record
 
 
@@ -106,7 +106,7 @@ sys.exit(1)
 ''')
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         # Fixture cleanup must never scan or signal the host's processes or scopes.
@@ -224,7 +224,7 @@ sys.exit(1)
         lp = run.Loop(self.cfg, run_dir, state, {}, lambda s: None, wt, "body", ["true"],
                       "context", [])
         url = "https://github.com/fixture/repo/pull/7"
-        with patch.object(run, "gh", return_value=(0, f"opened {url}")):
+        with patch.object(gitcall, "gh", return_value=(0, f"opened {url}")):
             self.assertEqual(run.open_pr(lp, "main"), url)
         body = (run_dir / "pr-body.md").read_text()
         self.assertIn("## Follow-ups", body)
@@ -311,7 +311,7 @@ sys.exit(1)
         lp = run.Loop(self.cfg, run_dir, state, {}, lambda s: None, wt, "body", ["true"],
                       "context", [])
         url = "https://github.com/fixture/repo/pull/7"
-        with patch.object(run, "gh", return_value=(0, f"opened {url}")) as gh:
+        with patch.object(gitcall, "gh", return_value=(0, f"opened {url}")) as gh:
             self.assertEqual(run.open_pr(lp, "main"), url)
             # A re-review replaces the list even after the PR already exists.
             state["followups"] = ["b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"]

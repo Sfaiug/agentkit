@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
-from agentkit import gate, host, config, gc, notify, run, stop, usage, worker
+from agentkit import config, gate, gc, gitcall, host, notify, run, stop, usage, worker
 from agentkit import record
 
 
@@ -92,7 +92,7 @@ sys.exit(1)
 ''')
         for executable in ("gh", "claude", "codex", "muse"):
             self.script(self.bin / executable, 'raise AssertionError("external call forbidden")\n')
-        self.stack.enter_context(patch.object(run, "gh", side_effect=AssertionError("GitHub call")))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord")))
         self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))

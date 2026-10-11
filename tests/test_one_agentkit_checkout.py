@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch, run
+from agentkit import config, gitcall, orch, run
 from agentkit import record
 
 
@@ -35,7 +35,7 @@ class OneAgentkitCheckout(Sandbox):
         return path
 
     def test_review_finds_agentkits_own_checkout_and_clones_nothing(self):
-        with patch.object(run, "gh", side_effect=AssertionError("cloned")):
+        with patch.object(gitcall, "gh", side_effect=AssertionError("cloned")):
             self.assertEqual(run.checkout_for("someone/agentkit", print), self.own)
             self.assertEqual(run.checkout_for("someone/acme", print), self.acme)
         self.assertFalse((config.CODE / "agentkit").exists())

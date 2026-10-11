@@ -16,7 +16,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import browser, config, gc, menu, orch, retention, run, stop, worktrees, watch
+from agentkit import browser, config, gc, gitcall, menu, orch, retention, run, stop, worktrees, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -394,7 +394,7 @@ class Cleanup(Sandbox):
                 return None, "", "git rev-parse timed out"
             return real(cmd, *args, **kwargs)
         out = io.StringIO()
-        with patch.object(run, "tool_run", side_effect=timed_out), redirect_stdout(out):
+        with patch.object(gitcall, "tool_run", side_effect=timed_out), redirect_stdout(out):
             self.assertEqual(stop.cmd_stop(["slow-ref"]), 0)
         self.assertFalse(wt.exists())
         self.assertTrue(self.branch_exists(branch))

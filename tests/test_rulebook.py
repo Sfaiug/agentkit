@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, worker
+from agentkit import config, gitcall, orch, run, worker
 from tools import rulebook
 
 RULEBOOK = (REPO / "orchestrator.md").read_text()
@@ -236,7 +236,7 @@ class Rulebook(unittest.TestCase):
                                      "AGENTKIT_SESSION": "atoll"}):
             self.assertIn("TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE", os.environ)   # the seat has them
             self.assertIn("OPENCODE_CONFIG_CONTENT", os.environ)
-            for built in (config.child_env(), config.seatless_env(), run.run_child_env()):
+            for built in (config.child_env(), config.seatless_env(), gitcall.run_child_env()):
                 self.assertNotIn("TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE", built)
                 self.assertNotIn("OPENCODE_CONFIG_CONTENT", built)
 

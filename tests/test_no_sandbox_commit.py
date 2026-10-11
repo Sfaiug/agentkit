@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import run
+from agentkit import gitcall, run
 
 
 class NoSandboxCommit(unittest.TestCase):
@@ -100,7 +100,7 @@ class NoSandboxCommit(unittest.TestCase):
     def test_sweep_removes_a_killed_tests_sandbox(self):
         self.write_sandbox(".ak-test-smoke-xyz", "stub/git")
         (self.repo / "feature.py").write_text("new = True\n")
-        run.sweep_sandboxes(self.repo, self.logs.append)
+        gitcall.sweep_sandboxes(self.repo, self.logs.append)
         self.assertFalse((self.repo / ".ak-test-smoke-xyz").exists())
         self.assertTrue((self.repo / "feature.py").exists())
         self.assertTrue(any("removed test sandboxes" in line for line in self.logs))

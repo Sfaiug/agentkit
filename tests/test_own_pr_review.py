@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gc, history, notify, plan, run, status, watch, task as taskfile
+from agentkit import gate, config, gc, gitcall, history, notify, plan, run, status, watch, task as taskfile
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -230,7 +230,7 @@ class OwnPrReview(unittest.TestCase):
                 return 129, "", "error: unknown option 'source'"
             return real_tool(cmd, *args, **kwargs)
 
-        with patch.object(run, "tool_run", side_effect=older_git):
+        with patch.object(gitcall, "tool_run", side_effect=older_git):
             state, reviewer, _, _ = self.review()
             self.assertEqual(state["state"], "pass")
             reviewer.assert_called_once()

@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from fixtures.sandbox import account_home
-from agentkit import host, config, gc, job as jobs, run, usage
+from agentkit import config, gc, gitcall, host, job as jobs, run, usage
 from agentkit import record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -142,7 +142,7 @@ sys.exit(0 if ok else 1)
         self.task = self.root / "task.md"
         self.plan = {}
         self.merge_mode = "success"
-        self.stack.enter_context(patch.object(run, "gh", side_effect=self.gh))
+        self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, text):

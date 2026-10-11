@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import run
+from agentkit import gitcall, run
 
 # the ways a test names the top of the checkout it runs in
 CHECKOUT = {"REPO", "str(REPO)", "config.REPO"}
@@ -160,7 +160,7 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
         (repo / "app.py").write_text("value = 2\n")
         run.commit_leftovers(repo, self.logs.append, set(), {"title": "fix api"})
         self.assertEqual(self.committed(repo), ["app.py"])
-        run.sweep_sandboxes(repo, self.logs.append)
+        gitcall.sweep_sandboxes(repo, self.logs.append)
         self.assertEqual([name for name in names if (repo / name).exists()], [])
 
     def test_every_checkout_sandbox_is_ignored_by_the_checkouts_gitignore(self):

@@ -129,7 +129,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, history, motion, notify, orch, terminal, update, usage, worker
+from . import command_help, config, gitcall, history, motion, notify, orch, terminal, update, usage, worker
 from . import record
 from .harness import load as harness_plugin
 
@@ -3315,7 +3315,7 @@ _SWITCHES_LOCK = threading.Lock()
 def switches_command(checkout):
     """The command a checkout's AGENTS.md names for its feature switches, or None."""
     from . import run   # here, not at the top: run.py is the whole loop, and a menu draws without it
-    return run.declared(checkout, "features")
+    return gitcall.declared(checkout, "features")
 
 
 def features_run(checkout, *words):
