@@ -446,7 +446,7 @@ def resolved(data):
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
 
 
-def answered(session, at):
+def answered(session, at, said=""):
     """The owner submitted a prompt; only the seat's question already standing is answered.
 
     The hook owns this fact. Keep it on the notice so a later line of ak's own or a rename
@@ -457,8 +457,11 @@ def answered(session, at):
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     A question the seat kept back for its turn's end, that end on record, is the one he read
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
+    A prompt `said` that is a line ak typed (`heard_typed`) answers nothing.
     """
     with session_lock(session) as session:
+        if said and heard_typed(session, said, at):
+            return
         ask_kept(session, ended=True)
         previous = last(session)
         if previous and previous.get("watcher") is True:
@@ -500,6 +503,33 @@ def opened(session, capture):
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")},
                opened_at=max(time.time(), previous["time"]), opened_pane=pane)
+
+
+def heard_typed(session, said, at):
+    """Is that prompt, heard at `at`, a line ak typed into that seat -- a hand-back, a wait's
+    end -- which its harness's prompt hook reports as it reports the owner's words?
+
+    Each of ak's typing receipts (`watch._send_line`) is one prompt's, and is taken once: the
+    earliest with those words, typed by then and not yet heard, is marked heard in the same
+    record.  No time window decides it: a line queued while the seat worked is heard after
+    the question it asked meanwhile, and the owner may type words ak typed and was heard
+    typing before.  The caller holds `session_lock(session)`, as each typer does.
+    """
+    path = config.seat_file("input", session)
+    sent = list(harness.entries(path))
+    heard = [entry["heard"] for entry in sent if "heard" in entry]
+    for entry in sent:
+        stamp = entry.get("at")
+        if (entry.get("source") == "owner" or entry.get("text") != said
+                or not isinstance(stamp, (int, float)) or isinstance(stamp, bool) or stamp > at):
+            continue
+        if stamp in heard:
+            heard.remove(stamp)
+            continue
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"heard": stamp}) + "\n")
+        return True
+    return False
 
 
 def typed_since(session, since):

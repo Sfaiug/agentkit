@@ -192,6 +192,26 @@ class AnswerClosesQuestion(Sandbox):
         self.prompt()                   # the owner's own words still answer it
         self.assert_answered()
 
+    def test_a_hand_back_its_harness_takes_after_a_newer_question_answers_nothing(self):
+        """A line ak typed while the seat worked waits in its harness's queue, and its prompt
+        hook runs only once the seat has asked: its typing receipt still says whose it is."""
+        self.assertTrue(self.handback())
+        self.notice(time=10001)
+        self.prompt(prompt=HANDBACK)
+        self.typed = []
+        self.assert_open()
+        self.prompt()
+        self.assert_answered()
+
+    def test_the_owners_words_answer_though_ak_typed_them_before(self):
+        """Each receipt is one prompt's: once ak's line is heard, the same words are his."""
+        self.notice()
+        self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)
+        self.typed = []
+        self.prompt(prompt=HANDBACK)
+        self.assert_answered()
+
     def test_a_turn_a_hand_back_opened_ends_on_the_standing_question(self):
         """review 20261007-0336: the seat's question to the owner still stands, unanswered, so
         the turn the hand-back opened may end on it -- as `watch.stop_nudge` lets it -- and is
