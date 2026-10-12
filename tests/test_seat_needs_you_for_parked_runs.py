@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, handback, notify, orch, run, transitions, watch
+from agentkit import config, handback, notify, orch, transitions, watch
 from agentkit import record
 
 NOW = 1_800_000_000

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gitcall, handback, history, job, land, menu, record, run, scoreboard, staffing, transitions, watch
+from agentkit import config, gate, gitcall, handback, history, job, land, menu, record, run, scoreboard, staffing, transitions, turns, watch
 from test_merge_step import make_loop, make_repos
 from fixtures.sandbox import Sandbox
 
@@ -40,6 +40,7 @@ class JoinLine(Sandbox):
         self.rights = self.stack.enter_context(patch.object(
             run, "rights", return_value=("acme/widget", "WRITE")))
         self.stop = self.stack.enter_context(patch.object(run, "stop_run_tree"))
+        self.stack.enter_context(patch.object(turns, "stop_run_tree", self.stop))
         self.stack.enter_context(patch.object(run.history, "Sampler"))
         self.stack.enter_context(patch.object(run.history, "sample_rss", return_value=None))
 
@@ -178,7 +179,7 @@ class JoinLine(Sandbox):
                 (config, "load", {"return_value": self.cfg}),
                 (config, "max_gates", {"return_value": 1}),
                 (gate, "GATE_POLL", {"new": 600}),
-                (run, "pickup_new_code", {}), (run, "redress_seat", {}),
+                (run, "pickup_new_code", {}), (handback, "redress_seat", {}),
                 (run, "integrate", {"return_value": True})):
             self.stack.enter_context(patch.object(module, name, **options))
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
@@ -269,6 +270,7 @@ class JoinLine(Sandbox):
             events.append("start")
 
         with patch.object(run, "stop_run_tree", side_effect=stop), \
+                patch.object(turns, "stop_run_tree", side_effect=stop), \
                 patch.object(land, "start_line", side_effect=start):
             run.release_line(self.directory, self.lp.log)
         self.assertEqual(events, ["stop", "start"])

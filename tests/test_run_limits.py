@@ -25,7 +25,7 @@ from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import config, gate, gc, gitcall, host, notify, orch, run, status, transitions, turns, usage, watch, worker
+from agentkit import config, gate, gc, gitcall, host, notify, orch, roundloop, run, status, transitions, turns, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
 
@@ -122,7 +122,7 @@ class Limits(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(account_home(self.root, places=(self.root,)))
         # what is checked here is not the change: its base proof is test_regression_fails_before's
-        self.stack.enter_context(patch.object(run, "needs_base_proof", return_value=False))
+        self.stack.enter_context(patch.object(roundloop, "needs_base_proof", return_value=False))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))

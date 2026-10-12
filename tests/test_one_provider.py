@@ -396,10 +396,10 @@ class OneProvider(unittest.TestCase):
             self.assertTrue((lp.run_dir / "result.md").read_text().startswith("# PASS, delivered"))
             self.assertEqual(status.status_word(state, self.cfg), "delivered")
             self.assertEqual(jobs.job_classify(state, self.cfg), "passed")
-            with patch.object(run, "announce") as announce, patch.object(handback, "announce"):
+            with patch.object(run, "announce") as announce:
                 self.assertEqual(run.finish(state, lp.run_dir, self.logs.append, self.cfg), 0)
             announce.assert_called_once_with(state, lp.run_dir, self.logs.append, self.cfg)
-            with patch.object(run, "launched_session", return_value="orphan"), patch.object(transitions, "launched_session", return_value="orphan"), \
+            with patch.object(transitions, "launched_session", return_value="orphan"), \
                     patch.object(handback, "launcher_watched", return_value=False), \
                     patch.object(run.watch, "seat_closed", return_value=False), \
                     patch.object(run.watch, "revive", return_value=None) as revive:

@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, run, worker
+from agentkit import config, prompts, roundloop, run, worker
 from agentkit import record
 
 
@@ -155,7 +155,7 @@ class RegressionFailsBefore(unittest.TestCase):
         head = run.git(self.wt, "rev-parse", "HEAD")
         lp = self.loop()
         with patch.dict(os.environ, {"PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": ""}):
-            self.assertEqual(run.fails_on_base(lp), "")
+            self.assertEqual(roundloop.fails_on_base(lp), "")
             self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
             base_output = (self.directory / "base.log").read_text()
             self.assertIn("saw base", base_output)
@@ -230,7 +230,7 @@ class RegressionFailsBefore(unittest.TestCase):
         # the gate runs it in pieces; it is the repository's suite, not this change's check
         self.fixed()
         lp = self.loop(["true", "test -n \"$AK_SHARD\" || PYTHONPATH=. python3 tests/check.py"])
-        self.assertEqual(run.own_checks(lp), ["true"])
+        self.assertEqual(roundloop.own_checks(lp), ["true"])
 
     def test_the_suite_the_loop_added_is_no_check_of_the_task_s_own(self):
         # it would fail on base; the task's own check does not, whatever the target declares
@@ -331,7 +331,7 @@ class RegressionFailsBefore(unittest.TestCase):
         ok, text = run.verify_work(lp)
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
-        proof = run.proof_on(lp, "PYTHONPATH=. python3 tests/check.py",
+        proof = prompts.proof_on(lp, "PYTHONPATH=. python3 tests/check.py",
                              self.directory / "review-proof.log", self.base, head)
         self.assertEqual(proof["returncode"], 1, proof)
         self.assert_restored(head)

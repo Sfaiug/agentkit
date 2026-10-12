@@ -91,7 +91,6 @@ class ResumeMidturn(unittest.TestCase):
         self.stack.enter_context(patch.object(watch, "orphan_fresh", return_value=False))
         self.stack.enter_context(patch.object(watch, "seat_closed", return_value=False))
         self.stack.enter_context(patch.object(watch, "seat_closed_by_owner", return_value=False))
-        self.stack.enter_context(patch.object(run, "record_result", lambda *args, **kwargs: None))
         self.stack.enter_context(patch.object(handback, "record_result", lambda *args, **kwargs: None))
         config.ensure_dirs()
         self.logs = []

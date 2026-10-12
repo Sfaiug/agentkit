@@ -262,7 +262,7 @@ def check_line(turn, log=lambda _: None):
     can resume or stop during its check: only an unchanged, processless parked record gets
     the verdict.  The recovery lock covers that write and the wake, never the suite.
     """
-    from . import handback, run, watch
+    from . import handback, roundloop, run, watch
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
     with turn.with_suffix(".lander.lock").open("a") as lock:
@@ -360,7 +360,7 @@ def check_line(turn, log=lambda _: None):
                             review = (current or {}).get("review") or {}
                             tree = saved["waiting_on"]["land"]
                             same = (current and review.get("verdict") == "PASS"
-                                    and run.passed_review_head(current) == run.passed_review_head(saved)
+                                    and roundloop.passed_review_head(current) == roundloop.passed_review_head(saved)
                                     and ((current.get("waiting_on") == saved["waiting_on"]
                                           and current.get("state") not in record.ENDED
                                           and (current.get("state") == "waiting"
@@ -480,7 +480,7 @@ def _pr_moved(state, heads):
 
 def _stack_member(repo, state, top, upstream, opened):
     """Integrate a reviewed head in scratch; no scratch means setup failed."""
-    from . import run
+    from . import roundloop, run
     head = state["review"]["head_sha"]
     code, out = _member_commit(repo, state, head)
     if code:
@@ -491,7 +491,7 @@ def _stack_member(repo, state, top, upstream, opened):
     lp = SimpleNamespace(state=state, wt=scratch,
                          base_sha=state.get("base_sha") or
                          run.git(scratch, "merge-base", head, top))
-    how = run.how_to_integrate(lp)
+    how = roundloop.how_to_integrate(lp)
     args = ("merge", "--no-edit", top) if how == "merge" else ("rebase", top)
     if how == "rebase":
         # A detached rebase must not rewrite the member's branch through Git config.
@@ -520,7 +520,7 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite):
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
                    tip_green=None):
-    from . import gate, run
+    from . import gate, roundloop, run
     if prefix:
         wait = prefix[-1][1]["waiting_on"]
         # A cut-short batch must finish delivering before its target can be probed.
@@ -568,7 +568,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         continue
                 # AGENTS.md is measured on the tree that lands, before any evidence answers it: a
                 # tree green on a target with larger rules says nothing about the ceiling.
-                failure = run.rules_check(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))
+                failure = roundloop.rules_check(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))
                 if failure:
                     # Changes ahead of it can lengthen or shorten the file: it waits for their
                     # verdicts, and only with none ahead is the size its own to fix.

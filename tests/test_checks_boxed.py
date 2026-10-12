@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home, in_account_home
-from agentkit import box, config, gate, gitcall, hand_in, run, worker
+from agentkit import box, config, gate, gitcall, hand_in, prompts, worker
 
 
 class ChecksBoxed(unittest.TestCase):
@@ -39,7 +39,6 @@ class ChecksBoxed(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("HOME", "RUNS", "STATE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(gate, "derived_heavy_limit", return_value=2))
@@ -54,7 +53,7 @@ class ChecksBoxed(unittest.TestCase):
         return shlex.join([sys.executable, "-u", "-c", source])
 
     def proof(self, command):
-        return run.proof_on(self.lp, command, self.root / "proof.log")
+        return prompts.proof_on(self.lp, command, self.root / "proof.log")
 
     def check(self, command, **kwargs):
         return gate.run_done_when([command], self.root, self.root / "check.log", set(),
@@ -434,12 +433,12 @@ class ChecksBoxed(unittest.TestCase):
                         ignore=shutil.ignore_patterns("__pycache__"))
         driver = (
             "import sys\nfrom pathlib import Path\nfrom types import SimpleNamespace\n"
-            "sys.path.insert(0, sys.argv[1])\nfrom agentkit import box, gate, run\n"
+            "sys.path.insert(0, sys.argv[1])\nfrom agentkit import box, gate, prompts\n"
             "Path(box.__file__).write_text('raise SystemExit(99)\\n')\n"
             "root = Path(sys.argv[2])\n"
             "lp = SimpleNamespace(scratch=True, wt=root, run_dir=root, done_when_limit=10,\n"
             "                     turn_limit=10, log=lambda _: None)\n"
-            "print(run.proof_on(lp, 'printf started; exit 7', root / 'proof.log'))\n"
+            "print(prompts.proof_on(lp, 'printf started; exit 7', root / 'proof.log'))\n"
             "print(gate.run_done_when(['printf started; exit 7'], root, root / 'check.log', set(),\n"
             "                         limit=10, silence=5)[1])\n")
         result = in_account_home([sys.executable, "-c", driver, str(copy), str(self.root)],

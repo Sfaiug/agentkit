@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, handback, orch, record, run, watch, worktrees
+from agentkit import config, handback, orch, record, watch, worktrees
 
 SEAT = "acme-docs"
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")

@@ -2852,7 +2852,7 @@ def rename(old, new, log=print, *, auto=False):
 # --- what `ak orch` does on the way in --------------------------------------
 
 
-def reconcile(run, log):
+def reconcile(log):
     """Reap every run on the way in, so a loop that died is recoverable work and not `working`.
 
     Nothing is printed and nothing is marked reported: a run launched from a seat is that
@@ -2887,10 +2887,9 @@ def maintenance(log=print):
     on a list of runs already reported, and on a smoke suite's throwaway runs besides.  What
     finished is in `r`, in the project overview and in `ak run status`.
     """
-    from . import run   # here, not at the top: run.py imports this module to find the seats
     try:
         config.ensure_dirs()
-        reconcile(run, log)
+        reconcile(log)
     except (config.Error, OSError, TypeError, ValueError, AttributeError, KeyError) as exc:
         log(f"WARN could not check the runs: {exc}")
     try:

@@ -11,7 +11,7 @@
   Tests never touch the real ones.
 - A harness is a plugin: adapter pair, optional module, config entry. Its names and failure
   words leak into some twenty files.
-- `run.py` (6.1k lines) holds most of the run side; `gitcall.py`, `turns.py`, `prompts.py`, `transitions.py`, `staffing.py` and `handback.py` are its leaves.
+- `run.py` (5.2k lines) holds most of the run side; `gitcall.py`, `turns.py`, `prompts.py`, `transitions.py`, `staffing.py`, `handback.py` and `roundloop.py` are its leaves.
 
 ## Entry points
 
@@ -21,15 +21,16 @@
 
 ## agentkit/
 
-- `run.py`: review, landing and failures.
+- `run.py`: the loop over a task's rounds, the executor's and the reviewer's turns, its integration and final check, landing and failures, and a pull request's review.
   Passed writable workers and automatic review-PR merges park in the line and exit;
-  foreground callers and jobs follow records. Forks keep `land`. API: `main`; for watch, status, job, gc, orch.
+  foreground callers and jobs follow records. Forks keep `land`. API: `main`; for watch, job, gc, orch.
 - `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.
 - `turns.py`: one model turn: the call, its retries, the handover when a window is spent, what a harness said instead of an answer, the endings it hands back (`Exhausted`, `Dead`, `Killed`, `Blocked`, `NotNeeded`, `RanDry`, `CannotRun`, `TransientHandover`), a round's turn directories and answer file, the memory cap a scope ran under, the stop of a run's process tree.
-- `prompts.py`: what a reviewer is handed and how its hand-in is weighed: the diff and done-when output it reads, the findings a fixer gets, the replay of earlier findings on a later commit and where a fix left their lines, the proofs ak runs for a finding, follow-up or dispute, the words a fixer's summary becomes, a check's output read into its first failure's line. For run, handback and land.
+- `prompts.py`: what a reviewer is handed and how its hand-in is weighed: the diff and done-when output, the findings a fixer gets, the replay of earlier findings on a later commit and where a fix left their lines, the proofs ak runs for a finding, follow-up or dispute, the words a fixer's summary becomes, a check's output read into its first failure's line. For run, roundloop, handback and land.
 - `transitions.py`: a run's record between steps: the state words it carries (`going`, `unfinished`, `queued`, `delivery`), the history a run starts and finishes with its sizes, the pass a review saved and when it is void, the parks (exhausted, errored, on a conflict) and their retry ladders, which run supersedes another, the rounds a change spent across its runs and may still spend.
 - `staffing.py`: who executes and who reviews a run: the models a session marks for each role, ordered by the usage they have left, the pair a round gets and the refusals when none fits, the hand to the next executor when one spends its window, and the words a run waiting on a reviewer or an exhausted provider shows. For run, job, menu, orch, status, usage and watch.
-- `handback.py`: what a run hands back and to whom: the result it writes, the decision it records, a hand-back's words and verdict, the seat it speaks for and the notice it gets, the delivery lock that tells one ending once, a merge's follow-ups, the recovery after a kill or a memory cap. For run, gate, gc, job, land, leases, menu, orch, plan, status, stop, watch, worktrees and a hook.
+- `handback.py`: what a run hands back and to whom: the result it writes, the decision it records, a hand-back's words and verdict, the seat it speaks for and the notice it gets, the delivery lock that tells one ending once, a merge's follow-ups, the recovery after a kill or a memory cap. For run, roundloop, gate, gc, job, land, leases, menu, orch, plan, status, stop, watch, worktrees and a hook.
+- `roundloop.py`: a round's steps: the loop's own state, a worker's result and the disputes it records, the verification of the work (its checks, the rules, the base proof, a regression's replay), the reviewer's checkout, the same failure twice, the target's own failure, and what an integration needs (its base, its patch id, its parks and aborts). For run and land.
 - `gate.py`: run admission (the slot queue and host gates), check commands and host-wide
   heavy-suite turns. API: `slot_lock`, `claim_slot`, `wait_for_slot`, `slot_note`,
   `host_status_line`, `run_done_when`, turn/env helpers, wait notes. For run, land, tests. Leaks: gitcall's `run_child_env`, `dirty_paths`, `run_depth`; turns'

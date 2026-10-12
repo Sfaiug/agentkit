@@ -2,7 +2,7 @@
 
 Offline and deterministic: hooks/orchestrator-stop.sh is run as its harness runs it -- the
 hook's own JSON on stdin -- against fake run records and a throwaway HOME, never a real seat
-or ~/.agentkit.  Undecided is `run.unfinished` whole, the runs `ak notify done` refuses on,
+or ~/.agentkit.  Undecided is `transitions.unfinished` whole, the runs `ak notify done` refuses on,
 so a run still going never holds the turn and an acknowledged or stopped one holds nothing;
 a question, `ak notify needs`, background work and the third stop stand past a parked run as
 they always did, while a done, a run going or an `ak wait` ends the turn only with none.

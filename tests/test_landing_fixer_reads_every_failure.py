@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import run
+from agentkit import prompts, run
 
 EARLY = ("FAIL  tests/test_acme_limits.py: exit 1 after 177s, its last lines:\n"
          "      FileNotFoundError: [Errno 2] No such file or directory: 'taken'\n")
@@ -73,7 +73,7 @@ class LandingFixer(unittest.TestCase):
         self.assertIn(LATE.rstrip(), seen[0])
 
     def test_a_red_targets_repair_is_told_every_failure(self):
-        text = run.red_target_text("python3 tests/landing.py", "main", "c0ffee",
+        text = prompts.red_target_text("python3 tests/landing.py", "main", "c0ffee",
                                    "--- AK_SHARD=2/5 ---\n" + EARLY + PASSES + LATE)
         self.assertTrue(text.startswith("`python3 tests/landing.py` fails on main at c0ffee"))
         for block in (EARLY, LATE):

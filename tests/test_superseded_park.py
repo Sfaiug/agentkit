@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, orch, run, status, transitions, watch
+from agentkit import config, menu, notify, run, status, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -92,12 +92,12 @@ class SupersededPark(unittest.TestCase):
         state = record.read_state(parked)
         self.assertTrue(transitions.is_superseded(state, None, index))
         self.assertTrue(run.settled(state, index))
-        self.assertFalse(run.unfinished(state, index=index))
+        self.assertFalse(transitions.unfinished(state, index=index))
         self.assertFalse(menu.v5o_needs_look(state, index=index, now=self.now))
         self.assertEqual(status.status_state_word(state, index), "done")
         # without the index supersession is not read, as with any other ending
         self.assertFalse(run.settled(state))
-        self.assertTrue(run.unfinished(state))
+        self.assertTrue(transitions.unfinished(state))
 
     def test_exhausted_run_with_an_unmerged_replacement_still_needs_you(self):
         parked = self.receipt("20260925-1257-parked", title="Fix the parser")
@@ -108,7 +108,7 @@ class SupersededPark(unittest.TestCase):
         index = transitions.supersession_index(self.records())
         state = record.read_state(parked)
         self.assertFalse(run.settled(state, index))
-        self.assertTrue(run.unfinished(state, index=index))
+        self.assertTrue(transitions.unfinished(state, index=index))
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
         self.assertEqual(status.status_state_word(state, index), "needs you")
 
@@ -128,7 +128,7 @@ class SupersededPark(unittest.TestCase):
         self.assertIsNone(transitions.superseded_by(state, records, merged_only=True))
         self.assertIsNone(transitions.superseded_by(state, None, index, merged_only=True))
         self.assertFalse(run.settled(state, index))
-        self.assertTrue(run.unfinished(state, index=index))
+        self.assertTrue(transitions.unfinished(state, index=index))
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
         self.assertEqual(status.status_state_word(state, index), "needs you")
 

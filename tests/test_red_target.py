@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import gate, gitcall, host, config, land, run
+from agentkit import config, gate, gitcall, host, land, roundloop, run
 from agentkit import record
 
 
@@ -312,7 +312,7 @@ class RedTarget(unittest.TestCase):
                 (f"test ! -f {path} && python3 {path}", path),
                 (f"python3 -s {path}", path)):
             with self.subTest(cmd=cmd):
-                self.assertEqual(run._branch_only_path(wt, cmd, head, "origin/main"), expected)
+                self.assertEqual(roundloop._branch_only_path(wt, cmd, head, "origin/main"), expected)
         self.assert_on_branch_head_and_clean(wt, head)
 
     def test_either_probe_leaves_the_worktree_on_the_branch_head_and_clean(self):
@@ -368,8 +368,7 @@ class RedTarget(unittest.TestCase):
             return real_git(repo, *args, **kwargs)
 
         # the probe checkouts are gitcall's own: their git is patched there, beside run's
-        with patch.object(run, "git", side_effect=stopping_git), \
-                patch.object(gitcall, "git", side_effect=stopping_git):
+        with patch.object(gitcall, "git", side_effect=stopping_git):
             with self.assertRaises(run.Stopped):
                 run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n")
         self.assertIn(("checkout", "--quiet", "ak/fix-api"), calls)

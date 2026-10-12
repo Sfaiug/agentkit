@@ -23,7 +23,7 @@ from urllib.parse import unquote_to_bytes
 
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
-from agentkit import browser, config, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, run, status, terminal, watch, worktrees
+from agentkit import browser, config, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, prompts, roundloop, run, status, terminal, transitions, watch, worktrees
 from agentkit import record
 
 SEAT = "seat"
@@ -1059,7 +1059,7 @@ class HandBack(Sandbox):
         # wrong, the receipt keeps that word rather than calling it a failed delivery
         directory = self.failed("run-30")
         record.save_state(directory, {**record.read_state(directory), "state": "blocked",
-                                   "verdict": "BLOCKED", "error": run.BLOCKED_SAME})
+                                   "verdict": "BLOCKED", "error": roundloop.BLOCKED_SAME})
         state = record.read_state(directory)
         task = {"name": "a.md", "state": "running", "run_id": directory.name}
         job = {"job_id": "j", "seat": SEAT, "tasks": [task]}
@@ -1073,7 +1073,7 @@ class HandBack(Sandbox):
                            directory, {**state, "state": "pass", "merge_failed": True},
                            1, self.logs.append, threading.Lock())
         self.assertEqual(task["state"], "blocked")
-        self.assertEqual(task["verdict_line"], f"a.md: BLOCKED: {run.BLOCKED_SAME}")
+        self.assertEqual(task["verdict_line"], f"a.md: BLOCKED: {roundloop.BLOCKED_SAME}")
         self.assertIn("blocked", jobs.JOB_UNDELIVERED)
 
     def test_a_blocked_task_is_a_terminal_job_state_of_its_own(self):
@@ -1081,8 +1081,8 @@ class HandBack(Sandbox):
         self.assertIn("blocked", jobs.JOB_UNDELIVERED)
         self.assertEqual(jobs.job_classify({"state": "blocked"}, self.cfg), "blocked")
         task = {"name": "a.md", "state": "blocked"}
-        self.assertEqual(jobs.job_verdict_line(task, {"error": run.BLOCKED_SAME}),
-                         f"a.md: BLOCKED: {run.BLOCKED_SAME}")
+        self.assertEqual(jobs.job_verdict_line(task, {"error": roundloop.BLOCKED_SAME}),
+                         f"a.md: BLOCKED: {roundloop.BLOCKED_SAME}")
         job = {"job_id": "j", "tasks": [task, {"name": "b.md", "state": "merged"}]}
         self.assertEqual(jobs.job_block_line(job), "job j: 1 merged, 1 blocked")
 
@@ -1183,13 +1183,12 @@ class HandBack(Sandbox):
             save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
              patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "commit_identity",
+                patch.object(run, "git_out", return_value=(0, "")), patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when",
                              return_value=(False, "$ bash tests/smoke.sh\n[exit 1]\nE no")), \
                 patch.object(run, "target_fails", return_value=False), \
-                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
+                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), patch.object(roundloop, "note", return_value=False), \
                 patch.object(run, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
                 patch.object(run, "verify_work", return_value=(True, "$ pytest\n[exit 0]")), \
@@ -1223,12 +1222,11 @@ class HandBack(Sandbox):
             save=lambda: None, write=lambda: None)
         with patch.object(run, "git", return_value="a" * 40), \
              patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "commit_identity",
+                patch.object(run, "git_out", return_value=(0, "")), patch.object(run, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when", return_value=(False, failure)), \
                 patch.object(run, "target_fails", return_value=False), \
-                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
+                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), patch.object(roundloop, "note", return_value=False), \
                 patch.object(run, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
                 patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
@@ -1238,7 +1236,7 @@ class HandBack(Sandbox):
                 run.final_check(lp, "origin/main")
         self.assertEqual(len(fixers), 1)
         # the BLOCKED line names what kept failing, not only that something did
-        self.assertEqual(str(blocked.exception), f"{run.BLOCKED_SAME}; the final check still "
+        self.assertEqual(str(blocked.exception), f"{roundloop.BLOCKED_SAME}; the final check still "
                          "fails on `bash tests/smoke.sh` — E the suite says no")
 
     def test_a_stop_no_window_will_lift_hands_back_and_a_quota_one_stays_quiet(self):
@@ -1372,7 +1370,7 @@ class HandBack(Sandbox):
                 config.Error, "blocked runs are not resumed; the orchestrator writes a new task"):
             run.cmd_resume([directory.name])
         self.assertFalse(run.needs_recovery(record.read_state(directory)))
-        self.assertFalse(run.unfinished(record.read_state(directory)))
+        self.assertFalse(transitions.unfinished(record.read_state(directory)))
 
     def test_blocked_reads_with_its_glyph_and_its_reason_in_status(self):
         directory = self.blocked_record("run-7")
@@ -1396,9 +1394,7 @@ class HandBack(Sandbox):
         histories, settles = [], []
         followup_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
         bar_boom = AttributeError("module 'agentkit.orch' has no attribute 'ROLE_HEADS'")
-        with patch.object(run, "start_followups", side_effect=followup_boom), patch.object(handback, "start_followups", side_effect=followup_boom), \
-                patch.object(run, "redress_seat", side_effect=bar_boom), patch.object(handback, "redress_seat", side_effect=bar_boom), \
-                patch.object(run, "history_finish",
+        with patch.object(run, "start_followups", side_effect=followup_boom), patch.object(run, "redress_seat", side_effect=bar_boom), patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",
                              side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
@@ -1425,10 +1421,7 @@ class HandBack(Sandbox):
         self.rows = [self.live()]
         histories, settles = [], []
         with patch.object(run, "start_followups",
-                          side_effect=record.StopRequested("fix-child was stopped")), patch.object(handback, "start_followups",
-                          side_effect=record.StopRequested("fix-child was stopped")), \
-                patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), \
-                patch.object(run, "history_finish",
+                          side_effect=record.StopRequested("fix-child was stopped")), patch.object(run, "redress_seat"), patch.object(run, "history_finish",
                              side_effect=lambda s, log=None: histories.append(s["run_id"])), \
                 patch.object(worktrees, "settle_run",
                              side_effect=lambda s, d, log=None: settles.append(s["run_id"])):
@@ -1445,7 +1438,6 @@ class HandBack(Sandbox):
         # ... and this run's own stop still aborts its ending, as the stop left it
         record.save_state(directory, {**record.read_state(directory), "state": "stopped"})
         with patch.object(run, "start_followups",
-                          side_effect=record.StopRequested("run-fixstop was stopped")), patch.object(handback, "start_followups",
                           side_effect=record.StopRequested("run-fixstop was stopped")):
             with self.assertRaises(record.StopRequested):
                 run.finish(record.read_state(directory), directory,
@@ -1557,7 +1549,7 @@ class BlockedRuns(unittest.TestCase):
         code, directory, state = self.launch(check="test -f never-written")
         self.assertEqual(code, 1)
         self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
-        self.assertEqual(state["error"], run.BLOCKED_SAME)
+        self.assertEqual(state["error"], roundloop.BLOCKED_SAME)
         # round 1 recorded its failure and was reviewed; round 2 failed the same way and
         # stopped before the reviewer, so no third attempt was ever spent
         self.assertEqual(len(state["round_summaries"]), 1)
@@ -1565,7 +1557,7 @@ class BlockedRuns(unittest.TestCase):
         self.assertEqual(state["done_when_failure"],
                          {"every": [["test -f never-written", ""]]})
         result = (directory / "result.md").read_text()
-        self.assertIn(run.BLOCKED_SAME, result)
+        self.assertIn(roundloop.BLOCKED_SAME, result)
         self.assertIn("`test -f never-written`", result)
 
     def test_a_failure_that_changes_goes_on_to_the_next_round(self):
@@ -1606,9 +1598,9 @@ class BlockedRuns(unittest.TestCase):
         first = ("Commit: a\nTree: b\n\n$ check\n[exit 1]\nstarting\n\nE one != two\n\n"
                  "$ lint\n[exit 0]\nfine\n\nstill fine")
         second = first.replace("E one != two", "E three != four")
-        self.assertEqual(run.failing_checks(first), [["check", "E one != two"]])
-        self.assertEqual(run.failing_checks(second), [["check", "E three != four"]])
-        self.assertNotEqual(run.failing_checks(first), run.failing_checks(second))
+        self.assertEqual(prompts.failing_checks(first), [["check", "E one != two"]])
+        self.assertEqual(prompts.failing_checks(second), [["check", "E three != four"]])
+        self.assertNotEqual(prompts.failing_checks(first), prompts.failing_checks(second))
 
     def test_a_summary_that_merely_mentions_being_blocked_is_no_blocked_turn(self):
         self.plan(executor=["## Summary\nI was nearly blocked by ## Blocked in the preamble.\n"],
