@@ -1439,18 +1439,13 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     gate(name)
                 except config.Error as exc:
                     raise Refused(str(exc)) from None
-            # those it kept back for its turn's end are asked now, beside this one
-            kept = (watch.questions_kept(watch.seat_read(name).get("unasked"))
-                    if kind == "needs" and own and event_id is None else [])
-            previous = _said(name, kind, [*kept, {"text": text}] if kind == "needs" else text,
+            previous = _said(name, kind, [{"text": text}] if kind == "needs" else text,
                              pr, event_id)
             if event_id is None:
-                # the seat's newer word ends its `ak wait`; a done found none kept
-                # (`unanswered`), and one kept since, which takes no notice lock, stays for the
-                # turn's end
+                # the seat's newer word ends its `ak wait`; a question it kept back stays kept
+                # for its turn's end, which alone dates it (`watch.turn_ended`), and a done
+                # found none kept (`unanswered`)
                 watch.seat_write(name, wait=None)
-                if kept:
-                    watch.kept_asked(name, kept)
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date

@@ -3,11 +3,12 @@
 A seat asks, works on, and may ask again before its owner is back.  A newer question used to
 take the earlier one's place, so the seat's line showed only the last, and the one before it was
 lost to the owner while the seat still waited on its answer.  Now a question asked while others
-stand unanswered -- kept back for the same turn's end, or asked -- is asked beside them, in the
-order asked, each once: the line reads them all, the card stays the one card, and the owner's
-one prompt answers them.  After his answer a new question stands alone.
+stand unanswered is asked beside them, at once or at the end of the turn that kept it back, in
+the order asked, each once: the line reads them all, the card stays the one card, and the
+owner's one prompt answers them.  After his answer a new question stands alone.
 """
 
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -69,12 +70,14 @@ class OpenQuestions(Sandbox):
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
         self.assertEqual(self.posts, ["Needs you · " + SEAT])     # still the one card
 
-    def test_a_question_kept_back_is_asked_beside_one_asked_at_once(self):
+    def test_a_question_kept_back_waits_for_its_turns_end_beside_one_asked_at_once(self):
         self.asks(FIRST)                    # kept back for this turn's end
         self.asked_for_it("Merge acme#7? yes/no")
         self.asks(SECOND)                   # asked at once: the owner is asked already
+        self.assertEqual(notify.last(SEAT)["text"], "Merge acme#7? yes/no Also: " + SECOND)
+        self.turn_ends()
         self.assertEqual(notify.last(SEAT)["text"],
-                         "Merge acme#7? yes/no Also: " + FIRST + " Also: " + SECOND)
+                         "Merge acme#7? yes/no Also: " + SECOND + " Also: " + FIRST)
         self.assertNotIsInstance(watch.seat_read(SEAT).get("unasked"), dict)
 
     def test_the_same_question_twice_is_asked_once_as_last_asked(self):
@@ -95,7 +98,8 @@ class OpenQuestions(Sandbox):
         self.asks(FIRST)
         self.asked_for_it(FIRST)
         self.asks(SECOND)
-        self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
+        self.turn_ends()
+        self.assertEqual(notify.last(SEAT)["text"], SECOND + " Also: " + FIRST)
 
     def test_after_his_answer_a_new_question_stands_alone(self):
         self.asked_for_it(FIRST)
@@ -131,24 +135,42 @@ class OpenQuestions(Sandbox):
         notify.answered(SEAT, 10001)        # his prompt came before the later asking
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
 
+    def test_a_stop_before_a_newer_question_is_recorded_dates_the_kept_one_at_it(self):
+        """A question asked at once leaves those kept back to their turn's end, so a stop
+        written while it is recorded dates them, and his prompt after it answers them."""
+        now = [10000]
+        with patch.object(notify.time, "time", side_effect=lambda: now[0]):
+            self.asks(FIRST)
+            self.asked_for_it("Merge acme#7? yes/no")
+            said = notify._said
+
+            def stopped(*args, **kwargs):
+                now[0] = 10001
+                watch.turn_ended(SEAT)
+                now[0] = 10003
+                return said(*args, **kwargs)
+            with patch.object(notify, "_said", side_effect=stopped):
+                self.asks(SECOND)
+            notify.answered(SEAT, 10002)
+        self.assertEqual(notify.last(SEAT)["text"], SECOND)
+
     def test_a_stop_while_its_kept_question_is_asked_leaves_nothing_kept(self):
         self.asks(FIRST)
-        self.asked_for_it("Merge acme#7? yes/no")
         said = notify._said
 
         def stopped(*args, **kwargs):
             previous = said(*args, **kwargs)
             watch.turn_ended(SEAT)
             return previous
-        with patch.object(notify, "_said", side_effect=stopped):
-            self.asks(SECOND)
+        with patch.object(notify, "_said", side_effect=stopped), \
+                notify.session_lock(SEAT) as held:
+            self.assertTrue(notify.ask_kept(held))      # a look found its turn over
         self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
 
     def test_the_same_words_kept_again_while_the_first_is_asked_stay_kept(self):
         """Each kept question is dropped by its own id once asked: the same words kept again
         meanwhile are an asking of their own, for their own turn's end."""
         self.asks(FIRST)
-        self.asked_for_it("Merge acme#7? yes/no")
         said = notify._said
 
         def kept_again(*args, **kwargs):
@@ -156,8 +178,23 @@ class OpenQuestions(Sandbox):
             watch.keep(SEAT, FIRST)
             return previous
         with patch.object(notify, "_said", side_effect=kept_again):
-            self.asks(SECOND)
+            self.turn_ends()
         self.assertEqual(watch.seat_read(SEAT)["unasked"]["text"], FIRST)
+
+    def test_a_line_ak_typed_after_the_first_open_question_answers_none(self):
+        """A hand-back typed after the first question and before a newer one is ak's own
+        line, however late its prompt hook looks."""
+        handback = "Run fix-parser finished: PASS. Decide the next step."
+        self.asked_for_it(FIRST)
+        config.seat_file("input", SEAT).write_text(json.dumps({
+            "at": 10001, "text": handback, "source": "ak", "harness": "claude"}) + "\n")
+        with patch.object(notify.time, "time", return_value=10002):
+            self.asked_for_it(SECOND)
+        with patch.dict(os.environ, {"TMUX": "/fake/agentkit-test,1,0", "TMUX_PANE": "%7"}), \
+                patch.object(orch, "tmux_out", return_value=(0, "/fake/agentkit-test\t" + SEAT)), \
+                patch.object(watch, "announce_state", return_value={}):
+            watch.hook_look(SEAT, answered_at=10001.5, said=handback)
+        self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
 
     def test_his_prompt_answers_one_the_old_install_kept_for_an_ended_turn(self):
         watch.seat_write(SEAT, unasked={"text": FIRST, "at": 9999.0, "ended": 10000.0})
