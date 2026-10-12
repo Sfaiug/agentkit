@@ -1007,6 +1007,70 @@ def merge(lp):
     return join_line(lp, upstream, deliver)
 
 
+def own_pr_heads(state):
+    """The PR heads that are this run's own: the head it reviewed and the one it pushed."""
+    return state.get("head_sha"), state.get("delivery_sha")
+
+
+def merge_own_pr(lp, url):
+    """Join the same line as task runs; deliver only the lander's tested PR tree."""
+    if lp.state.get("own_pr") and not lp.state.get("own_orchestrator"):
+        return roundloop.note(lp, "no recorded writer for this PR; refusing the automatic merge",
+                              failed=True)
+    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+
+    def deliver():
+        current = pr_head(lp, url)
+        remote = current["head"]
+        expected = own_pr_heads(lp.state)
+        ours = (remote["sha"] in expected
+                and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
+        if current.get("merged") and ours:
+            from . import watch  # here, not at the top: it reaches run
+            lp.state.update(merged=True, **watch.merge_record(lp.wt, remote["sha"]))
+            lp.write()
+            return True
+        if current.get("state") != "open" or not ours:
+            path = lp.run_dir / "pr-changed.log"
+            path.write_text("The PR head or target changed, or the PR closed, since review.\n")
+            lp.state["review_stale"] = True
+            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
+                                   landing=False)
+        pinned = gitcall.git(lp.wt, "rev-parse", "HEAD")
+        # Keep the intended push before calling Git: a killed push may have gone through.
+        lp.state["delivery_sha"] = pinned
+        lp.write()
+        if remote["sha"] != pinned:
+            push_pr_branch(lp, remote, remote["sha"])
+        lp.state["head_sha"] = pinned
+        lp.write()
+        return wait_checks(lp, url) and do_merge(lp, url, upstream)
+
+    return join_line(lp, upstream, deliver)
+
+
+def pr_head(lp, url):
+    """The pull request as GitHub describes it now, its head named, or an error: what a push
+    to its branch and a merge of it stand on."""
+    api, owner, repo, number = pr_parts(url)
+    current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
+    if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
+        raise config.Error(f"cannot read the PR: {why}")
+    return current
+
+
+def push_pr_branch(lp, remote, lease):
+    """The checkout's HEAD onto the PR branch GitHub describes (`remote`, the PR's head), over
+    `lease` and nothing else: a push made by hand meanwhile is never overwritten."""
+    branch, source = remote.get("ref"), (remote.get("repo") or {}).get("clone_url")
+    if not branch or not source:
+        raise config.Error("cannot locate the PR branch to push to")
+    rc, out = gitcall.git_out(lp.wt, "push", f"--force-with-lease=refs/heads/{branch}:{lease}",
+                              "--", source, f"HEAD:refs/heads/{branch}")
+    if rc:
+        raise config.Error(f"pushing to the PR branch failed: {out[-400:]}")
+
+
 def finish_blocked(run_dir, state, exc, log, cfg):
     """The task cannot be done as written: a final state of its own, because there is no
     verdict on work here and nothing a resume could spend.  The orchestrator that wrote

@@ -26,9 +26,10 @@ from . import (box, command_help, config, gate, gc, gitcall, history, host, job 
                land as landing, orch, record as run_record, status, stop, task as taskfile,
                turns, usage, watch, worker, worktrees)
 from .deliver import (MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
-    fail_pr_landing, finish_blocked, join_line, land, merge, release_line)
+    finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
+    push_pr_branch, release_line)
 from .deliver import (PUSH_RIGHTS, checks, gh_json, github_body,
-    pr_parts, push, require_review_pass, rights,
+    push, require_review_pass, rights,
     text_only_pr, wait_checks)
 from .roundloop import execute, final_check, integrate, review, rounds
 from .roundloop import (Loop, note,
@@ -2018,47 +2019,6 @@ def post_review(lp, url, verdict):
     return rc == 0
 
 
-def own_pr_heads(state):
-    """The PR heads that are this run's own: the head it reviewed and the one it pushed."""
-    return state.get("head_sha"), state.get("delivery_sha")
-
-
-def merge_own_pr(lp, url):
-    """Join the same line as task runs; deliver only the lander's tested PR tree."""
-    if lp.state.get("own_pr") and not lp.state.get("own_orchestrator"):
-        return note(lp, "no recorded writer for this PR; refusing the automatic merge",
-                    failed=True)
-    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-
-    def deliver():
-        current = pr_head(lp, url)
-        remote = current["head"]
-        expected = own_pr_heads(lp.state)
-        ours = (remote["sha"] in expected
-                and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
-        if current.get("merged") and ours:
-            lp.state.update(merged=True, **watch.merge_record(lp.wt, remote["sha"]))
-            lp.write()
-            return True
-        if current.get("state") != "open" or not ours:
-            path = lp.run_dir / "pr-changed.log"
-            path.write_text("The PR head or target changed, or the PR closed, since review.\n")
-            lp.state["review_stale"] = True
-            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
-                                   landing=False)
-        pinned = git(lp.wt, "rev-parse", "HEAD")
-        # Keep the intended push before calling Git: a killed push may have gone through.
-        lp.state["delivery_sha"] = pinned
-        lp.write()
-        if remote["sha"] != pinned:
-            push_pr_branch(lp, remote, remote["sha"])
-        lp.state["head_sha"] = pinned
-        lp.write()
-        return wait_checks(lp, url) and do_merge(lp, url, upstream)
-
-    return join_line(lp, upstream, deliver)
-
-
 def own_pr_fix(state):
     """(round, turn name) of the fix a seat's own PR's next head comes from, which its review
     shares: the next round's `executor`, or a landing red's (`landing_fix`) in the round whose
@@ -2075,28 +2035,6 @@ def pr_context(state, body):
     number = PR_PARTS.match(state["review_pr"]).group(3)
     return (f"Repo checkout: {state['worktree']}\nBranch: {state['branch']} (PR #{number} head, "
             f"based on origin/{state['target']})\n\n{body}")
-
-
-def pr_head(lp, url):
-    """The pull request as GitHub describes it now, its head named, or an error: what a push
-    to its branch and a merge of it stand on."""
-    api, owner, repo, number = pr_parts(url)
-    current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
-    if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
-        raise config.Error(f"cannot read the PR: {why}")
-    return current
-
-
-def push_pr_branch(lp, remote, lease):
-    """The checkout's HEAD onto the PR branch GitHub describes (`remote`, the PR's head), over
-    `lease` and nothing else: a push made by hand meanwhile is never overwritten."""
-    branch, source = remote.get("ref"), (remote.get("repo") or {}).get("clone_url")
-    if not branch or not source:
-        raise config.Error("cannot locate the PR branch to push to")
-    rc, out = git_out(lp.wt, "push", f"--force-with-lease=refs/heads/{branch}:{lease}",
-                      "--", source, f"HEAD:refs/heads/{branch}")
-    if rc:
-        raise config.Error(f"pushing to the PR branch failed: {out[-400:]}")
 
 
 def pr_review_blocked(lp, exc):

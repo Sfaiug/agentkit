@@ -22,10 +22,9 @@ SUITE = "test ! -f first.txt || test ! -f second.txt"
 
 class OwnPrLineFixture(LanderFixture):
     def setUp(self):
-        turn, do_merge = worker.turn, run.do_merge
+        turn = worker.turn
         super().setUp()
         self.stack.enter_context(patch.object(worker, "turn", side_effect=turn))
-        self.stack.enter_context(patch.object(run, "do_merge", side_effect=do_merge))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
         self.cfg = config.load()
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"])
@@ -41,7 +40,6 @@ class OwnPrLineFixture(LanderFixture):
         self.stack.enter_context(patch.object(deliver, "checks", return_value=(True, "")))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=self.view))
-        self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
         self.stack.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_json))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
@@ -503,7 +501,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 self.push_fix(url)
             return git_out(cwd, *args, **kw)
 
-        with patch.object(run, "git_out", side_effect=race), patch.object(gitcall, "git_out", side_effect=race):
+        with patch.object(gitcall, "git_out", side_effect=race):
             with self.assertRaisesRegex(config.Error, "pushing to the PR branch failed"):
                 self.review(directory, url)
         self.assertEqual(run.git(self.remote, "rev-parse", self.prs[url]["branch"]), self.prs[url]["head"])
@@ -524,7 +522,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 raise InterruptedError("the push completed before the run died")
             return answer
 
-        with patch.object(run, "git_out", side_effect=killed), patch.object(gitcall, "git_out", side_effect=killed):
+        with patch.object(gitcall, "git_out", side_effect=killed):
             with self.assertRaises(InterruptedError):
                 self.review(directory, url)
         self.assertTrue(self.review(directory, url)["merged"])
@@ -586,7 +584,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         api = self.gh_json
         down = lambda cwd, *args, **kw: ((None, "HTTP 503") if args[:1] == ("api",)
                                          else api(cwd, *args, **kw))
-        with patch.object(run, "gh_json", side_effect=down), self.assertRaises(config.Error):
+        with patch.object(deliver, "gh_json", side_effect=down), self.assertRaises(config.Error):
             self.review(directory, url)
         # drive records the error, and the seat's hand-back cleans up after it
         state = run.mark_state(directory, "error", "cannot verify the PR before delivery")
@@ -673,7 +671,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 self.prs[url]["head"] = run.git(self.remote, "rev-parse", self.prs[url]["branch"])
             return result
 
-        with patch.object(run, "git_out", side_effect=pushed), patch.object(gitcall, "git_out", side_effect=pushed), \
+        with patch.object(gitcall, "git_out", side_effect=pushed), \
                 patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")), \
                 patch.object(run, "fix_own_pr", return_value=False):
             earlier = self.review(directory, url)["delivery_sha"]

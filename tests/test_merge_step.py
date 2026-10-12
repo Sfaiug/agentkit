@@ -946,7 +946,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(delivery, "checks", return_value=(True, "")), \
-                patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                patch.object(delivery, "join_line", side_effect=lambda lp, _upstream, deliver:
                              landing(lp, deliver=deliver)), patch.object(delivery, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep") as slept:
             self.assertTrue(run.merge_own_pr(lp, URL))
@@ -1054,7 +1054,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(delivery, "checks", return_value=(True, "")), \
-                patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                patch.object(delivery, "join_line", side_effect=lambda lp, _upstream, deliver:
                              landing(lp, deliver=deliver)), patch.object(delivery, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep"):
             self.assertFalse(run.merge_own_pr(lp, URL))
@@ -1082,7 +1082,7 @@ class MergeStep(unittest.TestCase):
 
                 with patch.object(gitcall, "gh", side_effect=fake_gh), \
                         patch.object(delivery, "checks", return_value=(True, "")), \
-                        patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                        patch.object(delivery, "join_line", side_effect=lambda lp, _upstream, deliver:
                                      landing(lp, deliver=deliver)), patch.object(delivery, "merge_lock", lambda lp, upstream: nullcontext()), \
                         patch.object(run.time, "sleep"):
                     with self.assertRaises(run.Stopped):
