@@ -1187,7 +1187,7 @@ class HandBack(Sandbox):
                 patch.object(gate, "run_done_when",
                              return_value=(False, "$ bash tests/smoke.sh\n[exit 1]\nE no")), \
                 patch.object(roundloop, "target_fails", return_value=False), \
-                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), patch.object(roundloop, "execute",
+                patch.object(record, "save_state"), patch.object(roundloop, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
                 patch.object(roundloop, "verify_work", return_value=(True, "$ pytest\n[exit 0]")), \
                 patch.object(roundloop, "review", return_value="PASS"), \
@@ -1223,7 +1223,7 @@ class HandBack(Sandbox):
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when", return_value=(False, failure)), \
                 patch.object(roundloop, "target_fails", return_value=False), \
-                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), patch.object(roundloop, "execute",
+                patch.object(record, "save_state"), patch.object(roundloop, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
                 patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
                 patch.object(roundloop, "review", return_value="PASS"), \

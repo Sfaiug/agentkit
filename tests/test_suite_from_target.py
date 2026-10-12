@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import LanderFixture, ONCE, SUITE
 from test_repo_suite import RepoSuiteFixture
-from agentkit import config, handback, land, run
+from agentkit import config, handback, land, roundloop, run
 
 
 class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
@@ -50,7 +50,7 @@ class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
                              ["--body", f"Suite-Passed-Tree: {lp.state['final_check']['tree_sha']}"])
 
         with patch.object(run, "merge", side_effect=integrated_check), \
-                patch.object(run, "fix_final_check", return_value=False), patch.object(handback, "start_followups", return_value=None):
+                patch.object(roundloop, "fix_final_check", return_value=False), patch.object(handback, "start_followups", return_value=None):
             self.launch("pinned-final", ["test -d ."], from_branch="fix-api")
         self.assertEqual(self.finals(), [["test -d ."], [suite]], self.gates)
 
