@@ -1329,12 +1329,26 @@ def asks_first(text):
 
 
 def keep_back(name, text):
-    """Keep the seat's question back for its turn's end, in the seat's record, which `ask_kept`
-    asks once that turn has ended.  The seat's newer word ends its `ak wait` here as `shaped`
-    does.  No notice lock is taken, so the stop hook keeps one without waiting on it."""
+    """Keep the seat's question back for its turn's end, in the seat's record, beside any it
+    kept already (`watch.keep`), which `ask_kept` asks once that turn has ended.  The seat's
+    newer word ends its `ak wait` there as `shaped` does.  No notice lock is taken, so the stop
+    hook keeps one without waiting on it."""
     from . import watch
     asks_first(text)
-    watch.seat_write(name, unasked={"text": text, "at": time.time()}, wait=None)
+    watch.keep(name, text)
+
+
+ALSO = " Also: "
+
+
+def joined(earlier, text):
+    """The questions still open with that one asked after them, each once, in the order asked:
+    the seat's line reads every one, and the owner answers them all in one prompt."""
+    if not isinstance(earlier, str) or not earlier.strip():
+        return text
+    if " ".join(text.split()).casefold() in " ".join(earlier.split()).casefold():
+        return earlier
+    return earlier + ALSO + text
 
 
 def unanswered(name):
@@ -1400,13 +1414,19 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     gate(name)
                 except config.Error as exc:
                     raise Refused(str(exc)) from None
+            kept = (watch.seat_read(name).get("unasked")
+                    if kind == "needs" and own and event_id is None else None)
+            if isinstance(kept, dict) and isinstance(kept.get("text"), str):
+                # one it kept back for its turn's end is asked now, beside this one
+                text = joined(kept["text"], text)
             previous = _said(name, kind, text, pr, event_id)
             if event_id is None:
-                # the seat's newer word ends its `ak wait`, and its own question is asked in
-                # place of one it kept back; a done found none kept (`unanswered`), and one
-                # kept since, which takes no notice lock, stays for the turn's end
-                kept = {"unasked": None} if own and kind == "needs" else {}
-                watch.seat_write(name, wait=None, **kept)
+                # the seat's newer word ends its `ak wait`; a done found no question kept
+                # (`unanswered`), and one kept since, which takes no notice lock, stays for
+                # the turn's end (`watch.kept_asked`)
+                watch.seat_write(name, wait=None)
+                if isinstance(kept, dict):
+                    watch.kept_asked(name, kept)
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date
@@ -1445,6 +1465,11 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     extra = {"source": event_id, "pr": pr,
              "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
              "open_needs": previous.get("open_needs", []) if previous else []}
+    from . import watch
+    if (kind == "needs" and not extra["watcher"] and watch.owner_question(previous)
+            and not resolved(previous)):
+        # a question asked while one stands unanswered is asked beside it, not in its place
+        text = joined(previous["text"], text)
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
     if earlier:
         # The answer ends its card's episode at the next tick; the newer notice carries it

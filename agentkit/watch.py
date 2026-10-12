@@ -1802,14 +1802,31 @@ def keeps_back(name):
     question and it waits for nobody.  So it does on every harness ak knows the seat to run,
     the same way: where hooks report the turn's end a look follows at once, and where only
     the screen shows it ak's next look finds it (`ask_kept_back`) -- unless a question of its
-    own already stands unanswered: the owner is asked already, and a newer one takes that
-    one's place.
+    own already stands unanswered: the owner is asked already, and a newer one is asked beside
+    it (`notify.joined`).
     """
     try:
         harness = seat_model(config.load(), name)[0]
     except config.Error:
         return False
     return bool(harness) and not owner_question(notify.last(name))
+
+
+def keep(name, text):
+    """Keep that question back for its turn's end beside those the seat kept already
+    (`notify.joined`), as of the turn asking now: a turn that asks twice asks both once it ends.
+    The seat's newer word ends its `ak wait` here."""
+    from . import notify
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            kept = data.get("unasked")
+            earlier = kept.get("text") if isinstance(kept, dict) else None
+            at = kept.get("at") if isinstance(earlier, str) else time.time()
+            _seat_put(name, data, {"unasked": {"text": notify.joined(earlier, text), "at": at},
+                                   "wait": None})
+    except (OSError, config.Error) as exc:
+        print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
 
 
 def turn_ended(name):

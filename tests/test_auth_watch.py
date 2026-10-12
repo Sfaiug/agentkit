@@ -478,7 +478,10 @@ class AuthWatch(unittest.TestCase):
         for newer in (None, "May I merge this PR?"):
             with self.subTest(newer=newer):
                 self.now += 1
-                notify.shaped("needs", notice, session="auth-seat")
+                # as the watcher says it: its own alert, never a question of the seat's that a
+                # newer one is asked beside
+                notify.shaped("needs", notice, session="auth-seat",
+                              event_id=f"stuck:auth-seat:{self.now}")
                 self.data["stalls"]["auth-seat"] = {
                     "kind": "quiet", "pane": self.pane, "since": 1, "told": self.now}
                 watch.save_state(self.data)
