@@ -167,7 +167,7 @@ class OwnPrRounds(OwnPr):
                 return None, "fixture: GitHub unavailable"
             return gh_json(cwd, *args, **kw)
 
-        with patch.object(run, "gh_json", side_effect=unavailable), patch.object(deliver, "gh_json", side_effect=unavailable), self.assertRaises(config.Error):
+        with patch.object(deliver, "gh_json", side_effect=unavailable), self.assertRaises(config.Error):
             self.review(["FAIL", "PASS"])
         self.assertEqual(self.fixes, [])
         self.assertEqual(record.read_state(self.run_dir)["own_pr_wait"], self.heads[0])

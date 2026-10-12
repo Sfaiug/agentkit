@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import OwnPr
-from agentkit import config, hand_in, run, staffing, turns, worker
+from agentkit import config, gitcall, hand_in, run, staffing, turns, worker
 from agentkit import record
 
 
@@ -323,7 +323,7 @@ class OwnPrFixer(OwnPr):
                 raise InterruptedError("the run died after its push")
             return result
 
-        with patch.object(run, "git_out", side_effect=dies_after_push), \
+        with patch.object(gitcall, "git_out", side_effect=dies_after_push), \
                 self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS"])
         saved = record.read_state(self.run_dir)
@@ -331,7 +331,7 @@ class OwnPrFixer(OwnPr):
         self.assertEqual(self.remote_head(), self.heads[1])
         saved.update(state="queued", pid=999999991)
         record.save_state(self.run_dir, saved)
-        with patch.object(run, "git_out", side_effect=dies_after_push):
+        with patch.object(gitcall, "git_out", side_effect=dies_after_push):
             state = self.review(["FAIL", "PASS"])
         self.assertTrue(state["merged"])
         self.assertEqual((len(pushes), len(self.fixes), len(self.prompts)), (1, 1, 2))

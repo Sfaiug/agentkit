@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, gitcall, run, staffing, transitions, turns, worker
+from agentkit import config, deliver, gitcall, run, staffing, transitions, turns, worker
 
 
 ADAPTER = '''import json, os, pathlib, subprocess, sys, time
@@ -146,7 +146,7 @@ class ReviewerEdits(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD"), self.head)
         self.assertEqual(self.git("symbolic-ref", "--short", "HEAD"), "ak/fix-api")
         self.assertEqual((self.wt / "tracked.txt").read_text(), "executor work\n")
-        self.assertEqual(run.dirty_paths(self.wt), ["keep/existing.txt"])
+        self.assertEqual(gitcall.dirty_paths(self.wt), ["keep/existing.txt"])
         self.assertEqual((self.wt / "keep/existing.txt").read_text(), "suite artifact\n")
         run.commit_leftovers(self.wt, self.logs.append, self.lp.artifacts, self.lp.state)
         self.assertEqual(self.git("rev-parse", "HEAD"), self.head)
@@ -279,14 +279,14 @@ class ReviewerEdits(unittest.TestCase):
                     deleting = patch.object(os, "scandir", side_effect=vanished)
                 else:
                     transient.touch()
-                    real_copyfile = run.shutil.copyfile
+                    real_copyfile = deliver.shutil.copyfile
 
                     def vanished(src, dst, *args, **kwargs):
                         if Path(src) == transient:
                             transient.unlink()
                         return real_copyfile(src, dst, *args, **kwargs)
 
-                    deleting = patch.object(run.shutil, "copyfile", side_effect=vanished)
+                    deleting = patch.object(deliver.shutil, "copyfile", side_effect=vanished)
                 with deleting, patch.object(worker, "call", side_effect=check_input):
                     self.assertEqual(self.review({}), "PASS")
                 self.assertFalse(transient.exists())
@@ -303,7 +303,7 @@ class ReviewerEdits(unittest.TestCase):
         for name, target in (("file.link", "input.txt"), ("dir.link", "."),
                              ("broken.link", "missing")):
             (artifacts / name).symlink_to(target)
-        real_call, real_copyfile = worker.call, run.shutil.copyfile
+        real_call, real_copyfile = worker.call, deliver.shutil.copyfile
 
         for name in ("server.sock", "events.fifo", "private.txt"):
             with self.subTest(name=name):
@@ -335,7 +335,7 @@ class ReviewerEdits(unittest.TestCase):
                     return real_call(cfg, model, body, workspace, out, role, session, **kwargs)
 
                 try:
-                    with patch.object(run.shutil, "copyfile", side_effect=copyfile), \
+                    with patch.object(deliver.shutil, "copyfile", side_effect=copyfile), \
                             patch.object(worker, "call", side_effect=check_input):
                         self.assertEqual(self.review({"files": {"probe.txt": "reviewer edit\n"}}),
                                          "PASS")

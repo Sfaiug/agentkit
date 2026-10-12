@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, job as jobs, land, menu, record, run, status, transitions, watch
+from agentkit import config, deliver, job as jobs, land, menu, record, run, status, transitions, watch
 
 
 class LandingLine(Sandbox):
@@ -20,7 +20,7 @@ class LandingLine(Sandbox):
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AGENTKIT_RUN_DIR": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
             "AK_RUN_ROLE": "orchestrator", "AGENTKIT_SESSION": ""}))
-        self.line = run.merge_lock_path("https://github.com/acme/widget.git", "origin/main").name
+        self.line = deliver.merge_lock_path("https://github.com/acme/widget.git", "origin/main").name
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
         self.stack.enter_context(patch.object(status, "alive_line", return_value=""))
         self.stack.enter_context(patch.object(run.time, "time", return_value=200000))
@@ -85,10 +85,10 @@ class LandingLine(Sandbox):
     def test_places_count_only_current_members_of_the_same_line_by_join_time(self):
         members = [self.member(f"fix-{25 - n:02}", joined=n) for n in range(1, 24)]
         self.ended("other-repo", state="waiting", waiting_on={
-            "line": run.merge_lock_path("https://github.com/acme/other.git", "origin/main").name,
+            "line": deliver.merge_lock_path("https://github.com/acme/other.git", "origin/main").name,
             "joined": 0})
         release = self.ended("other-target", state="waiting", target="origin/release", waiting_on={
-            "line": run.merge_lock_path("https://github.com/acme/widget.git", "origin/release").name,
+            "line": deliver.merge_lock_path("https://github.com/acme/widget.git", "origin/release").name,
             "joined": 0})
         self.assertEqual(status.parked_line(record.read_state(release)),
                          "waiting · 1st in line to land on release")

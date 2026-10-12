@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import prompts, roundloop, run, turns
+from agentkit import prompts, roundloop, turns
 
 EARLY = ("FAIL  tests/test_acme_limits.py: exit 1 after 177s, its last lines:\n"
          "      FileNotFoundError: [Errno 2] No such file or directory: 'taken'\n")
@@ -45,7 +45,7 @@ class LandingFixer(unittest.TestCase):
         with patch.object(roundloop, "landing_fixer", side_effect=fixer), \
                 patch.object(roundloop, "released_gate_turn", nullcontext), \
                 self.assertRaises(Handed):
-            run.fix_final_check(FakeRun(), "main", text)
+            roundloop.fix_final_check(FakeRun(), "main", text)
         return seen[0]
 
     def test_a_failure_far_from_the_end_reaches_the_fixer(self):

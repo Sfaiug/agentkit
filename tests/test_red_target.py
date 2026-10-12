@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, gate, gitcall, host, land, roundloop, run, turns
+from agentkit import config, deliver, gate, gitcall, host, land, roundloop, run, turns
 from agentkit import record
 
 
@@ -169,7 +169,7 @@ class RedTarget(unittest.TestCase):
         history = list(lp.state["round_summaries"])
         failure = run_dir / "lander.log"
         failure.write_text("$ false\n[exit 1]\nFAIL the landing check\n")
-        lp.state["waiting_on"] = {"line": run.turn_path(lp, "origin/main").name,
+        lp.state["waiting_on"] = {"line": deliver.turn_path(lp, "origin/main").name,
             "joined": 1, "fix": {"line": "FAIL the landing check", "log": str(failure)}}
         lp.save()
         self.assertFalse(run.land(lp, "origin/main", lambda: self.fail("local suite"),
@@ -397,7 +397,7 @@ class RedTarget(unittest.TestCase):
         # the rebase invalidated the review before the re-check ran, as in every
         # integrate park: the retry re-reviews once the target moves
         self.assertIn("review_pending", state)
-        self.assertTrue(run.integrated(wt, tip))
+        self.assertTrue(roundloop.integrated(wt, tip))
         self.assertEqual(run.git(wt, "symbolic-ref", "--short", "HEAD"), "ak/fix-api")
         self.assertEqual(run.git(wt, "status", "--porcelain"), "")
 

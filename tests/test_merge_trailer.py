@@ -54,7 +54,7 @@ class MergeTrailer(unittest.TestCase):
         self.directory.mkdir()
         self.calls = []
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
-        self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **_kw: nullcontext()))
+        self.stack.enter_context(patch.object(deliver, "merge_lock", side_effect=lambda *a, **_kw: nullcontext()))
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
 
     def git(self, *args):
@@ -148,9 +148,9 @@ class MergeTrailer(unittest.TestCase):
                 self.assertTrue(run.push(lp))
         if own:
             lp.state["own_orchestrator"] = "opus"
-            with patch.object(run, "fetch", return_value=(0, "")), \
+            with patch.object(run, "fetch", return_value=(0, "")), patch.object(gitcall, "fetch", return_value=(0, "")), \
                     patch.object(deliver, "checks", return_value=(True, "")), \
-                    patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+                    patch.object(deliver, "join_line", side_effect=lambda lp, _upstream, deliver:
                                  landing(lp, deliver=deliver)):
                 self.assertTrue(run.merge_own_pr(lp, url))
         else:
@@ -305,11 +305,11 @@ class MergeTrailer(unittest.TestCase):
                                 ("collect_usage", {}), ("post_review", True),
                                 ("join_session_project", None)):
                 mocks.enter_context(patch.object(run, name, return_value=value))
+            mocks.enter_context(patch.object(gitcall, "fetch", return_value=(0, "")))
             mocks.enter_context(patch.object(deliver, "checks", return_value=(True, "")))
             mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
-            mocks.enter_context(patch.object(run, "gh_json", side_effect=gh_json))
             mocks.enter_context(patch.object(deliver, "gh_json", side_effect=gh_json))
-            mocks.enter_context(patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
+            mocks.enter_context(patch.object(deliver, "join_line", side_effect=lambda lp, _upstream, deliver:
                                              landing(lp, deliver=deliver)))
             mocks.enter_context(patch.object(turns, "call_retrying", side_effect=submitting((
                 0, ("## Findings\n- work.txt:1 - wrong edge case - a broken result\n" if verdict == "FAIL"

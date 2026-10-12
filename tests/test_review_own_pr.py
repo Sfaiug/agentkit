@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, handback, orch, run, watch, worktrees
+from agentkit import config, deliver, gc, gitcall, handback, orch, run, watch, worktrees
 from agentkit import record
 from fixtures.hand_in import records
 
@@ -159,6 +159,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
+            mocks.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(gitcall, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
@@ -185,7 +186,7 @@ class OwnPr(unittest.TestCase):
             mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 gitcall, "gh", side_effect=self.posting_gh(events, merges)))
-            mocks.enter_context(patch.object(run, "merge_lock", side_effect=turn))
+            mocks.enter_context(patch.object(deliver, "merge_lock", side_effect=turn))
             mocks.enter_context(patch.object(
                 watch, "ask_inbox",
                 side_effect=lambda *a, **k: inbox.append(a) or 0))
@@ -422,6 +423,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
+            mocks.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(
                 gitcall, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(
@@ -446,6 +448,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
+            mocks.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(gitcall, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
@@ -567,6 +570,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
+            mocks.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(gitcall, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
@@ -587,6 +591,7 @@ class OwnPr(unittest.TestCase):
             for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
+            mocks.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_view()))
             mocks.enter_context(patch.object(gitcall, "gh", side_effect=self.posting_gh(events)))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)

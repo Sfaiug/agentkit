@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import (browser, config, gate, gitcall, handback, history, host, land, orch, record,
-                      run, scoreboard, stop, terminal, watch, worktrees)
+from agentkit import (browser, config, deliver as delivery, gate, gitcall, handback, history, host, land, orch,
+                      record, roundloop, run, scoreboard, stop, terminal, turns, watch, worktrees)
 
 DAY = 86400
 
@@ -109,13 +109,13 @@ class WaitHistory(unittest.TestCase):
         for module, name, options in (
                 (time, "time", {"side_effect": lambda: self.clock[0]}),
                 (time, "monotonic", {"side_effect": lambda: self.clock[0]}),
-                (run, "git", {"side_effect": git}),
-                (run, "git_out", {"side_effect": git_out}),
-                (run, "fetch", {}), (run, "require_review_pass", {}),
-                (run, "stop_run_tree", {}), (run, "set_base", {}),
-                (run, "how_to_integrate", {"return_value": "rebase"}),
-                (run, "passed_review_head", {"return_value": "reviewed"}),
-                (run, "commit_identity", {"return_value": {
+                (run, "git", {"side_effect": git}), (gitcall, "git", {"side_effect": git}),
+                (run, "git_out", {"side_effect": git_out}), (gitcall, "git_out", {"side_effect": git_out}),
+                (run, "fetch", {}), (gitcall, "fetch", {}), (delivery, "require_review_pass", {}),
+                (turns, "stop_run_tree", {}), (roundloop, "set_base", {}),
+                (roundloop, "how_to_integrate", {"return_value": "rebase"}),
+                (roundloop, "passed_review_head", {"return_value": "reviewed"}),
+                (gitcall, "commit_identity", {"return_value": {
                     "head_sha": "landed", "tree_sha": "checked-tree"}}),
                 (gitcall, "declared_suite", {"return_value": ""}),
                 (record, "process_active", {"return_value": False}),
@@ -127,7 +127,7 @@ class WaitHistory(unittest.TestCase):
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume"))
         history.start_run(directory.name, repo=repo, started_at=self.clock[0])
         lp.write()
-        return lp, run.turn_path(lp, "origin/main")
+        return lp, delivery.turn_path(lp, "origin/main")
 
     def resume_line(self, lp):
         lp.state = record.read_state(lp.run_dir)
@@ -159,7 +159,7 @@ class WaitHistory(unittest.TestCase):
         self.wake.assert_called_once()
         self.assertEqual(record.read_state(lp.run_dir)["waiting_on"]["land"], "checked-tree")
         self.resume_line(lp)
-        self.assertTrue(run.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
+        self.assertTrue(delivery.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
         self.clock[0] += 30
         lp.state.update(state="pass", finished_at=self.clock[0])
         lp.write()
@@ -189,8 +189,8 @@ class WaitHistory(unittest.TestCase):
                 self.clock[0] += 10
                 return self.deliver_line(lp)
 
-            with patch.object(run.fcntl, "flock", side_effect=take_lock):
-                self.assertTrue(run.land_from_line(lp, "origin/main", deliver))
+            with patch.object(delivery.fcntl, "flock", side_effect=take_lock):
+                self.assertTrue(delivery.land_from_line(lp, "origin/main", deliver))
         self.assertEqual(self.waits(lp.run_dir.name), (0.0, 0.0, 130.0))
         lp.write()
         self.assertEqual(self.waits(lp.run_dir.name), (0.0, 0.0, 130.0))
@@ -232,7 +232,7 @@ class WaitHistory(unittest.TestCase):
         # the waiter counted its slot wait; the place it held stays open through admission
         self.assertEqual(self.waits(lp.run_dir.name), (50.0, 0.0, 0.0))
         self.clock[0] += 10
-        self.assertTrue(run.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
+        self.assertTrue(delivery.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
         self.assertEqual(self.waits(lp.run_dir.name), (50.0, 0.0, self.clock[0] - joined))
 
     def test_rejoins_and_resumes_count_each_line_interval_and_exclude_fix_waits(self):
@@ -242,7 +242,7 @@ class WaitHistory(unittest.TestCase):
         joined = record.read_state(lp.run_dir)["waiting_on"]["joined"]
         self.clock[0] += 40
         self.resume_line(lp)
-        self.assertFalse(run.rejoin_line(lp, "origin/main", "target changed"))
+        self.assertFalse(delivery.rejoin_line(lp, "origin/main", "target changed"))
         self.assertEqual(lp.state["waiting_on"]["joined"], joined)
         run.release_line(lp.run_dir, lp.log)
         self.clock[0] += 60
@@ -262,8 +262,8 @@ class WaitHistory(unittest.TestCase):
             history.add_wait(lp.run_dir.name, "suite", 30)
             return True
 
-        with patch.object(run, "integrate", return_value=True), patch.object(run, "fix_final_check", side_effect=fix):
-            self.assertFalse(run.land_from_line(lp, "origin/main", lambda: True))
+        with patch.object(roundloop, "integrate", return_value=True), patch.object(roundloop, "fix_final_check", side_effect=fix):
+            self.assertFalse(delivery.land_from_line(lp, "origin/main", lambda: True))
         self.assertEqual(self.waits(lp.run_dir.name), (20.0, 30.0, 100.0))
         # A repaired member keeps its place; its merge wait restarts at the rejoin.
         self.assertEqual(lp.state["waiting_on"]["joined"], joined)
@@ -273,7 +273,7 @@ class WaitHistory(unittest.TestCase):
         land.check_line(turn)
         self.resume_line(lp)
         self.clock[0] += 5
-        self.assertTrue(run.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
+        self.assertTrue(delivery.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
         self.assertEqual(self.waits(lp.run_dir.name), (20.0, 30.0, 175.0))
 
     def test_leaving_the_line_closes_the_wait_and_a_resume_keeps_only_its_new_time(self):
@@ -309,7 +309,7 @@ class WaitHistory(unittest.TestCase):
             raise run.Stopped("delivery command was interrupted")
 
         with self.assertRaises(run.Stopped):
-            run.land_from_line(lp, "origin/main", stopped_delivery)
+            delivery.land_from_line(lp, "origin/main", stopped_delivery)
         with patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"), patch.object(handback, "write_result"):
             if departure == "exhausted":
                 run.mark_state(lp.run_dir, departure, "the provider's window is spent", lp.log)
@@ -471,7 +471,7 @@ class WaitHistory(unittest.TestCase):
         self.clock[0] += 100
         land.check_line(turn)
         self.resume_line(lp)
-        self.assertTrue(run.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
+        self.assertTrue(delivery.land_from_line(lp, "origin/main", lambda: self.deliver_line(lp)))
         self.assertEqual(self.waits(lp.run_dir.name), (0.0, 0.0, 100.0))
 
     def test_recovery_that_keeps_the_line_place_keeps_its_merge_wait(self):

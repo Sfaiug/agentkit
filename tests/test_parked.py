@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, handback, host, land, menu, orch, run, staffing, status, stop, transitions, watch
+from agentkit import config, deliver, gc, gitcall, handback, host, land, menu, orch, roundloop, run, staffing, status, stop, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -318,7 +318,7 @@ class Parked(unittest.TestCase):
                 lp = SimpleNamespace(state=record.read_state(run_dir), run_dir=run_dir,
                                      log=run.note_in(run_dir / "log.txt"),
                                      write=lambda: record.save_state(run_dir, lp.state))
-                run.park_waiting(lp, reason, "origin/main", old)
+                roundloop.park_waiting(lp, reason, "origin/main", old)
                 # the retry is scheduled, and status says when
                 with redirect_stdout(io.StringIO()) as out:
                     self.assertEqual(status.cmd_status([run_dir.name]), 0)
@@ -709,7 +709,7 @@ class Parked(unittest.TestCase):
 
                 # A line member is unfinished work even when this ending's retry
                 # would belong to a person: only the lander advances its record.
-                state["waiting_on"] = {"line": run.merge_lock_path(
+                state["waiting_on"] = {"line": deliver.merge_lock_path(
                     "https://github.com/acme/widget.git", "origin/main").name,
                     "joined": self.now - 30}
                 record.save_state(directory, state)

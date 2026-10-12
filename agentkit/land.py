@@ -461,7 +461,7 @@ def _member_commit(repo, state, head):
 def _pr_moved(state, heads):
     """Why a PR in the line no longer holds the head that passed its review, or "": its seat
     pushed since.  `heads` keeps each PR's head for the pass; an unreadable one is not moved."""
-    from . import run
+    from . import deliver, run
     url = state.get("review_pr")
     if not url:
         return ""
@@ -471,7 +471,7 @@ def _pr_moved(state, heads):
         except config.Error:
             heads[url] = None
     head = heads[url]
-    if not head or head in run.own_pr_heads(state):
+    if not head or head in deliver.own_pr_heads(state):
         return ""
     return (f"its PR's head moved to {head[:12]} after review of "
             f"{(state.get('head_sha') or '?')[:12]}: the new commits are reviewed before "

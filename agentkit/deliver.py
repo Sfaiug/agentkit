@@ -1,19 +1,27 @@
-"""A run's delivery: the pull request.
+"""A run's delivery.
 
-The push of its branch and the pull request that opens on it (its body and the
-suite trailer it carries, its checks and their wait, the rights a fork needs),
-the gh calls that read GitHub's answers, and what may merge without a review:
-a diff of wording alone.
+The push of its branch and the pull request that opens on it (its body, its
+checks and their wait, the rights a fork needs), the gh calls that read GitHub's
+answers, the merge and what it may merge (a diff of wording alone needs no
+review), the landing line a run joins, releases and rejoins, the landing itself
+under the repository's lock, and the endings a delivery can have: blocked, on a
+dependency, or a landing that failed and goes back to the writer.
 """
 
+import fcntl
+import hashlib
 import json
 import os
 import re
+import shutil
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import config, gitcall, prompts, roundloop, transitions, turns
+from . import (config, gitcall, handback, history, land as landing, prompts, record as run_record,
+               roundloop, transitions, turns)
 
 
 GITHUB_BODY_CAP = 60_000         # below GitHub's 65,536-character body limit, including UTF-8
@@ -520,3 +528,627 @@ def text_blob(repo, ref, path):
         return "\0" not in gitcall.git_bytes(repo, "cat-file", "blob", f"{ref}:{path}")
     except (config.Error, gitcall.Stopped):
         return False
+
+
+MERGE_METHODS = {"squash": "--squash", "merge": "--merge", "rebase": "--rebase"}
+# the race a merge can lose to a merge to the target between the push and this call; the
+# answer is a retry, never an ending -- see `do_merge`
+BASE_BRANCH_MODIFIED = re.compile(r"Base branch was modified", re.I)
+# the same answer about the head right after delivery pushed it: GitHub has not yet taken the
+# push in, and the re-check ends the run if the head really moved
+HEAD_BRANCH_MODIFIED = re.compile(r"Head branch was modified", re.I)
+# GitHub's own server failing the call, which its answer says to resubmit: the merge may or
+# may not have gone through, so it is re-checked and retried like the race above
+GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
+                        r"Service Unavailable|couldn't respond to your request in time", re.I)
+MERGE_RETRIES = 3      # how often any of them is re-fetched, re-checked and tried again
+# GitHub refusing a head pushed seconds before, while it has not yet worked out whether it
+# merges: its state is asked again while UNKNOWN, and a PR it then calls CLEAN is tried once
+# more -- see `do_merge`
+NOT_MERGEABLE = re.compile(r"Pull Request is not mergeable", re.I)
+
+
+PICKUP_HELD = threading.local()   # delivery locks this thread holds or waits for
+
+
+# --- the merge pipeline: PASS -> origin -> a PR -> its checks -> merged -----
+
+
+def merged(lp, url, method):
+    """Record the PR as merged, with what proving it live stands on; True, for the merge step
+    to return."""
+    from . import watch  # here, not at the top: it reaches run
+    lp.state.update(merged=True, **watch.merge_record(lp.wt, lp.state.get("delivery_sha")))
+    lp.write()
+    lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
+    return True
+
+
+def is_delivery(lp, info, upstream):
+    """Is this PR view still this run's delivery: the reviewed head, aimed at `upstream`?"""
+    return (info.get("headRefOid") == lp.state["delivery_sha"]
+            and info.get("baseRefName") == upstream.removeprefix("origin/"))
+
+
+def merged_anyway(lp, url, upstream):
+    """Did GitHub merge this delivery whatever `gh pr merge` answered?  Records it when it did.
+
+    A 5xx or a stopped call may have merged it, and `--delete-branch` exits non-zero on a
+    merge that went through when the repository deleted the head branch first (`Reference
+    does not exist`).  Only `state` says MERGED -- mergeStateStatus carries mergeability
+    (BEHIND/BLOCKED/CLEAN and the rest), never the outcome -- and only a merge of the
+    delivery into its target is this run's work: a head another writer replaced, or a PR
+    retargeted and merged elsewhere, is not.
+    """
+    src, view = gitcall.gh(lp.run_dir, "pr", "view", url, "--json", "state,headRefOid,baseRefName")
+    if gitcall.stopped(src, view):
+        raise gitcall.Stopped(view)
+    try:
+        info = json.loads(view) if src == 0 else {}
+    except ValueError:
+        info = {}
+    return (info.get("state") == "MERGED" and is_delivery(lp, info, upstream)
+            and merged(lp, url, lp.state["merge_method"]))
+
+
+def do_merge(lp, url, upstream):
+    """Merge the PR, integrating once more if origin moved under it while the checks ran.
+
+    `gh pr merge` answering `Base branch was modified` is a race with a merge to the
+    target between the push and this call, not an ending: the answer is re-fetched, the
+    PR is re-checked to still be mergeable, and the merge is tried again -- three times,
+    with a growing wait -- and only then does the run park `waiting` with the reason,
+    retried after the next merge to the target.  GitHub answering with a 5xx of its own
+    takes the same road, and a merge it went through with anyway counts as merged; so does
+    `Head branch was modified` straight after the delivery's own push, which the re-check
+    ends only when the PR head really is another commit.  After `Pull Request is not
+    mergeable`, GitHub is asked again while it reports the PR's state UNKNOWN, up to
+    MERGE_RETRIES times, and a PR it then calls CLEAN is tried once more.  Work
+    that passed review is never thrown away over one lost race or one bad answer.
+    """
+    method = lp.state["merge_method"]
+    why, raced = "", 0
+    for attempt in (1, 2):
+        ready, lost = True, False
+        while True:
+            require_review_pass(lp)
+            if lp.state["review"].get("head_sha") != lp.state["delivery_sha"]:
+                return roundloop.note(lp, "the delivery SHA is not the tested and reviewed commit", failed=True)
+            if ready:
+                if (lp.state.get("waiting_on") or {}).get("line"):
+                    gitcall.fetch(lp.wt, "origin", "--prune", check=True)
+                    if not roundloop.integrated(lp.wt, upstream):
+                        return rejoin_line(lp, upstream, "the PR's target moved")
+                body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
+                rc, out = gitcall.gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
+                             "--match-head-commit", lp.state["delivery_sha"], *body)
+            if rc == 0 or gitcall.stopped(rc, out):
+                break
+            if BASE_BRANCH_MODIFIED.search(out or ""):
+                cause = "the base branch was modified under the merge"
+            elif HEAD_BRANCH_MODIFIED.search(out or ""):
+                cause = "GitHub had not yet taken the pushed head"
+            elif GITHUB_5XX.search(out or ""):
+                cause = "GitHub failed the merge call"
+            else:
+                break
+            if raced >= MERGE_RETRIES:
+                lost = True
+                break
+            raced += 1
+            delay = turns.transient_delay(raced)
+            lp.log(f"WARN {cause}; re-fetching, re-checking and retrying in {delay}s "
+                   f"({raced}/{MERGE_RETRIES})")
+            step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
+            time.sleep(delay)
+            history.open_step(lp.state.get("run_id"), step, log=lp.log)
+            frc, fetched = gitcall.fetch(lp.wt, "origin")
+            if frc != 0:
+                return roundloop.note(lp, f"git fetch origin failed: {fetched[-400:]}", failed=True)
+            vrc, view = gitcall.gh(lp.run_dir, "pr", "view", url, "--json",
+                           "state,mergeable,headRefOid,baseRefName")
+            if gitcall.stopped(vrc, view):
+                raise gitcall.Stopped(view)
+            if vrc != 0:
+                return roundloop.note(lp, f"could not re-check the PR: {view[-400:]}", failed=True)
+            try:
+                info = json.loads(view)
+            except ValueError:
+                return roundloop.note(lp, f"could not read the PR: {view[-400:]}", failed=True)
+            if not is_delivery(lp, info, upstream):
+                return roundloop.note(lp, "PR head or target changed since PASS; a new run is required",
+                            failed=True)
+            seen, mergeable = info.get("state"), info.get("mergeable")
+            if seen == "MERGED":
+                return merged(lp, url, method)
+            if seen != "OPEN":
+                return roundloop.note(lp, "PR is closed without a merge", failed=True)
+            # A moving target can change both the patch and its checks. Reuse the same
+            # integration path as a BEHIND retry before authorizing the new head.
+            head = lp.state["delivery_sha"]
+            if (lp.state.get("waiting_on") or {}).get("line"):
+                if not roundloop.integrated(lp.wt, upstream):
+                    return rejoin_line(lp, upstream, "the PR's target moved")
+            elif not roundloop.integrate(lp, upstream):
+                return False
+            if gitcall.git(lp.wt, "rev-parse", "HEAD") != head:
+                if not roundloop.final_check(lp, upstream) or not push(lp) or not wait_checks(lp, url):
+                    return False
+                if not refresh_pr_body(lp):
+                    return False
+                ready = True
+            else:
+                # GitHub may still be computing mergeability. An unconfirmed answer
+                # uses the remaining retries to re-check before authorizing a merge.
+                ready = mergeable == "MERGEABLE"
+        if rc == 0:
+            return merged(lp, url, method)
+        if lost:
+            # the last attempt's 5xx may have merged too, and no re-check followed it
+            if merged_anyway(lp, url, upstream):
+                return True
+            return roundloop.park_waiting(
+                lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
+                    f"the PR is open at {url}", upstream,
+                gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
+        refused = bool(NOT_MERGEABLE.search(out or ""))
+        for polled in range(MERGE_RETRIES + 1):
+            if polled:
+                time.sleep(CHECKS_POLL)     # GitHub still working out a head pushed just now
+            vrc, why = gitcall.gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
+                          "-q", ".mergeStateStatus")
+            if not refused or vrc != 0 or why != "UNKNOWN":
+                break
+        if gitcall.stopped(rc, out) or gitcall.stopped(vrc, why):
+            # a merge that stopped may still have gone through server-side
+            if merged_anyway(lp, url, upstream):
+                return True
+            raise gitcall.Stopped(out if gitcall.stopped(rc, out) else why)
+        if attempt == 2 or why not in ("BEHIND", "DIRTY", "CLEAN"):
+            break
+        if why == "CLEAN":
+            if not refused:
+                break
+            lp.log("WARN GitHub called the PR not mergeable, then CLEAN: it had not yet worked "
+                   "out the head just pushed; retrying the merge")
+            continue
+        lp.log(f"WARN the PR is {why}; taking {upstream} in once more and retrying the merge")
+        if (lp.state.get("waiting_on") or {}).get("line"):
+            return rejoin_line(lp, upstream, f"the PR is {why}")
+        # the retry pushes a new head, so its checks are a new run: wait them out again rather
+        # than merging on the strength of the ones that passed for the commit just replaced --
+        # and its `# once` commands too, which have only ever run on that commit
+        if (not roundloop.integrate(lp, upstream) or not roundloop.final_check(lp, upstream) or not push(lp)
+                or not wait_checks(lp, url)):
+            return False
+        if not refresh_pr_body(lp):
+            return False
+    if merged_anyway(lp, url, upstream):
+        return True
+    return roundloop.note(lp, f"gh pr merge --{method} failed"
+                    f"{f' with the PR {why}' if why else ''}; the PR is open at {url}: {out[-400:]}",
+                failed=True)
+
+
+def join_line(lp, upstream, deliver):
+    """Leave a passed run's place on disk; a fresh process consumes the lander's verdict."""
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return land_from_line(lp, upstream, deliver)
+    require_review_pass(lp)
+    lp.state.update(state="waiting", waiting_on={"line": turn_path(lp, upstream).name,
+                                               "joined": time.time()},
+                    error="waiting for the lander", finished_at=None)
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    return False
+
+
+def release_line(run_dir, log):
+    """Finish this attempt's cleanup before the lander can wake a new record owner."""
+    with run_record.recovery_lock(run_dir):
+        state = run_record.read_state(run_dir) or {}
+        if (state.get("state") != "waiting" or state.get("pid") != os.getpid()
+                or not (state.get("waiting_on") or {}).get("line")):
+            return
+        turns.stop_run_tree(state, log)
+        state.update(pid=None, process_identity=None)
+        run_record.save_state(run_dir, state)
+    landing.start_line(config.RUNS / state["waiting_on"]["line"], log)
+
+
+def rejoin_line(lp, upstream, reason):
+    """A rejoining run keeps its place, repaired work included: checked again soon, it meets
+    the target it was fixed against, not one moved by every landing a lap at the back takes."""
+    wait = lp.state["waiting_on"]
+    lp.log(f"rejoins the line: {reason}")
+    lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
+                    waiting_on={"line": turn_path(lp, upstream).name, "joined": wait["joined"]})
+    lp.state.pop("recovery_pending", None)
+    lp.write()
+    return False
+
+
+def land_from_line(lp, upstream, deliver):
+    """Consume the lander's verdict in this run; only delivery holds the plain merge flock."""
+    wait = lp.state["waiting_on"]
+    if landing.green_delivery(wait):
+        turn = turn_path(lp, upstream)
+        try:
+            with merge_lock(lp, upstream):
+                gitcall.fetch(lp.wt, "origin", "--prune", check=True)
+                tip = gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+                how = roundloop.how_to_integrate(lp)
+                args = ("merge", "--no-edit", tip) if how == "merge" else ("rebase", tip)
+                saved = dict(lp.state["review"])
+                try:
+                    code, _ = gitcall.git_out(lp.wt, *args)
+                except gitcall.Stopped:
+                    roundloop.abort_stopped_integration(lp, how)
+                    raise
+                if code:
+                    roundloop.abort_integration(lp, how)
+                    reason = (f"its {how} onto {upstream} at {tip[:12]} stopped on a conflict; "
+                              "the lander checks it again")
+                    return rejoin_line(lp, upstream, reason)
+                roundloop.set_base(lp, tip)
+                identity = gitcall.commit_identity(lp.wt)
+                lp.state["review"] = {**saved, **identity,
+                                      "passed_head_sha": roundloop.passed_review_head(lp.state),
+                                      "rebased_from": saved["head_sha"]}
+                lp.write()
+                if identity["tree_sha"] != wait["land"]:
+                    # Its tree alone on the tip is not the stack the lander passed: a change
+                    # stacked ahead of it has not landed yet, or the target moved.
+                    reason = (f"on {upstream} at {tip[:12]} its tree is {identity['tree_sha'][:12]}, "
+                              f"not the {wait['land'][:12]} the lander checked: a change stacked "
+                              f"ahead of it has not landed yet, or {upstream} moved")
+                    return rejoin_line(lp, upstream, reason)
+                if gitcall.git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
+                    lp.state.update(on_target=True)
+                    lp.state.pop("waiting_on", None)
+                    lp.state.pop("landing_reds", None)
+                    return roundloop.note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
+                if saved.get("skipped") and not text_only_pr(lp.wt, tip, "HEAD"):
+                    # work not on the target yet: the target may have carried the wording onto
+                    # files that need review (a rename, say)
+                    path = lp.run_dir / "review-needed.log"
+                    path.write_text("Rebased onto the target, this wording PR now changes files "
+                                    "that need review; push the rebased branch and it is reviewed.\n")
+                    return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
+                                           landing=False)
+                lp.state["final_check"] = {"outcome": "passed", "where": "landing",
+                                           "sha": identity["head_sha"],
+                                           "tree_sha": identity["tree_sha"],
+                                           "tested": wait.get("tested") or (
+                                               landing.passed(turn, wait["land"]) or {}).get(
+                                                   "tested", identity["tree_sha"]),
+                                           "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip)}
+                lp.write()
+                result = deliver()
+                if "fix" not in lp.state.get("waiting_on", {}):
+                    if result:
+                        lp.state.pop("waiting_on", None)
+                        lp.state.pop("landing_reds", None)
+                        lp.write()
+                    return result
+        finally:
+            # Departures and changed-target rejoins were written under this flock.
+            landing.start_line(turn, lp.log)
+        wait = lp.state["waiting_on"]
+    if "fix" not in wait:
+        return rejoin_line(lp, upstream, "waiting for the lander")
+    failure = wait["fix"]
+    if lp.state.get("review_pr"):
+        # a head the seat pushed past its review is new work, reviewed as a round: no landing red
+        return fail_pr_landing(lp, failure, landing=not failure.get("moved"))
+    if not wait.get("fixing"):
+        lp.state["landing_reds"] = lp.state.get("landing_reds", 0) + 1
+        lp.state["waiting_on"] = {**wait, "fixing": True}
+        lp.write()
+    if lp.state["landing_reds"] > roundloop.CONFLICT_ROUNDS:
+        lp.state.pop("waiting_on", None)
+        # The count bounds one landing; a person who resumes the ended run starts a new one.
+        lp.state.pop("landing_reds", None)
+        return roundloop.note(lp, f"landing failed four times: {failure['line']}; see {failure['log']}",
+                    failed=True)
+    if not roundloop.integrate(lp, upstream):
+        if lp.state.get("merge_failed"):
+            raise config.Error(lp.state["merge_note"])
+        lp.state["state"] = "running"
+        if not lp.state.get("review_pending") or roundloop.resume_review(lp) != "PASS":
+            lp.state.pop("waiting_on", None)
+            lp.write()
+            return False
+    if not lp.state["waiting_on"].get("fixed"):
+        text = Path(failure["log"]).read_text(errors="replace")
+        if not roundloop.fix_final_check(lp, upstream, text):
+            lp.state.pop("waiting_on", None)
+            lp.write()
+            return False
+    return rejoin_line(lp, upstream, "landing fixes passed review")
+
+
+def land(lp, upstream, verify, deliver, execv=None):
+    """Consume a line verdict, or verify once before taking the delivery lock.
+
+    Only delivery holds the repository lock; checks and fixers run outside it.
+    """
+    from . import gate  # here, not at the top: it reaches run
+    from . import run  # here, not at the top: run imports deliver
+    if (lp.state.get("waiting_on") or {}).get("line"):
+        return land_from_line(lp, upstream, deliver)
+    run.pickup_new_code(lp, execv=execv)
+    gate.clear_landing_wait(lp.run_dir)
+    lp.state["landing"] = True
+    lp.write()
+    try:
+        if not verify():
+            return False
+        with merge_lock(lp, upstream):
+            gitcall.fetch(lp.wt, "origin", "--prune", check=True)
+            tip = gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
+            if tip != lp.base_sha:
+                return roundloop.park_waiting(lp, f"{upstream} changed since verification",
+                                    upstream, lp.base_sha)
+            return deliver()
+    finally:
+        lp.state.pop("landing", None)
+        gate.clear_landing_wait(lp.run_dir)
+        try:
+            lp.write()
+        except (OSError, run_record.StopRequested):
+            pass            # the landing is over however the record ends
+
+
+@contextmanager
+def merge_lock(lp, upstream):
+    """Serialize deliveries to one repository and target; the kernel releases a dead holder."""
+    from . import gate  # here, not at the top: it reaches run
+    config.RUNS.mkdir(parents=True, exist_ok=True)
+    held = getattr(PICKUP_HELD, "count", 0)
+    PICKUP_HELD.count = held + 1
+    try:
+        turn = turn_path(lp, upstream)
+        with turn.open("a") as lock:
+            try:
+                while True:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        # Another delivery can spend an hour on PR checks; its waiter is not stalled.
+                        lp.state["delivery_wait"] = os.getpid()
+                        lp.write()
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                    members = landing.line(turn) if landing.green_delivery(
+                        lp.state.get("waiting_on") or {}) else []
+                    if (not members or members[0][0] == lp.run_dir
+                            or not landing.green_delivery(members[0][1]["waiting_on"])):
+                        break
+                    # Flock does not order contenders; a checked suffix needs its prefix delivered.
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    lp.state["delivery_wait"] = os.getpid()
+                    lp.write()
+                    run_record.stop_check(lp.run_dir)
+                    time.sleep(gate.SLOT_POLL)
+            finally:
+                if lp.state.pop("delivery_wait", None) is not None:
+                    lp.write()
+            yield
+    finally:
+        PICKUP_HELD.count = held
+
+
+def turn_path(lp, upstream):
+    """The delivery lock for `lp`'s repository and target."""
+    url = gitcall.git(lp.wt, "remote", "get-url", "origin", check=False) or str(lp.state.get("repo"))
+    return merge_lock_path(url, upstream)
+
+
+def remote_key(url):
+    """`host/owner/repo` for a clone URL, however it spells the repository.
+
+    `git@github.com:acme/widget.git`, `ssh://git@github.com:22/acme/widget` and
+    `https://github.com/Acme/widget` are one repository: the host and the path are what is
+    kept, without a user, a port, a trailing `.git`, or the case GitHub ignores.  A local
+    path is itself.
+    """
+    scp = re.fullmatch(r"(?:[^@/]+@)?([^:/]+):(?!//)(.+)", url)
+    parts = urlsplit(url)
+    host, path = (scp[1], scp[2]) if scp else (parts.hostname, parts.path)
+    return f"{host}/{path.strip('/').removesuffix('.git')}".lower() if host else url
+
+
+def merge_lock_path(url, upstream):
+    """The delivery lock for one repository and target, however a clone spells it."""
+    digest = hashlib.sha256(f"{remote_key(url)}\n{upstream}".encode()).hexdigest()
+    return config.RUNS / f".merge-{digest}.lock"
+
+
+def merge(lp):
+    """A passed writable run joins the line; a wake delivers its checked tree, a fork its PR.
+
+    Never a model's call.
+
+    Everything here is about `target` -- the branch the PR merges into -- and not about `base`,
+    which is only where the run's branch was cut from.  They are the same branch unless the
+    task said otherwise.
+    """
+    if not (lp.state.get("waiting_on") or {}).get("line"):
+        require_review_pass(lp)
+    lp.state.update(merged=False, merge_failed=False, merge_note=None, on_target=False)
+    lp.step("merge")
+    branch = lp.state["branch"]
+    # merging is the job, so nothing here is a shrug: a run that cannot merge failed to deliver
+    # and says so with exit 1.  `--no-merge` is how a run opts out of the job in the first place.
+    if shutil.which("gh") is None:
+        return roundloop.note(lp, "no `gh` on PATH; push and open the PR yourself", failed=True)
+    if "origin" not in gitcall.git(lp.wt, "remote", check=False).split():
+        return roundloop.note(lp, f"{lp.state['repo']} has no `origin` remote to merge into", failed=True)
+    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+    target_branch = upstream.split("/", 1)[1]
+    if branch == target_branch:
+        return roundloop.note(lp, f"this run works directly on {branch}, which is the branch it would merge "
+                        "into, so there is no PR to open", failed=True)
+
+    upstream_repo, permission = rights(lp)
+    if upstream_repo and permission not in PUSH_RIGHTS:
+        return land(lp, upstream, lambda: roundloop.integrate(lp, upstream) and roundloop.final_check(lp, upstream),
+                    lambda: fork_and_pr(lp, target_branch, upstream_repo, permission))
+
+    def deliver():
+        require_review_pass(lp)
+        lp.step("merge")        # integration may have spent rounds of its own on the way here
+        if not push(lp):
+            return False
+        url = open_pr(lp, target_branch)
+        if not url or not wait_checks(lp, url):
+            return False
+        return do_merge(lp, url, upstream)
+    return join_line(lp, upstream, deliver)
+
+
+def own_pr_heads(state):
+    """The PR heads that are this run's own: the head it reviewed and the one it pushed."""
+    return state.get("head_sha"), state.get("delivery_sha")
+
+
+def merge_own_pr(lp, url):
+    """Join the same line as task runs; deliver only the lander's tested PR tree."""
+    if lp.state.get("own_pr") and not lp.state.get("own_orchestrator"):
+        return roundloop.note(lp, "no recorded writer for this PR; refusing the automatic merge",
+                              failed=True)
+    upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
+
+    def deliver():
+        current = pr_head(lp, url)
+        remote = current["head"]
+        expected = own_pr_heads(lp.state)
+        ours = (remote["sha"] in expected
+                and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
+        if current.get("merged") and ours:
+            from . import watch  # here, not at the top: it reaches run
+            lp.state.update(merged=True, **watch.merge_record(lp.wt, remote["sha"]))
+            lp.write()
+            return True
+        if current.get("state") != "open" or not ours:
+            path = lp.run_dir / "pr-changed.log"
+            path.write_text("The PR head or target changed, or the PR closed, since review.\n")
+            lp.state["review_stale"] = True
+            return fail_pr_landing(lp, {"line": path.read_text().strip(), "log": str(path)},
+                                   landing=False)
+        pinned = gitcall.git(lp.wt, "rev-parse", "HEAD")
+        # Keep the intended push before calling Git: a killed push may have gone through.
+        lp.state["delivery_sha"] = pinned
+        lp.write()
+        if remote["sha"] != pinned:
+            push_pr_branch(lp, remote, remote["sha"])
+        lp.state["head_sha"] = pinned
+        lp.write()
+        return wait_checks(lp, url) and do_merge(lp, url, upstream)
+
+    return join_line(lp, upstream, deliver)
+
+
+def pr_head(lp, url):
+    """The pull request as GitHub describes it now, its head named, or an error: what a push
+    to its branch and a merge of it stand on."""
+    api, owner, repo, number = pr_parts(url)
+    current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
+    if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
+        raise config.Error(f"cannot read the PR: {why}")
+    return current
+
+
+def push_pr_branch(lp, remote, lease):
+    """The checkout's HEAD onto the PR branch GitHub describes (`remote`, the PR's head), over
+    `lease` and nothing else: a push made by hand meanwhile is never overwritten."""
+    branch, source = remote.get("ref"), (remote.get("repo") or {}).get("clone_url")
+    if not branch or not source:
+        raise config.Error("cannot locate the PR branch to push to")
+    rc, out = gitcall.git_out(lp.wt, "push", f"--force-with-lease=refs/heads/{branch}:{lease}",
+                              "--", source, f"HEAD:refs/heads/{branch}")
+    if rc:
+        raise config.Error(f"pushing to the PR branch failed: {out[-400:]}")
+
+
+def finish_blocked(run_dir, state, exc, log, cfg):
+    """The task cannot be done as written: a final state of its own, because there is no
+    verdict on work here and nothing a resume could spend.  The orchestrator that wrote
+    the task hears why and writes a new one."""
+    from . import worktrees  # here, not at the top: it reaches run
+    log(f"BLOCKED {exc}")
+    state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
+                  "blocked": exc.section, "finished_at": time.time()})
+    state.pop("quota_dry", None)
+    run_record.save_state(run_dir, state)
+    handback.record_result(run_dir, state, log, cfg)
+    worktrees.settle_run(state, run_dir, log)
+    return state
+
+
+def end_on_dependency(cfg, run_dir, state, log, why):
+    """End a run cut from a dependency's passed tip, blocked, with the branch to relaunch from.
+
+    `why` is `stands_on_dependency`'s.  An interrupted executor's uncommitted edits go onto
+    that branch first.  A checkout off it -- a rebase or merge stopped part way -- or still
+    holding work no commit took is kept with that work (`checkout_kept`), and the ending
+    says where, so the hand-back's cleanup leaves it for the seat.  So is one git could not
+    read or commit in time: the run still ends, and nothing in the checkout is lost.
+    """
+    wt = Path(state.get("worktree") or "")
+    if not state.get("scratch") and state.get("worktree") and wt.is_dir():
+        branch = state.get("branch")
+        try:
+            if (gitcall.git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
+                    or roundloop.in_progress(wt, "rebase") or roundloop.in_progress(wt, "merge")):
+                why += (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
+                        f"and is kept with that work")
+                state["checkout_kept"] = True
+            else:
+                gitcall.commit_leftovers(wt, log, set(), state)
+                if any(not gitcall.leftover_junk(path) for path in gitcall.dirty_paths(wt)):
+                    why += (f"; its uncommitted work could not be committed, so its checkout "
+                            f"{wt} is kept")
+                    state["checkout_kept"] = True
+        except (config.Error, OSError) as exc:
+            why += f"; git could not put its checkout's work on {branch} ({exc}), so {wt} is kept"
+            state["checkout_kept"] = True
+    return finish_blocked(run_dir, state, turns.Blocked(why, f"## Blocked\n\n{why}"), log, cfg)
+
+
+def fail_pr_landing(lp, failure, landing=True):
+    """The PR's writer fixes a red landing tree, just as it fixes review findings.
+
+    A `landing` red -- the line's check, a required check, a rebase the tip conflicts with --
+    gets the run's fixer turn on the PR branch and a re-review that spends no round, however
+    the round budget stands (`landing_fix`, read by `review_pr_round`), up to CONFLICT_ROUNDS
+    times for one landing, as a task run's landing fixer gets.  A PR whose head moved past its
+    review, in the line or under its delivery, or that closed (`landing` off) is reviewed as a
+    round, as any new head is, while rounds are left.
+    """
+    text = prompts.saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n" + Path(failure["log"]).read_text()
+    path = lp.run_dir / "landing-findings.md"
+    path.write_text(text)
+    lp.findings = text
+    lp.state.update(verdict="FAIL", findings=text[-8000:], findings_file=str(path),
+                    final_check={"outcome": "failed", "where": "landing", "line": failure["line"]})
+    lp.state["review"] = {**lp.state["review"], "verdict": "FAIL", "overridden": failure["line"]}
+    # the round's delivery is settled in this same write: a resume after it reviews the next head
+    lp.state.pop("waiting_on", None)
+    lp.state.pop("own_pr_round_pending", None)
+    lp.state.pop("landing_fix", None)
+    reds = lp.state.get("landing_reds", 0)
+    if landing:
+        reds = lp.state["landing_reds"] = reds + 1
+    if lp.state.get("own_pr") and (reds <= roundloop.CONFLICT_ROUNDS if landing else lp.rnd < lp.rounds):
+        lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
+        if landing:
+            lp.state["landing_fix"] = True
+    else:
+        if landing:
+            lp.state["merge_note"] = f"landing failed {reds} times: {failure['line']}"
+        # the count bounds one landing; a person who resumes the ended run starts a new one
+        lp.state.pop("landing_reds", None)
+        lp.state.update(state="fail", finished_at=time.time())
+    lp.write()
+    return False

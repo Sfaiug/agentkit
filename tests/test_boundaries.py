@@ -102,7 +102,8 @@ RULES = [
      "home": ("agentkit/run.py", "agentkit/gate.py", "agentkit/stop.py", "agentkit/turns.py",
               "agentkit/transitions.py",
               "agentkit/handback.py",
-              "agentkit/roundloop.py"),
+              "agentkit/roundloop.py",
+              "agentkit/deliver.py"),
      "max": 0},
     # A run's writer owns the temporary files and recovery lock it leaves on disk.
     {"name": "run record write",

@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gate, gitcall, handback, host, job, orch, run, staffing, transitions, watch, worker
+from agentkit import config, deliver, gate, gitcall, handback, host, job, orch, roundloop, run, staffing, transitions, watch, worker
 from agentkit import record
 
 
@@ -166,7 +166,7 @@ class MergePipeline(Fixture):
         self.assertEqual(state["merge_note"], "the PR is closed")
 
     def test_parking_waiting(self):
-        state = self.survives(lambda: run.park_waiting(self.lp, "red", "origin/main", "abc"))
+        state = self.survives(lambda: roundloop.park_waiting(self.lp, "red", "origin/main", "abc"))
         self.assertEqual((state["state"], state["waiting_on"]),
                          ("waiting", {"ref": "origin/main", "sha": "abc"}))
 
@@ -361,7 +361,7 @@ class Tick(Fixture):
 
         def joined():
             state = json.loads(path.read_text())
-            state["waiting_on"] = {"line": run.merge_lock_path(
+            state["waiting_on"] = {"line": deliver.merge_lock_path(
                 "https://github.com/acme/widget.git", "origin/main").name, "joined": self.NOW}
             path.write_text(json.dumps(state))
 

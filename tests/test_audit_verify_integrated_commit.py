@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from fixtures.sandbox import account_home
-from agentkit import config, gc, gitcall, host, notify, roundloop, run, stop, usage, worker
+from agentkit import config, deliver, gc, gitcall, host, notify, roundloop, run, stop, usage, worker
 from agentkit import record as run_record
 
 URL = "https://github.com/fixture/repo/pull/1"
@@ -90,6 +90,7 @@ class IntegratedCommit(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(account_home(self.root, places=(self.root,)))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
+        self.stack.enter_context(patch.object(deliver, "join_line", side_effect=fork_turn))
         # what is checked here is not the change: its base proof is test_regression_fails_before's
         self.stack.enter_context(patch.object(roundloop, "needs_base_proof", return_value=False))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
@@ -330,7 +331,7 @@ sys.exit(0 if ok else 1)
         code, state = self.launch(rounds=2)
         self.assertEqual(code, 1)
         self.assert_waiting_rerun(state)
-        self.assertTrue(run.integrated(self.wt, "origin/main"))
+        self.assertTrue(roundloop.integrated(self.wt, "origin/main"))
         self.assertNotEqual(self.events("tests")[0]["head_sha"], self.events("tests")[1]["head_sha"])
         self.assert_no_delivery()
 

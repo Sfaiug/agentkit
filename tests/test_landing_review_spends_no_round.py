@@ -12,7 +12,7 @@ import unittest
 from fixtures.sandbox import Sandbox
 from test_merge_step import make_loop, make_repos
 from fixtures.hand_in import submitting
-from agentkit import gate, roundloop, run, turns
+from agentkit import deliver, gate, roundloop, run, turns
 from agentkit import record
 
 
@@ -41,7 +41,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
-        self.stack.enter_context(patch.object(run, "merge_lock",
+        self.stack.enter_context(patch.object(deliver, "merge_lock",
                                               side_effect=lambda *a, **_kw: nullcontext()))
 
     def reviewer(self, cfg, name, body, workspace, out, role, session, log, limit=None, **_kw):
@@ -84,7 +84,7 @@ class LandingReviewSpendsNoRound(Sandbox):
 
         def deliver():
             self.assertTrue(roundloop.current_review(lp))
-            self.assertTrue(run.integrated(lp.wt, self.tip))
+            self.assertTrue(roundloop.integrated(lp.wt, self.tip))
             lp.state["merged"] = True
             lp.save()
             return True
@@ -199,7 +199,7 @@ class LandingReviewSpendsNoRound(Sandbox):
             run.rounds(resumed)
         integrate.assert_not_called()
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)
-        self.assertFalse(run.integrated(self.wt, self.tip))
+        self.assertFalse(roundloop.integrated(self.wt, self.tip))
         self.assertEqual(saved["round_summaries"][-1]["round"], 2)
         self.assertEqual(self.events, [("reviewer", "round-2")])
         self.assertTrue(roundloop.current_review(resumed))

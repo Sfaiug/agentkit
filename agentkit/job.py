@@ -15,8 +15,8 @@ from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import (box, config, gitcall, handback, host, notify, orch, retention, run, staffing,
-               task as taskfile, transitions, turns, watch)
+from . import (box, config, deliver, gitcall, handback, host, notify, orch, retention, run,
+               staffing, task as taskfile, transitions, turns, watch)
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -673,7 +673,7 @@ def job_end_legacy_run(cfg, task, run_dir):
                 or record.process_active(state) or transitions.landing_line(state)):
             return None
         try:
-            ended = run.end_on_dependency(cfg, run_dir, state, gitcall.logger(run_dir), why)
+            ended = deliver.end_on_dependency(cfg, run_dir, state, gitcall.logger(run_dir), why)
         except (config.Error, OSError) as exc:
             # its record says what it got to; the task still goes back with the run and its branch
             ended = {**(record.read_state(run_dir) or state), "error": f"{why}; ending it: {exc}"}

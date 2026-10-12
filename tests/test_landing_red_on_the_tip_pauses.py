@@ -190,7 +190,7 @@ class RedOnTheTip(unittest.TestCase):
         held = self.clock()
         land.check_line(self.turn)
         for step in range(1, len(turns.TRANSIENT_BACKOFF) + 1):
-            held[0] += run.transient_delay(step)
+            held[0] += turns.transient_delay(step)
             land.check_line(self.turn)
             self.assertEqual(self.red()["probes"], step + 1)
         self.assertEqual(len(self.checks), 2 + len(turns.TRANSIENT_BACKOFF))

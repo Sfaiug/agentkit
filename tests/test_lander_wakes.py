@@ -44,7 +44,7 @@ class LanderWakes(Sandbox):
         self.lp.state["run_id"] = self.directory.name
         (self.directory / "task.md").write_text(
             f"---\nrepo: {self.wt}\n---\n# Land work\n\n## Done when\n```bash\ntrue\n```\n")
-        self.turn = run.turn_path(self.lp, "origin/main")
+        self.turn = deliver.turn_path(self.lp, "origin/main")
         self.events, self.commands, self.merges = [], [], []
         self.verdicts = iter(["PASS"])
         self.fix = True
@@ -55,7 +55,7 @@ class LanderWakes(Sandbox):
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
         self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
-        self.stack.enter_context(patch.object(run, "rights", return_value=("acme/widget", "WRITE")))
+        self.stack.enter_context(patch.object(deliver, "rights", return_value=("acme/widget", "WRITE")))
         self.stack.enter_context(patch.object(deliver, "checks", side_effect=lambda *a: self.check_result))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
@@ -189,7 +189,7 @@ class LanderWakes(Sandbox):
         else:
             self.assertIn(trailer, args[args.index("--body") + 1])
         if method == "merge":
-            self.assertTrue(run.integrated(self.wt, old_head))
+            self.assertTrue(roundloop.integrated(self.wt, old_head))
             self.assertEqual(len(run.git(self.wt, "show", "-s", "--format=%P", "HEAD").split()), 2)
         self.assert_free()
 
@@ -381,8 +381,8 @@ class LanderWakes(Sandbox):
         how = "merge" if method == "merge" else "rebase"
         self.assertEqual(self.events, [(f"{how}-fixer", 3), ("reviewer", "round-3")])
         self.assert_rounds(state)
-        self.assertFalse(run.in_progress(self.wt, how))
-        self.assertTrue(run.integrated(self.wt, "origin/main"))
+        self.assertFalse(roundloop.in_progress(self.wt, how))
+        self.assertTrue(roundloop.integrated(self.wt, "origin/main"))
 
     def test_conflict_uses_the_existing_rebase_fixer(self):
         self.assert_conflict("squash")

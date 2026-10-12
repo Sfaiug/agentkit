@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gitcall, handback, notify, run, stop, task, watch, worker
+from agentkit import config, deliver, gitcall, handback, notify, run, stop, task, watch, worker
 from agentkit import record
 
 
@@ -225,7 +225,7 @@ sys.exit(1)
                       "context", [])
         url = "https://github.com/fixture/repo/pull/7"
         with patch.object(gitcall, "gh", return_value=(0, f"opened {url}")):
-            self.assertEqual(run.open_pr(lp, "main"), url)
+            self.assertEqual(deliver.open_pr(lp, "main"), url)
         body = (run_dir / "pr-body.md").read_text()
         self.assertIn("## Follow-ups", body)
         self.assertIn("- a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError", body)
@@ -312,10 +312,10 @@ sys.exit(1)
                       "context", [])
         url = "https://github.com/fixture/repo/pull/7"
         with patch.object(gitcall, "gh", return_value=(0, f"opened {url}")) as gh:
-            self.assertEqual(run.open_pr(lp, "main"), url)
+            self.assertEqual(deliver.open_pr(lp, "main"), url)
             # A re-review replaces the list even after the PR already exists.
             state["followups"] = ["b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"]
-            self.assertEqual(run.open_pr(lp, "main"), url)
+            self.assertEqual(deliver.open_pr(lp, "main"), url)
         self.assertEqual(gh.call_args.args[1:5], ("api", "-X", "PATCH", "repos/fixture/repo/pulls/7"))
         body = (run_dir / "pr-body.md").read_text()
         self.assertIn("- b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError", body)

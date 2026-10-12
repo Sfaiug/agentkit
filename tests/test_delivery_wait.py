@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, record, run, watch
+from agentkit import config, deliver as delivery, gitcall, record, run, watch
 
 PID = 999999991
 
@@ -34,7 +34,7 @@ class DeliveryWait(unittest.TestCase):
             "AGENTKIT_RUN_DIR": ""}))
         self.stack.enter_context(patch.object(run.os, "getpid", return_value=PID))
         self.stack.enter_context(patch.object(record, "process_active", return_value=True))
-        self.stack.enter_context(patch.object(run, "git", return_value="base"))
+        self.stack.enter_context(patch.object(gitcall, "git", return_value="base"))
         config.ensure_dirs()
         directory = config.RUNS / "acme-waiter"
         directory.mkdir()
@@ -56,7 +56,7 @@ class DeliveryWait(unittest.TestCase):
         lp = self.lp
         waiting = threading.Event()
         flock = fcntl.flock
-        path = run.turn_path(lp, "origin/main")
+        path = delivery.turn_path(lp, "origin/main")
 
         def observe_wait(lock, operation):
             if operation == fcntl.LOCK_EX and getattr(lock, "name", None) == str(path):
@@ -81,8 +81,8 @@ class DeliveryWait(unittest.TestCase):
         with path.open("a") as holder:
             flock(holder, fcntl.LOCK_EX)
             with patch.object(run, "pickup_new_code", return_value=False), \
-                    patch.object(run, "fetch", return_value=(0, "")), \
-                    patch.object(run.fcntl, "flock", side_effect=observe_wait):
+                    patch.object(gitcall, "fetch", return_value=(0, "")), \
+                    patch.object(delivery.fcntl, "flock", side_effect=observe_wait):
                 waiter = threading.Thread(target=land, daemon=True)
                 waiter.start()
                 try:
@@ -112,7 +112,7 @@ class DeliveryWait(unittest.TestCase):
                 self.assertLess(watch.stall_clock(self.lp.run_dir, state), old + 1)
 
     def test_interrupted_lock_wait_clears_its_mark(self):
-        path = run.turn_path(self.lp, "origin/main")
+        path = delivery.turn_path(self.lp, "origin/main")
         flock = fcntl.flock
         errors = iter((BlockingIOError(), OSError("stopped")))
 
@@ -121,12 +121,12 @@ class DeliveryWait(unittest.TestCase):
                 raise next(errors)
             return flock(lock, operation)
 
-        with patch.object(run.fcntl, "flock", side_effect=interrupt):
+        with patch.object(delivery.fcntl, "flock", side_effect=interrupt):
             with self.assertRaises(OSError):
-                with run.merge_lock(self.lp, "origin/main"):
+                with delivery.merge_lock(self.lp, "origin/main"):
                     self.fail("an interrupted waiter cannot deliver")
         self.assertNotIn("delivery_wait", record.read_state(self.lp.run_dir))
-        self.assertEqual(getattr(run._PICKUP_HELD, "count", 0), 0)
+        self.assertEqual(getattr(run.PICKUP_HELD, "count", 0), 0)
 
 
 if __name__ == "__main__":

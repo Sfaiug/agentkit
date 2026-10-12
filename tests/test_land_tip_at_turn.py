@@ -235,7 +235,7 @@ class LandTipAtTurn(unittest.TestCase):
             return "## Summary\nDid nothing."
 
         with patch.object(roundloop, "execute", side_effect=fixer), \
-                patch.object(run, "resume_review", return_value="FAIL"):
+                patch.object(roundloop, "resume_review", return_value="FAIL"):
             landed = landing(lp, lambda: True)
         self.assertFalse(landed)
         self.assertEqual(seen.get("conflicted"), ["shared.txt"])

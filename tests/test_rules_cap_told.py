@@ -292,7 +292,7 @@ class RulesCapTold(unittest.TestCase):
                     patch.object(run, "pr_view", return_value=info), \
                     patch.object(run, "checkout_for", return_value=self.repo), \
                     patch.object(run, "fetch", return_value=(0, "")), patch.object(gitcall, "gh", side_effect=github), \
-                    patch.object(run, "checks", return_value=(True, "")), patch.object(deliver, "checks", return_value=(True, "")), \
+                    patch.object(run, "checks", return_value=(True, "")), \
                     patch.object(run.watch, "ask_inbox", return_value=0), \
                     patch.object(run, "merge_own_pr", side_effect=AssertionError("merged")), \
                     patch.object(run, "fix_own_pr", return_value=False), \

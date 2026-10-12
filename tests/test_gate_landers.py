@@ -59,7 +59,6 @@ class GateLanders(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
                                                           "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))
@@ -396,7 +395,7 @@ class GateLanders(unittest.TestCase):
             return True
 
         # `fetch` runs inside gitcall: its git_out is gitcall's own, beside run's
-        with patch.object(run, "git", return_value="base0001"), \
+        with patch.object(gitcall, "git", return_value="base0001"), \
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(gitcall, "git_out", return_value=(0, "")):
             self.assertTrue(run.land(lp, "origin/main", verify, deliver,

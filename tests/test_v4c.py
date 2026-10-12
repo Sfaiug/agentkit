@@ -545,7 +545,7 @@ sys.exit(item.get("rc", 0))
                 run, "integrate", return_value=True), patch.object(
                 run, "push", side_effect=AssertionError("push")), patch.object(run, "announce"), patch.object(
                 run, "git", return_value=SHA), patch.object(gitcall, "git", return_value=SHA), \
-                patch.object(run, "fetch", return_value=(0, "")), \
+                patch.object(gitcall, "fetch", return_value=(0, "")), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", "passed"]), 1)
             self.assertIn("# PASS, not merged: gh pr merge --squash failed", (d / "result.md").read_text())
