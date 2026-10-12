@@ -1436,15 +1436,21 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
 
 def _said(name, kind, text, pr=None, event_id=None, at=None):
     """Record what that session said, under its notice lock, which the caller holds; the
-    notice it replaced, or None.  A watcher's repeated event re-records nothing.  `at` dates
-    it where it was said before now."""
-    from . import menu
+    notice it replaced, or None.  A watcher's repeated event re-records nothing, nor does its
+    alert while the seat's own question stands unanswered.  `at` dates it where it was said
+    before now."""
+    from . import menu, watch
     previous = last(name, include_seen=True)
     if event_id and previous and previous.get("source") == event_id:
         return previous
     extra = {"source": event_id, "pr": pr,
              "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
              "open_needs": previous.get("open_needs", []) if previous else []}
+    if extra["watcher"] and watch.owner_question(previous) and not resolved(previous):
+        # The seat's own question outranks a watcher's alert: its owner is asked already, and
+        # the seat's screen says what the alert would.  Taken in its place, the question was
+        # lost once the alert was retracted, though nobody had answered it.
+        return previous
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
     if earlier:
         # The answer ends its card's episode at the next tick; the newer notice carries it
