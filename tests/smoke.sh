@@ -1089,7 +1089,7 @@ class SessionState(unittest.TestCase):
             self.assertTrue(orch.ensure(self.cfg, "seat", lambda _: None))
         self.assertEqual(self.saved(), before)
         self.notice("needs", "The new question")
-        self.assertEqual(notify.last("seat")["text"], "The new question")
+        self.assertEqual(notify.last("seat")["text"], "May I merge? Also: The new question")
 
     def test_writer_waiting_on_a_rename_follows_the_live_name(self):
         waiting, owner = threading.Event(), threading.get_ident()
@@ -4391,7 +4391,8 @@ jq -e '.orchestrator == "astra"' "$NSH/.agentkit/state/session-smoke-shape-renam
 [ "$(HOME="$NSH" AGENTKIT_SESSION=smoke-shape ak usage --json 2>/dev/null | jq -c .pick_order)" = '["opus","spark"]' ] || RN=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= AGENTKIT_SESSION=smoke-shape ak notify needs "still me?" >"$WORK/rename-notify.log" 2>&1 || RN=1
 [ ! -s "$WORK/rename-notify.log" ] || RN=1   # same needs-you episode across the rename: recorded, not reposted
-jq -e '.text == "still me?"' "$NSH/.agentkit/state/notify-smoke-shape-renamed.json" >/dev/null 2>&1 || RN=1
+# asked beside check 21's question, which nobody answered
+jq -e '.text == "Which branch? Also: still me?"' "$NSH/.agentkit/state/notify-smoke-shape-renamed.json" >/dev/null 2>&1 || RN=1
 HOME="$NSH" ak orch rename smoke-shape-renamed smoke-shape-final >"$WORK/rename2.log" 2>&1 || RN=1
 [ "$(HOME="$NSH" AGENTKIT_SESSION=smoke-shape ak usage --json 2>/dev/null | jq -c .pick_order)" = '["opus","spark"]' ] || RN=1
 HOME="$NSH" ak orch rename nosuch-seat other >"$WORK/rename-bad.log" 2>&1; [ "$?" = 2 ] || RN=1
