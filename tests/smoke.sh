@@ -1002,8 +1002,11 @@ class SessionState(unittest.TestCase):
 
     def test_watcher_retracts_only_its_own_alert_and_preserves_newer_intent(self):
         text = "The watcher needs login"
+        self.now += 1
+        notify.answered("seat", self.now)    # an alert leaves an open question standing
         notify.shaped("needs", text, session="seat", event_id="auth:seat:codex:1")
         self.assertTrue(notify.last("seat")["watcher"])
+        self.edits.reset_mock()    # the alert ended the answered question's card
         watch.forget("seat", acknowledge=False, notice=text)
         # the alert is retracted; nobody has opened this seat, so its own screen speaks for it
         self.assertEqual(menu.state(self.seat), "needs you")
