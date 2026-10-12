@@ -212,6 +212,20 @@ class AnswerClosesQuestion(Sandbox):
         self.prompt(prompt=HANDBACK)
         self.assert_answered()
 
+    def test_hand_backs_whose_looks_run_out_of_order_answer_nothing(self):
+        """Each prompt's look runs in the background, so a later hand-back's may come first:
+        it takes the receipt typed last, leaving the earlier one to the earlier prompt."""
+        self.notice()
+        self.assertTrue(self.handback())
+        with patch.object(watch.time, "time", return_value=10002):
+            self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)                # the second hand-back's look, first
+        notify.answered(SEAT, 10001, HANDBACK)      # the first one's, heard before it, last
+        self.typed = []
+        self.assert_open()
+        self.prompt()
+        self.assert_answered()
+
     def test_a_turn_a_hand_back_opened_ends_on_the_standing_question(self):
         """review 20261007-0336: the seat's question to the owner still stands, unanswered, so
         the turn the hand-back opened may end on it -- as `watch.stop_nudge` lets it -- and is
