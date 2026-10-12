@@ -91,6 +91,12 @@ class Notifications(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result
 
+    def answer(self, seat="seat"):
+        """The owner's prompt answers the seat's question, as its prompt hook records it: a
+        seat's done waits for it."""
+        asked = notify.last(seat, include_seen=True)["time"]
+        notify.answered(seat, max(time.time(), asked + 0.001))
+
     def open_and_progress(self, between=lambda: None):
         """Open the seat, then produce the fresh output that answers what it was asked;
         `between` runs after the open and before that output."""
@@ -141,6 +147,7 @@ class Notifications(unittest.TestCase):
 
     def test_a_cached_done_cannot_announce_a_running_job(self):
         self.assertEqual(notify.shaped("needs", "Which API route?", session="seat"), 0)
+        self.answer()
         pending = config.RUNS / "acme-run"
         state = {"run_id": pending.name, "state": "running", "launched_session": "seat",
                  "started_at": time.time(), "pid": 0}
@@ -190,8 +197,8 @@ class Notifications(unittest.TestCase):
                 self.assertEqual(notify.last("seat")["time"], 300.0)
 
     def test_a_cached_question_cannot_page_for_completed_work(self):
-        self.interleaved_declarations("needs", "Which API route?", lambda:
-            self.assertEqual(notify.shaped("done", "API shipped", session="seat"), 0))
+        self.interleaved_declarations("needs", "Which API route?", lambda: (
+            self.answer(), self.assertEqual(notify.shaped("done", "API shipped", session="seat"), 0)))
         self.assertEqual(len(self.cards("needs")), 0)
         self.assertEqual(len(self.cards("done")), 1)
         self.assertEqual(notify.last("seat")["text"], "API shipped")
@@ -231,6 +238,7 @@ class Notifications(unittest.TestCase):
 
         self.cli("needs", "Which branch?")   # the word never left: still the same episode
         self.assertEqual(len(self.requests), 2)
+        self.answer()
         self.cli("done", "Shipped", "--pr", "https://github.com/me/repo/pull/7")
         self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
         self.assertEqual(self.requests[-2][2]["embeds"][0]["title"], "Done · seat")
@@ -252,6 +260,7 @@ class Notifications(unittest.TestCase):
         self.cli("done", "Another job, another summary")
         self.assertEqual(len(self.requests), count)
         self.cli("needs", "One more decision?")
+        self.answer()
         self.cli("done", "Second job finished")
         self.assertEqual(len(self.requests), count + 3)
 
@@ -356,6 +365,7 @@ sys.exit(p.returncode)
         self.assertEqual(len(self.requests), 1)
         self.cli("needs", "STRASSE?", "--session", "other")
         self.assertEqual(len(self.requests), 2)    # another seat is another episode
+        self.answer()
         self.cli("done", "Finished")
         count = len(self.requests)
         # Old records without a timestamp can still be displayed and replaced safely.
@@ -365,6 +375,8 @@ sys.exit(p.returncode)
 
     def test_concurrent_cli_repeats_post_once(self):
         for kind in ("needs", "done"):
+            if kind == "done":
+                self.answer()
             with ThreadPoolExecutor(max_workers=5) as pool:
                 list(pool.map(lambda _: self.cli(kind, "Same message?"), range(5)))
         self.assertEqual([r[0] for r in self.requests], ["POST", "PATCH", "POST"])
@@ -372,6 +384,7 @@ sys.exit(p.returncode)
     def test_edit_failures_are_silent_and_do_not_block_completion(self):
         for status in (404, 500, 0):
             self.cli("needs", f"Question {status}?")
+            self.answer()
             self.edit_status = status
             result = self.cli("done", f"Finished anyway after {status}")   # a job apiece
             self.assertEqual((result.stdout, result.stderr), ("", ""))

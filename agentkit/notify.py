@@ -1337,6 +1337,22 @@ def keep_back(name, text):
     watch.seat_write(name, unasked={"text": text, "at": time.time()}, wait=None)
 
 
+def unanswered(name):
+    """Refuse a done while a question that seat asked its owner stands unanswered, kept back for
+    its turn's end or asked: his answer can change the work, so the seat never decides it for
+    him and calls the job finished."""
+    from . import watch
+    kept = watch.seat_read(name).get("unasked")
+    asked = last(name)
+    text = kept.get("text") if isinstance(kept, dict) else None
+    if not isinstance(text, str) and watch.owner_question(asked):
+        text = asked["text"]
+    if isinstance(text, str):
+        question = " ".join(text.split()).partition("?")
+        raise config.Error(f"your question to the owner is still open ({question[0]}{question[1]}): "
+                           "say the job is done once they have answered it")
+
+
 def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
     """Record the question or declaration, then evaluate the same transition latch.
 
@@ -1344,10 +1360,10 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     nothing is recorded here but the question, in the seat's record, which `ask_kept` turns
     into this notice when that turn has ended.
 
-    A done, whoever declares it, waits for every line of the seat's plan: its checks run
-    first (`plan.require_done`), and the plan is read once more under the seat's lock right
-    before the record (`plan.still_done`); a refusal records nothing and is raised as
-    `Refused`."""
+    A done, whoever declares it, waits for the owner's answer to a question the seat asked him
+    (`unanswered`) and for every line of the seat's plan: its checks run first
+    (`plan.require_done`), and both are read once more under the seat's lock right before the
+    record (`plan.still_done`); a refusal records nothing and is raised as `Refused`."""
     if worker_blocked(kind, dry_run):
         return 0
     if paths:
@@ -1367,10 +1383,12 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     gate = None
     if kind == "done":
         try:
+            unanswered(name)
             proven = plan.require_done(name)
         except config.Error as exc:
             raise Refused(str(exc)) from None
-        gate = lambda current: plan.still_done(current, proven)   # and still, as recorded
+        # and still, as recorded
+        gate = lambda current: (unanswered(current), plan.still_done(current, proven))
     try:
         own = name == config.current_session()      # the seat's own word
         if kind == "needs" and own and event_id is None and watch.keeps_back(name):
@@ -1384,9 +1402,11 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     raise Refused(str(exc)) from None
             previous = _said(name, kind, text, pr, event_id)
             if event_id is None:
-                # the seat's newer word ends its `ak wait`, and its own word is said in place
-                # of a question it kept back
-                watch.seat_write(name, wait=None, **({"unasked": None} if own else {}))
+                # the seat's newer word ends its `ak wait`, and its own question is asked in
+                # place of one it kept back; a done found none kept (`unanswered`), and one
+                # kept since, which takes no notice lock, stays for the turn's end
+                kept = {"unasked": None} if own and kind == "needs" else {}
+                watch.seat_write(name, wait=None, **kept)
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date

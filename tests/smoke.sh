@@ -849,8 +849,12 @@ class SessionState(unittest.TestCase):
         self.tick()
         self.assertEqual(menu.state(self.seat), "needs you")
 
-    def test_e_done_supersedes_open_needs_even_at_the_same_timestamp(self):
+    def test_e_done_waits_for_the_answer_then_outlasts_opens_and_output(self):
         self.open()
+        with self.assertRaises(notify.Refused):
+            self.notice("done", "Merged and verified")
+        self.now += 1
+        notify.answered("seat", self.now)
         self.notice("done", "Merged and verified")
         before = self.saved()
         self.pane = "Finished"
@@ -1006,6 +1010,8 @@ class SessionState(unittest.TestCase):
         self.edits.assert_called_once()
         for kind in ("needs", "done"):
             self.now += 1
+            if kind == "done":    # a seat's done waits for the answer to its question
+                notify.answered("seat", self.now)
             self.notice(kind, "The orchestrator's latest intent")
             before = self.saved()
             self.edits.reset_mock()
@@ -1049,26 +1055,24 @@ class SessionState(unittest.TestCase):
             config.notify_path("seat").write_text(json.dumps(notice))
             self.assertFalse(watch.type_into(self.seat, "continue", lambda _: None))
 
-    def test_done_racing_progress_is_the_final_intent(self):
+    def test_done_racing_progress_waits_for_the_answer_and_is_then_the_final_intent(self):
         self.open()
-        captured, release, posting = threading.Event(), threading.Event(), threading.Event()
+        captured, release = threading.Event(), threading.Event()
         def capture():
             captured.set()
             self.assertTrue(release.wait(5))
             return "Resuming"
-        def done():
-            posting.set()
-            self.notice("done", "All verified")
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=1) as pool:
             progress = pool.submit(notify.progress, "seat", capture, None)
             try:
                 self.assertTrue(captured.wait(5))
-                finished = pool.submit(done)
-                self.assertTrue(posting.wait(5))
+                # said while the output that answers the question is still being recorded
+                with self.assertRaises(notify.Refused):
+                    self.notice("done", "All verified")
             finally:
                 release.set()
             progress.result(timeout=5)
-            finished.result(timeout=5)
+        self.notice("done", "All verified")
         self.assertEqual(menu.state(self.seat), "done")
         self.assertNotIn("opened_at", notify.last("seat"))
 
@@ -1257,6 +1261,7 @@ class Notifications(test_notify.Notifications):
 
         self.cli("needs", "Which branch?")   # the word never left: still the same episode
         self.assertEqual(len(self.requests), 2)
+        self.answer()
         self.cli("done", "Shipped", "--pr", "https://github.com/me/repo/pull/7")
         self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
         self.assertEqual(self.requests[-2][2]["embeds"][0]["title"], "Done · seat")
@@ -1278,12 +1283,14 @@ class Notifications(test_notify.Notifications):
         self.cli("done", "Another job, another summary")
         self.assertEqual(len(self.requests), count)
         self.cli("needs", "One more decision?")
+        self.answer()
         self.cli("done", "Second job finished")
         self.assertEqual(len(self.requests), count + 3)
 
     def test_edit_failures_are_silent_and_do_not_block_completion(self):
         for status in (404, 500, 0):
             self.cli("needs", f"Question {status}?")
+            self.answer()
             self.edit_status = status
             result = self.cli("done", f"Finished anyway after {status}")   # a job apiece
             self.assertEqual((result.stdout, result.stderr), ("", ""))
