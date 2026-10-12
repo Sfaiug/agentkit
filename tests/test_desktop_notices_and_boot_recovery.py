@@ -147,6 +147,8 @@ class DesktopAndBoot(Sandbox):
                      {"word": "done", "since": 10100, "reason": "Checks passed"})):
                 body = {"title": f"{title} · source", "color": color,
                         "timestamp": "2026-09-14T12:00:00+00:00"}
+                if kind == "done":    # a seat's done waits for the answer to its question
+                    notify.answered("source", notify.last("source")["time"] + 1)
                 # The command records; the card follows the word, once per episode.
                 with patch.object(watch, "session_state", return_value=working):
                     self.assertEqual(notify.shaped(kind, text, session="source"), 0)
@@ -288,6 +290,7 @@ class DesktopAndBoot(Sandbox):
             notify.retry_pending()
         self.assertEqual(self.output(other), b"")
         self.assertEqual(len(self.posts), 1)
+        notify.answered("source", notify.last("source")["time"] + 1)
         # A disconnected client does not prevent Discord's next event.
         with patch.object(notify.os, "write", side_effect=OSError("gone")):
             self.assertEqual(notify.shaped("done", "Finished", session="source"), 0)
