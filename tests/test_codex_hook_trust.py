@@ -27,6 +27,10 @@ CODEX = {
     "stop:0:1": "8685042ddef8d1705a49c9fc70344cf5a085f538ec4e4f52502081cb01a883d2",
     "interrupt:0:0": "e376187e62d824d7de00d343edc5f71df565877cf47c6f7c5547feb3dede8298",
     "permission_request:0:0": "99205413bb3bf695b0e8c4131068cc1fca5fac81fd9232fd5d0d308dfaa51edc"}
+# A group with a matcher hashes it too: the hash codex-cli 0.160.1 trusted on 12 Oct 2026 for
+# this hook, in the run that proved its PreToolUse fires for the seat's question tool.
+MATCHED = ({"PreToolUse": [("python3 /var/tmp/codex-hookprobe.Ofmeo2/hook.py matched block", 10)]},
+           {"PreToolUse": "request_user_input_async"})
 
 
 def state(flag):
@@ -37,6 +41,8 @@ def state(flag):
 class HookTrust(unittest.TestCase):
     def test_hashes_are_codexs_own(self):
         self.assertEqual(state(codex.trust(HOOKS)), CODEX)
+        self.assertEqual(state(codex.trust(*MATCHED)), {
+            "pre_tool_use:0:0": "442297c174d5350388b64c404bc3f722266af12302224584eb5e568cc0851806"})
 
     def test_seat_launch_trusts_exactly_its_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -48,19 +54,24 @@ class HookTrust(unittest.TestCase):
                                          "HOME": tmp}):
                 codex.main(["--", str(fake)], launch=lambda cmd, receipt: seen.append(cmd) or 0)
         flags = [seen[0][i + 1] for i, word in enumerate(seen[0]) if word == "-c"]
-        installed = {}
+        installed, matchers = {}, {}
         for flag in flags:
             hooks = tomllib.loads(flag).get("hooks", {})
             for event, groups in hooks.items():
                 if event != "state":
                     self.assertEqual(len(groups), 1, flag)
                     installed[event] = [(h["command"], h["timeout"]) for h in groups[0]["hooks"]]
+                    if "matcher" in groups[0]:
+                        matchers[event] = groups[0]["matcher"]
         trusted = [flag for flag in flags if flag.startswith("hooks.state=")]
-        self.assertEqual(len(installed), 5, installed)
-        self.assertEqual(sum(map(len, installed.values())), 7)
+        self.assertEqual(len(installed), 6, installed)
+        self.assertEqual(sum(map(len, installed.values())), 8)
         # a compaction's SessionStart reaches the seat's hook (`orch.rulebook_compacted`)
         self.assertIn("hooks/seat-state.sh", installed["SessionStart"][-1][0])
-        self.assertEqual(trusted, [codex.trust(installed)])
+        # the seat's question tool, and only it, goes to its owner through ak
+        self.assertTrue(installed["PreToolUse"][0][0].endswith("tools/codex-seat.py ask"))
+        self.assertEqual(matchers, {"PreToolUse": "request_user_input_async"})
+        self.assertEqual(trusted, [codex.trust(installed, matchers)])
         self.assertNotIn("--dangerously-bypass-hook-trust", seen[0])
 
     def test_fresh_home_fails_instead_of_declining_hook_review(self):
