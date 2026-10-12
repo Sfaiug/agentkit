@@ -99,6 +99,12 @@ class CompletionNotices(Sandbox):
     def declare(self, text='API shipped', *, name=None):
         self.assertEqual(notify.shaped('done', text, session=name or self.name), 0)
 
+    def answer(self):
+        """The owner's prompt answers the seat's question, dated when given: a done waits
+        for it."""
+        self.now += 1
+        notify.answered(self.name, self.now)
+
     def posted(self, name=None, kind='done'):
         title = f'{notify.TITLES[kind]} · {name or self.name}'
         return [payload for method, payload in self.requests
@@ -378,6 +384,7 @@ class CompletionNotices(Sandbox):
         self.now += 100
         self.assertEqual(notify.shaped('needs', 'Which export format?', session=self.name), 0)
         self.assertEqual(len(self.posted(kind='needs')), 1)
+        self.answer()
         self.declare('Question settled; API remains shipped')
         self.assertEqual(len(self.posted()), 1)
         patches = [payload for method, payload in self.requests if method == 'PATCH']
@@ -392,6 +399,9 @@ class CompletionNotices(Sandbox):
         record = {'run_id': pending.name, 'state': 'running', 'launched_session': self.name,
                   'started_at': self.now, 'pid': 0}
         (pending / 'run.json').write_text(json.dumps(record))
+        with self.assertRaises(notify.Refused):
+            self.declare()
+        self.answer()
         self.declare()
         self.assertEqual(len(self.posted()), 0)
         record.update(state='pass', verdict='PASS', reported=True, finished_at=self.now + 1)
@@ -455,6 +465,7 @@ class CompletionNotices(Sandbox):
                     self.assertEqual(notify.shaped('needs', 'Which export format?',
                                                   session=self.name), 0)
                     self.assertEqual(len(self.posted(kind='needs')), 1)
+                    self.answer()
                 if whole_plan:
                     plan.forget(self.name)
                 else:
