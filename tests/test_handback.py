@@ -1147,19 +1147,19 @@ class HandBack(Sandbox):
         once = "$ bash tests/smoke.sh\n[exit 1]\nE nope"
         lp = Fake()
         lp.state = {}
-        run.same_failure(lp, False, once, gate="once")
-        run.same_failure(lp, True, "$ pytest\n[exit 0]\nfine")   # an ordinary round passing
+        roundloop.same_failure(lp, False, once, gate="once")
+        roundloop.same_failure(lp, True, "$ pytest\n[exit 0]\nfine")   # an ordinary round passing
         self.assertEqual(lp.state["done_when_failure"]["once"],   # ... says nothing about it
                          [["bash tests/smoke.sh", "E nope"]])
         with self.assertRaises(run.Blocked):
-            run.same_failure(lp, False, once, gate="once")
+            roundloop.same_failure(lp, False, once, gate="once")
         # a round resumed from another process records without judging: nothing here knows
         # whether a fixer preceded it, but the round after it has to be able to compare
         lp.state = {}
-        run.same_failure(lp, False, once, gate="once", compare=False)
-        run.same_failure(lp, False, once, gate="once", compare=False)
+        roundloop.same_failure(lp, False, once, gate="once", compare=False)
+        roundloop.same_failure(lp, False, once, gate="once", compare=False)
         with self.assertRaises(run.Blocked):
-            run.same_failure(lp, False, once, gate="once")
+            roundloop.same_failure(lp, False, once, gate="once")
 
     def test_the_merge_pipeline_never_writes_the_rounds_own_failure_history(self):
         """A merge-pipeline gate has nothing to be the same as, and must overwrite nothing.
@@ -1181,19 +1181,17 @@ class HandBack(Sandbox):
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)
-        with patch.object(run, "git", return_value="a" * 40), \
-             patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), patch.object(run, "commit_identity",
+        with patch.object(gitcall, "git", return_value="a" * 40), \
+                patch.object(gitcall, "git_out", return_value=(0, "")), patch.object(gitcall, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when",
                              return_value=(False, "$ bash tests/smoke.sh\n[exit 1]\nE no")), \
-                patch.object(run, "target_fails", return_value=False), \
-                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
-                patch.object(roundloop, "execute",
+                patch.object(roundloop, "target_fails", return_value=False), \
+                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), patch.object(roundloop, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
-                patch.object(run, "verify_work", return_value=(True, "$ pytest\n[exit 0]")), \
-                patch.object(run, "review", return_value="PASS"), \
-                patch.object(run, "integrate", return_value=True):
+                patch.object(roundloop, "verify_work", return_value=(True, "$ pytest\n[exit 0]")), \
+                patch.object(roundloop, "review", return_value="PASS"), \
+                patch.object(roundloop, "integrate", return_value=True):
             with self.assertRaises(run.Blocked):
                 run.final_check(lp, "origin/main")
         self.assertEqual(len(fixers), 1)
@@ -1220,18 +1218,16 @@ class HandBack(Sandbox):
             wt=str(self.root), run_dir=directory, artifacts=set(), done_when_limit=1,
             turn_limit=1, context="ctx", executor="opus", log=self.logs.append,
             save=lambda: None, write=lambda: None)
-        with patch.object(run, "git", return_value="a" * 40), \
-             patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), patch.object(run, "commit_identity",
+        with patch.object(gitcall, "git", return_value="a" * 40), \
+                patch.object(gitcall, "git_out", return_value=(0, "")), patch.object(gitcall, "commit_identity",
                              return_value={"head_sha": "a" * 40, "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when", return_value=(False, failure)), \
-                patch.object(run, "target_fails", return_value=False), \
-                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), \
-                patch.object(roundloop, "execute",
+                patch.object(roundloop, "target_fails", return_value=False), \
+                patch.object(record, "save_state"), patch.object(run, "note", return_value=False), patch.object(roundloop, "execute",
                              side_effect=lambda *a, **k: fixers.append(1) or "## Summary\nfix"), \
-                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
-                patch.object(run, "review", return_value="PASS"), \
-                patch.object(run, "integrate", return_value=True):
+                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
+                patch.object(roundloop, "review", return_value="PASS"), \
+                patch.object(roundloop, "integrate", return_value=True):
             with self.assertRaises(run.Blocked) as blocked:
                 run.final_check(lp, "origin/main")
         self.assertEqual(len(fixers), 1)

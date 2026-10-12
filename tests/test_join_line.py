@@ -50,8 +50,7 @@ class JoinLine(Sandbox):
 
     def test_merge_joins_without_integrating_checking_or_delivering(self):
         before = copy.deepcopy(self.lp.state)
-        with patch.object(run, "integrate", side_effect=AssertionError("integration")), \
-                patch.object(run, "final_check", side_effect=AssertionError("suite")), \
+        with patch.object(run, "integrate", side_effect=AssertionError("integration")), patch.object(run, "final_check", side_effect=AssertionError("suite")), \
                 patch.object(run, "push", side_effect=AssertionError("push")), \
                 patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
             self.assertFalse(run.merge(self.lp))

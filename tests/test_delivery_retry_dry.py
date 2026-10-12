@@ -74,8 +74,7 @@ class DeliveryRetryDry(unittest.TestCase):
                 patch.object(run.shutil, "which", side_effect=lambda name, **kw: (
                     "/fixture/gh" if name == "gh" else which(name, **kw))), \
                 patch.object(run.landing, "start_line"), \
-                patch.object(run, "fix_final_check", side_effect=landing_review), \
-                patch.object(gitcall, "gh", side_effect=AssertionError("GitHub delivery")), \
+                patch.object(run, "fix_final_check", side_effect=landing_review), patch.object(gitcall, "gh", side_effect=AssertionError("GitHub delivery")), \
                 patch.object(turns, "call_retrying", side_effect=reviewer_turn) as turn, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_merge([run_dir.name]), 0)

@@ -129,7 +129,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertIn("empty input passed", text)
         self.assert_restored(head)
         lp.state["step"] = "reviewer"
-        self.assertEqual(run.settled_gate(lp), (True, text))
+        self.assertEqual(roundloop.settled_gate(lp), (True, text))
         resumed = self.loop(state=record.read_state(self.directory))
         with patch.object(worker, "boxed", wraps=worker.boxed) as limited:
             self.assertTrue(run.verify_work(resumed)[0])

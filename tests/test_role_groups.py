@@ -493,8 +493,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "exclude_junk"), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run, "post_review", return_value=True), \
-                patch.object(run, "review", return_value="FAIL") as review, \
-                patch.object(run, "restore_review_checkout"), redirect_stdout(io.StringIO()):
+                patch.object(run, "review", return_value="FAIL") as review, patch.object(run, "restore_review_checkout"), redirect_stdout(io.StringIO()):
             self.assertEqual(run.preset_review_model(
                 self.cfg, opts, reviewers=["gamma", "delta"]), "delta")
             with self.assertRaisesRegex(config.Error, "not a reviewer"):

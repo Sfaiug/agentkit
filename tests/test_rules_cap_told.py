@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, gitcall, handback, prompts, record, run, worker
+from agentkit import config, gc, gitcall, handback, prompts, record, roundloop, run, worker
 
 LIMIT = 64          # the test harness's read limit, far below any real one
 OLD_CUT = 8 * 1024  # where workers' rules used to be cut
@@ -139,11 +139,11 @@ class RulesCapTold(unittest.TestCase):
         self.assertFalse(ok, text)
         self.assertIn("[exit 0]", text)
         self.assertEqual(text.splitlines()[-1], failure)
-        self.assertEqual(run.first_failure(text), failure)
+        self.assertEqual(prompts.first_failure(text), failure)
         self.assertEqual((lp.round_dir / "donewhen.log").read_text(), text)
         self.assertEqual(self.git("status", "--porcelain"), "")
         lp.state["step"] = "reviewer"
-        self.assertEqual(run.settled_gate(lp), (False, text))
+        self.assertEqual(roundloop.settled_gate(lp), (False, text))
 
     def test_front_matter_change_must_leave_an_oversized_file_within_the_ceiling(self):
         body = "x" * LIMIT
@@ -382,7 +382,7 @@ class RulesCapTold(unittest.TestCase):
         self.assertFalse(ok, text)
         self.assertIn("AGENTS.md is", text)
         self.assertEqual(prompts.failing_checks(text), [[cmd, "acme check failed"]])
-        self.assertEqual(run.first_failure(text), f"`{cmd}` — acme check failed")
+        self.assertEqual(prompts.first_failure(text), f"`{cmd}` — acme check failed")
 
     def test_fixer_gets_cap_failure_and_reviewer_pass_is_overridden(self):
         lp = self.loop()
@@ -397,7 +397,7 @@ class RulesCapTold(unittest.TestCase):
                 fixes.append(text)
             return "## Summary\nAcme work."
 
-        with patch.object(run, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False):
+        with patch.object(roundloop, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False):
             run.rounds(lp)
         self.assertEqual(len(fixes), 1)
         self.assertIn(f"AGENTS.md is {LIMIT + 1} bytes", fixes[0])

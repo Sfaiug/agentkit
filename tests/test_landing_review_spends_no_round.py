@@ -12,7 +12,7 @@ import unittest
 from fixtures.sandbox import Sandbox
 from test_merge_step import make_loop, make_repos
 from fixtures.hand_in import submitting
-from agentkit import gate, run, turns
+from agentkit import gate, roundloop, run, turns
 from agentkit import record
 
 
@@ -39,7 +39,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.stack.enter_context(patch.object(gate, "run_done_when",
                                               return_value=(True, "$ true\n[exit 0]\n")))
         self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
-        self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
+        self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
         self.stack.enter_context(patch.object(run, "merge_lock",
                                               side_effect=lambda *a, **_kw: nullcontext()))
@@ -66,7 +66,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.lp.state["round_summaries"] = self.lp.state["round_summaries"][:spent]
         self.lp.rnd = spent
         self.history = copy.deepcopy(self.lp.state["round_summaries"])
-        run.pending_review(self.lp, "Re-review after the merge of origin/main.")
+        roundloop.pending_review(self.lp, "Re-review after the merge of origin/main.")
         run.git(self.wt, "merge", "--no-edit", self.tip)
 
     def legacy_merge(self, spent=3):
@@ -195,7 +195,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         saved = record.read_state(self.run_dir)
         resumed = run.Loop(self.cfg, self.run_dir, saved, self.lp.opts, self.lp.log, self.wt,
                            "body", ["true"], "context", [])
-        with patch.object(run, "integrate", wraps=run.integrate) as integrate:
+        with patch.object(roundloop, "integrate", wraps=roundloop.integrate) as integrate:
             run.rounds(resumed)
         integrate.assert_not_called()
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)

@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import prompts, roundloop, run
+from agentkit import prompts, roundloop, run, turns
 
 EARLY = ("FAIL  tests/test_acme_limits.py: exit 1 after 177s, its last lines:\n"
          "      FileNotFoundError: [Errno 2] No such file or directory: 'taken'\n")
@@ -42,15 +42,15 @@ class LandingFixer(unittest.TestCase):
             seen.append(fix)
             raise Handed
 
-        with patch.object(run, "landing_fixer", side_effect=fixer), \
-                patch.object(run, "released_gate_turn", nullcontext), \
+        with patch.object(roundloop, "landing_fixer", side_effect=fixer), \
+                patch.object(roundloop, "released_gate_turn", nullcontext), \
                 self.assertRaises(Handed):
             run.fix_final_check(FakeRun(), "main", text)
         return seen[0]
 
     def test_a_failure_far_from_the_end_reaches_the_fixer(self):
         text = "--- AK_SHARD=2/5 ---\n" + EARLY + PASSES + "--- AK_SHARD=5/5 ---\n" + LATE
-        self.assertGreater(len(text) - text.index(EARLY), 2 * run.OUT_CAP)
+        self.assertGreater(len(text) - text.index(EARLY), 2 * turns.OUT_CAP)
         fix = self.fixer_reads(text)
         self.assertIn(EARLY.rstrip(), fix)
         self.assertIn(LATE.rstrip(), fix)
@@ -68,7 +68,7 @@ class LandingFixer(unittest.TestCase):
             raise Handed
 
         with patch.object(roundloop, "execute", side_effect=execute), self.assertRaises(Handed):
-            run.landing_fixer(lp, "## Resolve the rebase conflict.", "rebase-fixer")
+            roundloop.landing_fixer(lp, "## Resolve the rebase conflict.", "rebase-fixer")
         self.assertIn(EARLY.rstrip(), seen[0])
         self.assertIn(LATE.rstrip(), seen[0])
 
@@ -84,10 +84,10 @@ class LandingFixer(unittest.TestCase):
         """An indented failure near the end -- a nested TAP `not ok` -- stays as the end alone
         kept it, however many blocks come before."""
         nested = "  not ok 7 - acme widget answers\n"
-        end = nested + "x" * (run.OUT_CAP - 2048) + "\n"
-        text = EARLY + "y" * (run.OUT_CAP // 2) + "\n" + LATE * 3 + end
-        read = run.failing_blocks(text)
-        self.assertTrue(read.endswith(text[-run.OUT_CAP:]))
+        end = nested + "x" * (turns.OUT_CAP - 2048) + "\n"
+        text = EARLY + "y" * (turns.OUT_CAP // 2) + "\n" + LATE * 3 + end
+        read = prompts.failing_blocks(text)
+        self.assertTrue(read.endswith(text[-turns.OUT_CAP:]))
         self.assertIn(nested.rstrip(), read)
         self.assertIn(EARLY.rstrip(), read)
 
@@ -97,18 +97,18 @@ class LandingFixer(unittest.TestCase):
         header, under = EARLY.splitlines()
         for inside in (len("FAIL  tests/test_acme_"), len(header) + 1 + 10):
             with self.subTest(inside=inside):
-                tail = EARLY[inside:] + "z" * run.OUT_CAP
-                text = "PASS  tests/test_widget.py (0s)\n" + EARLY[:inside] + tail[:run.OUT_CAP]
-                self.assertEqual(text[-run.OUT_CAP:][:len(EARLY) - inside], EARLY[inside:])
-                read = run.failing_blocks(text)
+                tail = EARLY[inside:] + "z" * turns.OUT_CAP
+                text = "PASS  tests/test_widget.py (0s)\n" + EARLY[:inside] + tail[:turns.OUT_CAP]
+                self.assertEqual(text[-turns.OUT_CAP:][:len(EARLY) - inside], EARLY[inside:])
+                read = prompts.failing_blocks(text)
                 self.assertIn(header + "\n" + under, read)
-                self.assertTrue(read.endswith(text[-run.OUT_CAP:]))
+                self.assertTrue(read.endswith(text[-turns.OUT_CAP:]))
 
     def test_short_output_and_output_naming_no_failure_read_as_before(self):
         short = "PASS  tests/test_widget.py\n" + LATE
         self.assertIn(short, self.fixer_reads(short))
         unnamed = PASSES + "Traceback (most recent call last):\n  boom\n"
-        self.assertIn(unnamed[-run.OUT_CAP:], self.fixer_reads(unnamed))
+        self.assertIn(unnamed[-turns.OUT_CAP:], self.fixer_reads(unnamed))
 
 
 if __name__ == "__main__":

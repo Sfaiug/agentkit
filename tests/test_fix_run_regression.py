@@ -89,7 +89,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertIn(f"regression.sh passes on base {self.base}: it does not show the defect", text)
         self.assert_restored(head)
         lp.state["step"] = "reviewer"
-        self.assertIsNone(run.settled_gate(lp))
+        self.assertIsNone(roundloop.settled_gate(lp))
         with patch.object(turns, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))):
             self.assertEqual(run.review(lp, "Fixture summary", ok, text), "FAIL")
 
@@ -101,7 +101,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertFalse(ok, "exit 0 passed the regression gate")
         self.assertIn(f"regression.sh passes on base {self.base}: it does not show the defect", text)
         lp.state["step"] = "reviewer"
-        self.assertIsNone(run.settled_gate(lp))
+        self.assertIsNone(roundloop.settled_gate(lp))
 
     def test_real_regression_is_red_then_green_and_probed_once_across_resume(self):
         (self.wt / "tests/check.py").write_text("from broken import first\nassert first([]) is None\n")
@@ -130,7 +130,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertIn("empty input passed", text)
         self.assert_restored(head)
         lp.state["step"] = "reviewer"
-        self.assertEqual(run.settled_gate(lp), (True, text))
+        self.assertEqual(roundloop.settled_gate(lp), (True, text))
         resumed = self.loop(state=record.read_state(self.directory))
         with patch.object(worker, "limited", wraps=worker.limited) as limited:
             self.assertTrue(run.verify_work(resumed)[0])

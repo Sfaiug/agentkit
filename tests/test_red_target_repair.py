@@ -141,7 +141,7 @@ class RedTargetRepair(unittest.TestCase):
         _, _, self.wt = red.make_repos(self.root)
         lp, run_dir, _ = red.make_loop(self.root, self.wt, ["true", "false  # once"])
         lp.state.update(launched_session="seat", repair={"target": "main", "command": "false"})
-        self.assertEqual(run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n"), "")
+        self.assertEqual(roundloop.target_fails(lp, "origin/main", "$ false\n[exit 1]\n"), "")
         self.assertFalse((run_dir / "target-probe.log").exists())
         self.assertEqual(self.prepared, [])
 

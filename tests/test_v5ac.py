@@ -302,7 +302,7 @@ sys.exit(0 if ok else 1)
         # always fails: the gate counts as the branch's own here, and the red-target park
         # is tests/test_red_target.py's
         self.plan = {"target": {"base.txt": "broken"}}
-        with patch.object(run, "target_fails", return_value=""):
+        with patch.object(roundloop, "target_fails", return_value=""):
             code, state = self.launch(rounds=1)
         self.assertEqual(code, 1)
         self.assertEqual(state["state"], "waiting")

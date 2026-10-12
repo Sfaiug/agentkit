@@ -149,7 +149,7 @@ class MergeStep(unittest.TestCase):
         self.stack.enter_context(patch.object(model_turns, "call_retrying", side_effect=submitting(self.review_call)))
         # every failing gate here is the branch's own: the target is green, so the
         # red-target probe never parks (tests/test_red_target.py covers a red tip)
-        self.stack.enter_context(patch.object(run, "target_fails", return_value=False))
+        self.stack.enter_context(patch.object(roundloop, "target_fails", return_value=False))
 
     def review_call(self, cfg, name, body, workspace, out, role, session, log, limit=None, **kwargs):
         self.assertEqual(role, "reviewer")
@@ -172,7 +172,7 @@ class MergeStep(unittest.TestCase):
         def fixer(lp2, role, text, name):
             return resolve(wt)
 
-        with patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer):
+        with patch.object(roundloop, "execute", side_effect=fixer):
             self.assertTrue(run.integrate(lp, "origin/main"))
         state = record.read_state(run_dir)
         self.assertEqual(len(state["round_summaries"]), 2)   # still 2 of 2
@@ -193,7 +193,7 @@ class MergeStep(unittest.TestCase):
             turns.append(name)
             return "## Summary\nCould not resolve."
 
-        with patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer):
+        with patch.object(roundloop, "execute", side_effect=fixer):
             self.assertFalse(run.integrate(lp, "origin/main"))
         self.assertEqual(turns, ["rebase-fixer"] * 3)
         state = record.read_state(run_dir)
@@ -232,7 +232,7 @@ class MergeStep(unittest.TestCase):
             return "## Summary\nTried."
 
         with patch.object(gate, "run_done_when", side_effect=checks), \
-                patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer):
+                patch.object(roundloop, "execute", side_effect=fixer):
             self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(turns, [("final-fixer", 3)] * 3)
         self.assertEqual(len(suites), 4)
@@ -286,7 +286,7 @@ class MergeStep(unittest.TestCase):
             return 0, answer, session, False
 
         with patch.object(gate, "run_done_when", side_effect=checks), \
-                patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer), \
+                patch.object(roundloop, "execute", side_effect=fixer), \
                 patch.object(model_turns, "call_retrying", side_effect=submitting(fake_review)):
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual([(name, rnd) for name, rnd, _ in turns],
@@ -328,7 +328,7 @@ class MergeStep(unittest.TestCase):
             return 0, answer, session, False
 
         with patch.object(gate, "run_done_when", side_effect=checks), \
-                patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer), \
+                patch.object(roundloop, "execute", side_effect=fixer), \
                 patch.object(model_turns, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
         self.assertEqual(turns, [("final-fixer", 3)])
@@ -367,7 +367,7 @@ class MergeStep(unittest.TestCase):
             return 1, answer, session, False
 
         with patch.object(gate, "run_done_when", side_effect=checks), \
-                patch.object(run, "execute", return_value="## Summary\nTried."), patch.object(roundloop, "execute", return_value="## Summary\nTried."), \
+                patch.object(roundloop, "execute", return_value="## Summary\nTried."), \
                 patch.object(model_turns, "call_retrying", side_effect=submitting(fake_review)):
             self.assertFalse(run.final_check(lp, "origin/main"))
         state = record.read_state(run_dir)
@@ -405,7 +405,7 @@ class MergeStep(unittest.TestCase):
             return "## Summary\nFixed."
 
         with patch.object(gate, "run_done_when", side_effect=checks), \
-                patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer):
+                patch.object(roundloop, "execute", side_effect=fixer):
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual([(name, rnd) for name, rnd, _ in turns],
                          [("final-fixer", 1), ("executor", 2)])
@@ -445,7 +445,7 @@ class MergeStep(unittest.TestCase):
                     (out / "final.md").write_text(answer)
                     return 0, answer, session, False
 
-                with patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer), \
+                with patch.object(roundloop, "execute", side_effect=fixer), \
                         patch.object(model_turns, "call_retrying", side_effect=submitting(fake_review)):
                     self.assertFalse(run.integrate(lp, "origin/main"))
                 state = record.read_state(run_dir)
@@ -486,7 +486,7 @@ class MergeStep(unittest.TestCase):
             (out / "final.md").write_text(answer)
             return 0, answer, session, False
 
-        with patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer), \
+        with patch.object(roundloop, "execute", side_effect=fixer), \
                 patch.object(model_turns, "call_retrying", side_effect=submitting(fake_review)):
             self.assertTrue(run.integrate(lp, "origin/main"))
         findings = [text for name, text in turns if name == "executor"]
@@ -574,8 +574,8 @@ class MergeStep(unittest.TestCase):
                 patch.object(run.history, "Sampler"), \
                 patch.object(run.history, "sample_rss", return_value=None), \
                 patch.object(run, "merge", side_effect=deliver), \
-                patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer):
-            with patch.object(run, "execute", side_effect=stop), patch.object(roundloop, "execute", side_effect=stop):
+                patch.object(roundloop, "execute", side_effect=fixer):
+            with patch.object(roundloop, "execute", side_effect=stop):
                 self.assertEqual(run.cmd_resume([run_dir.name]), 1)
             saved = record.read_state(run_dir)
             self.assertEqual(saved["state"], parked)
@@ -645,7 +645,7 @@ class MergeStep(unittest.TestCase):
             run.git(wt, "commit", "-m", "fix findings")
             return "## Summary\nFixed the findings."
 
-        with patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer), \
+        with patch.object(roundloop, "execute", side_effect=fixer), \
                 patch.object(model_turns, "call_retrying", side_effect=submitting(review_call)), \
                 patch.object(gate, "run_done_when", side_effect=checks):
             self.assertTrue(run.integrate(lp, "origin/main"))
@@ -660,7 +660,7 @@ class MergeStep(unittest.TestCase):
         _, owner, wt = make_repos(self.root)
         conflict(owner, wt)
         lp, run_dir, _ = make_loop(self.root, wt, rounds=2, spent=2)
-        with patch.object(run, "execute", side_effect=lambda *a: resolve(wt)), patch.object(roundloop, "execute", side_effect=lambda *a: resolve(wt)), \
+        with patch.object(roundloop, "execute", side_effect=lambda *a: resolve(wt)), \
                 patch.object(model_turns, "call_retrying", side_effect=run.QuotaDry("reviewer dry")), \
                 patch.object(usage, "collect", return_value={}), \
                 patch.object(usage, "pick_order", return_value=[]):
@@ -669,7 +669,7 @@ class MergeStep(unittest.TestCase):
         saved = record.read_state(run_dir)
         self.assertFalse(saved["review_pending"]["record"])
         resumed = run.Loop(lp.cfg, run_dir, saved, {}, lp.log, wt, "body", ["true"], "context", [])
-        with patch.object(run, "execute", side_effect=AssertionError("unexpected fixer")), patch.object(roundloop, "execute", side_effect=AssertionError("unexpected fixer")):
+        with patch.object(roundloop, "execute", side_effect=AssertionError("unexpected fixer")):
             run.rounds(resumed)
         self.assertEqual(len(resumed.state["round_summaries"]), 2)
         self.assertTrue(run.current_review(resumed))
@@ -683,7 +683,7 @@ class MergeStep(unittest.TestCase):
         (run_dir / "task.md").write_text("# Merge fixture\n\n## Done when\n```bash\ntrue\n```\n")
         info = {"headRefOid": lp.state["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
         with patch.object(run, "pr_view", return_value=info), \
-                patch.object(run, "execute", return_value="## Summary\nUnresolved."), patch.object(roundloop, "execute", return_value="## Summary\nUnresolved."), \
+                patch.object(roundloop, "execute", return_value="## Summary\nUnresolved."), \
                 patch.object(run, "stop_run_tree"), \
                 patch.object(run, "rights", return_value=("acme/widget", "WRITE")):
             self.assertEqual(run.cmd_merge([run_dir.name]), 0)

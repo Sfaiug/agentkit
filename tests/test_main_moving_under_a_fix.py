@@ -180,8 +180,8 @@ class V5aa(unittest.TestCase):
                 moved.append(True)
             return code, out
 
-        with patch.object(run, "git_out", side_effect=hooked), \
-                patch.object(run, "set_base", side_effect=record_set_base):
+        with patch.object(gitcall, "git_out", side_effect=hooked), \
+                patch.object(roundloop, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
         text = self.log_text(run_dir)
         tip1 = run.git(wt, "rev-parse", "origin/main^{commit}")
@@ -227,7 +227,7 @@ class V5aa(unittest.TestCase):
             return "## Summary\nResolved both sides."
 
         with patch.object(roundloop, "execute", side_effect=fixer), \
-                patch.object(run, "set_base", side_effect=record_set_base):
+                patch.object(roundloop, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
         text = self.log_text(run_dir)
         self.assertNotIn("did not finish", text)
@@ -553,8 +553,8 @@ class V5aa(unittest.TestCase):
                 moved.append(True)
             return code, out
 
-        with patch.object(run, "git_out", side_effect=hooked), \
-                patch.object(run, "set_base", side_effect=record_set_base):
+        with patch.object(gitcall, "git_out", side_effect=hooked), \
+                patch.object(roundloop, "set_base", side_effect=record_set_base):
             self.assertTrue(run.integrate(lp, "origin/main"))
         state = record.read_state(run_dir)
         tip1 = run.git(wt, "rev-parse", "origin/main^{commit}")

@@ -491,7 +491,7 @@ sys.exit(1)
                               lambda line: None, Path(state["worktree"]), "body", ["true"],
                               "context", [])
                 lp.rnd = rnd
-                run.pending_review(lp, "Re-review after the rebase of origin/main.")
+                roundloop.pending_review(lp, "Re-review after the rebase of origin/main.")
                 self.assertIn("review_pending", record.read_state(directory))
                 calls = []
 
@@ -501,9 +501,9 @@ sys.exit(1)
 
                 # resolve_conflicts calls git through run's names; the integration helpers it
                 # reaches on roundloop call gitcall's
-                with patch.object(run, "git", return_value=""), patch.object(gitcall, "git", return_value=""), \
+                with patch.object(gitcall, "git", return_value=""), \
                         patch.object(gitcall, "git_out", side_effect=git_out):
-                    self.assertFalse(run.resolve_conflicts(lp, "origin/main", "conflicted", "rebase"))
+                    self.assertFalse(roundloop.resolve_conflicts(lp, "origin/main", "conflicted", "rebase"))
                 self.assertIn(("rebase", "--abort"), calls)
                 after = record.read_state(directory)
                 self.assertEqual(after["review_pending"]["round"], rnd)

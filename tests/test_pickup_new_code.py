@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, gitcall, job as jobs, run, turns, worker
+from agentkit import config, gate, gitcall, job as jobs, roundloop, run, turns, worker
 from agentkit import record
 
 OLD = "aaa1111"
@@ -149,8 +149,8 @@ class PickupNewCode(unittest.TestCase):
             return "## Summary\nWork."
 
         with patch.object(run, "installed_head", return_value=NEW), \
-                patch.object(run, "execute", side_effect=fake_execute), patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]\n")), \
-                patch.object(run, "review", return_value="FAIL"):
+                patch.object(roundloop, "execute", side_effect=fake_execute), patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]\n")), \
+                patch.object(roundloop, "review", return_value="FAIL"):
             run.rounds(lp, execv=fake_exec)
         self.assertEqual(len(calls), 1)
         path, argv = calls[0]

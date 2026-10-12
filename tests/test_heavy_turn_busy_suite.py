@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, run, worker
+from agentkit import config, gate, gitcall, roundloop, worker
 from agentkit import record
 from test_red_target import make_loop, make_repos
 
@@ -184,7 +184,7 @@ class BusySuite(unittest.TestCase):
 
         def body():
             try:
-                results["probed"] = run.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\nFAIL")
+                results["probed"] = roundloop.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\nFAIL")
             except BaseException as exc:      # noqa: BLE001 -- the test reads it
                 results["probed"] = exc
         probe = threading.Thread(target=body, daemon=True)

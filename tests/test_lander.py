@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gc, land, record, run, turns, watch, worker
+from agentkit import config, gate, gc, land, record, roundloop, run, turns, watch, worker
 
 SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
@@ -57,7 +57,7 @@ class LanderFixture:
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
-        for module, name in ((worker, "turn"), (worker, "call"), (run, "resolve_conflicts"),
+        for module, name in ((worker, "turn"), (worker, "call"), (roundloop, "resolve_conflicts"),
                              (run, "do_merge"), (run, "stop_run_tree")):
             self.stack.enter_context(patch.object(module, name, side_effect=AssertionError(name)))
         self.remote = self.root / "origin.git"
@@ -288,8 +288,7 @@ class Lander(LanderFixture, unittest.TestCase):
         state = record.read_state(head)
         lp = SimpleNamespace(state=state, wt=self.repo, run_dir=head, log=lambda _: None,
                              write=lambda: record.save_state(head, state))
-        with patch.object(run, "integrate", return_value=True), \
-                patch.object(run, "fix_final_check", return_value=True):
+        with patch.object(run, "integrate", return_value=True), patch.object(run, "fix_final_check", return_value=True):
             self.assertFalse(run.land_from_line(lp, "origin/main", lambda: True))
         self.assertEqual(self.wait(head), {"line": self.turn.name, "joined": 1})
         self.assertEqual([d.name for d, _ in land.line(self.turn)], ["head", "tail"])

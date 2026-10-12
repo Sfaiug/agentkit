@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, handback, run, stop, transitions, turns, worker
+from agentkit import config, handback, roundloop, run, stop, transitions, turns, worker
 from fixtures.hand_in import findings_section, scripted, stateful
 
 
@@ -286,7 +286,7 @@ out = pathlib.Path(sys.argv[6])
                     (self.wt / "api.py").read_text().replace('mode = "branch"', 'mode = "base"'))
             return "## Summary\nFixture"
 
-        with patch.object(run, "execute", side_effect=execute), patch.object(run, "pickup_new_code"):
+        with patch.object(roundloop, "execute", side_effect=execute), patch.object(run, "pickup_new_code"):
             run.rounds(self.lp)
         # a fix leaves a commit of its own on the reviewed head, and the checkout stands on it
         fixed = run.git(self.wt, "rev-parse", "HEAD")

@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, smoke, stateful
-from agentkit import config, handback, notify, orch, run, status, watch
+from agentkit import config, handback, notify, orch, roundloop, run, status, watch
 from agentkit import record
 
 ADAPTER = """import json, os, sys
@@ -396,15 +396,15 @@ class ResumeMidturn(unittest.TestCase):
         answer.mkdir(parents=True)
         (answer / "final.md").write_text("## Summary\ndone\n")
         smoke(answer, self.root)
-        self.assertEqual(run.continuation(self.loop(directory.name)), "done-when")
-        self.assertIsNone(run.settled_gate(self.loop(directory.name)),
+        self.assertEqual(roundloop.continuation(self.loop(directory.name)), "done-when")
+        self.assertIsNone(roundloop.settled_gate(self.loop(directory.name)),
                           "a gate with no settled record runs again")
         lp = self.loop(directory.name)
         lp.rnd = 0
         gates = []
         # The gate's own commands are a real process tree, which no test here starts: what
         # a cut-off gate has to do is re-enter it rather than spend another executor turn.
-        with patch.object(run, "verify_work", side_effect=lambda lp, cmds=None:
+        with patch.object(roundloop, "verify_work", side_effect=lambda lp, cmds=None:
                           gates.append(lp.rnd) or (True, "$ true\n[exit 0]\n")):
             run.rounds(lp)
         self.assertEqual(gates, [1])

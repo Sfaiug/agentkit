@@ -792,8 +792,7 @@ class Limits(unittest.TestCase):
             seen.update(run_record.read_state(directory))      # the receipt a killed retry leaves
             raise KeyboardInterrupt
 
-        with patch.object(run, "integrate", side_effect=killed), \
-                redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
+        with patch.object(run, "integrate", side_effect=killed), redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
             run.main(["merge", directory.name])
 
         # while it delivers, the run owns its receipt: running, this process, at the merge step
@@ -989,7 +988,7 @@ class Limits(unittest.TestCase):
 
                 try:
                     with patch.object(run.subprocess, "run", side_effect=timeout_after_state), \
-                            patch.object(run, "resolve_conflicts",
+                            patch.object(roundloop, "resolve_conflicts",
                                          side_effect=AssertionError("timeout reached conflict fixer")):
                         with self.assertRaisesRegex(run.Stopped, "was killed after"):
                             run.integrate(lp, "origin/main")

@@ -207,9 +207,8 @@ class FollowupRule(unittest.TestCase):
         self.review(DEFECT)
         output, flake = self.gate()
         self.lp.once = ["fixture check"]
-        with patch.object(run, "git", return_value="abc123"), \
-             patch.object(gitcall, "git", return_value="abc123"), \
-                patch.object(run, "git_out", return_value=(0, "")), \
+        with patch.object(gitcall, "git", return_value="abc123"), \
+                patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(gate, "run_done_when", return_value=(True, output)):
             self.assertTrue(run.final_check(self.lp, "origin/main"))
         self.assert_followups([DEFECT, flake])

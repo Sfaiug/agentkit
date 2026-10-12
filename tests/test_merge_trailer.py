@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, handback, run, turns
+from agentkit import config, gate, gc, gitcall, handback, roundloop, run, turns
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -251,8 +251,8 @@ class MergeTrailer(unittest.TestCase):
                 self.git("checkout", "-q", "ak/fix-api")
                 lp = self.loop(suite="false" if failed else SUITE)
                 if failed:
-                    with patch.object(run, "target_fails", return_value="red target"), \
-                            patch.object(run, "park_waiting", return_value=False):
+                    with patch.object(roundloop, "target_fails", return_value="red target"), \
+                            patch.object(roundloop, "park_waiting", return_value=False):
                         self.assertFalse(run.final_check(lp, "origin/main"))
                 self.assertNotIn("Suite-Passed-Tree:", self.land(lp))
 
@@ -275,7 +275,7 @@ class MergeTrailer(unittest.TestCase):
         self.commit("Advance target")
         self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
         self.git("checkout", "-q", "ak/fix-api")
-        with patch.object(run, "fetch", return_value=(0, "")):
+        with patch.object(gitcall, "fetch", return_value=(0, "")):
             self.assertTrue(run.integrate(lp, "origin/main"))
         self.assertEqual(lp.state["final_check"]["tree_sha"], tree)
         self.assertNotEqual(self.git("rev-parse", "HEAD^{tree}"), tree)
