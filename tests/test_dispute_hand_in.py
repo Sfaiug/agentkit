@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, stop, turns, worker
+from agentkit import config, hand_in, run, stop, transitions, turns, worker
 from fixtures.hand_in import scripted, stateful
 
 FINDING = ["finding", "api.py:1", "feature disabled", "task requires the feature",
@@ -43,7 +43,7 @@ class DisputeHandIn(unittest.TestCase):
                 (worker, "auth_ok", (True, "fixture")), (worker, "marked_pids", []),
                 (worker, "kill_marked", True), (stop, "marker_pids", []),
                 (run.orch, "stop_scope", None), (turns, "note_turn_meters", None),
-                (run, "history_role_tokens", None), (turns, "memory_cap_note", None),
+                (transitions, "history_role_tokens", None), (turns, "memory_cap_note", None),
                 (run, "pickup_new_code", None), (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         config.ensure_dirs()

@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.sandbox import account_home
-from agentkit import config, gate as suite_gate, gc, gitcall, run, status, worker
+from agentkit import config, gate as suite_gate, gc, gitcall, roundloop, run, status, turns, worker
 from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"
@@ -302,14 +302,14 @@ class SuiteInRound(unittest.TestCase):
         with patch.object(suite_gate, "run_done_when",
                           wraps=suite_gate.run_done_when) as wrapped:
             # the overlap conflicts, so resolve it like a fixer would, then land
-            with patch.object(run, "execute",
+            with patch.object(roundloop, "execute",
                               side_effect=lambda lp0, *a: (
                                   (wt2 / "work.txt").write_text("both\n"),
                                   run.git(wt2, "add", "work.txt"),
                                   run.git(wt2, "-c", "core.editor=true",
                                           "rebase", "--continue"),
                                   "## Summary\nResolved.")[3]):
-                with patch.object(run, "call_retrying",
+                with patch.object(turns, "call_retrying",
                                   side_effect=submitting((0, "VERDICT: PASS\n## Findings\n- none",
                                                 None, False))):
                     self.assertTrue(run.land(

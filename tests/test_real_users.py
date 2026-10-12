@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gitcall, notify, run, turns, worker
+from agentkit import config, gitcall, notify, prompts, run, turns, worker
 from agentkit import record
 
 RULE = f"{worker.GATE}\n{worker.REAL_USERS}"
@@ -190,8 +190,8 @@ sys.exit(1)
         # The answer with no verdict and the turn left running in the background are each
         # followed up by an ask alone; with no session to resume, that ask opens a new
         # conversation, and the gate it carries is all that reviewer knows of the rule.
-        for mode, ask in (("silent", run.NO_VERDICT_ASK),
-                          ("background", f"{turns.FINISH_IN_FOREGROUND} {run.NO_VERDICT_ASK}")):
+        for mode, ask in (("silent", turns.NO_VERDICT_ASK),
+                          ("background", f"{turns.FINISH_IN_FOREGROUND} {turns.NO_VERDICT_ASK}")):
             with self.subTest(mode=mode):
                 (self.root / "prompts.jsonl").unlink(missing_ok=True)
                 reviews, _ = self.launch("---\nusers: real\n---\n# Repo\n", [mode, "pass"])

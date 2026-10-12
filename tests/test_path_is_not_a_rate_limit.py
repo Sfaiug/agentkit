@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, run, turns, usage, worker
+from agentkit import config, harness, turns, usage, worker
 import check_harness_contract as contract
 
 PATHS = (
@@ -180,10 +180,10 @@ class PathIsNotARateLimit(unittest.TestCase):
                             self.root / name / "round-1" / "executor", "executor", None, lambda _: None)
                     if refusal:
                         with self.assertRaises(turns.RanDry):
-                            run.call_retrying(*args)
+                            turns.call_retrying(*args)
                         parked.assert_called_once()
                     else:
-                        self.assertEqual(run.call_retrying(*args),
+                        self.assertEqual(turns.call_retrying(*args),
                                          (1, message, "acme-session", False))
                         parked.assert_not_called()
 

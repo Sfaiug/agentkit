@@ -92,7 +92,7 @@ class RefusedSubscription(unittest.TestCase):
         lines = []
         with patch.object(run.worker, "call", side_effect=self.call), \
                 self.assertRaises(turns.RanDry):
-            run.call_retrying(self.cfg, "one", "Do the task.", self.root, out,
+            turns.call_retrying(self.cfg, "one", "Do the task.", self.root, out,
                               "executor", None, lines.append, limit=120)
         self.assertEqual(self.ran_on, ["second"], lines)
         told = (self.fake / "told").read_text().splitlines()

@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, menu, run, staffing, status, usage
+from agentkit import config, menu, run, staffing, status, turns, usage
 from agentkit import record
 
 
@@ -176,7 +176,7 @@ class SelfReviewLast(unittest.TestCase):
             return 0, "No verdict yet." if model == silent else "VERDICT: PASS", "sid", False
 
         with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers), \
-                patch.object(run, "call_retrying", side_effect=submitting(call)), \
+                patch.object(turns, "call_retrying", side_effect=submitting(call)), \
                 patch.object(run.worker, "call", side_effect=submitting(call)):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
         return calls
@@ -197,7 +197,7 @@ class SelfReviewLast(unittest.TestCase):
         self.cfg["defaults"]["workers"] = ["acme-one", "beta-one"]
         self.providers = self.meters(acme=100, beta=10)
         with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
-            self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "beta-one")
+            self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "beta-one")
         self.assertEqual((lp.executor, lp.reviewer), ("beta-one", "beta-one"))
         saved = record.read_state(lp.run_dir)
         self.assertEqual((saved["executor"], saved["reviewer"]), ("beta-one", "beta-one"))
@@ -216,7 +216,7 @@ class SelfReviewLast(unittest.TestCase):
         lp.state["workers"] = ["acme-one", "acme-two", "beta-one"]
         lp.state["reviewers"] = ["acme-one"]
         with patch.object(run, "collect_usage", return_value=self.providers), patch.object(staffing, "collect_usage", return_value=self.providers):
-            self.assertEqual(run.hand_executor(lp, "ran dry", "refused", set()), "acme-two")
+            self.assertEqual(staffing.hand_executor(lp, "ran dry", "refused", set()), "acme-two")
         self.assertEqual((lp.executor, lp.reviewer), ("acme-two", "acme-one"))
 
     def test_a_stall_handover_prefers_a_better_tier_over_a_cheaper_self(self):

@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, gitcall, run, staffing, turns, worker
+from agentkit import config, gitcall, run, staffing, transitions, turns, worker
 
 
 ADAPTER = '''import json, os, pathlib, subprocess, sys, time
@@ -107,7 +107,7 @@ class ReviewerEdits(unittest.TestCase):
         self.stack.enter_context(patch.object(turns, "transient_wait"))
         self.stack.enter_context(patch.object(turns, "memory_cap_note"))
         self.stack.enter_context(patch.object(turns, "note_turn_meters"))
-        self.stack.enter_context(patch.object(run, "history_role_tokens"))
+        self.stack.enter_context(patch.object(transitions, "history_role_tokens"))
         self.wt = self.root / "acme"
         self.wt.mkdir()
         self.git("init", "-q", "-b", "ak/fix-api")
@@ -212,8 +212,8 @@ class ReviewerEdits(unittest.TestCase):
         self.assertIn("+reviewer artifact edit", self.archive.read_text())
 
     def test_fallback_reviewer_starts_on_the_executor_commit(self):
-        with patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
-                patch.object(run, "ready_order", return_value=["spark"]), patch.object(staffing, "ready_order", return_value=["spark"]):
+        with patch.object(staffing, "collect_usage", return_value={}), \
+                patch.object(staffing, "ready_order", return_value=["spark"]):
             self.assertEqual(self.review(
                 {"files": {"tracked.txt": "broken turn edit\n"}, "commit": True,
                  "code": 1, "text": "", "stderr": "codex is not installed"},
@@ -572,7 +572,7 @@ class ReviewerEdits(unittest.TestCase):
 
         with patch.object(worker, "call", side_effect=fake):
             for role in ("reviewer", "reviewer-pr"):
-                self.assertEqual(run.call_retrying(
+                self.assertEqual(turns.call_retrying(
                     self.lp.cfg, "astra", "Review.", self.root, self.lp.dir(role), role,
                     None, self.logs.append)[0], 0)
 

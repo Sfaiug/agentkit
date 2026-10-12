@@ -293,7 +293,7 @@ class TurnMeters(unittest.TestCase):
         out = self.root / "run" / "round-1" / "executor"
         out.parent.mkdir(parents=True, exist_ok=True)
         with patch.object(run.worker, "call", side_effect=turn):
-            code, _, session, _ = run.call_retrying(
+            code, _, session, _ = turns.call_retrying(
                 self.cfg, "opus", "Do the task.", self.work, out, "executor", None,
                 lines.append, limit=120)
         self.assertEqual((code, session), (0, "s1"))

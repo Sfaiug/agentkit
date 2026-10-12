@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, hand_in, run, turns
+from agentkit import config, hand_in, prompts, run, transitions, turns
 
 
 def probe(expression):
@@ -82,7 +82,7 @@ class Weighed(unittest.TestCase):
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         for module, name in ((run.orch, "stop_scope"), (turns, "note_turn_meters"),
-                             (run, "history_role_tokens"), (turns, "memory_cap_note"),
+                             (transitions, "history_role_tokens"), (turns, "memory_cap_note"),
                              (run.history, "update_run")):
             self.stack.enter_context(patch.object(module, name, return_value=None))
         config.ensure_dirs()
@@ -115,7 +115,7 @@ class Weighed(unittest.TestCase):
         run.git(self.wt, "commit", "-qm", message)
 
     def weigh(self, *rows):
-        submitted = run.weigh_review(self.lp, hand_in.Review([*rows, {"kind": "done"}]), self.head)
+        submitted = prompts.weigh_review(self.lp, hand_in.Review([*rows, {"kind": "done"}]), self.head)
         return submitted, submitted.records[0]
 
     def test_a_follow_up_of_this_change_is_proven_on_the_reviewed_commit_and_never_blocks(self):

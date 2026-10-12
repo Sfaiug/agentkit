@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, history, menu, run, terminal, turns, usage, watch, worker  # noqa: E402
+from agentkit import config, harness, history, menu, run, terminal, transitions, turns, usage, watch, worker  # noqa: E402
 
 FIX = REPO / "tests/fixtures"
 ADAPTER = REPO / "adapters/grokbuild.sh"
@@ -784,7 +784,7 @@ class HistoryTokens(GrokSandbox):
             directory = self.home / role
             directory.mkdir()
             shutil.copy(events, directory / "events.jsonl")
-            run.history_role_tokens("grok-history", role, directory)
+            transitions.history_role_tokens("grok-history", role, directory)
         row = history.get("grok-history")
         self.assertEqual((row["executor_tokens"], row["reviewer_tokens"]), (18240, 18240))
 

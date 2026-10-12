@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, run  # noqa: E402
+from agentkit import config, run, staffing  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/opencode.sh")
 
@@ -166,7 +166,7 @@ class LargePrompt(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep",
                              side_effect=AssertionError("transient wait")), \
-                patch.object(run, "hand_executor", side_effect=hand):
+                patch.object(staffing, "hand_executor", side_effect=hand):
             summary = run.execute(lp, "executor", "Do the task.", "executor")
         self.assertIn("Done elsewhere.", summary)
         self.assertEqual(len(handed), 1)

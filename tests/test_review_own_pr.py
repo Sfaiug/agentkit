@@ -120,7 +120,7 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "review", side_effect=faces[reviewer]),
             patch.object(run, "restore_review_checkout", return_value=None),
             patch.object(handback, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)),
-            patch.object(run, "fetch", return_value=(0, "")), patch.object(gitcall, "fetch", return_value=(0, "")),
+            patch.object(run, "fetch", return_value=(0, "")), 
             patch.object(run, "commit_identity", return_value={"head_sha": HEAD, "tree_sha": "c" * 40}),
             patch.object(gitcall, "commit_identity", return_value={"head_sha": HEAD, "tree_sha": "c" * 40}),
         ]
@@ -215,7 +215,6 @@ class OwnPr(unittest.TestCase):
                 watch, "ask_inbox", side_effect=lambda *a, **k: inbox.append(a) or 0))
             reviewed = mocks.enter_context(patch.object(run, "review", wraps=self.review_pass))
             probed = mocks.enter_context(patch.object(run, "collect_usage", return_value={}))
-            mocks.enter_context(patch.object(staffing, "collect_usage", probed))
             mocks.enter_context(patch.object(staffing, "collect_usage", return_value={}))
             with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
                 state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)

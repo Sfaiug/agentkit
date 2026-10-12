@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, handback, record, run, turns, worker
+from agentkit import config, hand_in, handback, record, run, staffing, transitions, turns, worker
 
 PROSE = ("VERDICT: PASS\n\n## Findings\n- api.py:1 - prose finding - breaks callers\n\n"
          "## Follow-ups\n- api.py:1 - prose follow-up - existed before\n")
@@ -29,8 +29,8 @@ class ReviewerTextIgnored(unittest.TestCase):
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
-        for module, name, value in ((run, "collect_usage", {}), (run, "ready_order", []),
-                                    (turns, "note_turn_meters", None), (run, "history_role_tokens", None),
+        for module, name, value in ((staffing, "collect_usage", {}), (staffing, "ready_order", []),
+                                    (turns, "note_turn_meters", None), (transitions, "history_role_tokens", None),
                                     (turns, "memory_cap_note", None), (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         config.ensure_dirs()
@@ -67,7 +67,7 @@ class ReviewerTextIgnored(unittest.TestCase):
         def extra(*args, **kwargs):
             return (*turn(*args, **kwargs), False)
 
-        with patch.object(run, "call_retrying", side_effect=turn), \
+        with patch.object(turns, "call_retrying", side_effect=turn), \
                 patch.object(worker, "turn", side_effect=extra):
             return run.review(self.lp, "## Summary\nFixture", True, "$ true\n[exit 0]")
 
@@ -75,7 +75,7 @@ class ReviewerTextIgnored(unittest.TestCase):
         with self.assertRaisesRegex(run.Exhausted, "gave no verdict twice"):
             self.review((PROSE, None), (PROSE, None))
         self.assertEqual(len(self.calls), 2)
-        self.assertEqual(self.calls[1], (run.NO_VERDICT_ASK, "fixture-session"))
+        self.assertEqual(self.calls[1], (turns.NO_VERDICT_ASK, "fixture-session"))
         self.assertIsNone(self.lp.state["verdict"])
         self.assertEqual(self.lp.state["round_summaries"], [])
 
@@ -83,7 +83,7 @@ class ReviewerTextIgnored(unittest.TestCase):
         verdict = self.review((PROSE, None), (PROSE, [["done"]]))
         self.assertEqual(verdict, "PASS")
         self.assertEqual(len(self.calls), 2)
-        self.assertEqual(self.calls[1][0], run.NO_VERDICT_ASK)
+        self.assertEqual(self.calls[1][0], turns.NO_VERDICT_ASK)
         self.assertEqual(self.lp.state["round_summaries"][0]["finding_count"], 0)
         self.assertEqual(self.lp.state["followups"], [])
 

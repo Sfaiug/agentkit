@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, roundloop, run, staffing
+from agentkit import config, gc, gitcall, prompts, roundloop, run
 from agentkit import record
 
 
@@ -99,7 +99,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
                             "staffing began before merging the target")
             return {}
 
-        with patch.object(run, "collect_usage", side_effect=collect_usage), patch.object(staffing, "collect_usage", side_effect=collect_usage):
+        with patch.object(run, "collect_usage", side_effect=collect_usage):
             lp = self.start()
         self.assertTrue((lp.wt / "fixed.txt").is_file(), "round 1 lacks the target's fix")
         self.assertEqual((lp.wt / "fixed.txt").read_text(), "target fix\n")
@@ -164,7 +164,7 @@ class FromRunTakesTheTarget(unittest.TestCase):
         (self.origin / "tests").mkdir()
         fresh = self.commit(self.origin, "tests/test_target.py", "# target test\n")
         lp = self.start("dev")
-        self.assertEqual(run.changed_test_paths(lp), [])
+        self.assertEqual(prompts.changed_test_paths(lp), [])
         self.assertEqual(lp.base_sha, fresh)
         lp.files = ["carried.txt"]
         self.assertEqual(roundloop.files_scope(lp), "")

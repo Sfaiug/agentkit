@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.landing import landing
-from agentkit import gitcall, host, config, run
+from agentkit import config, gitcall, host, roundloop, run, turns
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -82,7 +82,8 @@ class FetchRefRace(unittest.TestCase):
         stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
         stack.enter_context(patch.object(run, "final_check", return_value=True))
         stack.enter_context(patch.object(run, "execute", side_effect=AssertionError("fixer")))
-        stack.enter_context(patch.object(run, "call_retrying",
+        stack.enter_context(patch.object(roundloop, "execute", side_effect=AssertionError("fixer")))
+        stack.enter_context(patch.object(turns, "call_retrying",
                                          side_effect=AssertionError("reviewer")))
         stack.enter_context(patch.object(run, "rights", return_value=(None, None)))
         stack.enter_context(patch.object(run, "open_pr", return_value=URL))

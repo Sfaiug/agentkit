@@ -156,7 +156,7 @@ class Loop(Sandbox):
         out = self.run_dir / "round-1" / "executor"
         with patch.object(worker, "call", side_effect=turn):
             for _ in range(3):
-                code, *_rest = run.call_retrying(cfg, "w", "do the thing", self.root, out,
+                code, *_rest = turns.call_retrying(cfg, "w", "do the thing", self.root, out,
                                                  "executor", None, self.lines.append)
                 self.assertEqual(code, 0)
         self.assertEqual(self.lines.count(HIT), 3)

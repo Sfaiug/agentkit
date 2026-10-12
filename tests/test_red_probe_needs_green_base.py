@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander
 import test_red_target as red
-from agentkit import config, gate, gitcall, handback, land, run, watch
+from agentkit import config, gate, gitcall, handback, land, roundloop, run, watch
 from agentkit import record
 
 
@@ -24,8 +24,7 @@ class GreenBase(unittest.TestCase):
     def setUp(self):
         red.RedTarget.setUp(self)
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root)}))
-        self.repair = Mock(return_value=None)   # one mock for both bindings: run's own code and the lander's
-        self.stack.enter_context(patch.object(run, "start_followups", self.repair))
+        self.repair = Mock(return_value=None)
         self.stack.enter_context(patch.object(handback, "start_followups", self.repair))
 
     def move_target(self, owner, wt):
@@ -105,7 +104,7 @@ class GreenBase(unittest.TestCase):
                         run.git(wt, "commit", "-m", "resolve conflict")
                     return "## Summary\nResolved the conflict."
 
-                with patch.object(run, "execute", side_effect=fix):
+                with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
                     self.assertTrue(run.integrate(lp, "origin/main"))
                     self.assertTrue(run.final_check(lp, "origin/main"))
                 self.assertEqual(self.turns, [f"{how}-fixer", "final-fixer"])
@@ -130,7 +129,7 @@ class GreenBase(unittest.TestCase):
             run.git(wt, "commit", "-m", f"fix {path}")
             return f"## Summary\nFixed {path}."
 
-        with patch.object(run, "execute", side_effect=fix):
+        with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer", "final-fixer"])
         self.repair.assert_not_called()
@@ -159,7 +158,7 @@ class GreenBase(unittest.TestCase):
             run.git(wt, "commit", "-m", f"fix {path}")
             return f"## Summary\nFixed {path}."
 
-        with patch.object(run, "execute", side_effect=fix):
+        with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
             self.assertTrue(run.integrate(lp, "origin/main"))
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["rerun-fixer", "final-fixer"])
@@ -327,7 +326,7 @@ class GreenBase(unittest.TestCase):
                         run.git(wt, "commit", "-m", "fix poison")
                     return "## Summary\nResolved the conflict and fixed the check."
 
-                with patch.object(run, "execute", side_effect=fix):
+                with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
                     self.assertTrue(run.integrate(lp, "origin/main"))
                 self.assertEqual(self.turns, [f"{how}-fixer", "executor"])
                 self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))

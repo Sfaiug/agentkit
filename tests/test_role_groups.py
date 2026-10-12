@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import test_worker_list as fixtures
 from fixtures.hand_in import smoke, submitting
-from agentkit import config, gate, gc, gitcall, handback, run, staffing, status, turns, usage, watch
+from agentkit import config, gate, gc, gitcall, run, staffing, status, turns, usage, watch
 from agentkit import record as run_record
 
 @contextmanager
@@ -39,7 +39,7 @@ class RoleGroups(unittest.TestCase):
     def capture(self, name="fixture"):
         directory = config.RUNS / name
         directory.mkdir()
-        with patched_on_both(run, handback, "redress_seat"), \
+        with patch.object(run, "redress_seat"), \
                 patch.object(run, "history_start"), patch.object(gate, "claim_slot"):
             run.capture_launch(directory, cfg=self.cfg)
         return directory, run_record.read_state(directory)
@@ -155,10 +155,10 @@ class RoleGroups(unittest.TestCase):
                 self.assertEqual(state["reviewers"], ["gamma", "delta"])
             self.cfg["defaults"]["reviewers"] = ["seat"]
             self.wide["reviewers"] = ["seat"]
-            self.assertEqual(run.run_reviewers(self.cfg, state), ["gamma", "delta"])
+            self.assertEqual(staffing.run_reviewers(self.cfg, state), ["gamma", "delta"])
             self.groups()
         legacy = {"workers": ["alpha", "beta"], "launched_session": "wide"}
-        self.assertEqual(run.run_reviewers(self.cfg, legacy), ["alpha", "beta"])
+        self.assertEqual(staffing.run_reviewers(self.cfg, legacy), ["alpha", "beta"])
 
     def test_legacy_launch_receipt_omits_reviewers(self):
         for seat in ("wide", ""):
@@ -258,7 +258,7 @@ class RoleGroups(unittest.TestCase):
         with patched_on_both(run, staffing, "collect_usage", return_value=self.providers(c=0)):
             self.assertEqual(staffing.handover_executor(lp.state, self.cfg, "stalled"), "beta")
             self.assertEqual(lp.state["reviewer"], "delta")
-            self.assertEqual(run.hand_executor(lp, "refused", "transport", set()), "beta")
+            self.assertEqual(staffing.hand_executor(lp, "refused", "transport", set()), "beta")
             self.assertEqual(lp.reviewer, "delta")
             self.assertEqual(lp.spares, ["gamma"])
         lp.executor = "alpha"
@@ -432,7 +432,7 @@ class RoleGroups(unittest.TestCase):
                         return 0, "No verdict.", None, False
                     return 0, "VERDICT: PASS\n\n## Findings\n- none", None, False
 
-                with patch.object(run, "call_retrying", side_effect=submitting(call)), \
+                with patch.object(turns, "call_retrying", side_effect=submitting(call)), \
                         patch.object(run.worker, "call", side_effect=submitting(call)), \
                         patched_on_both(run, staffing, "collect_usage", return_value=self.providers(c=0)):
                     self.assertEqual(run.review(lp, "Done.", True, "passed"), "PASS")
@@ -486,7 +486,7 @@ class RoleGroups(unittest.TestCase):
                 patch.object(run, "checkout_for", return_value=wt), \
                 patch.object(run, "git", return_value=""), \
                 patch.object(gitcall, "git", return_value=""), \
-                patched_on_both(run, gitcall, "fetch", return_value=(0, "")), \
+                patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(gitcall, "git_out", side_effect=AssertionError("real Git in a fake checkout")), \
                 patch.object(run, "make_worktree", return_value=(wt, "ak/fix-api")), \

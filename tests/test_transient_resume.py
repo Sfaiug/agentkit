@@ -70,7 +70,7 @@ class TransientResume(unittest.TestCase):
         sleeps, logs = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, text, session, dead = run.call_retrying(
+            code, text, session, dead = turns.call_retrying(
                 self.cfg, "opus", "body", self.root, self.root / "out", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "sess-1"))
@@ -89,7 +89,7 @@ class TransientResume(unittest.TestCase):
         sleeps, logs = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, _, session, dead = run.call_retrying(
+            code, _, session, dead = turns.call_retrying(
                 self.cfg, "opus", "body", self.root, self.root / "out", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "s1"))
@@ -112,7 +112,7 @@ class TransientResume(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
             with self.assertRaises(turns.RanDry) as refused:
-                run.call_retrying(self.cfg, "astra", "body", self.root,
+                turns.call_retrying(self.cfg, "astra", "body", self.root,
                                   self.root / "out", "executor", None, logs.append)
         # one call, no wait: the round goes to another provider, as today
         self.assertEqual(len(calls), 1)
@@ -134,7 +134,7 @@ class TransientResume(unittest.TestCase):
         sleeps, logs = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, text, session, dead = run.call_retrying(
+            code, text, session, dead = turns.call_retrying(
                 self.cfg, "spark", "body", self.root, self.root / "out", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "muse-1"))
@@ -153,7 +153,7 @@ class TransientResume(unittest.TestCase):
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
             with self.assertRaises(run.Killed) as killed:
-                run.call_retrying(self.cfg, "opus", "body", self.root,
+                turns.call_retrying(self.cfg, "opus", "body", self.root,
                                   self.root / "out", "executor", None, logs.append)
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[1][6], "k1")
@@ -180,7 +180,7 @@ class TransientResume(unittest.TestCase):
         sleeps, logs = [], []
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append):
-            code, text, session, dead = run.call_retrying(
+            code, text, session, dead = turns.call_retrying(
                 self.cfg, "opus", "body", self.root, self.root / "out", "executor",
                 None, logs.append)
         self.assertEqual((code, dead, session), (0, False, "k9"))
@@ -220,7 +220,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(watch, "stop_run_scope", return_value=False) as scope, \
                 patch.object(watch, "launch_resume") as resume, \
                 patch.object(staffing, "handover_executor") as handover:
-            code, text, session, dead = run.call_retrying(
+            code, text, session, dead = turns.call_retrying(
                 self.cfg, "opus", "body", self.root, run_dir / "round-1" / "executor",
                 "executor", None, lambda _: None)
         self.assertEqual((code, dead, session), (0, False, "s1"))
@@ -253,7 +253,7 @@ class TransientResume(unittest.TestCase):
                 with patch.object(run.worker, "call", side_effect=fake), \
                         patch.object(run.time, "sleep", side_effect=AssertionError("waited")):
                     with self.assertRaises(turns.CannotRun) as broken:
-                        run.call_retrying(self.cfg, model, "body", self.root,
+                        turns.call_retrying(self.cfg, model, "body", self.root,
                                           self.root / "out", "executor", None, logs.append)
                 self.assertEqual(len(calls), 1)
                 self.assertIsInstance(broken.exception, run.Blocked)
@@ -276,7 +276,7 @@ class TransientResume(unittest.TestCase):
                 sleeps = []
                 with patch.object(run.worker, "call", side_effect=fake), \
                         patch.object(run.time, "sleep", side_effect=sleeps.append):
-                    code, _, session, dead = run.call_retrying(
+                    code, _, session, dead = turns.call_retrying(
                         self.cfg, model, "body", self.root, self.root / f"out-{len(line)}",
                         "executor", None, lambda _: None)
                 self.assertEqual((code, dead, session, sleeps), (0, False, "s1", [60]))
@@ -302,7 +302,7 @@ class TransientResume(unittest.TestCase):
 
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=sleeps.append), \
-                patch.object(run, "hand_executor", side_effect=hand):
+                patch.object(staffing, "hand_executor", side_effect=hand):
             summary = run.execute(lp, "executor", "Do the task.", "executor")
         self.assertIn("Done elsewhere.", summary)
         self.assertEqual(handed, [("opus", "cannot run", f"cannot run: {line}")])
@@ -315,7 +315,7 @@ class TransientResume(unittest.TestCase):
         calls, fake = self.worker([(1, "", "s1", f"{line}\n")])
         with patch.object(run.worker, "call", side_effect=fake), \
                 patch.object(run.time, "sleep", side_effect=AssertionError("waited")), \
-                patch.object(run, "hand_executor", return_value=None):
+                patch.object(staffing, "hand_executor", return_value=None):
             with self.assertRaises(run.Blocked) as blocked:
                 run.execute(self.executor_loop(), "executor", "Do the task.", "executor")
         self.assertEqual(len(calls), 1)
@@ -338,7 +338,7 @@ class TransientResume(unittest.TestCase):
         with patch.object(config, "adapter", return_value=adapter), \
                 patch.object(turns, "transient_wait", side_effect=AssertionError("waited")):
             with self.assertRaises(turns.CannotRun) as broken:
-                run.call_retrying(self.cfg, "mimo", "body", self.root, out, "executor", None,
+                turns.call_retrying(self.cfg, "mimo", "body", self.root, out, "executor", None,
                                   logs.append)
         self.assertIn("opencode.sh: opencode is not installed", str(broken.exception))
         self.assertIn("opencode is not installed", (out / "stderr.log").read_text())
@@ -370,8 +370,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start"), \
                 patch.object(run, "exclude_junk"), \
-                patch.object(run, "collect_usage", return_value={}), patch.object(staffing, "collect_usage", return_value={}), \
-                patch.object(run, "review", side_effect=turns.CannotRun("mimo", line)), \
+                patch.object(run, "collect_usage", return_value={}), patch.object(run, "review", side_effect=turns.CannotRun("mimo", line)), \
                 patch.object(run, "post_review", side_effect=AssertionError("posted")):
             state = run.review_pr(self.cfg, run_dir, "https://github.com/o/r/pull/1",
                                   {"--review": "mimo"}, lambda _: None)

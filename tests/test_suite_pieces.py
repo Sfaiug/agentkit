@@ -68,7 +68,7 @@ class SuitePieces(unittest.TestCase):
         self.assertTrue(ok, text)
         for shard in ("1/2", "2/2"):
             self.assertIn(f"--- AK_SHARD={shard} ---\n[exit 0]\npiece {shard}", text)
-        self.assertEqual(run.done_when_counts(text, [SUITE]), (1, 1))
+        self.assertEqual(prompts.done_when_counts(text, [SUITE]), (1, 1))
         self.assertEqual((self.run_dir / "gate.log").read_text(), text)
         self.assertEqual(list(self.run_dir.glob("*-piece-*.log")), [])
 
@@ -322,7 +322,7 @@ class SuitePieces(unittest.TestCase):
             ok, text = self.check()
         self.assertFalse(ok)
         self.assertEqual(calls, {"1/2": 1, "2/2": 2})
-        self.assertEqual(run.done_when_counts(text, [SUITE]), (0, 1))
+        self.assertEqual(prompts.done_when_counts(text, [SUITE]), (0, 1))
         self.assertEqual(prompts.failing_checks(text), [[SUITE, "FAIL: broken"]])
         self.assertNotIn("flaky:", text)
 

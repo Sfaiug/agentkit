@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.landing import landing
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, host, run, worker
+from agentkit import config, gate, gitcall, host, roundloop, run, turns, worker
 from agentkit import record
 
 
@@ -116,9 +116,9 @@ class LandTipAtTurn(unittest.TestCase):
             run, "pickup_new_code",
             side_effect=lambda lp, **kw: self.pickups.append(kw.get("extra")) or False))
         self.stack.enter_context(patch.object(
-            run, "execute", side_effect=AssertionError("unexpected fixer turn")))
+            roundloop, "execute", side_effect=AssertionError("unexpected fixer turn")))
         self.stack.enter_context(patch.object(
-            run, "call_retrying", side_effect=AssertionError("unexpected reviewer turn")))
+            turns, "call_retrying", side_effect=AssertionError("unexpected reviewer turn")))
 
     def until(self, check, what, seconds=20):
         deadline = time.monotonic() + seconds
@@ -234,7 +234,7 @@ class LandTipAtTurn(unittest.TestCase):
                 seen["free"] = False
             return "## Summary\nDid nothing."
 
-        with patch.object(run, "execute", side_effect=fixer), \
+        with patch.object(roundloop, "execute", side_effect=fixer), \
                 patch.object(run, "resume_review", return_value="FAIL"):
             landed = landing(lp, lambda: True)
         self.assertFalse(landed)

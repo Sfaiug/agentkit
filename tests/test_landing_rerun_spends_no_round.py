@@ -16,7 +16,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gate, gc, gitcall, handback, host, land, notify, run, transitions, usage, watch
+from agentkit import (config, gate, gc, handback, host, land, notify, prompts, roundloop, run,
+                      transitions, turns, usage, watch)
 from agentkit import record
 from test_merge_step import make_loop, make_repos
 
@@ -60,7 +61,8 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "target_fails", return_value=False))
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.gate))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
-        self.stack.enter_context(patch.object(run, "call_retrying", side_effect=submitting(self.reviewer)))
+        self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
+        self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
 
     def commit(self, cwd, name, text):
         (cwd / name).write_text(text)
@@ -132,7 +134,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 run.git(self.wt, "rm", "broken.txt")
             return self.fixer(lp, role, text, name, **kw)
 
-        with patch.object(run, "execute", side_effect=fixer):
+        with patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer):
             self.assertFalse(run.land(self.lp, "origin/main", lambda: self.fail("local suite"),
                                       lambda: self.fail("red delivery")))
         self.assertIn(output, prompts[0])
@@ -244,7 +246,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                         raise run.Exhausted("conflict fixer interrupted")
                     return "## Summary\nCould not finish the conflict."
 
-                with patch.object(run, "execute", side_effect=unfinished):
+                with patch.object(run, "execute", side_effect=unfinished), patch.object(roundloop, "execute", side_effect=unfinished):
                     self.assertEqual(run.cmd_resume([self.run_dir.name]), 1)
                 state = record.read_state(self.run_dir)
                 self.assertEqual(state["state"], "exhausted" if abort == "exhausted" else "waiting")
@@ -270,7 +272,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                         reason = ("git fetch origin failed" if fault == "fetch" else
                                   "origin/main does not exist on origin")
                         result = (1, "origin unavailable") if fault == "fetch" else (0, "")
-                        with patch.object(run, "fetch", return_value=result), patch.object(gitcall, "fetch", return_value=result):
+                        with patch.object(run, "fetch", return_value=result):
                             try:
                                 run.cmd_resume([self.run_dir.name])
                             except config.Error as exc:
@@ -323,7 +325,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assert_parked_resume(spent=3, unreachable=True)
 
     def test_interrupted_landing_review_resumes_at_the_same_round(self):
-        with patch.object(run, "call_retrying", side_effect=run.Exhausted("review interrupted")):
+        with patch.object(turns, "call_retrying", side_effect=run.Exhausted("review interrupted")):
             with self.assertRaisesRegex(run.Exhausted, "review interrupted"):
                 run.integrate(self.lp, "origin/main")
         state = record.read_state(self.run_dir)
@@ -331,7 +333,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertIs(state["review_pending"]["record"], False)
         resumed = run.Loop(self.lp.cfg, self.run_dir, state, {}, self.lp.log, self.wt,
                            "body", ["true"], "context", [])
-        with patch.object(run, "execute", side_effect=AssertionError("unexpected fixer")):
+        with patch.object(run, "execute", side_effect=AssertionError("unexpected fixer")), patch.object(roundloop, "execute", side_effect=AssertionError("unexpected fixer")):
             run.rounds(resumed)
         self.assertEqual(resumed.state["round_summaries"], self.history)
         self.assertTrue(run.current_review(resumed))
@@ -352,7 +354,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
             self.commit(lp.wt, "base.txt", "branch\n2\n3\n4\ngreen\n")   # the fix changes the cited file
             return "## Summary\nFixed the review findings."
 
-        with patch.object(run, "execute", side_effect=fixer):
+        with patch.object(run, "execute", side_effect=fixer), patch.object(roundloop, "execute", side_effect=fixer):
             self.assertTrue(run.integrate(self.lp, "origin/main"))
         self.assertEqual(self.events, [("gate", False), ("fixer", 1), ("gate", True),
                                        ("reviewer", "round-1"), ("task-fixer", 2),

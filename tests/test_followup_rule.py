@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import records, submitting
-from agentkit import config, gate, gitcall, hand_in, run, worker
+from agentkit import config, gate, gitcall, hand_in, prompts, run, transitions, turns, worker
 from agentkit import record as run_record
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
@@ -36,12 +36,11 @@ class FollowupRule(unittest.TestCase):
             "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": ""}))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
-        self.stack.enter_context(patch.object(run, "history_role_tokens"))
+        self.stack.enter_context(patch.object(transitions, "history_role_tokens"))
         self.stack.enter_context(patch.object(run.history, "update_run"))
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         # These checks cover carrying weighed records; replay is covered by followup_runs.
-        self.stack.enter_context(patch.object(run, "weigh_review", side_effect=
+        self.stack.enter_context(patch.object(prompts, "weigh_review", side_effect=
                                              lambda _lp, submitted, *_args, **_kw: submitted))
         self.workspace = self.root / "workspace"
         self.workspace.mkdir()
@@ -67,7 +66,7 @@ class FollowupRule(unittest.TestCase):
         if items:
             answer += "## Follow-ups\n" + "\n".join(
                 "- " + item.replace("\n", "\n  ") for item in items) + "\n"
-        with patch.object(run, "call_retrying", side_effect=submitting((code, answer, None, False))):
+        with patch.object(turns, "call_retrying", side_effect=submitting((code, answer, None, False))):
             return run.review(self.lp, "## Summary\nFixture", ok, output, record=record)
 
     def gate(self):
@@ -132,7 +131,7 @@ class FollowupRule(unittest.TestCase):
                                 "output": f'File "cli.py", line {n}'}}
             return lambda *_args, **_kw: hand_in.Review([row, {"kind": "done"}])
         for n in "12":
-            with patch.object(run, "weigh_review", side_effect=weighed(n)):
+            with patch.object(prompts, "weigh_review", side_effect=weighed(n)):
                 self.review()
             self.lp.rnd += 1
         [item] = self.lp.state["followups"]
@@ -144,7 +143,7 @@ class FollowupRule(unittest.TestCase):
         other = {"kind": "follow-up", "path": "b.py", "line": 2, "what": "zero divisor crashes",
                  "why": "callers crash", "evidence": {"run": "false", "commit": "3" * 40,
                                                      "returncode": 1, "output": ""}}
-        with patch.object(run, "weigh_review",
+        with patch.object(prompts, "weigh_review",
                           return_value=hand_in.Review([other, {"kind": "done"}])):
             self.review()
         self.assertEqual(len(self.lp.state["followups"]), 2)
