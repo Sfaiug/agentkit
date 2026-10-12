@@ -24,6 +24,7 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
                staffing, task as taskfile, transitions, turns, worker)
 
 
+# The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
 FRONT_KEYS = ("tests", "health", "cleanup", "users", "features")
 
 

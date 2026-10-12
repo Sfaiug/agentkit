@@ -104,7 +104,7 @@ class GreenBase(unittest.TestCase):
                         run.git(wt, "commit", "-m", "resolve conflict")
                     return "## Summary\nResolved the conflict."
 
-                with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+                with patch.object(roundloop, "execute", side_effect=fix):
                     self.assertTrue(run.integrate(lp, "origin/main"))
                     self.assertTrue(run.final_check(lp, "origin/main"))
                 self.assertEqual(self.turns, [f"{how}-fixer", "final-fixer"])
@@ -129,7 +129,7 @@ class GreenBase(unittest.TestCase):
             run.git(wt, "commit", "-m", f"fix {path}")
             return f"## Summary\nFixed {path}."
 
-        with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+        with patch.object(roundloop, "execute", side_effect=fix):
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer", "final-fixer"])
         self.repair.assert_not_called()
@@ -158,7 +158,7 @@ class GreenBase(unittest.TestCase):
             run.git(wt, "commit", "-m", f"fix {path}")
             return f"## Summary\nFixed {path}."
 
-        with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+        with patch.object(roundloop, "execute", side_effect=fix):
             self.assertTrue(run.integrate(lp, "origin/main"))
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["rerun-fixer", "final-fixer"])
@@ -326,7 +326,7 @@ class GreenBase(unittest.TestCase):
                         run.git(wt, "commit", "-m", "fix poison")
                     return "## Summary\nResolved the conflict and fixed the check."
 
-                with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+                with patch.object(roundloop, "execute", side_effect=fix):
                     self.assertTrue(run.integrate(lp, "origin/main"))
                 self.assertEqual(self.turns, [f"{how}-fixer", "executor"])
                 self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
