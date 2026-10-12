@@ -213,14 +213,17 @@ class AnswerClosesQuestion(Sandbox):
         self.assert_answered()
 
     def test_hand_backs_whose_looks_run_out_of_order_answer_nothing(self):
-        """Each prompt's look runs in the background, so a later hand-back's may come first:
-        it takes the receipt typed last, leaving the earlier one to the earlier prompt."""
+        """Each prompt's look runs in the background, so a later hand-back's may come first,
+        and a clock stepped back files a later receipt before an earlier one: each takes the
+        receipt typed last by its stamp, leaving the earlier ones to the earlier prompts."""
         self.notice()
         self.assertTrue(self.handback())
-        with patch.object(watch.time, "time", return_value=10002):
-            self.assertTrue(self.handback())
-        self.prompt(prompt=HANDBACK)                # the second hand-back's look, first
-        notify.answered(SEAT, 10001, HANDBACK)      # the first one's, heard before it, last
+        for stamp in (10004, 10002):                # the clock stepped back between them
+            with patch.object(watch.time, "time", return_value=stamp):
+                self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)                # the last hand-back's look, first
+        notify.answered(SEAT, 10003, HANDBACK)      # the earlier ones', heard before it, after
+        notify.answered(SEAT, 10001, HANDBACK)
         self.typed = []
         self.assert_open()
         self.prompt()

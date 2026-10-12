@@ -511,20 +511,21 @@ def heard_typed(session, said, at):
 
     Each of ak's typing receipts (`watch._send_line`) is one prompt's, and is taken once: the
     latest with those words, typed by then and not yet heard, is marked heard in the same
-    record.  The latest, as each prompt's look runs in the background and a later one may
-    come first: it leaves every earlier receipt to an earlier prompt.  No time window decides
-    it: a line queued while the seat worked is heard after the question it asked meanwhile,
-    and the owner may type words ak typed and was heard typing before.  The caller holds
-    `session_lock(session)`, as each typer does.
+    record.  The latest by its stamp, as each prompt's look runs in the background and a later
+    one may come first: it leaves every earlier receipt to an earlier prompt, wherever a clock
+    stepped back put it in the file.  No time window decides it: a line queued while the seat
+    worked is heard after the question it asked meanwhile, and the owner may type words ak
+    typed and was heard typing before.  The caller holds `session_lock(session)`, as each
+    typer does.
     """
     path = config.seat_file("input", session)
     sent = list(harness.entries(path))
     heard = [entry["heard"] for entry in sent if "heard" in entry]
-    for entry in reversed(sent):
-        stamp = entry.get("at")
-        if (entry.get("source") == "owner" or entry.get("text") != said
-                or not isinstance(stamp, (int, float)) or isinstance(stamp, bool) or stamp > at):
-            continue
+    typed = sorted((entry["at"] for entry in sent
+                    if entry.get("source") != "owner" and entry.get("text") == said
+                    and isinstance(entry.get("at"), (int, float))
+                    and not isinstance(entry["at"], bool) and entry["at"] <= at), reverse=True)
+    for stamp in typed:
         if stamp in heard:
             heard.remove(stamp)
             continue
