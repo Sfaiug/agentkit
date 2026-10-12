@@ -473,7 +473,7 @@ def answered(session, at):
         previous["answered_at"] = at
         if not resolved(previous):
             asked = questions(previous)
-            standing = [q for q in asked if q.get("time", at) >= at]
+            standing = [q for q in asked if asked_at(q) >= at]
             if len(standing) == len(asked):
                 return
             previous.update(beside(standing), earlier_answer_at=previous.pop("answered_at"))
@@ -1349,20 +1349,30 @@ ALSO = " Also: "
 
 def questions(record):
     """Each question a notice or a kept record holds, in the order asked, with when the owner
-    was asked it (`time`: a kept one's turn's end); one written before they were listed is one."""
+    was asked it (`time`: a kept one's turn's end); one written before they were listed is one,
+    a kept one's turn's end its `ended`."""
     if not isinstance(record, dict) or not isinstance(record.get("text"), str):
         return []
-    return record.get("questions") or [{key: record[key] for key in ("text", "time") if key in record}]
+    return record.get("questions") or [{"time" if key == "ended" else key: record[key]
+                                        for key in ("text", "time", "ended") if key in record}]
+
+
+def asked_at(question):
+    """When its owner was asked that question: one kept for a turn not yet over is asked after
+    every other, when that turn ends."""
+    return question.get("time", math.inf)
 
 
 def beside(asked):
-    """Those questions in the order asked, each once, as last asked, and the line reading them
-    all: the seat's line shows every one, and the owner answers them all in one prompt."""
+    """Those questions in the order asked, each once, as last asked (`asked_at`), and the line
+    reading them all: the seat's line shows every one, and the owner answers them all in one
+    prompt."""
     said = {}
     for question in asked:
         words = " ".join(question["text"].split()).casefold()
-        said.pop(words, None)
-        said[words] = question
+        if words not in said or asked_at(question) >= asked_at(said[words]):
+            said.pop(words, None)
+            said[words] = question
     return {"text": ALSO.join(q["text"] for q in said.values()), "questions": list(said.values())}
 
 

@@ -122,6 +122,34 @@ class OpenQuestions(Sandbox):
         notify.answered(SEAT, 10001)
         self.assertEqual(notify.last(SEAT)["text"], SECOND)
 
+    def test_a_later_asking_keeps_its_time_beside_an_older_kept_one(self):
+        self.asks(FIRST)
+        watch.turn_ended(SEAT)
+        with patch.object(notify.time, "time", return_value=10002):
+            self.asked_for_it(FIRST)
+            self.asks(SECOND)
+        notify.answered(SEAT, 10001)        # his prompt came before the later asking
+        self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
+
+    def test_a_stop_while_its_kept_question_is_asked_leaves_nothing_kept(self):
+        self.asks(FIRST)
+        self.asked_for_it("Merge acme#7? yes/no")
+        said = notify._said
+
+        def stopped(*args, **kwargs):
+            previous = said(*args, **kwargs)
+            watch.turn_ended(SEAT)
+            return previous
+        with patch.object(notify, "_said", side_effect=stopped):
+            self.asks(SECOND)
+        self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
+
+    def test_his_prompt_answers_one_the_old_install_kept_for_an_ended_turn(self):
+        watch.seat_write(SEAT, unasked={"text": FIRST, "at": 9999.0, "ended": 10000.0})
+        notify.answered(SEAT, 10001)
+        self.assertIsNone(watch.seat_read(SEAT).get("unasked"))
+        self.assertIsNone(notify.last(SEAT))
+
 
 if __name__ == "__main__":
     unittest.main()

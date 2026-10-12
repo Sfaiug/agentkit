@@ -1843,11 +1843,13 @@ def turn_ended(name):
 
 
 def kept_asked(name, kept):
-    """Those kept questions are a notice now: drop them, and keep any the seat kept since."""
+    """Those kept questions are a notice now: drop them, though a turn's end went on one since,
+    and keep any the seat asked again after them (`notify.asked_at`)."""
     try:
         with seat_lock(name):
             data = seat_read(name)
-            rest = [q for q in notify.questions(data.get("unasked")) if q not in kept]
+            rest = [q for q in notify.questions(data.get("unasked")) if not any(
+                q["text"] == s["text"] and notify.asked_at(q) <= notify.asked_at(s) for s in kept)]
             _seat_put(name, data, {"unasked": notify.beside(rest) if rest else None})
     except (OSError, config.Error):
         pass
