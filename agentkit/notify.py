@@ -457,6 +457,8 @@ def answered(session, at):
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     A question the seat kept back for its turn's end, that end on record, is the one he read
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
+    Recorded in the background, his prompt can come after a newer question was asked beside
+    those it answers: it answers those asked before it, and the newer stand.
     """
     with session_lock(session) as session:
         ask_kept(session, ended=True)
@@ -470,7 +472,11 @@ def answered(session, at):
             return
         previous["answered_at"] = at
         if not resolved(previous):
-            return
+            asked = questions(previous)
+            standing = [q for q in asked if not q["time"] < at]
+            if len(standing) == len(asked):
+                return
+            previous.update(beside(standing), earlier_answer_at=previous.pop("answered_at"))
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     from . import watch    # here, not at the top: watch imports this module
@@ -1334,7 +1340,40 @@ def keep_back(name, text):
     does.  No notice lock is taken, so the stop hook keeps one without waiting on it."""
     from . import watch
     asks_first(text)
-    watch.seat_write(name, unasked={"text": text, "at": time.time()}, wait=None)
+    watch.keep(name, text)
+
+
+ALSO = " Also: "
+
+
+def questions(notice):
+    """Each question a seat's notice asks, in the order asked, dated when its owner was asked
+    it; one recorded before they were listed is one, at its notice's time, or long ago where
+    an older record has none."""
+    if not isinstance(notice, dict) or not isinstance(notice.get("text"), str):
+        return []
+    listed = notice.get("questions")
+    if isinstance(listed, list):
+        return listed
+    at = notice.get("time")
+    return [{"text": notice["text"],
+             "time": at if isinstance(at, (int, float)) and not isinstance(at, bool) else 0}]
+
+
+def beside(asked):
+    """Those questions each once, where last asked, in the order asked, and the line reading
+    them all: the seat's line shows every one, and the owner's one prompt answers them.  Once
+    means the same words, whatever their spacing and case; an older asking of a question
+    asked again later is no asking of it."""
+    latest = {}
+    for question in asked:
+        words = " ".join(question["text"].split()).casefold()
+        if words in latest and question["time"] < latest[words]["time"]:
+            continue
+        latest.pop(words, None)
+        latest[words] = question
+    ordered = sorted(latest.values(), key=lambda q: q["time"])
+    return {"text": ALSO.join(q["text"] for q in ordered), "questions": ordered}
 
 
 def unanswered(name):
@@ -1342,9 +1381,9 @@ def unanswered(name):
     its turn's end or asked: his answer can change the work, so the seat never decides it for
     him and calls the job finished."""
     from . import watch
-    kept = watch.seat_read(name).get("unasked")
+    kept = watch.questions_kept(watch.seat_read(name).get("unasked"))
     asked = last(name)
-    text = kept.get("text") if isinstance(kept, dict) else None
+    text = kept[0]["text"] if kept else None
     if not isinstance(text, str) and watch.owner_question(asked):
         text = asked["text"]
     if isinstance(text, str):
@@ -1400,13 +1439,18 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     gate(name)
                 except config.Error as exc:
                     raise Refused(str(exc)) from None
-            previous = _said(name, kind, text, pr, event_id)
+            # those it kept back for its turn's end are asked now, beside this one
+            kept = (watch.questions_kept(watch.seat_read(name).get("unasked"))
+                    if kind == "needs" and own and event_id is None else [])
+            previous = _said(name, kind, [*kept, {"text": text}] if kind == "needs" else text,
+                             pr, event_id)
             if event_id is None:
-                # the seat's newer word ends its `ak wait`, and its own question is asked in
-                # place of one it kept back; a done found none kept (`unanswered`), and one
-                # kept since, which takes no notice lock, stays for the turn's end
-                kept = {"unasked": None} if own and kind == "needs" else {}
-                watch.seat_write(name, wait=None, **kept)
+                # the seat's newer word ends its `ak wait`; a done found none kept
+                # (`unanswered`), and one kept since, which takes no notice lock, stays for the
+                # turn's end
+                watch.seat_write(name, wait=None)
+                if kept:
+                    watch.kept_asked(name, kept)
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date
@@ -1434,11 +1478,11 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         return 1
 
 
-def _said(name, kind, text, pr=None, event_id=None, at=None):
+def _said(name, kind, text, pr=None, event_id=None):
     """Record what that session said, under its notice lock, which the caller holds; the
     notice it replaced, or None.  A watcher's repeated event re-records nothing, nor does its
-    alert while the seat's own question stands unanswered.  `at` dates it where it was said
-    before now."""
+    alert while the seat's own question stands unanswered.  A needs says the questions `text`
+    lists, each dated where its turn's end dated it, or now."""
     from . import menu, watch
     previous = last(name, include_seen=True)
     if event_id and previous and previous.get("source") == event_id:
@@ -1451,6 +1495,15 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         # the seat's screen says what the alert would.  Taken in its place, the question was
         # lost once the alert was retracted, though nobody had answered it.
         return previous
+    if kind == "needs":
+        # a question asked while some stand unanswered is asked beside them, not in their
+        # place, each dated, so his prompt answers those asked before it (`answered`)
+        now = time.time()
+        standing = (questions(previous) if watch.owner_question(previous)
+                    and not resolved(previous) else [])
+        said = beside([{"time": now, **q} for q in [*standing, *text]])
+        text = said.pop("text")
+        extra.update(said, time=said["questions"][-1]["time"])
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
     if earlier:
         # The answer ends its card's episode at the next tick; the newer notice carries it
@@ -1463,29 +1516,24 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         extra["runs"] = [directory.name for directory, state in menu.run_records()
                          if transitions.launched_session(state) == name and
                          (transitions.going(state) or transitions.unfinished(state))]
-    if at is not None:
-        extra["time"] = at
     record(name, kind, text, **extra)
     return previous
 
 
 def ask_kept(name, ended=False):
-    """The turn that seat asked in has ended: the question it kept back becomes its notice,
-    as the command would have recorded it, dated at that end (`watch.turn_ended`).
+    """The turn that seat asked in has ended: the questions it kept back become its notice,
+    as the command would have recorded them, each dated at its turn's end (`watch.turn_ended`).
 
-    The caller holds `session_lock(name)`.  With `ended` it asks only a question whose turn's
-    end is already on record: the caller has not looked at the seat itself.  The tick's card
-    pass sends the card, like any other's.
+    The caller holds `session_lock(name)`.  With `ended` it asks only those whose turn's end
+    is already on record: the caller has not looked at the seat itself.  The tick's card pass
+    sends the card, like any other's.
     """
     from . import watch
-    kept = watch.seat_read(name).get("unasked")
-    if not isinstance(kept, dict) or not isinstance(kept.get("text"), str):
+    kept = [q for q in watch.questions_kept(watch.seat_read(name).get("unasked"))
+            if not ended or "time" in q]
+    if not kept:
         return False
-    at = kept.get("ended")
-    at = at if isinstance(at, (int, float)) and not isinstance(at, bool) else None
-    if ended and at is None:
-        return False
-    _said(name, "needs", kept["text"], at=at)
+    _said(name, "needs", kept)
     watch.kept_asked(name, kept)
     return True
 

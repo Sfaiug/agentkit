@@ -7,8 +7,8 @@ notice: the seat reads, recovers and is typed into as its turn and runs say, no 
 and nothing typed meanwhile answers it.  The first fresh look that finds that turn ended -- a
 prompt, or a Stop on background work -- asks it, and from there it is the question it always
 was: `needs you` until his answer, whatever its runs do and whatever turn a hand-back opens
-meanwhile.  A question asked while one of the seat's own already stands takes its place at
-once, as it always did.
+meanwhile.  A question asked while one of the seat's own already stands is asked at once,
+beside it (tests/test_open_questions.py).
 hooks/seat-state.sh and hooks/orchestrator-stop.sh run as the harness runs them, on their own
 JSON on stdin, in a temporary HOME, with card delivery and tmux faked.
 """
@@ -192,7 +192,7 @@ class QuestionWaitsForTheStop(Sandbox):
         answer = self.looked(PROMPT, fact)
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
 
-    def test_a_newer_question_takes_the_place_of_one_that_stands_at_once(self):
+    def test_a_newer_question_is_asked_beside_one_that_stands_at_once(self):
         """The owner is asked already: its card stays as it is and no second one follows."""
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
@@ -202,17 +202,17 @@ class QuestionWaitsForTheStop(Sandbox):
         self.asks("Ship v2 to acme today?")
         answer = self.looked(WORKING, fact, after=1000)
         self.assertEqual((answer["word"], answer["reason"]),
-                         ("needs you", "Ship v2 to acme today?"))
+                         ("needs you", QUESTION + " Also: Ship v2 to acme today?"))
         self.assertEqual(self.carded(1000 + notify.CARD_WAIT), [CARD])
         self.assertEqual(self.closed, [])
 
-    def test_the_later_of_two_questions_asked_in_one_turn_is_the_one_asked(self):
+    def test_both_of_two_questions_asked_in_one_turn_are_asked(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
         self.asks("Ship v2 to acme today?")
         answer = self.looked(PROMPT, self.stop())
         self.assertEqual((answer["word"], answer["reason"]),
-                         ("needs you", "Ship v2 to acme today?"))
+                         ("needs you", QUESTION + " Also: Ship v2 to acme today?"))
 
     def test_a_watchers_alert_in_the_turn_that_asked_does_not_lose_it(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
@@ -232,9 +232,9 @@ class QuestionWaitsForTheStop(Sandbox):
     def test_its_stop_puts_the_turns_end_on_record(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
-        self.assertNotIn("ended", watch.seat_read(SEAT)["unasked"])
+        self.assertNotIn("time", watch.seat_read(SEAT)["unasked"]["questions"][0])
         self.stop()
-        self.assertIsInstance(watch.seat_read(SEAT)["unasked"]["ended"], float)
+        self.assertIsInstance(watch.seat_read(SEAT)["unasked"]["questions"][0]["time"], float)
 
     def test_his_prompt_answers_it_though_no_look_could_ask_it_first(self):
         """The stop's look met the notice lock taken -- the card pass, a delivery -- so the

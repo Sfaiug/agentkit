@@ -34,6 +34,7 @@ import json
 import math
 import os
 import re
+import secrets
 import signal
 import struct
 import subprocess
@@ -1802,8 +1803,8 @@ def keeps_back(name):
     question and it waits for nobody.  So it does on every harness ak knows the seat to run,
     the same way: where hooks report the turn's end a look follows at once, and where only
     the screen shows it ak's next look finds it (`ask_kept_back`) -- unless a question of its
-    own already stands unanswered: the owner is asked already, and a newer one takes that
-    one's place.
+    own already stands unanswered: the owner is asked already, and a newer one is asked beside
+    it (`notify.beside`).
     """
     try:
         harness = seat_model(config.load(), name)[0]
@@ -1812,29 +1813,67 @@ def keeps_back(name):
     return bool(harness) and not owner_question(notify.last(name))
 
 
+def questions_kept(unasked):
+    """The questions a seat's record keeps back for their turn's end, in the order kept, each
+    under an id of its own and, once its turn has ended, dated at that end (`time`), when its
+    owner is asked it.  One the older install kept is one, its id its `at`."""
+    if not isinstance(unasked, dict):
+        return []
+    listed = unasked.get("questions")
+    if isinstance(listed, list):
+        return [q for q in listed if isinstance(q, dict) and isinstance(q.get("text"), str)]
+    if not isinstance(unasked.get("text"), str):
+        return []
+    ended = _stamp(unasked.get("ended"))
+    return [{"id": f"kept-{unasked.get('at')}", "text": unasked["text"],
+             **({} if ended is None else {"time": ended})}]
+
+
+def _kept(questions):
+    """What a seat's record keeps back: those questions, and the line reading them all."""
+    return {"text": notify.ALSO.join(q["text"] for q in questions),
+            "questions": questions} if questions else None
+
+
+def keep(name, text):
+    """Keep that question back for its turn's end after those the seat kept already: a turn that
+    asks twice asks both once it ends.  Its own id is what drops it once asked (`kept_asked`),
+    so the same words kept again meanwhile are an asking of their own.  The seat's newer word
+    ends its `ak wait` here."""
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            kept = [*questions_kept(data.get("unasked")), {"id": secrets.token_hex(8), "text": text}]
+            _seat_put(name, data, {"unasked": _kept(kept), "wait": None})
+    except (OSError, config.Error) as exc:
+        print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
+
+
 def turn_ended(name):
-    """Write down that the turn that seat asked in has ended, on the question it kept back:
-    by its stop hook as the stop stands, or by a look that finds it over.  The record's own
-    lock is all it takes, so it is on record whoever holds the notice then."""
+    """Write down that the turn that seat asked in has ended, on each question it kept back in
+    that turn: by its stop hook as the stop stands, or by a look that finds it over.  The
+    record's own lock is all it takes, so it is on record whoever holds the notice then."""
     if not isinstance(seat_read(name).get("unasked"), dict):
         return      # nothing kept: a stop writes nothing
     try:
         with seat_lock(name):
             data = seat_read(name)
-            kept = data.get("unasked")
-            if isinstance(kept, dict) and _stamp(kept.get("ended")) is None:
-                _seat_put(name, data, {"unasked": dict(kept, ended=time.time())})
+            now = time.time()
+            kept = [{"time": now, **q} for q in questions_kept(data.get("unasked"))]
+            if kept:
+                _seat_put(name, data, {"unasked": _kept(kept)})
     except (OSError, config.Error):
         pass
 
 
 def kept_asked(name, kept):
-    """That kept question is a notice now: drop it, unless the seat has kept another since."""
+    """Those kept questions are a notice now: drop each by its id, keeping any kept since."""
+    asked = {q["id"] for q in kept}
     try:
         with seat_lock(name):
             data = seat_read(name)
-            if data.get("unasked") == kept:
-                _seat_put(name, data, {"unasked": None})
+            rest = [q for q in questions_kept(data.get("unasked")) if q["id"] not in asked]
+            _seat_put(name, data, {"unasked": _kept(rest)})
     except (OSError, config.Error):
         pass
 
