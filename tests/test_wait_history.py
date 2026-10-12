@@ -586,7 +586,7 @@ class WaitHistory(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
         for module, name, options in (
                 (config, "max_gates", {"return_value": 1}),
-                (run, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
+                (gitcall, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
                 (run, "git_out", {"return_value": (0, "")}),
                 (gate, "run_done_when", {"return_value": (True, "passed")}),
                 (land, "start_line", {"return_value": False})):
@@ -629,7 +629,7 @@ class WaitHistory(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
         for module, name, options in (
                 (config, "max_gates", {"return_value": 1}),
-                (run, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
+                (gitcall, "commit_identity", {"return_value": {"head_sha": "a", "tree_sha": "b"}}),
                 (run, "git_out", {"return_value": (0, "")}),
                 (gate, "run_done_when", {"return_value": (True, "passed")}),
                 (land, "start_line", {"return_value": False})):
