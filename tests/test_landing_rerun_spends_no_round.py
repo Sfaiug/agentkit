@@ -112,7 +112,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertEqual(self.events, [("gate", False), ("fixer", 3), ("gate", True),
                                        ("reviewer", "round-3")])
         self.assert_no_task_round()
-        self.assertTrue(run.current_review(self.lp))
+        self.assertTrue(roundloop.current_review(self.lp))
         self.assertEqual(self.lp.checked_every_sha, run.git(self.wt, "rev-parse", "HEAD"))
 
     def test_line_red_reaches_an_unrelated_rerun_fixer_without_a_suite_or_task_round(self):
@@ -174,7 +174,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                          [("fixer", 3), ("gate", False)] * 2 +
                          [("fixer", 3), ("gate", True), ("reviewer", "round-3")])
         self.assert_no_task_round()
-        self.assertTrue(run.current_review(self.lp))
+        self.assertTrue(roundloop.current_review(self.lp))
 
     def test_three_failed_landing_fixers_park_without_a_reviewer(self):
         self.fix_after = 4
@@ -197,7 +197,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.fix_after = run.CONFLICT_ROUNDS + 1
         self.assertFalse(run.integrate(self.lp, "origin/main"))
         self.assertEqual(self.fixes, run.CONFLICT_ROUNDS)
-        self.assertFalse(run.current_review(self.lp))
+        self.assertFalse(roundloop.current_review(self.lp))
         before = len(self.events)
         if abort:
             self.commit(self.owner, "base.txt", "conflict\n2\n3\n4\ntarget\n")
@@ -217,7 +217,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         tmux.chmod(0o755)
 
         def deliver(lp, **_kw):
-            self.assertTrue(run.current_review(lp))
+            self.assertTrue(roundloop.current_review(lp))
             self.assertTrue(run.integrated(lp.wt, tip))
             lp.state.update(merged=True, merge_failed=False, merge_note=None)
 
@@ -335,7 +335,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         with patch.object(roundloop, "execute", side_effect=AssertionError("unexpected fixer")):
             run.rounds(resumed)
         self.assertEqual(resumed.state["round_summaries"], self.history)
-        self.assertTrue(run.current_review(resumed))
+        self.assertTrue(roundloop.current_review(resumed))
 
     def test_a_real_review_failure_spends_only_the_next_task_fix_round(self):
         self.history = self.history[:1]
@@ -359,7 +359,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                                        ("reviewer", "round-1"), ("task-fixer", 2),
                                        ("gate", True), ("reviewer", "round-2")])
         self.assertEqual([entry["round"] for entry in self.lp.state["round_summaries"]], [1, 2])
-        self.assertTrue(run.current_review(self.lp))
+        self.assertTrue(roundloop.current_review(self.lp))
 
 
 if __name__ == "__main__":

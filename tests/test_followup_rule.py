@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import records, submitting
-from agentkit import config, gate, gitcall, hand_in, prompts, run, transitions, turns, worker
+from agentkit import config, deliver, gate, gitcall, hand_in, prompts, run, transitions, turns, worker
 from agentkit import record as run_record
 
 DEFECT = "a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"
@@ -119,7 +119,7 @@ class FollowupRule(unittest.TestCase):
         self.assert_followups([DEFECT, OTHER, updated])
         self.review(record=False)
         self.assert_followups([DEFECT, OTHER, updated])
-        self.assertIn("## Follow-ups", run.pr_body(self.lp.state))
+        self.assertIn("## Follow-ups", deliver.pr_body(self.lp.state))
 
     def test_a_follow_up_handed_in_again_on_a_new_head_is_kept_once(self):
         def weighed(n):
@@ -166,7 +166,7 @@ class FollowupRule(unittest.TestCase):
                 "Base abc123:\n```python\nparse([])\n```\nIndexError")
         self.review(item, OTHER)
         self.assert_followups([item, OTHER])
-        self.assertIn("- " + item.replace("\n", "\n  "), run.pr_body(self.lp.state))
+        self.assertIn("- " + item.replace("\n", "\n  "), deliver.pr_body(self.lp.state))
 
     def test_flaky_evidence_joins_the_passing_review_and_pr_without_shared_files(self):
         output, flake = self.gate()
@@ -212,7 +212,7 @@ class FollowupRule(unittest.TestCase):
                 patch.object(gate, "run_done_when", return_value=(True, output)):
             self.assertTrue(run.final_check(self.lp, "origin/main"))
         self.assert_followups([DEFECT, flake])
-        self.assertIn(flake.replace("\n", "\n  "), run.pr_body(self.lp.state))
+        self.assertIn(flake.replace("\n", "\n  "), deliver.pr_body(self.lp.state))
 
     def test_existing_pr_carries_the_grown_list_and_retries_a_failed_update(self):
         url = "https://github.com/acme/project/pull/7"

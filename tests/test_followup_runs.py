@@ -16,8 +16,8 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 import test_proof_weighed as proof
-from agentkit import (browser, config, gc, gitcall, handback, host, job as jobs, menu, notify, orch,
-                      run, staffing, stop, task, transitions, watch, worker)
+from agentkit import (browser, config, deliver, gc, gitcall, handback, host, job as jobs, menu, notify,  # noqa: E402
+                      orch, run, staffing, stop, task, transitions, watch, worker)
 from agentkit import plan, record, roundloop
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
@@ -888,7 +888,7 @@ class FollowupEvidence(unittest.TestCase):
         self.assertIn("Dropped follow-up: the command did not fail on base", note)
         self.assertTrue(any("Dropped follow-up api.py:2" in text for text in self.logs))
         run.write_result(self.directory, self.lp.state, ["true"], cfg=self.cfg)
-        for text in ((self.directory / "result.md").read_text(), run.pr_body(self.lp.state)):
+        for text in ((self.directory / "result.md").read_text(), deliver.pr_body(self.lp.state)):
             self.assertIn("## Notes", text)
             self.assertIn("Dropped follow-up", text)
             self.assertNotIn("## Follow-ups", text)

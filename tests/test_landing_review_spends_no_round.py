@@ -83,7 +83,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         lp = lp or self.lp
 
         def deliver():
-            self.assertTrue(run.current_review(lp))
+            self.assertTrue(roundloop.current_review(lp))
             self.assertTrue(run.integrated(lp.wt, self.tip))
             lp.state["merged"] = True
             lp.save()
@@ -202,7 +202,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.assertFalse(run.integrated(self.wt, self.tip))
         self.assertEqual(saved["round_summaries"][-1]["round"], 2)
         self.assertEqual(self.events, [("reviewer", "round-2")])
-        self.assertTrue(run.current_review(resumed))
+        self.assertTrue(roundloop.current_review(resumed))
         self.assertTrue(saved["no_merge"])
         self.assertFalse(saved["merged"])
 

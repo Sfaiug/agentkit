@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_own_pr_line as line
-from agentkit import hand_in, land, record, run, turns, watch, worker
+from agentkit import deliver, hand_in, land, record, run, turns, watch, worker
 from fixtures.hand_in import submitting
 
 
@@ -169,7 +169,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.review(directory, url)
         land.check_line(self.turn)
         self.assertIn("land", self.wait(directory))
-        with patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
+        with patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")), \
                 self.fixer(url, rename=False):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "waiting")

@@ -14,7 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, handback, roundloop, run, stop, transitions, turns, worker
+from agentkit import config, deliver, handback, roundloop, run, stop, transitions, turns, worker
 from fixtures.hand_in import findings_section, scripted, stateful
 
 
@@ -207,7 +207,7 @@ out = pathlib.Path(sys.argv[6])
         self.assertNotIn("\nreviewer output", self.lp.state["notes"][0])
         self.assertIn(self.base, self.lp.state["notes"][0])
         run.write_result(self.directory, self.lp.state, ["true"], cfg=self.cfg)
-        for report in ((self.directory / "result.md").read_text(), run.pr_body(self.lp.state)):
+        for report in ((self.directory / "result.md").read_text(), deliver.pr_body(self.lp.state)):
             self.assertIn("## Notes", report)
             self.assertIn("unproven defect", report)
 

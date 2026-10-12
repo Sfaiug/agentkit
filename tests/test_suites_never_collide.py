@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, run
+from agentkit import config, deliver, gitcall, run
 
 SMOKE = REPO / "tests/smoke.sh"
 E2E = REPO / "tests/e2e-fresh.sh"
@@ -301,7 +301,7 @@ class RejectedPush(unittest.TestCase):
         self.lp = self.Fake(Path(tmp.name))
 
     def note(self):
-        with patch.object(run, "require_review_pass"):
+        with patch.object(deliver, "require_review_pass"):
             self.assertFalse(run.push(self.lp))
         return self.lp.state["merge_note"]
 
@@ -309,7 +309,7 @@ class RejectedPush(unittest.TestCase):
         rejected = (" ! [rejected]        ak/smoke-make-hello-pass -> "
                     "ak/smoke-make-hello-pass (stale info)\n"
                     "error: failed to push some refs to 'github.com:caller/agentkit-smoke-throwaway'")
-        with patch.object(run, "git_out", return_value=(1, rejected)):
+        with patch.object(gitcall, "git_out", return_value=(1, rejected)):
             note = self.note()
         self.assertIn("origin already has ak/smoke-make-hello-pass", note)
         self.assertIn("this run did not push it", note)
@@ -318,7 +318,7 @@ class RejectedPush(unittest.TestCase):
         self.assertTrue(self.lp.state["merge_failed"])
 
     def test_v5j_any_other_push_failure_reads_as_it_did(self):
-        with patch.object(run, "git_out", return_value=(1, "fatal: could not read Username")):
+        with patch.object(gitcall, "git_out", return_value=(1, "fatal: could not read Username")):
             note = self.note()
         self.assertIn("pushing ak/smoke-make-hello-pass to origin failed", note)
         self.assertNotIn("origin already has", note)

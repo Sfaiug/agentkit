@@ -23,7 +23,7 @@ from urllib.parse import unquote_to_bytes
 
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
-from agentkit import browser, config, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, prompts, roundloop, run, status, terminal, transitions, watch, worktrees
+from agentkit import browser, config, deliver, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, prompts, roundloop, run, status, terminal, transitions, watch, worktrees
 from agentkit import record
 
 SEAT = "seat"

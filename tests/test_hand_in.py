@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import stateful
-from agentkit import config, gitcall, hand_in, run, staffing, transitions, turns, update, worker
+from agentkit import config, deliver, gitcall, hand_in, run, staffing, transitions, turns, update, worker
 
 
 class HandIn(unittest.TestCase):
@@ -298,7 +298,7 @@ sys.exit(row.get("code", 0))
         self.assertIn("wrong answer", lp.state["notes"][0])
         self.assertIn("abc123", lp.state["notes"][0])
         self.assertIn("Dropped follow-up: no base commit", lp.state["notes"][0])
-        self.assertIn(lp.state["notes"][0].replace("\n", "\n  "), run.pr_body(lp.state))
+        self.assertIn(lp.state["notes"][0].replace("\n", "\n  "), deliver.pr_body(lp.state))
 
     def test_a_passing_hand_in_still_cannot_override_failing_checks(self):
         verdict, lp, _, _ = self.review({"commands": [["done"]]}, ok=False)
@@ -457,18 +457,17 @@ sys.exit(row.get("code", 0))
         state = {"round_summaries": [{"summary": "## Summary\nFixed the API"}], "verdict": "PASS",
                  "rounds": 1, "executor": "opus", "reviewer": "astra", "run_id": "fixture", "base": "main",
                  "followups": [item] * 30, "head_sha": "abc123"}
-        self.assertLess(len(run.pr_body(state)), 65536)
-        self.assertIn("truncated", run.pr_body(state))
+        self.assertLess(len(deliver.pr_body(state)), 65536)
+        self.assertIn("truncated", deliver.pr_body(state))
         lp = run.Loop({}, self.root, state, {}, lambda *_: None, self.workspace, "", [], "", [])
         lp.findings = hand_in.Review([self.rows()[1]] * 30 + [{"kind": "done"}]).text
-        with patch.object(run, "gh_json", return_value=({"headRefOid": "abc123", "state": "OPEN"}, "")), \
-                patch.object(gitcall, "gh", return_value=(0, "")), patch.object(lp, "write"):
+        with patch.object(run, "gh_json", return_value=({"headRefOid": "abc123", "state": "OPEN"}, "")), patch.object(gitcall, "gh", return_value=(0, "")), patch.object(lp, "write"):
             self.assertTrue(run.post_review(lp, "https://github.com/acme/api/pull/1", "PASS"))
         self.assertLess(len((self.root / "review.md").read_text()), 65536)
         self.assertIn("truncated", (self.root / "review.md").read_text())
         # Older text summaries and multibyte evidence must fit the same publication bound.
         state["round_summaries"][0]["summary"] = "## Summary\n" + "\U0001f600" * 70000
-        self.assertLess(len(run.pr_body(state).encode("utf-8")), 65536)
+        self.assertLess(len(deliver.pr_body(state).encode("utf-8")), 65536)
 
     def test_all_reviewer_prompts_keep_hand_in_syntax_and_checked_refusals(self):
         for role, text in worker.PREAMBLES.items():

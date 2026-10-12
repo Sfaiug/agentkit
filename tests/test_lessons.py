@@ -128,8 +128,7 @@ class Lessons(unittest.TestCase):
                 patch.object(run, "checkout_for", return_value=self.repo), \
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "post_review", return_value=True), \
-                patch.object(run, "checks", return_value=(False, "fixture: no merge")), \
-                patch.object(run, "gh_json", return_value=(info, "")):
+                patch.object(run, "checks", return_value=(False, "fixture: no merge")), patch.object(run, "gh_json", return_value=(info, "")):
             state = run.review_pr(self.cfg, directory, "https://github.com/fixture/project/pull/1",
                                   self.opts, self.logs.append)
         self.assertEqual(state["state"], "pass")

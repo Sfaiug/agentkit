@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, gate, gc, gitcall, handback, host, land, notify, roundloop, run, usage
+from agentkit import config, deliver as delivery, gate, gc, gitcall, handback, host, land, notify, roundloop, run, usage
 from agentkit import turns as model_turns     # `turns` is a list in the tests below
 from agentkit import record
 
@@ -177,7 +177,7 @@ class MergeStep(unittest.TestCase):
         state = record.read_state(run_dir)
         self.assertEqual(len(state["round_summaries"]), 2)   # still 2 of 2
         self.assertEqual(state["rounds"], 2)
-        self.assertTrue(run.current_review(lp))
+        self.assertTrue(roundloop.current_review(lp))
         self.assertNotIn("round budget", self.log_text(run_dir))
 
     def test_three_conflict_rounds_park_waiting(self):
@@ -299,7 +299,7 @@ class MergeStep(unittest.TestCase):
         state = record.read_state(run_dir)
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1, 2])
         self.assertEqual(state["final_check"]["outcome"], "passed")
-        self.assertTrue(run.current_review(lp))
+        self.assertTrue(roundloop.current_review(lp))
 
     def test_a_final_check_re_review_fail_at_the_budget_is_a_review_fail(self):
         # the re-review after a final-check fix FAILs with the budget spent: no fixer is
@@ -558,7 +558,7 @@ class MergeStep(unittest.TestCase):
 
         def deliver(lp, **_kw):
             if run.integrate(lp, "origin/main"):
-                self.assertTrue(run.current_review(lp))
+                self.assertTrue(roundloop.current_review(lp))
                 self.assertTrue(run.integrated(wt, tip))
                 lp.state["merged"] = True
 
@@ -654,7 +654,7 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(reviews, ["round-3"])
         self.assertEqual([entry["round"] for entry in lp.state["round_summaries"]],
                          [1, 2, 3])
-        self.assertTrue(run.current_review(lp))
+        self.assertTrue(roundloop.current_review(lp))
 
     def test_an_interrupted_conflict_review_resumes_without_spending_a_round(self):
         _, owner, wt = make_repos(self.root)
@@ -672,7 +672,7 @@ class MergeStep(unittest.TestCase):
         with patch.object(roundloop, "execute", side_effect=AssertionError("unexpected fixer")):
             run.rounds(resumed)
         self.assertEqual(len(resumed.state["round_summaries"]), 2)
-        self.assertTrue(run.current_review(resumed))
+        self.assertTrue(roundloop.current_review(resumed))
 
     def test_cmd_merge_keeps_a_conflict_waiting(self):
         _, owner, wt = make_repos(self.root)
@@ -726,7 +726,7 @@ class MergeStep(unittest.TestCase):
                     run.git(owner, "commit", "-m", "main moved")
                     run.git(owner, "push", "origin", "main")
                     return 1, BASE_RACE
-                self.assertTrue(run.current_review(lp))
+                self.assertTrue(roundloop.current_review(lp))
                 self.assertNotEqual(args[-1], old)
                 self.assertEqual(events[-2], ("checks", args[-1]))
                 return 0, ""
@@ -737,7 +737,7 @@ class MergeStep(unittest.TestCase):
             if args[:3] == ("api", "-X", "PATCH"):
                 self.assertEqual(args[3:5], ("repos/fixture/repo/pulls/7", "-F"))
                 self.assertEqual(Path(args[5].removeprefix("body=@")).read_text(),
-                                 run.pr_body(lp.state))
+                                 delivery.pr_body(lp.state))
                 return 0, ""
             raise AssertionError(args)
 
@@ -945,7 +945,7 @@ class MergeStep(unittest.TestCase):
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
-                patch.object(run, "checks", return_value=(True, "")), \
+                patch.object(delivery, "checks", return_value=(True, "")), \
                 patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                              landing(lp, deliver=deliver)), \
                 patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
@@ -1054,7 +1054,7 @@ class MergeStep(unittest.TestCase):
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
-                patch.object(run, "checks", return_value=(True, "")), \
+                patch.object(delivery, "checks", return_value=(True, "")), \
                 patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                              landing(lp, deliver=deliver)), \
                 patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
@@ -1083,7 +1083,7 @@ class MergeStep(unittest.TestCase):
                     raise AssertionError(args)
 
                 with patch.object(gitcall, "gh", side_effect=fake_gh), \
-                        patch.object(run, "checks", return_value=(True, "")), \
+                        patch.object(delivery, "checks", return_value=(True, "")), \
                         patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                                      landing(lp, deliver=deliver)), \
                         patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \

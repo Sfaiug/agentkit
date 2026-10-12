@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.own_pr import BRANCH, OwnPr, URL
-from agentkit import config, gitcall, run, worker, worktrees
+from agentkit import config, deliver, gitcall, run, worker, worktrees
 from agentkit import record
 
 
@@ -167,7 +167,7 @@ class OwnPrRounds(OwnPr):
                 return None, "fixture: GitHub unavailable"
             return gh_json(cwd, *args, **kw)
 
-        with patch.object(run, "gh_json", side_effect=unavailable), self.assertRaises(config.Error):
+        with patch.object(run, "gh_json", side_effect=unavailable), patch.object(deliver, "gh_json", side_effect=unavailable), self.assertRaises(config.Error):
             self.review(["FAIL", "PASS"])
         self.assertEqual(self.fixes, [])
         self.assertEqual(record.read_state(self.run_dir)["own_pr_wait"], self.heads[0])

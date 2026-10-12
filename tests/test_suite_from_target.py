@@ -78,8 +78,7 @@ class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
                 patch.object(run, "fetch", return_value=(0, "")), \
                 patch.object(run, "make_worktree", side_effect=another_runs_fetch), \
                 patch.object(run, "post_review", return_value=True), \
-                patch.object(run, "checks", return_value=(False, "fixture: no merge")), \
-                patch.object(run, "gh_json", return_value=(info, "")):
+                patch.object(run, "checks", return_value=(False, "fixture: no merge")), patch.object(run, "gh_json", return_value=(info, "")):
             state = run.review_pr(self.cfg, directory, "https://github.com/acme/acme/pull/1",
                                   {**self.opts, "--no-merge": True}, self.logs.append)
         self.assertEqual(state["state"], "pass", self.logs)
