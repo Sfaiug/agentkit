@@ -8,6 +8,7 @@ This is also where the harness hooks the core asks for live -- `conversation`, `
 receipt: a Codex thread is this seat's only where its own launch reported it.
 """
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -32,6 +33,11 @@ SEAT_EVENTS = ("UserPromptSubmit", "Stop", "Interrupt", "PermissionRequest")
 # Claude's -- a `decision` of `block` with the `reason` beside it -- so the end-of-turn rule is
 # the one script on both harnesses.
 STOP_RULE = "hooks/orchestrator-stop.sh"
+# The question tool of Codex 0.160's newer models does not wait for the answer: the model hears
+# `accepted` at once and works on, and Codex drops the question unanswered, with no word to the
+# model or to ak, when anything is sent into the seat or the turn ends.  So a seat's PreToolUse
+# hook asks it through ak, as `ak notify needs` does, and refuses the call (`ask`).
+QUESTION_TOOL = "request_user_input_async"
 FRESH = "Codex ownership unverified; starts fresh"
 BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"
 END = "# --- end agentkit browser bridge ---"
@@ -344,13 +350,14 @@ def capture(path, event):
         return
 
 
-def trust(hooks):
+def trust(hooks, matchers=None):
     """The `-c` that trusts exactly these command-line hooks, and nobody else's.
 
     Codex 0.160 runs a hook only once its hash is trusted and otherwise stops a new seat on
     "Hooks need review" for nobody.  It reads that trust from the command line as well as
     from the user's config.toml, keyed by layer, event, group and position, and hashes the
-    hook's sorted JSON (`hook_hash` in codex-rs/hooks/src/engine/discovery.rs).
+    hook's sorted JSON (`hook_hash` in codex-rs/hooks/src/engine/discovery.rs), which holds
+    its group's matcher where it has one (`matchers`, by event).
     """
     state = {}
     for event, handlers in hooks.items():
@@ -358,11 +365,55 @@ def trust(hooks):
         for position, (command, timeout) in enumerate(handlers):
             identity = {"event_name": label, "hooks": [
                 {"async": False, "command": command, "timeout": timeout, "type": "command"}]}
+            if (matchers or {}).get(event):
+                identity["matcher"] = matchers[event]
             digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":"),
                                                ensure_ascii=False).encode()).hexdigest()
             state[f"/<session-flags>/config.toml:{label}:0:{position}"] = "sha256:" + digest
     return "hooks.state={" + ",".join(f"{json.dumps(key)}={{trusted_hash={json.dumps(value)}}}"
                                       for key, value in state.items()) + "}"
+
+
+def ask(event):
+    """The PreToolUse hook's answer to that event: the seat's question asked through ak, and
+    the call refused with what became of it.  None lets the call through: it asks nothing,
+    or nobody's seat is there to ask for."""
+    if not isinstance(event, dict) or event.get("tool_name") != QUESTION_TOOL:
+        return None
+    if os.environ.get("AK_RUN_ROLE") == "worker" or not config.current_session():
+        return None
+    from .. import notify
+    questions = (event.get("tool_input") or {}).get("questions")
+    text = " ".join(question_line(item) for item in questions
+                    if isinstance(item, dict)) if isinstance(questions, list) else ""
+    try:
+        # as `ak notify needs` takes it; stdout is Codex's to read the refusal from, and
+        # nothing else
+        notify.asks_first(text)
+        with contextlib.redirect_stdout(sys.stderr):
+            failed = notify.shaped("needs", text.strip())
+    except config.Error as exc:
+        # Codex adds its own period after the reason
+        return {"decision": "block",
+                "reason": f"ak did not ask the owner this: {str(exc).rstrip('.')}. Ask again"}
+    if failed:
+        return {"decision": "block", "reason": "ak could not record this question. Ask again"}
+    return {"decision": "block", "reason": (
+        "ak asks the owner this for you and keeps it open until they answer; their answer "
+        "comes as a message from them. Go on with whatever does not depend on it")}
+
+
+def question_line(item):
+    """One question the tool was called with, as the owner reads it: its title, its options
+    numbered after it, so a number answers it."""
+    title = " ".join(str(item.get("title") or "").split())
+    options = item.get("options")
+    options = [" ".join(str(option).split()) for option in options
+               if str(option).strip()] if isinstance(options, list) else []
+    if not options:
+        return title
+    return f"{title} Options: " + " · ".join(f"{n}. {option}"
+                                               for n, option in enumerate(options, 1))
 
 
 def mcp_block(servers):
@@ -511,6 +562,14 @@ def main(argv, launch=None):
         except ValueError:
             pass
         return 0
+    if argv == ["ask"]:
+        try:
+            answer = ask(json.load(sys.stdin))
+        except ValueError:
+            answer = None
+        if answer:
+            print(json.dumps(answer))
+        return 0
     rulebook = None
     if argv[:1] == ["--rulebook"] and len(argv) > 1:
         rulebook, argv = argv[1], argv[2:]
@@ -561,12 +620,18 @@ def main(argv, launch=None):
             hooks.update((event, [seat]) for event in SEAT_EVENTS)
             hooks["SessionStart"].append(seat)
             hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
+            # The seat's question goes to its owner through ak (`ask`); 10s, as recording it
+            # can take the notice's lock behind a card being posted
+            hooks["PreToolUse"] = [(shlex.join(
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10)]
+            matchers = {"PreToolUse": QUESTION_TOOL}
             os.environ[CAPTURE_ENV] = receipt
             for event, handlers in hooks.items():
                 run = ",".join(f'{{type="command",command={json.dumps(command)},timeout={timeout}}}'
                                for command, timeout in handlers)
-                cmd += ["-c", f'hooks.{event}=[{{hooks=[{run}]}}]']
-            cmd += ["-c", trust(hooks)]
+                matcher = f"matcher={json.dumps(matchers[event])}," if event in matchers else ""
+                cmd += ["-c", f'hooks.{event}=[{{{matcher}hooks=[{run}]}}]']
+            cmd += ["-c", trust(hooks, matchers)]
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)
