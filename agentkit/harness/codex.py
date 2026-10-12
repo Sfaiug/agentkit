@@ -376,8 +376,9 @@ def trust(hooks, matchers=None):
 
 def ask(event):
     """The PreToolUse hook's answer to that event: the seat's question asked through ak, and
-    the call refused with what became of it.  None lets the call through: it asks nothing,
-    or nobody's seat is there to ask for."""
+    the call refused with what became of it -- the question itself too, as Codex draws a
+    refusal's reason in the seat (`Blocked by hook`) and the question nowhere else.  None lets
+    the call through: it asks nothing, or nobody's seat is there to ask for."""
     if not isinstance(event, dict) or event.get("tool_name") != QUESTION_TOOL:
         return None
     if os.environ.get("AK_RUN_ROLE") == "worker" or not config.current_session():
@@ -399,8 +400,8 @@ def ask(event):
     if failed:
         return {"decision": "block", "reason": "ak could not record this question. Ask again"}
     return {"decision": "block", "reason": (
-        "ak asks the owner this for you and keeps it open until they answer; their answer "
-        "comes as a message from them. Go on with whatever does not depend on it")}
+        f"ak asks the owner this for you, and it stays open until they answer: {text.strip()} "
+        "Their answer comes as a message from them. Go on with whatever does not depend on it")}
 
 
 def question_line(item):
