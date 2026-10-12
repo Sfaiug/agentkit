@@ -58,6 +58,19 @@ class DoneWaitsForAnswer(Sandbox):
         self.assertEqual(notify.main(["done", "Shipped the schema move"]), 0)
         self.assertEqual(notify.last(SEAT, include_seen=True)["kind"], "done")
 
+    def test_a_question_kept_while_the_done_records_stays_open(self):
+        said = notify._said
+
+        def asked_meanwhile(name, kind, *args, **kw):
+            if kind == "done":      # past the gate: keeping a question takes no notice lock
+                self.assertEqual(notify.main(["needs", QUESTION]), 0)
+            return said(name, kind, *args, **kw)
+        with patch.object(notify, "_said", side_effect=asked_meanwhile):
+            self.assertEqual(notify.main(["done", "Shipped the schema move"]), 0)
+        self.assertEqual(watch.seat_read(SEAT)["unasked"]["text"], QUESTION)
+        with self.assertRaises(notify.Refused):
+            notify.main(["done", "Shipped the schema move"])
+
     def test_a_done_with_nothing_asked_goes_through(self):
         self.assertEqual(notify.main(["done", "Shipped the schema move"]), 0)
         self.assertEqual(notify.last(SEAT, include_seen=True)["kind"], "done")

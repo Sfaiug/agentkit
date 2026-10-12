@@ -1402,9 +1402,11 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
                     raise Refused(str(exc)) from None
             previous = _said(name, kind, text, pr, event_id)
             if event_id is None:
-                # the seat's newer word ends its `ak wait`, and its own word is said in place
-                # of a question it kept back
-                watch.seat_write(name, wait=None, **({"unasked": None} if own else {}))
+                # the seat's newer word ends its `ak wait`, and its own question is asked in
+                # place of one it kept back; a done found none kept (`unanswered`), and one
+                # kept since, which takes no notice lock, stays for the turn's end
+                kept = {"unasked": None} if own and kind == "needs" else {}
+                watch.seat_write(name, wait=None, **kept)
         # A command is the visible start of the episode. Decide from now's facts, and
         # evaluate a hold later, so the recorder's own question is not left waiting
         # for the three-minute watcher tick; deciding at the later clock would date
