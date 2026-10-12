@@ -1802,8 +1802,8 @@ def keeps_back(name):
     question and it waits for nobody.  So it does on every harness ak knows the seat to run,
     the same way: where hooks report the turn's end a look follows at once, and where only
     the screen shows it ak's next look finds it (`ask_kept_back`) -- unless a question of its
-    own already stands unanswered: the owner is asked already, and a newer one takes that
-    one's place.
+    own already stands unanswered: the owner is asked already, and a newer one is asked beside
+    it (`notify._said`).
     """
     try:
         harness = seat_model(config.load(), name)[0]
@@ -1812,29 +1812,64 @@ def keeps_back(name):
     return bool(harness) and not owner_question(notify.last(name))
 
 
+def questions_kept(unasked):
+    """The questions a seat's record keeps back for their turn's end, in the order kept, each
+    with that end (`ended`) once it is on record.  One the older install kept is one."""
+    if not isinstance(unasked, dict):
+        return []
+    listed = unasked.get("questions")
+    if not isinstance(listed, list):
+        listed = [unasked]
+    return [{"text": q["text"], **({} if _stamp(q.get("ended")) is None else {"ended": q["ended"]})}
+            for q in listed if isinstance(q, dict) and isinstance(q.get("text"), str)]
+
+
+def _kept(questions):
+    """What a seat's record keeps back: those questions, and the line reading them all."""
+    return {"text": notify.ALSO.join(q["text"] for q in questions),
+            "questions": questions} if questions else None
+
+
+def keep(name, text):
+    """Keep that question back for its turn's end, after those the seat kept already: a turn
+    that asks twice asks both once it ends.  The seat's newer word ends its `ak wait` here."""
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            kept = [*questions_kept(data.get("unasked")), {"text": text}]
+            _seat_put(name, data, {"unasked": _kept(kept), "wait": None})
+    except (OSError, config.Error) as exc:
+        print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
+
+
 def turn_ended(name):
-    """Write down that the turn that seat asked in has ended, on the question it kept back:
-    by its stop hook as the stop stands, or by a look that finds it over.  The record's own
-    lock is all it takes, so it is on record whoever holds the notice then."""
+    """Write down that the turn that seat asked in has ended, on each question it kept back in
+    that turn: by its stop hook as the stop stands, or by a look that finds it over.  The
+    record's own lock is all it takes, so it is on record whoever holds the notice then."""
     if not isinstance(seat_read(name).get("unasked"), dict):
         return      # nothing kept: a stop writes nothing
     try:
         with seat_lock(name):
             data = seat_read(name)
-            kept = data.get("unasked")
-            if isinstance(kept, dict) and _stamp(kept.get("ended")) is None:
-                _seat_put(name, data, {"unasked": dict(kept, ended=time.time())})
+            now = time.time()
+            kept = [{"ended": now, **q} for q in questions_kept(data.get("unasked"))]
+            if kept:
+                _seat_put(name, data, {"unasked": _kept(kept)})
     except (OSError, config.Error):
         pass
 
 
 def kept_asked(name, kept):
-    """That kept question is a notice now: drop it, unless the seat has kept another since."""
+    """Those kept questions, the first the record keeps, are a notice now: drop them, and keep
+    any kept since.  Only this drops one while its notice lock is held, so they are still the
+    first, unless the record was replaced meanwhile: then nothing is dropped, and what was
+    asked already is asked once (`notify._said`)."""
     try:
         with seat_lock(name):
             data = seat_read(name)
-            if data.get("unasked") == kept:
-                _seat_put(name, data, {"unasked": None})
+            current = questions_kept(data.get("unasked"))
+            if [q["text"] for q in current[:len(kept)]] == [q["text"] for q in kept]:
+                _seat_put(name, data, {"unasked": _kept(current[len(kept):])})
     except (OSError, config.Error):
         pass
 

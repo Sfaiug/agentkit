@@ -302,7 +302,9 @@ class Cards(unittest.TestCase):
                         if self.posts:
                             card = self.posts[0]["embeds"][0]
                             self.assertEqual(card["title"], "Needs you · seat")
-                        self.assertEqual(notify.last("seat")["text"], "Which export format?")
+                        # both stand unanswered, the one asked first first
+                        self.assertEqual(notify.last("seat")["text"],
+                                         "Which schema? Also: Which export format?")
 
     def test_no_card_for_an_episode_older_than_the_install(self):
         now = time.time()

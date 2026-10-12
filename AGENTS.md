@@ -67,6 +67,7 @@ Mistakes earlier work here made that no check catches yet. One that becomes a ch
 - A box change is tried twice before it is pushed: inside one of ak's own boxes, as the lander runs every test, and on a host with a route out, where the offline suite never goes. Either run shows at once what three review rounds found (#699).
 - A test fakes one module's sleep (`tests/fixtures/clock.py`), never `time.sleep` itself: every other wait in the process then spins, and a recording fake keeps every spin (#700: 3.7 GB in a landing check).
 - A module removed from agentkit ends every run still on the old install at its next lazy import of it (`ImportError`, seen when `tell.py` went): keep the module whole until no run of the old install is left, then delete it.
+- A prompt's words cannot tell the owner's from a line ak typed: matching ak's typing receipts to prompts, in a window from the oldest question or one to one with no window, met a new order of hooks or clocks every review round (#866, #867), and the owner typing ak's own words while a line of ak's waits is the same record either way. ak types only at a quiet prompt, so its line is heard before the seat can ask; keep `hook_look`'s window from the question.
 
 ## Owner rules
 
