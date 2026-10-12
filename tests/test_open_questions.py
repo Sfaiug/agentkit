@@ -77,16 +77,49 @@ class OpenQuestions(Sandbox):
                          "Merge acme#7? yes/no Also: " + FIRST + " Also: " + SECOND)
         self.assertNotIsInstance(watch.seat_read(SEAT).get("unasked"), dict)
 
-    def test_the_same_question_twice_is_asked_once(self):
+    def test_the_same_question_twice_is_asked_once_as_last_asked(self):
+        again = "  which SCHEMA should acme use?\nThe parser reads both; v2 drops the legacy fields."
         self.asked_for_it(FIRST)
-        self.asks("  which SCHEMA should acme use?\nThe parser reads both; v2 drops the legacy fields.")
-        self.assertEqual(notify.last(SEAT)["text"], FIRST)
+        self.asked_for_it(SECOND)
+        self.asks(again)
+        self.assertEqual(notify.last(SEAT)["text"], SECOND + " Also: " + again.strip())
+
+    def test_a_question_inside_another_is_one_of_its_own(self):
+        first = "Ship the acme parser? Its README quotes Use v1? as an example."
+        self.asks(first)
+        self.asks("Use v1?")
+        self.turn_ends()
+        self.assertEqual(notify.last(SEAT)["text"], first + " Also: Use v1?")
+
+    def test_one_kept_and_asked_already_is_asked_once(self):
+        self.asks(FIRST)
+        self.asked_for_it(FIRST)
+        self.asks(SECOND)
+        self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
 
     def test_after_his_answer_a_new_question_stands_alone(self):
         self.asked_for_it(FIRST)
         notify.answered(SEAT, notify.last(SEAT)["time"] + 1)
         self.asks(SECOND)
         self.turn_ends()
+        self.assertEqual(notify.last(SEAT)["text"], SECOND)
+
+    def test_one_kept_before_his_prompt_is_recorded_waits_for_its_own_turn(self):
+        """His prompt is recorded in the background: the seat's next turn may keep another
+        first, which his prompt never saw."""
+        self.asks(FIRST)
+        watch.turn_ended(SEAT)
+        self.asks(SECOND)
+        notify.answered(SEAT, 10001)
+        self.assertIsNone(notify.last(SEAT))
+        self.turn_ends()
+        self.assertEqual(notify.last(SEAT)["text"], SECOND)
+
+    def test_his_prompt_recorded_late_answers_only_those_asked_before_it(self):
+        self.asked_for_it(FIRST)
+        with patch.object(notify.time, "time", return_value=10002):
+            self.asks(SECOND)
+        notify.answered(SEAT, 10001)
         self.assertEqual(notify.last(SEAT)["text"], SECOND)
 
 

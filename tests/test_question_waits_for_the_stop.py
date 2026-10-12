@@ -232,9 +232,9 @@ class QuestionWaitsForTheStop(Sandbox):
     def test_its_stop_puts_the_turns_end_on_record(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
-        self.assertNotIn("ended", watch.seat_read(SEAT)["unasked"])
+        self.assertNotIn("time", watch.seat_read(SEAT)["unasked"]["questions"][0])
         self.stop()
-        self.assertIsInstance(watch.seat_read(SEAT)["unasked"]["ended"], float)
+        self.assertIsInstance(watch.seat_read(SEAT)["unasked"]["questions"][0]["time"], float)
 
     def test_his_prompt_answers_it_though_no_look_could_ask_it_first(self):
         """The stop's look met the notice lock taken -- the card pass, a delivery -- so the

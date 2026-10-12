@@ -126,7 +126,7 @@ class RecordedWaits(MergedRuns):
                 self.assertIsNone(self.notice())        # ... its question kept back, its turn ended
                 self.assertEqual(self.kept()["text"], ASKED)
                 notify.asks_first(ASKED)                # shaped as `ak notify needs` takes one
-                self.assertIsInstance(self.kept()["ended"], float)
+                self.assertIsInstance(self.kept()["questions"][0]["time"], float)
                 seat = json.loads((self.state / f"seat-{SEAT}.json").read_text())
                 self.assertIsNone(seat["wait"])         # the question ends the wait's line
                 lock.close()

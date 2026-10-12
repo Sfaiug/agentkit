@@ -1803,7 +1803,7 @@ def keeps_back(name):
     the same way: where hooks report the turn's end a look follows at once, and where only
     the screen shows it ak's next look finds it (`ask_kept_back`) -- unless a question of its
     own already stands unanswered: the owner is asked already, and a newer one is asked beside
-    it (`notify.joined`).
+    it (`notify.beside`).
     """
     try:
         harness = seat_model(config.load(), name)[0]
@@ -1814,44 +1814,41 @@ def keeps_back(name):
 
 def keep(name, text):
     """Keep that question back for its turn's end beside those the seat kept already
-    (`notify.joined`), as of the turn asking now: a turn that asks twice asks both once it ends.
-    The seat's newer word ends its `ak wait` here."""
-    from . import notify
+    (`notify.beside`): a turn that asks twice asks both once it ends.  The seat's newer word
+    ends its `ak wait` here."""
     try:
         with seat_lock(name):
             data = seat_read(name)
-            kept = data.get("unasked")
-            earlier = kept.get("text") if isinstance(kept, dict) else None
-            at = kept.get("at") if isinstance(earlier, str) else time.time()
-            _seat_put(name, data, {"unasked": {"text": notify.joined(earlier, text), "at": at},
-                                   "wait": None})
+            kept = notify.beside([*notify.questions(data.get("unasked")), {"text": text}])
+            _seat_put(name, data, {"unasked": kept, "wait": None})
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
 
 
 def turn_ended(name):
-    """Write down that the turn that seat asked in has ended, on the question it kept back:
-    by its stop hook as the stop stands, or by a look that finds it over.  The record's own
-    lock is all it takes, so it is on record whoever holds the notice then."""
+    """Write down that the turn that seat asked in has ended, on each question it kept back in
+    that turn: by its stop hook as the stop stands, or by a look that finds it over.  The
+    record's own lock is all it takes, so it is on record whoever holds the notice then."""
     if not isinstance(seat_read(name).get("unasked"), dict):
         return      # nothing kept: a stop writes nothing
     try:
         with seat_lock(name):
             data = seat_read(name)
-            kept = data.get("unasked")
-            if isinstance(kept, dict) and _stamp(kept.get("ended")) is None:
-                _seat_put(name, data, {"unasked": dict(kept, ended=time.time())})
+            now = time.time()
+            kept = [{"time": now, **q} for q in notify.questions(data.get("unasked"))]
+            if kept:
+                _seat_put(name, data, {"unasked": notify.beside(kept)})
     except (OSError, config.Error):
         pass
 
 
 def kept_asked(name, kept):
-    """That kept question is a notice now: drop it, unless the seat has kept another since."""
+    """Those kept questions are a notice now: drop them, and keep any the seat kept since."""
     try:
         with seat_lock(name):
             data = seat_read(name)
-            if data.get("unasked") == kept:
-                _seat_put(name, data, {"unasked": None})
+            rest = [q for q in notify.questions(data.get("unasked")) if q not in kept]
+            _seat_put(name, data, {"unasked": notify.beside(rest) if rest else None})
     except (OSError, config.Error):
         pass
 
