@@ -183,18 +183,25 @@ class OpenQuestions(Sandbox):
 
     def test_a_line_ak_typed_after_the_first_open_question_answers_none(self):
         """A hand-back typed after the first question and before a newer one is ak's own
-        line, however late its prompt hook looks."""
+        line, however late its prompt hook looks; his own prompt of those words after the
+        newer one answers both."""
         handback = "Run fix-parser finished: PASS. Decide the next step."
         self.asked_for_it(FIRST)
         config.seat_file("input", SEAT).write_text(json.dumps({
             "at": 10001, "text": handback, "source": "ak", "harness": "claude"}) + "\n")
         with patch.object(notify.time, "time", return_value=10002):
             self.asked_for_it(SECOND)
-        with patch.dict(os.environ, {"TMUX": "/fake/agentkit-test,1,0", "TMUX_PANE": "%7"}), \
-                patch.object(orch, "tmux_out", return_value=(0, "/fake/agentkit-test\t" + SEAT)), \
-                patch.object(watch, "announce_state", return_value={}):
-            watch.hook_look(SEAT, answered_at=10001.5, said=handback)
+
+        def prompted(at):
+            pane = (0, "/fake/agentkit-test\t" + SEAT)
+            with patch.dict(os.environ, {"TMUX": "/fake/agentkit-test,1,0", "TMUX_PANE": "%7"}), \
+                    patch.object(orch, "tmux_out", return_value=pane), \
+                    patch.object(watch, "announce_state", return_value={}):
+                watch.hook_look(SEAT, answered_at=at, said=handback)
+        prompted(10001.5)
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
+        prompted(10003)
+        self.assertIsNone(notify.last(SEAT))
 
     def test_his_prompt_answers_one_the_old_install_kept_for_an_ended_turn(self):
         watch.seat_write(SEAT, unasked={"text": FIRST, "at": 9999.0, "ended": 10000.0})
