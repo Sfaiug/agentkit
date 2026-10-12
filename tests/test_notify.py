@@ -94,7 +94,8 @@ class Notifications(unittest.TestCase):
     def answer(self, seat="seat"):
         """The owner's prompt answers the seat's question, as its prompt hook records it: a
         seat's done waits for it."""
-        notify.answered(seat, notify.last(seat, include_seen=True)["time"] + 1)
+        asked = notify.last(seat, include_seen=True)["time"]
+        notify.answered(seat, max(time.time(), asked + 0.001))
 
     def open_and_progress(self, between=lambda: None):
         """Open the seat, then produce the fresh output that answers what it was asked;
