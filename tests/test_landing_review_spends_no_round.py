@@ -195,7 +195,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         saved = record.read_state(self.run_dir)
         resumed = run.Loop(self.cfg, self.run_dir, saved, self.lp.opts, self.lp.log, self.wt,
                            "body", ["true"], "context", [])
-        with patch.object(run, "integrate", wraps=run.integrate) as integrate:
+        with patch.object(roundloop, "integrate", wraps=roundloop.integrate) as integrate:
             run.rounds(resumed)
         integrate.assert_not_called()
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)
