@@ -5,7 +5,8 @@ hears `accepted` and works on, and Codex drops the question unanswered -- tellin
 model nor ak -- when anything is sent into the seat or the turn ends.  So the seat's PreToolUse
 hook asks it through ak, as the seat's own `ak notify needs` does: kept back for its turn's end,
 then `needs you` and a card until the owner answers.  The call is refused with what became of the
-question, so Codex holds no question of its own to drop.
+question, so Codex holds no question of its own to drop, and with the question itself, which is
+how the owner reads it in the seat: Codex draws a refusal's reason there.
 """
 
 import io
@@ -50,6 +51,8 @@ class CodexQuestion(Sandbox):
         answer = self.hook(CALL)
         self.assertEqual(answer["decision"], "block")
         self.assertTrue(answer["reason"].startswith("ak asks the owner this for you"), answer)
+        self.assertIn(": " + TITLE + " Options: 1. Keep v1 · 2. Move to v2 Their answer",
+                      answer["reason"])
         # Codex closes the reason with a period of its own
         self.assertFalse(answer["reason"].endswith("."))
         self.assertEqual(self.kept(), TITLE + " Options: 1. Keep v1 · 2. Move to v2")
