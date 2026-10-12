@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, handback, record, run, transitions, turns, usage
+from agentkit import config, deliver, gc, gitcall, handback, record, roundloop, run, transitions, turns, usage
 from fixtures.landing import landing
 from test_merge_step import make_repos
 
@@ -69,12 +69,12 @@ class DeliveryRetryDry(unittest.TestCase):
             raise exc
 
         # Only gh is a fixture: the worker box finds its own git with the real lookup.
-        which = run.shutil.which
-        with patch.object(run, "rights", return_value=("acme/widget", "WRITE")), \
-                patch.object(run.shutil, "which", side_effect=lambda name, **kw: (
+        which = deliver.shutil.which
+        with patch.object(deliver, "rights", return_value=("acme/widget", "WRITE")), \
+                patch.object(deliver.shutil, "which", side_effect=lambda name, **kw: (
                     "/fixture/gh" if name == "gh" else which(name, **kw))), \
                 patch.object(run.landing, "start_line"), \
-                patch.object(run, "fix_final_check", side_effect=landing_review), patch.object(gitcall, "gh", side_effect=AssertionError("GitHub delivery")), \
+                patch.object(roundloop, "fix_final_check", side_effect=landing_review), patch.object(gitcall, "gh", side_effect=AssertionError("GitHub delivery")), \
                 patch.object(turns, "call_retrying", side_effect=reviewer_turn) as turn, \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.cmd_merge([run_dir.name]), 0)

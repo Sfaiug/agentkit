@@ -345,7 +345,7 @@ sys.exit(1)
         lp.rnd = 2
         self.reviews(NO_VERDICT, NO_VERDICT)
         with self.assertRaises(run.Exhausted) as ctx:
-            run.resume_review(lp)
+            roundloop.resume_review(lp)
         self.assertIn("gave no verdict twice", str(ctx.exception))
         self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head_rebased)
         after = record.read_state(run_dir)
@@ -356,7 +356,7 @@ sys.exit(1)
         # The same commit re-reviews with no executor turn once the reviewer answers.
         self.reviews(PASS)
         with patch.object(run, "execute", side_effect=AssertionError("no executor turn")), patch.object(roundloop, "execute", side_effect=AssertionError("no executor turn")):
-            self.assertEqual(run.resume_review(lp), "PASS")
+            self.assertEqual(roundloop.resume_review(lp), "PASS")
         self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head_rebased)
         resumed = record.read_state(run_dir)
         self.assertEqual(len(resumed["round_summaries"]), 2)

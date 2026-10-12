@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, run, worker
+from agentkit import config, gate, gitcall, worker
 from agentkit import host, record as run_record
 
 ACME = "/home/fixture/code/acme"        # main checkouts as the records name them; never opened
@@ -64,7 +64,6 @@ class GateOrder(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
                                                           "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0"}))
         os.environ.pop("AK_MAX_RUNS", None)
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))

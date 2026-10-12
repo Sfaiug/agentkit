@@ -95,7 +95,7 @@ class OwnPr(unittest.TestCase):
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
                                              landing(lp, deliver=deliver)))
-        self.stack.enter_context(patch.object(run, "merge_lock", side_effect=lambda *a, **k: nullcontext()))
+        self.stack.enter_context(patch.object(deliver, "merge_lock", side_effect=lambda *a, **k: nullcontext()))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *a, **k: nullcontext(True)))

@@ -204,7 +204,7 @@ class MergeStep(unittest.TestCase):
         self.assertIn("did not finish the rebase of origin/main", state["merge_note"])
         self.assertFalse(state["merge_failed"])
         self.assertEqual(len(state["round_summaries"]), 1)   # no conflict round counted
-        self.assertFalse(run.in_progress(wt, "rebase"))
+        self.assertFalse(roundloop.in_progress(wt, "rebase"))
 
     def test_a_failing_final_check_spends_no_task_round_and_parks_waiting(self):
         # every review passed and the budget is spent; the once suite keeps failing on the
@@ -559,7 +559,7 @@ class MergeStep(unittest.TestCase):
         def deliver(lp, **_kw):
             if run.integrate(lp, "origin/main"):
                 self.assertTrue(roundloop.current_review(lp))
-                self.assertTrue(run.integrated(wt, tip))
+                self.assertTrue(roundloop.integrated(wt, tip))
                 lp.state["merged"] = True
 
         with patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}",
@@ -580,7 +580,7 @@ class MergeStep(unittest.TestCase):
             saved = record.read_state(run_dir)
             self.assertEqual(saved["state"], parked)
             self.assertEqual(run.git(wt, "rev-parse", "HEAD"), head)
-            self.assertFalse(run.in_progress(wt, how))
+            self.assertFalse(roundloop.in_progress(wt, how))
             code = run.cmd_resume([run_dir.name])
         state = record.read_state(run_dir)
         print(f"{type(stop).__name__} ({how}): stopped={saved['state']} "
@@ -749,12 +749,12 @@ class MergeStep(unittest.TestCase):
 
         def deliver():
             if run.git(wt, "rev-parse", "HEAD") != lp.state["delivery_sha"]:
-                if not (run.push(lp) and checks(lp, URL) and run.refresh_pr_body(lp)):
+                if not (run.push(lp) and checks(lp, URL) and delivery.refresh_pr_body(lp)):
                     return False
             return run.do_merge(lp, URL, "origin/main")
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
-                patch.object(run, "wait_checks", side_effect=checks), \
+                patch.object(run, "wait_checks", side_effect=checks), patch.object(delivery, "wait_checks", side_effect=checks), \
                 patch.object(run.time, "sleep"):
             self.assertFalse(landing(lp, deliver))
             place = lp.state["waiting_on"]["joined"]
@@ -791,7 +791,7 @@ class MergeStep(unittest.TestCase):
         self.assertEqual(state["state"], "waiting")
         self.assertNotEqual(state["verdict"], "FAIL")
         self.assertIn("base branch was modified", state["merge_note"])
-        self.assertEqual(state["waiting_on"]["line"], run.turn_path(lp, "origin/main").name)
+        self.assertEqual(state["waiting_on"]["line"], delivery.turn_path(lp, "origin/main").name)
 
     def test_a_base_race_waits_for_known_mergeability_before_retrying(self):
         _, _, wt = make_repos(self.root)
@@ -861,7 +861,7 @@ class MergeStep(unittest.TestCase):
         # while it has not yet worked out whether it merges: it is asked again while it says
         # UNKNOWN, a bounded number of times, and a PR it calls CLEAN is merged on a second
         # try; one it calls BLOCKED, or never works out, still ends the run as before
-        unknown = ["UNKNOWN"] * (run.MERGE_RETRIES + 1)
+        unknown = ["UNKNOWN"] * (delivery.MERGE_RETRIES + 1)
         for answers, merged in ((["CLEAN"], True), (["UNKNOWN", "UNKNOWN", "CLEAN"], True),
                                 (unknown, False), (["BLOCKED"], False)):
             with self.subTest(answers=answers):
@@ -891,7 +891,7 @@ class MergeStep(unittest.TestCase):
                 self.assertEqual(seen.count("merge"), 2 if merged else 1)
                 self.assertEqual(next(asked, None), None)       # every answer was asked for
                 self.assertEqual([call.args[0] for call in slept.call_args_list
-                                  if call.args[0] == run.CHECKS_POLL], [run.CHECKS_POLL] * (len(answers) - 1))
+                                  if call.args[0] == delivery.CHECKS_POLL], [delivery.CHECKS_POLL] * (len(answers) - 1))
                 if not merged:
                     self.assertIn(f"with the PR {answers[-1]}", state["merge_note"])
 
@@ -947,8 +947,7 @@ class MergeStep(unittest.TestCase):
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(delivery, "checks", return_value=(True, "")), \
                 patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
-                             landing(lp, deliver=deliver)), \
-                patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
+                             landing(lp, deliver=deliver)), patch.object(delivery, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep") as slept:
             self.assertTrue(run.merge_own_pr(lp, URL))
         self.assertEqual(len(merges), 2)
@@ -977,7 +976,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(len(merges), run.MERGE_RETRIES + 1)
+        self.assertEqual(len(merges), delivery.MERGE_RETRIES + 1)
         state = record.read_state(run_dir)
         self.assertTrue(state["merged"])
         self.assertNotEqual(state.get("state"), "waiting")
@@ -1056,8 +1055,7 @@ class MergeStep(unittest.TestCase):
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
                 patch.object(delivery, "checks", return_value=(True, "")), \
                 patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
-                             landing(lp, deliver=deliver)), \
-                patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
+                             landing(lp, deliver=deliver)), patch.object(delivery, "merge_lock", lambda lp, upstream: nullcontext()), \
                 patch.object(run.time, "sleep"):
             self.assertFalse(run.merge_own_pr(lp, URL))
         self.assertFalse(record.read_state(run_dir).get("merged"))
@@ -1085,8 +1083,7 @@ class MergeStep(unittest.TestCase):
                 with patch.object(gitcall, "gh", side_effect=fake_gh), \
                         patch.object(delivery, "checks", return_value=(True, "")), \
                         patch.object(run, "join_line", side_effect=lambda lp, _upstream, deliver:
-                                     landing(lp, deliver=deliver)), \
-                        patch.object(run, "merge_lock", lambda lp, upstream: nullcontext()), \
+                                     landing(lp, deliver=deliver)), patch.object(delivery, "merge_lock", lambda lp, upstream: nullcontext()), \
                         patch.object(run.time, "sleep"):
                     with self.assertRaises(run.Stopped):
                         run.merge_own_pr(lp, URL)

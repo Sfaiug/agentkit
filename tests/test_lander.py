@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gc, land, record, roundloop, run, turns, watch, worker
+from agentkit import config, deliver, gate, gc, land, record, roundloop, run, turns, watch, worker
 
 SUITE = "test -f base.txt && test ! -f broken.txt"
 ONCE = "test -f tip.txt && test -f work.txt"
@@ -71,7 +71,7 @@ class LanderFixture:
         self.commit("base")
         run.git(self.repo, "push", "origin", "main")
         self.base = run.git(self.repo, "rev-parse", "HEAD")
-        self.turn = run.merge_lock_path(str(self.remote), "origin/main")
+        self.turn = deliver.merge_lock_path(str(self.remote), "origin/main")
         self.checks = []
         self.gate_run = gate.run_done_when
         self.stack.enter_context(patch.object(gate, "run_done_when", side_effect=self.check))
@@ -288,8 +288,8 @@ class Lander(LanderFixture, unittest.TestCase):
         state = record.read_state(head)
         lp = SimpleNamespace(state=state, wt=self.repo, run_dir=head, log=lambda _: None,
                              write=lambda: record.save_state(head, state))
-        with patch.object(run, "integrate", return_value=True), patch.object(run, "fix_final_check", return_value=True):
-            self.assertFalse(run.land_from_line(lp, "origin/main", lambda: True))
+        with patch.object(roundloop, "integrate", return_value=True), patch.object(roundloop, "fix_final_check", return_value=True):
+            self.assertFalse(deliver.land_from_line(lp, "origin/main", lambda: True))
         self.assertEqual(self.wait(head), {"line": self.turn.name, "joined": 1})
         self.assertEqual([d.name for d, _ in land.line(self.turn)], ["head", "tail"])
 
@@ -319,7 +319,7 @@ class Lander(LanderFixture, unittest.TestCase):
                                      log=lambda _: None,
                                      write=lambda: record.save_state(directory, state))
                 checks = len(self.checks)
-                self.assertTrue(run.land_from_line(lp, "origin/main", lambda: True))
+                self.assertTrue(deliver.land_from_line(lp, "origin/main", lambda: True))
                 self.assertEqual(state["final_check"]["tree_sha"], tree)
                 self.assertEqual(state["final_check"]["suite"], SUITE)
                 self.assertEqual(len(self.checks), checks)
@@ -403,7 +403,7 @@ class Lander(LanderFixture, unittest.TestCase):
         directory = self.member()
         self.advance()
         lp = SimpleNamespace(wt=self.repo, state={}, write=lambda: None)
-        with run.merge_lock(lp, "origin/main"):
+        with deliver.merge_lock(lp, "origin/main"):
             land.check_line(self.turn)
             self.assertIn("land", self.wait(directory))
             with self.turn.open("a") as probe:

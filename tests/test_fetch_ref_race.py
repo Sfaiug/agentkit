@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.landing import landing
-from agentkit import config, gitcall, host, roundloop, run, turns
+from agentkit import config, deliver, gitcall, host, roundloop, run, turns
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -85,11 +85,11 @@ class FetchRefRace(unittest.TestCase):
         stack.enter_context(patch.object(roundloop, "execute", side_effect=AssertionError("fixer")))
         stack.enter_context(patch.object(turns, "call_retrying",
                                          side_effect=AssertionError("reviewer")))
-        stack.enter_context(patch.object(run, "rights", return_value=(None, None)))
-        stack.enter_context(patch.object(run, "open_pr", return_value=URL))
-        stack.enter_context(patch.object(run, "wait_checks", return_value=True))
+        stack.enter_context(patch.object(deliver, "rights", return_value=(None, None)))
+        stack.enter_context(patch.object(deliver, "open_pr", return_value=URL))
+        stack.enter_context(patch.object(deliver, "wait_checks", return_value=True))
         self.merges = stack.enter_context(patch.object(
-            run, "do_merge", side_effect=lambda lp, url, upstream, **_kw:
+            deliver, "do_merge", side_effect=lambda lp, url, upstream, **_kw:
             lp.state.update(merged=True) or True))
         config.ensure_dirs()
         self.lp = self.passed_run()

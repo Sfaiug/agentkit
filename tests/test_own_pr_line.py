@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, deliver, gc, gitcall, hand_in, handback, land, record, run, watch, worker, worktrees
+from agentkit import config, deliver, gc, gitcall, hand_in, handback, land, record, run, turns, watch, worker, worktrees
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture, climb_ladder
 
@@ -586,7 +586,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         api = self.gh_json
         down = lambda cwd, *args, **kw: ((None, "HTTP 503") if args[:1] == ("api",)
                                          else api(cwd, *args, **kw))
-        with patch.object(run, "gh_json", side_effect=down), patch.object(deliver, "gh_json", side_effect=down), self.assertRaises(config.Error):
+        with patch.object(run, "gh_json", side_effect=down), self.assertRaises(config.Error):
             self.review(directory, url)
         # drive records the error, and the seat's hand-back cleans up after it
         state = run.mark_state(directory, "error", "cannot verify the PR before delivery")
@@ -801,7 +801,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         with patch.object(run, "run_slot", side_effect=lambda *_: nullcontext()), \
                 patch.object(run.history, "Sampler"), \
                 patch.object(run.history, "sample_rss", return_value=None), \
-                patch.object(worktrees, "settle_run"), patch.object(run, "stop_run_tree"), \
+                patch.object(worktrees, "settle_run"), patch.object(turns, "stop_run_tree"), \
                 patch.object(run, "finish", return_value=0), \
                 patch.object(gitcall, "gh", return_value=(0, "")):
             rc = run.review_pr_main(self.cfg, {"--review": None, "--review-pr": url},

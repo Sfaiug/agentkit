@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import config, gitcall, host, roundloop, run, status, transitions, turns
+from agentkit import config, deliver, gitcall, host, roundloop, run, status, transitions, turns
 from agentkit import record
 
 
@@ -122,7 +122,7 @@ class V5aa(unittest.TestCase):
         self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch.object(run, "join_line", side_effect=fork_turn))
+        self.stack.enter_context(patch.object(deliver, "join_line", side_effect=fork_turn))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {
@@ -161,7 +161,7 @@ class V5aa(unittest.TestCase):
         real_out = run.git_out
         moved = []
 
-        real_set_base = run.set_base
+        real_set_base = roundloop.set_base
         saved = []
 
         def record_set_base(lp2, rev):
@@ -188,8 +188,8 @@ class V5aa(unittest.TestCase):
         self.assertNotEqual(tip0, tip1)
         self.assertIn(f"rebasing ak/test onto origin/main ({tip0[:12]})", text)
         self.assertEqual(text.count("rebasing ak/test onto origin/main"), 1)
-        self.assertTrue(run.integrated(wt, tip0))
-        self.assertFalse(run.integrated(wt, tip1))
+        self.assertTrue(roundloop.integrated(wt, tip0))
+        self.assertFalse(roundloop.integrated(wt, tip1))
         self.assertEqual(saved, [tip0])
         self.assertEqual(record.read_state(run_dir)["base_sha"], tip0)
 
@@ -208,7 +208,7 @@ class V5aa(unittest.TestCase):
         run.git(owner, "push", "origin", "main")
         tip1 = run.git(owner, "rev-parse", "main^{commit}")
         lp, run_dir, _ = make_loop(self.root, wt)
-        real_set_base = run.set_base
+        real_set_base = roundloop.set_base
         saved = []
 
         def record_set_base(lp2, rev):
@@ -235,8 +235,8 @@ class V5aa(unittest.TestCase):
         tip2 = run.git(wt, "rev-parse", "origin/main^{commit}")
         self.assertNotEqual(tip1, tip2)
         self.assertIn(f"rebasing ak/test onto origin/main ({tip1[:12]})", text)
-        self.assertTrue(run.integrated(wt, tip1))
-        self.assertFalse(run.integrated(wt, tip2))
+        self.assertTrue(roundloop.integrated(wt, tip1))
+        self.assertFalse(roundloop.integrated(wt, tip2))
         self.assertEqual(saved, [tip1])
         self.assertEqual(record.read_state(run_dir)["base_sha"], tip1)
 
@@ -270,7 +270,7 @@ class V5aa(unittest.TestCase):
         self.assertFalse(state["merge_failed"])
         self.assertIn("did not finish", state["merge_note"])
         self.assertEqual([entry["round"] for entry in state["round_summaries"]], [1])
-        self.assertFalse(run.in_progress(wt, "rebase"))
+        self.assertFalse(roundloop.in_progress(wt, "rebase"))
 
 
     def test_v5aa_integration_fail_below_budget_resumes_at_integration(self):
@@ -383,7 +383,7 @@ class V5aa(unittest.TestCase):
             self.assertTrue(after["review"]["patch_id"])
             self.assertIn("review kept", (run_dir / "log.txt").read_text())
             tip = run.git(wt, "rev-parse", "origin/main^{commit}")
-            self.assertTrue(run.integrated(wt, tip))
+            self.assertTrue(roundloop.integrated(wt, tip))
             resumed_log = (run_dir / "log.txt").read_text()
             self.assertNotIn("rebase-fixer", resumed_log)
             self.assertNotIn(": executor", resumed_log)
@@ -535,7 +535,7 @@ class V5aa(unittest.TestCase):
         real_out = run.git_out
         moved = []
 
-        real_set_base = run.set_base
+        real_set_base = roundloop.set_base
         saved = []
 
         def record_set_base(lp2, rev):
@@ -562,7 +562,7 @@ class V5aa(unittest.TestCase):
         self.assertEqual(saved, [tip0])
         self.assertEqual(state["base_sha"], tip0)
         self.assertRegex(state["base_sha"], r"^[0-9a-f]{40}$")
-        self.assertTrue(run.integrated(wt, tip0))
+        self.assertTrue(roundloop.integrated(wt, tip0))
 
 
 if __name__ == "__main__":

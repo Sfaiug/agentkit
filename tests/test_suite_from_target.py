@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import LanderFixture, ONCE, SUITE
 from test_repo_suite import RepoSuiteFixture
-from agentkit import config, handback, land, roundloop, run
+from agentkit import config, deliver, handback, land, roundloop, run
 
 
 class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
@@ -46,7 +46,7 @@ class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
             self.git("update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD"))
             self.assertTrue(run.final_check(lp, "origin/main"))
             self.assertEqual(lp.state["final_check"]["suite"], suite)
-            self.assertEqual(run.merge_body(lp, lp.state["final_check"]["sha"]),
+            self.assertEqual(deliver.merge_body(lp, lp.state["final_check"]["sha"]),
                              ["--body", f"Suite-Passed-Tree: {lp.state['final_check']['tree_sha']}"])
 
         with patch.object(run, "merge", side_effect=integrated_check), \

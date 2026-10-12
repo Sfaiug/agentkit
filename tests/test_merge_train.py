@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from test_lander import LanderFixture, SUITE, land, record, run, gate
-from agentkit import gitcall
+from agentkit import deliver as delivery, gitcall
 
 
 class MergeTrain(LanderFixture, unittest.TestCase):
@@ -50,14 +50,14 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 checked = lp.state["final_check"]
                 evidence = land.passed(self.turn, waits[directory]["land"]) or {"tested": waits[directory]["land"]}
                 self.assertEqual(checked["tested"], waits[directory].get("tested", evidence["tested"]))
-                body = run.merge_body(lp, run.git(self.repo, "rev-parse", "HEAD"))
+                body = delivery.merge_body(lp, run.git(self.repo, "rev-parse", "HEAD"))
                 self.assertEqual(bool(body), checked["tested"] == waits[directory]["land"])
                 run.git(self.repo, "push", "origin", "HEAD:main")
                 lp.state.update(state="pass", merged=True)
                 merged.append(directory)
                 return True
 
-            self.assertTrue(run.land_from_line(lp, "origin/main", deliver))
+            self.assertTrue(delivery.land_from_line(lp, "origin/main", deliver))
 
         def wait_for_prefix(_seconds):
             last = members[-1]
@@ -71,7 +71,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 attempt(directory)
             run.git(self.repo, "checkout", loops[last].state["branch"])
 
-        with patch.object(run, "time", wraps=run.time) as clock:
+        with patch.object(delivery, "time", wraps=delivery.time) as clock:
             clock.sleep.side_effect = wait_for_prefix
             attempt(members[-1])
         clock.sleep.assert_called_once_with(gate.SLOT_POLL)
@@ -155,7 +155,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             with self.turn.with_suffix(".lander.lock").open("a") as probe:
                 with self.assertRaises(BlockingIOError):
                     fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.assertTrue(run.land_from_line(lp, "origin/main", deliver))
+            self.assertTrue(delivery.land_from_line(lp, "origin/main", deliver))
             self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), tree)
             return self.check(cmds, cwd, log_path, *args, **kw)
 
@@ -604,7 +604,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                     merged.append(directory)
                     return True
 
-                result = run.land_from_line(lp, "origin/main", deliver)
+                result = delivery.land_from_line(lp, "origin/main", deliver)
                 if directory == oldest and kind == "covered":
                     self.assertFalse(result)
                     self.assertTrue(lp.state["on_target"])
@@ -620,7 +620,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 attempt(last)
                 run.git(self.repo, "checkout", loops[oldest].state["branch"])
 
-            with patch.object(run, "time", wraps=run.time) as clock:
+            with patch.object(delivery, "time", wraps=delivery.time) as clock:
                 clock.sleep.side_effect = wait_for_prefix
                 attempt(oldest)
             clock.sleep.assert_called_once_with(gate.SLOT_POLL)

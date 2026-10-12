@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gitcall, job as jobs, roundloop, run, turns, worker
+from agentkit import config, deliver, gate, gitcall, job as jobs, roundloop, run, turns, worker
 from agentkit import record
 
 OLD = "aaa1111"
@@ -45,19 +45,19 @@ class PickupNewCode(unittest.TestCase):
         config.ensure_dirs()
         self.old_start = run._PICKUP_START
         run._PICKUP_START = None
-        self.old_held = getattr(run._PICKUP_HELD, "count", None)
-        run._PICKUP_HELD.count = 0
+        self.old_held = getattr(run.PICKUP_HELD, "count", None)
+        run.PICKUP_HELD.count = 0
         self.addCleanup(self.restore_pickup)
 
     def restore_pickup(self):
         run._PICKUP_START = self.old_start
         if self.old_held is None:
             try:
-                delattr(run._PICKUP_HELD, "count")
+                delattr(run.PICKUP_HELD, "count")
             except AttributeError:
                 pass
         else:
-            run._PICKUP_HELD.count = self.old_held
+            run.PICKUP_HELD.count = self.old_held
 
     def make_scratch(self, name, passed=False, rounds=3):
         """A fake scratch run of invented acme work, its record on disk, as a Loop."""
@@ -216,9 +216,9 @@ class PickupNewCode(unittest.TestCase):
         with patch.dict(os.environ, {"AK_MAX_RUNS": "4"}):
             with gate.gate_turn(gated, gated / "gate.log", lambda msg: None):
                 self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
-        with run.merge_lock(lp, "origin/main"):
+        with deliver.merge_lock(lp, "origin/main"):
             self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
-        self.assertEqual(getattr(run._PICKUP_HELD, "count", 0), 0)
+        self.assertEqual(getattr(run.PICKUP_HELD, "count", 0), 0)
         with patch.object(worker, "marked_pids", return_value=[12345]):
             self.assertFalse(run.pickup_new_code(lp, execv=fake_exec, current=NEW))
         # a process driving more than this run never replaces itself for one task
@@ -263,12 +263,12 @@ class PickupNewCode(unittest.TestCase):
 
         with patch.object(run, "installed_head", return_value=NEW), \
                 patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "git", return_value=lp.base_sha):
+                patch.object(gitcall, "git", return_value=lp.base_sha):
             self.assertTrue(run.land(lp, "origin/main", fake_verify, lambda: True,
                                      execv=fake_exec))
         self.assertEqual(len(calls), 1)
         self.assertEqual(order[:2], ["exec", "verify"])
-        self.assertEqual(getattr(run._PICKUP_HELD, "count", 0), 0)
+        self.assertEqual(getattr(run.PICKUP_HELD, "count", 0), 0)
         state = record.read_state(lp.run_dir)
         self.assertEqual(state["verdict"], "PASS")
         self.assertTrue(run.review_pass(state, cfg))
@@ -300,8 +300,8 @@ class PickupNewCode(unittest.TestCase):
             return True
 
         with patch.object(run, "installed_head", return_value=OLD), \
-                patch.object(run, "fetch", return_value=(0, "")), \
-                patch.object(run, "git", return_value="tip9999"), \
+                patch.object(gitcall, "fetch", return_value=(0, "")), \
+                patch.object(gitcall, "git", return_value="tip9999"), \
                 patch.object(run.time, "time", return_value=1000):
             self.assertFalse(run.land(
                 lp, "origin/main", verify,

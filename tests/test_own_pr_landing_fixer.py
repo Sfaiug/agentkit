@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_own_pr_line as line
-from agentkit import deliver, hand_in, land, record, run, turns, watch, worker
+from agentkit import deliver, hand_in, land, record, roundloop, run, turns, watch, worker
 from fixtures.hand_in import submitting
 
 
@@ -261,7 +261,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
     def test_a_fourth_red_landing_ends_fail(self):
         directory, url = self.red_landing()
         with record.record(directory) as state:
-            state["landing_reds"] = run.CONFLICT_ROUNDS
+            state["landing_reds"] = roundloop.CONFLICT_ROUNDS
         with patch.object(run, "fix_own_pr", side_effect=AssertionError("a fourth landing fixer")):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "fail")
@@ -299,7 +299,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
     def test_a_run_a_fourth_red_landing_ended_counts_its_reds_again_when_resumed(self):
         directory, url = self.red_landing()
         with record.record(directory) as state:
-            state["landing_reds"] = run.CONFLICT_ROUNDS
+            state["landing_reds"] = roundloop.CONFLICT_ROUNDS
         with patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertIn("landing failed 4 times", state["merge_note"])

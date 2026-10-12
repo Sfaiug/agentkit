@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, gate, handback, job as jobs, land, menu, orch, run, staffing, status, stop, transitions, turns, watch, worker, worktrees
+from agentkit import config, deliver, gate, handback, job as jobs, land, menu, orch, run, staffing, status, stop, transitions, turns, watch, worker, worktrees
 from agentkit import host, record
 from agentkit import task as taskfile
 
@@ -354,7 +354,7 @@ class RunStop(Sandbox):
                 job_dir, job = self.old_job(f"20260101-090000-stuck-{held}", {
                     "name": "b.md", "title": "B", "after": ["a.md"], "state": held,
                     "run_id": kept.name, "from_pass": legacy})
-                with patch.object(run, "end_on_dependency", side_effect=run.Stopped("git killed")), \
+                with patch.object(deliver, "end_on_dependency", side_effect=run.Stopped("git killed")), \
                         patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         redirect_stdout(io.StringIO()):

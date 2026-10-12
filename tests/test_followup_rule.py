@@ -174,7 +174,7 @@ class FollowupRule(unittest.TestCase):
         self.assert_followups([DEFECT, flake])
         url = "https://github.com/acme/project/pull/7"
         with patch.object(gitcall, "gh", return_value=(0, url)):
-            self.assertEqual(run.open_pr(self.lp, "main"), url)
+            self.assertEqual(deliver.open_pr(self.lp, "main"), url)
         body = (self.lp.run_dir / "pr-body.md").read_text()
         self.assertIn("- " + DEFECT, body)
         self.assertIn("- " + flake.replace("\n", "\n  "), body)
@@ -197,9 +197,9 @@ class FollowupRule(unittest.TestCase):
                 patch.object(gitcall, "gh", return_value=(0, "https://github.com/acme/project/pull/7")):
             output, _ = self.gate()
             self.review(DEFECT, output=output)
-            run.open_pr(self.lp, "main")
+            deliver.open_pr(self.lp, "main")
             self.review(OTHER, record=False)
-            run.open_pr(self.lp, "main")
+            deliver.open_pr(self.lp, "main")
         self.assertEqual({path.name: path.read_bytes() for path in directory.iterdir()}, files)
         self.assertNotIn("followups/", (REPO / "orchestrator.md").read_text())
 
@@ -218,7 +218,7 @@ class FollowupRule(unittest.TestCase):
         url = "https://github.com/acme/project/pull/7"
         self.review(DEFECT)
         with patch.object(gitcall, "gh", return_value=(0, url)):
-            run.open_pr(self.lp, "main")
+            deliver.open_pr(self.lp, "main")
         self.review(OTHER, record=False)          # the list grew: the description follows
         bodies = []
 
@@ -234,9 +234,9 @@ class FollowupRule(unittest.TestCase):
             return (1, "update failed") if len(bodies) == 1 else (0, "")
 
         with patch.object(gitcall, "gh", side_effect=gh):
-            self.assertIsNone(run.open_pr(self.lp, "main"))
-            self.assertEqual(run.open_pr(self.lp, "main"), url)
-            self.assertEqual(run.open_pr(self.lp, "main"), url)
+            self.assertIsNone(deliver.open_pr(self.lp, "main"))
+            self.assertEqual(deliver.open_pr(self.lp, "main"), url)
+            self.assertEqual(deliver.open_pr(self.lp, "main"), url)
         self.assertEqual(len(bodies), 2)
         self.assertEqual(bodies[0], bodies[1])
         self.assertIn("## Follow-ups", bodies[1])

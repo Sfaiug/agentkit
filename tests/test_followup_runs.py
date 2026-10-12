@@ -116,7 +116,7 @@ class FollowupRuns(unittest.TestCase):
         self.git(self.repo, "push", "-qu", "origin", "main")
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run.landing, "start_line"))
-        self.stack.enter_context(patch.object(run, "join_line", side_effect=lambda lp, upstream, deliver:
+        self.stack.enter_context(patch.object(deliver, "join_line", side_effect=lambda lp, upstream, deliver:
                                             landing(lp, deliver)))
         self.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=self.spawn))
         self.stack.enter_context(patch.object(orch, "stop_scope"))

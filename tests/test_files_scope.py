@@ -114,7 +114,7 @@ class FilesScope(unittest.TestCase):
         self.commit("target moves")
         run.git(self.repo, "checkout", "ak/fix-api")
         run.git(self.repo, "rebase", "main")
-        run.set_base(lp, "main")
+        roundloop.set_base(lp, "main")
         self.assertIn("target.txt", run.git(self.repo, "diff", "--name-only", f"{self.base}...HEAD"))
         ok, text = self.verify(lp)
         self.assertTrue(ok, text)

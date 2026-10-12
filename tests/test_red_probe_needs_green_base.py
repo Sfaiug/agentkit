@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander
 import test_red_target as red
-from agentkit import config, gate, gitcall, handback, land, roundloop, run, watch
+from agentkit import config, deliver, gate, gitcall, handback, land, roundloop, run, watch
 from agentkit import record
 
 
@@ -39,7 +39,7 @@ class GreenBase(unittest.TestCase):
         # Integration invalidates the review and advances base_sha before probing.
         roundloop.pending_review(lp, "Re-review after integration.")
         run.git(lp.wt, "rebase", tip)
-        run.set_base(lp, tip)
+        roundloop.set_base(lp, tip)
         return run.git(lp.wt, "rev-parse", "HEAD")
 
     def branch_unittest(self, root, every="true"):
@@ -92,7 +92,7 @@ class GreenBase(unittest.TestCase):
                 self.turns.clear()
 
                 def fix(lp, role, text, name, **_kw):
-                    if not run.in_progress(wt, how):
+                    if not roundloop.in_progress(wt, how):
                         return self.fixer(lp, role, text, name)
                     self.turns.append(name)
                     lp.round_dir.mkdir(parents=True, exist_ok=True)
@@ -175,7 +175,7 @@ class GreenBase(unittest.TestCase):
         self.integrate(lp, tip)
         lp = run.Loop(lp.cfg, run_dir, record.read_state(run_dir), {}, lp.log, wt,
                       "body", lp.cmds, "context", [])
-        self.assertEqual(run.resume_review(lp), "PASS")
+        self.assertEqual(roundloop.resume_review(lp), "PASS")
         self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer"])
         self.repair.assert_not_called()
@@ -189,7 +189,7 @@ class GreenBase(unittest.TestCase):
         lp.state["round_summaries"].clear()
         tip = self.move_target(owner, wt)
         run.git(wt, "rebase", tip)
-        run.set_base(lp, tip)
+        roundloop.set_base(lp, tip)
 
         run.rounds(lp)
         self.assertEqual(lp.state["verdict"], "PASS")
@@ -249,13 +249,13 @@ class GreenBase(unittest.TestCase):
         (owner / "poison").touch()
         tip = self.move_target(owner, wt)
         lp.state.update(state="waiting", waiting_on={
-            "line": run.turn_path(lp, "origin/main").name, "joined": 1})
+            "line": deliver.turn_path(lp, "origin/main").name, "joined": 1})
         lp.save()
         before = (directory / "run.json").read_bytes()
         with patch.object(watch, "launch_resume") as wake:
-            land.check_line(run.turn_path(lp, "origin/main"))
+            land.check_line(deliver.turn_path(lp, "origin/main"))
             self.repair.assert_not_called()     # red on the tip alone pauses the line first
-            test_lander.climb_ladder(run.turn_path(lp, "origin/main"))
+            test_lander.climb_ladder(deliver.turn_path(lp, "origin/main"))
         self.repair.assert_called_once()
         self.assertEqual(self.repair.call_args.kwargs["repair"]["sha"], tip)
         self.assertEqual((directory / "run.json").read_bytes(), before)
@@ -313,7 +313,7 @@ class GreenBase(unittest.TestCase):
                 def fix(lp, role, text, name, **_kw):
                     self.turns.append(name)
                     lp.round_dir.mkdir(parents=True, exist_ok=True)
-                    if run.in_progress(wt, how):
+                    if roundloop.in_progress(wt, how):
                         (wt / "work.txt").write_text("both intents\n")
                         run.git(wt, "add", "work.txt")
                         if how == "rebase":

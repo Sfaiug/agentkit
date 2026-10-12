@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gate, gc, gitcall, handback, history, host, job as jobs, land, notify, orch, retention, run, status, worker
+from agentkit import config, deliver, gate, gc, gitcall, handback, history, host, job as jobs, land, notify, orch, retention, run, status, worker
 from agentkit import record
 
 ADAPTER = '''import json, os, pathlib, sys, time
@@ -817,7 +817,7 @@ sys.exit(1)
 
         def join(argv):
             current = record.read_state(config.RUNS / argv[0])
-            current.update(state="waiting", waiting_on={"line": run.merge_lock_path(
+            current.update(state="waiting", waiting_on={"line": deliver.merge_lock_path(
                 "https://github.com/acme/widget.git", "origin/main").name, "joined": 100})
             record.save_state(run_dir, current)
             return 0

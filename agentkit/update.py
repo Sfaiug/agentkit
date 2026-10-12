@@ -833,7 +833,7 @@ def live_hand_back(commit, check, code, log, hand=True):
     composer's mark while its Enter has not landed, so it is entered and never typed twice,
     and `told` once it has.
     """
-    from . import run, watch    # here, not at the top: both import this module
+    from . import deliver, watch  # here, not at the top: both import this module
 
     def keep(**change):
         record.update(change)
@@ -858,7 +858,7 @@ def live_hand_back(commit, check, code, log, hand=True):
              typed=None, told=False)
     if record["told"] or not hand:
         return
-    key = run.remote_key(_git("remote", "get-url", "origin")[1])
+    key = deliver.remote_key(_git("remote", "get-url", "origin")[1])
     if watch.after_merge_deliver(None, {}, key, record["line"], log, typed=record["typed"],
                                  receipt=lambda mark: keep(typed=mark)):
         keep(told=True)

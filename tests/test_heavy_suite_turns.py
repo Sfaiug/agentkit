@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import gate, gitcall, host, config, run, worker
+from agentkit import gate, gitcall, host, config, worker
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"
@@ -82,7 +82,6 @@ class HeavySuiteTurns(unittest.TestCase):
         os.environ.pop("AK_HOST_READINGS", None)
         # nor its cgroup: a landing check runs this file at the top CPU weight
         self.stack.enter_context(patch.object(host, "process_cgroup", return_value=None))
-        self.stack.enter_context(patch.object(run, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gitcall, "dirty_paths", return_value=[]))
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.05))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.05))

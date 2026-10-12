@@ -16,8 +16,8 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import (config, gate, gc, handback, host, land, notify, prompts, roundloop, run,
-                      transitions, turns, usage, watch)
+from agentkit import (config, deliver, gate, gc, handback, host, land, notify, prompts, roundloop,  # noqa: E402
+                      run, transitions, turns, usage, watch)
 from agentkit import gitcall, record
 from test_merge_step import make_loop, make_repos
 
@@ -121,7 +121,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         failure = self.run_dir / "lander.log"
         output = "$ suite\n[exit 1]\nFAIL landing needs broken.txt removed\n"
         failure.write_text(output)
-        turn = run.turn_path(self.lp, "origin/main")
+        turn = deliver.turn_path(self.lp, "origin/main")
         self.lp.state["waiting_on"] = {"line": turn.name, "joined": 1,
             "fix": {"line": "FAIL landing needs broken.txt removed", "log": str(failure)}}
         self.lp.save()
@@ -154,7 +154,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.verdicts = iter(["FAIL"])
         failure = self.run_dir / "lander.log"
         failure.write_text("$ check\n[exit 1]\nshared file needs fixed.txt\n")
-        self.lp.state["waiting_on"] = {"line": run.turn_path(self.lp, "origin/main").name,
+        self.lp.state["waiting_on"] = {"line": deliver.turn_path(self.lp, "origin/main").name,
             "joined": 1, "fix": {"line": "shared file needs fixed.txt", "log": str(failure)}}
         self.lp.save()
         self.assertFalse(run.land(self.lp, "origin/main", lambda: self.fail("local suite"),
@@ -194,9 +194,9 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.lp.state["round_summaries"] = copy.deepcopy(self.history)
         self.lp.rnd = spent
         self.lp.save()
-        self.fix_after = run.CONFLICT_ROUNDS + 1
+        self.fix_after = roundloop.CONFLICT_ROUNDS + 1
         self.assertFalse(run.integrate(self.lp, "origin/main"))
-        self.assertEqual(self.fixes, run.CONFLICT_ROUNDS)
+        self.assertEqual(self.fixes, roundloop.CONFLICT_ROUNDS)
         self.assertFalse(roundloop.current_review(self.lp))
         before = len(self.events)
         if abort:
@@ -218,7 +218,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
 
         def deliver(lp, **_kw):
             self.assertTrue(roundloop.current_review(lp))
-            self.assertTrue(run.integrated(lp.wt, tip))
+            self.assertTrue(roundloop.integrated(lp.wt, tip))
             lp.state.update(merged=True, merge_failed=False, merge_note=None)
 
         with patch.dict(os.environ, {"PATH": f"{binaries}:{os.environ['PATH']}",
@@ -235,11 +235,11 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                 patch.object(run, "merge", side_effect=deliver):
             if abort:
                 head = run.git(self.wt, "rev-parse", "HEAD")
-                how = run.how_to_integrate(self.lp)
+                how = roundloop.how_to_integrate(self.lp)
 
                 def unfinished(lp, role, text, name, **_kw):
                     self.assertEqual((role, name), ("fixer", f"{how}-fixer"))
-                    self.assertTrue(run.in_progress(lp.wt, how))
+                    self.assertTrue(roundloop.in_progress(lp.wt, how))
                     self.events.append(("conflict-fixer", lp.rnd))
                     if abort == "exhausted":
                         raise run.Exhausted("conflict fixer interrupted")
@@ -249,11 +249,11 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
                     self.assertEqual(run.cmd_resume([self.run_dir.name]), 1)
                 state = record.read_state(self.run_dir)
                 self.assertEqual(state["state"], "exhausted" if abort == "exhausted" else "waiting")
-                attempts = 1 if abort == "exhausted" else run.CONFLICT_ROUNDS
+                attempts = 1 if abort == "exhausted" else roundloop.CONFLICT_ROUNDS
                 self.assertEqual(self.events[before:], [("conflict-fixer", spent)] * attempts)
                 self.assertEqual(state["round_summaries"], self.history)
                 self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)
-                self.assertFalse(run.in_progress(self.wt, how))
+                self.assertFalse(roundloop.in_progress(self.wt, how))
                 self.commit(self.owner, "base.txt", "1\n2\n3\n4\ngreen\n")
                 run.git(self.owner, "push", "origin", "main")
                 tip = run.git(self.owner, "rev-parse", "HEAD")

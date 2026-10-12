@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import (config, gate, gitcall, handback, history, job, land, menu, record, run,
-                      scoreboard, transitions, turns, watch)
+from agentkit import (config, deliver, gate, gitcall, handback, history, job, land, menu, record,  # noqa: E402
+                      roundloop, run, scoreboard, transitions, turns, watch)
 from test_merge_step import make_loop, make_repos
 from fixtures.sandbox import Sandbox
 
@@ -35,11 +35,12 @@ class JoinLine(Sandbox):
             "# Fix API\n\n## Done when\n```bash\ntrue\n```\n")
         self.start = self.stack.enter_context(patch.object(land, "start_line", return_value=False))
         # Only gh is a fixture: the worker box finds its own git with the real lookup.
-        which = run.shutil.which
-        self.stack.enter_context(patch.object(run.shutil, "which", side_effect=lambda name, **kw: (
+        which = deliver.shutil.which
+        self.stack.enter_context(patch.object(deliver.shutil, "which", side_effect=lambda name, **kw: (
             "/fixture/gh" if name == "gh" else which(name, **kw))))
         self.rights = self.stack.enter_context(patch.object(
             run, "rights", return_value=("acme/widget", "WRITE")))
+        self.stack.enter_context(patch.object(deliver, "rights", self.rights))
         self.stop = self.stack.enter_context(patch.object(run, "stop_run_tree"))
         self.stack.enter_context(patch.object(turns, "stop_run_tree", self.stop))
         self.stack.enter_context(patch.object(run.history, "Sampler"))
@@ -51,12 +52,13 @@ class JoinLine(Sandbox):
     def test_merge_joins_without_integrating_checking_or_delivering(self):
         before = copy.deepcopy(self.lp.state)
         with patch.object(run, "integrate", side_effect=AssertionError("integration")), patch.object(run, "final_check", side_effect=AssertionError("suite")), \
-                patch.object(run, "push", side_effect=AssertionError("push")), \
-                patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
+                patch.object(roundloop, "integrate", side_effect=AssertionError("integration")), patch.object(roundloop, "final_check", side_effect=AssertionError("suite")), \
+                patch.object(run, "push", side_effect=AssertionError("push")), patch.object(deliver, "push", side_effect=AssertionError("push")), \
+                patch.object(deliver, "merge_lock", side_effect=AssertionError("delivery lock")):
             self.assertFalse(run.merge(self.lp))
         state = self.saved()
         self.assertEqual(state["state"], "waiting")
-        self.assertEqual(state["waiting_on"]["line"], run.turn_path(self.lp, "origin/main").name)
+        self.assertEqual(state["waiting_on"]["line"], deliver.turn_path(self.lp, "origin/main").name)
         self.assertIsInstance(state["waiting_on"]["joined"], (int, float))
         self.assertEqual(state["review"], before["review"])
         self.assertEqual(state["round_summaries"], before["round_summaries"])
@@ -110,7 +112,7 @@ class JoinLine(Sandbox):
         info = {"headRefOid": self.lp.state["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
         with patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "finish", side_effect=AssertionError("ending")), \
-                patch.object(run, "integrate", side_effect=AssertionError("integration")):
+                patch.object(run, "integrate", side_effect=AssertionError("integration")), patch.object(roundloop, "integrate", side_effect=AssertionError("integration")):
             self.assertEqual(run.cmd_merge([self.directory.name]), 0)
         self.assertEqual(self.saved()["state"], "waiting")
         self.assertIsNone(self.saved()["pid"])
@@ -132,13 +134,12 @@ class JoinLine(Sandbox):
         info = {"headRefOid": before["delivery_sha"], "baseRefName": "main", "state": "OPEN"}
 
         def park(lp, upstream, verify, deliver):
-            return run.park_waiting(lp, "the target changed since verification", upstream, "f" * 40)
+            return roundloop.park_waiting(lp, "the target changed since verification", upstream, "f" * 40)
 
         for attempt in ("loop", "merge"):
             with self.subTest(attempt=attempt):
                 record.save_state(self.directory, copy.deepcopy(before))
-                with patch.object(run, "land", side_effect=park), \
-                        patch.object(run, "pr_view", return_value=info), \
+                with patch.object(run, "land", side_effect=park), patch.object(deliver, "land", side_effect=park), patch.object(run, "pr_view", return_value=info), \
                         patch.object(run, "collect_usage", return_value={}), patch.object(run, "rounds"), patch.object(run, "join_session_project"), patch.object(handback, "join_session_project"), \
                         patch.object(run, "finish", return_value=1):
                     if attempt == "loop":
@@ -179,7 +180,7 @@ class JoinLine(Sandbox):
                 (config, "max_gates", {"return_value": 1}),
                 (gate, "GATE_POLL", {"new": 600}),
                 (run, "pickup_new_code", {}), (handback, "redress_seat", {}),
-                (run, "integrate", {"return_value": True})):
+                (roundloop, "integrate", {"return_value": True})):
             self.stack.enter_context(patch.object(module, name, **options))
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
         self.rights.return_value = ("acme/widget", "READ")
@@ -276,8 +277,7 @@ class JoinLine(Sandbox):
 
     def test_fork_delivers_without_joining(self):
         self.rights.return_value = ("acme/widget", "READ")
-        with patch.object(run, "land", side_effect=lambda lp, upstream, verify, deliver: deliver()), \
-                patch.object(run, "fork_and_pr", return_value=True) as fork:
+        with patch.object(deliver, "land", side_effect=lambda lp, upstream, verify, deliver: deliver()), patch.object(deliver, "fork_and_pr", return_value=True) as fork:
             self.assertTrue(run.merge(self.lp))
         fork.assert_called_once_with(self.lp, "main", "acme/widget", "READ")
         self.assertNotIn("waiting_on", self.saved())
@@ -286,9 +286,9 @@ class JoinLine(Sandbox):
     def test_review_pr_joins_without_taking_the_delivery_lock(self):
         self.lp.state["own_orchestrator"] = "opus"
         with patch.object(gitcall, "gh", side_effect=AssertionError("delivery")), \
-                patch.object(run, "merge_lock", side_effect=AssertionError("delivery lock")):
+                patch.object(deliver, "merge_lock", side_effect=AssertionError("delivery lock")):
             self.assertFalse(run.merge_own_pr(self.lp, "https://github.com/acme/widget/pull/7"))
-        self.assertEqual(self.saved()["waiting_on"]["line"], run.turn_path(self.lp, "origin/main").name)
+        self.assertEqual(self.saved()["waiting_on"]["line"], deliver.turn_path(self.lp, "origin/main").name)
         self.assertFalse(list(config.RUNS.glob("*.wait")))
 
     def test_job_and_foreground_follow_the_processless_line_to_its_ending(self):
