@@ -25,8 +25,10 @@ class DoneWaitsForAnswer(Sandbox):
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_SESSION": SEAT, "AGENTKIT_DISCORD_WEBHOOK": "off", "AK_NOTIFY_SINK": "off",
             "AK_RUN_ROLE": ""}))
+        self.posts = []
 
         def post(payload, files, message, receipt):
+            self.posts.append(payload["embeds"][0]["title"])
             receipt.update(status="disabled", message_id="1", webhook="sink")
             return 0
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
@@ -58,7 +60,7 @@ class DoneWaitsForAnswer(Sandbox):
         self.assertEqual(notify.main(["done", "Shipped the schema move"]), 0)
         self.assertEqual(notify.last(SEAT, include_seen=True)["kind"], "done")
 
-    def test_a_question_kept_while_the_done_records_stays_open(self):
+    def test_a_question_kept_while_the_done_records_outranks_it(self):
         said = notify._said
 
         def asked_meanwhile(name, kind, *args, **kw):
@@ -68,6 +70,8 @@ class DoneWaitsForAnswer(Sandbox):
         with patch.object(notify, "_said", side_effect=asked_meanwhile):
             self.assertEqual(notify.main(["done", "Shipped the schema move"]), 0)
         self.assertEqual(watch.seat_read(SEAT)["unasked"]["text"], QUESTION)
+        self.assertNotEqual(watch.session_state(SEAT)["word"], "done")
+        self.assertNotIn(f"Done · {SEAT}", self.posts)
         with self.assertRaises(notify.Refused):
             notify.main(["done", "Shipped the schema move"])
 

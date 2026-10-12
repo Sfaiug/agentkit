@@ -1969,7 +1969,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in;
-    * it said it was done itself, a job never says it for it, and nothing on its screen asks him
+    * it said it was done itself, a job never says it for it, nothing on its screen asks him
+      and it kept no question back for its turn's end
       -- unless a run of its own still sits parked and undecided, which is him;
     * otherwise it is at its prompt with nothing running, which is him again -- with a
       watcher's alert, the question on its screen, or the draft it never sent, for a reason.
@@ -2274,10 +2275,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
-    # seat's own standing until a newer notice, but a question on its screen, or typed text
-    # nobody sent, outranks it.  Read here, once, for the live-check wait below and for rung 5.
+    # seat's own standing until a newer notice, but a question on its screen, typed text
+    # nobody sent, or a question it kept back for its turn's end outranks it.  Read here,
+    # once, for the live-check wait below and for rung 5.
     if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
-            not jobs and notify.job_done(last))):
+            not jobs and notify.job_done(last)) or seat_read(name).get("unasked")):
         last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
