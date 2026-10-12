@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, hand_in, handback, land, record, run, watch, worker, worktrees
+from agentkit import config, gc, gitcall, hand_in, handback, land, record, run, watch, worker, worktrees
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture, climb_ladder
 
@@ -52,7 +52,6 @@ class OwnPrLineFixture(LanderFixture):
             return (0, "") if any(arg.startswith("pull/") for arg in args) else fetch(repo, remote, *args, **kw)
 
         self.stack.enter_context(patch.object(run, "fetch", side_effect=local_fetch))
-        self.stack.enter_context(patch.object(gitcall, "fetch", side_effect=local_fetch))
 
     def tell(self, _seat, text, *_args, **_kw):
         self.notices.append(text)
@@ -201,8 +200,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         run.git(self.repo, "push", "origin", "main")
         self.base = run.git(self.repo, "rev-parse", "HEAD")
         directory, url = self.own_pr("first", 1)
-        with patch.object(run, "review", side_effect=self.fail_first_review), \
-                patch.object(run, "fix_own_pr", return_value=False):
+        with patch.object(run, "review", side_effect=self.fail_first_review), patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         run.git(self.repo, "checkout", self.prs[url]["branch"])
@@ -646,7 +644,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
                 raise InterruptedError("the process died fetching the seat's fix")
             return fetch(repo, remote, *args, **kw)
 
-        with patch.object(run, "fetch", side_effect=dies), patch.object(gitcall, "fetch", side_effect=dies), self.assertRaises(InterruptedError):
+        with patch.object(run, "fetch", side_effect=dies), self.assertRaises(InterruptedError):
             self.review(directory, url)
         state = self.review(directory, url)
         self.assertEqual((state["head_sha"], state["state"]), (newest, "waiting"))

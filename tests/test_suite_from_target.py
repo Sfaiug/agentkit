@@ -50,8 +50,7 @@ class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
                              ["--body", f"Suite-Passed-Tree: {lp.state['final_check']['tree_sha']}"])
 
         with patch.object(run, "merge", side_effect=integrated_check), \
-                patch.object(run, "fix_final_check", return_value=False), \
-                patch.object(handback, "start_followups", return_value=None):
+                patch.object(run, "fix_final_check", return_value=False), patch.object(handback, "start_followups", return_value=None):
             self.launch("pinned-final", ["test -d ."], from_branch="fix-api")
         self.assertEqual(self.finals(), [["test -d ."], [suite]], self.gates)
 

@@ -16,8 +16,9 @@ from unittest.mock import patch
 
 import test_review_gate as gate
 import test_proof_weighed as proof
-from agentkit import browser, config, gc, gitcall, handback, host, job as jobs, menu, notify, orch, run, staffing, stop, task, transitions, watch, worker
-from agentkit import plan, record
+from agentkit import (browser, config, gc, gitcall, handback, host, job as jobs, menu, notify, orch,
+                      run, staffing, stop, task, transitions, watch, worker)
+from agentkit import plan, record, roundloop
 from fixtures.hand_in import stateful
 from fixtures.landing import landing
 
@@ -643,8 +644,7 @@ class FollowupRuns(unittest.TestCase):
         for index, mode in enumerate(("gone", "duplicate")):
             directory, state = self.source(f"source-{index}")
             child = self.start(directory, state)[0]
-            with patch.object(run, "verify_work", side_effect=AssertionError("checked")), \
-                    patch.object(run, "review", side_effect=AssertionError("reviewed")):
+            with patch.object(run, "verify_work", side_effect=AssertionError("checked")), patch.object(roundloop, "verify_work", side_effect=AssertionError("checked")), patch.object(run, "review", side_effect=AssertionError("reviewed")), patch.object(roundloop, "review", side_effect=AssertionError("reviewed")):
                 code, ended = self.drive(child, mode)
             self.assertEqual(code, 0, "\n".join(self.logs))
             self.assertEqual(ended["state"], "not_needed")
@@ -694,8 +694,7 @@ class FollowupRuns(unittest.TestCase):
         for index, mode in enumerate(("bullets", "evidence")):
             directory, state = self.source(f"summary-{index}")
             child = self.start(directory, state)[0]
-            with patch.object(run, "verify_work", side_effect=AssertionError("checked")), \
-                    patch.object(run, "review", side_effect=AssertionError("reviewed")):
+            with patch.object(run, "verify_work", side_effect=AssertionError("checked")), patch.object(roundloop, "verify_work", side_effect=AssertionError("checked")), patch.object(run, "review", side_effect=AssertionError("reviewed")), patch.object(roundloop, "review", side_effect=AssertionError("reviewed")):
                 code, ended = self.drive(child, mode)
             self.assertEqual(code, 0, "\n".join(self.logs))
             self.assertEqual(ended["state"], "not_needed")
@@ -706,8 +705,7 @@ class FollowupRuns(unittest.TestCase):
     def test_not_needed_with_preamble_before_summary_ends_quietly(self):
         directory, state = self.source("summary-preamble")
         child = self.start(directory, state)[0]
-        with patch.object(run, "verify_work", side_effect=AssertionError("checked")), \
-                patch.object(run, "review", side_effect=AssertionError("reviewed")):
+        with patch.object(run, "verify_work", side_effect=AssertionError("checked")), patch.object(roundloop, "verify_work", side_effect=AssertionError("checked")), patch.object(run, "review", side_effect=AssertionError("reviewed")), patch.object(roundloop, "review", side_effect=AssertionError("reviewed")):
             code, ended = self.drive(child, "preamble")
         self.assertEqual(code, 0, "\n".join(self.logs))
         self.assertEqual(ended["state"], "not_needed")

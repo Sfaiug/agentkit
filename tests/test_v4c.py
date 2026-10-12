@@ -358,7 +358,7 @@ sys.exit(item.get("rc", 0))
             self.assertEqual(run.git(lp.wt, "diff", head), "")
             return 0, "VERDICT: PASS", "session", False
         with patch.object(turns, "call_retrying", side_effect=submitting(reviewer)) as call, patch.object(
-                run, "commit_leftovers") as commit:
+                gitcall, "commit_leftovers") as commit:
             self.assertEqual(run.review(lp, "", True, "tests passed"), "PASS")
             call.assert_called_once()
             commit.assert_not_called()

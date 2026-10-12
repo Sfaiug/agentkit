@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentkit import run
+from agentkit import roundloop
 
 
 class TargetDisjointNames(unittest.TestCase):
@@ -39,14 +39,14 @@ class TargetDisjointNames(unittest.TestCase):
         tip = self.commit({" app.py": "main\n"})
         self.git("checkout", "-q", "-b", "ak/fix-api", self.base)
         head = self.commit({" app.py": "task\n", " 0.md": "notes\n"})
-        self.assertFalse(run.target_disjoint_from_branch(self.repo, self.base, head, tip))
-        self.assertFalse(run.target_disjoint_from_branch(self.repo, self.base, tip, head))
+        self.assertFalse(roundloop.target_disjoint_from_branch(self.repo, self.base, head, tip))
+        self.assertFalse(roundloop.target_disjoint_from_branch(self.repo, self.base, tip, head))
 
     def test_different_files_are_still_disjoint(self):
         tip = self.commit({" docs.md": "main\n"})
         self.git("checkout", "-q", "-b", "ak/fix-api", self.base)
         head = self.commit({" app.py": "task\n"})
-        self.assertTrue(run.target_disjoint_from_branch(self.repo, self.base, head, tip))
+        self.assertTrue(roundloop.target_disjoint_from_branch(self.repo, self.base, head, tip))
 
 
 if __name__ == "__main__":

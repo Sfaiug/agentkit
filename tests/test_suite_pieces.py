@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, host, orch, prompts, run, worker
+from agentkit import config, gate, gitcall, host, orch, prompts, roundloop, worker
 from agentkit import record
 from test_red_target import make_loop, make_repos
 
@@ -305,7 +305,7 @@ class SuitePieces(unittest.TestCase):
         self.assertEqual(calls, {"1/2": 2, "2/2": 2})
         self.assertEqual(reruns, [{"1/2"}, {"2/2"}])
         state = {}
-        run.record_flakes(state, text)
+        prompts.record_flakes(state, text)
         self.assertEqual(len(state["followups"]), 2)
         for shard in calls:
             self.assertIn(f"(AK_SHARD={shard}) failed, then passed on its re-run", text)
@@ -340,8 +340,8 @@ class SuitePieces(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(calls, {"1/2": 2, "2/2": 2})
         self.assertEqual(prompts.failing_checks(text), [[SUITE, "FAIL: broken"]])
-        self.assertIn("FAIL: broken", run.first_failure(text))
-        self.assertNotIn("FAIL: timing", run.first_failure(text))
+        self.assertIn("FAIL: broken", prompts.first_failure(text))
+        self.assertNotIn("FAIL: timing", prompts.first_failure(text))
         self.assertIn("flaky:", text)
 
     def test_a_busy_retry_repeats_only_its_piece_without_spending_another_retry(self):
@@ -423,7 +423,7 @@ class SuitePieces(unittest.TestCase):
             kw["output"].write(b"FAIL: on target\n" if shard == "2/2" else b"passed\n")
             return int(shard == "2/2"), "", False
         with patch.object(worker, "boxed", side_effect=limited):
-            note = run.target_fails(lp, "origin/main", f"$ {command}\n[exit 1]\nFAIL")
+            note = roundloop.target_fails(lp, "origin/main", f"$ {command}\n[exit 1]\nFAIL")
         self.assertIn("FAIL: on target", note)
         self.assertEqual(calls, {"1/2": 1, "2/2": 2})
         self.assertIn("--- AK_SHARD=2/2 ---", (directory / "target-probe.log").read_text())

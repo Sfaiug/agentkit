@@ -11,7 +11,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, prompts, run, transitions, turns
+from agentkit import config, prompts, roundloop, run, transitions, turns
 
 
 class FilesScope(unittest.TestCase):
@@ -92,10 +92,10 @@ class FilesScope(unittest.TestCase):
         self.assertFalse(ok, text)
         self.assertIn("[exit 0]", text)
         self.assertEqual(text.splitlines()[-1], "outside files: notes.txt")
-        self.assertEqual(run.first_failure(text), "outside files: notes.txt")
+        self.assertEqual(prompts.first_failure(text), "outside files: notes.txt")
         self.assertEqual((lp.round_dir / "donewhen.log").read_text(), text)
         lp.state["step"] = "reviewer"
-        self.assertEqual(run.settled_gate(lp), (False, text))
+        self.assertEqual(roundloop.settled_gate(lp), (False, text))
 
     def test_no_files_means_no_limit(self):
         lp = self.loop()
@@ -156,7 +156,7 @@ class FilesScope(unittest.TestCase):
                 fixes.append(text)
             return "## Summary\nFixture changes."
 
-        with patch.object(run, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False), \
+        with patch.object(roundloop, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False), \
                 patch.object(turns, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))), \
                 patch.object(transitions, "review_providers", return_value=("provider-a", "provider-b")):
             run.rounds(lp)
@@ -174,9 +174,9 @@ class FilesScope(unittest.TestCase):
             self.write("src/message", message + "\n")
             ok, text = self.verify(lp, rnd)
             self.assertFalse(ok, text)
-            run.same_failure(lp, ok, text)
+            roundloop.same_failure(lp, ok, text)
         self.assertEqual(prompts.failing_checks(text), [[cmd, message]])
-        self.assertEqual(run.first_failure(text), f"`{cmd}` — {message}")
+        self.assertEqual(prompts.first_failure(text), f"`{cmd}` — {message}")
 
     def test_changed_outside_paths_do_not_hide_an_unchanged_check_failure(self):
         cmd = "cat src/message; false"
@@ -184,13 +184,13 @@ class FilesScope(unittest.TestCase):
         self.write("src/message", "AssertionError: unchanged\n")
         self.write("notes.txt", "outside\n")
         ok, text = self.verify(lp)
-        run.same_failure(lp, ok, text)
+        roundloop.same_failure(lp, ok, text)
         self.write("extra.txt", "also outside\n")
         ok, text = self.verify(lp, 2)
         self.assertFalse(ok, text)
         self.assertIn("outside files: extra.txt, notes.txt", text)
         with self.assertRaises(run.Blocked) as caught:
-            run.same_failure(lp, ok, text)
+            roundloop.same_failure(lp, ok, text)
         self.assertIn("AssertionError: unchanged", caught.exception.section)
         self.assertNotIn("outside files:", caught.exception.section)
 

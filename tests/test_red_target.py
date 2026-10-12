@@ -370,7 +370,7 @@ class RedTarget(unittest.TestCase):
         # the probe checkouts are gitcall's own: their git is patched there
         with patch.object(gitcall, "git", side_effect=stopping_git):
             with self.assertRaises(run.Stopped):
-                run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n")
+                roundloop.target_fails(lp, "origin/main", "$ false\n[exit 1]\n")
         self.assertIn(("checkout", "--quiet", "ak/fix-api"), calls)
         self.assert_on_branch_head_and_clean(wt, head)
 
@@ -417,7 +417,7 @@ class RedTarget(unittest.TestCase):
             results = {}
             def body():
                 try:
-                    results["probed"] = run.target_fails(lp, "origin/main", dw_log)
+                    results["probed"] = roundloop.target_fails(lp, "origin/main", dw_log)
                 except BaseException as exc:      # noqa: BLE001 -- the test reads it
                     results["probed"] = exc
             thread = threading.Thread(target=body, daemon=True)
@@ -444,7 +444,7 @@ class RedTarget(unittest.TestCase):
                 fcntl.flock(held, fcntl.LOCK_EX)
                 light = {}
                 probe = threading.Thread(target=lambda: light.update(
-                    probed=run.target_fails(lp2, "origin/main", dw_log)), daemon=True)
+                    probed=roundloop.target_fails(lp2, "origin/main", dw_log)), daemon=True)
                 probe.start()
                 probe.join(20)
                 self.assertFalse(probe.is_alive(), "the light probe waited for a turn")

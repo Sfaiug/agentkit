@@ -72,7 +72,7 @@ def crash(root, probe, phase):
             lp = make_loop(root)
             if phase != "restore":
                 if probe == "target":
-                    run.target_fails(lp, "main", "$ false\n[exit 1]\n")
+                    roundloop.target_fails(lp, "main", "$ false\n[exit 1]\n")
                 else:
                     roundloop.regression_fails_before(lp)
 
@@ -186,7 +186,7 @@ class ProbeResume(unittest.TestCase):
     def test_finished_probes_remove_the_recovery_record(self):
         lp = make_loop(self.root)
         with patch.object(handback, "start_followups", return_value=None):
-            self.assertTrue(run.target_fails(lp, "main", "$ false\n[exit 1]\n"))
+            self.assertTrue(roundloop.target_fails(lp, "main", "$ false\n[exit 1]\n"))
         self.assert_restored()
         self.assertEqual(roundloop.regression_fails_before(lp), "")
         self.assert_restored()

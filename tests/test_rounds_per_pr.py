@@ -102,7 +102,7 @@ class RoundsPerPr(Sandbox):
         repo.mkdir()
         self.earlier("20260101-0600-parser", 3, branch="main", repo=str(repo), worktree=str(repo))
         state = {"run_id": "20260101-0700-docs", "repo": str(repo), "worktree": str(repo), "branch": "main"}
-        self.assertEqual(run.lineage_cap(state, config.RUNS / "20260101-0700-docs"), 3)
+        self.assertEqual(transitions.lineage_cap(state, config.RUNS / "20260101-0700-docs"), 3)
 
     def test_a_round_is_refused_as_it_is_spent_once_another_run_of_the_change_took_it(self):
         repo = self.root / "acme"
@@ -111,32 +111,32 @@ class RoundsPerPr(Sandbox):
         b = self.earlier("20260101-0700-b", 0, branch="ak/b", **self.own(repo, 2),
                          change="20260101-0600-a", **{"from": "ak/a"})
         lp = SimpleNamespace(rounds=3, state=record.read_state(b), run_dir=b, rnd=0, log=lambda _: None)
-        self.assertEqual(run.allowed_rounds(lp), 1)       # one round left on the change ...
-        self.assertTrue(run.round_allowed(lp))
+        self.assertEqual(transitions.allowed_rounds(lp), 1)       # one round left on the change ...
+        self.assertTrue(transitions.round_allowed(lp))
         lp.rnd = 1                                        # ... and this run spent it
         with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 2 runs: "
                                                  "3 per pull request is the budget; split or redesign it"):
-            run.round_allowed(lp)
+            transitions.round_allowed(lp)
         lp.rnd = 0
         self.earlier("20260101-0600-a", 3, branch="ak/a", **self.own(repo, 1))
-        self.assertEqual(run.allowed_rounds(lp), 0)       # spent meanwhile by its sibling ...
+        self.assertEqual(transitions.allowed_rounds(lp), 0)       # spent meanwhile by its sibling ...
         with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 1 run:"):
-            run.round_allowed(lp)                         # ... so this run ends blocked, with the reason
-        self.assertEqual(run.lineage_cap(lp.state, b), 0)
+            transitions.round_allowed(lp)                         # ... so this run ends blocked, with the reason
+        self.assertEqual(transitions.lineage_cap(lp.state, b), 0)
         # a round under way counts from its first step, on a run still going; a dead run's
         # does not
         self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1), state="running",
                      step="executor", step_round=3)
-        self.assertEqual(run.allowed_rounds(lp), 0)
+        self.assertEqual(transitions.allowed_rounds(lp), 0)
         with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 1 run:"):
-            run.round_allowed(lp)
+            transitions.round_allowed(lp)
         self.assertEqual(run.round_budget(3, change="20260101-0600-a", what="x")[0], 0)   # a launch sees it too
         self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1), state="running",
                      review_pending={"round": 3, "summary": ""})
-        self.assertEqual(run.allowed_rounds(lp), 0)
+        self.assertEqual(transitions.allowed_rounds(lp), 0)
         self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1),
                      step="executor", step_round=3, review_pending={"round": 3, "summary": ""})
-        self.assertEqual(run.allowed_rounds(lp), 1)
+        self.assertEqual(transitions.allowed_rounds(lp), 1)
 
     def test_the_budget_is_what_earlier_runs_left_of_three(self):
         self.assertEqual(run.round_budget(3, pr=URL, what="PR #7"), (3, None))
@@ -209,7 +209,7 @@ class RoundsPerPr(Sandbox):
         (b / "log.txt").write_text("")
         state = record.read_state(b)
         self.assertTrue(run.failed_at_budget(state))
-        self.assertEqual(run.lineage_cap(state, b), 1)
+        self.assertEqual(transitions.lineage_cap(state, b), 1)
         self.assertEqual(transitions.continue_line(state, b), "")       # nothing to spend: no way on
         with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
             with self.assertRaises(config.Error) as refused:
@@ -220,7 +220,7 @@ class RoundsPerPr(Sandbox):
         record.save_state(config.RUNS / "20260101-0600-a", {
             **record.read_state(config.RUNS / "20260101-0600-a"),
             "round_summaries": [{"round": 1, "verdict": "FAIL", "summary": ""}]})
-        self.assertEqual(run.lineage_cap(state, b), 2)
+        self.assertEqual(transitions.lineage_cap(state, b), 2)
         self.assertEqual(transitions.continue_line(state, b), "continue: ak run resume 20260101-0700-b --rounds 2")
         with patch.object(run.box, "check"), patch.object(run, "place_here", return_value=None):
             with self.assertRaises(config.Error) as refused:

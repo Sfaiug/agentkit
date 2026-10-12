@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, run, staffing, transitions, turns, worker
+from agentkit import config, hand_in, roundloop, run, staffing, transitions, turns, worker
 
 
 class ExecutorTextIgnored(unittest.TestCase):
@@ -66,8 +66,8 @@ class ExecutorTextIgnored(unittest.TestCase):
 
     def checked(self):
         with patch.object(worker, "turn", side_effect=self.turn), \
-                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
-                patch.object(run, "review", return_value="PASS") as review:
+                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
+                patch.object(roundloop, "review", return_value="PASS") as review:
             run.rounds(self.lp)
         checks.assert_called_once_with(self.lp)
         review.assert_called_once()
@@ -75,7 +75,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(self.calls[1][1], "fixture-session")
         self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
         self.assertNotIn("not_needed", self.lp.state)
-        self.assertEqual(run.continuation(self.lp), "done-when")
+        self.assertEqual(roundloop.continuation(self.lp), "done-when")
 
     def test_blocked_heading_without_hand_in_is_asked_once_then_checked(self):
         self.text = "## Blocked"
@@ -94,7 +94,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
         self.assertEqual(self.calls[1][1], "fixture-session")
-        self.assertEqual(run.continuation(self.lp), "done-when")
+        self.assertEqual(roundloop.continuation(self.lp), "done-when")
 
     def test_task_quoting_the_closing_ask_still_needs_hand_in(self):
         self.text = "## Blocked"
@@ -122,8 +122,8 @@ class ExecutorTextIgnored(unittest.TestCase):
         cut.mkdir(parents=True)
         (cut / "session_id").write_text("fixture-session")
         with patch.object(worker, "turn", side_effect=self.turn), \
-                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
-                patch.object(run, "review", return_value="PASS") as review:
+                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
+                patch.object(roundloop, "review", return_value="PASS") as review:
             for _ in range(2):
                 self.lp.rnd = 0
                 self.lp.state["step"] = "done-when"
@@ -131,7 +131,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(checks.call_count, 2)
         self.assertEqual(review.call_count, 2)
-        self.assertEqual(run.continuation(self.lp), "done-when")
+        self.assertEqual(roundloop.continuation(self.lp), "done-when")
         for call in review.call_args_list:
             self.assertIn(self.text, call.args[1])
 
@@ -153,8 +153,8 @@ class ExecutorTextIgnored(unittest.TestCase):
         with patch.object(turns, "call_retrying", side_effect=call), \
                 patch.object(staffing, "hand_executor", side_effect=handover), \
                 patch.object(worker, "turn", side_effect=self.turn), \
-                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
-                patch.object(run, "review", return_value="PASS") as review:
+                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
+                patch.object(roundloop, "review", return_value="PASS") as review:
             for _ in range(2):
                 self.lp.rnd = 0
                 self.lp.state["step"] = "done-when"
@@ -162,7 +162,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(checks.call_count, 2)
         self.assertEqual(review.call_count, 2)
-        self.assertEqual(run.continuation(self.lp), "done-when")
+        self.assertEqual(roundloop.continuation(self.lp), "done-when")
         for call in review.call_args_list:
             self.assertIn(self.text, call.args[1])
 
@@ -186,8 +186,8 @@ class ExecutorTextIgnored(unittest.TestCase):
                 self.lp.rnd = 0
                 self.lp.state["step"] = "done-when"
                 with patch.object(worker, "turn", side_effect=turn), \
-                        patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
-                        patch.object(run, "review", return_value="PASS") as review:
+                        patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
+                        patch.object(roundloop, "review", return_value="PASS") as review:
                     run.rounds(self.lp)
                 self.assertIn(work, review.call_args.args[1])
                 self.assertEqual(len(self.calls), 2)
@@ -219,8 +219,8 @@ class ExecutorTextIgnored(unittest.TestCase):
                         self.lp.state["step"] = step
                         with patch.object(worker, "turn", side_effect=AssertionError(
                                 "the worker already closed")) as turns, \
-                                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
-                                patch.object(run, "review", return_value="PASS") as review:
+                                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
+                                patch.object(roundloop, "review", return_value="PASS") as review:
                             run.rounds(self.lp)
                         turns.assert_not_called()
                         self.assertIn(work, review.call_args.args[1])
@@ -237,15 +237,15 @@ class ExecutorTextIgnored(unittest.TestCase):
         (asked / "session_id").write_text("fixture-session")
         self.lp.rnd = 0
         with patch.object(worker, "turn", side_effect=self.turn), \
-                patch.object(run, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
-                patch.object(run, "review", return_value="PASS") as review:
+                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
+                patch.object(roundloop, "review", return_value="PASS") as review:
             run.rounds(self.lp)
         checks.assert_called_once_with(self.lp)
         review.assert_called_once()
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self.calls[0][1], "fixture-session")
         self.assertIn(turns.NO_CLOSING_ASK, self.calls[0][0])
-        self.assertEqual(run.continuation(self.lp), "done-when")
+        self.assertEqual(roundloop.continuation(self.lp), "done-when")
         self.assertIn(work, review.call_args.args[1])
 
     def test_background_recovery_includes_the_closing_ask_without_a_third_turn(self):

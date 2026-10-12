@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import (browser, config, gate, gitcall, handback, history, host, land, orch, record,  # noqa: E402
+from agentkit import (browser, config, gate, gitcall, handback, history, host, land, orch, record,
                       run, scoreboard, stop, terminal, watch, worktrees)
 
 DAY = 86400
@@ -262,8 +262,7 @@ class WaitHistory(unittest.TestCase):
             history.add_wait(lp.run_dir.name, "suite", 30)
             return True
 
-        with patch.object(run, "integrate", return_value=True), \
-                patch.object(run, "fix_final_check", side_effect=fix):
+        with patch.object(run, "integrate", return_value=True), patch.object(run, "fix_final_check", side_effect=fix):
             self.assertFalse(run.land_from_line(lp, "origin/main", lambda: True))
         self.assertEqual(self.waits(lp.run_dir.name), (20.0, 30.0, 100.0))
         # A repaired member keeps its place; its merge wait restarts at the rejoin.

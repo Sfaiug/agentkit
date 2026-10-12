@@ -37,7 +37,7 @@ class GreenBase(unittest.TestCase):
 
     def integrate(self, lp, tip):
         # Integration invalidates the review and advances base_sha before probing.
-        run.pending_review(lp, "Re-review after integration.")
+        roundloop.pending_review(lp, "Re-review after integration.")
         run.git(lp.wt, "rebase", tip)
         run.set_base(lp, tip)
         return run.git(lp.wt, "rev-parse", "HEAD")
@@ -104,7 +104,7 @@ class GreenBase(unittest.TestCase):
                         run.git(wt, "commit", "-m", "resolve conflict")
                     return "## Summary\nResolved the conflict."
 
-                with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+                with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
                     self.assertTrue(run.integrate(lp, "origin/main"))
                     self.assertTrue(run.final_check(lp, "origin/main"))
                 self.assertEqual(self.turns, [f"{how}-fixer", "final-fixer"])
@@ -129,7 +129,7 @@ class GreenBase(unittest.TestCase):
             run.git(wt, "commit", "-m", f"fix {path}")
             return f"## Summary\nFixed {path}."
 
-        with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+        with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer", "final-fixer"])
         self.repair.assert_not_called()
@@ -158,7 +158,7 @@ class GreenBase(unittest.TestCase):
             run.git(wt, "commit", "-m", f"fix {path}")
             return f"## Summary\nFixed {path}."
 
-        with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+        with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
             self.assertTrue(run.integrate(lp, "origin/main"))
             self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["rerun-fixer", "final-fixer"])
@@ -231,7 +231,7 @@ class GreenBase(unittest.TestCase):
         _, _, wt = red.make_repos(self.root)
         lp, run_dir, _ = red.make_loop(self.root, wt, ["false  # once"])
         head = run.git(wt, "rev-parse", "HEAD")
-        self.assertEqual(run.target_fails(lp, "origin/main", "$ false\n[exit 1]\n"), "`false`")
+        self.assertEqual(roundloop.target_fails(lp, "origin/main", "$ false\n[exit 1]\n"), "`false`")
         self.assertEqual((run_dir / "target-probe.log").read_text().count("$ false (on "), 1)
         self.assert_on_branch_head_and_clean(wt, head)
 
@@ -292,7 +292,7 @@ class GreenBase(unittest.TestCase):
         head = self.integrate(lp, tip)
         ok, text = gate.run_done_when([cmd], wt, run_dir / "failed.log", set())
         self.assertFalse(ok)
-        self.assertEqual(run.target_fails(lp, "origin/main", text), "")
+        self.assertEqual(roundloop.target_fails(lp, "origin/main", text), "")
         self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
         self.repair.assert_not_called()
         self.assert_on_branch_head_and_clean(wt, head)
@@ -326,7 +326,7 @@ class GreenBase(unittest.TestCase):
                         run.git(wt, "commit", "-m", "fix poison")
                     return "## Summary\nResolved the conflict and fixed the check."
 
-                with patch.object(run, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
+                with patch.object(roundloop, "execute", side_effect=fix), patch.object(roundloop, "execute", side_effect=fix):
                     self.assertTrue(run.integrate(lp, "origin/main"))
                 self.assertEqual(self.turns, [f"{how}-fixer", "executor"])
                 self.assertIn(f"fails on {base[:12]} too: needs this branch", "\n".join(lines))
@@ -343,7 +343,7 @@ class GreenBase(unittest.TestCase):
         lp.state["review_pending"].pop("passed_head_sha", None)
         lp.state["round_summaries"].append({"verdict": "FAIL", "done_when": False,
                                             "head_sha": head})
-        self.assertEqual(run.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\n"), f"`{cmd}`")
+        self.assertEqual(roundloop.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\n"), f"`{cmd}`")
         self.assertEqual((run_dir / "target-probe.log").read_text().count(f"$ {cmd} (on "), 2)
         self.assert_on_branch_head_and_clean(wt, head)
 
@@ -366,7 +366,7 @@ class GreenBase(unittest.TestCase):
             return real_git_out(repo, *args, **kwargs)
 
         with patch.object(gitcall, "git_out", side_effect=checkout):
-            self.assertEqual(run.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\n"), "")
+            self.assertEqual(roundloop.target_fails(lp, "origin/main", f"$ {cmd}\n[exit 1]\n"), "")
         self.assertEqual(len(probes), 2)
         self.repair.assert_not_called()
         self.assertEqual((wt / "gen").read_text(), "branch generated\n")

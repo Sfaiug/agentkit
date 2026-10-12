@@ -173,10 +173,9 @@ class MergePipeline(Fixture):
 
     def test_a_final_check(self):
         self.lp.once, self.lp.every = ["true"], []
-        with patch.object(run, "git", return_value="a" * 40), \
-             patch.object(gitcall, "git", return_value="a" * 40), \
-                patch.object(run, "git_out", return_value=(0, "")), patch.object(gitcall, "git_out", return_value=(0, "")), \
-                patch.object(run, "commit_identity", return_value={"head_sha": "a" * 40,
+        with patch.object(gitcall, "git", return_value="a" * 40), \
+                patch.object(gitcall, "git_out", return_value=(0, "")), \
+                patch.object(gitcall, "commit_identity", return_value={"head_sha": "a" * 40,
                                                                    "tree_sha": "b" * 40}), \
                 patch.object(gate, "run_done_when", return_value=(True, "$ true\n[exit 0]")):
             state = self.survives(lambda: self.assertTrue(run.final_check(self.lp, "origin/main")))

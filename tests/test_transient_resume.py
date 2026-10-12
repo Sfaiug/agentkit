@@ -370,8 +370,7 @@ class TransientResume(unittest.TestCase):
                 patch.object(run, "make_worktree", return_value=(wt, "b")), \
                 patch.object(run, "history_start"), \
                 patch.object(run, "exclude_junk"), \
-                patch.object(run, "collect_usage", return_value={}), patch.object(run, "review", side_effect=turns.CannotRun("mimo", line)), \
-                patch.object(run, "post_review", side_effect=AssertionError("posted")):
+                patch.object(run, "collect_usage", return_value={}), patch.object(run, "review", side_effect=turns.CannotRun("mimo", line)), patch.object(run, "post_review", side_effect=AssertionError("posted")):
             state = run.review_pr(self.cfg, run_dir, "https://github.com/o/r/pull/1",
                                   {"--review": "mimo"}, lambda _: None)
         saved = run_record.read_state(run_dir)

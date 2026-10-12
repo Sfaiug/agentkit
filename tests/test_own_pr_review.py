@@ -16,7 +16,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, handback, history, notify, plan, run, staffing, status, task as taskfile, watch
+from agentkit import (config, gate, gc, gitcall, handback, history, notify, plan, run, staffing,
+                      status, task as taskfile, watch)
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"

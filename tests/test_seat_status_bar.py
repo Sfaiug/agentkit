@@ -295,9 +295,7 @@ class Writes(Sandbox):
                 patch.object(run, "exclude_junk", return_value=None), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run.usage, "collect", return_value={}), \
-                patch.object(run, "review", return_value="FAIL"), \
-                patch.object(run, "restore_review_checkout", return_value=None), \
-                redirect_stdout(io.StringIO()) as out:
+                patch.object(run, "review", return_value="FAIL"), patch.object(run, "restore_review_checkout", return_value=None), redirect_stdout(io.StringIO()) as out:
             run.capture_launch(run_dir, {"--review-pr": url})
             state = run.review_pr(self.cfg, run_dir, url, opts, lambda line: None)
         line = (f"run {run_dir.name} launched: Review PR #1: Mend the fence "
@@ -394,8 +392,7 @@ class Writes(Sandbox):
                 patch.object(run, "exclude_junk", return_value=None), \
                 patch.object(gc, "disk_pressure", return_value=False), \
                 patch.object(run.usage, "collect", return_value=providers), \
-                patch.object(run, "review", return_value="FAIL"), \
-                patch.object(run, "restore_review_checkout", return_value=None):
+                patch.object(run, "review", return_value="FAIL"), patch.object(run, "restore_review_checkout", return_value=None):
             run.capture_launch(run_dir, {"--review-pr": url})
             state = record.read_state(run_dir)
             state.update(launch_reviewer="astra")
