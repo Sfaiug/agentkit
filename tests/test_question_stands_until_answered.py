@@ -5,7 +5,8 @@ screen moves and shows no question.  Its owner switching into it, or opening it 
 and watching it work, answers nothing: the Discord card stays `Needs you`, and the row stays
 `needs you`, until his prompt (`notify.answered`, which the harness's prompt hook reports).
 Where a harness reports no prompts, output after an open is still the only answer there is,
-as it is for a watcher's alert.
+as it is for a watcher's alert.  A watcher's alert -- a login, a stuck seat -- leaves the seat's
+open question in place: taking its place, the question was gone once the alert was retracted.
 """
 
 from contextlib import ExitStack
@@ -19,7 +20,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agentkit import config, notify, orch
+from agentkit import config, notify, orch, watch
 
 
 class QuestionStands(unittest.TestCase):
@@ -79,6 +80,18 @@ class QuestionStands(unittest.TestCase):
         notify.answered("seat", 650)          # his prompt
         self.needs_you(now=660)
         self.assertEqual(self.closed, ["Answered"])
+
+    def test_a_watchers_alert_leaves_an_open_question_standing(self):
+        question, alert = "Ship the acme parser today?", "seat needs login"
+        self.assertEqual(notify.shaped("needs", question, session="seat"), 0)
+        self.assertEqual(notify.shaped("needs", alert, session="seat",
+                                       event_id="auth:seat:claude:1"), 0)
+        self.assertEqual(notify.last("seat")["text"], question)
+        notify.clear("seat", notice=alert)          # the login came back
+        self.assertTrue(watch.owner_question(notify.last("seat")))
+        self.assertEqual(notify.last("seat")["text"], question)
+        with self.assertRaises(notify.Refused):
+            notify.shaped("done", "Shipped the parser", session="seat")
 
     def test_switching_in_leaves_a_watchers_alert_and_a_dialogs_card_open_too(self):
         """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):
