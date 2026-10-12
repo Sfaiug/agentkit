@@ -18,7 +18,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home, in_account_home
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
-from agentkit import config, gitcall, notify, orch, run, turns, usage, watch
+from agentkit import config, deliver, gitcall, notify, orch, run, turns, usage, watch
 from agentkit import record as run_record
 
 URL = "https://github.com/me/repo/pull/7"
@@ -108,7 +108,7 @@ sys.exit(item.get("rc", 0))
                        "required_status_checks": [{"context": name} for name in checks]}}]])
 
     def classic(self, protection):
-        key = (f"api graphql -f query={run.CLASSIC_CHECKS_QUERY} -f owner=me -f name=repo "
+        key = (f"api graphql -f query={deliver.CLASSIC_CHECKS_QUERY} -f owner=me -f name=repo "
                "-f branch=refs/heads/release/v4")
         self.reply(key, {"data": {"repository": {"ref": {"branchProtectionRule": protection}}}})
         return key
@@ -160,11 +160,11 @@ sys.exit(item.get("rc", 0))
         key = self.classic(protection)
         self.observations([{"name": "ruleset", "bucket": "pass"},
                            {"name": "classic", "bucket": "pass", "app": 12}])
-        with patch.object(run, "CHECKS_CAP", 0):
+        with patch.object(deliver, "CHECKS_CAP", 0):
             self.assertIn("never registered: classic", run.checks(self.lp(), URL)[1])
         self.observations([{"name": "ruleset", "bucket": "pass"},
                            {"name": "classic", "bucket": "pending"}])
-        with patch.object(run, "CHECKS_CAP", 0):
+        with patch.object(deliver, "CHECKS_CAP", 0):
             self.assertIn("did not finish: classic", run.checks(self.lp(), URL)[1])
         self.observations([{"name": "ruleset", "bucket": "pass"},
                            {"name": "classic", "bucket": "pass"}])
@@ -238,7 +238,7 @@ sys.exit(item.get("rc", 0))
         self.rules(["unit", "build"])
         self.observations([
             {"name": "unit", "bucket": "pass"}, {"name": "optional", "bucket": "fail"}])
-        with patch.object(run, "CHECKS_CAP", 0):
+        with patch.object(deliver, "CHECKS_CAP", 0):
             green, why = run.checks(lp, URL)
         self.assertFalse(green)
         self.assertIn("required checks never registered: build", why)
@@ -247,7 +247,7 @@ sys.exit(item.get("rc", 0))
             {"name": "optional", "bucket": "fail"}])
         self.assertEqual(run.checks(lp, URL), (True, ""))
         self.observations([])
-        with patch.object(run, "CHECKS_CAP", 0):
+        with patch.object(deliver, "CHECKS_CAP", 0):
             self.assertIn("build, unit", run.checks(lp, URL)[1])
 
     def test_required_checks_failure_pending_and_api_errors(self):
@@ -257,7 +257,7 @@ sys.exit(item.get("rc", 0))
         for bucket, expected in (("fail", "failed"), ("cancel", "did not finish"),
                                  ("pending", "did not finish")):
             self.observations([{"name": "unit", "bucket": bucket}])
-            with patch.object(run, "CHECKS_CAP", 0):
+            with patch.object(deliver, "CHECKS_CAP", 0):
                 green, why = run.checks(lp, URL)
             self.assertFalse(green)
             self.assertIn(expected, why)
@@ -280,7 +280,7 @@ sys.exit(item.get("rc", 0))
             {"json": {"check_runs": self.check_rows([{"name": "unit", "bucket": bucket}])}}
             for bucket in ("cancel", "cancel", "cancel", "pass")]
         (self.root / "responses").write_text(json.dumps(self.responses))
-        with patch.object(run, "time", wraps=run.time) as clock:
+        with patch.object(deliver, "time", wraps=deliver.time) as clock:
             clock.sleep.return_value = None
             self.assertEqual(run.checks(self.lp(), URL), (True, ""))
         reruns = [call for call in self.calls() if call[-1].endswith("/rerun")]
@@ -293,10 +293,10 @@ sys.exit(item.get("rc", 0))
         self.responses[key] = [{"json": {"check_runs": []}},
                                {"json": {"check_runs": self.check_rows([{"name": "unit", "bucket": "pass"}])}}]
         (self.root / "responses").write_text(json.dumps(self.responses))
-        with patch.object(run, "time", wraps=run.time) as clock:
+        with patch.object(deliver, "time", wraps=deliver.time) as clock:
             clock.sleep.return_value = None
             self.assertEqual(run.checks(self.lp(), URL), (True, ""))
-        clock.sleep.assert_called_once_with(run.CHECKS_POLL)
+        clock.sleep.assert_called_once_with(deliver.CHECKS_POLL)
 
     def test_required_check_app_cannot_be_substituted(self):
         lp = self.lp()
@@ -307,7 +307,7 @@ sys.exit(item.get("rc", 0))
         key = f"api --paginate repos/me/repo/commits/{SHA}/check-runs?filter=latest&per_page=100"
         check = {"id": 1, "name": "unit", "app": {"id": 12}, "status": "completed", "conclusion": "success"}
         self.reply(key, [{"check_runs": [check]}])
-        with patch.object(run, "CHECKS_CAP", 0):
+        with patch.object(deliver, "CHECKS_CAP", 0):
             self.assertIn("never registered: unit", run.checks(lp, URL)[1])
         check["app"]["id"] = 42
         self.reply(key, [{"check_runs": [check]}])

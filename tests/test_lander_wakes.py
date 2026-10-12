@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, gc, gitcall, handback, land, notify, record, roundloop, run, transitions, turns, usage, watch, worker
+from agentkit import config, deliver, gate, gc, gitcall, handback, land, notify, record, roundloop, run, transitions, turns, usage, watch, worker
 from fixtures.hand_in import submitting
 from test_merge_step import conflict, make_loop, make_repos, resolve
 from fixtures.sandbox import Sandbox
@@ -56,7 +56,7 @@ class LanderWakes(Sandbox):
         self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(run, "rights", return_value=("acme/widget", "WRITE")))
-        self.stack.enter_context(patch.object(run, "checks", side_effect=lambda *a: self.check_result))
+        self.stack.enter_context(patch.object(deliver, "checks", side_effect=lambda *a: self.check_result))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(run, "pickup_new_code"))
         self.stack.enter_context(patch.object(run.box, "check"))
@@ -321,8 +321,8 @@ class LanderWakes(Sandbox):
             classic,
             [{"check_runs": [{"id": 1, "name": "unit", "app": {"id": 7},
                 "status": "completed", "conclusion": "failure", "output": {"text": output}}]}]])
-        with patch.object(run, "checks", side_effect=self.real_checks), \
-                patch.object(run, "gh_json", side_effect=lambda *a, **kw: (next(replies), "")):
+        with patch.object(deliver, "checks", side_effect=self.real_checks), \
+                patch.object(deliver, "gh_json", side_effect=lambda *a, **kw: (next(replies), "")):
             self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         self.assertIn(output, self.fixer_inputs[0])
         self.assertIn(output, (self.directory / "pr-checks.log").read_text())
@@ -339,7 +339,7 @@ class LanderWakes(Sandbox):
             run.git(self.owner, "push", "origin", "main")
             return True, ""
 
-        with patch.object(run, "checks", side_effect=checks):
+        with patch.object(deliver, "checks", side_effect=checks):
             self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")

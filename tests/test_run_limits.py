@@ -25,7 +25,7 @@ from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
-from agentkit import config, gate, gc, gitcall, host, notify, orch, roundloop, run, status, transitions, turns, usage, watch, worker
+from agentkit import config, deliver, gate, gc, gitcall, host, notify, orch, roundloop, run, status, transitions, turns, usage, watch, worker
 from agentkit import record as run_record
 from agentkit import task as taskfile
 
@@ -398,8 +398,8 @@ class Limits(unittest.TestCase):
         # a poll keeps a real round trip's budget to the end: shrinking the last poll
         # below one manufactures a stop out of a healthy gh, and the deadline branch that
         # names the unfinished checks never runs
-        self.assertEqual(run.poll_cap(time.monotonic() + run.CHECKS_CAP), run.TOOL_CAP)
-        self.assertEqual(run.poll_cap(time.monotonic() + 5), run.TOOL_CAP)
+        self.assertEqual(deliver.poll_cap(time.monotonic() + deliver.CHECKS_CAP), run.TOOL_CAP)
+        self.assertEqual(deliver.poll_cap(time.monotonic() + 5), run.TOOL_CAP)
 
     # --- 4: the watch tick reaps ---------------------------------------------
 
@@ -1229,9 +1229,9 @@ class Limits(unittest.TestCase):
         refused = ("gh: prompts are disabled; run `gh auth login` to authenticate\n"
                    "`gh api user` asked for a credential it may not ask for: "
                    "check `gh auth status` and the remote's credentials by hand")
-        with patch.object(run, "require_review_pass"), \
-                patch.object(run, "git", return_value="origin"), \
-                patch.object(run, "git_out", return_value=(0, "")), \
+        with patch.object(deliver, "require_review_pass"), \
+                patch.object(gitcall, "git", return_value="origin"), \
+                patch.object(gitcall, "git_out", return_value=(0, "")), \
                 patch.object(gitcall, "gh", side_effect=[(0, ""), (4, refused)]):
             with self.assertRaises(run.Stopped) as fork_stop:
                 run.fork_and_pr(lp, "main", "fixture/repo", "READ")
@@ -1282,8 +1282,8 @@ class Limits(unittest.TestCase):
         lp = LP()
         lp.target, lp.run_dir, lp.log = "origin/main", directory, lambda message: None
         lp.state = {"delivery_sha": "d" * 40}
-        with patch.object(run, "gh_json", side_effect=slow_gh), \
-                patch.object(run, "CHECKS_CAP", 0):
+        with patch.object(deliver, "gh_json", side_effect=slow_gh), \
+                patch.object(deliver, "CHECKS_CAP", 0):
             self.assertEqual(run.checks(lp, "https://github.com/me/repo/pull/7"),
                              (False, "required checks did not finish: ci"))
         # every poll kept a real round trip's budget: none was shrunk toward the deadline

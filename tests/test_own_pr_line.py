@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gc, gitcall, hand_in, handback, land, record, run, watch, worker, worktrees
+from agentkit import config, deliver, gc, gitcall, hand_in, handback, land, record, run, watch, worker, worktrees
 from fixtures.hand_in import submitting
 from test_lander import LanderFixture, climb_ladder
 
@@ -36,11 +36,13 @@ class OwnPrLineFixture(LanderFixture):
         self.prs, self.reviews, self.merges, self.notices = {}, [], [], []
         for name, value in (("viewer_login", "owner"), ("checkout_for", self.repo),
                             ("collect_usage", {}), ("ready_order", ["astra"]),
-                            ("post_review", True), ("checks", (True, ""))):
+                            ("post_review", True)):
             self.stack.enter_context(patch.object(run, name, return_value=value))
+        self.stack.enter_context(patch.object(deliver, "checks", return_value=(True, "")))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "pr_view", side_effect=self.view))
         self.stack.enter_context(patch.object(run, "gh_json", side_effect=self.gh_json))
+        self.stack.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_json))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=self.gh))
         self.stack.enter_context(patch.object(worker, "call", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(handback, "launcher_world", side_effect=lambda *_: nullcontext(True)))
@@ -533,7 +535,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)
         land.check_line(self.turn)
-        with patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
+        with patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")), \
                 patch.object(run, "fix_own_pr", return_value=False):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
@@ -547,7 +549,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         directory, url = self.own_pr("first", 1)
         self.review(directory, url)
         land.check_line(self.turn)
-        with patch.object(run, "checks", return_value=(False, "cannot read required checks")):
+        with patch.object(deliver, "checks", return_value=(False, "cannot read required checks")):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "pass")
         self.assertTrue(state["merge_failed"])
@@ -584,7 +586,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         api = self.gh_json
         down = lambda cwd, *args, **kw: ((None, "HTTP 503") if args[:1] == ("api",)
                                          else api(cwd, *args, **kw))
-        with patch.object(run, "gh_json", side_effect=down), self.assertRaises(config.Error):
+        with patch.object(run, "gh_json", side_effect=down), patch.object(deliver, "gh_json", side_effect=down), self.assertRaises(config.Error):
             self.review(directory, url)
         # drive records the error, and the seat's hand-back cleans up after it
         state = run.mark_state(directory, "error", "cannot verify the PR before delivery")
@@ -633,7 +635,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             self.advance(**{"first.txt": "first\n"})
         land.check_line(self.turn)
         failed = (nullcontext() if red_suite else
-                  patch.object(run, "checks", return_value=(False, "required checks failed: fence")))
+                  patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")))
         with failed, patch.object(run, "fix_own_pr", return_value=False):
             self.assertEqual(self.review(directory, url)["verdict"], "FAIL")
         self.push_fix(url, rename=True)
@@ -672,7 +674,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             return result
 
         with patch.object(run, "git_out", side_effect=pushed), patch.object(gitcall, "git_out", side_effect=pushed), \
-                patch.object(run, "checks", return_value=(False, "required checks failed: fence")), \
+                patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")), \
                 patch.object(run, "fix_own_pr", return_value=False):
             earlier = self.review(directory, url)["delivery_sha"]
         run.git(self.repo, "checkout", self.prs[url]["branch"])

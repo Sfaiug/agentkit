@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, config, run
+from agentkit import gate, config, run, gitcall
 from agentkit import record
 from fixtures.landing import landing
 from test_merge_step import make_loop, make_repos
@@ -66,7 +66,7 @@ class PushLease(unittest.TestCase):
                 raise run.Stopped("killed after origin took the push")
             return answer
 
-        with patch.object(run, "git_out", side_effect=stopped_after), \
+        with patch.object(gitcall, "git_out", side_effect=stopped_after), \
                 self.assertRaises(run.Stopped):
             landing(lp, lambda: run.push(lp))
         pushed = self.on_origin()
@@ -121,7 +121,7 @@ class PushLease(unittest.TestCase):
                 real(cwd, "fetch", "origin")
             return real(cwd, *args, **kw)
 
-        with patch.object(run, "git_out", side_effect=racing):
+        with patch.object(gitcall, "git_out", side_effect=racing):
             self.refused(lp)
 
 if __name__ == "__main__":

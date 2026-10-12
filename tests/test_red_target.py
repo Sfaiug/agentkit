@@ -209,7 +209,7 @@ class RedTarget(unittest.TestCase):
         self.assertEqual(self.turns, ["final-fixer"])
         state = record.read_state(run_dir)
         self.assertEqual(state["final_check"]["outcome"], "passed")
-        self.assertTrue(run.current_review(lp))
+        self.assertTrue(roundloop.current_review(lp))
         self.assertIn("$ test ! -f breakage (on origin/main",
                       (run_dir / "target-probe.log").read_text())
 

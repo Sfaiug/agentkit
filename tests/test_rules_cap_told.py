@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, gc, gitcall, handback, prompts, record, roundloop, run, worker
+from agentkit import config, deliver, gc, gitcall, handback, prompts, record, roundloop, run, worker
 
 LIMIT = 64          # the test harness's read limit, far below any real one
 OLD_CUT = 8 * 1024  # where workers' rules used to be cut
@@ -292,7 +292,7 @@ class RulesCapTold(unittest.TestCase):
                     patch.object(run, "pr_view", return_value=info), \
                     patch.object(run, "checkout_for", return_value=self.repo), \
                     patch.object(run, "fetch", return_value=(0, "")), patch.object(gitcall, "gh", side_effect=github), \
-                    patch.object(run, "checks", return_value=(True, "")), \
+                    patch.object(run, "checks", return_value=(True, "")), patch.object(deliver, "checks", return_value=(True, "")), \
                     patch.object(run.watch, "ask_inbox", return_value=0), \
                     patch.object(run, "merge_own_pr", side_effect=AssertionError("merged")), \
                     patch.object(run, "fix_own_pr", return_value=False), \

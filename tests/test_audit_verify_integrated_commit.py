@@ -159,7 +159,7 @@ sys.exit(0 if ok else 1)
         # these tests bind evidence and budgets on the branch's own failures: the target
         # is green, so the red-target probe never parks (test_red_target.py covers it)
         self.stack.enter_context(patch.object(roundloop, "target_fails", return_value=False))
-        git_out = run.git_out
+        git_out = gitcall.git_out
         def observed_git(cwd, *args, **kw):
             if args[0] == "push":
                 self.assertEqual(Path(cwd), self.wt)
@@ -167,7 +167,7 @@ sys.exit(0 if ok else 1)
                 self.record("push")
                 self.pr_head = run.git(self.wt, "rev-parse", "HEAD")
             return git_out(cwd, *args, **kw)
-        self.stack.enter_context(patch.object(run, "git_out", side_effect=observed_git))
+        self.stack.enter_context(patch.object(gitcall, "git_out", side_effect=observed_git))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def script(self, path, text):

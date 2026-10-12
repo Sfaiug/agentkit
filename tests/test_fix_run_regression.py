@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, roundloop, run, turns, worker
+from agentkit import config, prompts, roundloop, run, turns, worker
 from agentkit import record
 
 
@@ -205,7 +205,7 @@ class RegressionFailsBefore(unittest.TestCase):
         state = record.read_state(self.directory)
         self.assertTrue(state["regression_checked"])
         self.assertFalse((self.directory / "base.log").exists())    # no replay of its own
-        self.assertEqual(run.base_proof_line(state), "")             # nor a line in its PR
+        self.assertEqual(prompts.base_proof_line(state), "")             # nor a line in its PR
 
     def test_interrupted_probe_restores_the_branch_without_recording_success(self):
         self.script.write_text("exit 0\n")

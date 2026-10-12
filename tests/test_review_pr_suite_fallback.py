@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import gate as check_gate, config, gc, run, worker
+from agentkit import config, gate as check_gate, gc, run, worker
 from agentkit import record as run_record
 
 SUITE = "test -f AGENTS.md"

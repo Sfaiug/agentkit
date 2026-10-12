@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
 from fixtures.hand_in import submitting
-from agentkit import config, prompts, roundloop, run, worker
+from agentkit import config, deliver, prompts, roundloop, run, worker
 from agentkit import record
 
 
@@ -99,7 +99,7 @@ class RegressionFailsBefore(unittest.TestCase):
         state = record.read_state(self.directory)
         self.assertEqual(state["base_proof"], "owed")
         self.assertIn("every check passes on base", state["base_proof_note"])
-        self.assertIn(run.base_proof_line(state), run.pr_body({**state, "verdict": "PASS"}))
+        self.assertIn(prompts.base_proof_line(state), deliver.pr_body({**state, "verdict": "PASS"}))
         self.assert_restored(head)
 
     def test_real_regression_is_red_then_green_and_probed_once_across_resume(self):
