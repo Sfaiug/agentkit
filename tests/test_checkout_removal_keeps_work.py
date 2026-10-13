@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, deliver, gc, gitcall, handback, orch, record, run, turns, worktrees
+from agentkit import config, deliver, gc, orch, record, roundloop, run, turns, worktrees
 from fixtures.own_pr import OwnPr
 
 DAY = 86400
@@ -96,9 +96,11 @@ class CheckoutRemoval(unittest.TestCase):
                          [".gitignore", "new file.txt", "staged.txt", "tracked.txt"])
 
     def test_blocked_task_fixer_saves_work_at_handback(self):
-        directory, wt, state = self.checkout(state="running", verdict=None)
+        directory, wt, state = self.checkout(state="running", verdict=None,
+                                             round_summaries=[{"round": 1, "verdict": "FAIL"}])
 
-        def fixer(lp):
+        def fixer(lp, role, _text, _name):
+            self.assertEqual(role, "fixer")
             self.edit(lp.wt)
             raise turns.Blocked("Task needs a decision", "## Blocked\n\nTask needs a decision")
 
@@ -106,7 +108,8 @@ class CheckoutRemoval(unittest.TestCase):
         with patch.object(run, "collect_usage", return_value={}), \
                 patch.object(run, "ready_order", return_value=["opus", "astra"]), \
                 patch.object(run, "pick_models", return_value=("opus", "astra")), \
-                patch.object(run, "rounds", side_effect=fixer):
+                patch.object(run, "pickup_new_code"), \
+                patch.object(roundloop, "execute", side_effect=fixer):
             ended = run.loop(self.cfg, directory, directory / "task.md", opts,
                              lambda _: None, prior=state)
         self.assertEqual(ended["state"], "blocked")
@@ -169,7 +172,7 @@ class CheckoutRemoval(unittest.TestCase):
     def test_commit_refusal_keeps_checkout_and_collector_respects_the_clock(self):
         directory, wt, state = self.checkout()
         self.edit(wt)
-        lock = Path(self.git(wt, "rev-parse", "--git-path", "index.lock"))
+        lock = Path(self.git(wt, "rev-parse", "--git-path", f"refs/heads/{state['branch']}.lock"))
         lock.touch()
         self.assertFalse(worktrees.stop_checkout(state, lambda _: None, keep_branch=True))
         self.assertTrue(record.read_state(directory)["checkout_kept"])
@@ -189,6 +192,15 @@ class CheckoutRemoval(unittest.TestCase):
         lock.unlink()
         self.assertIn(str(wt), gc.gc(lambda _: None))
         self.assert_saved(wt, state)
+
+    def test_work_only_in_the_index_is_kept(self):
+        directory, wt, state = self.checkout()
+        (wt / "tracked.txt").write_text("staged work\n")
+        self.git(wt, "add", "tracked.txt")
+        (wt / "tracked.txt").write_text("base\n")
+        self.assertFalse(worktrees.stop_checkout(state, lambda _: None, keep_branch=True))
+        self.assertEqual(self.git(wt, "show", ":tracked.txt"), "staged work")
+        self.assertTrue(record.read_state(directory)["checkout_kept"])
 
     def test_off_branch_or_unfinished_git_operation_keeps_checkout(self):
         for mode in ("detached", "other-branch", "rebase", "merge"):

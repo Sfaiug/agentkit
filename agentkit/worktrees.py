@@ -169,7 +169,7 @@ def settle_run(state, run_dir, log=None):
     A merged run loses the checkout in this step, and its branch with it; a
     scratch run keeps its workspace, which is the delivery. A failed, blocked,
     stopped or error run loses the checkout once the seat has been told --
-    unless a resume can still take it, or its ending kept it for the seat
+    unless a resume can still take it, or its work could not reach its branch
     (`checkout_kept`), which holds the checkout for the seven-day clock --
     and keeps its branch, the only copy a run that never
     pushed has. The run directory stays either way: `result.md` is what is read
@@ -281,7 +281,11 @@ def preserve_checkout(state, wt, log):
             gitcall.git(wt, "add", "--", *paths)
             gitcall.git(wt, "-c", f"core.hooksPath={os.devnull}", "commit", "--only", "-m",
                         state.get("title") or "Save run work", "--", *paths)
-        if gitcall.committable_paths(wt, artifacts)[0]:
+        remaining, junk = gitcall.committable_paths(wt, artifacts)
+        # Work staged differently from the working file may be invisible to diff HEAD.
+        # It must stay too, unless the classifier already left it out as junk or an artifact.
+        staged = gitcall.git(wt, "diff", "--cached", "--name-only", "-z", "HEAD").split("\0")
+        if remaining or any(path and path not in junk and path not in artifacts for path in staged):
             raise config.Error("uncommitted work remains")
     except (config.Error, OSError) as exc:
         state["checkout_kept"] = True
