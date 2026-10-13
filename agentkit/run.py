@@ -40,7 +40,7 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
 from .staffing import (best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, reviewer_order, run_workers, same_model, started_round)
-from .transitions import (carried_lines, change_budget, change_on,
+from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
     delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
@@ -2390,8 +2390,11 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once, the
         # lines it moves unchanged aside: past it, the run ends blocked with the reason before
         # any reviewer is picked, and the PR is split; a later round reviews whatever the fix left
-        why = pr_size_refusal(number, diff_lines(repo, base_sha, head, added_only=True),
-                              carried_lines(repo, base_sha, head))
+        # ... and a pull request that re-adds most of a budget-failed one's lines, no real split
+        # of it, inherits that one's rounds (`replacement_refusal`)
+        lines, carried = diff_lines(repo, base_sha, head, added_only=True), carried_lines(repo, base_sha, head)
+        why = (pr_size_refusal(number, lines, carried)
+               or replacement_refusal(repo, base_sha, head, number, lines - carried, exclude=run_dir))
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))

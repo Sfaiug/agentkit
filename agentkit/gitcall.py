@@ -7,6 +7,7 @@ makes and cleans: worktrees, leftovers, sandboxes, the reviewer's copy and the p
 The run's child environment, depth and logger live here too, as every leaf starts tools.
 """
 
+import codecs
 import os
 import re
 import shutil
@@ -996,14 +997,22 @@ def patch_args(command, *args):
 def patch_files(patch):
     """Each file of a patch made with `patch_args`, as (old path, new path, its hunks' lines),
     a path None where that side is not a file.  A file's header names its sides, where Git
-    ends a name holding a space with a tab, and its hunks hold the lines; a content line never
-    starts a line of the patch bare, so neither the file split nor the first hunk's mark can
-    land inside one."""
+    quotes a name holding a quote, a backslash or a control character C-style and ends one
+    holding a space with a tab, and its hunks hold the lines; a content line never starts a
+    line of the patch bare, so neither the file split nor the first hunk's mark can land
+    inside one."""
     for chunk in ("\n" + patch).split("\ndiff --git ")[1:]:
         header, _, body = chunk.partition("\n@@")
-        old = re.search(r"^--- a/(.*?)\t?$", header, re.M)
-        new = re.search(r"^\+\+\+ b/(.*?)\t?$", header, re.M)
-        yield old and old.group(1), new and new.group(1), body.split("\n")
+        yield _patch_name(header, "---", "a/"), _patch_name(header, "+++", "b/"), body.split("\n")
+
+
+def _patch_name(header, mark, prefix):
+    """The path a patch's file header gives the side `mark` names, or None for /dev/null."""
+    found = re.search(rf"^{re.escape(mark)} (.*?)\t?$", header, re.M)
+    name = found.group(1) if found else ""
+    if name.startswith('"'):
+        name = codecs.escape_decode(name[1:-1])[0].decode(errors="replace")
+    return name[len(prefix):] if name.startswith(prefix) else None
 
 
 def declared(wt, key):

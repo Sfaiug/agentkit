@@ -160,8 +160,8 @@ class SizeGate(Sandbox):
         self.assertEqual(run.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 0)
 
     def traced(self, *args):
-        """`run.carried_lines(*args)` and the Python steps it and its windows took."""
-        steps, codes = [0], (run.carried_lines.__code__, transitions._windows.__code__)
+        """`run.carried_lines(*args)` and the Python steps its walk and windows took."""
+        steps, codes = [0], (transitions.reviewed_lines.__code__, transitions._windows.__code__)
         tracer = lambda frame, event, arg: (steps.__setitem__(0, steps[0] + 1), tracer)[1]
         sys.settrace(lambda frame, event, arg: tracer if frame.f_code in codes else None)
         try:

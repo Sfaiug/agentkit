@@ -8,6 +8,7 @@ spent across its runs and may still spend.
 """
 
 from bisect import bisect_left
+from collections import Counter
 import json
 import os
 import re
@@ -225,6 +226,14 @@ def carried_lines(repo, base, head="HEAD"):
     characters -- so a new blank line or brace that reads as a deleted one is not moved, and a
     module split across files adds what its new lines come to.  Generated files are left out,
     as `diff_lines` leaves them out."""
+    return reviewed_lines(repo, base, head)[1]
+
+
+def reviewed_lines(repo, base, head="HEAD"):
+    """(the lines a diff adds that a reviewer reads, each as its text with whitespace collapsed,
+    counted; how many added lines it carries, `carried_lines`): every added line, generated
+    files aside, as `diff_lines` counts them, less the carried ones, so what two pull requests
+    share and each one's size are read off the same lines."""
     # a submodule reads as its commit line: diff_lines never counts its insides
     diff = gitcall.git(repo, *gitcall.patch_args("diff", f"{base}...{head}"), check=False)
     added, deleted = {}, {}
@@ -248,7 +257,7 @@ def carried_lines(repo, base, head="HEAD"):
                 where.setdefault(key, []).append((name, at))
     used = {name: set() for name in gone}
     cursor = {}     # how far each key's deleted positions are consumed
-    carried = 0
+    read, carried = Counter(), 0
     for name, lines in added.items():
         if name in skip_new:
             continue
@@ -276,8 +285,67 @@ def carried_lines(repo, base, head="HEAD"):
                 carried += length
                 i += length
             else:
+                read[lines[i]] += 1
                 i += 1
-    return carried
+    return read, carried
+
+
+REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this long ago still
+                                # charges the one that re-adds its lines
+
+
+def budget_failed_reviews(repo, exclude=None):
+    """The pull requests of that repository whose review spent the budget, counted
+    across their runs (`rounds_spent_elsewhere`), none of which merged, as (url, base, head) of
+    each run of them that ended `fail` within `REPLACED_WITHIN`: what a replacement inherits
+    rounds from.  The run itself (`exclude`) counts for nothing."""
+    found, merged = [], set()
+    for run_dir in run_record.run_dirs():
+        if exclude is not None and run_dir.name == Path(exclude).name:
+            continue
+        state = run_record.read_state(run_dir)
+        if not state:
+            continue
+        if state.get("merged"):
+            # a task run keeps its pull request in `pr`, a review in `review_pr`
+            merged |= {pr_key(state.get("pr")), pr_key(state.get("review_pr"))}
+        elif (state.get("review_pr") and state.get("state") == "fail"
+                and same_repo(state.get("repo"), repo) and state.get("base_sha") and state.get("head_sha")
+                and time.time() - (state.get("finished_at") or 0) <= REPLACED_WITHIN):
+            found.append((state["review_pr"], state["base_sha"], state["head_sha"]))
+    return [(url, base, head) for url, base, head in found if pr_key(url) not in merged
+            and rounds_spent_elsewhere(pr=url, exclude=exclude)[0] >= taskfile.TASK_MAX_ROUNDS]
+
+
+def replacement_refusal(repo, base, head, number, counted, exclude=None):
+    """Why a pull request's first review is refused as a replacement, else None: more than half
+    of the lines it adds that a reviewer reads (`reviewed_lines`) and that hold a letter or digit
+    were added by a pull request whose review failed at the budget (`budget_failed_reviews`), and
+    it is no real split of that one: its `counted` lines, as the size ceiling counts them, are
+    more than half of that one's, counted alike.  It inherits the rounds that were spent, which
+    is all of them.  A blank line or a lone brace, which any two changes share, charges nothing;
+    a redesign adds lines of its own and passes; a split takes a part under half the failed
+    one's size and passes.  A failed pull request whose commits git no longer holds is skipped:
+    nothing to compare; a git that never answered stops the gate."""
+    mine = Counter({text: n for text, n in reviewed_lines(repo, base, head)[0].items()
+                    if any(map(str.isalnum, text))})
+    if not mine:
+        return None
+    written, worst = sum(mine.values()), None
+    for url, their_base, their_head in budget_failed_reviews(repo, exclude):
+        if not all(gitcall.git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}", check=False)
+                   for sha in (their_base, their_head)):
+            continue
+        theirs = reviewed_lines(repo, their_base, their_head)[0]
+        shared, size = sum((mine & theirs).values()), sum(theirs.values())
+        if shared * 2 > written and counted * 2 > size and (worst is None or shared > worst[1]):
+            worst = (url, shared, size)
+    if worst is None:
+        return None
+    url, shared, size = worst
+    return (f"PR #{number} re-adds {shared} of its {written} lines holding a letter or digit from {url}, "
+            f"whose review failed after {taskfile.TASK_MAX_ROUNDS} rounds; a replacement inherits them: "
+            f"split it into parts under {size // 2 + 1} lines, or redesign it")
 
 
 def _windows(lines):
