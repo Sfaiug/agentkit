@@ -24,6 +24,14 @@ class MuseQuestion(unittest.TestCase):
             pane = (REPO / f"tests/fixtures/muse-{name}-pane.txt").read_text(encoding="utf-8")
             self.assertEqual(watch.screen_state("muse", watch.pane_tail(pane))[0], state, name)
 
+    def test_a_prompt_quoting_its_key_hint_is_still_a_turn(self):
+        pane = (REPO / "tests/fixtures/muse-working-pane.txt").read_text(encoding="utf-8")
+        hint = ("Enter to select · ↑/↓ to move · ←/→ to switch question · "
+                "Tab for an optional note · Esc to interrupt")
+        pane = pane.replace("Say OK", "Explain this key hint: " + hint)
+        self.assertEqual(watch.screen_state("muse", watch.pane_tail(pane))[:2],
+                         ("working", "working.interrupt"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
