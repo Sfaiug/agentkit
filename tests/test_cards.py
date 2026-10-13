@@ -133,14 +133,14 @@ class Cards(unittest.TestCase):
         self.assertEqual(len(self.posts), 1)
         self.assertTrue(json.loads(config.card_path("seat").read_text())["sent"])
 
-    def test_episode_with_client_input_is_retired_without_a_card(self):
+    def test_episode_with_client_input_is_carded_once_he_has_left_it_a_minute(self):
         notify.record("seat", "needs", "Which branch?", time=100)
         with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
             self.transition("seat", self.answer("needs you", 100), now=200)
-        self.assertEqual(self.posts, [])
-        self.assertEqual(json.loads(config.card_path("seat").read_text())["closed"], "Answered")
-        self.transition("seat", self.answer("needs you", 100), now=400)   # detached, still held
-        self.assertEqual(self.posts, [])   # the seen episode stays quiet
+            self.assertEqual(self.posts, [])
+            self.transition("seat", self.answer("needs you", 100), now=210)
+        self.assertNotIn("closed", json.loads(config.card_path("seat").read_text()))
+        self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
 
     def test_done_fail_summary_is_red(self):
         notify.record("seat", "done", "FAIL: tests", time=100)
@@ -212,44 +212,36 @@ class Cards(unittest.TestCase):
 
     def test_resolved_questions_do_not_renew_an_old_episode(self):
         for resolution in ("clear", "progress"):
-            for guard in ("history", "input"):
-                for cached in (False, True):
-                    with self.subTest(resolution=resolution, guard=guard, cached=cached):
-                        config.card_path("seat").unlink(missing_ok=True)
-                        config.notify_path("seat").unlink(missing_ok=True)
-                        self.posts.clear()
-                        clock = [300.0]
-
-                        def tmux(*args, **kwargs):
-                            if guard == "input" and args[:1] == ("list-clients",):
-                                return (0, "seat\t250")
-                            return (1, "")
-
-                        with patch.object(notify.time, "time", side_effect=lambda: clock[0]), \
-                                patch.object(notify, "installed_at", return_value=(
-                                    200.0 if guard == "history" else 0)), \
-                                patch.object(notify, "terminal_notice"), \
-                                patch.object(orch, "tmux_out", side_effect=tmux):
-                            seat = {"name": "seat"}
-                            watch.seat_write("seat", state="at_prompt", began=100.0,
-                                             word="needs you", word_since=100.0)
-                            notify.record("seat", "needs", "Which schema?")
-                            if resolution == "clear":
-                                notify.clear("seat")
-                            else:
-                                clock[0] = 310.0
-                                notify.opened("seat", lambda: "Original output")
-                                clock[0] = 320.0
-                                self.assertTrue(notify.progress(
-                                    "seat", lambda: "Fresh owner reply", None))
-                            self.assertIsNone(notify.last("seat"))
-                            clock[0] = 500.0
-                            current = watch.session_state("seat", now=500.0, session=seat)
-                            self.assertEqual(current["since"], 100.0)
-                            self.assertEqual(notify.transition(
-                                "seat", current if cached else None, now=500.0, seat=seat,
-                                began=100.0 if cached else None), 0)
-                            self.assertEqual(self.posts, [])
+            for cached in (False, True):
+                with self.subTest(resolution=resolution, cached=cached):
+                    config.card_path("seat").unlink(missing_ok=True)
+                    config.notify_path("seat").unlink(missing_ok=True)
+                    self.posts.clear()
+                    clock = [300.0]
+                    with patch.object(notify.time, "time", side_effect=lambda: clock[0]), \
+                            patch.object(notify, "installed_at", return_value=200.0), \
+                            patch.object(notify, "terminal_notice"), \
+                            patch.object(orch, "tmux_out", return_value=(1, "")):
+                        seat = {"name": "seat"}
+                        watch.seat_write("seat", state="at_prompt", began=100.0,
+                                         word="needs you", word_since=100.0)
+                        notify.record("seat", "needs", "Which schema?")
+                        if resolution == "clear":
+                            notify.clear("seat")
+                        else:
+                            clock[0] = 310.0
+                            notify.opened("seat", lambda: "Original output")
+                            clock[0] = 320.0
+                            self.assertTrue(notify.progress(
+                                "seat", lambda: "Fresh owner reply", None))
+                        self.assertIsNone(notify.last("seat"))
+                        clock[0] = 500.0
+                        current = watch.session_state("seat", now=500.0, session=seat)
+                        self.assertEqual(current["since"], 100.0)
+                        self.assertEqual(notify.transition(
+                            "seat", current if cached else None, now=500.0, seat=seat,
+                            began=100.0 if cached else None), 0)
+                        self.assertEqual(self.posts, [])
 
     def test_a_new_question_after_an_answer_keeps_its_own_beginning(self):
         for publication in ("command", "tick"):
@@ -296,9 +288,11 @@ class Cards(unittest.TestCase):
                                 self.assertEqual(publish(*args, **kwargs), 0)
                             else:
                                 self.assertEqual(publish("seat"), 0)
+                            # input after the question holds it only while he is there
+                            self.assertEqual(len(self.posts), 1 if activity < 300 else 0)
                             clock[0] = 500
                             self.assertEqual(publish("seat"), 0)
-                        self.assertEqual(len(self.posts), 1 if activity < 300 else 0)
+                        self.assertEqual(len(self.posts), 1)
                         if self.posts:
                             card = self.posts[0]["embeds"][0]
                             self.assertEqual(card["title"], "Needs you · seat")
