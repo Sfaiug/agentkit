@@ -203,6 +203,20 @@ class CheckoutRemoval(unittest.TestCase):
         self.assertEqual(self.git(wt, "show", ":tracked.txt"), "staged work")
         self.assertTrue(record.read_state(directory)["checkout_kept"])
 
+    def test_a_commit_in_a_replacement_clone_cannot_allow_removal(self):
+        directory, wt, state = self.checkout()
+        original = self.git(self.repo, "rev-parse", state["branch"])
+        self.git(self.repo, "worktree", "remove", str(wt))
+        self.git(self.repo, "clone", "-q", "--no-local", str(self.repo), str(wt))
+        self.git(wt, "checkout", "-qb", state["branch"])
+        self.git(wt, "config", "user.name", "Fixture")
+        self.git(wt, "config", "user.email", "fixture@localhost")
+        (wt / "tracked.txt").write_text("replacement work\n")
+        self.assertFalse(worktrees.stop_checkout(state, lambda _: None, keep_branch=True))
+        self.assertEqual((wt / "tracked.txt").read_text(), "replacement work\n")
+        self.assertEqual(self.git(self.repo, "rev-parse", state["branch"]), original)
+        self.assertTrue(record.read_state(directory)["checkout_kept"])
+
     def test_off_branch_or_unfinished_git_operation_keeps_checkout(self):
         for mode in ("detached", "other-branch", "rebase", "merge"):
             with self.subTest(mode=mode):

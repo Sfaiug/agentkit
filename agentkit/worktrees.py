@@ -292,6 +292,9 @@ def preserve_checkout(state, wt, log):
         staged = gitcall.git(wt, "diff", "--cached", "--name-only", "-z", "HEAD").split("\0")
         if remaining or any(path and path not in junk and path not in artifacts for path in staged):
             raise config.Error("uncommitted work remains")
+        if (gitcall.git(state["repo"], "rev-parse", "--verify", f"refs/heads/{branch}")
+                != gitcall.git(wt, "rev-parse", "HEAD")):
+            raise config.Error(f"the branch in {state['repo']} does not hold the checkout's commit")
     except (config.Error, OSError) as exc:
         state["checkout_kept"] = True
         run_id = state.get("run_id")
