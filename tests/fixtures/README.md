@@ -73,7 +73,8 @@ running under the tray at its cap of four tasks and `+N`, twelve rows below the 
 waiting on its own `Request user input` tool, the second of three questions, cut to the
 lines from its last finished step down. Its words are replaced with invented ones (the
 tool line's per-letter shimmer too); its rows, colours, key hint and composer are as
-captured. The hint ends `Esc to interrupt` with no bracket, as no turn's spinner does.
+captured. The hint ends `Esc to interrupt` with no bracket, as no turn's spinner does,
+and every row of the dialog is indented, where a turn's spinner starts at the left edge.
 
 `auth-expiry-variants.json` records the additional logout messages reported in review
 and confirmed by inspecting these same installed binaries. It includes Claude's revoked

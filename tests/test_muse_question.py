@@ -35,6 +35,10 @@ class MuseQuestion(unittest.TestCase):
     def test_its_dialog_opening_reads_as_asking(self):
         found = read(QUESTION, ASKED)
         self.assertEqual((found["state"], found["authority"]), ("asking", "hook"))
+        # its options are indented, so one quoting the spinner keeps the question up
+        quoting = QUESTION.replace("Optionally, add details in notes (tab).",
+                                   "Use the text (0s · esc to interrupt)")
+        self.assertEqual(read(quoting, ASKED)["state"], "asking")
 
     def test_no_text_on_the_screen_asks(self):
         # the dialog itself, with no hook having said so, and output quoting its hint

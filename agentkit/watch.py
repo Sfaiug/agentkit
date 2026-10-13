@@ -624,7 +624,7 @@ def _rule(entry, path):
         return tuple(str(m).lower() for m in entry.get(key) or ())
     return {"id": str(entry.get("id") or entry["state"]), "state": entry["state"],
             "lines": max(1, int(entry.get("lines", 8))), "all": marks("all"),
-            "any": marks("any"), "none": marks("none"),
+            "any": marks("any"), "none": marks("none"), "row": _pattern(entry.get("row"), path),
             "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer"))}
 
 
@@ -1598,15 +1598,19 @@ def screen_state(harness, tail):
             continue
         region = lines[-rule["lines"]:]
         low = "\n".join(region).lower()
+        # a row pattern reads its rows as drawn, indented or from the left edge
+        drawn = [line for raw, line in zip(raw_lines[-rule["lines"]:], region)
+                 if rule["row"] and rule["row"].search(strip_sgr(raw).rstrip())]
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
                 or (rule["none"] and any(mark in low for mark in rule["none"]))
+                or (rule["row"] and not drawn)
                 or (rule["newest"] and not rule["newest"].search(newest))
                 or (rule["chrome"] and not chrome_line(chrome, lines[-1]))):
             continue
         marks = rule["all"] + rule["any"]
         evidence = next((line for line in reversed(region)
-                         if any(mark in line.lower() for mark in marks)), newest)
+                         if any(mark in line.lower() for mark in marks)), (drawn or [newest])[-1])
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
 
