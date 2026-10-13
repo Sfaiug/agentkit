@@ -1311,13 +1311,15 @@ def handback_line(state, run_dir, cfg=None):
     return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action)
 
 
-def hand_back(state, run_dir, log, cfg=None):
+def hand_back(state, run_dir, log, cfg=None, busy=None):
     """Give the ending back to the live seat that launched it.  True when it was told.
 
     Typed into the seat's composer through the confirmed send, and only while its harness sits
     at its own prompt: a line typed into a turn in flight is swallowed.  Otherwise the record
     keeps `handback_pending` and the `ak watch` tick types it at the next quiet prompt, once;
     the log says so once, as the ending is first deferred, and again when the line is in.
+    `busy` is the tick's pass: the seats it found not taking a line, which this one does not
+    read again -- unless its own line already waits in the composer for its Enter.
     Call it inside `launcher_world`, so the seat is found and typed into where it was seen.
 
     Exactly once, whoever gets here first: the deciding, the typing and the mark are one
@@ -1351,9 +1353,12 @@ def hand_back(state, run_dir, log, cfg=None):
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
         line = handback_line(state, run_dir, cfg)
-        if watch.type_at_prompt(seat, line, log, cfg=cfg, typed=said.get("handback_typed"),
-                                receipt=lambda mark: mark_delivery(run_dir, state,
-                                                                   handback_typed=mark)):
+        busy = set() if busy is None else busy
+        if ((session not in busy or said.get("handback_typed"))
+                and watch.type_at_prompt(seat, line, log, cfg=cfg,
+                                         typed=said.get("handback_typed"),
+                                         receipt=lambda mark: mark_delivery(
+                                             run_dir, state, handback_typed=mark))):
             mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
                           handback_pending=None, handback_typed=None, handback_note=None,
                           handback_wait_reason=None, notification_pending=None)
@@ -1361,6 +1366,7 @@ def hand_back(state, run_dir, log, cfg=None):
             # The seat was told. It reads result.md, not the checkout.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
+        busy.add(session)
         if not said.get("handback_pending") or state.get("handed_back"):
             # an ending is either said or waiting to be, never both: a mark the attempt
             # before this one left is neither, and goes with the same write.  Said here and
@@ -1380,7 +1386,7 @@ def announce_safely(state, run_dir, log, cfg=None):
         log(f"WARN the ending was not handed back: {exc}")
 
 
-def announce(state, run_dir, log, cfg=None):
+def announce(state, run_dir, log, cfg=None, busy=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
 
     A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
@@ -1450,7 +1456,7 @@ def announce(state, run_dir, log, cfg=None):
         return
     with launcher_world(session) as live:
         if live:
-            hand_back(state, run_dir, log, cfg)
+            hand_back(state, run_dir, log, cfg, busy)
             return
     if state.get("state") == "not_needed":
         mark_delivery(run_dir, state, reported=True, handback_pending=None,

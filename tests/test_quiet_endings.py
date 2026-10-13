@@ -76,6 +76,17 @@ class QuietEndings(HandBack):
             watch.offer_endings(self.logs.append)
         self.assertEqual(sorted(text.split()[1] for _, text in self.typed), ["run-1", "run-2"])
 
+    def test_endings_first_seen_behind_a_busy_seat_are_marked_waiting_for_one_read(self):
+        self.rows = [self.live()]
+        self.screen = "working"
+        self.deferred("run-1")
+        later = [self.ended(name, owner=SEAT, no_merge=True) for name in ("run-2", "run-3")]
+        with patch.object(watch, "type_at_prompt", wraps=watch.type_at_prompt) as reads:
+            watch.offer_endings(self.logs.append)
+        self.assertEqual(reads.call_count, 1)
+        for directory in later:
+            self.assertTrue(record.read_state(directory)["handback_pending"])
+
     def test_a_routine_ending_is_recorded_while_its_seat_is_busy(self):
         self.rows = [self.live()]
         self.screen = "working"
