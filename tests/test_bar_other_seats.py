@@ -29,8 +29,8 @@ from fixtures.sandbox import Sandbox
 from agentkit import config, notify, orch, statusbar, terminal, watch
 from agentkit.guard import commands
 
-IDS = {"fix-api": "$0", "atlas-proxies": "$1", "web": "$2", "zeta": "$3"}
-WORDS = {"fix-api": "working", "atlas-proxies": "needs you", "web": "working", "zeta": "done"}
+IDS = {"fix-api": "$0", "orbit-proxies": "$1", "web": "$2", "zeta": "$3"}
+WORDS = {"fix-api": "working", "orbit-proxies": "needs you", "web": "working", "zeta": "done"}
 NEEDS = terminal.STATE_STYLES["needs you"][2]
 
 
@@ -73,8 +73,8 @@ class OtherSeats(Sandbox):
     def test_a_line_one_names_who_needs_you_and_counts_the_rest_never_itself(self):
         statusbar.dress("fix-api", "fable")
         named = self.options["fix-api"][statusbar.SEATS]
-        self.assertEqual(drawn(named), "! atlas-proxies needs you   ● 1 working   ✓ 1 done ")
-        self.assertIn(f"#[range=right]#[fg=#{NEEDS},bold]! atlas-proxies needs you"
+        self.assertEqual(drawn(named), "! orbit-proxies needs you   ● 1 working   ✓ 1 done ")
+        self.assertIn(f"#[range=right]#[fg=#{NEEDS},bold]! orbit-proxies needs you"
                       "#[default]#[norange]", named)          # a click away, in its colour
         # the name is the right end's first 25 of its 51 cells, counted from the client's edge
         at = statusbar.AT
@@ -90,8 +90,8 @@ class OtherSeats(Sandbox):
         self.assertEqual([command[2:4] for command in commands(sent) if command[3] in ends],
                          [[f"={name}:", option] for name in IDS for option in ends])
         found = statusbar.seats()
-        self.assertEqual(found[1], ("$1", "atlas-proxies", "needs you"))
-        named, folded, needing, hit = statusbar.others(found, "atlas-proxies")
+        self.assertEqual(found[1], ("$1", "orbit-proxies", "needs you"))
+        named, folded, needing, hit = statusbar.others(found, "orbit-proxies")
         self.assertEqual(drawn(named), "● 2 working   ✓ 1 done ")
         self.assertEqual((named, needing, hit), (folded, "", ""))
         # only the words there are, each only when it is not zero; no other seat, nothing
@@ -115,8 +115,8 @@ class OtherSeats(Sandbox):
                                               side_effect=lambda name, **_kw: answers[name]))
         watch.announce_state(self.seat("fix-api"), cfg=self.cfg)
         self.assertEqual(list(self.options), ["fix-api"])     # no change: no other bar moves
-        answers["atlas-proxies"] = {"word": "working", "reason": "", "since": None}
-        watch.announce_state(self.seat("atlas-proxies"), cfg=self.cfg)
+        answers["orbit-proxies"] = {"word": "working", "reason": "", "since": None}
+        watch.announce_state(self.seat("orbit-proxies"), cfg=self.cfg)
         for name in ("fix-api", "web", "zeta"):
             self.assertNotIn("needs you", drawn(self.options[name][statusbar.SEATS]), name)
         self.assertEqual(drawn(self.options["fix-api"][statusbar.SEATS]),
@@ -134,10 +134,10 @@ class OtherSeats(Sandbox):
 
     def test_d_a_stopped_seat_leaves_every_other_bar_at_once(self):
         self.stack.enter_context(patch.object(orch, "sessions",
-                                              return_value=[self.seat("atlas-proxies")]))
+                                              return_value=[self.seat("orbit-proxies")]))
         with redirect_stdout(io.StringIO()):
-            orch.cmd_stop(["atlas-proxies"])
-        self.assertNotIn("atlas-proxies", self.ids)
+            orch.cmd_stop(["orbit-proxies"])
+        self.assertNotIn("orbit-proxies", self.ids)
         for name in ("fix-api", "web", "zeta"):
             self.assertNotIn("needs you", drawn(self.options[name][statusbar.FOLD]), name)
         self.assertEqual(drawn(self.options["zeta"][statusbar.SEATS]), "● 2 working ")
@@ -245,15 +245,15 @@ class OnTmux(Sandbox):
     def active(self):
         """Which window each of the two seats with two has up."""
         return [self.tmux("display-message", "-p", "-t", f"={name}:", "#{window_index}")[1]
-                for name in ("fix-api", "atlas-proxies")]
+                for name in ("fix-api", "orbit-proxies")]
 
     def test_g_names_fold_before_the_left_part_is_cut_and_a_click_switches(self):
         self.tmux("-f", "/dev/null", "new-session", "-d", "-s", "fix-api", "sleep 600")
         default = self.mouse_keys()
         self.assertEqual(self.tmux("source-file", str(orch.tmux_conf()))[0], 0)
-        for name in ("atlas-proxies", "web", "zeta"):
+        for name in ("orbit-proxies", "web", "zeta"):
             self.tmux("new-session", "-d", "-s", name, "sleep 600")
-        for name in ("fix-api", "atlas-proxies"):
+        for name in ("fix-api", "orbit-proxies"):
             self.tmux("new-window", "-d", "-t", f"={name}:", "sleep 600")
         for name, word in WORDS.items():
             self.tmux("set-option", "-t", f"={name}:", orch.MARK, "1")
@@ -280,7 +280,7 @@ class OnTmux(Sandbox):
         self.until(lambda: self.tmux("list-clients", "-F", "#{client_session}")[1] == "fix-api",
                    "the client never attached")
         whole = " ▐● working▌  fix-api  fable orchestrates "   # 41 cells and the space after
-        self.assertEqual(self.width(100), whole + "! atlas-proxies needs you   ● 1 working   "
+        self.assertEqual(self.width(100), whole + "! orbit-proxies needs you   ● 1 working   "
                                                   "✓ 1 done ")
         # 88 is too narrow for the names beside the whole left part, and wide enough for the fold
         self.assertEqual(self.width(88), whole + "! 1 needs you   ● 1 working   ✓ 1 done ")
@@ -291,7 +291,7 @@ class OnTmux(Sandbox):
         # the name is columns 50 to 74 of line one, row 19: the wheel over it moves no window
         self.width(100)
         for button, window in ((64, "1"), (65, "0")):        # up from the second, down from the first
-            for name in ("fix-api", "atlas-proxies"):
+            for name in ("fix-api", "orbit-proxies"):
                 self.tmux("select-window", "-t", f"={name}:{window}")
             os.write(self.pty, f"\x1b[<{button};55;19M".encode())
             time.sleep(0.3)
@@ -299,7 +299,7 @@ class OnTmux(Sandbox):
             self.assertEqual(self.active(), [window, window])
         # a click beside the name leaves the client where it is; one on the name moves it
         for column, session in ((3, "fix-api"), (49, "fix-api"), (80, "fix-api"),
-                                (52, "atlas-proxies")):
+                                (52, "orbit-proxies")):
             os.write(self.pty, f"\x1b[<0;{column};19M\x1b[<0;{column};19m".encode())
             self.until(lambda: self.tmux("list-clients", "-F",
                                          "#{client_session}")[1] == session,
