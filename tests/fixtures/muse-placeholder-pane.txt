@@ -1,0 +1,50 @@
+
+[38;5;242m  [1m[38;5;252mMuse Code[0m[38;5;252m 1.4.7
+
+[38;5;75m[48;5;237m❯ [38;5;252mRun the command in the foreground with your bash tool, wait for it (yield_time_ms 30000), then reply OK.[39m          
+
+[1m[38;5;252m[49m◆ [0m[38;5;252mCould you specify which command to run? No command was included, so I did not execute anything yet.
+
+[38;5;75m[48;5;237m❯ [38;5;252mRun the command: sleep 20 in the foreground with your bash tool, wait for it (yield_time_ms 40000), then reply OK.
+
+[1m[49m◆ [0m[38;5;252mRunning sleep 20 in foreground.
+
+[38;5;151m◆ [1m[38;5;252mRan command[0m[38;5;252m [38;5;75m· Sleep for twenty seconds[38;5;242m · ✓ · 20s[2m · ctrl+o
+
+[0;1m[38;5;252m◆ [0m[38;5;252mOK
+
+[38;5;75m[48;5;237m❯ [38;5;252mI lost my earlier session when my terminal restarted yesterday. Just reply OK, no tools.[39m                          
+
+[1m[38;5;252m[49m◆ [0m[38;5;252mOK
+
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;75m❯ [38;5;242m/resume reopens a past session (--last for the latest)
+[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;242m  [38;5;75mmuse-spark-1.3[38;5;246m · [38;5;75mminimal[38;5;246m · /t/c/-/3/s/musehook/ws · [38;5;211mYOLO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -645,6 +645,8 @@ def screen(harness):
              "folded": _pattern(block.get("folded"), path),
              "scrolled": _pattern(block.get("scrolled"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
+             "faint": tuple(colour for colour in block.get("faint") or ()
+                            if isinstance(colour, str)),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -1064,34 +1066,57 @@ def _sgr_codes(params):
         i += 1
 
 
-def _faint_drawn(raw, faint=False):
-    """(whether faint text is drawn in that raw `-e` row, whether faint is on at its end), from
-    whether it was on at its start: a code that turns faint on and another that ends it before
-    any visible text draws nothing faint."""
+def _faint_drawn(raw, state=(False, False), colours=()):
+    """(whether faint text is drawn in that raw `-e` row, the (faint, muted) state at its end),
+    from that state at its start: a code that turns either on and another that ends it before
+    any visible text draws nothing faint.  Faint is SGR 2; muted is a foreground colour its
+    harness draws only placeholders in (`[screen] faint`), which reads the same."""
+    faint, muted = state
     drawn, at = False, 0
     for found in SGR_SEQ.finditer(raw):
-        drawn = drawn or (faint and bool(raw[at:found.start()].strip()))
+        drawn = drawn or ((faint or muted) and bool(raw[at:found.start()].strip()))
         for code in _sgr_codes(found.group(1)):
             faint = True if code == 2 else False if code in (0, 22) else faint
+            if code in (0, 39) or 30 <= code <= 37 or 90 <= code <= 97:
+                muted = False
+        colour = _foreground(found.group(1))
+        if colour is not None:
+            muted = colour in colours
         at = found.end()
-    return drawn or (faint and bool(raw[at:].strip())), faint
+    return drawn or ((faint or muted) and bool(raw[at:].strip())), (faint, muted)
 
 
-def has_dim(line):
-    """Does that raw `-e` line draw faint (SGR 2) text: a suggestion, never a draft."""
-    return _faint_drawn(line)[0]
+def _foreground(params):
+    """The extended foreground colour one SGR sequence sets (`38;5;n`, `38;2;r;g;b`), or None."""
+    params = params.split(";")
+    found, i = None, 0
+    while i < len(params):
+        if params[i] in ("38", "48") and i + 1 < len(params) and params[i + 1] in ("5", "2"):
+            size = 3 if params[i + 1] == "5" else 5
+            if params[i] == "38":
+                found = ";".join(params[i:i + size])
+            i += size
+            continue
+        i += 1
+    return found
 
 
-def dim_rows(raws):
+def has_dim(line, colours=()):
+    """Does that raw `-e` line draw faint text: a suggestion, never a draft.  `colours` are the
+    ones its harness draws placeholders in (`[screen] faint`)."""
+    return _faint_drawn(line, colours=colours)[0]
+
+
+def dim_rows(raws, colours=()):
     """For each raw `-e` row, whether faint text is drawn in it.
 
     tmux writes an attribute once, where it starts, and carries it on to the rows under it
     until something ends it: a faint suggestion wrapped onto more rows has its SGR 2 on the
     first alone.  So faint is carried from row to row, as `in_colour` carries a colour.
     """
-    faint, dims = False, []
+    state, dims = (False, False), []
     for raw in raws:
-        drawn, faint = _faint_drawn(raw, faint)
+        drawn, state = _faint_drawn(raw, state, colours)
         dims.append(drawn)
     return dims
 
@@ -1121,9 +1146,9 @@ def in_colour(text):
     return lines
 
 
-def _draft_text(raw, plain, composer):
+def _draft_text(raw, plain, composer, colours=()):
     """Typed, unsent text after the prompt mark, or "": dim-only and empty are not drafts."""
-    if has_dim(raw):
+    if has_dim(raw, colours):
         return ""
     # A quoted transcript (`● it said '❯ ...'`) is not a composer: only a line that
     # starts at the prompt holds a draft. The harness's own composer pattern names
@@ -1137,9 +1162,9 @@ def _draft_text(raw, plain, composer):
     return ""
 
 
-def _suggestion_line(raw, plain):
+def _suggestion_line(raw, plain, colours=()):
     """Dim-only composer content: a suggestion or placeholder, treated as empty."""
-    if not has_dim(raw):
+    if not has_dim(raw, colours):
         return ""
     found = re.match(r"(?:│\s*)?([❯›⟩])\s*(.*)$", plain)
     if found and found.group(2).strip():
@@ -1574,7 +1599,7 @@ def screen_state(harness, tail):
                 draft = " ".join(_composer_parts(chrome, raws, region, at, end))
                 if draft:
                     return rule["state"], rule["id"], draft[:160]
-            elif _suggestion_line(raws[at], region[at]):
+            elif _suggestion_line(raws[at], region[at], chrome["faint"]):
                 return rule["state"], rule["id"], region[at][:160]
             continue
         region = lines[-rule["lines"]:]
@@ -2952,7 +2977,7 @@ def _composer_rows(harness, pane, *, exact=False):
         at, stop = ruled_composer(chrome, raws)
         if not exact and at is None and marked and marked[0] + 1 == len(rows):
             at, stop = marked[0], len(rows)
-    if at is None or exact and (stop is None or any(dim_rows(raws)[at:stop])
+    if at is None or exact and (stop is None or any(dim_rows(raws, chrome["faint"])[at:stop])
                                or chrome["composer"] and chrome["composer"].fullmatch(rows[at])):
         return None
     return _unscrolled(chrome, _composer_parts(chrome, raws, rows, at, stop), exact=exact)
@@ -3015,8 +3040,8 @@ def _composer_parts(chrome, raws, rows, at, stop):
     composer's edges -- chrome on every row of it -- left out."""
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
     parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
-                         chrome["composer"])]
-    dims = dim_rows(raws)
+                         chrome["composer"], chrome["faint"])]
+    dims = dim_rows(raws, chrome["faint"])
     for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
         if not dim:
             parts.append(_inside_box(plain) if boxed else plain)

@@ -72,6 +72,9 @@ enforce = "nudge"
 # 1.2.1 draws `❯` where 1.0.3 drew `⟩`; the shared footer already reads both, so the composer
 # pattern is the one the babysitter has always used, unchanged.
 composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · YOLO)$'
+# 1.4.7 draws its rotating composer suggestions ("Ask to monitor a running build …") in this
+# grey, with no faint attribute, and typed text in 252: the grey reads as faint, so empty.
+faint = ["38;5;242"]
 
 # Muse's picker: both choices and the key hint, in the last few lines with the hint newest.
 [[rule]]
@@ -84,7 +87,7 @@ newest = '(?i)to select'
 [[rule]]
 id = "working.interrupt"
 state = "working"
-lines = 8
+lines = 14   # 1.4.7 draws its task tray under the composer: up to 12 rows below the spinner
 any = ["esc to interrupt"]
 
 # A composer holding bright, typed text is a draft never sent. Muse has no
