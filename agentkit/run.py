@@ -810,11 +810,12 @@ def seat_launch(state):
     return bool(state.get("followup") or state.get("restarted"))
 
 
-def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None):
+def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None, argv=None):
     """Launch the task.md in that new run directory as the tick does for a seat, the one `state`
     was launched from: `origin` on its receipt says why (`seat_launch`), with the seat's lists
     now, the given run's only for a seat with no record of its own -- checked against the
-    config now, as that run's may predate a model it names -- and `opts` over the defaults."""
+    config now, as that run's may predate a model it names -- and `opts` over the defaults.
+    `argv` is the launch's own where it is no task's: a pull request's review started again."""
     session = launched_session(state)
     try:
         lists = (config.load_session(config.load(), session, required=False) if session
@@ -829,7 +830,7 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
             "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
     prepare(directory, opts, logger(directory), report_config(cfg), task_file=task_file,
             receipt=receipt)
-    spawn_bg(directory, [str(directory / "task.md")])
+    spawn_bg(directory, argv or [str(directory / "task.md")])
 
 
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
@@ -1129,12 +1130,18 @@ def preflight(run_dir, opts, log):
         owner, name, number = PR_PARTS.match(url).groups()
         state = run_record.read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
-        try:
-            launched_cfg = config.load()
-            is_own, orch = own_pr_orchestrator(
-                launched_cfg, state.get("launched_session"), info["author"])
-        except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
-            is_own, orch = False, None
+        if "own_pr" in state:
+            # the writer a review started again carries from its stopped run
+            # (`leases.restart`), captured at that run's launch: it stands, as
+            # `review_pr_round` keeps a captured writer, whatever model the seat runs now
+            is_own, orch = bool(state["own_pr"]), state.get("own_orchestrator")
+        else:
+            try:
+                launched_cfg = config.load()
+                is_own, orch = own_pr_orchestrator(
+                    launched_cfg, state.get("launched_session"), info["author"])
+            except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
+                is_own, orch = False, None
         state["own_pr"] = is_own
         state["own_orchestrator"] = orch if is_own else None
         run_record.save_state(run_dir, state)
