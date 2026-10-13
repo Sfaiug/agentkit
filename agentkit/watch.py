@@ -5892,7 +5892,8 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             return "failed", f"health: {command}", (
                 f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
     if not dry_run:
-        history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
+        history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"],
+                           merge_sha=sha, log=log)
     if not st.get("live_notified"):
         line = f"run {run_dir.name} is live: {pr_url}."
         if dry_run:
