@@ -7,6 +7,7 @@ landed (`leases.restart`).  Another's review, and one past its reviewer turn, ar
 down.  Offline: the lease stage (`fixtures.leases`), a fake launch.
 """
 
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -15,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import OLDER, YOUNGER, LiveRuns
-from agentkit import config, leases, run
+from agentkit import config, leases, run, stop
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -73,6 +74,37 @@ class SeatReservation(LiveRuns):
         self.assertEqual(self.state(YOUNGER)["lease_wait"]["on"], OLDER)
         run.park_own_review(self.repo, clear, dict(record.read_state(clear)), self.logs.append)
         self.assertEqual(self.state(clear.name)["state"], "running")        # nothing in its way
+
+    def test_an_own_review_of_text_alone_is_parked_before_it_skips_its_reviewer(self):
+        self.git(self.repo, "checkout", "-qb", "pr-head")
+        self.edit(self.repo, "api.py", 5, "the pull request's line 5", commit=True)
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        self.git(self.repo, "checkout", "-q", "main")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/main", self.base)
+        config.save_session(config.load(), "seat-b", "opus", ["opus"])
+        directory = config.RUNS / YOUNGER
+        directory.mkdir()
+        record.save_state(directory, {"run_id": YOUNGER, "state": "queued", "started_at": 1000,
+                                      "launched_session": "seat-b", "own_pr": True,
+                                      "own_orchestrator": "opus", "review_pr": URL})
+        info = {"state": "OPEN", "title": "Change line 5", "author": "owner", "baseRefName": "main",
+                "headRefOid": head, "body": "Change line 5"}
+        for target, name, kw in ((stop, "marker_pids", {"return_value": []}),
+                                 (run, "pr_view", {"return_value": info}),
+                                 (run, "checkout_for", {"return_value": self.repo}),
+                                 (run, "fetch", {"return_value": (0, "")}),
+                                 (run.gc, "disk_pressure", {"return_value": False}),
+                                 (run, "plan_context", {"return_value": ""}),
+                                 (run, "text_only_pr", {"return_value": True})):
+            self.stack.enter_context(patch.object(target, name, **kw))
+        settle = self.stack.enter_context(patch.object(run, "settle_pr_round"))
+        self.stack.enter_context(patch.dict(os.environ, {
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
+            "AK_MAX_RUNS": "0", "AGENTKIT_SESSION": "seat-b"}))
+        with self.assertRaises(record.StopRequested):
+            run.review_pr_round(config.load(), directory, URL, {"--review": None}, self.logs.append)
+        settle.assert_not_called()
+        self.assertEqual(self.state(YOUNGER)["lease_wait"]["on"], OLDER)
 
 
 if __name__ == "__main__":
