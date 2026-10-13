@@ -28,12 +28,6 @@ latest = ["npm", "view", "@anthropic-ai/claude-code", "version"]
 [usage]
 probe_every = 900
 
-# Its hooks live in a config file its launch reads (`adapters/claude.sh hooks` writes them
-# there), so a seat opened before the last install is missing whatever that install added and
-# says `restart to pick up updates`.
-[hooks]
-installed = "config"
-
 # "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
 # means only the rules below can say it.  A hook fact still gives way to a rule that positively
 # names a different state: Claude reports a question going up and nothing when it comes down.

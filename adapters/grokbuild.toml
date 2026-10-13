@@ -52,9 +52,6 @@ unreadable = false
 [usage]
 none = true
 
-[hooks]
-installed = "config"
-
 [authority]
 working = "hooks"
 asking = "hooks"

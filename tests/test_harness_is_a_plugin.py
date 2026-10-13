@@ -162,7 +162,7 @@ class Plugins(Fixture):
         self.assertFalse(plugin.usage_policy({"model": "echo-1"}, "low"))
         self.assertFalse(plugin.always_offered)
         self.assertEqual(plugin.fresh_words, harness.FRESH_WORDS)
-        self.assertFalse(plugin.hooks_from_config)
+        self.assertFalse(plugin.has_hooks)
         self.assertEqual(plugin.usage, harness.USAGE)
         # the default `launched` writes the launcher's own id down and asks for no environment
         self.seat("echo-seat", "echo")
@@ -210,7 +210,7 @@ class Plugins(Fixture):
         transcript.parent.mkdir(parents=True)
         transcript.write_text("{}\n")
         self.assertTrue(claude.opened(self.root, "c"))
-        self.assertTrue(claude.hooks_from_config)
+        self.assertTrue(claude.has_hooks)
 
 
 class UpdatePlan(Fixture):

@@ -3100,7 +3100,7 @@ def list_table(found, cfg, tallies, width, selections=None):
                      ",".join(selection["workers"]) if selection else "?",
                      terminal.format_age(time.time() - s["created"])])
         restart = (selection and s["created"] < installed_at and harness_plugin(
-            config.model(cfg, selection["orchestrator"])["harness"]).hooks_from_config)
+            config.model(cfg, selection["orchestrator"])["harness"]).has_hooks)
         note = ("  ".join(part for part in ("legacy" if s.get("legacy") else "",
                                             "restart to pick up updates" if restart else "")
                            if part))
