@@ -81,6 +81,15 @@ lines = 6
 all = ["enter to choose", "↓↑ to select", "esc to quit"]
 newest = '(?i)to select'
 
+# Muse 1.4's own question tool (`Request user input`): its options and this key hint, with the
+# composer still drawn under them and the turn waiting on the answer.  It reads `esc to
+# interrupt` too, so it comes before the working rule.
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 8
+all = ["enter to select", "↑/↓ to move", "for an optional note"]
+
 [[rule]]
 id = "working.interrupt"
 state = "working"

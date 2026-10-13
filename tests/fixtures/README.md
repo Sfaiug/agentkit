@@ -62,6 +62,13 @@ uses these exact strings, not a generic `401`, `unauthorized`, or an MCP login s
 Codex's other refresh-failure sentence and Claude's expiry message were also verified
 in their installed executables. No harness entry depends on an unverified guessed string.
 
+`muse-question-pane.txt` is Muse Code 1.4.7's actual `capture-pane -p -e -J` of a seat
+waiting on its own `Request user input` tool, the second of three questions, cut to the
+lines from its last finished step down. Its words are replaced with invented ones (the
+tool line's per-letter shimmer too); its rows, colours, key hint and composer are as
+captured. The hint ends `Esc to interrupt`, which is why `asking.question` comes before
+Muse's working rule.
+
 `auth-expiry-variants.json` records the additional logout messages reported in review
 and confirmed by inspecting these same installed binaries. It includes Claude's revoked
 and missing login messages and external-key failure, Codex's expired/revoked/already-used
