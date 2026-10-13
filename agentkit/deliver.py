@@ -1074,8 +1074,14 @@ def push_pr_branch(lp, remote, lease):
 def finish_blocked(run_dir, state, exc, log, cfg):
     """The task cannot be done as written: a final state of its own, because there is no
     verdict on work here and nothing a resume could spend.  The orchestrator that wrote
-    the task hears why and writes a new one."""
+    the task hears why and writes a new one, from the branch, which carries whatever the
+    checkout still held (`carry_checkout_work`) before the hand-back's cleanup takes it."""
     from . import worktrees  # here, not at the top: it reaches run
+    kept = carry_checkout_work(state, log)
+    if kept:
+        why = f"{exc}{kept}"
+        section = exc.section.replace(str(exc), why, 1) if str(exc) in exc.section else exc.section + kept
+        exc = turns.Blocked(why, section)
     log(f"BLOCKED {exc}")
     state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
                   "blocked": exc.section, "finished_at": time.time()})
@@ -1086,33 +1092,45 @@ def finish_blocked(run_dir, state, exc, log, cfg):
     return state
 
 
+def carry_checkout_work(state, log):
+    """Put a blocked run's uncommitted work on its branch, or keep its checkout with it.
+
+    A worker that hands in blocked mid-fix leaves its edits uncommitted, and the ending's
+    cleanup takes the checkout: without this a relaunch `from:` the branch starts without
+    them.  A checkout off its branch -- a rebase or merge stopped part way -- or still
+    holding work no commit took is kept with that work (`checkout_kept`), and so is one git
+    could not read or commit in time: the run still ends, and nothing in it is lost.  The
+    return is what the ending says about a kept checkout, empty when the branch has it all.
+    """
+    from . import worktrees  # here, not at the top: it reaches run
+    wt = Path(state.get("worktree") or "")
+    if not worktrees.checkout_removable(state) or not wt.is_dir():
+        return ""
+    branch = state.get("branch")
+    try:
+        if (gitcall.git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
+                or roundloop.in_progress(wt, "rebase") or roundloop.in_progress(wt, "merge")):
+            state["checkout_kept"] = True
+            return (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
+                    f"and is kept with that work")
+        artifacts = set(state.get("artifacts") or ())
+        gitcall.commit_leftovers(wt, log, artifacts, state)
+        if any(not gitcall.leftover_junk(path) and path not in artifacts
+               for path in gitcall.dirty_paths(wt)):
+            state["checkout_kept"] = True
+            return f"; its uncommitted work could not be committed, so its checkout {wt} is kept"
+    except (config.Error, OSError) as exc:
+        state["checkout_kept"] = True
+        return f"; git could not put its checkout's work on {branch} ({exc}), so {wt} is kept"
+    return ""
+
+
 def end_on_dependency(cfg, run_dir, state, log, why):
     """End a run cut from a dependency's passed tip, blocked, with the branch to relaunch from.
 
-    `why` is `stands_on_dependency`'s.  An interrupted executor's uncommitted edits go onto
-    that branch first.  A checkout off it -- a rebase or merge stopped part way -- or still
-    holding work no commit took is kept with that work (`checkout_kept`), and the ending
-    says where, so the hand-back's cleanup leaves it for the seat.  So is one git could not
-    read or commit in time: the run still ends, and nothing in the checkout is lost.
+    `why` is `stands_on_dependency`'s; the ending puts an interrupted executor's
+    uncommitted edits on that branch first, as every blocked ending does.
     """
-    wt = Path(state.get("worktree") or "")
-    if not state.get("scratch") and state.get("worktree") and wt.is_dir():
-        branch = state.get("branch")
-        try:
-            if (gitcall.git(wt, "symbolic-ref", "--quiet", "HEAD", check=False) != f"refs/heads/{branch}"
-                    or roundloop.in_progress(wt, "rebase") or roundloop.in_progress(wt, "merge")):
-                why += (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
-                        f"and is kept with that work")
-                state["checkout_kept"] = True
-            else:
-                gitcall.commit_leftovers(wt, log, set(), state)
-                if any(not gitcall.leftover_junk(path) for path in gitcall.dirty_paths(wt)):
-                    why += (f"; its uncommitted work could not be committed, so its checkout "
-                            f"{wt} is kept")
-                    state["checkout_kept"] = True
-        except (config.Error, OSError) as exc:
-            why += f"; git could not put its checkout's work on {branch} ({exc}), so {wt} is kept"
-            state["checkout_kept"] = True
     return finish_blocked(run_dir, state, turns.Blocked(why, f"## Blocked\n\n{why}"), log, cfg)
 
 

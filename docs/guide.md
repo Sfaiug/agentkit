@@ -270,7 +270,8 @@ wait on a target ref that no longer qualifies is inactive history: its row reads
 
 A merged run's worktree and local branch go with the merge. A stop takes both at once, or with `--keep` the checkout
 after seven days. A failed, blocked or errored checkout goes when its seat has been told or after seven days, unless a
-resume can take it; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy
+resume can take it; a blocked run first commits what its checkout still held to its branch, or keeps the checkout when
+it cannot; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy
 there. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
 with no run record goes a day after its last use (its folder changed, or git wrote its index or moved its HEAD): a folder with no `.git`, one ak never finished making, the line's marked scratch whatever it
 holds, any other only on a branch, not locked, with no submodule set up and `git status` listing nothing, untracked files
