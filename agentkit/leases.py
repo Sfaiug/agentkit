@@ -354,10 +354,12 @@ def restart(log=print, now=None):
     """The tick's pass: a run stopped waiting on a holder (`park`) is started again once the
     holder has landed or is over (stopped or failed: its diff no longer counts) -- its task
     naming its repository and the new run (`task_naming`), with a fix run's regression folder and
-    receipt (`CARRIED`), a new run of its seat (`run.launch_for_seat`).  The stopped run names the
-    new one first, and the launch follows, under the lock a stop and a seat's close take (as
-    `handback.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
-    and none starts twice whatever the launch did."""
+    receipt (`CARRIED`), or a pull request's review as that review again (`--review-pr`), with
+    the writer the stopped run captured at its launch (`own_pr`, `own_orchestrator`: the seat
+    may run another model by now), a new run of its seat (`run.launch_for_seat`).  The stopped
+    run names the new one first, and the launch follows, under the lock a stop and a seat's
+    close take (as `handback.start_followups` holds it), so a stop before it calls it off, a
+    closed seat gets none, and none starts twice whatever the launch did."""
     from . import handback, run, watch
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
@@ -379,21 +381,28 @@ def restart(log=print, now=None):
                 with run_record.record(run_dir) as current:
                     current["lease_restarted"] = directory.name
             directory.mkdir(parents=True)
+            review = state.get("review_pr")
             try:
-                (directory / "task.md").write_text(
-                    task_naming(run_dir, directory, state.get("repo")), encoding="utf-8")
-                if (run_dir / turns.REGRESSION.parent).is_dir():      # links kept as links
-                    shutil.copytree(run_dir / turns.REGRESSION.parent,
-                                    directory / turns.REGRESSION.parent, symlinks=True)
+                if review:
+                    carried = {key: state.get(key) for key in ("own_pr", "own_orchestrator")}
+                    kept = f"the review of {review} starts again on the landed base"
+                else:
+                    (directory / "task.md").write_text(
+                        task_naming(run_dir, directory, state.get("repo")), encoding="utf-8")
+                    if (run_dir / turns.REGRESSION.parent).is_dir():      # links kept as links
+                        shutil.copytree(run_dir / turns.REGRESSION.parent,
+                                        directory / turns.REGRESSION.parent, symlinks=True)
+                    carried = {key: state[key] for key in CARRIED if key in state}
+                    kept = f"its earlier attempt is kept on branch {state.get('branch')}"
                 (directory / "log.txt").touch()
-                gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
-                                      f"attempt is kept on branch {state.get('branch')}")
+                gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; {kept}")
                 run.launch_for_seat(
                     directory, state,
                     {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
-                     **{key: state[key] for key in CARRIED if key in state}},
+                     **carried},
                     opts={**{key: value for key, value in (state.get("launch_opts") or {}).items()
                              if key != "--first"},
+                          **({"--review-pr": review} if review else {}),
                           **({"--first": True} if state.get("first") else {})},
                     task_file=state.get("task_file"))
                 log(f"{run_dir.name} started again as {directory.name}: {why}")

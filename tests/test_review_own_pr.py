@@ -633,6 +633,27 @@ class OwnPr(unittest.TestCase):
         self.assertTrue(saved.get("own_pr"))
         self.assertIsNone(saved.get("own_orchestrator"))
 
+    def test_preflight_keeps_a_captured_writer_whatever_the_config_says(self):
+        # a config unreadable, or without the writer's model, refuses the launch; the writer
+        # stays on the record for a launch once the config is mended, and no login is read
+        without = {**self.cfg, "models": {name: model for name, model in self.cfg["models"].items()
+                                          if name != "opus"}}
+        for name, failure in (("unreadable", {"side_effect": config.Error("cannot read it")}),
+                              ("removed", {"return_value": without})):
+            with self.subTest(name):
+                run_dir = self.launch_dir(f"20261013-captured-{name}")
+                record.save_state(run_dir, {**record.read_state(run_dir), "own_pr": True,
+                                            "own_orchestrator": "opus"})
+                with patch.object(run, "pr_view", return_value=info()), \
+                        patch.object(run, "viewer_login", side_effect=AssertionError("login")):
+                    with patch.object(config, "load", **failure), \
+                            self.assertRaises(config.Error):
+                        run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
+                    with patch.object(config, "load", return_value=self.cfg):
+                        run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
+                saved = record.read_state(run_dir)
+                self.assertEqual((saved["own_pr"], saved["own_orchestrator"]), (True, "opus"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
