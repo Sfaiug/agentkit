@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, notify, orch, plan, terminal, usage, watch
+from agentkit import config, history, menu, notify, orch, plan, terminal, usage, watch
 
 
 class PlanLines(Sandbox):
@@ -76,6 +76,15 @@ class PlanLines(Sandbox):
 
     def plan_lines(self):
         return config.plan_path("fix-api").read_text().splitlines()
+
+    def test_a_check_runs_where_a_runs_checks_do(self):
+        # laid out as an install is: ak's history counts a repository under `.agentkit/tmp` as
+        # a test suite's throwaway, and agentkit's own tests keep their fixtures in their checkout
+        for name in ("WT", "TMP"):
+            self.stack.enter_context(patch.object(config, name, self.root / ".agentkit" / name.lower()))
+        seen = self.root / "seen"
+        self.ak("add", "the feature exists", "--check", f"pwd > {seen}; test -f feature.txt")
+        self.assertFalse(history.sandbox(seen.read_text().strip()))
 
     def test_a_check_failing_on_main_is_written_and_listed(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
@@ -198,7 +207,7 @@ class PlanLines(Sandbox):
                     kill.assert_called_once_with(proc.pid, signal.SIGKILL)
                     self.assertEqual(proc.wait.call_count, 2)
                 self.assertFalse(config.plan_path("fix-api").exists())
-                self.assertEqual(list(config.TMP.glob("plan-*")), [])
+                self.assertEqual(list(config.WT.glob("plan-*")), [])
                 self.assertEqual(len(self.git("worktree", "list", "--porcelain")
                                      .split("worktree ")) - 1, 1)
                 self.assertEqual(signal.getsignal(signal.SIGTERM), previous)

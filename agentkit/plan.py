@@ -246,7 +246,10 @@ def default_branch(repo, at=None):
     project's current default branch, fetched first -- or, with `at`, that commit, the one a
     line's check was proven failing on.  `checkout()` is a clean checkout of that commit made
     for one check and removed after it, so nothing one check writes or moves -- files, HEAD, a
-    submodule -- is there for the next.  A check gets the project's env file
+    submodule -- is there for the next.  It sits beside runs' checkouts in `config.WT`, as
+    the landing line's do: ak's history counts a repository under `.agentkit/tmp` as a test
+    suite's throwaway, so a test keeping its fixtures in its own checkout read differently
+    there than in a run.  A check gets the project's env file
     (`config.repo_env`), as a run's checks do: what git does not hold, such as the project's
     interpreter, it names there (ATLAS's `ATLAS_PYTHON`)."""
     env = {**git_env(), **config.repo_env(repo)}
@@ -267,11 +270,11 @@ def default_branch(repo, at=None):
     base = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
     sha = git("rev-parse", "--verify", f"{at or base}^{{commit}}")
     commit = git("log", "-1", "--format=%h %s", "--abbrev=12", sha)
-    config.TMP.mkdir(parents=True, exist_ok=True)
+    config.WT.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
     def checkout():
-        with tempfile.TemporaryDirectory(dir=config.TMP, prefix="plan-") as tmp:
+        with tempfile.TemporaryDirectory(dir=config.WT, prefix="plan-") as tmp:
             tree = Path(tmp) / "main"
             try:
                 git("worktree", "add", "--detach", str(tree), sha)
