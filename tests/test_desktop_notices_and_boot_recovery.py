@@ -124,7 +124,7 @@ class DesktopAndBoot(Sandbox):
         self.assertEqual(self.output(active), b"")
         # The notice goes where the card goes: the other client hears it while
         # the seat's own client stays quiet, which is the suppression above.
-        with patch.object(notify, "_attached", return_value=False):
+        with patch.object(notify, "_last_input", return_value=0):
             self.transition({"word": "needs you", "since": 10000,
                                          "reason": "Which branch?"}, now=10060)
         self.assertEqual(self.output(other),
@@ -138,7 +138,7 @@ class DesktopAndBoot(Sandbox):
         fixed = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
         working = {"word": "working", "since": 10000, "reason": ""}
         with patch.object(notify, "datetime") as clock, \
-                patch.object(notify, "_attached", return_value=False):
+                patch.object(notify, "_last_input", return_value=0):
             clock.now.return_value = fixed
             for kind, title, text, color, answer in (
                     ("needs", "Needs you", "Which branch?", 0xF5A623,
@@ -185,7 +185,7 @@ class DesktopAndBoot(Sandbox):
         other = self.client("other")
         held = {"word": "needs you", "since": 10000, "reason": "Which branch?"}
         resting = {"word": "working", "since": 10100, "reason": ""}
-        with patch.object(notify, "_attached", return_value=False):
+        with patch.object(notify, "_last_input", return_value=0):
             self.transition(held, now=10060)      # tells
             self.transition(held, now=10120)      # same episode: quiet
             self.transition(resting, now=10120)
@@ -304,7 +304,7 @@ class DesktopAndBoot(Sandbox):
                                 f"{ttys[1]}\tother\t@1\t{ttys[3]}\t1\n"
                                 f"{ttys[2]}\tother\t@1\t{ttys[3]}\t1\n")
         self.assertEqual(notify.terminal_targets("source"), [(ttys[1], False), (ttys[2], False)])
-        with patch.object(notify, "_attached", return_value=False):
+        with patch.object(notify, "_last_input", return_value=0):
             self.transition({"word": "needs you", "since": 10000,
                                          "reason": "Which branch?"}, now=10060)
         for client in (first, second):

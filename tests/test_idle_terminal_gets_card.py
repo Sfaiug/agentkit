@@ -1,5 +1,5 @@
-"""Only client input during a needs-you episode keeps its card quiet, and only until the
-card is out."""
+"""Client input in a needs-you seat holds its card back only while he is there, and only
+until the card is out."""
 
 import json
 import os
@@ -71,17 +71,32 @@ class IdleTerminalGetsCard(Sandbox):
         self.assertEqual(self.edits, [])
         self.assertNotIn("closed", self.card())
 
-    def test_input_during_the_wait_retires_the_episode_without_a_card(self):
+    def test_a_glance_holds_the_card_only_until_he_has_left_the_seat_a_minute(self):
+        # a seat works on with its question standing: looking at it answers nothing
         self.clients = [(SEAT, int(NOW) - 600)]
         self.tick()
-        self.clients.append((SEAT, int(NOW) + 1))
-        self.tick(1)
-        self.assertEqual(self.card()["closed"], "Answered")
+        self.clients = [(SEAT, int(NOW) + 50)]
         self.tick(notify.CARD_WAIT)
-        self.clients = []
-        self.tick(300)
+        self.tick(50 + notify.CARD_WAIT - 1)
         self.assertEqual(self.posts, [])
+        self.tick(50 + notify.CARD_WAIT)
+        self.tick(300)
+        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
         self.assertEqual(self.edits, [])
+
+    def test_his_last_key_holds_the_card_after_he_leaves_the_seat(self):
+        # tmux forgets a client's keys once it detaches or switches to another seat
+        for clients in ([], [("other-seat", int(NOW) + 61)]):
+            with self.subTest(clients=clients):
+                config.card_path(SEAT).unlink(missing_ok=True)
+                self.posts.clear()
+                self.clients = [(SEAT, int(NOW) + 50)]
+                self.tick(notify.CARD_WAIT)
+                self.clients = clients
+                self.tick(50 + notify.CARD_WAIT - 1)
+                self.assertEqual(self.posts, [])
+                self.tick(50 + notify.CARD_WAIT)
+                self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
 
     def test_input_after_delivery_leaves_the_sent_card_until_the_seat_needs_him_no_more(self):
         """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):

@@ -6,7 +6,7 @@ last notification, which is what the menu shows as that session's state. `ak not
 the reason or declaration; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
-with no attached client input since it began. A question a seat asks during its own turn is
+and the owner has typed nothing into the seat for a minute. A question a seat asks during its own turn is
 kept back in its record, apart from every notice, until a look finds that turn ended
 (`watch.ask_kept_back`): only then is the seat waiting for the answer. A done episode is sent
 once when the session state becomes done, and a declaration once whatever episodes, or versions,
@@ -879,8 +879,8 @@ def _end_done_episode(session, previous):
         _card_write(session, card)
 
 
-def _attached(session, since, seat=None):
-    """Input since this episode began counts; an untouched attached client does not.
+def _last_input(session, seat=None):
+    """When a client attached to the seat last had input, or 0: an untouched one has none.
 
     Ask the seat's own server. Focus flags are not evidence with focus-events off.
     """
@@ -890,17 +890,15 @@ def _attached(session, since, seat=None):
     rc, output = orch.tmux_out("list-clients", "-t", f"={session}",
                                "-F", "#{session_name}\t#{client_activity}",
                                socket=orch.seat_socket(seat))
-    if rc:
-        return False
-    for line in output.splitlines():
+    latest = 0
+    for line in output.splitlines() if not rc else ():
         name, _, activity = line.partition("\t")
         if name == session:
             try:
-                if int(activity) >= since:
-                    return True
+                latest = max(latest, int(activity))
             except ValueError:
                 pass
-    return False
+    return latest
 
 
 def failed_declaration(notice, mine, index=None):
@@ -1060,8 +1058,8 @@ def _carded(session, declared):
 
 
 def needs_transition(session, card, answer, now, seat=None):
-    """One amber card after a minute of needs you without attached client input since it began,
-    which stays `Needs you` for as long as the seat does.
+    """One amber card once needs you has stood a minute and the owner has typed nothing into
+    the seat for a minute, which stays `Needs you` for as long as the seat does.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -1074,33 +1072,39 @@ def needs_transition(session, card, answer, now, seat=None):
     answered_here = answered_at > card["since"]
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
-    # Input in the seat holds back a card that is not out yet: he is there.  One that is out
-    # says what its seat says: input there is him looking, at a dialog as at a question the
-    # seat asked, and it closes on his answer or when the seat needs him no more, which is
-    # the word changing (`transition`).
-    if (_attached(session, card["since"], seat) and not card.get("sent")) or answered_here:
-        if not card.get("closed") or card.get("open_needs") or answered_here:
-            if card.get("sent"):
-                _close_card(session, card, "Answered")
-            else:
-                # Input in this episode: it ends without a card.
-                card["closed"] = "Answered"
-            if answered_here and not card.get("open_needs"):
-                # The answer ends the needs you it answered once Discord took every edit: one
-                # still read now came after it -- a dialog, or the seat waiting again -- and
-                # is an episode of its own, though no tick saw the seat work in between.  Its
-                # minute counts from now, no earlier than its current question: an older
-                # callback can still be publishing. It began after the answer, which an
-                # upgrade since makes history, and after a newer `ak notify` asking again,
-                # which is never history; a watcher's notice is dated by the word.
-                card = {"word": "needs you", "since": max(
-                            now, declared.get("time", 0) if asked else 0), "began": max(
-                            answered_at, 0 if declared.get("source") else declared.get("time", 0)),
-                        "episode": secrets.token_hex(16), "sent": False, "open_needs": [],
-                        **({"completed": card["completed"]} if card.get("completed") else {})}
-            _card_write(session, card)
+    # A card that is out says what its seat says: input there is him looking, at a dialog as
+    # at a question the seat asked, and it closes on his answer or when the seat needs him no
+    # more, which is the word changing (`transition`).
+    if answered_here:
+        if card.get("sent"):
+            _close_card(session, card, "Answered")
+        else:
+            card["closed"] = "Answered"
+        if not card.get("open_needs"):
+            # The answer ends the needs you it answered once Discord took every edit: one
+            # still read now came after it -- a dialog, or the seat waiting again -- and
+            # is an episode of its own, though no tick saw the seat work in between.  Its
+            # minute counts from now, no earlier than its current question: an older
+            # callback can still be publishing. It began after the answer, which an
+            # upgrade since makes history, and after a newer `ak notify` asking again,
+            # which is never history; a watcher's notice is dated by the word.
+            card = {"word": "needs you", "since": max(
+                        now, declared.get("time", 0) if asked else 0), "began": max(
+                        answered_at, 0 if declared.get("source") else declared.get("time", 0)),
+                    "episode": secrets.token_hex(16), "sent": False, "open_needs": [],
+                    **({"completed": card["completed"]} if card.get("completed") else {})}
+        _card_write(session, card)
         return 0
-    if card.get("sent") or card.get("closed") or now - card["since"] < CARD_WAIT:
+    if card.get("sent") or card.get("closed"):
+        return 0
+    # Input in the seat holds back a card that is not out yet, for as long as he is there: a
+    # seat works on with its question standing, so a glance at it must not answer it, and the
+    # minute counts from his last key, which the card keeps: tmux forgets it once he leaves.
+    typed = _last_input(session, seat)
+    if typed > card.get("input_at", 0):
+        card["input_at"] = typed
+        _card_write(session, card)
+    if now - max(card["since"], card.get("input_at", 0)) < CARD_WAIT:
         return 0
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):
