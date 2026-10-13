@@ -141,6 +141,20 @@ class LeftoverStagedAndSandboxes(unittest.TestCase):
         self.assertEqual(self.committed(repo), ["feature.py", "venv"])
         self.assertEqual(run.git(repo, "show", ":app.py"), "value = 2")
 
+    def test_staged_rename_and_other_edits_are_committed(self):
+        repo = self.repo()
+        (repo / "old.txt").write_text("work\n")
+        run.git(repo, "add", "old.txt")
+        run.git(repo, "commit", "-m", "File to rename")
+        run.git(repo, "mv", "old.txt", "new.txt")
+        (repo / "app.py").write_text("value = 2\n")
+        run.commit_leftovers(repo, self.logs.append, set(), {"title": "fix api"})
+        self.assertEqual(run.git(repo, "show", "HEAD:app.py"), "value = 2")
+        self.assertEqual(run.git(repo, "ls-tree", "--name-only", "HEAD").splitlines(),
+                         ["app.py", "new.txt"])
+        self.assertEqual(run.git(repo, "show", "HEAD:new.txt"), "work")
+        self.assertEqual(run.git(repo, "status", "--porcelain"), "")
+
     def test_every_checkout_sandbox_is_a_named_top_level_one(self):
         sites = checkout_sandboxes()
         self.assertGreater(len(sites), 100)

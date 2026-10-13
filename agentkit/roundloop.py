@@ -58,7 +58,7 @@ class Loop:
         self.exec_sid, self.review_sid = state.get("exec_session"), state.get("review_session")
         self.spares = spares
         self.findings = prompts.saved_findings(run_dir, state)
-        self.artifacts = set()
+        self.artifacts = set(state.get("artifacts", ()))
         self.rnd = len(state["round_summaries"])
         self.scratch = bool(state.get("scratch"))
         # Keep the launch limits on resume; older receipts and review-only runs get defaults.

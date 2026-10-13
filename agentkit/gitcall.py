@@ -392,11 +392,12 @@ def dirty_paths(wt, env=None):
     """Every uncommitted path: tracked edits (staged or not) and untracked files, no ignored ones.
 
     Two plumbing calls rather than `status --porcelain`, whose output would have to be
-    un-quoted and split off its status column; `-z` hands back the raw paths.  `env` is the
+    un-quoted and split off its status column; `-z` hands back the raw paths. `--no-renames`
+    keeps both paths so a selected commit takes a rename's deletion too. `env` is the
     reader's: an index of its own (`GIT_INDEX_FILE`) for a checkout another process works in,
     whose own index is then neither locked nor rewritten.
     """
-    tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False, env=env)
+    tracked = git(wt, "diff", "--no-renames", "--name-only", "-z", "HEAD", check=False, env=env)
     untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False, env=env)
     return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
 
@@ -602,6 +603,19 @@ def leftover_junk(path):
                    for part in parts))
 
 
+def add_paths(wt, paths, env=None):
+    """Stage selected work that still has a file or an entry in this index.
+
+    A staged rename already removed its old entry, so add cannot match that path.
+    An index read from HEAD still has it and must stage its deletion.
+    """
+    indexed = set(git(wt, "ls-files", "-z", env=env).split("\0"))
+    selected = [f":(literal){path}" for path in paths
+                if path in indexed or os.path.lexists(Path(wt) / path)]
+    if selected:
+        git(wt, "add", "--", *selected, env=env)
+
+
 def commit_leftovers(wt, log, artifacts, state):
     """Commit whatever the executor left uncommitted, so the reviewer sees a real diff.
 
@@ -645,12 +659,12 @@ def commit_leftovers(wt, log, artifacts, state):
         if not real and not gone:
             return
         if real:
-            git(wt, "add", "--", *real)
+            add_paths(wt, real)
         with tempfile.TemporaryDirectory() as tmp:
             index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
             git(wt, "read-tree", "HEAD", env=index)
             if real:
-                git(wt, "add", "--", *real, env=index)
+                add_paths(wt, real, env=index)
             if gone:
                 git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
             git(wt, "commit", "-m", state["title"], env=index)
