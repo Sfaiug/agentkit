@@ -8,6 +8,7 @@ spent across its runs and may still spend.
 """
 
 from bisect import bisect_left
+from collections import Counter
 import json
 import os
 import re
@@ -278,6 +279,84 @@ def carried_lines(repo, base, head="HEAD"):
             else:
                 i += 1
     return carried
+
+
+def added_texts(repo, base, head="HEAD"):
+    """The lines a diff adds, each as its text with whitespace collapsed, those holding a letter
+    or digit, counted: what two pull requests share is read off these.  Generated files are left
+    out, as `diff_lines` leaves them out."""
+    diff = gitcall.git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color",
+                       "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
+                       "--submodule=short", f"{base}...{head}", check=False)
+    added = {}
+    for chunk in ("\n" + diff).split("\ndiff --git ")[1:]:
+        header, _, body = chunk.partition("\n@@")
+        new = re.search(r"^\+\+\+ b/(.*?)\t?$", header, re.M)
+        if new:
+            added[new.group(1)] = [" ".join(line[1:].split()) for line in body.split("\n")
+                                   if line[:1] == "+"]
+    skip = _generated(repo, head, sorted(added))
+    return Counter(text for name, lines in added.items() if name not in skip
+                   for text in lines if any(ch.isalnum() for ch in text))
+
+
+REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this long ago still
+                                # charges the one that re-adds its lines
+
+
+def budget_failed_reviews(repo, exclude=None):
+    """The seat's own pull requests of that repository whose review failed at the budget within
+    `REPLACED_WITHIN` and did not merge, as (url, base, head, finished): what a replacement
+    inherits rounds from.  The run itself (`exclude`) counts for nothing."""
+    home = Path(gitcall.main_checkout(Path(repo))).resolve()
+    found = []
+    for run_dir in run_record.run_dirs():
+        if exclude is not None and run_dir.name == Path(exclude).name:
+            continue
+        state = run_record.read_state(run_dir)
+        if (not state or not state.get("review_pr") or state.get("merged")
+                or state.get("state") != "fail"
+                or len(state.get("round_summaries") or []) < taskfile.TASK_MAX_ROUNDS
+                or not state.get("base_sha") or not state.get("head_sha") or not state.get("repo")):
+            continue
+        finished = state.get("finished_at") or 0
+        if time.time() - finished > REPLACED_WITHIN:
+            continue
+        try:
+            if Path(gitcall.main_checkout(Path(state["repo"]))).resolve() != home:
+                continue
+        except OSError:
+            continue
+        found.append((state["review_pr"], state["base_sha"], state["head_sha"], finished))
+    return found
+
+
+def replacement_refusal(repo, base, head, number, counted, exclude=None):
+    """Why a pull request's first review is refused as a replacement, else None: more than half
+    of its `counted` added lines were added by a pull request whose review failed at the budget
+    (`budget_failed_reviews`), and it is no real split of that one -- more than half its size --
+    so it inherits the rounds that were spent, which is all of them.  A redesign adds lines of
+    its own and passes; a split takes a part under half the failed one's size and passes.  A
+    failed head git no longer holds is skipped: nothing to compare."""
+    mine = added_texts(repo, base, head)
+    if not mine:
+        return None
+    worst = None
+    for url, their_base, their_head, _ in budget_failed_reviews(repo, exclude):
+        try:
+            theirs = added_texts(repo, their_base, their_head)
+        except config.Error:
+            continue
+        shared = sum((mine & theirs).values())
+        size = sum(theirs.values())
+        if shared * 2 > counted and counted * 2 > size and (worst is None or shared > worst[1]):
+            worst = (url, shared, size)
+    if worst is None:
+        return None
+    url, shared, size = worst
+    return (f"PR #{number} re-adds {shared} of its {counted} lines from {url}, whose review "
+            f"failed after {taskfile.TASK_MAX_ROUNDS} rounds; a replacement inherits them: split it "
+            f"into parts under {size // 2 + 1} lines, or redesign it")
 
 
 def _windows(lines):
