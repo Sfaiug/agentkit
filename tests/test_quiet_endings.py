@@ -63,6 +63,43 @@ class QuietEndings(HandBack):
         for directory in self.runs.values():
             self.assertNotIn("handback_pending", record.read_state(directory))
 
+    def test_an_ending_first_seen_behind_a_busy_seat_is_still_marked_waiting(self):
+        # held back unmarked, the history sweep an hour on took it for history, never typed
+        self.rows = [self.live()]
+        self.screen = "working"
+        self.deferred("run-1")
+        self.ended("run-2", owner=SEAT, no_merge=True)
+        watch.offer_endings(self.logs.append)
+        with patch.object(watch.time, "time", return_value=14000):
+            watch.sweep_preexisting(self.logs.append)
+            self.screen = "at_prompt"
+            watch.offer_endings(self.logs.append)
+        self.assertEqual(sorted(text.split()[1] for _, text in self.typed), ["run-1", "run-2"])
+
+    def test_a_routine_ending_is_recorded_while_its_seat_is_busy(self):
+        self.rows = [self.live()]
+        self.screen = "working"
+        self.deferred("run-1")
+        merged = self.ended("run-2", owner=SEAT, merged=True)
+        watch.offer_endings(self.logs.append)
+        self.assertTrue(record.read_state(merged).get("reported"))
+
+    def test_a_line_already_typed_gets_its_enter_behind_an_older_waiting_ending(self):
+        # run-1 reads run-2's unsent line as a draft; only run-2's own offer sends it
+        self.rows = [self.live()]
+        self.screen = "working"
+        self.deferred("run-1")
+        self.screen = "at_prompt"
+        seat = self.claude()
+        second = self.ended("run-2", owner=SEAT, no_merge=True)
+        seat.fails = True
+        run.announce(record.read_state(second), second, self.logs.append)
+        self.assertIn("run-2", seat.composer)
+        for _ in range(3):
+            watch.offer_endings(self.logs.append)
+        self.assertEqual(seat.composer, "")
+        self.assertEqual(sorted(line.split()[1] for line in seat.read), ["run-1", "run-2"])
+
 
 def load_tests(loader, tests, pattern):
     """Only this file's own tests: the fixture it inherits comes with `test_handback`'s."""
