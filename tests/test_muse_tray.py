@@ -31,7 +31,17 @@ class MuseTray(unittest.TestCase):
                     ("at_prompt", "prompt.suggestion"))
                 self.assertEqual(watch.composer_draft("muse", pane(name)), "")
 
-    def test_typed_text_over_the_tray_is_still_his_draft(self):
+    def test_the_hint_in_the_transcript_over_a_tray_is_no_turn(self):
+        # The tray is left out, not read past: ten rows up, above the spinner's window, is
+        # transcript, where `esc to interrupt` is only words.
+        for name, reading in (("tray-draft", ("draft", "prompt.draft")),
+                              ("tray-placeholder", ("at_prompt", "prompt.suggestion"))):
+            with self.subTest(name):
+                quoted = pane(name).replace("Starting the background sleep task.",
+                                            "Press esc to interrupt it.")
+                self.assertEqual(watch.screen_state("muse", watch.pane_tail(quoted))[:2], reading)
+
+    def test_typed_text_over_the_tray_is_still_a_draft(self):
         self.assertEqual(watch.screen_state("muse", watch.pane_tail(pane("tray-draft")))[:2],
                          ("draft", "prompt.draft"))
         self.assertEqual(watch.composer_draft("muse", pane("tray-draft")), "acmedraftwords")

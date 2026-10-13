@@ -75,6 +75,9 @@ composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) �
 # 1.4.7 draws its rotating composer suggestions ("Ask to monitor a running build …") in this
 # grey, with no faint attribute, and typed text in 252: the grey reads as faint, so empty.
 faint = ["38;5;242"]
+# 1.4.7 draws a tray of background tasks between its composer and its status line: a header,
+# up to four tasks, then `+N`.
+tray = '(?:main(?: · ↓ to select)?|[├└] .+)'
 
 # Muse's picker: both choices and the key hint, in the last few lines with the hint newest.
 [[rule]]
@@ -87,7 +90,7 @@ newest = '(?i)to select'
 [[rule]]
 id = "working.interrupt"
 state = "working"
-lines = 14   # 1.4.7 draws its task tray under the composer: up to 12 rows below the spinner
+lines = 8
 any = ["esc to interrupt"]
 
 # A composer holding bright, typed text is a draft never sent. Muse has no

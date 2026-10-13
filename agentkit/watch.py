@@ -647,6 +647,7 @@ def screen(harness):
              "draft": _pattern(block.get("draft"), path, re.M),
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
+             "tray": _pattern(block.get("tray"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -1049,17 +1050,19 @@ def strip_sgr(text):
 
 
 def _sgr_codes(params):
-    """The plain attribute codes of one SGR sequence's parameters; a bare `m` is a reset.
+    """The attribute codes of one SGR sequence's parameters; a bare `m` is a reset.
 
     Extended colours ride along as parameter runs -- `38;5;n`, `38;2;r;g;b` and
-    their background `48` twins -- and the `2` inside one names a colour, never
-    faint.
+    their background `48` twins -- and come out whole, as that run's text: the `2`
+    inside one names a colour, never faint.
     """
     params = params.split(";") if params else ["0"]
     i = 0
     while i < len(params):
         if params[i] in ("38", "48") and i + 1 < len(params) and params[i + 1] in ("5", "2"):
-            i += 3 if params[i + 1] == "5" else 5
+            size = 3 if params[i + 1] == "5" else 5
+            yield ";".join(params[i:i + size])
+            i += size
             continue
         if params[i].isdigit():
             yield int(params[i])
@@ -1077,28 +1080,12 @@ def _faint_drawn(raw, state=(False, False), colours=()):
         drawn = drawn or ((faint or muted) and bool(raw[at:found.start()].strip()))
         for code in _sgr_codes(found.group(1)):
             faint = True if code == 2 else False if code in (0, 22) else faint
-            if code in (0, 39) or 30 <= code <= 37 or 90 <= code <= 97:
+            if isinstance(code, str):
+                muted = code in colours if code.startswith("38;") else muted
+            elif code in (0, 39) or 30 <= code <= 37 or 90 <= code <= 97:
                 muted = False
-        colour = _foreground(found.group(1))
-        if colour is not None:
-            muted = colour in colours
         at = found.end()
     return drawn or ((faint or muted) and bool(raw[at:].strip())), (faint, muted)
-
-
-def _foreground(params):
-    """The extended foreground colour one SGR sequence sets (`38;5;n`, `38;2;r;g;b`), or None."""
-    params = params.split(";")
-    found, i = None, 0
-    while i < len(params):
-        if params[i] in ("38", "48") and i + 1 < len(params) and params[i + 1] in ("5", "2"):
-            size = 3 if params[i + 1] == "5" else 5
-            if params[i] == "38":
-                found = ";".join(params[i:i + size])
-            i += size
-            continue
-        i += 1
-    return found
 
 
 def has_dim(line, colours=()):
@@ -1540,6 +1527,13 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
+    # A tray the harness draws between its composer and its footer is neither: left out, every
+    # rule reads the rows it reads where none is drawn, and never further up the transcript.
+    if chrome["tray"] and chrome_line(chrome, lines[-1]):
+        at = len(lines) - 1
+        while at and chrome["tray"].fullmatch(lines[at - 1]):
+            at -= 1
+        raw_lines, lines = raw_lines[:at] + raw_lines[-1:], lines[:at] + lines[-1:]
     # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
     # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
     # it hid every question, which then read as answered.  In a renamed session -- every seat --
