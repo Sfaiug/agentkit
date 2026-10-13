@@ -234,7 +234,7 @@ class AfterGone(unittest.TestCase):
                                              else real_git(wt, *args, **kw))
         with patch.object(gitcall, "git", side_effect=on_branch), \
                 patch.object(roundloop, "in_progress", return_value=False), patch.object(gitcall, "commit_leftovers"), \
-                patch.object(gitcall, "dirty_paths", return_value=["src/api.py"]), \
+                patch.object(gitcall, "committable_paths", return_value=(["src/api.py"], [])), \
                 patch.object(worktrees, "drop_checkout", side_effect=AssertionError("cleaned up")), \
                 patch("agentkit.browser.close_owned"):
             ended = run.loop({}, run_dir, run_dir / "task.md", {"--no-worktree": False},
