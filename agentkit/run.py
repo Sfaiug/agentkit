@@ -834,6 +834,15 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
              else [str(directory / "task.md")])
 
 
+def park_own_review(repo, run_dir, state, log):
+    """The review runs the lease scan itself before any reviewer is picked, as ak's commit
+    step does for a task run: a diff that cannot merge with an older live change is parked
+    here (`leases.park`, restarted by `leases.restart`), and the save raises the stop."""
+    from . import leases  # here, not at the top: it reaches run
+    leases.scan_safely(repo, log)
+    run_record.save_state(run_dir, state)
+
+
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
     """Start `ak run <argv>` detached, from the record it reads under the recovery lock.
 
@@ -2405,6 +2414,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
+    if is_own and not summaries:
+        park_own_review(repo, run_dir, state, log)
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first

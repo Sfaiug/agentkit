@@ -13,9 +13,11 @@ commit step, which runs this scan itself -- is stopped there with its branch kep
 on the holder (`park`): what it built cannot land as it is.  Once the holder has landed or is
 over, the tick starts its task again on the newest base (`restart`); until then the stopped
 run is `parked`: going, so its seat is working and a wait on it follows the restart, and
-stoppable, so its owner's stop or its seat's close calls the restart off.  A younger run past that point,
-the review of a pull request, a job's task, a red target's repair and a suite's split are
-only written down: the lander orders their landings.  The record under
+stoppable, so its owner's stop or its seat's close calls the restart off.  A seat's own pull
+request's review before its reviewer turn (`run.park_own_review` runs the scan) is parked the
+same way, and the tick starts that review again.  A younger run past that point, another's
+pull request's review, a job's task, a red target's repair and a suite's split are only
+written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
 only while its run is going (`transitions.going`), is to land and its checkout is there; a record
 whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
@@ -102,12 +104,15 @@ def live(repo):
 def before_review(state):
     """Whether the run is a build with nothing reviewed yet: no round with a verdict, and its
     loop in its executor turn or at ak's commit step, where what it built can still be set
-    aside.  A pull request's review builds nothing to set aside, a job's task is its job's to
+    aside; or a seat's own pull request's review before its reviewer turn, which runs the scan
+    itself (`run.park_own_review`) and which the tick starts again (`restart`).  Another's
+    pull request's review builds nothing to set aside, a job's task is its job's to
     settle, as `transitions.parkable_conflict` leaves it, and a red target's repair and a suite's split
     are waited on: stopped, either would hold its line (`handback.repair_open`) or its suite
     (`handback.open_followup`) for good."""
-    return (not any(state.get(key) for key in ("review_pr", "job_id", "repair", "split_suite",
-                                               "round_summaries"))
+    if state.get("review_pr") and not state.get("own_pr"):
+        return False
+    return (not any(state.get(key) for key in ("job_id", "repair", "split_suite", "round_summaries"))
             and state.get("step") in (None, "executor", "done-when"))
 
 
