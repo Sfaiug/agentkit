@@ -234,6 +234,35 @@ class HandBack(Sandbox):
         self.assertEqual(len(self.typed), 1)
         self.assertEqual(self.cards, [])
 
+    def test_a_seat_read_at_its_prompt_that_takes_no_line_says_why_and_keeps_its_screen(self):
+        """13 Oct: a seat idle at its prompt took no hand-back for half an hour, its word read
+        `waiting for you` and paged the owner, and the log said only `not at its prompt`."""
+        directory = self.ended("run-3", owner=SEAT, no_merge=True)
+        self.rows = [self.live()]
+        # a seat at work explains itself and keeps nothing
+        self.screen, self.rule = "working", "UserPromptSubmit"
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        self.assertIn("it reads working by UserPromptSubmit", "\n".join(self.logs))
+        kept = config.seat_file("refused", SEAT)
+        self.assertFalse(kept.exists())
+        # on a later pass it reads at its prompt yet takes no line: said again, its screen kept
+        self.screen, self.rule = "at_prompt", "Stop"
+        self.pane = "a screen with no composer on it\n"
+        watch.offer_endings(self.logs.append)
+        self.assertEqual(self.typed, [])
+        self.assertIn("it reads at_prompt by Stop, its composer not found; "
+                      f"its screen is kept in {kept}", "\n".join(self.logs))
+        self.assertEqual(kept.read_text(), self.pane)
+
+    def test_a_read_of_why_that_fails_leaves_the_ending_waiting(self):
+        # unmarked, the history sweep an hour on took it for history, never typed
+        directory = self.ended("run-3", owner=SEAT, no_merge=True)
+        self.rows = [self.live()]
+        self.screen = "working"
+        with patch.object(watch, "untyped", side_effect=config.Error("a composer rule broke")):
+            watch.offer_endings(self.logs.append)
+        self.assertTrue(record.read_state(directory)["handback_pending"])
+
     def test_a_hand_back_reaches_a_seat_stopped_on_background_work(self):
         """ak-merge-speed, 6 Oct 22:54: a Claude turn that stopped with a background shell
         still running reads working, though its composer is open and a line typed there goes

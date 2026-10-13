@@ -1317,9 +1317,11 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
     Typed into the seat's composer through the confirmed send, and only while its harness sits
     at its own prompt: a line typed into a turn in flight is swallowed.  Otherwise the record
     keeps `handback_pending` and the `ak watch` tick types it at the next quiet prompt, once;
-    the log says so once, as the ending is first deferred, and again when the line is in.
-    `busy` is the tick's pass: the seats it found not taking a line, which this one does not
-    read again -- unless its own line already waits in the composer for its Enter.
+    the log says so, with what a look at the seat read (`watch.untyped`), as the ending is first
+    deferred, on each read at its prompt that took no line, and when the line is in.
+    `busy` is the tick's pass: the seats it found not taking a line and what it read of each,
+    which this one does not read again -- unless its own line already waits in the composer
+    for its Enter.
     Call it inside `launcher_world`, so the seat is found and typed into where it was seen.
 
     Exactly once, whoever gets here first: the deciding, the typing and the mark are one
@@ -1353,12 +1355,12 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
         line = handback_line(state, run_dir, cfg)
-        busy = set() if busy is None else busy
-        if ((session not in busy or said.get("handback_typed"))
-                and watch.type_at_prompt(seat, line, log, cfg=cfg,
+        busy = {} if busy is None else busy
+        read = session not in busy or said.get("handback_typed")
+        if read and watch.type_at_prompt(seat, line, log, cfg=cfg,
                                          typed=said.get("handback_typed"),
                                          receipt=lambda mark: mark_delivery(
-                                             run_dir, state, handback_typed=mark))):
+                                             run_dir, state, handback_typed=mark)):
             mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
                           handback_pending=None, handback_typed=None, handback_note=None,
                           handback_wait_reason=None, notification_pending=None)
@@ -1366,15 +1368,23 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
             # The seat was told. It reads result.md, not the checkout.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
-        busy.add(session)
-        if not said.get("handback_pending") or state.get("handed_back"):
+        first = not said.get("handback_pending") or state.get("handed_back")
+        if first:
             # an ending is either said or waiting to be, never both: a mark the attempt
-            # before this one left is neither, and goes with the same write.  Said here and
-            # not on the tick's later passes: a seat off its prompt for three days put this
-            # line in the log 22,000 times for 36 runs (13 Oct)
+            # before this one left is neither, and goes with the same write.  Marked before
+            # the seat is read for why: a read that fails leaves no ending for the sweep
             mark_delivery(run_dir, state, handback_pending=True, handed_back=None,
                           handback_note=None)
-            log(f"the {session} seat is not at its prompt; the tick hands run {run_dir.name} back")
+        at_prompt = False
+        if read:
+            busy[session], at_prompt = watch.untyped(seat, cfg)
+        if first or at_prompt:
+            # Said as the ending is first deferred and not on the tick's later passes: a seat
+            # off its prompt for three days put this line in the log 22,000 times for 36 runs
+            # (13 Oct).  A seat read at its prompt that took no line contradicts itself, and
+            # is said on each pass it does, beside the screen it kept
+            log(f"the {session} seat is not at its prompt ({busy[session]}); "
+                f"the tick hands run {run_dir.name} back")
     return False
 
 
