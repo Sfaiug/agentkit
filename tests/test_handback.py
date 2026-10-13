@@ -248,7 +248,7 @@ class HandBack(Sandbox):
         # on a later pass it reads at its prompt yet takes no line: said again, its screen kept
         self.screen, self.rule = "at_prompt", "Stop"
         self.pane = "a screen with no composer on it\n"
-        self.tick()
+        watch.offer_endings(self.logs.append)
         self.assertEqual(self.typed, [])
         self.assertIn("it reads at_prompt by Stop, its composer not found; "
                       f"its screen is kept in {kept}", "\n".join(self.logs))
