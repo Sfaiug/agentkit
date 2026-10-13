@@ -1368,15 +1368,16 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
             # The seat was told. It reads result.md, not the checkout.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
-        at_prompt = False
-        if read:
-            busy[session], at_prompt = watch.untyped(seat, cfg)
         first = not said.get("handback_pending") or state.get("handed_back")
         if first:
             # an ending is either said or waiting to be, never both: a mark the attempt
-            # before this one left is neither, and goes with the same write
+            # before this one left is neither, and goes with the same write.  Marked before
+            # the seat is read for why: a read that fails leaves no ending for the sweep
             mark_delivery(run_dir, state, handback_pending=True, handed_back=None,
                           handback_note=None)
+        at_prompt = False
+        if read:
+            busy[session], at_prompt = watch.untyped(seat, cfg)
         if first or at_prompt:
             # Said as the ending is first deferred and not on the tick's later passes: a seat
             # off its prompt for three days put this line in the log 22,000 times for 36 runs

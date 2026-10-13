@@ -254,6 +254,15 @@ class HandBack(Sandbox):
                       f"its screen is kept in {kept}", "\n".join(self.logs))
         self.assertEqual(kept.read_text(), self.pane)
 
+    def test_a_read_of_why_that_fails_leaves_the_ending_waiting(self):
+        # unmarked, the history sweep an hour on took it for history, never typed
+        directory = self.ended("run-3", owner=SEAT, no_merge=True)
+        self.rows = [self.live()]
+        self.screen = "working"
+        with patch.object(watch, "untyped", side_effect=config.Error("a composer rule broke")):
+            watch.offer_endings(self.logs.append)
+        self.assertTrue(record.read_state(directory)["handback_pending"])
+
     def test_a_hand_back_reaches_a_seat_stopped_on_background_work(self):
         """ak-merge-speed, 6 Oct 22:54: a Claude turn that stopped with a background shell
         still running reads working, though its composer is open and a line typed there goes
