@@ -3,10 +3,11 @@ this host's.
 
 Read from the host the suite runs on, so the check holds wherever ak runs: the user's name
 and home directory name (`pwd`), and the names of the checkouts under that home's `code` (hidden
-directories aside), five characters or longer -- the repository's own name aside, and any name that is also a
-path in the repository, which prose names for its own sake.  Each is matched whole, case
-aside, in tests/, docs/, README.md, AGENTS.md, ARCHITECTURE.md and orchestrator.md.
-Offline: `git grep` over the tracked files of this checkout.
+directories aside), five characters or longer -- `agentkit` aside, the name these files give
+this project whatever its checkout is called.  A name that is also a path in the repository,
+which prose names for its own sake, is looked for as `code/<name>`.  Each is matched whole and
+literally, case aside, in tests/, docs/, README.md, AGENTS.md, ARCHITECTURE.md and
+orchestrator.md, this file too.  Offline: `git grep` over the tracked files of this checkout.
 """
 
 import os
@@ -28,19 +29,18 @@ def host_names():
     if code.is_dir():
         names.update(child.name for child in code.iterdir()
                      if child.is_dir() and not child.name.startswith("."))
-    return sorted((name for name in names
-                   if len(name) >= 5 and name != REPO.name and not (REPO / name).exists()),
+    return sorted((f"code/{name}" if (REPO / name).exists() else name
+                   for name in names if len(name) >= 5 and name != "agentkit"),
                   key=len, reverse=True)
 
 
 def mentions(name):
     """Each `path:line: text` naming `name` whole, case aside, in the public files."""
-    proc = subprocess.run(["git", "-C", str(REPO), "grep", "-n", "-I", "-i", "-w", "--no-color",
-                           "-e", name, "--", *PUBLIC], capture_output=True, text=True)
+    proc = subprocess.run(["git", "-C", str(REPO), "grep", "-n", "-I", "-F", "-i", "-w",
+                           "--no-color", "-e", name, "--", *PUBLIC], capture_output=True, text=True)
     if proc.returncode not in (0, 1):
         raise AssertionError(f"git grep failed: {proc.stderr}")
-    return [line for line in proc.stdout.splitlines()
-            if not line.startswith("tests/test_invented_names.py:")]
+    return proc.stdout.splitlines()
 
 
 class InventedNames(unittest.TestCase):
