@@ -110,6 +110,9 @@ class CheckoutRemoval(unittest.TestCase):
             ended = run.loop(self.cfg, directory, directory / "task.md", opts,
                              lambda _: None, prior=state)
         self.assertEqual(ended["state"], "blocked")
+        ended["handed_back"] = True
+        record.save_state(directory, ended)
+        worktrees.settle_run(ended, directory)
         self.assert_saved(wt, state)
 
     def test_blocked_delivery_retry_saves_work(self):
@@ -120,10 +123,13 @@ class CheckoutRemoval(unittest.TestCase):
             raise turns.Blocked("Cannot deliver this task", "## Blocked\n\nCannot deliver this task")
 
         def finish(state, directory, log, cfg):
+            state["handed_back"] = True
+            record.save_state(directory, state)
             worktrees.settle_run(state, directory, log)
             return 1
 
         with patch.object(run.box, "check"), patch.object(run, "review_pass", return_value=True), \
+                patch.object(run, "require_review_pass"), \
                 patch.object(run, "merge", side_effect=fixer), patch.object(run, "finish", side_effect=finish), \
                 patch.object(run.history, "Sampler"), patch.object(run, "stop_run_tree"), \
                 redirect_stdout(io.StringIO()):
@@ -194,7 +200,7 @@ class CheckoutRemoval(unittest.TestCase):
                 elif mode == "other-branch":
                     self.git(wt, "checkout", "-qb", "other-work")
                 else:
-                    (self.repo / "tracked.txt").write_text("target changed\n")
+                    (self.repo / "tracked.txt").write_text(f"target changed during {mode}\n")
                     self.git(self.repo, "commit", "-qam", "Target change")
                     (wt / "tracked.txt").write_text("branch changed\n")
                     self.git(wt, "commit", "-qam", "Branch change")
@@ -230,8 +236,9 @@ class BlockedOwnPr(OwnPr):
         self.fix = blocked
         state = self.review(["FAIL"])
         wt = Path(state["worktree"])
-        run.announce(state, self.run_dir, lambda _: None, self.cfg)
-        worktrees.settle_run(record.read_state(self.run_dir), self.run_dir)
+        state["handed_back"] = True
+        record.save_state(self.run_dir, state)
+        worktrees.settle_run(state, self.run_dir)
         self.assertEqual(state["state"], "blocked")
         self.assertFalse(wt.exists())
         self.assertEqual(self.git("show", f"{state['branch']}:fence.txt"), "fixer work")
