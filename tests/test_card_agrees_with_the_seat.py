@@ -2,8 +2,8 @@
 
 The owner got a card for a dialog, opened the seat to read it, and the card turned `Answered`
 while the dialog was still up: any key in an attached terminal since the episode began closed
-a card, sent or not.  Input in the seat still holds back a card that is not out yet -- he is
-there.  One that is out stays `Needs you` for as long as its seat does, and reads `Answered`
+a card, sent or not.  Input in the seat still holds back a card that is not out yet, for a
+minute from his last key -- he is there.  One that is out stays `Needs you` for as long as its seat does, and reads `Answered`
 once he answered or the seat works again, `Done` once it declared its job done.
 Offline: fake tmux and card delivery, and a temporary HOME.
 """
@@ -91,11 +91,12 @@ class CardAgreesWithTheSeat(unittest.TestCase):
         self.says("needs you", 100, now=180, reason="waiting for you")
         self.assertEqual(self.closed, ["Answered"])
 
-    def test_input_in_the_seat_still_holds_back_a_card_that_is_not_out(self):
+    def test_input_in_the_seat_holds_back_a_card_that_is_not_out_a_minute(self):
         self.client = (0, "seat\t130")          # he is in the seat as the dialog goes up
-        for now in (160, 360):
+        for now in (160, 189):
             self.says("needs you", 100, now=now)
         self.assertEqual(self.posts, [])
+        self.assertTrue(self.says("needs you", 100, now=190)["sent"])
 
 
 if __name__ == "__main__":

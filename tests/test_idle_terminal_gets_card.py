@@ -84,6 +84,20 @@ class IdleTerminalGetsCard(Sandbox):
         self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
         self.assertEqual(self.edits, [])
 
+    def test_his_last_key_holds_the_card_after_he_leaves_the_seat(self):
+        # tmux forgets a client's keys once it detaches or switches to another seat
+        for clients in ([], [("other-seat", int(NOW) + 61)]):
+            with self.subTest(clients=clients):
+                config.card_path(SEAT).unlink(missing_ok=True)
+                self.posts.clear()
+                self.clients = [(SEAT, int(NOW) + 50)]
+                self.tick(notify.CARD_WAIT)
+                self.clients = clients
+                self.tick(50 + notify.CARD_WAIT - 1)
+                self.assertEqual(self.posts, [])
+                self.tick(50 + notify.CARD_WAIT)
+                self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+
     def test_input_after_delivery_leaves_the_sent_card_until_the_seat_needs_him_no_more(self):
         """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):
         his keys there are him looking, and the word changing is what closes it, once."""

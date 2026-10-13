@@ -1095,11 +1095,16 @@ def needs_transition(session, card, answer, now, seat=None):
                     **({"completed": card["completed"]} if card.get("completed") else {})}
         _card_write(session, card)
         return 0
+    if card.get("sent") or card.get("closed"):
+        return 0
     # Input in the seat holds back a card that is not out yet, for as long as he is there: a
     # seat works on with its question standing, so a glance at it must not answer it, and the
-    # minute counts from his last key.
-    if (card.get("sent") or card.get("closed")
-            or now - max(card["since"], _last_input(session, seat)) < CARD_WAIT):
+    # minute counts from his last key, which the card keeps: tmux forgets it once he leaves.
+    typed = _last_input(session, seat)
+    if typed > card.get("input_at", 0):
+        card["input_at"] = typed
+        _card_write(session, card)
+    if now - max(card["since"], card.get("input_at", 0)) < CARD_WAIT:
         return 0
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):
