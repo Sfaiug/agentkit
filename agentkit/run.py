@@ -1141,12 +1141,17 @@ def preflight(run_dir, opts, log):
         owner, name, number = PR_PARTS.match(url).groups()
         state = run_record.read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
-        try:
-            launched_cfg = config.load()
-            is_own, orch = own_pr_orchestrator(
-                launched_cfg, state.get("launched_session"), info["author"])
-        except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
-            is_own, orch = False, None
+        if state.get("own_pr") and state.get("head_sha") == info["headRefOid"]:
+            # the writer captured for this head, by the review a restart carries it from
+            # (`leases.restart`): a seat that switched models since wrote none of it
+            is_own, orch = True, state.get("own_orchestrator")
+        else:
+            try:
+                launched_cfg = config.load()
+                is_own, orch = own_pr_orchestrator(
+                    launched_cfg, state.get("launched_session"), info["author"])
+            except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
+                is_own, orch = False, None
         state["own_pr"] = is_own
         state["own_orchestrator"] = orch if is_own else None
         run_record.save_state(run_dir, state)

@@ -359,8 +359,8 @@ def restart(log=print, now=None):
     """The tick's pass: a run stopped waiting on a holder (`park`) is started again once the
     holder has landed or is over (stopped or failed: its diff no longer counts) -- its task
     naming its repository and the new run (`task_naming`), with a fix run's regression folder and
-    receipt (`CARRIED`), or the review of its pull request as it stands now, a new run of its
-    seat (`run.launch_for_seat`).  The stopped run names the
+    receipt (`CARRIED`), or the review of its pull request as it stands now, with the writer it
+    captured for the head it reviewed, a new run of its seat (`run.launch_for_seat`).  The stopped run names the
     new one first, and the launch follows, under the lock a stop and a seat's close take (as
     `handback.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
     and none starts twice whatever the launch did."""
@@ -395,7 +395,8 @@ def restart(log=print, now=None):
                                               f"of {review} starts again on the landed base")
                     run.launch_for_seat(
                         directory, state,
-                        {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo")},
+                        {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
+                         **{key: state.get(key) for key in ("own_pr", "own_orchestrator", "head_sha")}},
                         opts={**opts, "--review-pr": review}, argv=["--review-pr", review])
                 else:
                     (directory / "task.md").write_text(
