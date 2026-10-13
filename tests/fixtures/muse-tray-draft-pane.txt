@@ -1,0 +1,50 @@
+
+[38;5;242m  [1m[38;5;252mMuse Code[0m[38;5;252m 1.4.7
+
+[38;5;75m[48;5;237m❯ [38;5;252mReply with the single word OK.[39m                                                                                    
+
+[1m[38;5;252m[49m◆ [0m[38;5;252mOK
+
+[38;5;75m[48;5;237m❯ [38;5;252mUse your bash tool to start the command `sleep 200` as a background task (do not wait for it). Then make a[39m        
+[38;5;75m  [38;5;252mseparate bash call that runs `sleep 60` in the foreground and waits for it to finish (yield_time_ms 90000). Then[39m  
+[38;5;75m  [38;5;252mreply DONE. Do not check on the background task.[39m                                                                  
+
+[1m[38;5;252m[49m◆ [0m[38;5;252mStarting the background sleep task.
+
+[38;5;221m◆ [1m[38;5;252mBackgrounded[0m[38;5;252m [38;5;75m· Start long sleep in background[38;5;242m · 1s[2m · ctrl+o
+
+[0m[38;5;242m  [38;5;246m(↓ to view terminals)
+
+[1m[38;5;252m◆ [0m[38;5;252mBackground task started. Now running the foreground wait.
+
+[38;5;151m◆ [1m[38;5;252mRan command[0m[38;5;252m [38;5;75m· Run short sleep foreground[38;5;242m · ✓ · 1m[2m · ctrl+o
+
+[0;1m[38;5;252m◆ [0m[38;5;252mDONE
+
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;75m❯ [38;5;252macme draft words[39m                                               
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0;1m[38;5;75mmain[0m              
+[38;5;242m└ [38;5;251m◆ [38;5;246mStart long sleep in background  running                                                                   1m 32s
+[38;5;242m  [38;5;75mmuse-spark-1.3[38;5;246m · [38;5;75mminimal[38;5;246m · /t/c/-/3/s/musehook/ws · [38;5;211mYOLO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -62,6 +62,13 @@ uses these exact strings, not a generic `401`, `unauthorized`, or an MCP login s
 Codex's other refresh-failure sentence and Claude's expiry message were also verified
 in their installed executables. No harness entry depends on an unverified guessed string.
 
+`muse-placeholder-pane.txt`, `muse-tray-placeholder-pane.txt`, `muse-tray-draft-pane.txt` and
+`muse-tray-working-pane.txt` are Muse Code 1.4.7's actual `capture-pane -p -e -J` panes, 116
+columns wide, from a scratch TUI on a private tmux socket with `--yolo`: idle with a rotating
+composer suggestion (`38;5;242`, no faint attribute; typed text is `38;5;252`), the same over
+its background-task tray, `acme draft words` typed over the tray and not sent, and a turn
+running under the tray at its cap of four tasks and `+N`, twelve rows below the spinner.
+
 `auth-expiry-variants.json` records the additional logout messages reported in review
 and confirmed by inspecting these same installed binaries. It includes Claude's revoked
 and missing login messages and external-key failure, Codex's expired/revoked/already-used
