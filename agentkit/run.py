@@ -2890,6 +2890,13 @@ def main(argv):
         print(f"ak run: ignoring {config.RUN_DIR_ENV}={resumed}: not a queued run",
               file=sys.stderr)
         resumed = None
+    if resumed:
+        # a queued child runs with the options its receipt recorded, as a resume of a run that
+        # never started does (`cmd_resume`): a --bg launch's own argv repeats them, and the
+        # tick's launch for a seat (`launch_for_seat`) sends none
+        recorded = (run_record.read_state(Path(resumed)) or {}).get("launch_opts") or {}
+        flags.update({flag: recorded[flag] for flag in flags if flag in recorded})
+        opts.update(recorded)
     if opts["--review-pr"]:
         return review_pr_main(cfg, opts, flags, argv, resumed)
     if resumed:
