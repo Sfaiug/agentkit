@@ -1,17 +1,87 @@
-"""Compute and render the history scoreboard of delivered work and ak's cost."""
+"""Compute and render the history scoreboard of delivered work, what escaped its reviews, and
+ak's cost."""
 
 import os
+from pathlib import Path
+import re
 import subprocess
 import time
 from statistics import median
 
-from . import config, history, record, terminal
+from . import config, gitcall, history, record, terminal
 
 # The parts of a merged change's hours, each second of its runs' phase rows in the first that
 # holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
 # place in its landing line), else a wait.
 PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
          ("waiting", tuple(f"{wait} wait" for wait in history.WAIT_COLUMNS)))
+
+ANSWERS_FOR = 7 * 86400   # a merged change answers for its lines this long: a later change on the
+                          # default branch that deletes a line it added inside this window, and
+                          # does not add that line back elsewhere, rewrote it; a revert deletes
+                          # every line it added.  The nearest measure ak has of what a review let
+                          # through: not every rewrite is a defect, and churn falls on every
+                          # reviewer's changes alike, so reviewers are compared by it
+
+
+def _git(repo, *args, ok=(0,)):
+    """That repository's git output, or None when it cannot answer in time."""
+    try:
+        result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=10)
+        if result.returncode in ok:
+            return result.stdout
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def branch_log(repo, since):
+    """The default branch's first-parent commits since `since`, oldest first, each as `sha`,
+    `at` (its commit time) and the lines it added and deleted against its first parent, as
+    (path, text) with the text stripped, those holding a letter or digit, a rename keyed by
+    its old path for what it deleted and its new for what it added; None where git cannot
+    say.  One git call per repository: the default branch is `origin/HEAD`, else `HEAD`."""
+    head = _git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    out = _git(repo, *gitcall.patch_args(
+        "log", "--first-parent", "--diff-merges=first-parent", "--format=commit %H %ct",
+        "--since=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since)),
+        head.decode().strip() if head else "HEAD"))
+    if out is None:
+        return None
+    # a commit's line opens it: no line of its patch starts so, a content line starting with
+    # its mark, whatever bytes it holds
+    parts = re.split(r"^commit (\S+) (\d+)$", out.decode("utf-8", "replace"), flags=re.M)
+    commits = []
+    for sha, at, patch in zip(parts[1::3], parts[2::3], parts[3::3]):
+        current = {"sha": sha, "at": int(at), "added": set(), "deleted": set()}
+        for old, new, lines in gitcall.patch_files(patch):
+            for line in lines:
+                path, text = {"+": new, "-": old}.get(line[:1]), line[1:].strip()
+                if path and any(ch.isalnum() for ch in text):
+                    current["added" if line[0] == "+" else "deleted"].add((path, text))
+        commits.append(current)
+    commits.reverse()
+    return commits
+
+
+def rewrote(later, added):
+    """Whether that later commit deleted one of `added` without adding its text back elsewhere:
+    a move is not a rewrite."""
+    kept = {text for _, text in later["added"]}
+    return any(text not in kept for _, text in added & later["deleted"])
+
+
+def escaped(log, sha, now):
+    """(rewrites, open) for the change merged as `sha` on that branch log: how many later
+    commits rewrote a line it added (`rewrote`) inside `ANSWERS_FOR` of its merge, and whether
+    that window is still open at `now`; None where the log does not hold the merge."""
+    place = next((i for i, commit in enumerate(log) if commit["sha"] == sha), None)
+    if place is None:
+        return None
+    merged = log[place]
+    rewrites = sum(1 for later in log[place + 1:]
+                   if later["at"] <= merged["at"] + ANSWERS_FOR and rewrote(later, merged["added"]))
+    return rewrites, now < merged["at"] + ANSWERS_FOR
 
 
 def split_hours(row):
@@ -88,14 +158,47 @@ def compute(now=None):
             row["final_state"], row["finished_at"])
 
     def git(*args):
-        try:
-            result = subprocess.run(["git", "-C", str(config.REPO), *args],
-                                    capture_output=True, timeout=10)
-            if result.returncode == 0 or (args[0] == "grep" and result.returncode == 1):
-                return result.stdout
-        except (OSError, subprocess.SubprocessError):
-            pass
-        return None
+        return _git(config.REPO, *args, ok=(0, 1) if args[0] == "grep" else (0,))
+
+    logs = {}
+
+    def checkout(row, saved):
+        """Where that run's repository is checked out: as its record says, else by its row's
+        name under `config.CODE`, else ak's own; None where nothing holds it."""
+        if saved.get("repo") and Path(saved["repo"]).is_dir():
+            return Path(saved["repo"])
+        if row.get("repo") and (config.CODE / row["repo"]).is_dir():
+            return config.CODE / row["repo"]
+        return config.REPO if row.get("repo") in own_names else None
+
+    def escapes(ended):
+        """The merged changes of the week a later change rewrote inside `ANSWERS_FOR` of their
+        merge (`escaped`), per reviewer, followed from each run's merge commit (its row's, else
+        its record's) on its repository's branch log, read once per repository and far enough
+        back to hold the window of a change merged two weeks ago: the one measure of what a
+        review let through.  None with no merged run."""
+        merged = [row for row in ended if delivered(row)]
+        if not merged:
+            return None
+        found = {"merged": 0, "escaped": 0, "open": 0, "unknown": 0, "reviewers": {}}
+        for row in merged:
+            saved = record.read_state(config.RUNS / row["run_id"]) or {}
+            sha, repo = row.get("merge_sha") or saved.get("merge_sha"), checkout(row, saved)
+            if repo is not None and repo not in logs:
+                logs[repo] = branch_log(repo, now - 2 * week - ANSWERS_FOR)
+            answer = escaped(logs[repo], sha, now) if sha and repo is not None and logs[repo] else None
+            if answer is None:
+                found["unknown"] += 1
+                continue
+            rewrites, still = answer
+            found["merged"] += 1
+            found["open"] += still
+            by = found["reviewers"].setdefault(row.get("reviewer") or "no reviewer", [0, 0])
+            by[1] += 1
+            if rewrites:
+                found["escaped"] += 1
+                by[0] += 1
+        return found
 
     common = git("rev-parse", "--git-common-dir")
     own_names = {config.REPO.name}
@@ -104,7 +207,7 @@ def compute(now=None):
     rows = [row for row in history.ended_runs(now - 2 * week, now)
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
 
-    board, waits, merged_changes = {"products": [], "ak": []}, [], []
+    board, waits, merged_changes, escapes_seen = {"products": [], "ak": []}, [], [], []
     for end in (now, now - week):
         finished = [row for row in rows if end - week <= row["finished_at"] and
                     (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
@@ -123,6 +226,7 @@ def compute(now=None):
                       "lander_hours": None if None in checks else sum(checks) / 3600}
                      if run_time else None)
         merged_changes.append(per_change(ended))
+        escapes_seen.append(escapes(ended))
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
@@ -160,6 +264,7 @@ def compute(now=None):
                  "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
     board["waits"] = waits
     board["merged"] = merged_changes
+    board["escaped"] = escapes_seen
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
 
@@ -204,6 +309,20 @@ def render():
                 f"{stats['ak']:.1f} ak's own work, {stats['waiting']:.1f} waiting, "
                 f"{stats['seat']:.1f} with its seat between runs")
 
+    def escapes(stats):
+        if stats is None:
+            return "no merged change"
+        text = (f"{stats['escaped']} of {stats['merged']} merged changes had a line rewritten "
+                "within 7 days")
+        if stats["reviewers"]:
+            text += " (" + ", ".join(f"{name} {gone} of {count}" for name, (gone, count)
+                                     in sorted(stats["reviewers"].items())) + ")"
+        if stats["open"]:
+            text += f"; {stats['open']} merged under 7 days ago may still be"
+        if stats["unknown"]:
+            text += f"; {stats['unknown']} with no merge commit to follow"
+        return text
+
     def size(stats):
         if stats is None:
             return "size unavailable"
@@ -217,6 +336,7 @@ def render():
             ("ak", *(week(stats, True) for stats in board["ak"])),
             ("waits", *(waited(stats) for stats in board["waits"])),
             ("merged", *(split(stats) for stats in board["merged"])),
+            ("escaped", *(escapes(stats) for stats in board["escaped"])),
             ("ak size", *(size(stats) for stats in board["size"]))]
     room = max(1, (terminal.content_width() - 12) // 2)
     lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())

@@ -225,24 +225,14 @@ def carried_lines(repo, base, head="HEAD"):
     characters -- so a new blank line or brace that reads as a deleted one is not moved, and a
     module split across files adds what its new lines come to.  Generated files are left out,
     as `diff_lines` leaves them out."""
-    # the patch Git prints itself, whatever the user's config says of prefixes, drivers and
-    # submodules, whose insides diff_lines never counts
-    diff = gitcall.git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color",
-               "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
-               "--submodule=short", f"{base}...{head}", check=False)
+    # a submodule reads as its commit line: diff_lines never counts its insides
+    diff = gitcall.git(repo, *gitcall.patch_args("diff", f"{base}...{head}"), check=False)
     added, deleted = {}, {}
-    # the patch file by file: a file's header names its sides, where Git ends a name holding
-    # a space with a tab, and its hunks hold the lines; a content line never starts a line of
-    # the patch bare, so neither the file split nor the first hunk's mark can land inside one
-    for chunk in ("\n" + diff).split("\ndiff --git ")[1:]:
-        header, _, body = chunk.partition("\n@@")
-        lines = body.split("\n")
-        old = re.search(r"^--- a/(.*?)\t?$", header, re.M)
-        new = re.search(r"^\+\+\+ b/(.*?)\t?$", header, re.M)
+    for old, new, lines in gitcall.patch_files(diff):
         if new:
-            added[new.group(1)] = [" ".join(line[1:].split()) for line in lines if line[:1] == "+"]
+            added[new] = [" ".join(line[1:].split()) for line in lines if line[:1] == "+"]
         if old:
-            deleted[old.group(1)] = [" ".join(line[1:].split()) for line in lines if line[:1] == "-"]
+            deleted[old] = [" ".join(line[1:].split()) for line in lines if line[:1] == "-"]
     skip_new = _generated(repo, head, sorted(added))
     skip_old = _generated(repo, base, sorted(deleted))
     gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
