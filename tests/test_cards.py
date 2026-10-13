@@ -62,7 +62,7 @@ class Cards(unittest.TestCase):
 
     def test_no_card_while_an_attached_client_has_input_during_the_episode(self):
         notify.record("seat", "needs", "Which branch?", time=100)
-        with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
+        with patch.object(orch, "tmux_out", return_value=(0, "150")):
             self.transition("seat", self.answer("needs you", 100), now=200)
         self.assertEqual(self.posts, [])
 
@@ -135,7 +135,7 @@ class Cards(unittest.TestCase):
 
     def test_episode_with_client_input_is_carded_once_he_has_left_it_a_minute(self):
         notify.record("seat", "needs", "Which branch?", time=100)
-        with patch.object(orch, "tmux_out", return_value=(0, "seat\t150")):
+        with patch.object(orch, "tmux_out", return_value=(0, "150")):
             self.transition("seat", self.answer("needs you", 100), now=200)
             self.assertEqual(self.posts, [])
             self.transition("seat", self.answer("needs you", 100), now=210)
