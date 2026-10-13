@@ -747,8 +747,8 @@ class SessionState(unittest.TestCase):
         self.assertEqual(kwargs.get("socket"), "agentkit-test")
         # set-option is the seat's own status bar and title being told the word the row shows:
         # observation, not acknowledgement, and on agentkit's own socket like everything here.
-        self.assertIn(args[0], ("capture-pane", "switch-client", "rename-session",
-                                "set-environment", "set-option", "list-clients", "list-sessions"))
+        self.assertIn(args[0], ("capture-pane", "switch-client", "rename-session", "set-environment",
+                                "set-option", "list-clients", "list-sessions", "display-message"))
         return 0, self.pane if args[0] == "capture-pane" else ""
 
     def deliver(self, event):
