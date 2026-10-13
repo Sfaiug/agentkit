@@ -4,7 +4,7 @@ this host's.
 Read from the host the suite runs on, so the check holds wherever ak runs: the user's name
 and home directory name (`pwd`), and the names of the checkouts under that home's `code` (hidden
 directories aside), five characters or longer -- `agentkit` aside, the name these files give
-this project whatever its checkout is called.  A name that is also a path in the repository,
+this project whatever its checkout is called.  A checkout named like a path in the repository,
 which prose names for its own sake, is looked for as `code/<name>`.  Each is matched whole and
 literally, case aside, in tests/, docs/, README.md, AGENTS.md, ARCHITECTURE.md and
 orchestrator.md, this file too.  Offline: `git grep` over the tracked files of this checkout.
@@ -27,10 +27,11 @@ def host_names():
     names = {me.pw_name, home.name}
     code = home / "code"
     if code.is_dir():
-        names.update(child.name for child in code.iterdir()
+        names.update(f"code/{child.name}" if (REPO / child.name).exists() else child.name
+                     for child in code.iterdir()
                      if child.is_dir() and not child.name.startswith("."))
-    return sorted((f"code/{name}" if (REPO / name).exists() else name
-                   for name in names if len(name) >= 5 and name != "agentkit"),
+    return sorted((name for name in names
+                   if len(Path(name).name) >= 5 and Path(name).name != "agentkit"),
                   key=len, reverse=True)
 
 

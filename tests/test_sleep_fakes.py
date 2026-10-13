@@ -6,11 +6,12 @@ a timeout by sleeping in small steps, under every timed git, gh or adapter call 
 recording fake keeps every spin (#700: 3.7 GB in a landing check).  `MAX` is the count of
 such sites on the day this check was written; any task may lower it as it moves a fake to
 the fixture, and no task raises it: like a boundary maximum, it cannot exceed what origin/main
-holds.  A site is the global sleep named as a target, `time, "sleep"` or `"time.sleep"`,
-whatever the call or table around it and however it is quoted or broken across lines.
-Offline: the tracked tests of this checkout.
+holds.  A site is the global sleep named as a target in code, comments and prose aside:
+`time, "sleep"` side by side in a call or a table, or `"time.sleep"`, however it is quoted or
+broken across lines.  Offline: the tracked tests of this checkout, this one too.
 """
 
+import ast
 import re
 import subprocess
 import unittest
@@ -19,23 +20,27 @@ from pathlib import Path
 from test_boundaries import where_change_left_main
 
 REPO = Path(__file__).resolve().parents[1]
-PATTERN = re.compile(r"""\btime\s*,\s*(["'])sleep\1|(["'])([\w.]+\.)?time\.sleep\2""")
 MAX = 141
 
 
 def sites():
-    """Each `path:line: text` patching the global sleep, by the line it starts on, this check's
-    own text aside."""
+    """Each `path:line: text` naming the global sleep as a target, by the line it starts on."""
     proc = subprocess.run(["git", "-C", str(REPO), "ls-files", "--", "tests/*.py",
-                           "tests/fixtures/*.py", ":!tests/test_sleep_fakes.py"],
-                          capture_output=True, text=True, check=True)
+                           "tests/fixtures/*.py"], capture_output=True, text=True, check=True)
     found = []
     for path in proc.stdout.splitlines():
         text = (REPO / path).read_text()
         lines = text.splitlines()
-        for match in PATTERN.finditer(text):
-            line = text.count("\n", 0, match.start())
-            found.append(f"{path}:{line + 1}:{lines[line]}")
+        for node in ast.walk(ast.parse(text, path)):
+            items = ([*node.args, *(keyword.value for keyword in node.keywords)]
+                     if isinstance(node, ast.Call) else getattr(node, "elts", []))
+            named = [first for first, second in zip(items, items[1:])
+                     if "time" in (getattr(first, "id", None), getattr(first, "attr", None))
+                     and isinstance(second, ast.Constant) and second.value == "sleep"]
+            if (isinstance(node, ast.Constant)
+                    and str(node.value).split(".")[-2:] == ["time", "sleep"]):
+                named.append(node)
+            found += [f"{path}:{target.lineno}:{lines[target.lineno - 1]}" for target in named]
     return found
 
 
