@@ -148,6 +148,17 @@ class CheckoutRemoval(unittest.TestCase):
         self.assertTrue(directory.exists())
         self.assert_saved(wt, state)
 
+    def test_staged_rename_saves_both_sides(self):
+        directory, wt, state = self.checkout()
+        self.git(wt, "mv", "tracked.txt", "renamed.txt")
+        removed = worktrees.stop_checkout(state, lambda _: None, keep_branch=True)
+        self.assertEqual(self.git(self.repo, "ls-tree", "--name-only", state["branch"]).splitlines(),
+                         ["deleted.txt", "renamed.txt"])
+        self.assertEqual(self.git(self.repo, "show", f"{state['branch']}:renamed.txt"), "base")
+        self.assertTrue(removed)
+        self.assertFalse(wt.exists())
+        self.assertFalse(record.read_state(directory).get("checkout_kept"))
+
     def test_dependency_ending_uses_the_same_removal(self):
         directory, wt, state = self.checkout()
         self.edit(wt)
