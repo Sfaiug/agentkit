@@ -7,7 +7,7 @@ import subprocess
 import time
 from statistics import median
 
-from . import config, history, record, terminal
+from . import config, gitcall, history, record, terminal
 
 # The parts of a merged change's hours, each second of its runs' phase rows in the first that
 # holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
@@ -41,29 +41,24 @@ def branch_log(repo, since):
     its old path for what it deleted and its new for what it added; None where git cannot
     say.  One git call per repository: the default branch is `origin/HEAD`, else `HEAD`."""
     head = _git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-    out = _git(repo, "log", "--first-parent", "--diff-merges=first-parent", "-p", "--unified=0",
-               "--no-color", "--find-renames", "--format=commit %H %ct",
-               "--since=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since)),
-               head.decode().strip() if head else "HEAD")
+    # each commit opens with a NUL, which no text patch holds
+    out = _git(repo, *gitcall.patch_args(
+        "log", "--first-parent", "--diff-merges=first-parent", "--format=%x00%H %ct",
+        "--since=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since)),
+        head.decode().strip() if head else "HEAD"))
     if out is None:
         return None
-    commits, current, old, new = [], None, None, None
-    for raw in out.decode("utf-8", "replace").splitlines():
-        if raw.startswith("commit ") and len(raw.split()) == 3:
-            sha, at = raw.split()[1:]
-            current = {"sha": sha, "at": int(at), "added": set(), "deleted": set()}
-            commits.append(current)
-            old = new = None
-        elif current is None:
-            continue
-        elif raw.startswith("--- "):
-            old = raw[6:] if raw.startswith("--- a/") else None
-        elif raw.startswith("+++ "):
-            new = raw[6:] if raw.startswith("+++ b/") else None
-        elif raw[:1] in ("+", "-"):
-            path, text = (new if raw[0] == "+" else old), raw[1:].strip()
-            if path and any(ch.isalnum() for ch in text):
-                current["added" if raw[0] == "+" else "deleted"].add((path, text))
+    commits = []
+    for part in out.decode("utf-8", "replace").split("\0")[1:]:
+        stamp, _, patch = part.partition("\n")
+        sha, at = stamp.split()
+        current = {"sha": sha, "at": int(at), "added": set(), "deleted": set()}
+        for old, new, lines in gitcall.patch_files(patch):
+            for line in lines:
+                path, text = {"+": new, "-": old}.get(line[:1]), line[1:].strip()
+                if path and any(ch.isalnum() for ch in text):
+                    current["added" if line[0] == "+" else "deleted"].add((path, text))
+        commits.append(current)
     commits.reverse()
     return commits
 

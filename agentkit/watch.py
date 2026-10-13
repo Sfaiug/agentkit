@@ -5853,8 +5853,15 @@ def merge_record(repo, sha, pr_url=None):
 
 
 def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes):
-    """Follow the merge's declaration in its original checkout, stopping at its first pass."""
+    """Keep the merge commit `sha` on the run and its history row, for the next tick and the
+    scoreboard; then follow the merge's declaration in its original checkout, stopping at its
+    first pass."""
     from . import history
+    if not dry_run and st.get("merge_sha") != sha:
+        with run_record.record(run_dir) as current:
+            current["merge_sha"] = sha
+        st["merge_sha"] = sha
+        history.update_run(st.get("run_id") or run_dir.name, merge_sha=sha, log=log)
     inside = now - st["finished_at"] < AFTER_MERGE_WINDOW
     if not st.get("live_at") and "health" not in st and inside and st.get("repo"):
         # a merge that could not read its commit, or one recorded before merges did: the
@@ -5878,7 +5885,6 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 probes[probe] = health_command(st["repo"], sha, command)
             passed, output = probes[probe]
             with run_record.record(run_dir) as current:
-                current["merge_sha"] = sha
                 if passed:
                     current.setdefault("live_at", now)
                     current.pop("health", None)
@@ -5892,8 +5898,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             return "failed", f"health: {command}", (
                 f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
     if not dry_run:
-        history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"],
-                           merge_sha=sha, log=log)
+        history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     if not st.get("live_notified"):
         line = f"run {run_dir.name} is live: {pr_url}."
         if dry_run:

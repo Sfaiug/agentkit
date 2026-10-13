@@ -985,6 +985,27 @@ def git_bytes(repo, *args):
     return proc.stdout.decode("utf-8", "surrogateescape")
 
 
+def patch_args(command, *args):
+    """git's arguments for `command`'s patch (diff, log) as Git prints it itself, whatever the
+    user's config says of quoting, prefixes, drivers and submodules, for `patch_files`."""
+    return ("-c", "core.quotePath=false", command, "-U0", "--find-renames", "--no-color",
+            "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
+            "--submodule=short", *args)
+
+
+def patch_files(patch):
+    """Each file of a patch made with `patch_args`, as (old path, new path, its hunks' lines),
+    a path None where that side is not a file.  A file's header names its sides, where Git
+    ends a name holding a space with a tab, and its hunks hold the lines; a content line never
+    starts a line of the patch bare, so neither the file split nor the first hunk's mark can
+    land inside one."""
+    for chunk in ("\n" + patch).split("\ndiff --git ")[1:]:
+        header, _, body = chunk.partition("\n@@")
+        old = re.search(r"^--- a/(.*?)\t?$", header, re.M)
+        new = re.search(r"^\+\+\+ b/(.*?)\t?$", header, re.M)
+        yield old and old.group(1), new and new.group(1), body.split("\n")
+
+
 def declared(wt, key):
     """`key`'s value in the front matter of the checkout's AGENTS.md as written, or None."""
     try:

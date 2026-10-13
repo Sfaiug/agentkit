@@ -368,18 +368,17 @@ def close_step(run_id, at=None, *, keep=False, log=None):
 def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
-               changed_lines=None, rules_bytes=None, merge_sha=None, log=None):
+               changed_lines=None, rules_bytes=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
-    No reader sees an ending without the run time it closes.  A merged run's row keeps its
-    merge commit, which the scoreboard follows for the lines a later change rewrote.
+    No reader sees an ending without the run time it closes.
     """
     finished_at = time.time() if finished_at is None else finished_at
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
-              "rules_bytes": rules_bytes, "merge_sha": merge_sha}
+              "rules_bytes": rules_bytes}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 

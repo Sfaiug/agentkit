@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, scoreboard
+from agentkit import config, history, record, scoreboard, watch
 
 NOW = 1_800_000_000
 DAY = 86400
@@ -64,7 +64,8 @@ class EscapedDefects(unittest.TestCase):
         """A run's row, merged as `sha` at `when`; `reviewer` None is a review ak skipped."""
         history.start_run(run_id, repo=str(self.repo), started_at=when - 3600, change=run_id)
         history.finish_run(run_id, final_state="pass", finished_at=when, changed_lines=0,
-                           reviewer=reviewer, merge_sha=sha)
+                           reviewer=reviewer)
+        history.update_run(run_id, merge_sha=sha)
 
     def test_a_line_deleted_within_a_week_of_its_merge_is_a_defect_that_escaped(self):
         # merged 12 days ago, its line rewritten 2 days later: escaped, window closed
@@ -118,9 +119,38 @@ class EscapedDefects(unittest.TestCase):
         with patch.object(scoreboard.terminal, "content_width", return_value=400):
             self.assertIn("escaped   no merged change", "\n".join(scoreboard.render()))
 
-    def test_a_merged_runs_row_keeps_its_merge_commit(self):
-        self.merged("kept", "f" * 40, NOW - DAY)
-        self.assertEqual(history.get("kept")["merge_sha"], "f" * 40)
+    def test_every_line_of_the_patch_is_read_whatever_its_text_its_name_or_git_config(self):
+        # a deleted `-- ` line reads `--- ` in the patch and an added `++ ` line `+++ `, as a
+        # file's header does; a name Git quotes; prefixes the user turned off
+        self.git("config", "core.quotePath", "true")
+        cases = (("schema.sql", "-- original comment\nSELECT 1;\n", "-- revised comment\nSELECT 2;\n"),
+                 ("counter.cc", "int counter = 0;\n++ counter;\nint answer = 1;\n",
+                  "int counter = 0;\n++ counter;\nint answer = 2;\n"),
+                 ("r\u00e9sum\u00e9.py", "answer = 1\n", "answer = 2\n"))
+        merges = [self.commit(NOW - 6 * DAY, {name: before}) for name, before, _ in cases]
+        for name, _, after in cases:
+            self.commit(NOW - 4 * DAY, {name: after})
+        log = scoreboard.branch_log(self.repo, NOW - 21 * DAY)
+        self.assertEqual([scoreboard.escaped(log, sha, NOW) for sha in merges], [(1, True)] * 3)
+        self.git("config", "diff.noprefix", "true")
+        self.assertEqual(scoreboard.branch_log(self.repo, NOW - 21 * DAY), log)
+
+    def test_the_tick_keeps_the_merge_commit_it_learns_with_no_health_to_follow(self):
+        sha = self.commit(NOW - 3600, {"file.py": "a\nb\nc\nd = 1\n"})
+        directory = config.RUNS / "kept"
+        directory.mkdir(parents=True)
+        record.save_state(directory, {"run_id": "kept", "state": "pass", "merged": True,
+                                      "finished_at": NOW - 1800, "repo": str(self.repo),
+                                      "pr": "https://github.com/acme/widget/pull/7"})
+        history.start_run("kept", repo=str(self.repo), started_at=NOW - 7200, change="kept")
+        with patch.object(watch, "gh_json", return_value=({"mergeCommit": {"oid": sha}}, "")) as api, \
+                patch.object(watch, "after_merge_status", return_value=("passed", None, None)), \
+                patch.object(watch, "save_state"):
+            for _ in range(2):
+                watch.after_merge_checks({}, False, lambda _: None, now=NOW)
+        self.assertEqual(api.call_count, 1)        # asked once, then read from the record
+        self.assertEqual(record.read_state(directory)["merge_sha"], sha)
+        self.assertEqual(history.get("kept")["merge_sha"], sha)
 
 
 if __name__ == "__main__":
