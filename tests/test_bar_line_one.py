@@ -32,12 +32,12 @@ class LineOne(Sandbox):
             orch.SOCKET_ENV: "line-one"}))
         os.environ.pop("TMUX", None)
         self.addCleanup(orch.tmux_out, "kill-server")
-        for name in ("fix-api", "atlas-proxies"):
+        for name in ("fix-api", "orbit-proxies"):
             self.assertEqual(orch.tmux_out("new-session", "-d", "-s", name, "sleep 600")[0], 0)
             # the mark ak's own start leaves on a seat: a session without it and with no agent
             # in it is nobody's, and no bar names it
             self.assertEqual(orch.tmux_out("set-option", "-t", f"={name}:", orch.MARK, "1")[0], 0)
-        watch.seat_write("atlas-proxies", word="needs you", reason="", word_since=None)
+        watch.seat_write("orbit-proxies", word="needs you", reason="", word_since=None)
         watch.seat_write("fix-api", word="working", reason="", word_since=None)
         self.dress(1, 4, [{"task": "gh2", "doing": "building", "step": "building", "since": 0,
                            "round": 1, "rounds": 3, "model": "opus"}])
@@ -64,15 +64,15 @@ class LineOne(Sandbox):
         shown = self.line(200)
         self.assertTrue(shown.startswith(" ▐● working▌  fix-api  fable orchestrates   " + bar),
                         shown)
-        self.assertTrue(shown.rstrip().endswith("! atlas-proxies needs you"), shown)
+        self.assertTrue(shown.rstrip().endswith("! orbit-proxies needs you"), shown)
 
     def test_b_line_one_narrows_its_tasks_bar_before_the_names_fold_or_anything_is_cut(self):
         lefts = []
         for width in (120, 100, 85):
             shown = self.line(width)
             self.assertNotIn("…", shown, width)
-            self.assertTrue(shown.rstrip().endswith("! atlas-proxies needs you"), shown)
-            lefts.append(len(shown.split("! atlas")[0].rstrip()))
+            self.assertTrue(shown.rstrip().endswith("! orbit-proxies needs you"), shown)
+            lefts.append(len(shown.split("! orbit")[0].rstrip()))
         self.assertEqual(lefts, sorted(lefts, reverse=True))     # the bar narrows as room goes
         self.assertEqual(len(set(lefts)), len(statusbar.BARS))
         shown = self.line(75)                                     # then the names fold
@@ -93,7 +93,7 @@ class LineOne(Sandbox):
                 bar = drawn(top).split("fable orchestrates   ")[1]
                 self.assertEqual(len(bar), cells, (total, bar))
             shown = self.line(84)       # the 12-cell bar fits beside the name, so it stays
-            self.assertTrue(shown.rstrip().endswith("! atlas-proxies needs you"), shown)
+            self.assertTrue(shown.rstrip().endswith("! orbit-proxies needs you"), shown)
 
     def test_d_a_line_one_that_fits_is_never_cut_even_to_the_cell(self):
         # the narrowest bar beside who needs you, whole, in the cells tmux counts
