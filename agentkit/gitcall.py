@@ -625,6 +625,8 @@ def commit_leftovers(wt, log, artifacts, state):
     and a staged deletion of junk (`git rm --cached venv`) is committed with the rest.  The
     commit is built in an index of its own: `git commit -- venv` would add the link back
     from the worktree, and the real index keeps whatever else the executor staged.
+
+    The return is what a failed commit left out, empty when HEAD holds all it meant to take.
     """
     real, sandbox = committable_paths(wt, artifacts)
     status = git(wt, "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD",
@@ -643,7 +645,7 @@ def commit_leftovers(wt, log, artifacts, state):
             log(f"unstaged {len(unstage)} sandbox files the executor staged: "
                 f"{', '.join(unstage[:3])}")
         if not real and not gone:
-            return
+            return []
         if real:
             git(wt, "add", "--", *real)
         with tempfile.TemporaryDirectory() as tmp:
@@ -660,8 +662,9 @@ def commit_leftovers(wt, log, artifacts, state):
         raise
     except config.Error as exc:
         log(f"WARN could not commit the executor's uncommitted changes: {exc}")
-        return
+        return real + gone
     log("WARN committed uncommitted executor changes: " + ", ".join(real + gone))
+    return []
 
 
 def committable_paths(wt, artifacts=(), env=None):

@@ -1113,9 +1113,7 @@ def carry_checkout_work(state, log):
             state["checkout_kept"] = True
             return (f"; its checkout {wt} stopped part way off {branch} (a rebase or merge) "
                     f"and is kept with that work")
-        artifacts = set(state.get("artifacts") or ())
-        gitcall.commit_leftovers(wt, log, artifacts, state)
-        if gitcall.committable_paths(wt, artifacts)[0]:
+        if gitcall.commit_leftovers(wt, log, set(state.get("artifacts") or ()), state):
             state["checkout_kept"] = True
             return f"; its uncommitted work could not be committed, so its checkout {wt} is kept"
     except (config.Error, OSError) as exc:

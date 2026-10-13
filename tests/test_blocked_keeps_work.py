@@ -84,6 +84,26 @@ class BlockedKeepsWork(unittest.TestCase):
         self.assertEqual(self.git("show", "ak/fix-api:migration.py"), "renumbered")
         self.assertNotIn("report.xml", self.git("ls-tree", "--name-only", "ak/fix-api"))
 
+    def test_work_a_refused_commit_left_out_keeps_the_checkout(self):
+        wt = config.WT / "fix-api"
+        wt.parent.mkdir(parents=True)
+        self.git("worktree", "add", "-q", "-b", "ak/fix-api", str(wt))
+        (wt / ".gitignore").write_text("app.py\n")
+        self.git("add", ".gitignore", cwd=wt)
+        self.git("commit", "-qm", "ignore the generated app", cwd=wt)
+        # the fixer's turn untracks the now-ignored file, and a hook refuses every commit
+        self.git("rm", "-q", "--cached", "app.py", cwd=wt)
+        hook = self.repo / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        run_dir, state = self.ended("20261013-1602-fix-api", wt)
+        self.assertTrue(state["checkout_kept"])
+        self.assertRegex(state["error"], "could not be committed, so its checkout .* is kept")
+        worktrees.settle_run({**record.read_state(run_dir), "handed_back": True}, run_dir)
+        # the untracking waits in the kept checkout, for the seat to commit
+        self.assertNotIn("app.py", self.git("ls-files", cwd=wt).splitlines())
+        self.assertIn("app.py", self.git("ls-tree", "--name-only", "ak/fix-api").splitlines())
+
     def test_a_run_in_the_repository_itself_commits_nothing(self):
         (self.repo / "app.py").write_text("the owner's own edit\n")
         _run_dir, state = self.ended("20261013-1601-fix-api", self.repo, branch="main")
