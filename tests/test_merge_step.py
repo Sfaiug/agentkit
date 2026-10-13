@@ -983,7 +983,7 @@ class MergeStep(unittest.TestCase):
 
     def test_a_merge_whose_branch_github_already_deleted_counts(self):
         # a repository that deletes merged branches itself can beat `--delete-branch` to it:
-        # gh exits non-zero on the 404 after the merge went through (ATLAS #2132, 5 Oct)
+        # gh exits non-zero on the 404 after the merge went through (seen on a product's PR, 5 Oct)
         _, _, wt = make_repos(self.root)
         lp, run_dir, _ = make_loop(self.root, wt)
         seen = []
