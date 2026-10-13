@@ -289,7 +289,7 @@ def preserve_checkout(state, wt, log):
         remaining, junk = gitcall.committable_paths(wt, artifacts)
         # Work staged differently from the working file may be invisible to diff HEAD.
         # It must stay too, unless the classifier already left it out as junk or an artifact.
-        staged = gitcall.git(wt, "diff", "--cached", "--name-only", "-z", "HEAD").split("\0")
+        staged = gitcall.git(wt, "diff", "--cached", "--no-renames", "--name-only", "-z", "HEAD").split("\0")
         if remaining or any(path and path not in junk and path not in artifacts for path in staged):
             raise config.Error("uncommitted work remains")
         if (gitcall.git(state["repo"], "rev-parse", "--verify", f"refs/heads/{branch}")

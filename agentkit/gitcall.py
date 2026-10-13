@@ -392,11 +392,12 @@ def dirty_paths(wt, env=None):
     """Every uncommitted path: tracked edits (staged or not) and untracked files, no ignored ones.
 
     Two plumbing calls rather than `status --porcelain`, whose output would have to be
-    un-quoted and split off its status column; `-z` hands back the raw paths.  `env` is the
+    un-quoted and split off its status column; `-z` hands back the raw paths. `--no-renames`
+    keeps both paths so a selected commit takes a rename's deletion too. `env` is the
     reader's: an index of its own (`GIT_INDEX_FILE`) for a checkout another process works in,
     whose own index is then neither locked nor rewritten.
     """
-    tracked = git(wt, "diff", "--name-only", "-z", "HEAD", check=False, env=env)
+    tracked = git(wt, "diff", "--no-renames", "--name-only", "-z", "HEAD", check=False, env=env)
     untracked = git(wt, "ls-files", "--others", "--exclude-standard", "-z", check=False, env=env)
     return [p for p in f"{tracked}\0{untracked}".split("\0") if p]
 
