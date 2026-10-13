@@ -1141,10 +1141,10 @@ def preflight(run_dir, opts, log):
         owner, name, number = PR_PARTS.match(url).groups()
         state = run_record.read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
-        if state.get("own_pr") and state.get("head_sha") == info["headRefOid"]:
-            # the writer captured for this head, by the review a restart carries it from
-            # (`leases.restart`): a seat that switched models since wrote none of it
-            is_own, orch = True, state.get("own_orchestrator")
+        if "own_pr" in state:
+            # the writer a review started again carries (`leases.restart`), with the head it
+            # was captured for: `review_pr_round` keeps it for that head
+            is_own, orch = bool(state["own_pr"]), state.get("own_orchestrator")
         else:
             try:
                 launched_cfg = config.load()
@@ -2250,10 +2250,13 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         info = pr_view_past(url, info, prior.get("head_sha"))
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
-    if "own_pr" in prior:
-        # The writer was captured at launch, in preflight or the first attempt: a
-        # session record rewritten since must not replace it, or the reviewer's
-        # independence check would judge another model than the one that wrote this.
+    if "own_pr" in prior and (prior.get("round_summaries")
+                              or prior.get("head_sha", info["headRefOid"]) == info["headRefOid"]):
+        # The writer was captured at launch, in preflight or the first attempt, or carried
+        # with its head by a review started again (`leases.restart`): a session record
+        # rewritten since must not replace it, or the reviewer's independence check would
+        # judge another model than the one that wrote this.  A head pushed since, before
+        # any round, is the work of the model the seat runs now.
         is_own = bool(prior.get("own_pr"))
         orchestrator = prior.get("own_orchestrator")
         if is_own and orchestrator:

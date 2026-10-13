@@ -579,6 +579,29 @@ class OwnPr(unittest.TestCase):
         self.assertEqual(state["reviewer"], "astra")
         self.assertEqual(events, ["COMMENT"])
 
+    def test_a_head_pushed_before_the_first_round_is_the_seats_model_now(self):
+        # a review started again carries the writer of the head it was parked on
+        # (`leases.restart`); the seat, on astra since, pushed another before its first round
+        run_dir = self.launch_dir("20260927-0013-own-moved")
+        saved = record.read_state(run_dir)
+        saved.update(own_pr=True, own_orchestrator="opus", head_sha=HEAD)
+        record.save_state(run_dir, saved)
+        config.save_session(self.cfg, "fix-api", "astra", ["opus", "astra"])
+        moved = "d" * 40
+        with ExitStack() as mocks:
+            for m in self.base_patches(author=LOGIN, reviewer="FAIL"):
+                mocks.enter_context(m)
+            mocks.enter_context(patch.object(run, "pr_view", side_effect=[
+                info(head=moved), info(head=moved, state="CLOSED")]))
+            mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view(moved)))
+            mocks.enter_context(patch.object(deliver, "gh_json", side_effect=self.gh_view(moved)))
+            mocks.enter_context(patch.object(gitcall, "gh", side_effect=self.posting_gh([])))
+            with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
+                state = run.review_pr(self.cfg, run_dir, URL, {"--review": None, "--review-pr": URL},
+                                      lambda line: None)
+        self.assertEqual((state["head_sha"], state["own_orchestrator"], state["reviewer"]),
+                         (moved, "astra", "opus"))
+
     def test_own_pr_adopts_the_saved_background_reviewer(self):
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra", "spark"])
         run_dir = self.launch_dir("20260927-0012-own-preset")

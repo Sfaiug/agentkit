@@ -110,7 +110,7 @@ class SeatReservation(LiveRuns):
 
     def test_the_review_started_again_keeps_the_writer_of_the_head_it_reviewed(self):
         # the seat switched models while its review was parked: the head it reviewed is still
-        # the first model's work, and a head pushed since is the model's the seat has now
+        # the first model's work (a head pushed since: `test_review_own_pr.py`)
         self.holder()
         head = self.git(self.own_review(YOUNGER, 1000), "rev-parse", "HEAD")
         directory = config.RUNS / YOUNGER
@@ -124,14 +124,12 @@ class SeatReservation(LiveRuns):
                 "headRefOid": head}
         launched = []
         with patch.object(run, "viewer_login", return_value="owner"), \
+                patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "spawn_bg", side_effect=lambda d, argv: launched.append(d)):
-            with patch.object(run, "pr_view", return_value=info):
-                leases.restart(log=self.logs.append, now=3000)
-            fresh = launched[0]
-            self.assertEqual(record.read_state(fresh)["own_orchestrator"], "opus")
-            with patch.object(run, "pr_view", return_value={**info, "headRefOid": "f" * 40}):
-                run.preflight(fresh, {"--review-pr": URL}, self.logs.append)
-        self.assertEqual(record.read_state(fresh)["own_orchestrator"], "astra")
+            leases.restart(log=self.logs.append, now=3000)
+        state = record.read_state(launched[0])
+        self.assertEqual((state["own_pr"], state["own_orchestrator"], state["head_sha"]),
+                         (True, "opus", head))
 
 
 if __name__ == "__main__":
