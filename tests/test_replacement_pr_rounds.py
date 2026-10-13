@@ -3,18 +3,22 @@
 After a seat's own pull request fails its third round the budget says split or redesign, and
 a new pull request on a new branch with the same lines got three fresh rounds.  Now a pull
 request's first review is refused when more than half the lines it adds that a reviewer reads
-were added by a pull request whose review spent the budget across its runs within fourteen days
-and never merged, unless it is a real split, under half that one's size, counted alike
-(`transitions.replacement_refusal`); a redesign adds lines of its own and starts fresh.
+and that hold a letter or digit were added by a pull request whose review spent the budget across
+its runs within fourteen days and never merged, unless it is a real split, under half that one's
+size as the size ceiling counts both (`transitions.replacement_refusal`); a redesign adds lines
+of its own and starts fresh, and blank lines and braces any two changes share charge nothing.
 Offline: run records in the sandbox HOME and a git repository the test writes.
 """
 
 import os
+from pathlib import Path
 import subprocess
+import sys
 import time
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))     # its fixtures, when loaded by path
 from fixtures.sandbox import Sandbox
 from agentkit import config, gitcall, record, transitions
 
@@ -64,7 +68,9 @@ class ReplacementRounds(Sandbox):
         return directory
 
     def refusal(self, head, number=9):
-        return transitions.replacement_refusal(self.repo, self.base, head, number)
+        counted = (transitions.diff_lines(self.repo, self.base, head, added_only=True)
+                   - transitions.carried_lines(self.repo, self.base, head))
+        return transitions.replacement_refusal(self.repo, self.base, head, number, counted)
 
     def test_a_pull_request_mostly_made_of_a_failed_ones_lines_inherits_its_rounds(self):
         theirs = [f"def f{n}(): return {n}" for n in range(40)]
@@ -72,9 +78,9 @@ class ReplacementRounds(Sandbox):
         self.failed_review("20260101-0900-review-pr-widget-7", failed)
         again = self.head("again", theirs[:30] + [f"def g{n}(): return {n}" for n in range(5)])
         self.assertEqual(self.refusal(again),
-                         f"PR #9 re-adds 30 of its 35 lines from {FAILED}, whose review failed after 3 "
-                         "rounds; a replacement inherits them: split it into parts under 21 lines, or "
-                         "redesign it")
+                         f"PR #9 re-adds 30 of its 35 lines holding a letter or digit from {FAILED}, whose "
+                         "review failed after 3 rounds; a replacement inherits them: split it into parts "
+                         "under 21 lines, or redesign it")
         split = self.head("split", theirs[:15])                      # under half its size: a real split
         self.assertIsNone(self.refusal(split))
         redesign = self.head("redesign", [f"def h{n}(): return {n}" for n in range(60)] + theirs[:10])
@@ -84,12 +90,20 @@ class ReplacementRounds(Sandbox):
         self.assertIn("re-adds 40 of its 40 lines", self.refusal(quoted))
 
     def test_shares_and_sizes_count_the_lines_a_reviewer_reads(self):
-        # blank lines count on every side, as the size ceiling counts them
+        # blank lines count in both sizes, as the size ceiling counts them, and are never shared
         spaced = [part for n in range(40) for part in (f"def f{n}(): return {n}", "")]
         failed = self.head("failed", spaced)
         self.failed_review("20260101-0900-spaced", failed)
-        self.assertIn("re-adds 80 of its 80 lines", self.refusal(self.head("again", spaced)))
+        self.assertIn("re-adds 40 of its 40 lines", self.refusal(self.head("again", spaced)))
         self.assertIsNone(self.refusal(self.head("split", spaced[:50:2])))   # 25 of its 80
+        self.assertIsNone(self.refusal(self.head("fresh", [part for n in range(40) for part in
+                                                          (f"def g{n}(x): return x * {n}", "", "")])))
+        # nor are braces: a redesign that changes every line holding a letter or digit is fresh
+        braced = [part for n in range(40) for part in (f"function f{n}(x)", "{", f"  return x + {n};", "}", "")]
+        self.failed_review("20260101-0850-braced", self.head("failed-js", braced, into="feature.js"),
+                           pr="https://github.com/acme/widget/pull/8")
+        fresh = [part for n in range(40) for part in (f"function g{n}(x)", "{", f"  return x * {n};", "}", "")]
+        self.assertIsNone(self.refusal(self.head("fresh-js", fresh, into="feature.js")))
         # lines moved unchanged count on no side: an unchanged replacement of a change that also
         # moved them inherits its rounds, and moving them charges an unrelated change nothing
         (self.repo / "api.py").write_text("".join(f"def legacy{n}(): return {n}\n" for n in range(60)))
@@ -119,9 +133,11 @@ class ReplacementRounds(Sandbox):
         self.assertIsNotNone(self.refusal(again))
         # the run under review counts for nothing against itself
         self.assertIsNone(transitions.replacement_refusal(
-            self.repo, self.base, again, 9, exclude=config.RUNS / "20260101-0500-last-round"))
-        # a pull request one of whose runs merged is no failure
-        self.failed_review("20260101-0900-merged", failed, merged=True, rounds=0)
+            self.repo, self.base, again, 9, 35, exclude=config.RUNS / "20260101-0500-last-round"))
+        # a pull request one of whose runs merged is no failure: a task run, which keeps it in `pr`
+        merged = self.failed_review("20260101-0900-merged", failed, merged=True, rounds=0)
+        record.save_state(merged, {key: value for key, value in record.read_state(merged).items()
+                                   if key not in ("review_pr", "own_pr")})
         self.assertIsNone(self.refusal(again))
 
     def test_a_failed_head_git_no_longer_holds_is_skipped_and_a_stopped_git_stops(self):

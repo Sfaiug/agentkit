@@ -304,43 +304,48 @@ def budget_failed_reviews(repo, exclude=None):
         if exclude is not None and run_dir.name == Path(exclude).name:
             continue
         state = run_record.read_state(run_dir)
-        if not state or not state.get("review_pr") or not same_repo(state.get("repo"), repo):
+        if not state:
             continue
         if state.get("merged"):
-            merged.add(pr_key(state["review_pr"]))
-        elif (state.get("state") == "fail" and state.get("base_sha") and state.get("head_sha")
+            # a task run keeps its pull request in `pr`, a review in `review_pr`
+            merged |= {pr_key(state.get("pr")), pr_key(state.get("review_pr"))}
+        elif (state.get("review_pr") and state.get("state") == "fail"
+                and same_repo(state.get("repo"), repo) and state.get("base_sha") and state.get("head_sha")
                 and time.time() - (state.get("finished_at") or 0) <= REPLACED_WITHIN):
             found.append((state["review_pr"], state["base_sha"], state["head_sha"]))
     return [(url, base, head) for url, base, head in found if pr_key(url) not in merged
             and rounds_spent_elsewhere(pr=url, exclude=exclude)[0] >= taskfile.TASK_MAX_ROUNDS]
 
 
-def replacement_refusal(repo, base, head, number, exclude=None):
+def replacement_refusal(repo, base, head, number, counted, exclude=None):
     """Why a pull request's first review is refused as a replacement, else None: more than half
-    of the lines it adds that a reviewer reads (`reviewed_lines`) were added by a pull request
-    whose review failed at the budget (`budget_failed_reviews`), and it is no real split of
-    that one -- more than half its size, counted alike -- so it inherits the rounds that were
-    spent, which is all of them.  A redesign adds lines of its own and passes; a split takes a
-    part under half the failed one's size and passes.  A failed pull request whose commits git
-    no longer holds is skipped: nothing to compare; a git that never answered stops the gate."""
-    mine = reviewed_lines(repo, base, head)[0]
+    of the lines it adds that a reviewer reads (`reviewed_lines`) and that hold a letter or digit
+    were added by a pull request whose review failed at the budget (`budget_failed_reviews`), and
+    it is no real split of that one: its `counted` lines, as the size ceiling counts them, are
+    more than half of that one's, counted alike.  It inherits the rounds that were spent, which
+    is all of them.  A blank line or a lone brace, which any two changes share, charges nothing;
+    a redesign adds lines of its own and passes; a split takes a part under half the failed
+    one's size and passes.  A failed pull request whose commits git no longer holds is skipped:
+    nothing to compare; a git that never answered stops the gate."""
+    mine = Counter({text: n for text, n in reviewed_lines(repo, base, head)[0].items()
+                    if any(map(str.isalnum, text))})
     if not mine:
         return None
-    counted, worst = sum(mine.values()), None
+    written, worst = sum(mine.values()), None
     for url, their_base, their_head in budget_failed_reviews(repo, exclude):
         if not all(gitcall.git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}", check=False)
                    for sha in (their_base, their_head)):
             continue
         theirs = reviewed_lines(repo, their_base, their_head)[0]
         shared, size = sum((mine & theirs).values()), sum(theirs.values())
-        if shared * 2 > counted and counted * 2 > size and (worst is None or shared > worst[1]):
+        if shared * 2 > written and counted * 2 > size and (worst is None or shared > worst[1]):
             worst = (url, shared, size)
     if worst is None:
         return None
     url, shared, size = worst
-    return (f"PR #{number} re-adds {shared} of its {counted} lines from {url}, whose review "
-            f"failed after {taskfile.TASK_MAX_ROUNDS} rounds; a replacement inherits them: split it "
-            f"into parts under {size // 2 + 1} lines, or redesign it")
+    return (f"PR #{number} re-adds {shared} of its {written} lines holding a letter or digit from {url}, "
+            f"whose review failed after {taskfile.TASK_MAX_ROUNDS} rounds; a replacement inherits them: "
+            f"split it into parts under {size // 2 + 1} lines, or redesign it")
 
 
 def _windows(lines):
