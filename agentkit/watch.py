@@ -3237,6 +3237,31 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             and not pane_unread(session))
 
 
+def untyped(session, cfg=None):
+    """What a look at that seat reads when no line went into it: its state, what decided it, and
+    its composer.  One read at its prompt that took no line contradicts itself, so its screen is
+    kept (`refused-<seat>.txt`) for the cause to be read off it."""
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
+        pane = pane_text(session) if harness else ""
+        found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
+    except (config.Error, OSError):
+        found = {}
+    if not found:
+        return "its screen could not be read"
+    draft = composer_draft(harness, pane)
+    said = (f"it reads {found.get('state')} by {found.get('rule') or 'nothing'}, its composer "
+            + ("empty" if draft == "" else "not found" if draft is None else "holding text"))
+    if found.get("state") != "at_prompt":
+        return said
+    try:
+        path = config.seat_file("refused", session["name"])
+        path.write_text(pane)
+    except (OSError, config.Error):
+        return said
+    return f"{said}; its screen is kept in {path}"
+
+
 # --- a seat whose process died under its runs ------------------------------
 # The seat comes back by itself, the way its number in the menu opens it, and is told what
 # it missed: handback.announce does it for a run that finished under a gone seat, and the tick

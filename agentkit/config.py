@@ -757,6 +757,7 @@ SEAT_FILES = {
     "change": "md",      # what changed from the rulebook it holds to that one, as a diff
     "held": "md",        # the rulebook its conversation last said it read
     "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
+    "refused": "txt",    # its screen when it read at its prompt yet took no line (`watch.untyped`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still
     # take the queues a host holds from before, as they take every other file of a gone seat
     "tell": "json",

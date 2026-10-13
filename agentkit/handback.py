@@ -1374,7 +1374,8 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
             # line in the log 22,000 times for 36 runs (13 Oct)
             mark_delivery(run_dir, state, handback_pending=True, handed_back=None,
                           handback_note=None)
-            log(f"the {session} seat is not at its prompt; the tick hands run {run_dir.name} back")
+            log(f"the {session} seat is not at its prompt ({watch.untyped(seat, cfg)}); "
+                f"the tick hands run {run_dir.name} back")
     return False
 
 
