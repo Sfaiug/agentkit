@@ -182,7 +182,7 @@ class Notifications(unittest.TestCase):
                 clock = [200.0]
 
                 def tmux(*args, **kwargs):
-                    return (0, "seat\t250") if args[:1] == ("list-clients",) else (1, "")
+                    return (0, "250") if args[:1] == ("display-message",) else (1, "")
 
                 def newer():
                     clock[0] = 300.0

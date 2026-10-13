@@ -52,7 +52,7 @@ class CardAgreesWithTheSeat(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
         self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close_needs))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
-        self.client = (0, "")       # what tmux says of the seat's clients: name, last input
+        self.client = (0, "")       # what tmux says of the seat's last input
         self.stack.enter_context(patch.object(orch, "tmux_out",
                                               side_effect=lambda *_a, **_k: self.client))
 
@@ -65,21 +65,21 @@ class CardAgreesWithTheSeat(unittest.TestCase):
 
     def test_opening_the_seat_leaves_a_sent_card_as_it_is(self):
         self.assertTrue(self.says("needs you", 100, now=160)["sent"])   # a dialog, a minute up
-        self.client = (0, "seat\t170")          # he switched in and pressed keys there
+        self.client = (0, "170")          # he switched in and pressed keys there
         for now in (180, 360, 3600):
             self.assertNotIn("closed", self.says("needs you", 100, now=now))
         self.assertEqual((self.posts, self.closed), (["Needs you · seat"], []))
 
     def test_it_reads_answered_once_the_seat_works_again(self):
         self.says("needs you", 100, now=160)
-        self.client = (0, "seat\t170")
+        self.client = (0, "170")
         self.says("needs you", 100, now=180)
         self.says("working", 200, now=360, reason="")       # the dialog came down
         self.assertEqual(self.closed, ["Answered"])
 
     def test_it_reads_done_once_the_seat_declared_its_job_done(self):
         self.says("needs you", 100, now=160)
-        self.client = (0, "seat\t170")
+        self.client = (0, "170")
         self.says("needs you", 100, now=180)
         notify.record("seat", "done", "Shipped", time=300)
         self.says("done", 300, now=360, reason="Shipped")
@@ -92,7 +92,7 @@ class CardAgreesWithTheSeat(unittest.TestCase):
         self.assertEqual(self.closed, ["Answered"])
 
     def test_input_in_the_seat_holds_back_a_card_that_is_not_out_a_minute(self):
-        self.client = (0, "seat\t130")          # he is in the seat as the dialog goes up
+        self.client = (0, "130")          # he is in the seat as the dialog goes up
         for now in (160, 189):
             self.says("needs you", 100, now=now)
         self.assertEqual(self.posts, [])

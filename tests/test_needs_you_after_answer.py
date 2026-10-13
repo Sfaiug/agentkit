@@ -48,7 +48,7 @@ class NeedsYouAfterAnswer(unittest.TestCase):
 
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
         self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close))
-        # No client is attached to the seat's fake server.
+        # Nobody has typed into the seat on its fake server.
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
 
     def tick(self, now, reason):
@@ -87,7 +87,7 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         notify.record(SEAT, "needs", QUESTION, time=100)
         self.tick(100, QUESTION)
         # The owner types the answer in an attached client across a tick, which ends that episode.
-        with patch.object(orch, "tmux_out", return_value=(0, f"{SEAT}\t150")):
+        with patch.object(orch, "tmux_out", return_value=(0, "150")):
             self.tick(160, QUESTION)
         notify.answered(SEAT, 200)
         for now in (230, 300, 400, 500):
