@@ -526,8 +526,8 @@ class StopNudge(unittest.TestCase):
         return f"{said}\n\n⟩\n{footer}" if footer else f"{said}\n\n⟩"
 
     def working(self, said):
-        """The same, mid-turn: Muse draws its interrupt hint where the composer would be."""
-        return f"{said}\n\nesc to interrupt"
+        """The same, mid-turn: Muse draws its spinner where the composer would be."""
+        return f"{said}\n\n◇ Thinking (0s · esc to interrupt)"
 
     def drafting(self, said):
         """The same, with the user part way through a line they have not sent."""

@@ -69,6 +69,13 @@ composer suggestion (`38;5;242`, no faint attribute; typed text is `38;5;252`), 
 its background-task tray, `acme draft words` typed over the tray and not sent, and a turn
 running under the tray at its cap of four tasks and `+N`, twelve rows below the spinner.
 
+`muse-question-pane.txt` is Muse Code 1.4.7's actual `capture-pane -p -e -J` of a seat
+waiting on its own `Request user input` tool, the second of three questions, cut to the
+lines from its last finished step down. Its words are replaced with invented ones (the
+tool line's per-letter shimmer too); its rows, colours, key hint and composer are as
+captured. The hint ends `Esc to interrupt` with no bracket, as no turn's spinner does,
+and every row of the dialog is indented, where a turn's spinner starts at the left edge.
+
 `auth-expiry-variants.json` records the additional logout messages reported in review
 and confirmed by inspecting these same installed binaries. It includes Claude's revoked
 and missing login messages and external-key failure, Codex's expired/revoked/already-used
@@ -289,8 +296,14 @@ Read out of the installed executables on 2026-09-13, not assumed:
   `PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`, `PermissionRequest`, `PreCompact`
   and `PostCompact`. `PermissionRequest` carries `tool_name`, which the hook records as the
   event's kind. `Interrupt` is what ends a turn the user escapes out of.
-* **Muse Code 1.2.1** has no lifecycle hooks; `adapters/muse.sh hooks` says so and writes
-  nothing. Muse 1.2.1 also draws `❯` where 1.0.3 drew `⟩`; the shared footer already reads both.
+* **Muse Code 1.2.1** has no lifecycle hooks. Muse 1.2.1 also draws `❯` where 1.0.3 drew `⟩`;
+  the shared footer already reads both. **Muse Code 1.4.7** runs them from `-c hooks.<Event>=`
+  on its command line, which `adapters/muse.sh interactive` adds where `muse schema` names hook
+  events. Observed in its TUI on 2026-10-13: a hook gets almost none of the seat's environment
+  (`HOME`, `PATH` and Muse's own `MUSE_*`), so the seat's name rides in the hook's command; its
+  own `request_user_input` fires no `PreToolUse`, but its dialog opening fires `Notification`
+  with `notification_type: question_prompt`, which `hooks/seat-state.sh` recorded there
+  through that very launch line.
 * **OpenCode 2.0.13** takes its hooks as a v2 plugin (`export default {id, setup}`) fed by the
   server's event stream. agentkit's ships as `hooks/opencode-seat` and is named per launch in
   `OPENCODE_CONFIG_CONTENT`, so nothing is written into the user's own config. It translates

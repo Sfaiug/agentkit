@@ -638,12 +638,13 @@ esac
             self.assertEqual((path.parent / "round-1/reviewer/env-seen").read_text().strip(), "from-basename")
 
     def test_list_warns_old_seats_whose_harness_has_hooks(self):
-        # a seat takes its hooks as it starts, from a config file (Claude) or its launch (Codex)
+        # a seat takes its hooks as it starts, from a config file (Claude) or its launch (Codex,
+        # Muse); Antigravity runs none
         config.ensure_dirs()
         cfg = config.load()
         (config.STATE / "installed-at").write_text("1000")
         seats = (("old", "opus", 900), ("new", "opus", 1100), ("codex", "astra", 900),
-                 ("muse", "spark", 900))
+                 ("muse", "spark", 900), ("agy", "gemini", 900))
         for name, model, _ in seats:
             config.save_session(cfg, name, model, ["spark"])
         found = [{"name": name, "path": "/repo", "created": when, "attached": False}
@@ -653,7 +654,7 @@ esac
             orch.cmd_list([])
         flagged = [line.split()[0] for line in out.getvalue().splitlines()
                    if "restart to pick up updates" in line]
-        self.assertCountEqual(flagged, ["old", "codex"])
+        self.assertCountEqual(flagged, ["old", "codex", "muse"])
 
     def adapters(self, cannot_pin=()):
         """A fake adapter for every harness, and $AGENTKIT_ADAPTER_DIR pointing at them.

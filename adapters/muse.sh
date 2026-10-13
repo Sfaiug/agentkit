@@ -153,9 +153,30 @@ interactive)
     home || exit 2
     login=$(printf 'env -u META_API_KEY XDG_CONFIG_HOME=%q ' "$XDG_CONFIG_HOME")
   fi
+  # Muse 1.4.7 runs lifecycle hooks, given on the command line, which replaces only the events
+  # it names: hooks/seat-state.sh writes down its question going up and its turn's end, the two
+  # adapters/muse.toml gives a state.  No prompt hook: a seat that reports prompts has only them
+  # answer its questions, and one opened before this, or on an older muse, reports none.  Muse
+  # hands a hook almost none of the seat's environment, so the seat's name rides in its command.
+  # Only where this muse's own schema names hook events: an older one refuses a launch carrying
+  # settings it does not know, and its seat stays read off the screen alone, as does a launch
+  # for no seat.
+  hooks=""
+  [ -n "${AGENTKIT_SESSION:-}" ] && schema=$(mktemp -d) && {
+    if muse schema generate-json-schema --out "$schema" >/dev/null 2>&1 &&
+        grep -q '"notification"' "$schema"/*.json 2>/dev/null; then
+      run=$(jq -cn --arg c "env $(printf 'AGENTKIT_SESSION=%q bash %q' "$AGENTKIT_SESSION" \
+          "$REPO/hooks/seat-state.sh")" \
+        '[{hooks: [{type: "command", command: $c}]}]')
+      for event in Stop Notification; do
+        hooks+=$(printf -- '-c %q ' "hooks.$event=$run")
+      done
+    fi
+    rm -rf -- "$schema"
+  }
   # --model/--reasoning-effort are only legal with --provider meta, so it is named here too
-  printf '%spython3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--yolo --provider meta --model %q --reasoning-effort %q\n' \
-      "$login" "$REPO/tools/idle-compact.py" "$rules" "$resume" "$1" "$2" ;;
+  printf '%spython3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--yolo --provider meta --model %q --reasoning-effort %q%s\n' \
+      "$login" "$REPO/tools/idle-compact.py" "$rules" "$resume" "$1" "$2" "${hooks:+ ${hooks% }}" ;;
 usage)
   # Recorded run quotas take precedence, even in a copied adapter without the probe helper.
   # One limit: each meter is trusted for at most its own window, so a weekly file is never
@@ -211,9 +232,10 @@ auth)
     echo "muse: no $AUTH; run \`$LOGIN\`" >&2; exit 1; }
   echo "muse: the login in $AUTH is saved" ;;
 hooks)
-  # Muse Code 1.2.1 offers no lifecycle hooks, so every state one of its seats can be caught in
-  # is read off its screen by the rules in adapters/muse.toml.  Nothing to install.
-  echo "muse: no lifecycle hooks; its seats are read from the screen rules in adapters/muse.toml" ;;
+  # Muse takes its hooks on the command line, and `interactive` builds that line where its
+  # muse runs them (1.4.7): nothing persistent to write here.
+  echo "muse: hooks are given per launch by \`adapters/muse.sh interactive\` (Stop," \
+       "Notification); nothing to write here" ;;
 models)
   # muse has no command that lists its models, but `muse serve` speaks MSP on stdio (`muse
   # schema`), and its `model/list` names the models this login's provider catalog offers,
