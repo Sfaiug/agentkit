@@ -50,11 +50,11 @@
   repo's `cleanup:` line, git, the directory, the branch. Stop, clean, endings and gc call
   it. `settle_run`, `drop_checkout`, `provably_final` for run and gc.
   Leaks: run's state predicates, `git`, `git_out`, `Stopped`.
-- `leases.py`: the tick's collision scan: every pair of live runs of a repository merged in
-  memory over the base they share; a pair that cannot merge is written on the younger run as
-  waiting on the older (`state/leases/`); one still before its review, a seat's own PR review
-  before its reviewer turn included, is stopped there, branch kept (`park`), and starts again
-  once the older has landed (`restart`). Reads run records and `transitions.going`.
+- `leases.py`: the tick's collision scan: two live runs of a repository that cannot merge in
+  memory over their shared base are recorded, the younger waiting on the older
+  (`state/leases/`); a younger before its review, or a seat's own PR before its reviewer turn,
+  stops there, branch kept (`park`), and starts again once the older landed (`restart`).
+  Reads run records and `transitions.going`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
   leaves to fix itself or hand the failure to its PR's seat. Record changes and the tick
