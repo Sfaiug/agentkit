@@ -603,6 +603,19 @@ def leftover_junk(path):
                    for part in parts))
 
 
+def add_paths(wt, paths, env=None):
+    """Stage selected work that still has a file or an entry in this index.
+
+    A staged rename already removed its old entry, so add cannot match that path.
+    An index read from HEAD still has it and must stage its deletion.
+    """
+    indexed = set(git(wt, "ls-files", "-z", env=env).split("\0"))
+    selected = [f":(literal){path}" for path in paths
+                if path in indexed or os.path.lexists(Path(wt) / path)]
+    if selected:
+        git(wt, "add", "--", *selected, env=env)
+
+
 def commit_leftovers(wt, log, artifacts, state):
     """Commit whatever the executor left uncommitted, so the reviewer sees a real diff.
 
@@ -646,12 +659,12 @@ def commit_leftovers(wt, log, artifacts, state):
         if not real and not gone:
             return
         if real:
-            git(wt, "add", "--", *real)
+            add_paths(wt, real)
         with tempfile.TemporaryDirectory() as tmp:
             index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
             git(wt, "read-tree", "HEAD", env=index)
             if real:
-                git(wt, "add", "--", *real, env=index)
+                add_paths(wt, real, env=index)
             if gone:
                 git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
             git(wt, "commit", "-m", state["title"], env=index)
