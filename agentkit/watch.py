@@ -3165,6 +3165,11 @@ def at_prompt(session, cfg=None, pane=None):
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
+    return _free(harness, found)
+
+
+def _free(harness, found):
+    """Does that read put the seat at its prompt: a rule or hook saying so, no turn in flight."""
     if not found.get("authority"):
         return False            # nothing said anything: that is not a prompt, it is silence
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
@@ -3274,9 +3279,14 @@ def untyped(session, cfg=None):
     if not found:
         return "its screen could not be read", False
     draft = composer_draft(harness, pane)
-    said = (f"it reads {found.get('state')} by {found.get('rule') or 'nothing'}, its composer "
+    # a turn its hook began goes on under a composer drawn empty, where the harness's spinner no
+    # longer says what its working rule reads: that is no seat at its prompt
+    turn = found.get("hooked") == "working" and found.get("state") != "working"
+    said = (f"it reads {found.get('state')} by {found.get('rule') or 'nothing'}"
+            + (f", its {found.get('hooked_event')} hook says its turn runs" if turn else "")
+            + ", its composer "
             + ("empty" if draft == "" else "not found" if draft is None else "holding text"))
-    if found.get("state") != "at_prompt":
+    if not _free(harness, found):
         return said, False
     try:
         path = config.seat_file("refused", session["name"])
