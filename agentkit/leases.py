@@ -13,9 +13,11 @@ commit step, which runs this scan itself -- is stopped there with its branch kep
 on the holder (`park`): what it built cannot land as it is.  Once the holder has landed or is
 over, the tick starts its task again on the newest base (`restart`); until then the stopped
 run is `parked`: going, so its seat is working and a wait on it follows the restart, and
-stoppable, so its owner's stop or its seat's close calls the restart off.  A younger run past that point,
-the review of a pull request, a job's task, a red target's repair and a suite's split are
-only written down: the lander orders their landings.  The record under
+stoppable, so its owner's stop or its seat's close calls the restart off.  A seat's own pull
+request's review before its reviewer turn, which runs the scan itself, is parked the same
+way, and the tick starts the review of that pull request again.  A younger run past that
+point, another's pull request's review, a job's task, a red target's repair and a suite's
+split are only written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
 only while its run is going (`transitions.going`), is to land and its checkout is there; a record
 whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
@@ -102,12 +104,15 @@ def live(repo):
 def before_review(state):
     """Whether the run is a build with nothing reviewed yet: no round with a verdict, and its
     loop in its executor turn or at ak's commit step, where what it built can still be set
-    aside.  A pull request's review builds nothing to set aside, a job's task is its job's to
+    aside; or a seat's own pull request's review before its reviewer turn, which
+    `run.park_own_review` runs the scan from, and whose review the tick starts again.
+    Another's pull request's review builds nothing to set aside, a job's task is its job's to
     settle, as `transitions.parkable_conflict` leaves it, and a red target's repair and a suite's split
     are waited on: stopped, either would hold its line (`handback.repair_open`) or its suite
     (`handback.open_followup`) for good."""
-    return (not any(state.get(key) for key in ("review_pr", "job_id", "repair", "split_suite",
-                                               "round_summaries"))
+    if state.get("review_pr") and not state.get("own_pr"):
+        return False
+    return (not any(state.get(key) for key in ("job_id", "repair", "split_suite", "round_summaries"))
             and state.get("step") in (None, "executor", "done-when"))
 
 
@@ -354,7 +359,8 @@ def restart(log=print, now=None):
     """The tick's pass: a run stopped waiting on a holder (`park`) is started again once the
     holder has landed or is over (stopped or failed: its diff no longer counts) -- its task
     naming its repository and the new run (`task_naming`), with a fix run's regression folder and
-    receipt (`CARRIED`), a new run of its seat (`run.launch_for_seat`).  The stopped run names the
+    receipt (`CARRIED`), or the review of its pull request as it stands now, a new run of its
+    seat (`run.launch_for_seat`).  The stopped run names the
     new one first, and the launch follows, under the lock a stop and a seat's close take (as
     `handback.start_followups` holds it), so a stop before it calls it off, a closed seat gets none,
     and none starts twice whatever the launch did."""
@@ -379,23 +385,33 @@ def restart(log=print, now=None):
                 with run_record.record(run_dir) as current:
                     current["lease_restarted"] = directory.name
             directory.mkdir(parents=True)
+            review = state.get("review_pr")
+            opts = {key: value for key, value in (state.get("launch_opts") or {}).items()
+                    if key != "--first"}
             try:
-                (directory / "task.md").write_text(
-                    task_naming(run_dir, directory, state.get("repo")), encoding="utf-8")
-                if (run_dir / turns.REGRESSION.parent).is_dir():      # links kept as links
-                    shutil.copytree(run_dir / turns.REGRESSION.parent,
-                                    directory / turns.REGRESSION.parent, symlinks=True)
-                (directory / "log.txt").touch()
-                gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
-                                      f"attempt is kept on branch {state.get('branch')}")
-                run.launch_for_seat(
-                    directory, state,
-                    {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
-                     **{key: state[key] for key in CARRIED if key in state}},
-                    opts={**{key: value for key, value in (state.get("launch_opts") or {}).items()
-                             if key != "--first"},
-                          **({"--first": True} if state.get("first") else {})},
-                    task_file=state.get("task_file"))
+                if review:
+                    (directory / "log.txt").touch()
+                    gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; the review "
+                                              f"of {review} starts again on the landed base")
+                    run.launch_for_seat(
+                        directory, state,
+                        {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo")},
+                        opts={**opts, "--review-pr": review}, argv=["--review-pr", review])
+                else:
+                    (directory / "task.md").write_text(
+                        task_naming(run_dir, directory, state.get("repo")), encoding="utf-8")
+                    if (run_dir / turns.REGRESSION.parent).is_dir():      # links kept as links
+                        shutil.copytree(run_dir / turns.REGRESSION.parent,
+                                        directory / turns.REGRESSION.parent, symlinks=True)
+                    (directory / "log.txt").touch()
+                    gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; its earlier "
+                                              f"attempt is kept on branch {state.get('branch')}")
+                    run.launch_for_seat(
+                        directory, state,
+                        {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
+                         **{key: state[key] for key in CARRIED if key in state}},
+                        opts={**opts, **({"--first": True} if state.get("first") else {})},
+                        task_file=state.get("task_file"))
                 log(f"{run_dir.name} started again as {directory.name}: {why}")
             except (config.Error, OSError, run_record.StopRequested) as exc:
                 log(f"WARN {run_dir.name} could not start again as {directory.name}: {exc}")

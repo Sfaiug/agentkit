@@ -810,11 +810,12 @@ def seat_launch(state):
     return bool(state.get("followup") or state.get("restarted"))
 
 
-def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None):
+def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None, argv=None):
     """Launch the task.md in that new run directory as the tick does for a seat, the one `state`
     was launched from: `origin` on its receipt says why (`seat_launch`), with the seat's lists
     now, the given run's only for a seat with no record of its own -- checked against the
-    config now, as that run's may predate a model it names -- and `opts` over the defaults."""
+    config now, as that run's may predate a model it names -- and `opts` over the defaults.
+    `argv` is the launch's own where it is no task's: a pull request's review started again."""
     session = launched_session(state)
     try:
         lists = (config.load_session(config.load(), session, required=False) if session
@@ -829,7 +830,18 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
             "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
     prepare(directory, opts, logger(directory), report_config(cfg), task_file=task_file,
             receipt=receipt)
-    spawn_bg(directory, [str(directory / "task.md")])
+    spawn_bg(directory, argv or [str(directory / "task.md")])
+
+
+def park_own_review(repo, run_dir, state, log):
+    """A seat's own pull request's review runs the lease scan itself before any reviewer is
+    picked, as ak's commit step does for a task run: a diff that cannot merge with an older
+    live change is parked here (`leases.park`), and the tick starts the review of that pull
+    request again once the change has landed (`leases.restart`).  The save raises the stop the
+    scan recorded, so this loop ends as a stopped one does."""
+    from . import leases  # here, not at the top: it reaches run
+    leases.scan_safely(repo, log)
+    run_record.save_state(run_dir, state)
 
 
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
@@ -2395,6 +2407,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
+    if is_own and not summaries:
+        park_own_review(repo, run_dir, state, log)
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first
