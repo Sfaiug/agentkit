@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, job, record, run, staffing, task
+from agentkit import config, job, record, roundloop, run, staffing, task, worktrees
 
 AK_MAIN = runpy.run_path(str(REPO / "bin/ak"))["main"]
 
