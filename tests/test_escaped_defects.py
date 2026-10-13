@@ -10,6 +10,7 @@ the test writes, with commit dates it sets, and no network.
 from contextlib import ExitStack
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -121,17 +122,20 @@ class EscapedDefects(unittest.TestCase):
 
     def test_every_line_of_the_patch_is_read_whatever_its_text_its_name_or_git_config(self):
         # a deleted `-- ` line reads `--- ` in the patch and an added `++ ` line `+++ `, as a
-        # file's header does; a name Git quotes; prefixes the user turned off
+        # file's header does; a name Git quotes; a NUL in a file its attributes diff as text;
+        # prefixes the user turned off
         self.git("config", "core.quotePath", "true")
+        self.commit(NOW - 7 * DAY, {".gitattributes": "data.txt diff\n"})
         cases = (("schema.sql", "-- original comment\nSELECT 1;\n", "-- revised comment\nSELECT 2;\n"),
                  ("counter.cc", "int counter = 0;\n++ counter;\nint answer = 1;\n",
                   "int counter = 0;\n++ counter;\nint answer = 2;\n"),
-                 ("r\u00e9sum\u00e9.py", "answer = 1\n", "answer = 2\n"))
+                 ("r\u00e9sum\u00e9.py", "answer = 1\n", "answer = 2\n"),
+                 ("data.txt", "answer = 1\0\n", "answer = 2\0\n"))
         merges = [self.commit(NOW - 6 * DAY, {name: before}) for name, before, _ in cases]
         for name, _, after in cases:
             self.commit(NOW - 4 * DAY, {name: after})
         log = scoreboard.branch_log(self.repo, NOW - 21 * DAY)
-        self.assertEqual([scoreboard.escaped(log, sha, NOW) for sha in merges], [(1, True)] * 3)
+        self.assertEqual([scoreboard.escaped(log, sha, NOW) for sha in merges], [(1, True)] * 4)
         self.git("config", "diff.noprefix", "true")
         self.assertEqual(scoreboard.branch_log(self.repo, NOW - 21 * DAY), log)
 
@@ -146,8 +150,11 @@ class EscapedDefects(unittest.TestCase):
         with patch.object(watch, "gh_json", return_value=({"mergeCommit": {"oid": sha}}, "")) as api, \
                 patch.object(watch, "after_merge_status", return_value=("passed", None, None)), \
                 patch.object(watch, "save_state"):
-            for _ in range(2):
+            # the first tick's history write fails; the record keeps the commit, and the
+            # next tick writes the row
+            with patch.object(history, "_connect", side_effect=sqlite3.OperationalError("locked")):
                 watch.after_merge_checks({}, False, lambda _: None, now=NOW)
+            watch.after_merge_checks({}, False, lambda _: None, now=NOW)
         self.assertEqual(api.call_count, 1)        # asked once, then read from the record
         self.assertEqual(record.read_state(directory)["merge_sha"], sha)
         self.assertEqual(history.get("kept")["merge_sha"], sha)

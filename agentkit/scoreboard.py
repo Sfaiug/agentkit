@@ -3,6 +3,7 @@ ak's cost."""
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 from statistics import median
@@ -41,17 +42,17 @@ def branch_log(repo, since):
     its old path for what it deleted and its new for what it added; None where git cannot
     say.  One git call per repository: the default branch is `origin/HEAD`, else `HEAD`."""
     head = _git(repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
-    # each commit opens with a NUL, which no text patch holds
     out = _git(repo, *gitcall.patch_args(
-        "log", "--first-parent", "--diff-merges=first-parent", "--format=%x00%H %ct",
+        "log", "--first-parent", "--diff-merges=first-parent", "--format=commit %H %ct",
         "--since=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since)),
         head.decode().strip() if head else "HEAD"))
     if out is None:
         return None
+    # a commit's line opens it: no line of its patch starts so, a content line starting with
+    # its mark, whatever bytes it holds
+    parts = re.split(r"^commit (\S+) (\d+)$", out.decode("utf-8", "replace"), flags=re.M)
     commits = []
-    for part in out.decode("utf-8", "replace").split("\0")[1:]:
-        stamp, _, patch = part.partition("\n")
-        sha, at = stamp.split()
+    for sha, at, patch in zip(parts[1::3], parts[2::3], parts[3::3]):
         current = {"sha": sha, "at": int(at), "added": set(), "deleted": set()}
         for old, new, lines in gitcall.patch_files(patch):
             for line in lines:
