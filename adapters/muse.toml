@@ -54,12 +54,24 @@ programs = ["muse-bin-*"]
 capture = true
 strips_timestamp = true
 
-# Muse has no lifecycle hooks -- `adapters/muse.sh hooks` says so and writes nothing -- so every
-# state it can be caught in is read off the screen.
+# Muse 1.4.7's hooks reach a seat from its launch (`adapters/muse.sh interactive`).  Its own
+# question tool fires no tool hook, but its dialog opening is a Notification of its own kind,
+# which no text on the screen can fake: that decides `asking`.  The turn's states stay the
+# screen's, as on a muse with no hooks.
 [authority]
 working = "screen"
-asking = "screen"
+asking = "hooks"
 at_prompt = "screen"
+
+# its turn's end puts that question down, whatever the screen draws after it
+[[hooks.event]]
+name = "Stop"
+state = "at_prompt"
+
+[[hooks.event]]
+name = "Notification"
+state = "asking"
+kinds = ["question_prompt"]
 
 # The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- needs a
 # blocking end-of-turn hook to enforce itself, and Muse has none.  `nudge` asks the `ak watch`
@@ -91,7 +103,9 @@ newest = '(?i)to select'
 id = "working.interrupt"
 state = "working"
 lines = 8
-any = ["esc to interrupt"]
+# the spinner's `(0s · esc to interrupt)`, never its question's key hint, which ends `Esc to
+# interrupt` with no bracket
+any = ["esc to interrupt)"]
 
 # A composer holding bright, typed text is a draft never sent. Muse has no
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.
