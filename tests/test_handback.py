@@ -128,6 +128,7 @@ class HandBack(Sandbox):
         self.pane = "\u276f\n"      # a capture for it to read; blank is no evidence at all
         self.rule = "prompt.composer"   # which rule matched it; `none` is nothing saying so
         self.hooked_event = None    # the seat's last hook event, as `live_state` names it
+        self.hooked = None          # the state that hook alone says
         self.sent = True            # what the fake confirmed send answers
         self.leaves = False         # the seat starts a turn between the two prompt checks
         self.logs, self.typed, self.cards, self.reopened = [], [], [], []
@@ -142,6 +143,7 @@ class HandBack(Sandbox):
             side_effect=lambda *a, **k: {"state": self.screen, "rule": self.rule,
                                          "authority": "" if self.rule == "none" else "screen",
                                          "evidence": "", "began": 9000, "since": 9000,
+                                         "hooked": self.hooked,
                                          "hooked_event": self.hooked_event}))
         self.stack.enter_context(patch.object(watch, "pane_text",
                                               side_effect=lambda *a, **k: self.pane))
@@ -253,6 +255,24 @@ class HandBack(Sandbox):
         self.assertIn("it reads at_prompt by Stop, its composer not found; "
                       f"its screen is kept in {kept}", "\n".join(self.logs))
         self.assertEqual(kept.read_text(), self.pane)
+
+    def test_a_turn_its_hook_runs_under_an_empty_composer_is_said_once_and_keeps_nothing(self):
+        """13 Oct 19:30: Claude Code 2.1.292's spinner no longer says `esc to interrupt`, so a
+        seat at work drew an empty composer and its screen read at its prompt, while its
+        UserPromptSubmit hook said its turn ran.  The line rightly waited, yet the log called
+        that seat at its prompt and kept its screen as a contradiction, on every pass."""
+        directory = self.ended("run-4", owner=SEAT, no_merge=True)
+        self.rows = [self.live()]
+        self.hooked, self.hooked_event = "working", "UserPromptSubmit"
+        run.announce(record.read_state(directory), directory, self.logs.append)
+        watch.offer_endings(self.logs.append)
+        self.assertEqual(self.typed, [])
+        self.assertTrue(record.read_state(directory)["handback_pending"])
+        said = [line for line in self.logs if "not at its prompt" in line]
+        self.assertEqual(len(said), 1, self.logs)
+        self.assertIn("it reads at_prompt by prompt.composer, its UserPromptSubmit hook says its "
+                      "turn runs, its composer", said[0])
+        self.assertFalse(config.seat_file("refused", SEAT).exists())
 
     def test_a_read_of_why_that_fails_leaves_the_ending_waiting(self):
         # unmarked, the history sweep an hour on took it for history, never typed
