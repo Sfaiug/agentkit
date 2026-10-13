@@ -156,10 +156,11 @@ interactive)
   # Muse 1.4.7 runs lifecycle hooks, given on the command line, which replaces only the events
   # it names: hooks/seat-state.sh writes down its question going up and its turn's end, the two
   # adapters/muse.toml gives a state.  No prompt hook: a seat that reports prompts has only them
-  # answer its questions, and one opened before this, or on an older muse, reports none.  Muse hands a hook almost none of the seat's environment, so
-  # the seat's name rides in its command.  Only where this muse's own schema names hook
-  # events: an older one refuses a launch carrying settings it does not know, and its seat
-  # stays read off the screen alone, as does a launch for no seat.
+  # answer its questions, and one opened before this, or on an older muse, reports none.  Muse
+  # hands a hook almost none of the seat's environment, so the seat's name rides in its command.
+  # Only where this muse's own schema names hook events: an older one refuses a launch carrying
+  # settings it does not know, and its seat stays read off the screen alone, as does a launch
+  # for no seat.
   hooks=""
   [ -n "${AGENTKIT_SESSION:-}" ] && schema=$(mktemp -d) && {
     if muse schema generate-json-schema --out "$schema" >/dev/null 2>&1 &&
