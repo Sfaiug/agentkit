@@ -277,8 +277,13 @@ def preserve_checkout(state, wt, log):
         if paths:
             # --only takes these paths, leaving staged junk and done-when artifacts out.
             # Hooks may rewrite or refuse work; saving it must do neither.
+            # New files must be known to the index; already-staged deletions have no
+            # file or index entry for add to match on a retry.
+            present = [f":(literal){path}" for path in paths
+                       if (wt / path).exists() or (wt / path).is_symlink()]
+            if present:
+                gitcall.git(wt, "add", "--", *present)
             paths = [f":(literal){path}" for path in paths]
-            gitcall.git(wt, "add", "--", *paths)
             gitcall.git(wt, "-c", f"core.hooksPath={os.devnull}", "commit", "--only", "-m",
                         state.get("title") or "Save run work", "--", *paths)
         remaining, junk = gitcall.committable_paths(wt, artifacts)

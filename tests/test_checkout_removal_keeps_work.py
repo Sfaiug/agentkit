@@ -97,7 +97,8 @@ class CheckoutRemoval(unittest.TestCase):
 
     def test_blocked_task_fixer_saves_work_at_handback(self):
         directory, wt, state = self.checkout(state="running", verdict=None,
-                                             round_summaries=[{"round": 1, "verdict": "FAIL"}])
+                                             round_summaries=[{"round": 1, "verdict": "FAIL",
+                                                               "done_when": True, "summary": "Fix the API"}])
 
         def fixer(lp, role, _text, _name):
             self.assertEqual(role, "fixer")
