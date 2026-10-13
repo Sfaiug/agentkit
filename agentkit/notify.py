@@ -880,25 +880,21 @@ def _end_done_episode(session, previous):
 
 
 def _last_input(session, seat=None):
-    """When a client attached to the seat last had input, or 0: an untouched one has none.
+    """When he last typed into the seat or opened it, or 0 where its server cannot say.
 
-    Ask the seat's own server. Focus flags are not evidence with focus-events off.
+    Ask the seat's own server for the session's activity: every key a client sends it and every
+    attach move it, and it stays when he leaves, as a client's own activity does not.  Neither
+    the seat's output nor a line ak types (`send-keys`) moves it.
     """
     from . import orch
     if seat is None:
         seat = orch.find(session)
-    rc, output = orch.tmux_out("list-clients", "-t", f"={session}",
-                               "-F", "#{session_name}\t#{client_activity}",
-                               socket=orch.seat_socket(seat))
-    latest = 0
-    for line in output.splitlines() if not rc else ():
-        name, _, activity = line.partition("\t")
-        if name == session:
-            try:
-                latest = max(latest, int(activity))
-            except ValueError:
-                pass
-    return latest
+    rc, output = orch.tmux_out("display-message", "-p", "-t", f"={session}:",
+                               "#{session_activity}", socket=orch.seat_socket(seat))
+    try:
+        return int(output.strip()) if not rc else 0
+    except ValueError:
+        return 0
 
 
 def failed_declaration(notice, mine, index=None):
@@ -1099,12 +1095,8 @@ def needs_transition(session, card, answer, now, seat=None):
         return 0
     # Input in the seat holds back a card that is not out yet, for as long as he is there: a
     # seat works on with its question standing, so a glance at it must not answer it, and the
-    # minute counts from his last key, which the card keeps: tmux forgets it once he leaves.
-    typed = _last_input(session, seat)
-    if typed > card.get("input_at", 0):
-        card["input_at"] = typed
-        _card_write(session, card)
-    if now - max(card["since"], card.get("input_at", 0)) < CARD_WAIT:
+    # minute counts from his last key, though he left between two ticks.
+    if now - max(card["since"], _last_input(session, seat)) < CARD_WAIT:
         return 0
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):

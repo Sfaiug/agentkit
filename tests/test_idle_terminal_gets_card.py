@@ -21,6 +21,7 @@ class IdleTerminalGetsCard(Sandbox):
             "AK_NOTIFY_SINK": "off", "AGENTKIT_SESSION": SEAT}))
         self.stack.enter_context(patch.object(notify.time, "time", return_value=NOW))
         self.seat = {"name": SEAT, "legacy": False}
+        self.typed = []
         self.clients = []
         self.posts, self.edits = [], []
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
@@ -28,15 +29,24 @@ class IdleTerminalGetsCard(Sandbox):
         self.stack.enter_context(patch.object(notify, "post", side_effect=self.post))
         self.stack.enter_context(patch.object(notify, "close_needs", side_effect=self.close))
 
+    @property
+    def clients(self):
+        """The clients on the server now, each (session, its newest key)."""
+        return self._clients
+
+    @clients.setter
+    def clients(self, clients):
+        # a client that leaves takes its own activity with it, never its session's
+        self.typed.extend(getattr(self, "_clients", []))
+        self._clients = clients
+
     def tmux(self, *args, socket=None, **_kw):
+        """tmux's `session_activity`: the newest key any client sent the session, gone or not."""
         self.assertEqual(socket, orch.seat_socket(self.seat))
-        self.assertEqual(args[:2], ("list-clients", "-t"))
-        target = args[2].removeprefix("=")
-        fmt = args[4] if args[3:4] == ("-F",) else "#{session_name} (focused)"
-        return 0, "\n".join(fmt.replace("#{session_name}", name)
-                            .replace("#{client_activity}", str(activity))
-                            .replace("#{client_flags}", "focused")
-                            for name, activity in self.clients if name == target)
+        self.assertEqual(args, ("display-message", "-p", "-t", f"={SEAT}:",
+                                "#{session_activity}"))
+        return 0, str(max((activity for name, activity in self.typed + self.clients
+                           if name == SEAT), default=0))
 
     def post(self, payload, files, message, receipt):
         self.posts.append(payload["embeds"][0]["title"])
@@ -84,8 +94,24 @@ class IdleTerminalGetsCard(Sandbox):
         self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
         self.assertEqual(self.edits, [])
 
+    def test_his_last_key_holds_the_card_though_he_left_between_two_ticks(self):
+        # no tick saw the key: he typed and left the seat, or went to another, in between
+        for departed in ([], [("other-seat", int(NOW) + 51)]):
+            with self.subTest(departed=departed):
+                config.card_path(SEAT).unlink(missing_ok=True)
+                self.posts.clear()
+                self.clients = [(SEAT, int(NOW) - 600)]
+                self.tick()
+                self.clients = [(SEAT, int(NOW) + 50)]
+                self.clients = departed
+                self.tick(notify.CARD_WAIT)
+                self.tick(50 + notify.CARD_WAIT - 1)
+                self.assertEqual(self.posts, [])
+                self.tick(50 + notify.CARD_WAIT)
+                self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+
     def test_his_last_key_holds_the_card_after_he_leaves_the_seat(self):
-        # tmux forgets a client's keys once it detaches or switches to another seat
+        # a client that detaches or switches to another seat takes its own activity with it
         for clients in ([], [("other-seat", int(NOW) + 61)]):
             with self.subTest(clients=clients):
                 config.card_path(SEAT).unlink(missing_ok=True)

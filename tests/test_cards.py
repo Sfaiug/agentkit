@@ -270,8 +270,8 @@ class Cards(unittest.TestCase):
                                 "needs", "Which export format?", session="seat"), 0)
 
                         def tmux(*args, **kwargs):
-                            if args[:1] == ("list-clients",):
-                                return (0, f"seat\t{activity}")
+                            if args[:1] == ("display-message",):
+                                return (0, str(activity))
                             return (1, "")
 
                         with patch.object(orch, "tmux_out", side_effect=tmux), \
