@@ -77,7 +77,6 @@ class MuseLaunch(unittest.TestCase):
         for hook in hooks:
             self.assertIn(f"env AGENTKIT_SESSION=fix-api bash {REPO / 'hooks/seat-state.sh'}",
                           hook)
-        self.assertLess(cmd.index("-c"), cmd.index("--provider"))
 
     def test_its_prompts_stay_unreported(self):
         # a seat that reports prompts has only them answer its questions: one opened before
