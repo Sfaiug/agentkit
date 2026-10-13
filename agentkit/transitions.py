@@ -226,6 +226,14 @@ def carried_lines(repo, base, head="HEAD"):
     characters -- so a new blank line or brace that reads as a deleted one is not moved, and a
     module split across files adds what its new lines come to.  Generated files are left out,
     as `diff_lines` leaves them out."""
+    return reviewed_lines(repo, base, head)[1]
+
+
+def reviewed_lines(repo, base, head="HEAD"):
+    """(the lines a diff adds that a reviewer reads, each as its text with whitespace collapsed,
+    counted; how many added lines it carries, `carried_lines`): every added line, generated
+    files aside, as `diff_lines` counts them, less the carried ones, so what two pull requests
+    share and each one's size are read off the same lines."""
     # a submodule reads as its commit line: diff_lines never counts its insides
     diff = gitcall.git(repo, *gitcall.patch_args("diff", f"{base}...{head}"), check=False)
     added, deleted = {}, {}
@@ -249,7 +257,7 @@ def carried_lines(repo, base, head="HEAD"):
                 where.setdefault(key, []).append((name, at))
     used = {name: set() for name in gone}
     cursor = {}     # how far each key's deleted positions are consumed
-    carried = 0
+    read, carried = Counter(), 0
     for name, lines in added.items():
         if name in skip_new:
             continue
@@ -277,27 +285,9 @@ def carried_lines(repo, base, head="HEAD"):
                 carried += length
                 i += length
             else:
+                read[lines[i]] += 1
                 i += 1
-    return carried
-
-
-def added_texts(repo, base, head="HEAD"):
-    """The lines a diff adds, each as its text with whitespace collapsed, those holding a letter
-    or digit, counted: what two pull requests share is read off these.  Generated files are left
-    out, as `diff_lines` leaves them out."""
-    diff = gitcall.git(repo, "-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color",
-                       "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/",
-                       "--submodule=short", f"{base}...{head}", check=False)
-    added = {}
-    for chunk in ("\n" + diff).split("\ndiff --git ")[1:]:
-        header, _, body = chunk.partition("\n@@")
-        new = re.search(r"^\+\+\+ b/(.*?)\t?$", header, re.M)
-        if new:
-            added[new.group(1)] = [" ".join(line[1:].split()) for line in body.split("\n")
-                                   if line[:1] == "+"]
-    skip = _generated(repo, head, sorted(added))
-    return Counter(text for name, lines in added.items() if name not in skip
-                   for text in lines if any(ch.isalnum() for ch in text))
+    return read, carried
 
 
 REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this long ago still
@@ -305,50 +295,44 @@ REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this 
 
 
 def budget_failed_reviews(repo, exclude=None):
-    """The seat's own pull requests of that repository whose review failed at the budget within
-    `REPLACED_WITHIN` and did not merge, as (url, base, head, finished): what a replacement
-    inherits rounds from.  The run itself (`exclude`) counts for nothing."""
-    home = Path(gitcall.main_checkout(Path(repo))).resolve()
-    found = []
+    """The pull requests of that repository whose review spent the budget, counted
+    across their runs (`rounds_spent_elsewhere`), none of which merged, as (url, base, head) of
+    each run of them that ended `fail` within `REPLACED_WITHIN`: what a replacement inherits
+    rounds from.  The run itself (`exclude`) counts for nothing."""
+    found, merged = [], set()
     for run_dir in run_record.run_dirs():
         if exclude is not None and run_dir.name == Path(exclude).name:
             continue
         state = run_record.read_state(run_dir)
-        if (not state or not state.get("review_pr") or state.get("merged")
-                or state.get("state") != "fail"
-                or len(state.get("round_summaries") or []) < taskfile.TASK_MAX_ROUNDS
-                or not state.get("base_sha") or not state.get("head_sha") or not state.get("repo")):
+        if not state or not state.get("review_pr") or not same_repo(state.get("repo"), repo):
             continue
-        finished = state.get("finished_at") or 0
-        if time.time() - finished > REPLACED_WITHIN:
-            continue
-        try:
-            if Path(gitcall.main_checkout(Path(state["repo"]))).resolve() != home:
-                continue
-        except OSError:
-            continue
-        found.append((state["review_pr"], state["base_sha"], state["head_sha"], finished))
-    return found
+        if state.get("merged"):
+            merged.add(pr_key(state["review_pr"]))
+        elif (state.get("state") == "fail" and state.get("base_sha") and state.get("head_sha")
+                and time.time() - (state.get("finished_at") or 0) <= REPLACED_WITHIN):
+            found.append((state["review_pr"], state["base_sha"], state["head_sha"]))
+    return [(url, base, head) for url, base, head in found if pr_key(url) not in merged
+            and rounds_spent_elsewhere(pr=url, exclude=exclude)[0] >= taskfile.TASK_MAX_ROUNDS]
 
 
-def replacement_refusal(repo, base, head, number, counted, exclude=None):
+def replacement_refusal(repo, base, head, number, exclude=None):
     """Why a pull request's first review is refused as a replacement, else None: more than half
-    of its `counted` added lines were added by a pull request whose review failed at the budget
-    (`budget_failed_reviews`), and it is no real split of that one -- more than half its size --
-    so it inherits the rounds that were spent, which is all of them.  A redesign adds lines of
-    its own and passes; a split takes a part under half the failed one's size and passes.  A
-    failed head git no longer holds is skipped: nothing to compare."""
-    mine = added_texts(repo, base, head)
+    of the lines it adds that a reviewer reads (`reviewed_lines`) were added by a pull request
+    whose review failed at the budget (`budget_failed_reviews`), and it is no real split of
+    that one -- more than half its size, counted alike -- so it inherits the rounds that were
+    spent, which is all of them.  A redesign adds lines of its own and passes; a split takes a
+    part under half the failed one's size and passes.  A failed pull request whose commits git
+    no longer holds is skipped: nothing to compare; a git that never answered stops the gate."""
+    mine = reviewed_lines(repo, base, head)[0]
     if not mine:
         return None
-    worst = None
-    for url, their_base, their_head, _ in budget_failed_reviews(repo, exclude):
-        try:
-            theirs = added_texts(repo, their_base, their_head)
-        except config.Error:
+    counted, worst = sum(mine.values()), None
+    for url, their_base, their_head in budget_failed_reviews(repo, exclude):
+        if not all(gitcall.git(repo, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}", check=False)
+                   for sha in (their_base, their_head)):
             continue
-        shared = sum((mine & theirs).values())
-        size = sum(theirs.values())
+        theirs = reviewed_lines(repo, their_base, their_head)[0]
+        shared, size = sum((mine & theirs).values()), sum(theirs.values())
         if shared * 2 > counted and counted * 2 > size and (worst is None or shared > worst[1]):
             worst = (url, shared, size)
     if worst is None:
