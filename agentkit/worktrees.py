@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import config, gitcall, handback, retention, run, transitions
+from . import config, gitcall, handback, retention, roundloop, run, transitions
 from . import record as run_record
 
 
@@ -266,11 +266,41 @@ def run_repo_cleanup(wt, run_dir):
         return                          # a cleanup never stops a removal, whatever it meets
 
 
+def preserve_checkout(state, wt, log):
+    """Put the checkout's work on its branch, or hold it for the seven-day clock."""
+    branch, artifacts = state.get("branch"), state.get("artifacts", ())
+    try:
+        if (gitcall.git(wt, "symbolic-ref", "--quiet", "HEAD") != f"refs/heads/{branch}"
+                or roundloop.in_progress(wt, "rebase") or roundloop.in_progress(wt, "merge")):
+            raise config.Error(f"the checkout is off {branch} or a rebase or merge is unfinished")
+        paths, _junk = gitcall.committable_paths(wt, artifacts)
+        if paths:
+            # --only takes these paths, leaving staged junk and done-when artifacts out.
+            # Hooks may rewrite or refuse work; saving it must do neither.
+            gitcall.git(wt, "-c", f"core.hooksPath={os.devnull}", "commit", "--only", "-m",
+                        state.get("title") or "Save run work", "--", *paths)
+        if gitcall.committable_paths(wt, artifacts)[0]:
+            raise config.Error("uncommitted work remains")
+    except (config.Error, OSError) as exc:
+        state["checkout_kept"] = True
+        run_id = state.get("run_id")
+        if run_id:
+            try:
+                with run_record.record(config.RUNS / run_id) as current:
+                    current["checkout_kept"] = True
+            except OSError:
+                pass
+        log(f"WARN left worktree {wt}: could not save its work on {branch}: {exc}")
+        return False
+    return True
+
+
 def stop_checkout(state, log, keep_branch=False):
     """Remove a run's worktree, and its local branch unless kept: the one way a checkout goes.
 
-    The repo's `cleanup:` line first, while the checkout is still there to run it in; then
-    `git worktree remove --force`, whatever the tree holds; then by hand what git left of
+    A kept branch takes the checkout's committable work first, without repository hooks;
+    a checkout whose work cannot reach that branch stays. The repo's `cleanup:` line runs
+    while the checkout is still there; then `git worktree remove --force`; then what git left of
     the run's own tree under ~/.agentkit/wt -- a registration pruned, a repo cloned
     afresh -- and `git worktree prune` for what git still lists; the branch last, since
     it is checked out in the tree.  A branch already gone is not a failure worth warning
@@ -294,6 +324,8 @@ def stop_checkout(state, log, keep_branch=False):
         log(f"WARN left worktree {wt}: the run is still going")
         return False
     run_id = state.get("run_id")
+    if keep_branch and wt.exists() and not preserve_checkout(state, wt, log):
+        return False
     if isinstance(run_id, str) and run_id:
         run_repo_cleanup(wt, config.RUNS / run_id)
     try:

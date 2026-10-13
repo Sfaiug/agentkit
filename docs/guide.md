@@ -271,7 +271,11 @@ wait on a target ref that no longer qualifies is inactive history: its row reads
 A merged run's worktree and local branch go with the merge. A stop takes both at once, or with `--keep` the checkout
 after seven days. A failed, blocked or errored checkout goes when its seat has been told or after seven days, unless a
 resume can take it; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy
-there. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
+there. Before removing a run's checkout while keeping its branch, ak commits its tracked edits, new files and staged
+changes without repository hooks, leaving out junk and the done-when's artifacts. If the checkout is off its branch,
+a rebase or merge is unfinished, or Git cannot save the work, the checkout stays. The collector respects that hold
+until seven days, then retries saving; work that still cannot reach the branch stays. Removal that also drops the
+branch is unchanged. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
 with no run record goes a day after its last use (its folder changed, or git wrote its index or moved its HEAD): a folder with no `.git`, one ak never finished making, the line's marked scratch whatever it
 holds, any other only on a branch, not locked, with no submodule set up and `git status` listing nothing, untracked files
 included. A seat's checkout with a change not committed, a clone, a detached one and one git cannot read stay. A run directory older than 30 days goes whole, with its checkout and branch, unless

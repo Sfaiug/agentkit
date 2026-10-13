@@ -552,7 +552,8 @@ def drop_tree(state, tree, report, keep_branch=None, with_run=False):
         if not allowed or (left_behind(tree, report) and str(tree) not in leftovers()):
             raise
         return not retention.present(tree)
-    if not allowed:
+    if not allowed or (state.get("checkout_kept") and keep_branch is not False
+                       and not state.get("merged")):
         return tree is None or not retention.present(tree)
     return not left_behind(tree, report)
 
@@ -606,7 +607,8 @@ def gc_candidates(now=None):
                 continue
         # A failed, blocked, stopped or error checkout goes when the seat has been
         # told, or a week later, whichever is first -- unless a resume can still
-        # take the run, which holds the checkout until the week is out. The seat
+        # take the run or its work could not reach its branch, which holds the checkout
+        # until the week is out. The seat
         # reads result.md. The branch stays: a run that never pushed holds its
         # only copy there.
         if (state and state.get("run_id") == directory.name
@@ -616,6 +618,7 @@ def gc_candidates(now=None):
                 and not record.writing(directory)
                 and (retention.expired(finished, now, GC_AGE)
                      or (handback.already_handed_back(state)
+                         and not state.get("checkout_kept")
                          and not worktrees.resume_holds_tree(state, directory)))
                 and worktrees.disposable_workspace(directory, state) and state["worktree"] not in left
                 and not retention.busy(Path(state["worktree"]), paths)):
@@ -879,6 +882,7 @@ def gc(report, automatic=False):
                             elif item.get("loose") and not (
                                     retention.expired(state.get("finished_at"), time.time(), GC_AGE)
                                     or (handback.already_handed_back(state)
+                                        and not state.get("checkout_kept")
                                         and not worktrees.resume_holds_tree(state, directory))):
                                 continue
                             else:
