@@ -19,7 +19,7 @@ Every change to ak is judged by what it does for what you build with it, and by 
 
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). Either failure fails it. `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python that 3.11's grammar refuses. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
+- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). Either failure fails it. `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python that 3.11's grammar refuses, f-strings aside. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
 - Checks needing more than loopback (smoke.sh 1-5, 6, 6b, 6d, 6f, 6g, 31a, 31d, 31e: real models, GitHub, Discord, live meters, shared browser, user systemd) run in smoke.sh's live mode via `tests/live.sh`, before a host takes new code and when a harness upgrades.
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - Docs ride the change: `README.md` and `docs/guide.md` say what the code now does.
@@ -27,8 +27,10 @@ Every change to ak is judged by what it does for what you build with it, and by 
 - Tests driving `menu.loop` mock `menu.wait_key` beside `menu.read`: the real wait selects on stdin, and a stdin that never delivers EOF redraws forever instead of finishing. They leave `menu.Live`'s probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
 
 ## Lessons
+
 Mistakes earlier work here made that no check catches yet. One that becomes a check leaves this list.
 
+- `python3.11 -m py_compile` what you touch that holds an f-string: the gate reads f-strings by the running Python's rules, and a newer `python3` accepts f-strings 3.11 rejects (`f"{data["key"]}"`).
 - Never start the landing suite (`tests/landing.py`, its `tests/smoke.sh` or `tests/every_file.py`): it runs every test at landing, so when you change a sentence, rule, order or name, grep tests/ and fix each test pinning it.
 - Comments say why. Listing screens go through `agentkit/terminal.py` (`docs/cli-design.md`).
 - Each run has a memory cap (exit 137). Commit before a test sweep; run only the files your change touches, three at most at once; background one only under `timeout -k 30 20m`, read before your turn ends.
