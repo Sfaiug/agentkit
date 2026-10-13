@@ -354,7 +354,7 @@ class RunStop(Sandbox):
                 job_dir, job = self.old_job(f"20260101-090000-stuck-{held}", {
                     "name": "b.md", "title": "B", "after": ["a.md"], "state": held,
                     "run_id": kept.name, "from_pass": legacy})
-                with patch.object(deliver, "end_on_dependency", side_effect=run.Stopped("git killed")), \
+                with patch.object(deliver, "finish_blocked", side_effect=run.Stopped("git killed")), \
                         patch.object(run, "cmd_resume", side_effect=AssertionError("a resume")), \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         redirect_stdout(io.StringIO()):

@@ -1115,23 +1115,13 @@ def carry_checkout_work(state, log):
                     f"and is kept with that work")
         artifacts = set(state.get("artifacts") or ())
         gitcall.commit_leftovers(wt, log, artifacts, state)
-        if any(not gitcall.leftover_junk(path) and path not in artifacts
-               for path in gitcall.dirty_paths(wt)):
+        if gitcall.committable_paths(wt, artifacts)[0]:
             state["checkout_kept"] = True
             return f"; its uncommitted work could not be committed, so its checkout {wt} is kept"
     except (config.Error, OSError) as exc:
         state["checkout_kept"] = True
         return f"; git could not put its checkout's work on {branch} ({exc}), so {wt} is kept"
     return ""
-
-
-def end_on_dependency(cfg, run_dir, state, log, why):
-    """End a run cut from a dependency's passed tip, blocked, with the branch to relaunch from.
-
-    `why` is `stands_on_dependency`'s; the ending puts an interrupted executor's
-    uncommitted edits on that branch first, as every blocked ending does.
-    """
-    return finish_blocked(run_dir, state, turns.Blocked(why, f"## Blocked\n\n{why}"), log, cfg)
 
 
 def fail_pr_landing(lp, failure, landing=True):

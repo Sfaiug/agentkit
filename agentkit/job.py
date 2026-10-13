@@ -673,7 +673,8 @@ def job_end_legacy_run(cfg, task, run_dir):
                 or record.process_active(state) or transitions.landing_line(state)):
             return None
         try:
-            ended = deliver.end_on_dependency(cfg, run_dir, state, gitcall.logger(run_dir), why)
+            ended = deliver.finish_blocked(run_dir, state, turns.Blocked(why, f"## Blocked\n\n{why}"),
+                                           gitcall.logger(run_dir), cfg)
         except (config.Error, OSError) as exc:
             # its record says what it got to; the task still goes back with the run and its branch
             ended = {**(record.read_state(run_dir) or state), "error": f"{why}; ending it: {exc}"}

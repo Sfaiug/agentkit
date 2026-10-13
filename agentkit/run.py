@@ -25,7 +25,7 @@ from pathlib import Path
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
                land as landing, orch, record as run_record, status, stop, task as taskfile,
                turns, usage, watch, worker, worktrees)
-from .deliver import (MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
+from .deliver import (MERGE_METHODS, PICKUP_HELD, do_merge,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
 from .deliver import (PUSH_RIGHTS, checks, gh_json, github_body,
@@ -111,9 +111,10 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     on_dependency = stands_on_dependency(prior or receipt)
     if on_dependency:
         # before any checkout, pick or round: nothing here can stand on what it was cut from
-        return end_on_dependency(cfg, run_dir, stamp_origin(
+        return finish_blocked(run_dir, stamp_origin(
             {**(prior or receipt), "run_id": run_dir.name, "title": title,
-             "task": str(task_path)}), log, on_dependency)
+             "task": str(task_path)}), Blocked(on_dependency, f"## Blocked\n\n{on_dependency}"),
+            log, cfg)
     if gc.disk_pressure():
         gc.gc(log)     # before this run adds a worktree of its own
     if prior:
