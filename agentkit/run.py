@@ -1131,13 +1131,13 @@ def preflight(run_dir, opts, log):
         owner, name, number = PR_PARTS.match(url).groups()
         state = run_record.read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
-        try:
-            is_own, orch = pr_writer(config.load(), state, state.get("launched_session"),
-                                     info["author"])
-        except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
-            is_own, orch = False, None
-        state["own_pr"] = is_own
-        state["own_orchestrator"] = orch if is_own else None
+        # a config that cannot be read refuses the launch rather than judge the PR external,
+        # and a writer already on the record (`leases.restart` carries one) stays there
+        # whatever the config says of its model now: only a probed writer is written down
+        is_own, orch = pr_writer(config.load(), state, state.get("launched_session"),
+                                 info["author"])
+        state.setdefault("own_pr", is_own)
+        state.setdefault("own_orchestrator", orch if is_own else None)
         run_record.save_state(run_dir, state)
         if is_own and not orch:
             raise config.Error(f"no session record names the writer of this PR; "
