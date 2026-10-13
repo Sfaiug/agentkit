@@ -1193,7 +1193,7 @@ for event, scripts in (("UserPromptSubmit", ["seat-state.sh"]),
     assert [e["command"].rsplit("/", 1)[-1] for e in entries] == scripts, (event, entries)
 IDEMPY
   grep -q 'per launch by tools/codex-seat.py' "$d/codex.2" || { echo "(i) codex.sh hooks says nothing" >&2; rc=1; }
-  grep -q 'no lifecycle hooks' "$d/muse.2" || { echo "(i) muse.sh hooks says nothing" >&2; rc=1; }
+  grep -q 'given per launch by `adapters/muse.sh interactive`' "$d/muse.2" || { echo "(i) muse.sh hooks says nothing" >&2; rc=1; }
   # a verb with nothing to install configures nothing: only Claude's writes hooks here
   # (`codex --help`, the capability check, makes its own home; that is the harness's doing)
   [ ! -e "$d/.codex/config.toml" ] && [ ! -e "$d/.config/muse" ] ||
