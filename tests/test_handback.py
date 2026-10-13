@@ -239,22 +239,20 @@ class HandBack(Sandbox):
         `waiting for you` and paged the owner, and the log said only `not at its prompt`."""
         directory = self.ended("run-3", owner=SEAT, no_merge=True)
         self.rows = [self.live()]
-        self.rule = "Stop"
-        self.pane = "a screen with no composer on it\n"
+        # a seat at work explains itself and keeps nothing
+        self.screen, self.rule = "working", "UserPromptSubmit"
         run.announce(record.read_state(directory), directory, self.logs.append)
-        self.assertEqual(self.typed, [])
+        self.assertIn("it reads working by UserPromptSubmit", "\n".join(self.logs))
         kept = config.seat_file("refused", SEAT)
+        self.assertFalse(kept.exists())
+        # on a later pass it reads at its prompt yet takes no line: said again, its screen kept
+        self.screen, self.rule = "at_prompt", "Stop"
+        self.pane = "a screen with no composer on it\n"
+        self.tick()
+        self.assertEqual(self.typed, [])
         self.assertIn("it reads at_prompt by Stop, its composer not found; "
                       f"its screen is kept in {kept}", "\n".join(self.logs))
         self.assertEqual(kept.read_text(), self.pane)
-        # a seat at work explains itself and keeps nothing, for an ending first deferred then:
-        # one already waiting is not logged again (#872)
-        kept.unlink()
-        self.screen, self.rule = "working", "UserPromptSubmit"
-        later = self.ended("run-4", owner=SEAT, no_merge=True)
-        run.announce(record.read_state(later), later, self.logs.append)
-        self.assertIn("it reads working by UserPromptSubmit", "\n".join(self.logs))
-        self.assertFalse(kept.exists())
 
     def test_a_hand_back_reaches_a_seat_stopped_on_background_work(self):
         """ak-merge-speed, 6 Oct 22:54: a Claude turn that stopped with a background shell
