@@ -6388,7 +6388,8 @@ def offer_endings(log):
 
     A seat takes one line at each quiet prompt, so the endings that wait on its decision go
     before those of runs that merged, which only tell it so: a failed run's ending waited
-    behind six merged runs' (6 Oct).
+    behind six merged runs' (6 Oct).  A seat found off its prompt is read once a pass: its
+    other endings wait for the next pass instead of reading the same screen again each.
     """
     ended = []
     for run_dir in run_record.run_dirs():
@@ -6400,14 +6401,18 @@ def offer_endings(log):
                     ended.append((run_dir, receipt))
         except PASS_ERRORS as exc:
             log(f"WARN cannot check run {run_dir.name}: {exc}")
+    busy = set()    # seats read off their prompt this pass
     for run_dir, receipt in sorted(ended, key=lambda found: bool(found[1].get("merged"))):
         try:
             # Every ending nobody has heard is offered again here, not only one a flag was left
             # on: a hand-back the run could not type goes in at the next quiet prompt, and so
             # does the ending of an attempt that was reaped without one.  `announce` decides
             # again which path it is, so a seat that died since gets the orphan one.
-            if handback.owes_ending(receipt):
+            seat = transitions.launched_session(receipt)
+            if handback.owes_ending(receipt) and seat not in busy:
                 handback.announce(receipt, run_dir, log)
+                if (run_record.read_state(run_dir) or receipt).get("handback_pending"):
+                    busy.add(seat)
             # A question the seat never took is typed again before the user hears it; one it
             # took whose ping failed is only pinged, and so is one kept before `asked` was,
             # whose typing nobody knows the end of.

@@ -1316,7 +1316,8 @@ def hand_back(state, run_dir, log, cfg=None):
 
     Typed into the seat's composer through the confirmed send, and only while its harness sits
     at its own prompt: a line typed into a turn in flight is swallowed.  Otherwise the record
-    keeps `handback_pending` and the `ak watch` tick types it at the next quiet prompt, once.
+    keeps `handback_pending` and the `ak watch` tick types it at the next quiet prompt, once;
+    the log says so once, as the ending is first deferred, and again when the line is in.
     Call it inside `launcher_world`, so the seat is found and typed into where it was seen.
 
     Exactly once, whoever gets here first: the deciding, the typing and the mark are one
@@ -1362,10 +1363,12 @@ def hand_back(state, run_dir, log, cfg=None):
             return True
         if not said.get("handback_pending") or state.get("handed_back"):
             # an ending is either said or waiting to be, never both: a mark the attempt
-            # before this one left is neither, and goes with the same write
+            # before this one left is neither, and goes with the same write.  Said here and
+            # not on the tick's later passes: a seat off its prompt for three days put this
+            # line in the log 22,000 times for 36 runs (13 Oct)
             mark_delivery(run_dir, state, handback_pending=True, handed_back=None,
                           handback_note=None)
-    log(f"the {session} seat is not at its prompt; the tick hands run {run_dir.name} back")
+            log(f"the {session} seat is not at its prompt; the tick hands run {run_dir.name} back")
     return False
 
 
