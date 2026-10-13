@@ -1512,13 +1512,14 @@ def screen_state(harness, tail):
     one, while whatever the harness draws between its composer and its footer, a user's
     status line, never hides it or reads as it, even where it starts with a prompt mark.
     A dialog drawn over a composer the harness keeps open is read by `over_composer`, off the
-    newest row above that composer and its footer: a prompt echoed further up never reaches it.
+    row over the rule topping the box round the bottom-most prompt row, whatever is typed in it.
     """
     raw_lines, lines = _screen_rows(tail)
     if not lines:
         return None, "", ""
     chrome = screen(harness)
-    over = (content_lines(harness, tail) or [""])[-1]
+    at = next(iter(prompt_rows(raw_lines)), 0)
+    over = lines[at - 2] if at > 1 and re.fullmatch(RULE, lines[at - 1]) else ""
     # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
     # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
     # it hid every question, which then read as answered.  In a renamed session -- every seat --

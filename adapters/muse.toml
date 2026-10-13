@@ -82,13 +82,15 @@ all = ["enter to choose", "↓↑ to select", "esc to quit"]
 newest = '(?i)to select'
 
 # Muse 1.4's own question tool (`Request user input`): its options and this key hint, with the
-# composer still drawn under them and the turn waiting on the answer.  The hint is the newest
-# row over that composer and opens with its keys; a prompt echoing it sits further up, under a
-# prompt mark.  It reads `esc to interrupt` too, so it comes before the working rule.
+# composer still drawn under them and the turn waiting on the answer.  The hint is the whole row
+# over the composer's box, whatever is typed in it, where a prompt or draft quoting it never
+# sits; a turn's spinner (`Thinking (0s · esc to interrupt)`) means the turn is drawing, not
+# asking.  The hint reads `esc to interrupt` too, so it comes before the working rule.
 [[rule]]
 id = "asking.question"
 state = "asking"
-over_composer = '^Enter to select · ↑/↓ to move\b'
+over_composer = '^Enter to select · ↑/↓ to move · .*Esc to interrupt$'
+none = ["· esc to interrupt)"]
 
 [[rule]]
 id = "working.interrupt"
