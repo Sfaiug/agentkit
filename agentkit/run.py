@@ -834,6 +834,15 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
              else [str(directory / "task.md")])
 
 
+def park_own_review(repo, run_dir, state, log):
+    """The review runs the lease scan itself before any reviewer is picked, as ak's commit
+    step does for a task run: a diff that cannot merge with an older live change is parked
+    here (`leases.park`, restarted by `leases.restart`), and the save raises the stop."""
+    from . import leases  # here, not at the top: it reaches run
+    leases.scan_safely(repo, log)
+    run_record.save_state(run_dir, state)
+
+
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
     """Start `ak run <argv>` detached, from the record it reads under the recovery lock.
 
@@ -2376,7 +2385,22 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         os.environ.update(env)
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
-    if is_own and text_only_pr(repo, base_sha, head):
+    text_only = is_own and text_only_pr(repo, base_sha, head)
+    if is_own and not text_only and not summaries and not rounds_spent_elsewhere(pr=url, exclude=run_dir)[0]:
+        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once, the
+        # lines it moves unchanged aside: past it, the run ends blocked with the reason before
+        # any reviewer is picked, and the PR is split; a later round reviews whatever the fix left
+        # ... and a pull request that re-adds most of a budget-failed one's lines, no real split
+        # of it, inherits that one's rounds (`replacement_refusal`)
+        lines, carried = diff_lines(repo, base_sha, head, added_only=True), carried_lines(repo, base_sha, head)
+        why = (pr_size_refusal(number, lines, carried)
+               or replacement_refusal(repo, base_sha, head, number, lines - carried, exclude=run_dir))
+        if why:
+            lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
+            return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
+    if is_own and not summaries:
+        park_own_review(repo, run_dir, state, log)
+    if text_only:
         # The seat's own wording needs no reviewer: it joins the line like a passed review,
         # where the repository's suite and CI still check it.
         summary = "Text and translation files only; review skipped."
@@ -2393,18 +2417,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
-    if is_own and not summaries and not rounds_spent_elsewhere(pr=url, exclude=run_dir)[0]:
-        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once, the
-        # lines it moves unchanged aside: past it, the run ends blocked with the reason before
-        # any reviewer is picked, and the PR is split; a later round reviews whatever the fix left
-        # ... and a pull request that re-adds most of a budget-failed one's lines, no real split
-        # of it, inherits that one's rounds (`replacement_refusal`)
-        lines, carried = diff_lines(repo, base_sha, head, added_only=True), carried_lines(repo, base_sha, head)
-        why = (pr_size_refusal(number, lines, carried)
-               or replacement_refusal(repo, base_sha, head, number, lines - carried, exclude=run_dir))
-        if why:
-            lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
-            return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first
