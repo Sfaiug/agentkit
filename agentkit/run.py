@@ -810,12 +810,12 @@ def seat_launch(state):
     return bool(state.get("followup") or state.get("restarted"))
 
 
-def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None, argv=None):
-    """Launch the task.md in that new run directory as the tick does for a seat, the one `state`
-    was launched from: `origin` on its receipt says why (`seat_launch`), with the seat's lists
-    now, the given run's only for a seat with no record of its own -- checked against the
-    config now, as that run's may predate a model it names -- and `opts` over the defaults.
-    `argv` is the launch's own where it is no task's: a pull request's review started again."""
+def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None):
+    """Launch the task.md in that new run directory, or the pull request's review `opts` name,
+    as the tick does for a seat, the one `state` was launched from: `origin` on its receipt
+    says why (`seat_launch`), with the seat's lists now, the given run's only for a seat with
+    no record of its own -- checked against the config now, as that run's may predate a model
+    it names -- and `opts` over the defaults."""
     session = launched_session(state)
     try:
         lists = (config.load_session(config.load(), session, required=False) if session
@@ -830,7 +830,8 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
             "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
     prepare(directory, opts, logger(directory), report_config(cfg), task_file=task_file,
             receipt=receipt)
-    spawn_bg(directory, argv or [str(directory / "task.md")])
+    spawn_bg(directory, ["--review-pr", opts["--review-pr"]] if opts["--review-pr"]
+             else [str(directory / "task.md")])
 
 
 def spawn_bg(run_dir, argv, expected=None, park_as=False):
@@ -1130,18 +1131,11 @@ def preflight(run_dir, opts, log):
         owner, name, number = PR_PARTS.match(url).groups()
         state = run_record.read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
-        if "own_pr" in state:
-            # the writer a review started again carries from its stopped run
-            # (`leases.restart`), captured at that run's launch: it stands, as
-            # `review_pr_round` keeps a captured writer, whatever model the seat runs now
-            is_own, orch = bool(state["own_pr"]), state.get("own_orchestrator")
-        else:
-            try:
-                launched_cfg = config.load()
-                is_own, orch = own_pr_orchestrator(
-                    launched_cfg, state.get("launched_session"), info["author"])
-            except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
-                is_own, orch = False, None
+        try:
+            is_own, orch = pr_writer(config.load(), state, state.get("launched_session"),
+                                     info["author"])
+        except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
+            is_own, orch = False, None
         state["own_pr"] = is_own
         state["own_orchestrator"] = orch if is_own else None
         run_record.save_state(run_dir, state)
@@ -1962,6 +1956,24 @@ def own_pr_orchestrator(cfg, session_name, author):
     return True, orchestrator
 
 
+def pr_writer(cfg, state, session_name, author):
+    """(is_own, orchestrator) for the review `state` records: the writer it captured at launch,
+    in preflight or the first attempt, or carried from a stopped run (`leases.restart`), stands
+    -- a session record rewritten since must not replace it, or the reviewer's independence
+    check would judge another model than the one that wrote this -- and a record with none
+    asks the seat (`own_pr_orchestrator`).  A captured model the config no longer names is
+    unknown, as the seat's would be."""
+    if "own_pr" not in state:
+        return own_pr_orchestrator(cfg, session_name, author)
+    orchestrator = state.get("own_orchestrator") if state["own_pr"] else None
+    if orchestrator:
+        try:
+            config.model(cfg, orchestrator)
+        except (config.Error, OSError, ValueError, KeyError, TypeError):
+            orchestrator = None
+    return bool(state["own_pr"]), orchestrator
+
+
 def checkout_for(name_with_owner, log):
     """The checkout of that GitHub repo (`orch.checkouts`, so agentkit's own is ~/agentkit),
     cloned under ~/code with gh if there is none yet."""
@@ -2240,19 +2252,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         info = pr_view_past(url, info, prior.get("head_sha"))
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
-    if "own_pr" in prior:
-        # The writer was captured at launch, in preflight or the first attempt: a
-        # session record rewritten since must not replace it, or the reviewer's
-        # independence check would judge another model than the one that wrote this.
-        is_own = bool(prior.get("own_pr"))
-        orchestrator = prior.get("own_orchestrator")
-        if is_own and orchestrator:
-            try:
-                config.model(cfg, orchestrator)
-            except (config.Error, OSError, ValueError, KeyError, TypeError):
-                orchestrator = None
-    else:
-        is_own, orchestrator = own_pr_orchestrator(cfg, session_at_launch, info["author"])
+    is_own, orchestrator = pr_writer(cfg, prior, session_at_launch, info["author"])
     if is_own and not orchestrator:
         raise config.Error("no session record names the writer of this PR; "
                            "review of the seat's own PR needs its orchestrator")

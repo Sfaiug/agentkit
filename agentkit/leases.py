@@ -404,8 +404,7 @@ def restart(log=print, now=None):
                              if key != "--first"},
                           **({"--review-pr": review} if review else {}),
                           **({"--first": True} if state.get("first") else {})},
-                    task_file=state.get("task_file"),
-                    argv=["--review-pr", review] if review else None)
+                    task_file=state.get("task_file"))
                 log(f"{run_dir.name} started again as {directory.name}: {why}")
             except (config.Error, OSError, run_record.StopRequested) as exc:
                 log(f"WARN {run_dir.name} could not start again as {directory.name}: {exc}")
