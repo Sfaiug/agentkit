@@ -1518,8 +1518,8 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
-    at = next(iter(prompt_rows(raw_lines)), 0)
-    over = lines[at - 2] if at > 1 and re.fullmatch(RULE, lines[at - 1]) else ""
+    box = next(iter(prompt_rows(raw_lines)), 0)
+    over = lines[box - 2] if box > 1 and re.fullmatch(RULE, lines[box - 1]) else ""
     # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
     # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
     # it hid every question, which then read as answered.  In a renamed session -- every seat --
