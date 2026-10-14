@@ -84,8 +84,8 @@ name = "Notification"
 state = "at_prompt"
 kinds = ["idle_prompt"]
 
-# Installed for AskUserQuestion and ExitPlanMode alone: it fires as the owner answers, and the
-# turn that asked runs on.
+# Installed for AskUserQuestion and ExitPlanMode alone, and waited on: it fires as the owner
+# answers, and the turn that asked runs on to a Stop written after it.
 [[hooks.event]]
 name = "PostToolUse"
 state = "working"

@@ -102,29 +102,35 @@ class Heard(Sandbox):
         self.assertEqual(self.hook("PostCompact", trigger="auto", compact_summary="..."), turn)
 
     def test_an_event_heard_before_the_fact_standing_was_written_writes_nothing(self):
-        # an answer's hook, which Claude does not wait on, finishing after the Stop that followed;
-        # the hook reads the real clock, and this sandbox's time.time() is a fixed fake
-        later = {"session": SEAT, "event": "Stop", "kind": "", "text": "",
+        # a compaction's end, which Claude does not wait on, finishing after the prompt queued
+        # behind it; the hook reads the real clock, and this sandbox's time.time() is a fake
+        later = {"session": SEAT, "event": "UserPromptSubmit", "kind": "", "text": "",
                  "at": datetime.now().timestamp() + 60}
         config.hook_facts_path(SEAT).write_text(json.dumps(later))
-        self.assertEqual(self.hook("PostToolUse", **ANSWERED), later)
+        self.assertEqual(self.hook("PostCompact", trigger="manual", compact_summary="..."), later)
 
-    def test_the_hooks_verb_installs_each_new_event_unwaited(self):
+    def test_the_hooks_verb_installs_each_new_event(self):
+        acme = {"type": "command", "command": "bash /home/acme/log-bash.sh"}
+        (self.root / ".claude").mkdir(exist_ok=True)
+        # an older checkout's entry, beside the owner's own hook in a group for another tool
+        (self.root / ".claude/settings.json").write_text(json.dumps({"hooks": {"PostToolUse": [
+            {"matcher": "Bash", "hooks": [{"type": "command",
+                                           "command": "bash /old/acme/hooks/seat-state.sh"}, acme]}]}}))
         for run in range(2):
             done = subprocess.run(["bash", str(REPO / "adapters/claude.sh"), "hooks"], text=True,
                                   capture_output=True, env=self.env, timeout=30)
             self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("already runs hooks/seat-state.sh", done.stdout)
         hooks = json.loads((self.root / ".claude/settings.json").read_text())["hooks"]
-        for event, matcher in (("PermissionRequest", None),
-                               ("PostToolUse", "AskUserQuestion|ExitPlanMode"),
-                               ("PreCompact", None), ("PostCompact", None)):
+        ours = {"type": "command", "command": f"bash {REPO}/hooks/seat-state.sh"}
+        unwaited = [{"hooks": [{**ours, "async": True}]}]
+        for event, groups in (("PermissionRequest", unwaited), ("PreCompact", unwaited),
+                              ("PostCompact", unwaited),
+                              # waited on, so the turn's Stop is written after the answer
+                              ("PostToolUse", [{"matcher": "Bash", "hooks": [acme]}, {
+                                  "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ours]}])):
             with self.subTest(event=event):
-                [group] = hooks[event]
-                self.assertEqual(group.get("matcher"), matcher)
-                self.assertEqual(group["hooks"], [{"type": "command", "async": True,
-                    "command": f"bash {REPO}/hooks/seat-state.sh"}])
-        # the turn's own events stay waited on: the Stop decides whether the turn may end
+                self.assertEqual(hooks[event], groups)
         self.assertNotIn("async", json.dumps(hooks["Stop"]))
 
 

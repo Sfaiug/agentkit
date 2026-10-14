@@ -354,11 +354,11 @@ EVENTS = {"SessionStart": ("seat-state.sh",),
           "PostToolUse": ("seat-state.sh",),
           "PreCompact": ("seat-state.sh",),
           "PostCompact": ("seat-state.sh",)}
-# The events only heard, never waited on, and the tools each is heard for, None for every one:
-# Claude Code 2.1.292 runs an `async` hook in the background, where a synchronous seat-state.sh
-# holds what it fires on for half a second.  A tool ending is heard only where it is an answer.
-HEARD = {"PermissionRequest": None, "PostToolUse": "AskUserQuestion|ExitPlanMode",
-         "PreCompact": None, "PostCompact": None}
+# The events only heard, never waited on: Claude Code 2.1.292 runs an `async` hook in the
+# background, where seat-state.sh would hold what it fires on for half a second.  A tool ending
+# is heard only where it is an answer, and waited on, so the turn's Stop is written after it.
+HEARD = ("PermissionRequest", "PreCompact", "PostCompact")
+MATCHERS = {"PostToolUse": "AskUserQuestion|ExitPlanMode"}
 # The names each was generalised from: a settings.json written by an older checkout keeps its
 # entry, repointed, so nothing is left calling a file that is no longer there.
 NAMES = {"seat-state.sh": ("seat-state.sh", "idle-compact-stop.sh"),
@@ -410,7 +410,7 @@ def wired(event, script):
     found = entries(event, script)
     return (len(found) == 1
             and all(found[0][1].get(key) == value for key, value in wanted(event, script).items())
-            and HEARD.get(event) in (None, found[0][0].get("matcher")))
+            and MATCHERS.get(event) in (None, found[0][0].get("matcher")))
 
 
 # read before anything is mutated: the early exit below must see the file as it is on disk
@@ -432,8 +432,11 @@ for event, scripts in EVENTS.items():
             found = [(groups[-1], groups[-1]["hooks"][0])]
         for group, entry in found:      # a checkout that moved keeps its entries, repointed
             entry.update(wanted(event, script))
-            if HEARD.get(event):
-                group["matcher"] = HEARD[event]
+            if MATCHERS.get(event) not in (None, group.get("matcher")):
+                if len(group["hooks"]) > 1:     # the others keep the tools they run for
+                    group["hooks"] = [each for each in group["hooks"] if each is not entry]
+                    groups.append(group := {"hooks": [entry]})
+                group["matcher"] = MATCHERS[event]
     hooks[event] = groups
 data["hooks"] = hooks
 tmp = path.with_name(f"{path.name}.ak-tmp")

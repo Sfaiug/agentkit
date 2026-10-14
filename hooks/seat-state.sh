@@ -109,7 +109,7 @@ seat_state() {
   # ends the turn while Python is deciding: there is no old fact to put back over that Stop.
   # Nor does one meaning what the fact standing means -- a permission notice six seconds after
   # the PermissionRequest that wrote its question down -- or one heard before that fact was
-  # written: an event its harness does not wait on can land after the Stop that followed it.
+  # written: an event its harness does not wait on can finish after a newer one.
   # Where nothing can say -- no record names the harness, or the asking fails -- the event is
   # written as it always was: only a known passive notice is left out.
   if [[ $event != UserPromptSubmit && $event != Stop ]] &&
