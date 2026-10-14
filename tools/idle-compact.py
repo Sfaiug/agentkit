@@ -426,9 +426,9 @@ class Looks:
     screen at rest or moving says only when to look, never what the seat is doing: the rules in
     its manifest say that.  So an edge reads the pane against them first, in a thread of its
     own, so the terminal never waits on tmux, and the seat's own look (`watch.hook_look`, which
-    a hook starts) runs only where that reading is not what the seat's record says, whoever
-    looked last (`watch.unseen`): a harness that redraws once a second costs a capture a
-    redraw, never a look.  One look at a time; edges during it are one more.
+    a hook starts) runs only where that reading is not what the seat's published word was
+    decided from, whoever published it (`watch.unseen`): a harness that redraws once a second
+    costs a capture a redraw, never a look.  One look at a time; edges during it are one more.
     """
 
     def __init__(self, seat, harness, socket, pane, look=None):
@@ -467,7 +467,7 @@ class Looks:
             self.check()
 
     def check(self):
-        """Read the pane, and look at the seat where its record does not say what it reads."""
+        """Read the pane, and look at the seat where its word was decided from another reading."""
         pane = self.read()
         if pane is not None and watch.unseen(self.seat, self.harness, pane):
             self.look()

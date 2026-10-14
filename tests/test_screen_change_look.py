@@ -61,7 +61,8 @@ for burst in range(bursts):
 
 
 class Check(unittest.TestCase):
-    """What the pane reads, against what the seat's record says, decides whether it is looked at."""
+    """What the pane reads, against what the seat's published word was decided from, decides
+    whether it is looked at."""
 
     def setUp(self):
         self.seat = test_live_status.LiveStatus()
@@ -89,7 +90,7 @@ class Check(unittest.TestCase):
         self.seat.pane.return_value = text
         return text
 
-    def test_a_reading_its_record_does_not_hold_is_looked_at_and_one_it_holds_is_not(self):
+    def test_a_reading_its_word_was_not_decided_from_is_looked_at_and_one_it_was_is_not(self):
         looks, made = self.looks()
         self.show("claude-question-pane.txt")
         looks.check()                      # the question went up
@@ -137,6 +138,31 @@ class Check(unittest.TestCase):
         self.assertEqual(made, [True])
         self.assertEqual(watch.seat_read("herdr")["state"], "working")
 
+    def test_a_reading_only_a_typing_preflight_wrote_down_is_still_looked_at(self):
+        looks, made = self.looks()
+        self.show("claude-working-pane.txt")
+        looks.check()
+        # the preflight before a typed line reads the question and writes it down, and
+        # publishes nothing
+        self.show("claude-question-pane.txt")
+        self.assertFalse(watch.at_prompt(self.seat.seat, cfg=self.seat.cfg))
+        self.assertEqual(watch.seat_read("herdr")["word"], "working")
+        looks.check()
+        self.assertEqual(made, [True, True])
+        self.assertEqual(watch.seat_read("herdr")["word"], "needs you")
+
+    def test_a_turn_the_owner_interrupted_is_read_as_its_look_reads_it(self):
+        # a turn its hook began, which an Esc ended with no Stop: the harness recorded that
+        config.hook_facts_path("herdr").write_text(json.dumps(
+            {"event": "UserPromptSubmit", "at": time.time() - 9, "text": "Run the acme tests."}))
+        looks, made = self.looks()
+        self.show("claude-interrupted-pane.txt")
+        with patch.object(watch, "interrupted_at", return_value=time.time() - 7):
+            looks.check()
+            looks.check()                  # the same pane, redrawn
+        self.assertEqual(made, [True])
+        self.assertEqual(watch.seat_read("herdr")["state"], "at_prompt")
+
     def test_a_pane_that_cannot_be_read_is_not_a_change(self):
         looks, made = self.looks()
         looks.read = lambda: None
@@ -169,11 +195,11 @@ class Screen(unittest.TestCase):
         self.log = self.root / "tmux.jsonl"
         self.log.write_text("")
         self.bin = bin_dir
-        # the seat's record already says what the fixture pane reads, so no edge starts a look
-        # and each is one capture
+        # the seat's word was already decided from what the fixture pane reads, so no edge
+        # starts a look and each is one capture
         record = self.root / ".agentkit" / config.seat_state_path("acme").relative_to(config.HOME)
         record.parent.mkdir(parents=True)
-        record.write_text(json.dumps({"state": "at_prompt", "rule": "prompt.composer"}))
+        record.write_text(json.dumps({"word_from": ["at_prompt", "prompt.composer", ""]}))
 
     def run_seat(self, **draw):
         env = {key: value for key, value in os.environ.items()
