@@ -149,31 +149,32 @@ any = ["esc go back", "esc exit"]
 # A composer holding bright, typed text is a draft never sent. Muse has no
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.
 # Both are read with `-e` attributes; see watch.has_dim. Draft before prompt.
-# None is read under a question's dialog: its key hint, or its review step's two choices as
-# drawn right over the composer, whichever holds the cursor (a line typed there lands on one).
+# None is read under a question's dialog: its key hint, or its review step's last two choices
+# as drawn right over the composer, the cursor on either or on an answer above them (a line
+# typed there lands on the row it holds).
 [[rule]]
 id = "prompt.draft"
 state = "draft"
 lines = 8
 at_composer = true
-none = ["esc to interrupt", "\n⟩ submit answers\ninterrupt turn\n─",
-        "\nsubmit answers\n⟩ interrupt turn\n─"]
+none = ["esc to interrupt", "submit answers\ninterrupt turn\n─",
+        "submit answers\n⟩ interrupt turn\n─"]
 
 [[rule]]
 id = "prompt.suggestion"
 state = "at_prompt"
 lines = 8
 at_composer = true
-none = ["esc to interrupt", "\n⟩ submit answers\ninterrupt turn\n─",
-        "\nsubmit answers\n⟩ interrupt turn\n─"]
+none = ["esc to interrupt", "submit answers\ninterrupt turn\n─",
+        "submit answers\n⟩ interrupt turn\n─"]
 
 [[rule]]
 id = "prompt.composer"
 state = "at_prompt"
 lines = 8
 at_composer = true
-none = ["esc to interrupt", "\n⟩ submit answers\ninterrupt turn\n─",
-        "\nsubmit answers\n⟩ interrupt turn\n─"]
+none = ["esc to interrupt", "submit answers\ninterrupt turn\n─",
+        "submit answers\n⟩ interrupt turn\n─"]
 
 # `429`/`quota exhausted` are the 1.0.3 capture's own words; `usage limit reached` is how the
 # installed 1.3.0 executable spells the same model failure, first in the list of reasons a

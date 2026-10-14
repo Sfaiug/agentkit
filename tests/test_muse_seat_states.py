@@ -168,10 +168,18 @@ class TheQuestion(Seat):
                 self.assertEqual(read(what, fact)[1]["state"], state)
 
     def test_its_review_step_still_asks(self):
-        # a line typed there, and its Enter, would land on `Submit answers`
-        seen, found = read("question-review", self.fire(QUESTION))
+        fact = self.fire(QUESTION)
+        seen, found = read("question-review", fact)
         self.assertEqual(seen, (None, ""))
         self.assertEqual((found["state"], found["authority"]), ("asking", "hook"))
+        # whichever row holds its cursor -- an answer to edit, Submit or Interrupt -- a line
+        # typed there, and its Enter, would land on it
+        drawn = watch.strip_sgr(pane("question-review")).replace("  ⟩ Submit answers",
+                                                                "    Submit answers")
+        for row in ("Colour: red", "Size: small", "Submit answers", "Interrupt turn"):
+            with self.subTest(cursor=row):
+                self.assertEqual(read_pane(drawn.replace(f"    {row}", f"  ⟩ {row}"),
+                                           fact)[1]["state"], "asking")
 
 
 class WithoutYolo(Seat):
