@@ -27,7 +27,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, watch  # noqa: E402
-from test_live_status import LiveStatus  # noqa: E402
+import test_live_status  # noqa: E402
 
 WRAPPER = REPO / "tools/idle-compact.py"
 FIXTURES = REPO / "tests/fixtures"
@@ -64,7 +64,7 @@ class Check(unittest.TestCase):
     """What the pane reads, against what the seat's record says, decides whether it is looked at."""
 
     def setUp(self):
-        self.seat = LiveStatus()
+        self.seat = test_live_status.LiveStatus()
         self.seat.setUp()
         self.addCleanup(lambda: self.assertTrue(self.seat.doCleanups()))
 
