@@ -370,7 +370,6 @@ def command(script):
 
 
 def wanted(event, script):
-    """Our entry on that event as it should stand."""
     return {"type": "command", "command": command(script),
             **({"async": True} if event in HEARD else {})}
 
@@ -399,7 +398,6 @@ def ours(entry, script):
 
 
 def entries(event, script):
-    """(group, entry) of each of our entries on that event."""
     groups = hooks.get(event)
     return [(group, entry) for group in (groups if isinstance(groups, list) else [])
             if isinstance(group, dict) and isinstance(group.get("hooks"), list)

@@ -736,7 +736,8 @@ class ScreenRules(GrokSandbox):
                 self.assertEqual(written["event"], fact["hook_event_name"])
                 found = watch.hook_state("grokbuild", {**written, "at": NOW})
                 self.assertEqual(found[0], state)
-        # the camelCase kind the Notification carries: idle_prompt, permission_prompt
+        # the camelCase kind a Notification carries, onto no fact: over the Stop it adds nothing
+        (self.state / "hook-atoll.json").unlink()
         idle = json.loads((FIX / "grok-hook-notification.json").read_text())
         proc = subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")],
                               input=json.dumps(idle), capture_output=True, text=True,
