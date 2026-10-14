@@ -79,12 +79,10 @@ and a warning only that scratch launch drew is left out.
 `claude-permission-pane.txt`, `claude-plan-pane.txt`, `claude-narrow-working-pane.txt`,
 `claude-narrow-streaming-pane.txt`, `claude-draft-while-working-pane.txt`,
 `claude-stop-hooks-running-pane.txt`, `claude-compacting-pane.txt` and `claude-manual-mode-`,
-`plan-mode-` and `accept-edits-pane.txt` are the last twelve rows of Claude Code 2.1.292's
-`capture-pane -p -e -J` from a live sweep of a seat as `adapters/claude.sh interactive` launches
-it: a Bash permission prompt and a plan approval (without bypass permissions), a tool running and
-an answer streaming 60 columns wide, a draft typed during a turn, a turn whose Stop hooks still
-run, `/compact` running, and an idle prompt in each other mode.  Its path, session name, Remote
-Control link and time zone are invented (`/home/acme/code/fix-api`, `fix-api`, `UTC`).
+`plan-mode-` and `accept-edits-pane.txt` are the last twelve rows of live Claude Code 2.1.292
+seat panes (`capture-pane -p -e -J`): a Bash permission prompt, a plan approval, a tool running
+and an answer streaming 60 columns wide, a draft typed in a turn, a turn whose Stop hooks run,
+`/compact`, and an idle prompt in each other mode; path, name, link and zone are invented.
 
 `muse-question-pane.txt` is Muse Code 1.4.7's actual `capture-pane -p -e -J` of a seat
 waiting on its own `Request user input` tool, the second of three questions, cut to the

@@ -67,9 +67,8 @@ kinds = ["held"]
 name = "Stop"
 state = "at_prompt"
 
-# A question, a plan to approve or a tool's permission prompt fires PermissionRequest as it is
-# drawn (2.1.292), even under bypass permissions for the first two; its notice comes six seconds
-# later, on a timer, and adds nothing to the question already written down.
+# A question, a plan or a tool's permission prompt fires PermissionRequest as it is drawn
+# (2.1.292); its notice six seconds later adds nothing to the question written down.
 [[hooks.event]]
 name = "PermissionRequest"
 state = "asking"

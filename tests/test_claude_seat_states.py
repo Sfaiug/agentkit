@@ -4,8 +4,7 @@ compaction and mode footers read as what the seat is doing.
 A live sweep of 2.1.292 seats heard a dialog only through the notice Claude fires six seconds
 after it, an answer through nothing, and `/compact` as a seat waiting for its owner; a narrow
 pane, a draft typed during a turn and every mode but bypass hid the turn or the prompt, and a
-turn whose Stop hooks still ran read as running.  Each case is the sweep's own capture and hook
-payload, replayed through hooks/seat-state.sh, `watch.screen_state` and `watch.classify`.
+turn whose Stop hooks still ran read as running.  Each case is the sweep's capture and payload.
 """
 from datetime import datetime
 import json
@@ -102,8 +101,7 @@ class Heard(Sandbox):
         self.assertEqual(self.hook("PostCompact", trigger="auto", compact_summary="..."), turn)
 
     def test_an_event_heard_before_the_fact_standing_was_written_writes_nothing(self):
-        # a compaction's end, which Claude does not wait on, finishing after the prompt queued
-        # behind it; the hook reads the real clock, and this sandbox's time.time() is a fake
+        # a compaction's end, unwaited, finishing after the prompt queued behind it (real clock)
         later = {"session": SEAT, "event": "UserPromptSubmit", "kind": "", "text": "",
                  "at": datetime.now().timestamp() + 60}
         config.hook_facts_path(SEAT).write_text(json.dumps(later))
