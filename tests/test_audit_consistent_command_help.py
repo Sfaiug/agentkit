@@ -25,6 +25,7 @@ sys.path.insert(0, str(REPO))
 MATRIX = [
     ("", "usage: ak [", ["--client"], None),
     ("usage", "usage: ak usage [--json]", ["--json"], {"--json"}),
+    ("models", "usage: ak models [--json] [--refresh]", ["--refresh"], {"--json", "--refresh"}),
     ("worker", "usage: ak worker MODEL TASK", ["MISSING", "missing.md", "--role"],
      {"--workspace", "--out", "--session", "--role"}),
     ("hand-in", "usage: ak hand-in finding PATH:LINE", ["missing"], {"--run", "--quote", "--before"}),
@@ -88,7 +89,7 @@ def probe():
     module = None
     if mode == "module":
         name = {"attach": "menu", "fetch": "macbridge", "doctor": "watch",
-                "wait": "watch", "hand-in": "hand_in"}.get(args[0], args[0])
+                "wait": "watch", "hand-in": "hand_in", "models": "matrix"}.get(args[0], args[0])
         module = importlib.import_module(f"agentkit.{name}")
     elif mode == "notify":
         from agentkit import notify

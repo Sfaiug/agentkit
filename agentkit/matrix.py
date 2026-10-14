@@ -6,13 +6,17 @@ Terminal-Bench 4.0, GDPval-AA, AA-Briefcase, its intelligence and coding indexes
 output speed.  Arena Agent, its leaderboard's Hugging Face dataset, no key: net improvement over
 the average agent and steerability, measured on real agent sessions.  LiveBench 2.0, its CSV
 files, no key: coding, long-horizon and reasoning scores and what a successful coding task cost.
-`ak models --refresh` asks again before the day is up, and a board that cannot answer keeps what
-it last said, its error beside it.  A board's row is one model at one effort (`Claude Opus 5.5
-(max)` is Opus 5.5 at max), or at none where the board names no effort, with every number the
-board gives as `<board>.<field>`.  Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+`ak models --refresh` asks again before the day is up; a board that cannot answer keeps what it
+last said, its error beside it, and waits for the day like one that answered.  Callers at once
+share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
+A board's row is one model at one effort (`Acme 5 (max)` is Acme 5 at max), or at none where the
+board names no effort, with every number the board gives as `<board>.<field>`, a table's fields
+under the table's name (`aa.evaluations.terminalbench_v4_0`).  Attribution: artificialanalysis.ai,
+arena.ai, livebench.ai.
 """
 
 import csv
+import fcntl
 import io
 import json
 import re
@@ -54,43 +58,42 @@ def key():
 
 def split_effort(name):
     """(the model's name without its effort, the effort or None) off a board's model name:
-    `Claude Opus 5.5 (max)` is Opus 5.5 at max; a bracket naming no effort stays on the name."""
-    found = re.match(r"^(.*?)\s*\(([^()]*)\)\s*$", name)
-    if not found:
-        return name, None
-    word = found.group(2).strip().lower()
-    word = EFFORT_WORDS.get(word, word)
-    if word in EFFORT_ORDER:
-        return found.group(1), word
-    if word in ("thinking", "reasoning"):     # a reasoning model that names no effort
-        return found.group(1), None
+    `Acme 5 (max)` is Acme 5 at max, `Acme 5 (max) (0813)` is Acme 5 (0813) at max; a bracket
+    naming no effort stays on the name."""
+    for found in re.finditer(r"\s*\(([^()]*)\)", name):
+        word = found.group(1).strip().lower()
+        word = EFFORT_WORDS.get(word, word)
+        if word in EFFORT_ORDER or word in ("thinking", "reasoning"):   # the latter name none
+            rest = (name[:found.start()] + name[found.end():]).strip()
+            return rest, word if word in EFFORT_ORDER else None
     return name, None
 
 
 def _numbers(entry, prefix, into):
-    """Every number of `entry`, tables within it included, as `prefix.field`."""
+    """Every number of `entry` as `prefix.field`, a table's fields under the table's name."""
     for field, value in entry.items():
         if isinstance(value, bool):
             continue
         if isinstance(value, (int, float)):
             into[f"{prefix}.{field}"] = value
         elif isinstance(value, dict):
-            _numbers(value, prefix, into)
+            _numbers(value, f"{prefix}.{field}", into)
 
 
 def artificial_analysis(secret):
-    """Artificial Analysis's rows, one per model and effort, every number it gives as `aa.*`."""
-    payload = json.loads(fetch_bytes(AA_URL, {"x-api-key": secret}))
-    entries = payload.get("data", []) if isinstance(payload, dict) else payload
-    rows = []
-    for entry in entries or []:
-        if not isinstance(entry, dict):
-            continue
-        name, effort = split_effort(str(entry.get("name") or entry.get("slug") or ""))
-        values = {}
-        _numbers(entry, "aa", values)
-        rows.append({"model": name, "effort": effort, "values": values})
-    return rows
+    """Artificial Analysis's rows, one per model and effort, every number it gives as `aa.*`,
+    off every page of its free endpoint."""
+    rows, page = [], 1
+    while True:
+        payload = json.loads(fetch_bytes(f"{AA_URL}?page={page}", {"x-api-key": secret}))
+        for entry in payload.get("data") or []:
+            name, effort = split_effort(str(entry.get("name") or entry.get("slug") or ""))
+            values = {}
+            _numbers(entry, "aa", values)
+            rows.append({"model": name, "effort": effort, "values": values})
+        if not payload.get("data") or not (payload.get("pagination") or {}).get("has_more"):
+            return rows
+        page += 1
 
 
 def arena():
@@ -118,7 +121,7 @@ def arena():
 def livebench():
     """LiveBench 2.0's rows off its newest release: each suite's score as `livebench.<suite>`,
     and the cost of a successful coding task.  The releases' dates are in its page's script;
-    the newest whose table answers is the one."""
+    the newest whose table answers is the one, and its costs are part of the answer."""
     index = fetch_bytes(LIVEBENCH).decode("utf-8", "replace")
     script = re.search(r'src="\./?([^"]+\.js)"', index)
     if not script:
@@ -130,10 +133,7 @@ def livebench():
             table = fetch_bytes(f"{LIVEBENCH}table_{stamp}.csv").decode("utf-8", "replace")
         except OSError:
             continue
-        try:
-            cost = fetch_bytes(f"{LIVEBENCH}cost_{stamp}.csv").decode("utf-8", "replace")
-        except OSError:
-            cost = ""
+        cost = fetch_bytes(f"{LIVEBENCH}cost_{stamp}.csv").decode("utf-8", "replace")
         break
     else:
         raise ValueError("livebench.ai: no release's table answers")
@@ -160,30 +160,35 @@ def cache_path():
 
 def collect(*, refresh=False, now=None):
     """The boards' rows, each board asked once a day (`refresh` asks now), as the cache holds
-    them: {board: {"fetched_at", "rows", "error"}}.  A board that fails keeps its last rows."""
+    them: {board: {"asked_at", "fetched_at", "rows", "error"}}.  The day counts from `asked_at`,
+    answered or not; a board that fails keeps its last rows and their `fetched_at`.  One caller
+    collects at a time, under `matrix.lock`, and the next reads what it wrote."""
     now = time.time() if now is None else now
-    try:
-        cache = json.loads(cache_path().read_text())
-    except (OSError, ValueError):
-        cache = {}
-    secret = key()
-    asks = {"artificialanalysis.ai": (lambda: artificial_analysis(secret)) if secret else None,
-            "arena.ai": arena, "livebench.ai": livebench}
-    for board, ask in asks.items():
-        held = cache.get(board) or {}
-        if ask is None:
-            cache[board] = {**held, "error": f"no key: put one in {config.SECRETS / AA_KEY}"}
-            continue
-        if not refresh and held.get("fetched_at") and now - held["fetched_at"] < FRESH_FOR:
-            continue
-        try:
-            cache[board] = {"fetched_at": now, "rows": ask(), "error": None}
-        except Exception as exc:          # noqa: BLE001 -- a board down is a note, not a crash
-            cache[board] = {**held, "error": " ".join(str(exc).split()) or type(exc).__name__}
     cache_path().parent.mkdir(parents=True, exist_ok=True)
-    tmp = cache_path().with_suffix(".tmp")
-    tmp.write_text(json.dumps(cache))
-    tmp.replace(cache_path())
+    with cache_path().with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            cache = json.loads(cache_path().read_text())
+        except (OSError, ValueError):
+            cache = {}
+        secret = key()
+        asks = {"artificialanalysis.ai": (lambda: artificial_analysis(secret)) if secret else None,
+                "arena.ai": arena, "livebench.ai": livebench}
+        for board, ask in asks.items():
+            held = cache.get(board) or {}
+            if ask is None:
+                cache[board] = {**held, "error": f"no key: put one in {config.SECRETS / AA_KEY}"}
+                continue
+            if not refresh and held.get("asked_at") and now - held["asked_at"] < FRESH_FOR:
+                continue
+            try:
+                cache[board] = {"asked_at": now, "fetched_at": now, "rows": ask(), "error": None}
+            except Exception as exc:          # noqa: BLE001 -- a board down is a note, not a crash
+                cache[board] = {**held, "asked_at": now,
+                                "error": " ".join(str(exc).split()) or type(exc).__name__}
+        tmp = cache_path().with_suffix(".tmp")
+        tmp.write_text(json.dumps(cache))
+        tmp.replace(cache_path())
     return cache
 
 
@@ -195,7 +200,7 @@ def render(boards):
         when = held.get("fetched_at")
         line = (f"{board}: {len(held.get('rows') or [])} rows as of "
                 f"{time.strftime('%d %b %H:%M', time.localtime(when))}" if when
-                else f"{board}: not asked yet")
+                else f"{board}: no rows yet")
         lines.append(line + (f" · note: {held['error']}" if held.get("error") else ""))
     return "\n".join(lines)
 

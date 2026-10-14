@@ -395,15 +395,18 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 `ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export, each at most once a day into
 `~/.agentkit/state/matrix.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the cache. Artificial
 Analysis is asked with the key in `~/.agentkit/secrets/artificialanalysis_key` (free at artificialanalysis.ai/login;
-without it the board says `no key` and the others are still asked): its free endpoint, one row per model and effort,
-every number it gives as `aa.<field>` (Terminal-Bench 4.0, GDPval-AA, AA-Briefcase, the intelligence and coding indexes,
+without it the board says `no key` and the others are still asked): its free endpoint, page by page, one row per model
+and effort, every number it gives as `aa.<field>`, a table's fields under the table's name (`aa.evaluations.terminalbench_v4_0`,
+`aa.pricing.price_1m_input_tokens`; Terminal-Bench 4.0, GDPval-AA, AA-Briefcase, the intelligence and coding indexes,
 prices, output speed). Arena Agent is read off its leaderboard's Hugging Face dataset, page by page, the `agent` and
 `agent_steerability` boards as `arena.<board>`. LiveBench 2.0 is read off its newest release whose table answers (the
 dates are in its page's script): each suite as `livebench.<suite>` and `livebench.cost_coding`, the cost of a successful
-coding task as the site counts it. A board's row is one model at one effort, read off the bracket in its name
-(`Claude Opus 5.5 (max)`; `(Non-reasoning)` is `none`, a bracket naming no effort leaves the row at none). A board that
-cannot answer keeps its last rows with the error beside them; the text form is one line per board, how many rows and
-when, and its note. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+coding task as the site counts it; the release's cost file is part of the answer. A board's row is one model at one effort,
+read off the bracket in its name (`Claude Opus 5.5 (max)`; `Acme Pro (High) (0813)` is `Acme Pro (0813)` at high;
+`(Non-reasoning)` is `none`, a bracket naming no effort leaves the row at none). A board that cannot answer keeps its last
+rows with the error beside them and, like one that answered, is not asked again before the day is up. Callers at once
+share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it. The text form is one
+line per board, how many rows and when, and its note. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history
 
