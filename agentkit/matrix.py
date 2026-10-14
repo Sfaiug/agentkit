@@ -31,8 +31,9 @@ it rests on (`97 of 3`), and `ROLES` names each role's measures and why.  One ro
 recommended per role: the row resting on the most of the role's measures, then the highest
 score, then the faster, then the cheaper (an unknown speed or cost after every measured one),
 then the row the config runs in the role, then the higher effort, then the first by harness and
-model name.  ak's own run numbers never rank
-(AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+model name.  ak's own run numbers stand beside, per configured model and role with their count,
+and never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, arena.ai,
+livebench.ai.
 """
 
 import csv
@@ -45,7 +46,7 @@ import sys
 import time
 import urllib.request
 
-from . import command_help, config, terminal
+from . import command_help, config, record, terminal
 
 FRESH_FOR = 86400        # a board is asked at most once a day: none moves faster than that
 TIMEOUT = 30             # seconds one request may take
@@ -365,6 +366,52 @@ def recommended(table):
     return picks
 
 
+LIVE_HEADERS = ("model", "orch", "exec", "review")
+
+
+def live(cfg, now=None):
+    """ak's own numbers per configured model and role, which never rank: of the runs it ended
+    as executor, as reviewer, or as the orchestrator of a seat's own pull request, how many and
+    the share merged in round 1 (let through in round 1, for a reviewer).  {name: {role:
+    {"runs", "round_1"} or None}}."""
+    from . import history     # here, not at the top: the boards and the table need no database
+    now = time.time() if now is None else now
+    rows = [row for row in history.ended_runs(0, now) if row.get("final_state") in record.JUDGED]
+    mine = {"orchestrate": lambda row, name: row.get("executor") is None
+            and row.get("orchestrator") == name,
+            "execute": lambda row, name: row.get("executor") == name,
+            "review": lambda row, name: row.get("reviewer") == name}
+    found = {}
+    for name in config.offered(cfg):
+        found[name] = {}
+        for role in ROLES:
+            ended = [row for row in rows if mine[role](row, name)]
+            first = [row for row in ended
+                     if row["final_state"] == "pass" and (row.get("rounds_used") or 0) <= 1]
+            found[name][role] = ({"runs": len(ended),
+                                  "round_1": round(100 * len(first) / len(ended))}
+                                 if ended else None)
+    return found
+
+
+def live_cell(found):
+    """`55% of 320`: the share merged in round 1 and the runs it rests on; `-` where it ran none."""
+    return "-" if found is None else f"{found['round_1']}% of {found['runs']}"
+
+
+def live_lines(own):
+    """The second table: each configured model's own numbers per role, `55% of 320`."""
+    lines_of = [LIVE_HEADERS] + [
+        (name, *(live_cell(found[role]) for role in ROLES)) for name, found in own.items()]
+    widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(LIVE_HEADERS))]
+    lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
+             for line in lines_of]
+    lines[0] = terminal.styled(lines[0], "dim")
+    return [terminal.styled("ak's own runs, never ranking: merged in round 1 of the runs it "
+                            "executed, let through in round 1 of those it reviewed, merged in "
+                            "round 1 of its seat's own pull requests", "dim"), *lines]
+
+
 def cell(found):
     """`97 of 3`: the score and the measures it rests on; `-` where the role has none."""
     return "-" if found is None else f"{found['score']:.0f} of {found['measures']}"
@@ -392,9 +439,10 @@ def boards_lines(boards):
     return lines
 
 
-def render(table, boards):
+def render(table, boards, own=None):
     """The scored rows as a table, the best first, the recommendation per role, what each role
-    is scored on, then what each board said and when."""
+    is scored on, ak's own numbers per configured model (`own`), then what each board said and
+    when."""
     def best(row):
         return max((found["score"] for found in row["scores"].values() if found), default=-1)
     table = sorted(table, key=lambda row: (-best(row), row["harness"], row["model"]))
@@ -427,6 +475,8 @@ def render(table, boards):
                for role, columns in ROLES.items())]
     # wrapped before styling: wrap returns plain text, which would print the notes undimmed
     lines += [terminal.styled(part, "dim") for note in notes for part in fit(note)]
+    if own:
+        lines += live_lines(own)
     lines += boards_lines(boards)
     unmatched = [row_label(row) for row in table if not row["values"]]
     if unmatched:
@@ -443,12 +493,14 @@ def main(argv):
     cfg = config.load()
     boards = collect(refresh="--refresh" in flags)
     table = scored(rows(cfg, boards))
+    own = live(cfg)
     if "--json" in flags:
         json.dump({"rows": table,
                    "recommended": {role: row_label(row) for role, row in recommended(table).items()},
+                   "live": own,
                    "boards": {board: {k: v for k, v in held.items() if k != "rows"}
                               for board, held in boards.items()}}, sys.stdout, indent=2)
         print()
     else:
-        print(render(table, boards))
+        print(render(table, boards, own))
     return 0

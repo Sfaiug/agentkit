@@ -486,9 +486,14 @@ so a row the boards cannot tell from the one you run never recommends a change a
 row. The table lists the best rows first: model, harness, id and effort, `orch`, `exec` and `review` as `97 of 3`,
 `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a successful coding task); under
 it the recommendation per role, or that no board has a row ak can run, what each role is scored on, one line per board
-with how many rows, when and its note, and the rows no board has. `--json` is the scored rows, the recommendation and
-the boards' notes. ak's own run numbers never rank
-(AGENTS.md, Owner rules). Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+with how many rows, when and its note, and the rows no board has. `--json` is the scored rows, the recommendation, ak's
+own numbers (`live`) and the boards' notes.
+
+ak's own numbers (`live`) stand under the scores, per configured model and role, and never rank (AGENTS.md, Owner
+rules): over the history's runs that ended with a verdict of the work (`pass`, `fail`, `blocked`; a stopped, not needed or
+errored run counts for nothing), of the runs it executed, the share merged in round 1; of those it reviewed, the share it
+let through in round 1; of the seat's own pull requests it orchestrated, the share merged in round 1; each as `55% of 320`,
+`-` where it ran none. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history
 

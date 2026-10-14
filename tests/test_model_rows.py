@@ -35,27 +35,33 @@ CATALOGS = {"claude": [{"id": "claude-opus-5-5", "efforts": ["low", "medium", "h
                      {"id": "muse-spark-1.3-contributor", "efforts": ["low", "xhigh"]}]}
 
 
+def prepare(case):
+    """The boards answered by bytes, the harness manifests, catalogs and installed harnesses
+    faked, a key, and a configured Muse Wonder Full, on a Sandbox case."""
+    case.boards = boards_test.Boards()
+    boards_test.AA += [
+        {"name": "Muse Wonder Full (max)", "evaluations": {"artificial_analysis_coding_index": 57.1}},
+        {"name": "Muse Spark 1.3 (xhigh)", "evaluations": {"artificial_analysis_coding_index": 40.0}}]
+    case.addCleanup(lambda: boards_test.AA.__delitem__(slice(-2, None)))
+    case.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE
+                                          + "muse-spark-1.3-contributor,50.0,\n"))
+    case.stack.enter_context(patch.object(matrix, "fetch_bytes", case.boards))
+    # acme has a manifest and no binary here: none of its models gets a row
+    case.stack.enter_context(patch.object(config, "manifests", return_value=[
+        (harness, {}) for harness in (*CATALOGS, "acme")]))
+    case.stack.enter_context(patch.object(config, "harness_present",
+                                          side_effect=lambda harness: harness in CATALOGS))
+    case.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
+    case.stack.enter_context(patch.object(terminal, "width", return_value=100))
+    (config.SECRETS / matrix.AA_KEY).write_text("k\n")
+    case.cfg["models"]["wonder"] = {"harness": "muse", "model": "muse-wonder-full-1.0",
+                                    "effort": "max", "provider": "meta"}
+
+
 class ModelRows(Sandbox):
     def setUp(self):
         super().setUp()
-        self.boards = boards_test.Boards()
-        boards_test.AA += [
-            {"name": "Muse Wonder Full (max)", "evaluations": {"artificial_analysis_coding_index": 57.1}},
-            {"name": "Muse Spark 1.3 (xhigh)", "evaluations": {"artificial_analysis_coding_index": 40.0}}]
-        self.addCleanup(lambda: boards_test.AA.__delitem__(slice(-2, None)))
-        self.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE
-                                              + "muse-spark-1.3-contributor,50.0,\n"))
-        self.stack.enter_context(patch.object(matrix, "fetch_bytes", self.boards))
-        # acme has a manifest and no binary here: none of its models gets a row
-        self.stack.enter_context(patch.object(config, "manifests", return_value=[
-            (harness, {}) for harness in (*CATALOGS, "acme")]))
-        self.stack.enter_context(patch.object(config, "harness_present",
-                                              side_effect=lambda harness: harness in CATALOGS))
-        self.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
-        self.stack.enter_context(patch.object(terminal, "width", return_value=100))
-        (config.SECRETS / matrix.AA_KEY).write_text("k\n")
-        self.cfg["models"]["wonder"] = {"harness": "muse", "model": "muse-wonder-full-1.0",
-                                        "effort": "max", "provider": "meta"}
+        prepare(self)
 
     def table(self):
         held = matrix.collect(now=10000)
@@ -136,7 +142,7 @@ class ModelRows(Sandbox):
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)
         data = json.loads(out.getvalue())
-        self.assertEqual(sorted(data), ["boards", "recommended", "rows"])
+        self.assertEqual(sorted(data), ["boards", "live", "recommended", "rows"])
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         rows = {matrix.row_label(row): row for row in data["rows"]}
         self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 1})
