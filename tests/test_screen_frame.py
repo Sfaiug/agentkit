@@ -101,7 +101,7 @@ class ScreenFrame(Sandbox):
                 patch.object(terminal, "taken", return_value=True), \
                 patch.object(terminal, "sense"), \
                 patch.object(terminal, "width", return_value=30), \
-                patch.object(terminal, "height", return_value=10), \
+                patch.object(terminal, "height", return_value=8), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu, "draw", side_effect=drawn), \
                 patch.object(menu, "moving", side_effect=keys), \

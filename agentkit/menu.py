@@ -1344,13 +1344,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # that do not fit between them turn pages.  The block folds to every subscription's share
     # left (`usage_summary`) where that keeps every seat on one page, or where the whole
     # block leaves too few rows a page; one too short for that drops the frame and the blank
-    # lines too (compact).
+    # lines too (compact), where the rows keep a few lines before the usage has more than one.
     least = LEAST * (2 if width < 60 else 1)
     summary = usage_summary(cfg, layout)
+    tight = usage_summary(cfg, layout, max(1, _room([], True, True) - least))
     # one page before pages, the whole block before it folded, and compact last
     for meters, compact, paged in ((meters_full, False, False), (summary, False, False),
                                    (meters_full, False, True), (summary, False, True),
-                                   (summary, True, True)):
+                                   (tight, True, True)):
         room = _room(meters, paged, compact)
         if (len(flat) <= room) if not paged else (room >= least or compact):
             break
@@ -1995,11 +1996,12 @@ def usage_rows(cfg):
     return rows
 
 
-def usage_summary(cfg, width):
+def usage_summary(cfg, width, most=None):
     """The usage block folded, for a screen too short to hold it and a few rows under it: each
     row's label and what its shared week has left, `<label> 17% · <label> 74%`, a spent one's
     credits in its 0%'s place as on its row, `—` for one with no week to draw; on a line, and
-    another wherever the width runs out, so no row is ever cut away."""
+    another wherever the width runs out, so no row is cut away -- unless that takes more than
+    `most` lines, the last then ending in `…` where the rest does not fit."""
     now, room, lines = time.time(), max(1, width - 2), []
     for name, label, prov, _ in usage_rows(cfg):
         try:
@@ -2011,8 +2013,11 @@ def usage_summary(cfg, width):
                                               (not left and usage.credits_note(prov)) or f"{left}%")
         if lines and terminal.cells(lines[-1] + " · " + part) <= room:
             lines[-1] += " · " + part
+        elif len(lines) == most:
+            lines[-1] = terminal.cut(lines[-1] + " · " + part, room)
+            break
         else:
-            lines += terminal.wrap(part, room)
+            lines.append(terminal.cut(part, room))
     return ["  " + line for line in lines]
 
 

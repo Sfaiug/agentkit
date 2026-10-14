@@ -451,8 +451,9 @@ global numbers. A screen too short for the usage block and a few rows under
 it draws the block folded, every subscription's share left, a spent week's
 credits in its place as on its row (`Claude I 17% · ChatGPT 74% · Grok —`), on
 a line and another wherever the width runs out, never cutting one away; one too
-short for that drops the frame and the blank lines too (compact), the usage
-kept. On a terminal the page up
+short for that drops the frame and the blank lines too (compact), where the rows
+keep a few lines before the usage has more than its first, cut with `…` where
+the rest does not fit. On a terminal the page up
 is the one the highlight is on and the key line starts with which (`←  1 / 2  →`);
 in a pipe the heading does (`your projects 2/3`), the page never the part that
 is cut, and `j` and `k` turn the pages.

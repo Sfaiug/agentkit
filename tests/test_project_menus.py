@@ -175,7 +175,7 @@ class Projects(Sandbox):
         self.assertNotIn("↳", full)
         self.assertIn("usage left", full)
         folded, pages = self.draw(100, 18)
-        # The usage block folds to every share left, and every seat keeps its row.
+        # The usage block folds to one line of every share left, and every seat keeps its row.
         self.assertNotIn("usage left", folded)
         self.assertIn("Claude 21% · MiMo — · Muse 50%", folded)
         self.assertNotIn("↳", folded)
@@ -197,11 +197,10 @@ class Projects(Sandbox):
 
     def test_very_short_pages_keep_each_number_once_and_leave_room_for_the_prompt(self):
         # the overlay's four keys wrap to a line more than the menu's at tiny widths,
-        # so its shortest screens stand a line taller, as do those where the usage folded takes
-        # its rows (it never goes, and no subscription is cut from it); the room for the
-        # prompt is the same
-        sizes = {menu.KEYS: ((40, 8), (30, 10), (61, 7), (28, 10)),
-                 menu.OVERLAY_KEYS: ((40, 9), (30, 11), (61, 8), (28, 12))}
+        # so its shortest screens stand a line taller, as do those where the usage's one line
+        # takes a row (it never goes); the room for the prompt is the same
+        sizes = {menu.KEYS: ((40, 7), (30, 8), (61, 6), (28, 8)),
+                 menu.OVERLAY_KEYS: ((40, 8), (30, 9), (61, 7), (28, 10))}
         for keys in (menu.KEYS, menu.OVERLAY_KEYS):
             for width, height in sizes[keys]:
                 with self.subTest(width=width, height=height, keys=keys):

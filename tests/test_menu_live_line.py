@@ -78,9 +78,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("lg1", "\n".join(lines))
 
     def test_b_no_page_overflows_or_turns_as_the_highlight_moves(self):
-        # from the shortest screen holding the usage folded (two lines at 44 columns), the row,
-        # its live line and the keys
-        for height in range(9, 24):
+        for height in range(8, 24):
             for width in (44, 100):
                 drawn = {name: self.draw(name, width, height) for name in ("fix-api", "web", "zeta")}
                 self.assertEqual(len({pages[1] for _, pages in drawn.values()}), 1, (height, width))
