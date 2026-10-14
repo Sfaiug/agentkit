@@ -1,9 +1,10 @@
 """Only what the owner alone can clear pages them, besides the finished job.
 
 A question (a dialog on the seat's screen, the seat's own `ak notify needs`, an outside pull
-request's merge question) and a failure only the owner can fix (a login, a seat ak could not
-reopen with a run of its own going, ended or interrupted) send a card once they have stood a
-minute.  Every other `needs you` -- an idle prompt, a draft never sent, a run the seat can still
+request's merge question) and a failure only the owner can fix (a login, a dying worker token,
+a seat ak could not reopen with a run of its own going, ended or interrupted, a job whose seat is
+gone) send a card once they have stood a minute; an alert asked beside a question standing
+unanswered leaves it asking.  Every other `needs you` -- an idle prompt, a draft never sent, a run the seat can still
 decide on, a seat that went and that ak reopens -- is on every screen and pages nobody; and a
 job's own `all N tasks finished` is handed to its seat, which says done itself.  Offline: a
 temporary HOME, a card sink, no tmux.
@@ -68,9 +69,31 @@ class OnlyQuestionsPage(unittest.TestCase):
         self.assertEqual(self.held({"word": "needs you", "reason": "Allow the command?",
                                     "page": True}), [f"Needs you · {SEAT}"])
 
+    def test_a_question_after_one_that_went_pages_again(self):
+        # the first dialog's card closes as the seat waits at its prompt, though the word
+        # stays `needs you`; the next dialog is a question of its own, after its own minute
+        dialog = {"word": "needs you", "reason": "Allow the command?", "page": True}
+        with patch.object(notify, "installed_at", return_value=900):
+            for now, answer in ((1000, dict(dialog, page_since=1000)),
+                                (1061, dict(dialog, page_since=1000)),
+                                (1100, {"word": "needs you", "reason": "waiting for you"}),
+                                (1200, dict(dialog, page_since=1200)),
+                                (1261, dict(dialog, page_since=1200))):
+                with patch.object(watch, "session_state", return_value=dict(answer, since=1000)):
+                    notify.transition(SEAT, dict(answer, since=1000), now=now)
+        self.assertEqual(self.posts, [f"Needs you · {SEAT}"] * 2)
+
+    def test_an_alert_beside_a_standing_question_still_asks_it(self):
+        notify.record(SEAT, "needs", "Which schema should acme use?", time=990)
+        with notify.session_lock(SEAT) as name:
+            notify._said(name, "needs", "Run fix-api stalled.", event_id="stalled:fix-api:900")
+        joined = notify.last(SEAT)
+        self.assertIn("Which schema should acme use?", joined["text"])
+        self.assertTrue(notify.pages(joined))
+
     def test_a_seat_ak_could_not_reopen_pages(self):
         for source in ("revive:acme-api:fix-api:900", "orphan:fix-api:800:900",
-                       "recovery:fix-api:900"):
+                       "recovery:fix-api:900", "job:acme-batch:900"):
             with self.subTest(source=source):
                 self.posts.clear()
                 config.card_path(SEAT).unlink(missing_ok=True)
@@ -103,6 +126,12 @@ class OnlyQuestionsPage(unittest.TestCase):
         self.assertFalse(alert.get("page"))
         idle = word({"state": "at_prompt", "began": 995})
         self.assertFalse(idle.get("page"))
+        config.notify_path(SEAT).unlink(missing_ok=True)
+        token = watch.session_state(SEAT, now=1000, session={"name": SEAT}, records=[], live={},
+                                    harness="claude", auth_out={}, gh_out={}, previous={},
+                                    token_out={"claude": {"harness": "claude", "at": 990,
+                                                          "remedy": "replace it", "expired": True}})
+        self.assertEqual((token["word"], token.get("page")), ("needs you", True))
 
     def test_a_jobs_own_finish_is_no_done_card(self):
         notify.record(SEAT, "done", "job acme-batch: all 3 tasks finished",

@@ -479,25 +479,26 @@ def answered(session, at):
 
 
 # The alerts ak raises where only the owner can act: an outside pull request's merge question,
-# a login, and a seat it could not reopen with a run of its own still going (`revive:`), ended
-# (`orphan:`) or interrupted (`recovery:`).  Every other alert says what happened to something
-# ak or a seat can still mend.
-OWNER_ALERTS = ("inbox:", "auth:", "revive:", "orphan:", "recovery:")
+# a login, a seat it could not reopen with a run of its own still going (`revive:`), ended
+# (`orphan:`) or interrupted (`recovery:`), and a job whose seat is gone (`job:`).  Every other
+# alert says what happened to something ak or a seat can still mend.
+OWNER_ALERTS = ("inbox:", "auth:", "revive:", "orphan:", "recovery:", "job:")
 
 
 def pages(notice):
     """Does that notice page him: a question someone asked him -- the seat's own `ak notify
     needs`, an outside pull request's merge question -- or a failure only he can fix?  Never
-    one answered since."""
+    one answered since.  One asked beside a standing question that pages him still asks it
+    (`_said`), whatever raised it."""
     if not notice or notice.get("kind") != "needs" or resolved(notice):
         return False
     source = notice.get("source")
-    return not source or str(source).startswith(OWNER_ALERTS)
+    return notice.get("page") is True or not source or str(source).startswith(OWNER_ALERTS)
 
 
 def job_done(notice):
-    """A job's `all N tasks finished`: done to its card, the way it always was, and no word of
-    the seat's, which only the seat says of itself."""
+    """A job's `all N tasks finished`, as a job loop of an earlier install still records it:
+    no word of the seat's, which only the seat says of itself."""
     return bool(notice) and notice["kind"] == "done" and str(
         notice.get("source") or "").startswith("job:")
 
@@ -1072,9 +1073,12 @@ def needs_transition(session, card, answer, now, seat=None):
     answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
                       (declared.get("answered_at") or 0) if resolved(declared) else 0)
     # What pages him stands no more once nothing he alone can clear does -- the dialog came
-    # down and the seat asks nothing -- though the word stays: a card that is out says so.
+    # down and the seat asks nothing -- though the word stays: a card that is out says so, as
+    # answered now.
     paging = bool(answer.get("page") or pages(declared))
-    answered_here = answered_at > card["since"] or (card.get("sent") and not paging)
+    if card.get("sent") and not paging:
+        answered_at = max(answered_at, now)
+    answered_here = answered_at > card["since"]
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
     # A card that is out says what its seat says: input there is him looking, at a dialog as
@@ -1478,6 +1482,8 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
+        if standing and pages(previous):
+            extra["page"] = True
         if standing and at is not None:
             at = max(at, previous["time"])
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))

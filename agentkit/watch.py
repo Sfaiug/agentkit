@@ -2054,8 +2054,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
     `page` in the answer marks a `needs you` only he can clear -- a question someone asked him,
-    or a login only he can renew -- which is what pages him (`notify.needs_transition`), and
-    `page_since` when that came up, which the word's own beginning below may be older than.
+    or a login or worker token only he can renew -- which is what pages him
+    (`notify.needs_transition`), and `page_since` when that came up, which the word's own
+    beginning below may be older than.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2235,7 +2236,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # of the cards rule, which keys episodes on the word.
     reason, since = token_alert(token_out)
     if reason:
-        return {"word": "needs you", "reason": reason, "since": since}
+        return {"word": "needs you", "reason": reason, "since": since, "page": True}
     # 1d. typed text nobody sent at a quiet prompt, or a question even during a turn: that is
     # him, whatever its runs are doing.  Three seats read `working` over his own unsent
     # text for nineteen hours while he believed each had his message.  A draft is not that

@@ -1398,59 +1398,41 @@ def run_job_loop(cfg, job_dir, job):
             if task.get("findings"):
                 log(f"{task['name']} findings:\n{task['findings']}")
         log(f"job {job['job_id']}: Needs you")
-        line = (f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
-        # the seat that launched the job is there, so the failures are its to act on and the
-        # owner is never asked about them -- the same rule a single run's ending obeys.  Under
-        # the job's own delivery lock, because a tick may be holding a line this loop left
-        # pending on an earlier pass: one of them types it, and only one.
-        with handback.delivery_lock(job_dir):
-            answer = job_hand_back(seat, line, log, job.get("handback_typed"),
-                                   lambda mark: mark_job_delivery(job_dir, job, handback_typed=mark)
-                                   ) if seat else "gone"
-            if not seat:
-                log("no seat launched this job, so nothing is sent; "
-                    "the result is here and in `ak run status`")
-            elif answer == "sent":
-                mark_job_delivery(job_dir, job, handback_pending=None, handback_card=None,
-                                  handback_typed=None,
-                                  card_sent={"kind": "handback", "at": job["finished_at"]})
-                orch.stop_scope(job.get("scope"), log, wait=False)
-                return 1
-            elif answer == "busy":
-                mark_job_delivery(job_dir, job, handback_pending=line, handback_card=text)
-                log(f"job {job['job_id']}: its seat is not at its prompt; the tick hands it back")
-                orch.stop_scope(job.get("scope"), log, wait=False)
-                return 1
-            elif notify.shaped("needs", text, session=seat,
-                               event_id=f"job:{job['job_id']}:{job['finished_at']}") != 0:
-                mark_job_delivery(job_dir, job, card_pending=True)
-                log("WARN job card was not accepted; retry required")
-                orch.stop_scope(job.get("scope"), log, wait=False)
-                return 1
-            job["card_sent"] = {"kind": "needs", "at": job["finished_at"]}
     else:
         text = (f"job {job['job_id']}: {stopped} task(s) stopped, nobody is needed" if stopped
                 else f"job {job['job_id']}: all {len(job['tasks'])} tasks finished")
         log(f"job {job['job_id']}: Done")
+    line = (f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
+    # the seat that launched the job is there, so its end is the seat's to act on -- its
+    # failures, and the done it says itself once the whole of its work is -- and the owner is
+    # asked only once it is gone, the same rule a single run's ending obeys.  Under the job's
+    # own delivery lock, because a tick may be holding a line this loop left pending on an
+    # earlier pass: one of them types it, and only one.
+    with handback.delivery_lock(job_dir):
+        answer = job_hand_back(seat, line, log, job.get("handback_typed"),
+                               lambda mark: mark_job_delivery(job_dir, job, handback_typed=mark)
+                               ) if seat else "gone"
         if not seat:
             log("no seat launched this job, so nothing is sent; "
                 "the result is here and in `ak run status`")
-        else:
-            try:
-                sent = notify.shaped("done", text, session=seat,
-                                     event_id=f"job:{job['job_id']}:{job['finished_at']}")
-            except notify.Refused as exc:
-                # the seat's plan is still open: no done for it now; it says done itself
-                log(f"job {job['job_id']}: no done for {seat}: {exc}")
-                sent = None
-            if sent:
-                job["card_pending"] = True
-                save()
-                log("WARN job card was not accepted; retry required")
-                orch.stop_scope(job.get("scope"), log, wait=False)
-                return 1
-            job["card_sent"] = {"kind": "done" if sent == 0 else "plan open",
-                                "at": job["finished_at"]}
+        elif answer == "sent":
+            mark_job_delivery(job_dir, job, handback_pending=None, handback_card=None,
+                              handback_typed=None,
+                              card_sent={"kind": "handback", "at": job["finished_at"]})
+            orch.stop_scope(job.get("scope"), log, wait=False)
+            return 1 if undelivered else 0
+        elif answer == "busy":
+            mark_job_delivery(job_dir, job, handback_pending=line, handback_card=text)
+            log(f"job {job['job_id']}: its seat is not at its prompt; the tick hands it back")
+            orch.stop_scope(job.get("scope"), log, wait=False)
+            return 1 if undelivered else 0
+        elif notify.shaped("needs", text, session=seat,
+                           event_id=f"job:{job['job_id']}:{job['finished_at']}") != 0:
+            mark_job_delivery(job_dir, job, card_pending=True)
+            log("WARN job card was not accepted; retry required")
+            orch.stop_scope(job.get("scope"), log, wait=False)
+            return 1
+        job["card_sent"] = {"kind": "needs", "at": job["finished_at"]}
     save()
     orch.stop_scope(job.get("scope"), log, wait=False)
     return 1 if undelivered else 0
