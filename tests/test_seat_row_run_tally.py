@@ -291,6 +291,10 @@ class Tallies(Sandbox):
         self.ended("smoke-bulk", owner="herdr", merged=True, finished_at=NOW - 60,
                    repo=str(config.TMP / "smoke-20260923-110800" / "repo"))
         records = len(record.run_dirs())     # each record is read once, including the suite's
+        # ... and after that only the ones dated the clock's own now, too new for a pass to keep
+        fresh = len([run_dir for run_dir in record.run_dirs()
+                     if (run_dir / "run.json").stat().st_mtime > NOW - menu.SETTLED])
+        self.assertLess(fresh, records)
         # one draw settles each seat's word; the draws that follow write nothing at all
         self.draw(100, 30)
         before = {path: path.read_bytes() for directory in (config.RUNS, config.STATE)
@@ -304,9 +308,9 @@ class Tallies(Sandbox):
             started = time.perf_counter()
             screen, pages = self.draw(100, 30)
             elapsed = time.perf_counter() - started
-            self.assertEqual(read.call_count, records)      # each record once for the draw
+            self.assertEqual(read.call_count, fresh)        # what changed, once for the draw
             self.draw(40, 24)
-            self.assertEqual(read.call_count, 2 * records)  # and once again for the next
+            self.assertEqual(read.call_count, 2 * fresh)    # and once again for the next
         self.assertLess(elapsed, 1.0, elapsed)
         self.assertTrue(screen.startswith("agentkit"), screen[:60])
         self.assertIn("14:02", screen.splitlines()[0])
