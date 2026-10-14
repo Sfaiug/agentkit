@@ -323,12 +323,14 @@ def _kept(cached, fresh, now):
     harness's own answer, which is a reading with nothing to keep.  A failed ask where
     there is no reading to stand in -- meterless, or never a meter -- keeps that none and
     the ask's own error is the error.  An answer whose every meter is spent is a refusal and
-    names only the window it hit: the reading's other windows stand beside it (`_beside`).
+    names only the window it hit: the reading's other windows stand beside it (`_beside`),
+    and so does the moment they were measured at, the oldest the row now shows.
     """
     if fresh.get("meters") or fresh.get("none"):
         meters = _beside(cached.get("meters") if isinstance(cached, dict) else None,
                          fresh.get("meters"), now)
-        return fresh if meters is fresh.get("meters") else {**fresh, "meters": meters}
+        return (fresh if meters is fresh.get("meters")
+                else {**fresh, "meters": meters, "fetched_at": _taken(cached)})
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
     keys = ("meters", "fetched_at", "resets", "credits", "currency", "error", "notes", "none",
@@ -340,11 +342,9 @@ def _kept(cached, fresh, now):
         keys = ("meters", "fetched_at", "resets", "credits", "currency", "notes", "none",
                 "none_reason")
     kept = {key: cached[key] for key in keys if key in cached}
-    if "fetched_at" not in kept:
-        # The ask that follows is this moment's; the measurement is not, so it is written down
-        # here rather than inferred from it.  A cached record that recorded neither has an age
-        # nobody can vouch for, which is not an age.
-        kept["fetched_at"] = _number(cached.get("probed_at"))
+    # The ask that follows is this moment's; the measurement is not, so it is written down
+    # here rather than inferred from it.
+    kept["fetched_at"] = _taken(cached)
     return {**fresh, **kept, "probe_error": fresh.get("error"), "probe_failed_at": now,
             "stale_since": now if since is None else since}
 
@@ -361,8 +361,17 @@ def _beside(old, new, now):
     if not new or any(m["used"] < 100 for m in new):
         return new
     named = {m.get("window_secs") for m in new}
-    return new + [m for m in old or [] if isinstance(m, dict) and _number(m.get("used")) is not None
-                  and m.get("window_secs") not in named and not _past(m, now)]
+    kept = [m for m in old or [] if isinstance(m, dict) and _number(m.get("used")) is not None
+            and m.get("window_secs") not in named and not _past(m, now)]
+    return new + kept if kept else new
+
+
+def _taken(prov):
+    """When this reading was measured: its `fetched_at`, and only where no reading ever wrote
+    that down the last ask's `probed_at`.  A reading that recorded neither, or neither as a
+    number, has an age nobody can vouch for, which is not an age: None.
+    """
+    return _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
 
 
 def _probe_gently(cfg, provider, account=None):
@@ -1491,7 +1500,7 @@ def as_of(prov, now=None):
     """
     now = time.time() if now is None else now
     prov = prov if isinstance(prov, dict) else {}
-    taken = _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
+    taken = _taken(prov)
     if taken is None or now - taken <= AS_OF_AFTER:
         return ""
     try:

@@ -80,7 +80,8 @@ class RefusalKeepsWeek(unittest.TestCase):
                      {"name": "weekly", "used": 64, "resets_at": self.week_ends,
                       "window_secs": WEEK}])
         usage.collect(self.cfg)
-        self.now[0] += usage.PROBE_EVERY
+        # the refusal comes an hour on: it measures its own window and not the week
+        self.now[0] += 3600
 
     def answer(self, meters):
         (self.fake / "usage.json").write_text(
@@ -95,8 +96,9 @@ class RefusalKeepsWeek(unittest.TestCase):
     def assert_week_kept(self):
         week = usage.reset_when({"resets_at": self.week_ends}, self.now[0])
         five = usage.reset_when({"resets_at": self.five_ends}, self.now[0]).split()[-1]
-        self.assertRegex(self.row(),
-                         rf"^\s*Muse\s+\S+\s+36% left · resets {week} · 5h spent until {five}$")
+        age = usage.as_of({"fetched_at": NOW}, self.now[0])
+        self.assertRegex(self.row(), rf"^\s*Muse\s+\S+\s+36% left · resets {week} · "
+                                     rf"5h spent until {five} · {age}$")
         prov = usage.collect(self.cfg)["meta"]
         self.assertTrue(prov["exhausted"])
         self.assertEqual({m["name"]: m["used"] for m in prov["meters"]}["weekly"], 64)
