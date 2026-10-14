@@ -851,8 +851,8 @@ def stop_scope(scope, log=lambda _: None, wait=True):
     return not refused and 0 in codes
 
 
-def slice_cgroup():
-    """The slice's own directory under the cgroup filesystem.
+def slice_cgroup(name=None):
+    """That slice's own directory under the cgroup filesystem: by default the server's slice.
 
     Read, because asking `systemctl` would put a command between every screen and one line it
     prints.  Everything the manager runs is under `user@<uid>.service`, which this process's
@@ -866,7 +866,7 @@ def slice_cgroup():
         root = host.cgroup_path().joinpath(*parts[:parts.index(service) + 1])
     except ValueError:
         root = host.cgroup_path() / "user.slice" / f"user-{os.getuid()}.slice" / service
-    pieces = slice_name().removesuffix(".slice").split("-")
+    pieces = (name or slice_name()).removesuffix(".slice").split("-")
     return root.joinpath(*[f"{'-'.join(pieces[:depth + 1])}.slice"
                            for depth in range(len(pieces))])
 
@@ -1869,6 +1869,9 @@ def tmux_conf():
     return path
 
 
+SEAT_SCOPE = re.compile(r"agentkit-seat-.+-[0-9a-f]{8}\.scope")   # one launch's, as below
+
+
 def seat_command(name, cmd, socket=None):
     """The pane's command line: the harness, started inside a scope of its own in the seats slice.
 
@@ -2692,6 +2695,57 @@ def sweep(log):
         notify.forget_card(name, log)     # its questions on Discord closed, not left standing
         seat_plugin(record).forget(record)
         drop_aliases(name)
+
+
+def ended_seat_scopes(socket=None):
+    """The seat scopes on that server's slice whose harness has ended; none while unsure.
+
+    A seat's harness starts in a scope of its own (`seat_command`), and each launch names a
+    new one.  What a harness started and left behind -- a shell's background job, a test's
+    helper, a server -- stays in its scope after it ends, held against the slice's CPU and
+    memory gates for as long as it runs.  A scope holds a live harness while a live pane's
+    process is in it; the server's own unit, which a seat's name may make look like a launch's,
+    holds the server.
+
+    The scopes are read before the panes, so a seat launched in between has a scope this never
+    saw.  A listing tmux cannot give, a line it does not recognise, or a live pane that is not
+    the server's own child or whose cgroup cannot be read proves no harness gone, and then none
+    is named: a box's PID namespace, or a listing that is not the server's, names other
+    processes by those numbers.
+    """
+    if not user_manager():
+        return []
+    socket = socket_name() if socket is None else socket
+    try:
+        scopes = sorted(entry.name for entry in slice_cgroup(seat_slice_name(socket)).iterdir()
+                        if SEAT_SCOPE.fullmatch(entry.name))
+    except OSError:
+        return []
+    if not scopes:
+        return []
+    rc, out = tmux_out("list-panes", "-a", "-F", "#{pid} #{pane_dead} #{pane_pid}",
+                       socket=socket, timeout=SLICE_WAIT)
+    rows = [line.split() for line in out.splitlines()]
+    if rc != 0 or not rows or any(len(row) != 3 or not all(word.isdigit() for word in row)
+                                  for row in rows):
+        return []
+    held = set()
+    for server, dead, pane in rows:
+        if dead != "1" and getattr(host.proc_stat(int(pane)), "ppid", None) != int(server):
+            return []
+        for pid in (server,) if dead == "1" else (server, pane):
+            cgroup = host.process_cgroup(int(pid))
+            if cgroup is None:
+                return []
+            held.add(cgroup.rstrip("/").rsplit("/", 1)[-1])
+    return [scope for scope in scopes if scope not in held]
+
+
+def end_seat_leftovers(log):
+    """Stop every seat scope whose harness has ended, and everything it left running there."""
+    for scope in ended_seat_scopes():
+        if stop_scope(scope, log):
+            log(f"stopped {scope}: its seat's harness had ended and left this running")
 
 
 # --- background jobs, on a server of their own -------------------------------

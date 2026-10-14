@@ -972,6 +972,7 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
                 patch.object(watch, "health", side_effect=lambda *a: order.append("health")), \
                 patch.object(gc, "schedule_gc", side_effect=lambda *a: order.append("schedule")), \
                 patch.object(orch, "sweep", side_effect=AttributeError("bad metadata")), \
+                patch.object(orch, "end_seat_leftovers"), \
                 patch.object(watch, "gh_json", side_effect=lambda *a, **_kw: (order.append("github") or
                                                                         (None, "offline"))), \
                 redirect_stdout(io.StringIO()):
@@ -981,7 +982,8 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
         bad, _ = self.receipt("98-bad", state="fail", reported=False, launched_session="bad/name")
         with patch.object(gc, "schedule_gc"), \
                 patch.object(orch, "sessions", return_value=[{"name": "open"}]), \
-                patch.object(orch, "stamp"), patch.object(orch, "sweep", side_effect=ValueError("bad state")):
+                patch.object(orch, "stamp"), patch.object(orch, "sweep", side_effect=ValueError("bad state")), \
+                patch.object(orch, "end_seat_leftovers"):
             messages = []
             orch.maintenance(messages.append)
         # v5m: maintenance reports no endings, so neither receipt is marked told; the

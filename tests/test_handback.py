@@ -199,7 +199,8 @@ class HandBack(Sandbox):
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 patch.object(gc, "schedule_gc"), patch.object(browser, "tidy"), \
                 patch.object(notify, "tick_cards"), \
-                patch.object(orch, "stamp"), patch.object(orch, "sweep"):
+                patch.object(orch, "stamp"), patch.object(orch, "sweep"), \
+                patch.object(orch, "end_seat_leftovers"):
             self.assertEqual(watch.main([]), 0)
 
     # --- the hand-back ------------------------------------------------------

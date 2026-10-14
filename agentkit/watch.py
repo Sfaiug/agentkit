@@ -6588,6 +6588,9 @@ def local_passes(state, dry_run, log):
         ("retention pass did not finish", lambda: gc.schedule_gc(log), False),
         ("retention pass did not finish", orch.stamp, False),
         ("retention pass did not finish", lambda: orch.sweep(log), False),
+        # What a seat's ended harness left running in its scope is stopped with the scope.
+        ("the ended seats' leftovers were not stopped",
+         lambda: orch.end_seat_leftovers(log), False),
         # The shared browser's idle tabs are reaped: a machine with no browser on CDP costs one
         # refused connection and nothing else.
         ("browser tidy did not finish", lambda: browser.tidy(log), False),

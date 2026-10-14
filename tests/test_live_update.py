@@ -106,7 +106,8 @@ class LiveUpdate(unittest.TestCase):
                                 (watch, "resume_errored"), (watch, "resume_waiting"),
                                 (watch, "sweep_preexisting"), (watch, "revive_seats"),
                                 (jobs, "deliver_job_handbacks"), (gc, "schedule_gc"),
-                                (orch, "stamp"), (orch, "sweep"), (usage, "collect"),
+                                (orch, "stamp"), (orch, "sweep"), (orch, "end_seat_leftovers"),
+                                (usage, "collect"),
                                 (browser, "tidy"), (watch, "incoming"), (watch, "outgoing"),
                                 (update, "keep_current")):
                 stack.enter_context(patch.object(where, name))

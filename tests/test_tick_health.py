@@ -50,7 +50,8 @@ class TickHealth(unittest.TestCase):
                             (watch, "finish_own_lines"),
                             (watch, "recover_runs"), (watch, "resume_exhausted"),
                             (watch, "revive_seats"), (gc, "schedule_gc"),
-                            (orch, "stamp"), (orch, "sweep"), (usage, "collect")):
+                            (orch, "stamp"), (orch, "sweep"), (orch, "end_seat_leftovers"),
+                            (usage, "collect")):
             self.stack.enter_context(patch.object(where, name))
         self.stack.enter_context(patch.object(handback, "reap", lambda _dir, state: state))
         self.tidy = self.stack.enter_context(patch.object(browser, "tidy"))

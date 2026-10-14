@@ -431,7 +431,8 @@ class Limits(unittest.TestCase):
             watch, "launch_resume",
             side_effect=lambda run_id, log=lambda _: None: resumed.append(run_id) or True))
         for name, where in (("retry_pending", notify), ("resume_after_boot", watch),
-                            ("health", watch), ("stamp", orch), ("sweep", orch)):
+                            ("health", watch), ("stamp", orch), ("sweep", orch),
+                            ("end_seat_leftovers", orch)):
             self.stack.enter_context(patch.object(where, name))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
         self.stack.enter_context(patch.object(orch, "find", return_value=None))

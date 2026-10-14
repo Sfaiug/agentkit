@@ -87,7 +87,8 @@ class NoReplay(Sandbox):
         with patch.object(watch, "health"), patch.object(watch, "recover_runs"), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 patch.object(gc, "schedule_gc"), patch.object(browser, "tidy"), \
-                patch.object(orch, "stamp"), patch.object(orch, "sweep"):
+                patch.object(orch, "stamp"), patch.object(orch, "sweep"), \
+                patch.object(orch, "end_seat_leftovers"):
             self.assertEqual(watch.main([]), 0)
 
     def test_first_tick_after_upgrade_marks_old_endings_without_typing_or_reopening(self):

@@ -82,7 +82,8 @@
   STATE. For watch. Leak: menu's `features_run`, `switch_rows`, `switches_command`; plan's
   `open_lines`, `LINE`, `add`.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
-  launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
+  launch and resume, the picker, systemd slice and scopes, and the tick's stop of a launch's
+  scope once its harness has ended. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`, which

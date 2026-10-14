@@ -263,6 +263,7 @@ class V5AE(unittest.TestCase):
                    patch.object(gc, "schedule_gc"),
                    patch.object(orch, "stamp"),
                    patch.object(orch, "sweep"),
+                   patch.object(orch, "end_seat_leftovers"),
                    patch.object(notify, "retry_pending"),
                    patch.object(notify, "tick_cards")]
         for handle in healthy:
