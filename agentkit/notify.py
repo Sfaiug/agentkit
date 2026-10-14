@@ -46,7 +46,7 @@ from http.client import HTTPException
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import command_help, config, retention, transitions
+from . import command_help, config, history, retention, transitions
 from . import record as run_record
 from . import harness
 
@@ -460,6 +460,7 @@ def answered(session, at):
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
     """
     with session_lock(session) as session:
+        history.intent_began(session, at)   # the first prompt into a seat with no intent open
         ask_kept(session, ended=True)
         previous = last(session)
         if previous and previous.get("watcher") is True:
@@ -470,6 +471,7 @@ def answered(session, at):
                 _card_write(session, {**card, "answered_at": at})
             return
         previous["answered_at"] = at
+        history.answered(session, at)
         if not resolved(previous):
             return
         record(session, previous["kind"], previous["text"],
@@ -728,6 +730,9 @@ def _attempt(event):
     post(event["payload"], [], event["message"], receipt)
     event["status"] = receipt["status"]
     event["receipt"] = {k: receipt[k] for k in ("message_id", "webhook") if k in receipt}
+    if receipt.get("message_id") and event.get("session"):
+        # the card reached the owner: the notice it carried is paged, once
+        history.paged(config.resolve_session(event["session"]), event["kind"], time.time())
     if receipt.get("error"):
         event["error"] = receipt["error"]
     else:
@@ -1487,9 +1492,11 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         extra["runs"] = [directory.name for directory, state in menu.run_records()
                          if transitions.launched_session(state) == name and
                          (transitions.going(state) or transitions.unfinished(state))]
-    if at is not None:
-        extra["time"] = at
+    extra["time"] = time.time() if at is None else at
     record(name, kind, text, **extra)
+    history.noticed(name, extra["time"], "alert" if extra["watcher"] else kind)
+    if kind == "done":
+        history.intent_done(name, extra["time"])
     return previous
 
 

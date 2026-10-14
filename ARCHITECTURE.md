@@ -111,12 +111,13 @@
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
-- `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
+- `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice;
+  each notice, page and answer, and each intent, recorded in history as it happens.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
-- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs` for the scoreboard.
+- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs` for the scoreboard; the owner's `notices` and `intents` (`noticed`, `paged`, `answered`, `intent_began`, `intent_done`).
   For run, gate, harness. Leak: parses harness event logs.
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), words and wrapping.
   `compute`, `render` for run history.

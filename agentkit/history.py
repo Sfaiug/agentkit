@@ -97,6 +97,33 @@ CREATE TABLE IF NOT EXISTS reviews (
 )
 """
 
+# One row per word a seat's notice said to the owner, dated at the notice (`at`): a question
+# the seat asked (`needs`), an alert of ak's own (`alert`: a login gone, a stall) or a done;
+# when its card first reached the owner (`paged_at`) and, for a question, when their prompt
+# answered it (`answered_at`).  What the board's owner's-time row reads.
+NOTICES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS notices (
+    session TEXT,
+    at REAL,
+    kind TEXT,
+    paged_at REAL,
+    answered_at REAL,
+    PRIMARY KEY (session, at)
+)
+"""
+
+# One row per intent: from the owner's first prompt into a seat with none open (`began_at`)
+# to the seat's done (`done_at`).  What the board's intent-to-live row reads, with the runs'
+# `live_at`.
+INTENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS intents (
+    session TEXT,
+    began_at REAL,
+    done_at REAL,
+    PRIMARY KEY (session, began_at)
+)
+"""
+
 
 def path():
     """The history database follows the configured HOME, including test homes."""
@@ -114,6 +141,8 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
+    connection.execute(NOTICES_SCHEMA)
+    connection.execute(INTENTS_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -313,6 +342,44 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
         "SELECT run_id, ?,?,?,?,?,? FROM runs WHERE run_id=? "
         "ON CONFLICT(run_id, review_id) DO NOTHING",
         (review_id, harness, model, blocking, followup, note, run_id)), log)
+
+
+def noticed(session, at, kind, *, log=None):
+    """A notice's word said to the owner, dated at the notice; said again at that moment,
+    nothing changes."""
+    _write(lambda connection: connection.execute(
+        "INSERT INTO notices (session, at, kind) VALUES (?,?,?) "
+        "ON CONFLICT(session, at) DO NOTHING", (session, at, kind)), log)
+
+
+def paged(session, kind, at, *, log=None):
+    """The card of the session's latest notice of that kind reached the owner (a `needs` card
+    carries an alert too); the first page is the one kept."""
+    kinds = ("needs", "alert") if kind == "needs" else (kind,)
+    _write(lambda connection: connection.execute(
+        "UPDATE notices SET paged_at=? WHERE session=? AND paged_at IS NULL AND at = "
+        "(SELECT MAX(at) FROM notices WHERE session=? AND at <= ? AND kind IN ("
+        + ",".join("?" * len(kinds)) + "))", (at, session, session, at, *kinds)), log)
+
+
+def answered(session, at, *, log=None):
+    """The owner's prompt answered every question the seat still had open."""
+    _write(lambda connection: connection.execute(
+        "UPDATE notices SET answered_at=? WHERE session=? AND kind='needs' "
+        "AND answered_at IS NULL AND at <= ?", (at, session, at)), log)
+
+
+def intent_began(session, at, *, log=None):
+    """The owner's prompt into a seat with no intent open begins one."""
+    _write(lambda connection: connection.execute(
+        "INSERT INTO intents (session, began_at) SELECT ?, ? WHERE NOT EXISTS "
+        "(SELECT 1 FROM intents WHERE session=? AND done_at IS NULL)", (session, at, session)), log)
+
+
+def intent_done(session, at, *, log=None):
+    """The seat's done ends its open intent."""
+    _write(lambda connection: connection.execute(
+        "UPDATE intents SET done_at=? WHERE session=? AND done_at IS NULL", (at, session)), log)
 
 
 def review_counts(harness, model):
