@@ -104,9 +104,9 @@ folded = '\[Pasted\s*text\s*#\d+\]'
 # `● main` and a row per agent, `◯ general-purpose  <what it does>  <time> · ↓ <tokens>`,
 # the one on view filled.
 tray = '[●◯] \S.*'
-# Scrolled up from its live bottom -- a wheel notch, PgUp -- it draws this pill right above its
-# closing rule, and the rows over it are the transcript, a dialog's controls cut off: such a
-# screen reads nothing (2.1.292).
+# Scrolled up from its live bottom -- a wheel notch, PgUp -- it draws this pill on the row right
+# above its bottom rule, and the rows over it are the transcript, a dialog's controls cut off:
+# such a screen reads nothing (2.1.292).
 away = 'Jump to bottom \(ctrl\+End\) ↓'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the

@@ -47,6 +47,23 @@ class ScrolledViewReadsNothing(unittest.TestCase):
         self.assertEqual(watch.screen_state("claude", pane("claude-prompt-scrolled-pane.txt"))[:2],
                          ("at_prompt", "prompt.composer"))
 
+    def test_the_pill_on_a_reply_row_is_read_before_the_tray(self):
+        # scrolled to a reply, `● OK.` shares the pill's row, which a tray pattern takes whole
+        rows = (FIX / "claude-prompt-scrolled-pane.txt").read_text(encoding="utf-8").splitlines()
+        pill = next(at for at, row in enumerate(rows) if "Jump to bottom" in row)
+        closing = (FIX / "claude-question-scrolled-pane.txt").read_text(
+            encoding="utf-8").splitlines()[-1]
+        found = watch.classify("claude", watch.pane_tail("\n".join(rows[:pill + 1] + [closing])),
+                               ASKING, None, {}, 1100.0)
+        self.assertEqual((found["state"], found["hooked"]), ("asking", "asking"))
+
+    def test_a_draft_quoting_the_pill_stays_a_draft(self):
+        typed = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8").replace(
+            "Fix the login redirect", "Explain Jump to bottom (ctrl+End) ↓")
+        rows = watch.pane_tail(typed).splitlines()
+        for shown in (rows, rows[:-1]):  # under its footer, and with none drawn
+            self.assertEqual(watch.screen_state("claude", "\n".join(shown))[0], "draft")
+
     def test_esc_on_a_question_ends_its_turn(self):
         found = classify("claude-prompt-pane.txt", interrupted=1050.0)
         self.assertEqual((found["state"], found["evidence"]),

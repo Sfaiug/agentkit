@@ -1528,6 +1528,21 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
+
+    def drawn_rule(row):
+        # a bare rule, or a rule the harness's own chrome names, as one carrying a session's name
+        return bool(re.fullmatch(RULE, row) or (row[:1] in "─━═" and chrome_line(chrome, row)))
+
+    # A view the harness has scrolled up from its live bottom shows none of what a rule reads
+    # there -- a dialog's controls, the composer, a turn's spinner -- however much of it the rows
+    # left look like one: it reads nothing, and what the hooks said stands (`[screen] away`).
+    # The mark sits on the row right above the bottom rule, over a transcript row a tray could
+    # take for its own, so it is read before any tray is left out; that row is never the
+    # composer's, so a draft quoting the mark stays a draft.
+    if (chrome["away"] and len(lines) > 1 and drawn_rule(lines[-1])
+            and chrome["away"].search(lines[-2])
+            and ruled_composer(chrome, raw_lines)[1] != len(lines) - 1):
+        return None, "", ""
     # A tray the harness draws under its footer, or between its composer and its footer, is
     # neither: left out, every rule reads the rows it reads where none is drawn, and never
     # further up the transcript.
@@ -1542,23 +1557,12 @@ def screen_state(harness, tail):
         while at and chrome["tray"].fullmatch(lines[at - 1]):
             at -= 1
         raw_lines, lines = raw_lines[:at] + raw_lines[-1:], lines[:at] + lines[-1:]
-    # A view the harness has scrolled up from its live bottom shows none of what a rule reads
-    # there -- a dialog's controls, the composer, a turn's spinner -- however much of it the rows
-    # left look like one: it reads nothing, and what the hooks said stands (`[screen] away`).
-    # The mark sits right above the closing rule, among rows that under a live bottom are all
-    # chrome, so transcript text never sits there.
-    if chrome["away"] and any(chrome["away"].search(row) for row in lines[-3:]):
-        return None, "", ""
     # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
     # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
     # it hid every question, which then read as answered.  In a renamed session -- every seat --
     # that rule carries the session's name, which the adapter's composer pattern knows.  A draft never sits there: its
     # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
     # typed stays a draft.
-    def drawn_rule(row):
-        # a bare rule, or a rule the harness's own chrome names, as one carrying a session's name
-        return bool(re.fullmatch(RULE, row) or (row[:1] in "─━═" and chrome_line(chrome, row)))
-
     newest = lines[-1]
     if chrome["ruled"] and len(lines) > 1 and drawn_rule(newest):
         above = strip_sgr(raw_lines[-2]).rstrip()
