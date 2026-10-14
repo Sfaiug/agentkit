@@ -2194,8 +2194,9 @@ def show_notices(messages):
 
 # The rows under the models, each running its own step; Providers `+ add` and `− remove`, and
 # `↻ spend a reset` while a subscription holds one (resets_held).
-CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Version")
+CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Weekly audit", "Version")
 PROVIDERS = ("row", "Providers")
+AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 VERSION = ("row", "Version")    # agentkit's build, read and nothing more
 PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"),
                  ("↻ spend a reset", "spend a reset"))   # and each without UTF-8
@@ -2377,7 +2378,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                              else part)
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
-    values = ("", "", discord_value(), version or "?")
+    values = ("", "", discord_value(), audit_value(cfg), version or "?")
     for row, value in zip(CONFIG_ROWS, values):
         if ("row", row) == PROVIDERS:
             chosen = max(column, 0) if at == PROVIDERS else None
@@ -2852,7 +2853,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                     clock.touch(here)
         elif here[0] == "row":
             if here != VERSION and act in ("enter", "space"):
-                config_discord()
+                if here == AUDIT:
+                    config_audit(cfg)
+                else:
+                    config_discord()
                 try:
                     cfg = config.load()
                 except config.Error as exc:
@@ -3306,10 +3310,60 @@ def config_discord():
         pause(f"discord: {exc}")
 
 
+def audit_value(cfg):
+    """`Weekly audit`'s value: on or off, and who orchestrates, executes and reviews it, under
+    the matrix's own column words, `on · orch opus · exec opus, astra · review astra`; a setting
+    the config cannot read is shown as the error that says why."""
+    try:
+        setting = config.audit(cfg)
+    except config.Error as exc:
+        return str(exc)
+    return " · ".join(("on" if setting["on"] else "off", f"orch {setting['orchestrator']}",
+                       "exec " + (", ".join(setting["workers"]) or "nobody"),
+                       "review " + ", ".join(setting["reviewers"])))
+
+
+def config_audit(cfg):
+    """`Weekly audit`: on or off, then the models its seat takes, written to `[audit]` in
+    config.toml as one table.
+
+    An empty answer keeps what is there, so one value can be changed without retyping the
+    rest; Esc at any question goes back with nothing written.  The answers are read as the
+    tick will read them (config.audit) before anything is written: one it refuses is said in
+    one line, and the file stays as it was.
+    """
+    terminal.frame("config · weekly audit", [f"  {audit_value(cfg)}"])
+    answers = {}
+    for key, prompt in (("on", "On (on/off): "), ("orchestrator", "Orchestrator: "),
+                        ("workers", "Executors, space-separated (none: the orchestrator builds alone): "),
+                        ("reviewers", "Reviewers, space-separated: ")):
+        answer = read(prompt, "")
+        if _cancelled(answer):
+            return
+        answers[key] = answer
+    table = dict(cfg.get("audit") or {})
+    if answers["on"]:
+        if answers["on"] not in ("on", "off"):
+            pause(f"weekly audit: on or off, not {answers['on']!r}")
+            return
+        table["on"] = answers["on"] == "on"
+    if answers["orchestrator"]:
+        table["orchestrator"] = answers["orchestrator"]
+    for role in ("workers", "reviewers"):
+        if answers[role]:
+            table[role] = [name for name in answers[role].split() if name != "none"]
+    try:
+        config.audit({**cfg, "audit": table})
+        config.save({**cfg, "audit": table})
+    except (config.Error, OSError) as exc:
+        pause(f"weekly audit: {exc}")
+
+
 def show_config(dry_run=False, keyboard=None, session=None):
     """`c`: every model in one matrix of `session`'s roles -- the seat highlighted on the main
     screen, read from its own record -- and the efforts, then `+ add a model`, `Providers`,
-    `Discord` and `Version`, read with the menu's keyboard (config_matrix), so nothing is typed.
+    `Discord`, `Weekly audit` and `Version`, read with the menu's keyboard (config_matrix), so
+    nothing is typed.
     On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
     and so it is for a record naming a model removed here, saying so under the rows: the
     screen that adds it back still opens.

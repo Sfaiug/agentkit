@@ -384,6 +384,8 @@ class Matrix(unittest.TestCase):
         screen.press(ENTER)                               # the step, then the screen again
         screen.saw("<discord step>", after=mark)
         self.assertNotIn("\x1b[?1049l", screen.text()[mark:])   # typed on the matrix's keys
+        lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
+        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")   # its step, like Discord's
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertEqual(lines[-1], "  ↑↓ move   esc back")      # no action to name
         mark = len(screen.text())
@@ -405,11 +407,11 @@ class Matrix(unittest.TestCase):
                              lambda lines: "review needs" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
-        lines = screen.press(DOWN * 10, lambda lines: highlighted(lines).startswith("› Version"))
+        lines = screen.press(DOWN * 11, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertLessEqual(len(lines), 23)
         self.assertNotIn("review needs", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 3, lambda lines: highlighted(lines) == "› + add a model")
+        lines = screen.press(UP * 4, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")
         self.assertLessEqual(len(lines), 23)
         screen.leave()

@@ -92,7 +92,8 @@
 - `statusbar.py`: a seat's two tmux status lines, line one ending in the owner's other seats
   and the click that switches to one; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
-  manifests, seat records, rename chain, `SEAT_FILES`, child env. Used by nearly everything.
+  manifests, seat records, rename chain, `SEAT_FILES`, child env, the weekly audit's setting
+  (`audit`). Used by nearly everything.
 - `worker.py`: headless turns, preambles, review, adapters, silence, auth, cleanup.
   `turn`, `call`, `boxed` checks, `kill_marked`, `auth_ok`.
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.

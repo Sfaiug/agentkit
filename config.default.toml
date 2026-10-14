@@ -28,6 +28,9 @@ pace_margin = 10          # the one knob: a subscription more than this far ahea
 # removes a worker even without a reset time, and so does a harness that is not
 # installed or not logged in; unknown budgets rank last. The menu's `c` screen
 # changes both defaults.
+# [audit] is the weekly audit's setting, edited on the `c` screen's `Weekly audit` row:
+# on = false switches it off, and orchestrator, workers and reviewers name the models its
+# seat takes, [defaults]'s for whatever the table leaves out. Absent, it is on with [defaults].
 [defaults]
 orchestrator = "opus"
 workers = ["opus", "astra"]
