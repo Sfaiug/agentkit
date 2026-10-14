@@ -94,8 +94,9 @@ class Seat(unittest.TestCase):
                  "AGENTKIT_RULEBOOK": str(rulebook), "AGENTKIT_ACCOUNT": "",
                  "AGENTKIT_SESSION": SEAT}).stdout
         words = shlex.split(line)
-        # what the idle-compact wrapper starts, in the seat's pane
-        subprocess.run(words[words.index("--") + 1:], timeout=30, check=True,
+        # the line as the seat's pane runs it, with no idle-compact wrapper around its harness
+        wrapper = words.index(str(REPO / "tools/idle-compact.py"))
+        subprocess.run(words[:wrapper - 1] + words[words.index("--") + 1:], timeout=30, check=True,
                        env={**os.environ, "PATH": f"{launch}:{os.environ['PATH']}",
                             "TMUX": TMUX, "TMUX_PANE": PANE})
         argv = json.loads((cls.home / "argv.json").read_text())
