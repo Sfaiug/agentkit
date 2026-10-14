@@ -1,0 +1,40 @@
+
+[38;5;242m  [1m[38;5;252mMuse Code[0m[38;5;252m 1.4.7
+
+[38;5;75m[48;5;237m❯ [38;5;252mUsing your shell tool run exactly `rm -f probe.txt; echo hi > probe.txt; sleep 20`, then reply OK.[39m                    
+
+[38;5;242m[49m◇ Cal[38;5;244ml[38;5;247mi[38;5;251mn[38;5;252mg[38;5;251m [38;5;247mt[38;5;244mo[38;5;242mols (8s · esc to interrupt)[39m                                          
+
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0;1m[38;5;252mWould you like to run the following command?
+[0m                                                                                                                        
+[38;5;75m  $ [38;5;109mrm[38;5;244m -[38;5;109mf probe.txt[38;5;145m;[38;5;231m [38;5;109mecho hi [38;5;145m>[38;5;109m probe.txt[38;5;145m;[38;5;231m [38;5;109msleep 20[39m                           
+[1m[38;5;252m  Stage 1/3
+[38;5;75m  Current argv: ["rm","-f","probe.txt"]
+
+⟩ [0m[38;5;242m1. [1m[38;5;252mAllow this stage once[0m[38;5;246m (y)
+[38;5;242m  2. [38;5;252mAlways allow in this workspace: rm ...[38;5;242m (p)
+  3. [38;5;252mAbort the entire command[38;5;242m (esc)
+Change approval defaults in /permissions
+[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;242m  [38;5;75mmuse-spark-1.2[38;5;246m · [38;5;75mminimal[38;5;246m · /home/acme/code/fix-api.wt/ws · [38;5;75mLaunch overrides
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

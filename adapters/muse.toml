@@ -56,8 +56,8 @@ strips_timestamp = true
 
 # Muse 1.4.7's hooks reach a seat from its launch (`adapters/muse.sh interactive`).  Its own
 # question tool fires no tool hook, but its dialog opening is a Notification of its own kind,
-# which no text on the screen can fake: that decides `asking`.  The turn's states stay the
-# screen's, as on a muse with no hooks.
+# which no text on the screen can fake: that decides `asking`, as an approval dialog's does on a
+# seat launched without yolo.  The turn's states stay the screen's, as on a muse with no hooks.
 [authority]
 working = "screen"
 asking = "hooks"
@@ -71,7 +71,19 @@ state = "at_prompt"
 [[hooks.event]]
 name = "Notification"
 state = "asking"
-kinds = ["question_prompt"]
+kinds = ["question_prompt", "permission_prompt"]
+
+# its question answered: the batch that ran its tool, and never the batches its reminders run
+# beside the turn -- `adapters/muse.sh hook` names a batch by its first tool
+[[hooks.event]]
+name = "PostToolBatch"
+state = "working"
+kinds = ["request_user_input"]
+
+# an Esc fires this and no Stop: the turn is over, and a question it had up is down with it
+[[hooks.event]]
+name = "Interrupt"
+state = "at_prompt"
 
 # The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- needs a
 # blocking end-of-turn hook to enforce itself, and Muse has none.  `nudge` asks the `ak watch`
@@ -81,9 +93,12 @@ kinds = ["question_prompt"]
 enforce = "nudge"
 
 [screen]
-# 1.2.1 draws `❯` where 1.0.3 drew `⟩`; the shared footer already reads both, so the composer
-# pattern is the one the babysitter has always used, unchanged.
-composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · YOLO)$'
+# 1.2.1 draws `❯` where 1.0.3 drew `⟩`; the shared footer already reads both.  The status line
+# ends on its approvals, `YOLO` or, launched without it, `Auto-review` or `Launch overrides`,
+# and keeps `compacted context` beside them for a few seconds after a compaction.
+composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · (?:YOLO|Auto-review|Launch overrides)(?: {2,}compacted context)?)$'
+# 1.4.7 draws its composer between two rules, so a draft wrapped onto a second row is still its
+ruled = true
 # 1.4.7 draws its rotating composer suggestions ("Ask to monitor a running build …") in this
 # grey, with no faint attribute, and typed text in 252: the grey reads as faint, so empty.
 faint = ["38;5;242"]
@@ -107,29 +122,47 @@ lines = 8
 # options are indented, and its key hint ends `Esc to interrupt` with no bracket
 row = '^[^\s❯›⟩>].*esc to interrupt\)'
 
+# what the status line says beside its approvals while a turn is being interrupted, compacted
+# or handed a queued line, where no spinner may be drawn in the rows the rule above reads
+[[rule]]
+id = "working.footer"
+state = "working"
+lines = 1
+row = ' · .* {2,}(?:interrupting run|compacting context|steering the running turn)$'
+
+# the owner's own `/model` and `/resume` pickers, their key hints where the status line was: his
+# unfinished input, which a line typed there would pick from
+[[rule]]
+id = "prompt.picker"
+state = "draft"
+lines = 2
+any = ["esc go back", "esc exit"]
+
 # A composer holding bright, typed text is a draft never sent. Muse has no
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.
 # Both are read with `-e` attributes; see watch.has_dim. Draft before prompt.
+# None is read under a dialog: a question's key hint, its review step's last choice (a line
+# typed there lands on `Submit answers`), or an approval's last line, over its status line.
 [[rule]]
 id = "prompt.draft"
 state = "draft"
 lines = 8
 at_composer = true
-none = ["esc to interrupt"]
+none = ["esc to interrupt", "interrupt turn", "change approval defaults in /permissions"]
 
 [[rule]]
 id = "prompt.suggestion"
 state = "at_prompt"
 lines = 8
 at_composer = true
-none = ["esc to interrupt"]
+none = ["esc to interrupt", "interrupt turn", "change approval defaults in /permissions"]
 
 [[rule]]
 id = "prompt.composer"
 state = "at_prompt"
 lines = 8
 at_composer = true
-none = ["esc to interrupt"]
+none = ["esc to interrupt", "interrupt turn", "change approval defaults in /permissions"]
 
 # `429`/`quota exhausted` are the 1.0.3 capture's own words; `usage limit reached` is how the
 # installed 1.3.0 executable spells the same model failure, first in the list of reasons a

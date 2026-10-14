@@ -1,0 +1,40 @@
+
+[38;5;242m  [1m[38;5;252mResume a previous session
+[0m[38;5;75m  ⟩ [38;5;242mSearch Name / Description
+  [38;5;246mFilter: [1m[38;5;75m[Cwd][0m[38;5;242m All Claude Codex  [38;5;246mSort: [1m[Updated][0m[38;5;242m Created
+
+
+  [38;5;246mCurrent session is already open and was excluded.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;242m  0 / 0 · 0%  enter resume  esc exit  ctrl+c exit  tab focus sort/filter  ←/→ change option
+  ctrl+o comfortable view  ctrl+t transcript  ctrl+e expand  ↑/↓ browse  pgup/pgdn page

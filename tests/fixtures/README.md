@@ -83,6 +83,20 @@ tool line's per-letter shimmer too); its rows, colours, key hint and composer ar
 captured. The hint ends `Esc to interrupt` with no bracket, as no turn's spinner does,
 and every row of the dialog is indented, where a turn's spinner starts at the left edge.
 
+The `muse-{question-asked,question-answered,question-escaped,question-review,draft-wrapped,
+autoreview-idle,overrides-idle,approval,interrupting,compacting,compacted,steering,model-picker,
+resume-picker}-pane.txt` files are Muse Code 1.4.7's actual 120×40 `capture-pane -p -e -J`
+panes from a sweep of a scratch seat launched by ak's own line on a private tmux socket, its
+path replaced with `/home/acme/code/fix-api.wt/ws`, one as long: a question up, answered, and
+escaped; the review step of a two-question call; a draft wrapped onto a second row; idle
+after a launch without `--yolo` (`Auto-review`) and with `--approval-judge off` (`Launch
+overrides`), whose approval dialog takes the composer's place; the status line saying
+`interrupting run`, `compacting context`, `compacted context` and `steering the running
+turn`; and the `/model` and `/resume` pickers. `muse-hook-payloads.jsonl` holds the payloads
+Muse handed the sweep's hooks there: the question's `Notification`, a reminder's
+`PostToolBatch`, the answer's `PostToolBatch`, a `Stop`, the Esc's `Interrupt` and an approval's
+`Notification`.
+
 `auth-expiry-variants.json` records the additional logout messages reported in review
 and confirmed by inspecting these same installed binaries. It includes Claude's revoked
 and missing login messages and external-key failure, Codex's expired/revoked/already-used
@@ -318,7 +332,12 @@ Read out of the installed executables on 2026-09-13, not assumed:
   (`HOME`, `PATH` and Muse's own `MUSE_*`), so the seat's name rides in the hook's command; its
   own `request_user_input` fires no `PreToolUse`, but its dialog opening fires `Notification`
   with `notification_type: question_prompt`, which `hooks/seat-state.sh` recorded there
-  through that very launch line.
+  through that very launch line. Swept on 2026-10-14: `TMUX` and `TMUX_PANE` are among what a
+  hook is not given, so the launch writes them into the hook's command as its pane starts;
+  an answer fires `PostToolBatch` with the tool's name only inside `tool_calls`, which
+  `adapters/muse.sh hook` lifts to `tool_name`, and Esc on the dialog fires `Interrupt` alone,
+  which Muse runs only with `async: true`; a seat launched without `--yolo` fires
+  `Notification` with `permission_prompt` some six seconds after its approval dialog draws.
 * **OpenCode 2.0.13** takes its hooks as a v2 plugin (`export default {id, setup}`) fed by the
   server's event stream. agentkit's ships as `hooks/opencode-seat` and is named per launch in
   `OPENCODE_CONFIG_CONTENT`, so nothing is written into the user's own config. It translates

@@ -74,13 +74,14 @@ class MuseLaunch(unittest.TestCase):
 
     def test_a_muse_with_hooks_runs_the_seat_hook_on_its_events(self):
         cmd = self.launch('{"enum": ["userPromptSubmit", "stop", "notification"]}')
-        hooks = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "-c"]
+        hooks = [cmd[i + 1] for i, arg in enumerate(cmd)
+                 if arg == "-c" and cmd[i + 1].startswith("hooks.")]
         self.assertEqual([hook.split("=", 1)[0] for hook in hooks],
-                         ["hooks.Stop", "hooks.Notification"])
+                         ["hooks.Stop", "hooks.Notification", "hooks.PostToolBatch",
+                          "hooks.Interrupt"])
         # a hook gets almost none of the seat's environment: its name rides in the command
         for hook in hooks:
-            self.assertIn(f"env AGENTKIT_SESSION=fix-api bash {REPO / 'hooks/seat-state.sh'}",
-                          hook)
+            self.assertIn(f"AGENTKIT_SESSION=fix-api bash {REPO / 'adapters/muse.sh'} hook", hook)
 
     def test_its_prompts_stay_unreported(self):
         # a seat that reports prompts has only them answer its questions: one opened before
