@@ -407,6 +407,7 @@ class ThreeStates(Sandbox):
         # records it reads. `look_at` looks and `announce_state` remembers and publishes.
         self.receipt("20260101-0900-going", state="running", finished_at=None,
                      started_at=NOW - 60, title="Going")
+        menu.run_records()      # the pass that first reads a record keeps it; deciding adds nothing
         before = {path: path.read_bytes() for directory in (config.RUNS, config.STATE)
                   for path in directory.rglob("*") if path.is_file()}
         with patch.object(watch, "seat_write", side_effect=AssertionError("a read wrote")), \
