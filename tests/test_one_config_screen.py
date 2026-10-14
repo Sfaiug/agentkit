@@ -270,19 +270,20 @@ class OneConfigScreen(unittest.TestCase):
         menu.press(ESC)
         menu.leave()
 
-    def test_a_seat_naming_a_removed_model_still_opens_c_with_the_efforts(self):
+    def test_a_seat_naming_a_removed_model_opens_c_on_the_models_left(self):
         menu = Menu(self)
         menu.screen()
         shipped = menu.config.read_text()
         cfg = tomllib.loads(shipped)
         del cfg["models"]["opus"]                         # removed while fix-api orchestrates on it
         menu.config.write_text(config.dump(cfg))
-        lines = menu.press(b"c", title("config"))
-        self.assertEqual(lines[2].split(), ["effort"])
-        self.assertFalse(any(marks(line) for line in lines), lines)
+        lines = menu.press(b"c", title("config · fix-api"))
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(marks(model(lines, "astra")), "○■■")   # its roles, off what is left
+        self.assertEqual(marks(model(lines, "fable")), "○□□")
+        self.assertFalse(any("●" in marks(line) for line in lines), lines)
         said = " ".join(line.strip() for line in lines)
-        self.assertIn("fix-api's roles are not shown", said)
-        self.assertIn("unknown model 'opus'", said)
+        self.assertNotIn("roles are not shown", said)
         self.assertTrue(any("+ add a model" in line for line in lines), lines)
         menu.press(ESC)
         menu.config.write_text(shipped)                   # for the pick the child ends on

@@ -83,8 +83,12 @@ class RoleGroups(unittest.TestCase):
                             config.load()
                 record = {"orchestrator": "seat", "workers": ["alpha"], "reviewers": bad}
                 config.session_path("bad").write_text(json.dumps(record))
-                with self.assertRaises(config.Error):
-                    config.load_session(self.cfg, "bad")
+                if bad == ["missing"]:    # a model removed since: passed over, as in [defaults]
+                    self.assertNotIn("missing",
+                                     config.load_session(self.cfg, "bad")["reviewers"])
+                else:
+                    with self.assertRaises(config.Error):
+                        config.load_session(self.cfg, "bad")
                 with self.assertRaises(config.Error):
                     config.save_session(self.cfg, "bad", "seat", ["alpha"], {"reviewers": bad})
 

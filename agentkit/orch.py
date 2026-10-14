@@ -3182,8 +3182,11 @@ def list_table(found, cfg, tallies, width, selections=None):
                      selection["orchestrator"] if selection else "?",
                      ",".join(selection["workers"]) if selection else "?",
                      terminal.format_age(time.time() - s["created"])])
-        restart = (selection and s["created"] < installed_at and harness_plugin(
-            config.model(cfg, selection["orchestrator"])["harness"]).has_hooks)
+        try:
+            restart = (selection and s["created"] < installed_at and harness_plugin(
+                config.model(cfg, selection["orchestrator"])["harness"]).has_hooks)
+        except config.Error:
+            restart = False     # its model is gone from the config: no harness to ask
         note = ("  ".join(part for part in ("legacy" if s.get("legacy") else "",
                                             "restart to pick up updates" if restart else "")
                            if part))
@@ -3834,10 +3837,13 @@ def switch_orchestrator(cfg, name, model, providers=None):
     old_model = record["orchestrator"]
     if old_model == model:
         return ""
-    old_harness = config.model(cfg, old_model)["harness"]
-    old_conversation = seat_conversation(record, old_harness)
-    transcript = harness_plugin(old_harness).transcript(
-        record, record.get("cwd"), old_conversation)
+    try:
+        old_harness = config.model(cfg, old_model)["harness"]
+    except config.Error:
+        old_harness = None    # its model is gone: nothing names its harness or transcript
+    transcript = (harness_plugin(old_harness).transcript(
+        record, record.get("cwd"), seat_conversation(record, old_harness))
+        if old_harness else None)
     try:
         session = find(name)
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
@@ -3856,13 +3862,17 @@ def switch_orchestrator(cfg, name, model, providers=None):
             pass    # the note below already says the restart failed
         return _one_line(exc)
     # Another provider's seat opens anew, and its home is the account it opened on.
-    moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
+    try:
+        moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
+    except config.Error:
+        moved = True          # its model is gone: no provider to stay home on
     try:
         config.update_session(name, orchestrator=model, account=account,
                               **({"home_account": account} if moved else {}))
     except OSError as exc:
         return f"session: {_one_line(exc)}"
-    harness_plugin(old_harness).forget(record)
+    if old_harness:
+        harness_plugin(old_harness).forget(record)
     watch.forget(name)    # a new conversation: no latch of the old one's survives it
     watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(), "name": name,
                                     "line": handover_text(name, old_model, transcript)})

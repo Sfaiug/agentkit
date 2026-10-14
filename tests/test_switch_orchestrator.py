@@ -161,6 +161,20 @@ class Switch(Sandbox):
                      self.transcript, "read the last exchange"):
             self.assertIn(part, mark["line"])
 
+    def test_a_seat_whose_orchestrators_model_was_removed_moves_to_another(self):
+        config.remove_model(self.cfg, "opus")     # fix-api is still open on it
+        selected = self.selected()                # its record reads, on the models left
+        self.assertEqual(selected["orchestrator"], "opus")
+        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}), "")
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
+        respawns = [args for args in self.calls if args[0] == "respawn-pane"]
+        self.assertEqual(len(respawns), 1)
+        self.assertIn("fake-tui-codex", respawns[0][-1])
+        line = watch.seat_read("fix-api")["midturn"]["line"]
+        self.assertIn("opus", line)
+        self.assertIn("no transcript file", line)   # nothing says where the old one is kept
+        self.assertNotIn(self.transcript, line)
+
     def test_the_tick_types_the_handover_after_the_warmup(self):
         selected = self.selected()
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
