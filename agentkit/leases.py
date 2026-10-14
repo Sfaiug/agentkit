@@ -33,7 +33,7 @@ import shutil
 import tempfile
 import time
 
-from . import config, gitcall, transitions, turns
+from . import config, gitcall, history, transitions, turns
 from . import record as run_record
 
 DIR = "leases"
@@ -130,11 +130,16 @@ def park(entry, holder, files, now):
     """Stop that run before its review, its branch and checkout kept, waiting on the holder:
     the record says what it waits on (`lease_wait`), for `restart` to read.  Decided on the
     record read under the stop's lock, as the scan takes a while: the state as stopped, or
-    None where the run had ended or reached its review meanwhile."""
+    None where the run had ended or reached its review meanwhile.  A run this call stopped
+    has the moment stamped on its history row (`parked_at`), what the scoreboard counts."""
     from . import stop
     why = f"waits on {holder}: both change {', '.join(files)}"
-    return stop.end(config.RUNS / entry["run"], keep=True, why=why, only_if=before_review,
-                    extra={"lease_wait": {"on": holder, "files": files, "since": now}})
+    wait = {"on": holder, "files": files, "since": now}
+    stopped = stop.end(config.RUNS / entry["run"], keep=True, why=why, only_if=before_review,
+                       extra={"lease_wait": wait})
+    if stopped is not None and stopped.get("lease_wait") == wait:
+        history.update_run(entry["run"], parked_at=now)
+    return stopped
 
 
 # One identity and moment for every commit the scan writes: a tree compared before hashes to

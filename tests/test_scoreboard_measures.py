@@ -26,8 +26,10 @@ NOW = 1_800_000_000
 PINNED = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
+    ("parks", "parks", ("parked",)),
     ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
     # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),

@@ -68,7 +68,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
-              ("merge_sha", "TEXT"))
+              ("merge_sha", "TEXT"), ("parked_at", "REAL"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -228,7 +228,7 @@ def _update(connection, run_id, fields):
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha"}
+               "rules_bytes", "merge_sha", "parked_at"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -329,6 +329,23 @@ def review_counts(harness, model):
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return (0, 0, 0, 0)
+
+
+def parks(since, until):
+    """How many runs the park stopped in the inclusive range, by the moment each was stopped
+    (`parked_at`, which `leases.park` stamps); None where the database cannot answer.  Stopped
+    rows, which `REAL_WORK` leaves out of every other count: a park is a stop."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute(
+                    "SELECT COUNT(*) FROM runs WHERE parked_at >= ? AND parked_at <= ?",
+                    (since, until)).fetchone()[0]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
 
 
 def open_step(run_id, step, at=None, *, log=None):
