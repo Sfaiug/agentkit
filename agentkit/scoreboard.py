@@ -34,6 +34,7 @@ MEASURES = (
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
     ("parks", "parks", ("parked",)),
+    ("sunk", "sunk", ("share", "tokens")),
     ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
@@ -320,7 +321,7 @@ def compute(now=None):
 
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     board, waits, merged_changes, escapes_seen = {"products": [], "ak": []}, [], [], []
-    built, parks = [], []
+    built, parks, sunk = [], [], []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
@@ -341,6 +342,10 @@ def compute(now=None):
         escapes_seen.append(escapes(ended))
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
+        # the week's tokens that bought no merge: every ended run that delivered nothing
+        wasted = sum((row.get(role + "_tokens") or 0) for row in ended if not delivered(row)
+                     for role in ("executor", "reviewer"))
+        sunk.append({"share": wasted / total_tokens, "tokens": wasted} if total_tokens else None)
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
@@ -383,6 +388,7 @@ def compute(now=None):
     board["waits"] = waits
     board["merged"] = merged_changes
     board["parks"] = parks
+    board["sunk"] = sunk
     board["escaped"] = escapes_seen
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
@@ -469,8 +475,14 @@ def render(board=None):
             return "not recorded"
         return f"{stats['parked']} runs stopped by the park to wait on an older change's lines"
 
-    words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
-             "built": built, "waits": waited, "merged": split, "parks": parked,
+    def sunk(stats):
+        if stats is None:
+            return "no tokens recorded"
+        return (f"{stats['share']:.0%} of the week's tokens, {stats['tokens']:,}, went to runs "
+                "that never merged")
+
+    words ={"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
+             "built": built, "waits": waited, "merged": split, "parks": parked, "sunk": sunk,
              "escaped": escapes, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]

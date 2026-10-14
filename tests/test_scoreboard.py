@@ -195,7 +195,7 @@ class Scoreboard(unittest.TestCase):
             board = scoreboard.compute(NOW)
         self.assertEqual(board, {"products": [None, None], "ak": [None, None], "built": [None, None],
                                  "waits": [None, None], "merged": [None, None], "parks": [None, None],
-                                 "escaped": [None, None], "size": [None, None]})
+                                 "sunk": [None, None], "escaped": [None, None], "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
         self.assertIn("size unavailable", text)
@@ -228,6 +228,7 @@ class Scoreboard(unittest.TestCase):
             "waits": [{"compute": .25, "merge_hours": 1.5, "lander_hours": .5}, None],
             "merged": [{"model": 1.375, "ak": 1.875, "waiting": 0.75, "seat": 1.0}, None],
             "parks": [None, None],
+            "sunk": [{"share": .4, "tokens": 1200}, None],
             "escaped": [{"merged": 2, "escaped": 1, "open": 1, "unknown": 1,
                          "reviewers": {"acme-reviewer": [1, 2]}}, None],
         }
@@ -250,6 +251,8 @@ class Scoreboard(unittest.TestCase):
             "          turns, 1.9 ak's own work, 0.8 waiting, 1.0",
             "          with its seat between runs",
             "parks     not recorded                                  not recorded",
+            "sunk      40% of the week's tokens, 1,200, went to      no tokens recorded",
+            "          runs that never merged",
             "escaped   1 of 2 merged changes had a line rewritten    no merged change",
             "          within 7 days (acme-reviewer 1 of 2); 1",
             "          merged under 7 days ago may still be; 1 with",
