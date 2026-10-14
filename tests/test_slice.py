@@ -183,7 +183,7 @@ class Seats(Slice):
         argv = self.started()
         self.assertEqual(argv[:6], ["systemd-run", "--user", "--slice=agentkit-test.slice",
                                     "--scope", "--quiet", "--unit=agentkit-seat-in-slice"])
-        self.assertEqual(argv[6:9], ["tmux", "-L", "agentkit-test"])
+        self.assertEqual(argv[6:9], [str(self.bin / "tmux"), "-L", "agentkit-test"])
         self.assertIn("new-session", argv)
 
     def test_b_seat_starts_plainly_where_no_manager_answers(self):
@@ -214,8 +214,8 @@ class Seats(Slice):
                                     "--quiet", "--collect"])
         self.assertIn("--unit=agentkit-seat-after-a-reboot", argv)
         self.assertIn("--property=Type=forking", argv)   # what it leaves behind is the server
-        tmux = argv.index("tmux")
-        self.assertEqual(argv[tmux:tmux + 3], ["tmux", "-L", "agentkit-test"])
+        tmux = argv.index(str(self.bin / "tmux"))
+        self.assertEqual(argv[tmux + 1:tmux + 3], ["-L", "agentkit-test"])
         self.assertIn("new-session", argv)
 
     def test_f_the_ticks_resume_runs_in_the_slice_with_the_user_bus(self):
@@ -352,7 +352,7 @@ class Detached(Slice):
         self.assertEqual(argv[:6], ["systemd-run", "--user",
                                     "--slice=agentkit-test-jobs.slice", "--scope", "--quiet",
                                     f"--unit=agentkit-job-{orch.UPDATE_JOB}"])
-        self.assertEqual(argv[6:9], ["tmux", "-L", "agentkit-test-jobs"])
+        self.assertEqual(argv[6:9], [str(self.bin / "tmux"), "-L", "agentkit-test-jobs"])
 
     def test_k_a_run_a_tick_detaches_goes_in_as_a_service(self):
         # a scope would have to move this process out of the system's cgroup, which nothing

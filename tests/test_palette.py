@@ -15,7 +15,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, menu, terminal
+from agentkit import config, guard, menu, terminal
 
 QUERY = b"\033]11;?\033\\"
 WHITE = b"\033]11;rgb:ffff/ffff/ffff\033\\"
@@ -60,8 +60,8 @@ class Palette(unittest.TestCase):
                         terminal.subprocess, "run",
                         return_value=subprocess.CompletedProcess([], 0, said, "")) as tmux:
                     self.sense()
-                    self.assertEqual(tmux.call_args.args[0],
-                                     ["tmux", "display", "-p", "#{client_termfeatures}"])
+                    self.assertEqual(tmux.call_args.args[0], [guard.real("tmux"), "display",
+                                                              "-p", "#{client_termfeatures}"])
                     self.assertEqual(terminal.colour_depth(), depth)
                     self.assertEqual(terminal.styled("working", "working"),
                                      "\033[38;2;137;180;250mworking\033[0m" if depth == 24 else
