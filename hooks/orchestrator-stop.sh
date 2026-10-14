@@ -315,6 +315,13 @@ def held(launched, payload):
     return parked_reason(undecided) if undecided else REASON
 
 
+def sub_agent(payload):
+    """A sub-agent's turn run through the seat's hooks (Codex: `agent_id`, Grok: `subagentType`),
+    which hooks/seat-state.sh leaves alone too: its end is never the seat's."""
+    return any(payload.get(key) is not None
+               for key in ("agent_id", "agentId", "subagentType", "subagent_type"))
+
+
 def written(launched, kind):
     """This Stop, as hooks/seat-state.sh writes every other event down for the seat's row:
     under the name the seat goes by now, which is the name its row reads."""
@@ -332,6 +339,8 @@ def written(launched, kind):
 def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
+    if sub_agent(payload):
+        return
     back = held(launched, payload)
     if not back:
         # the stop stands: the turn a kept question was asked in has ended, and that is on

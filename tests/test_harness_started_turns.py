@@ -34,6 +34,18 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
                                     else None, "UserPromptSubmit")
         self.assert_open()
 
+    def test_a_sub_agents_stop_is_not_judged_nor_written_down(self):
+        self.prompt()
+        before = config.stop_path(SEAT).read_text()
+        for marker in ({"agent_id": "acme-agent"}, {"subagentType": "general"}):
+            with self.subTest(marker=marker):
+                output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
+                                   last_assistant_message="Fix-api's schema is read.", **marker)
+                self.assertEqual(output, "")
+                self.assertEqual(config.stop_path(SEAT).read_text(), before)
+                self.assertNotEqual(json.loads(config.hook_facts_path(SEAT).read_text())
+                                    .get("event"), "Stop")
+
     def test_a_turn_the_harness_woke_on_finished_work_leaves_the_question_open(self):
         self.notice()
         for payload in ({"prompt": "<system-reminder>\nBackground task acme-build completed",

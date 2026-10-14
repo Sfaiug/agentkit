@@ -72,6 +72,7 @@ seat_state() {
   # A sub-agent's own turn is not the seat's: Codex runs its prompt through the seat's hooks with
   # `agent_id`, Grok with `subagentType`, and its end is a SubagentStop, never this seat's Stop --
   # written down, it would be a turn that never ends, and its prompt the owner's answer.
+  # hooks/orchestrator-stop.sh leaves its stops alone too.
   if [[ $event = UserPromptSubmit || $event = Stop ]] &&
     "$jq" -e '(.agent_id // .agentId // .subagentType // .subagent_type) != null' \
       <<<"$payload" >/dev/null 2>&1; then
