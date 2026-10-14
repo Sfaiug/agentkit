@@ -6471,7 +6471,7 @@ def after_merge_checks(state, dry_run, log, now=None):
 
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, and any
-    model set to an effort its model does not take.
+    model set to an effort its model does not take, its `effort` or the one a role runs it at.
 
     The first two lines are read and never asked, so they cost nothing on a host already in
     trouble -- which is the host this is typed on -- and come out before the efforts, which
@@ -6490,9 +6490,10 @@ def doctor(argv):
     for name in config.offered(cfg):
         entry = cfg["models"][name]
         takes = config.efforts(entry.get("harness"), entry.get("model"))
-        if entry.get("effort") not in takes:
-            wrong.append(f"effort  {name}: {entry.get('model')} takes {' '.join(takes)}, "
-                         f"not {entry.get('effort')}")
+        for key in config.ROLE_EFFORTS.values():
+            if (key == "effort" or key in entry) and entry.get(key) not in takes:
+                wrong.append(f"{key}  {name}: {entry.get('model')} takes {' '.join(takes)}, "
+                             f"not {entry.get(key)}")
     print("\n".join(wrong) or "effort  every model takes the effort it is set to")
     return 0
 

@@ -619,7 +619,8 @@ SAVE_HEADER = ("# agentkit's config, written by the menu's `c` screen. It is rew
                "# so a comment left here would not survive it; unknown keys are kept as they are.")
 _TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin")
 _DEFAULTS_ORDER = ("orchestrator", "workers", "reviewers")
-_MODEL_ORDER = ("harness", "model", "effort", "provider", "meter")
+_MODEL_ORDER = ("harness", "model", "effort", "exec_effort", "review_effort", "provider",
+                "meter")
 _PROVIDER_ORDER = ("mode", "usage_model", "usage_effort")
 
 
@@ -720,6 +721,17 @@ def model(cfg, name):
         raise Error(f"~/.agentkit/config.toml: [models.{name}].provider={entry['provider']!r} "
                     "has no [providers.*] entry")
     return entry
+
+
+# The key each role's effort is read from: a seat's is `effort`, which also answers for a model
+# that sets neither of the other two
+ROLE_EFFORTS = {"orchestrator": "effort", "executor": "exec_effort", "reviewer": "review_effort"}
+
+
+def role_effort(entry, role):
+    """The effort one model entry runs at in a role: `orchestrator`, `executor` (a fixer's turn
+    too) or `reviewer`."""
+    return entry.get(ROLE_EFFORTS[role], entry["effort"])
 
 
 def model_label(entry):

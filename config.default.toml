@@ -32,6 +32,9 @@ pace_margin = 10          # the one knob: a subscription more than this far ahea
 orchestrator = "opus"
 workers = ["opus", "astra"]
 
+# effort is what a session runs a model at.  exec_effort and review_effort, optional and each an
+# effort that model takes, are what an executor's or a fixer's turn and a reviewer's run it at;
+# a model without one runs that role at effort.
 [models.fable]
 harness = "claude"
 model = "claude-fable-5-1"

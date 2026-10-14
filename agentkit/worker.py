@@ -686,7 +686,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")
     prompt = out_dir / "prompt.md"
     prompt.write_text(f"{preamble}\n\n{body}")
-    cmd = [str(adapter), "run", entry["model"], entry["effort"], str(workspace), str(prompt), str(out_dir)]
+    effort = config.role_effort(entry, "reviewer" if role.startswith("reviewer") else "executor")
+    cmd = [str(adapter), "run", entry["model"], effort, str(workspace), str(prompt), str(out_dir)]
     if session:
         cmd.append(session)
     began = time.monotonic()
