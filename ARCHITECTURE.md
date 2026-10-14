@@ -175,7 +175,9 @@
   merge`), `git-shim` (refuses a `git worktree add` into ~/code) and `scp-shim`/`rsync-shim`/
   `sftp-shim` (refuse a transfer to the live server) links to it, each linked as
   `<HOME>/bin/<name>` first on a seat's PATH; and, called by adapters:
-  `rulebook.py`, `idle-compact.py`, `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
+  `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it compacts a quiet seat,
+  and looks at the seat again when its screen comes to rest, starts moving or its harness exits),
+  `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
 - `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped

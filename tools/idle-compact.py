@@ -53,8 +53,10 @@ import math
 import os
 import re
 import signal
+import subprocess
 import sys
 import termios
+import threading
 import time
 import tty
 from pathlib import Path
@@ -72,6 +74,7 @@ RESIZE_GRACE = 3.0          # ... and output this soon after a SIGWINCH is a rep
 # gap of 0.10 s still lost it and 0.15 s did not, so a seat idle for half an hour waits half a
 # second between them.
 KEY_GAP = 0.5
+SETTLE = 0.5                # output stopped this long is a screen at rest: the seat is looked at
 SCREEN_TAIL = 8192          # how much of the stream the `screen` signal reads back
 SCREEN_LINES = 8            # ... and how many of its lines an at-the-prompt rule may look at
 CONTEXT_TAIL = 512 * 1024   # how much of a harness's own session file is read for its last size
@@ -406,6 +409,92 @@ def record_compaction(harness, context_tokens, when):
         tmp.unlink(missing_ok=True)
 
 
+# hooks/seat-state.sh's own look, started the same way: a session of its own, so ending this
+# wrapper ends none of it
+LOOK = ("import sys; sys.path.insert(0, sys.argv[1]); from agentkit import watch; "
+        "watch.hook_look(sys.argv[2])")
+
+
+class Looks:
+    """The seat looked at again when its screen comes to rest, starts moving, or its harness exits.
+
+    That is when what a seat does changes, on every harness, hook or no hook: a question
+    answered, an Esc, an error that ended a turn, a harness with no hook for any of it.  A
+    screen at rest or moving says only when to look, never what the seat is doing: the rules in
+    its manifest say that.  So an edge reads the pane against them first, in a thread of its
+    own, so the terminal never waits on tmux, and the seat's own look (`watch.hook_look`, which
+    a hook starts) runs only where that reading changed: a harness that redraws once a second
+    costs a capture a redraw, never a look.  One look at a time; edges during it are one more.
+    """
+
+    def __init__(self, seat, harness, socket, pane, look=None):
+        self.seat, self.harness, self.socket, self.pane = seat, harness, socket, pane
+        self.look = look or self.start
+        self.seen = None
+        self.wake = threading.Event()
+        threading.Thread(target=self.follow, daemon=True).start()
+
+    def poke(self):
+        self.wake.set()
+
+    def start(self, wait=True):
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-c", LOOK, str(Path(__file__).resolve().parents[1]), self.seat],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True)
+        except OSError:
+            return
+        if wait:
+            process.wait()
+
+    def read(self):
+        """What the seat's own pane shows, as `watch.pane_text` captures it."""
+        try:
+            proc = subprocess.run(
+                orch.tmux_argv("", "-S", self.socket, "capture-pane", "-p", "-e", "-J",
+                               "-t", self.pane),
+                capture_output=True, encoding="utf-8", errors="replace", timeout=5,
+                env=orch.tmux_env())
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return proc.stdout if proc.returncode == 0 else None
+
+    def follow(self):
+        while True:
+            self.wake.wait()
+            self.wake.clear()
+            self.check()
+
+    def check(self):
+        """Read the pane, and look at the seat where what its rules read there changed."""
+        pane = self.read()
+        if pane is None:
+            return
+        try:
+            seen = watch.screen_state(self.harness, watch.pane_tail(pane))[:2]
+        except config.Error:
+            seen = None
+        if seen != self.seen:
+            self.seen = seen
+            self.look()
+
+    def ended(self):
+        """Its harness exited: look once more, without waiting, as this wrapper is ending."""
+        self.look(wait=False)
+
+
+def seat_looks(harness):
+    """The `Looks` of the named seat this wrapper runs in, or None outside one: only a seat's own
+    pane, on its own server, has a word for a look to move (`watch.hook_look` checks the same)."""
+    seat = os.environ.get(config.SESSION_ENV) or ""
+    socket = os.environ.get("TMUX", "").partition(",")[0]
+    pane = os.environ.get("TMUX_PANE", "")
+    if not seat or "/" in seat or seat in (".", "..") or not socket or not pane:
+        return None
+    return Looks(seat, harness, socket, pane)
+
+
 def type_compaction(relay, built, log, ready=lambda seat: True):
     """Keep pty-injected commands under the same lock and receipt as tmux typing.
 
@@ -510,6 +599,10 @@ def run(options, command):
             signal.signal(signum, forward_signal)
 
         last_output_mono = time.monotonic()
+        # when the screen last moved, and whether it has come to rest since: each turn of the two
+        # has the seat looked at again
+        drawn_mono, moving = time.monotonic(), False
+        looks = seat_looks(options.harness)
         last_injected_ts = float("-inf")
         next_poll_mono = time.monotonic()
         # the `screen` signal's own half of the state: the tail it reads, whether that tail was
@@ -535,8 +628,12 @@ def run(options, command):
                     and at_rest(seat, options.harness))
 
         def output(data):
-            nonlocal last_output_mono, tail_fresh
+            nonlocal last_output_mono, tail_fresh, drawn_mono, moving
             output_mono = time.monotonic()
+            drawn_mono = output_mono
+            if looks is not None and not moving:
+                moving = True
+                looks.poke()
             if output_mono - last_resize_mono > RESIZE_GRACE:
                 last_output_mono = output_mono
             if built is not None and built["signal"] == "screen":
@@ -559,7 +656,11 @@ def run(options, command):
         relay = Relay(master_fd, stdin_fd, stdout_fd, output, alive)
         while relay.active and alive():
             now_mono = time.monotonic()
-            relay.poll(max(0.0, next_poll_mono - now_mono))
+            due = min(next_poll_mono, drawn_mono + SETTLE) if moving else next_poll_mono
+            relay.poll(max(0.0, due - now_mono))
+            if moving and time.monotonic() - drawn_mono >= SETTLE:
+                moving = False
+                looks.poke()
 
             polling = now_mono >= next_poll_mono
             if polling:
@@ -621,6 +722,8 @@ def run(options, command):
 
         if child_status is None:
             _, child_status = os.waitpid(child_pid, 0)
+        if looks is not None:
+            looks.ended()
         return exit_code(child_status)
     finally:
         if relay is not None:
