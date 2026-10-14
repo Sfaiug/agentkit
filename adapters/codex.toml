@@ -80,9 +80,9 @@ state = "at_prompt"
 name = "PermissionRequest"
 state = "asking"
 
-# A Plan-mode turn's question going up (0.160.1), and a call's end once the owner has answered
-# it or approved the call: 0.03 s after the answer, 0.1 s after a quick approved command.  Any
-# other call's end never reaches seat-state.sh (agentkit/harness/codex.py, `answered`).
+# A Plan-mode turn's question going up (0.160.1), and a call's end while the seat's record holds
+# a question, as the owner's answer or approval let it run: 0.03 s after the answer, 0.1 s after
+# a quick approved command.  No other call's end reaches seat-state.sh (`codex.answered`).
 [[hooks.event]]
 name = "PreToolUse"
 kinds = ["request_user_input"]

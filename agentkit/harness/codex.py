@@ -410,9 +410,9 @@ def ask(event):
 
 
 def answered(event):
-    """Is that PostToolUse the end of the call the seat's record holds a question about -- the
-    owner's answer or approval, after which the turn runs on?  Only then is it news: the end of
-    any other call is in a turn already running, or one that ended -- a shell the owner's Esc
+    """Does that PostToolUse end a call while the seat's record holds a question -- one the
+    owner's answer or approval let run, after which the turn runs on?  Only then is it news: any
+    other call ends in a turn already running, or in one that ended -- a shell the owner's Esc
     left running, a sub-agent's call after the seat's Stop -- which it would bring back."""
     if (not isinstance(event, dict) or event.get("hook_event_name") != "PostToolUse"
             or os.environ.get("AK_RUN_ROLE") == "worker"):
@@ -651,8 +651,8 @@ def main(argv, launch=None):
             hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
             # The seat's question goes to its owner through ak (`ask`); 10s, as recording it
             # can take the notice's lock behind a card being posted.  A Plan-mode question
-            # going up is written down beside it, and a call's end only where it is the answer
-            # (`answered`).
+            # going up is written down beside it, and a call's end only while the seat's record
+            # holds a question (`answered`).
             hooks["PreToolUse"] = [(shlex.join(
                 [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10), seat]
             hooks["PostToolUse"] = [(shlex.join(
