@@ -214,7 +214,8 @@ class Screens(unittest.TestCase):
 
     def test_a_dialog_s_words_typed_or_said_are_no_dialog(self):
         raw = pane("tray-draft")
-        for words in ("Interrupt turn", "Submit answers",
+        # the review step's last two choices too, quoted on a reply's two rows
+        for words in ("Interrupt turn", "Submit answers", "Submit answers\n  Interrupt turn",
                       "Change approval defaults in /permissions"):
             with self.subTest(words=words):
                 typed = raw.replace("acme draft words", f"Explain {words}")

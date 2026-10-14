@@ -1570,11 +1570,13 @@ def screen_state(harness, tail):
                 and not re.match(r"[❯›⟩>]", above) and not drawn_rule(above.strip())):
             newest = lines[-2]
     for rule in chrome["rules"]:
+        region = lines[-rule["lines"]:]
+        raws = raw_lines[-rule["lines"]:]
+        # marks read their rows as drawn, indented or from the left edge, so a dialog's
+        # indented controls are not a reply's rows quoting them
+        low = "\n".join(strip_sgr(raw).rstrip() for raw in raws).lower()
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
-            region = lines[-rule["lines"]:]
-            raws = raw_lines[-rule["lines"]:]
-            if rule["none"] and any(mark in "\n".join(region).lower()
-                                   for mark in rule["none"]):
+            if rule["none"] and any(mark in low for mark in rule["none"]):
                 continue
             prompt = r"(?:│\s*)?[❯›⟩]"
             marked = [index for index in range(len(region) - 1, -1, -1)
@@ -1615,10 +1617,8 @@ def screen_state(harness, tail):
             elif _suggestion_line(raws[at], region[at], chrome["faint"]):
                 return rule["state"], rule["id"], region[at][:160]
             continue
-        region = lines[-rule["lines"]:]
-        low = "\n".join(region).lower()
         # a row pattern reads its rows as drawn, indented or from the left edge
-        drawn = [line for raw, line in zip(raw_lines[-rule["lines"]:], region)
+        drawn = [line for raw, line in zip(raws, region)
                  if rule["row"] and rule["row"].search(strip_sgr(raw).rstrip())]
         if ((rule["all"] and not all(mark in low for mark in rule["all"]))
                 or (rule["any"] and not any(mark in low for mark in rule["any"]))
