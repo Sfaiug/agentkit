@@ -1084,7 +1084,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
 # Every worker turn knows both halves: the tokens it spent and the meter's used% before and
 # after it.  `state/capacity.json` keeps those pairs per subscription and meter name, and a
 # meter's window holds the sum of their tokens over the sum of the percent they moved.
-CAPACITY = "capacity.json"
+PAIRS = "capacity.json"
 
 
 def reading(provider, account=None):
@@ -1092,7 +1092,7 @@ def reading(provider, account=None):
     return _cached_provider(provider, account).get("meters") or []
 
 
-def record_capacity(cfg, name, account, before, tokens, meters, now=None):
+def record_pairs(cfg, name, account, before, tokens, meters, now=None):
     """Keep what one worker turn of `name` spent beside how far it moved each weekly meter.
 
     `before` is the subscription's reading from before the turn, and the reading after it is
@@ -1140,9 +1140,9 @@ def _pairs(value):
         if isinstance(value, list) else []
 
 
-def _capacity():
+def _measured():
     try:
-        return _record(json.loads((config.STATE / CAPACITY).read_text(encoding="utf-8")))
+        return _record(json.loads((config.STATE / PAIRS).read_text(encoding="utf-8")))
     except (OSError, ValueError):
         return {}
 
@@ -1153,11 +1153,11 @@ def _keep_pairs(provider, account, pairs, now):
     A pair's window is the one its `resets_at` ends: the latest pair of a window already reset
     by `now` dates the previous window, and every pair whose window had reset by then is older.
     """
-    path = config.STATE / CAPACITY
+    path = config.STATE / PAIRS
     config.ensure_dirs()
     with path.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        blob = _capacity()
+        blob = _measured()
         held = blob[provider] = _record(blob.get(provider))
         meters = held[account or config.DEFAULT_ACCOUNT] = _record(
             held.get(account or config.DEFAULT_ACCOUNT))
@@ -1173,10 +1173,10 @@ def _keep_pairs(provider, account, pairs, now):
             tmp.unlink(missing_ok=True)
 
 
-def capacity(provider, account, meter):
+def holds(provider, account, meter):
     """(the tokens 100% of this subscription's meter named `meter` stands for, the pairs it is
     measured from): the first None while no pair moved it, or with no meter named."""
-    pairs = _pairs(_record(_record(_capacity().get(provider)).get(
+    pairs = _pairs(_record(_record(_measured().get(provider)).get(
         account or config.DEFAULT_ACCOUNT)).get(meter))
     moved = sum(pair["moved"] for pair in pairs)
     return (round(100 * sum(pair["tokens"] for pair in pairs) / moved) if moved > 0 else None,
@@ -1532,9 +1532,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
 # same word, off the same meter.  The usage-limit credits that used to hold that heading are
 # `resets held`, which is what every note about them already says in longer words.  `left`
-# names no week, because not every window is one: MiMo's plan runs thirty days.  `capacity` is
-# what that shared window holds in tokens, as ak's own turns measured it (`capacity`).
-HEADERS = ("provider", "model(s)", "left", "capacity", "resets", "week elapsed", "session",
+# names no week, because not every window is one: MiMo's plan runs thirty days.  `holds` is
+# the tokens that shared week holds, as ak's own turns measured them (`record_pairs`).
+HEADERS = ("provider", "model(s)", "left", "holds", "resets", "week elapsed", "session",
            "resets held", "headroom", "budget", "outlook")
 
 
@@ -1552,7 +1552,7 @@ def _num(value, places):
     return "-" if value is None else f"{value:.{places}f}"
 
 
-def _holds(tokens, meter):
+def _held(tokens, meter):
     """`week ≈ 310M tokens`, what all of `meter`'s window holds, in two significant digits and
     an SI letter; `-` while unmeasured.  A window that is not a week says its length: `30d`."""
     if tokens is None:
@@ -1702,7 +1702,7 @@ def rows(cfg, providers):
 
     `left` is the tightest weekly meter, because that is what the picker ranks on;
     `resets` is the shared week's, because that is the week the menu row names and the two
-    must say the same thing, and `capacity` is the tokens that same week holds.  On a split
+    must say the same thing, and `holds` is the tokens that same week holds.  On a split
     allowance they can be different meters, which is why the two lines under the table print
     both.  A provider with several accounts is a row per account, `anthropic II`, each on its
     own meters and its own pairs.
@@ -1716,7 +1716,7 @@ def rows(cfg, providers):
         shared = shared_week(cfg, name, prov, now) or {}
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    _holds(capacity(name, account, shared.get("name"))[0], shared),
+                    _held(holds(name, account, shared.get("name"))[0], shared),
                     reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
@@ -1743,7 +1743,7 @@ def render(cfg, providers, order, *, repo=None):
     widths = [max(len(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
-        table[0] = ("provider", "model(s)", "left", "capacity", "resets", "elapsed", "session",
+        table[0] = ("provider", "model(s)", "left", "holds", "resets", "elapsed", "session",
                     "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
         # an account's row keeps its whole name: `anthropic I…` would not say which one it is
@@ -1823,7 +1823,7 @@ def main(argv):
     if as_json:
         for _, name, prov, account in _accounts(cfg, providers):
             week = shared_week(cfg, name, prov) or {}
-            prov["capacity_tokens"], prov["capacity_pairs"] = capacity(name, account,
+            prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account,
                                                                        week.get("name"))
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)

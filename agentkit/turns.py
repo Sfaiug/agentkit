@@ -867,8 +867,8 @@ def resume_failed(out_dir, killed, text):
 
 def note_turn_meters(cfg, name, out_dir, account, before=()):
     """The meters the turn in `out_dir` reported about the account it ran on are the reading,
-    and what it spent beside how far it moved them from `before` is a capacity pair
-    (`usage.record_capacity`).
+    and what it spent beside how far it moved them from `before` is a pair of what a window
+    holds in tokens (`usage.record_pairs`).
 
     Best effort and never the turn's failure: a harness that says nothing leaves the
     endpoint's reading alone.
@@ -884,7 +884,7 @@ def note_turn_meters(cfg, name, out_dir, account, before=()):
     try:
         if meters:
             usage.record_turn_meters(cfg, entry["provider"], meters, account)
-        usage.record_capacity(cfg, name, account, before, tokens, meters)
+        usage.record_pairs(cfg, name, account, before, tokens, meters)
     except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError):
         pass
 

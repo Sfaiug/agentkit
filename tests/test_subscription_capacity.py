@@ -91,11 +91,11 @@ class SubscriptionCapacity(Sandbox):
         # the 5-hour session is no week, and the turn carried no reading of Fable's cap
         self.assertEqual(self.pairs(meter="session"), [])
         self.assertEqual(self.pairs(meter="weekly_scoped"), [])
-        self.assertEqual(usage.capacity("anthropic", "default", "weekly_all"), (310_000_000, 3))
-        self.assertEqual(self.row("anthropic I")["capacity"], "week ≈ 310M tokens")
+        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (310_000_000, 3))
+        self.assertEqual(self.row("anthropic I")["holds"], "week ≈ 310M tokens")
         # the column follows `left`, and each subscription has its own: the other has no pair
-        self.assertEqual(usage.HEADERS[usage.HEADERS.index("left") + 1], "capacity")
-        self.assertEqual(self.row("anthropic II")["capacity"], "-")
+        self.assertEqual(usage.HEADERS[usage.HEADERS.index("left") + 1], "holds")
+        self.assertEqual(self.row("anthropic II")["holds"], "-")
 
     def test_a_pair_across_a_reset_is_not_recorded(self):
         # the week before the turn resets during it: the turn's reading is the next week's
@@ -106,16 +106,16 @@ class SubscriptionCapacity(Sandbox):
         (config.STATE / "usage.json").write_text(json.dumps(blob))
         self.turn("opus", "default", 4_000_000, weekly=95, resets_at=NOW + 30 + WEEK)
         self.assertEqual(self.pairs(), [])
-        self.assertEqual(self.row("anthropic I")["capacity"], "-")
+        self.assertEqual(self.row("anthropic I")["holds"], "-")
 
     def test_a_turn_that_moved_no_meter_counts_its_tokens_against_zero(self):
         self.turn("opus", "default", 2_000_000, weekly=40)
         self.assertEqual([(p["tokens"], p["moved"]) for p in self.pairs()], [(2_000_000, 0)])
         # alone, it moved nothing, so there is nothing to divide by
-        self.assertEqual(usage.capacity("anthropic", "default", "weekly_all"), (None, 1))
-        self.assertEqual(self.row("anthropic I")["capacity"], "-")
+        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (None, 1))
+        self.assertEqual(self.row("anthropic I")["holds"], "-")
         self.turn("opus", "default", 4_000_000, weekly=42)
-        self.assertEqual(usage.capacity("anthropic", "default", "weekly_all"), (300_000_000, 2))
+        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (300_000_000, 2))
 
     def test_a_turn_without_its_own_reading_pairs_with_the_probe_after_it(self):
         def probe(cfg, provider, now, account=None):
@@ -129,7 +129,7 @@ class SubscriptionCapacity(Sandbox):
         with patch.object(usage, "_probe", side_effect=probe):
             self.turn("astra", None, 8_000_000, took=usage.PROBE_EVERY / 2)
         self.assertEqual(len(self.pairs("openai", meter="weekly")), 1)
-        self.assertEqual(self.row("openai")["capacity"], "week ≈ 400M tokens")
+        self.assertEqual(self.row("openai")["holds"], "week ≈ 400M tokens")
 
     def test_pairs_older_than_the_previous_window_are_dropped(self):
         def week(n, used):
@@ -137,11 +137,11 @@ class SubscriptionCapacity(Sandbox):
                      "window_secs": WEEK}]
         for n in (1, 2, 3):
             # a turn in each of three weeks in a row, at its own week's start
-            usage.record_capacity(self.cfg, "opus", "default", week(n, 10), 1_000_000,
+            usage.record_pairs(self.cfg, "opus", "default", week(n, 10), 1_000_000,
                                   week(n, 10 + n), now=NOW + (n - 1) * WEEK + 60)
             kept = [p["resets_at"] for p in self.pairs()]
             self.assertEqual(kept, [NOW + k * WEEK for k in (1, 2, 3) if n - 1 <= k <= n])
-        self.assertEqual(usage.capacity("anthropic", "default", "weekly_all"), (40_000_000, 2))
+        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (40_000_000, 2))
 
     def test_usage_json_carries_the_estimate_and_its_pairs(self):
         self.turn("opus", "default", 3_100_000, weekly=41)
@@ -162,8 +162,8 @@ class SubscriptionCapacity(Sandbox):
 
     def test_no_pair_shows_a_dash(self):
         self.assertFalse((config.STATE / "capacity.json").exists())
-        self.assertEqual(self.row("anthropic I")["capacity"], "-")
-        self.assertEqual(self.row("openai")["capacity"], "-")
+        self.assertEqual(self.row("anthropic I")["holds"], "-")
+        self.assertEqual(self.row("openai")["holds"], "-")
 
 
 if __name__ == "__main__":

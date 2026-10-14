@@ -368,7 +368,7 @@ class GentleProbe(unittest.TestCase):
         self.assertEqual(prov["meters"][0]["elapsed"], 50.0)
         with patch.object(terminal, "width", return_value=170):
             rendered = usage.render(self.cfg, usage.collect(self.cfg), ["two"])
-        self.assertRegex(rendered, rf"\nmeta\s+one\s+0%\s+{when}\s+50%.*exhausted")
+        self.assertRegex(rendered, rf"\nmeta\s+one\s+0%\s+-\s+{when}\s+50%.*exhausted")
         # The menu draws the snapshot its probe thread refreshed, and that holds the record too.
         usage.collect(self.cfg, refresh=True)
         row = self.rows(170)[1]
