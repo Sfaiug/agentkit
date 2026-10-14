@@ -155,20 +155,21 @@ class SeatAccount(unittest.TestCase):
         self.tick()
         self.assertEqual(len(self.commands), 1)
 
-    def test_all_accounts_spent_needs_you_once_with_reset_and_never_changes_provider(self):
+    def test_all_accounts_spent_reads_working_with_reset_pages_nothing_and_keeps_provider(self):
+        # ak resumes it when the usage comes back: it moves on without him (owner, 14 Oct)
         self.meters(100, 100)
         self.tick()
         answer = self.answer()
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(self.now + 3600))
         self.assertEqual((answer["word"], answer["reason"]),
-                         ("needs you", f"anthropic out of usage until {when}"))
+                         ("working", f"anthropic out of usage until {when}"))
         with patch.object(notify, "_history", return_value=False), \
                 patch.object(notify, "terminal_notice"):
             notify.transition(NAME, seat=self.seat, answer=answer)
             self.now += notify.CARD_WAIT + 1
             notify.transition(NAME, seat=self.seat, answer=answer)
             notify.transition(NAME, seat=self.seat, answer=answer)
-        self.assertEqual(len(list(notify.outbox().glob("*.json"))), 1)
+        self.assertEqual(len(list(notify.outbox().glob("*.json"))), 0)
         self.tick()
         self.assertEqual(self.answer(), answer)
         self.assertEqual(len([line for line in self.logs if "out of usage" in line]), 1)
@@ -284,7 +285,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.tick()
         self.assertEqual(self.commands, [])
         self.assertEqual(config.session_records()[NAME]["account"], "default")
-        self.assertEqual(self.answer()["word"], "needs you")
+        self.assertEqual(self.answer()["word"], "working")
         self.assertEqual(len([line for line in self.logs if "out of usage" in line]), 1)
         credentials = self.root / ".claude-second/.credentials.json"
         credentials.parent.mkdir()
@@ -329,7 +330,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.cfg["providers"]["anthropic"].pop("accounts")
         self.meters(100, 0, single=True)
         self.tick()
-        self.assertEqual(self.answer()["word"], "needs you")
+        self.assertEqual(self.answer()["word"], "working")
         self.meters(0, 0, single=True)
         self.tick()
         self.assertEqual(config.session_records()[NAME]["account"], "default")

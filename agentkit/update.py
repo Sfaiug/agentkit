@@ -411,10 +411,11 @@ def working_sessions(cfg=None):
     working = []
     for session in sessions:
         try:
-            word = watch.session_state(session["name"], session=session, cfg=cfg)["word"]
+            answer = watch.session_state(session["name"], session=session, cfg=cfg)
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             continue     # what cannot be read cannot prove anything is working
-        if word == "working":
+        # one only waiting for its usage to come back has no turn an upgrade could break
+        if answer["word"] == "working" and not answer.get("resumes_at"):
             working.append(session["name"])
     return working
 
