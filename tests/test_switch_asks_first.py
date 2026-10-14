@@ -7,7 +7,8 @@ model the seat is already on asks nothing and moves nothing.  A slip of a key us
 live conversation over at once.
 
 Offline: a throwaway HOME, the keys fed in, the card answered by a fake `terminal.confirm`
-that draws the screen around it, and the switch itself faked to write the record alone.
+that draws the screen around it, and the switch itself faked to write the record alone; the
+card's room on a short terminal is read off the real screen on a pty (test_config_matrix's).
 """
 
 from contextlib import redirect_stdout
@@ -21,6 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
+from test_config_matrix import DOWN, ENTER, Screen, highlighted, row
 from agentkit import config, menu, orch, terminal, update, usage
 from agentkit.terminal import Key
 
@@ -88,6 +90,23 @@ class SwitchAsksFirst(Sandbox):
         self.assertEqual(self.asked, [])
         self.assertEqual(self.moved, [])
         self.assertIn("fable", config.load_session(self.cfg, "fix-api")["workers"])
+
+
+class MoveCardFits(unittest.TestCase):
+    def test_the_rows_give_the_card_room_and_the_highlight_stays_on(self):
+        # 24 rows, a desk's width and a phone's: the card asked on a row near the page's foot
+        # keeps the frame within the terminal, as the matrix is, with the row it asks about on
+        for cols in (100, 40):
+            screen = Screen(self, rows=24, cols=cols)
+            lines = screen.press(DOWN * 6, lambda lines: "gemini" in highlighted(lines))
+            self.assertLessEqual(len(lines), 23)
+            lines = screen.press(ENTER, lambda lines: "Move fix-api to gemini?" in "\n".join(lines))
+            self.assertLessEqual(len(lines), 23, "\n".join(lines))
+            self.assertIn("gemini", highlighted(lines))
+            self.assertEqual(lines[-1], "  esc back")
+            lines = screen.press(DOWN + ENTER, lambda lines: "●" in row(lines, "gemini")[1])
+            self.assertEqual(screen.record()["orchestrator"], "gemini")
+            screen.leave()
 
 
 if __name__ == "__main__":
