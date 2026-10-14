@@ -1,0 +1,15 @@
+[38;5;246m[49m●[39m Creating a.txt and sleeping for 20 seconds
+[38;5;246m  ⎿  $ touch a.txt && python3 -c 'import time; time.sleep(20)'
+[38;5;153m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;5;153mBash command
+[0m [38;5;246mCreate a.txt and sleep for 20 seconds
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m touch a.txt && python3 -c 'import time; time.sleep(20)'
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m This command requires approval
+ Do you want to proceed?
+ [38;5;153m❯[39m [38;5;246m1. [38;5;153mYes
+[39m   [38;5;246m2. [39mYes, and don't ask again for [1mtouch a.txt[0m and [1m"python3 -c 'import time; time.sleep(20)'"[0m commands in
+      [1m/home/acme/code/fix-api
+[0m   [38;5;246m3. [39mNo
+ [38;5;246mEsc to cancel · Tab to amend

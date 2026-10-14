@@ -30,7 +30,8 @@ probe_every = 900
 
 # "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
 # means only the rules below can say it.  A hook fact still gives way to a rule that positively
-# names a different state: Claude reports a question going up and nothing when it comes down.
+# names a different state: Claude reports a dialog going up, and a question or plan answered,
+# but nothing when a tool's permission is granted or a dialog is put away with Esc.
 [authority]
 working = "hooks"
 asking = "hooks"
@@ -66,6 +67,13 @@ kinds = ["held"]
 name = "Stop"
 state = "at_prompt"
 
+# A question, a plan to approve or a tool's permission prompt fires PermissionRequest as it is
+# drawn (2.1.292), even under bypass permissions for the first two; its notice comes six seconds
+# later, on a timer, and adds nothing to the question already written down.
+[[hooks.event]]
+name = "PermissionRequest"
+state = "asking"
+
 [[hooks.event]]
 name = "Notification"
 state = "asking"
@@ -75,6 +83,23 @@ kinds = ["permission_prompt", "worker_permission_prompt", "agent_needs_input"]
 name = "Notification"
 state = "at_prompt"
 kinds = ["idle_prompt"]
+
+# Installed for AskUserQuestion and ExitPlanMode alone: it fires as the owner answers, and the
+# turn that asked runs on.
+[[hooks.event]]
+name = "PostToolUse"
+state = "working"
+
+# `/compact` runs between turns; its kind is the payload's `trigger`.  Compaction Claude starts
+# itself (`auto`) runs inside a turn, whose Stop ends it.
+[[hooks.event]]
+name = "PreCompact"
+state = "working"
+
+[[hooks.event]]
+name = "PostCompact"
+state = "at_prompt"
+kinds = ["manual"]
 
 [screen]
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;
@@ -87,6 +112,8 @@ footer = [
   '\d+% context left(?:\s*·\s*\? for shortcuts)?',
   # a narrow pane cuts the mode line wherever its width ends, with or without an ellipsis
   '⏵⏵\s*bypass\b.*',
+  # the other modes shift+tab cycles through (2.1.292)
+  '(?:⏵⏵|⏸)\s*(?:accept edits|plan mode|manual mode)\b.*',
   # the hint drawn under its own usage-limit notice (2.1.286), which is what was said
   '/usage-credits to finish what you.re working on\.',
 ]
@@ -131,13 +158,43 @@ state = "asking"
 lines = 1
 newest = '^Enter to select · (?:↑/↓|Tab/Arrow keys) to navigate\b'
 
-# Claude's permission prompt has no capture here -- it needs a tool call, which needs a model --
-# so its Notification hook is its authority and no screen rule guesses at its shape.
+# A tool's permission prompt (2.1.292, manual mode): `Do you want to proceed?` or `Do you want
+# to create hello.txt?`, its options, and this hint as its newest line.
+[[rule]]
+id = "asking.permission"
+state = "asking"
+lines = 1
+newest = '^Esc to cancel · Tab to amend\b'
+
+# ExitPlanMode's approval: its question and its last option, over its editor hint.
+[[rule]]
+id = "asking.plan"
+state = "asking"
+lines = 8
+all = ["would you like to proceed?", "tell claude what to change"]
+newest = '^ctrl\+g to edit in\b'
+
+# 2.1.292's spinner: a glyph at the left edge, a verb ending in "…" and an optional parenthesis,
+# `✻ Moonwalking… (10s · ↓ 207 tokens)`, `✶ Compacting conversation… (0s)`.  A narrow pane
+# wraps the parenthesis onto the row under it, and a tip and a notice stand between it and the
+# composer.  Its done line (`✻ Brewed for 10s · done 12:01 PM`) and `✻ Waiting for 1
+# background agent to finish` have no "…".  While its Stop hooks run, the spinner and the
+# footer's `esc to interrupt` are still drawn over a turn that is over: the Stop decides.
+[[rule]]
+id = "working.spinner"
+state = "working"
+lines = 10
+row = '^[·✢✳✶✻✽*] [^…()]+…(?: \(.*)?$'
+none = ["(running stop"]
+
+# Streaming draws no spinner, only the footer's `· esc to interrupt`, which a pane narrower than
+# about 67 columns cuts (`esc to …` at 60) and a composer holding text drops.
 [[rule]]
 id = "working.interrupt"
 state = "working"
-lines = 8
-any = ["esc to interrupt"]
+lines = 10
+newest = 'esc to (?:interrupt|\S*…)'
+none = ["(running stop"]
 
 # A composer holding bright, typed text is a draft never sent. A composer whose
 # only content is dim -- Claude's suggested next prompt, the Try placeholder -- is
