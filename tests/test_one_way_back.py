@@ -95,8 +95,8 @@ class Back(unittest.TestCase):
         self.assertEqual(stopped.call_args[0][0], ["atoll-fix"])
         prompts = [call.args[0] for call in read.call_args_list]
         self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
-        self.assertIn(menu.stop_means(None), screen)
-        self.assertNotIn("reopens it later", screen)
+        self.assertIn(menu.stop_means(None), " ".join(screen.split()))   # wrapped to the width
+        self.assertIn("its number reopens it", screen)
 
     def test_v5u_x_y_stops_no_real_run(self):
         # A run on this machine launched by a seat named `atoll-fix` is never `ak run stop`ped
@@ -107,8 +107,8 @@ class Back(unittest.TestCase):
         self.assertEqual(run_stop.call_count, 0)
 
     def test_v5u_overlay_x_says_stop_cannot_be_undone(self):
-        # Stop removes the seat's record and conversation (`orch.cmd_stop`): the pipe's
-        # question says so, as the keyboard card does, and never promises a reopening.
+        # Stop keeps the seat's record a week (`orch.cmd_stop`): the pipe's question says so,
+        # as the keyboard card does, and what the number does and `x` again.
         out = io.StringIO()
         with patch.object(config, "current_session", return_value="atoll-fix"), \
                 patch.object(menu, "read", side_effect=["n"]), \
@@ -116,8 +116,8 @@ class Back(unittest.TestCase):
                 redirect_stdout(out):
             menu.stop_this_session(False)
         self.assertEqual(stopped.call_count, 0)
-        self.assertIn(menu.stop_means(None), out.getvalue())
-        self.assertNotIn("reopens it later", out.getvalue())
+        self.assertIn(menu.stop_means(None), " ".join(out.getvalue().split()))
+        self.assertIn("x on it again", out.getvalue())
 
     def test_v5u_x_n_goes_back(self):
         _, _, stopped = self.stop("1", "n")

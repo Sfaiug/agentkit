@@ -477,6 +477,8 @@ TIPS = {
     "n new": "n starts a session: you name it and pick the models that orchestrate, execute "
              "and review",
     "x stop": "x stops the highlighted session and everything it runs, asking first",
+    "x remove": "x takes the highlighted stopped session off the list now; left alone it goes a "
+                "week after its stop",
     "x close": "x closes the highlighted session, which is done: its runs, checkouts and files "
                "go",
     "c config": "c sets the highlighted session's models, every model's effort, the providers "

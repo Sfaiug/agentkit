@@ -767,9 +767,9 @@ esac
     def test_a_renamed_seats_old_name_is_not_handed_to_a_new_one(self):
         """The orchestrator renamed away still answers to the name it was started under.
 
-        Until the seat it was renamed to is stopped: the pointer goes with the record it led
-        to, and the old name is a name again -- for the menu and for `create` alike, which read
-        the one rule so that they cannot disagree about whether a name is free.
+        Until the seat it was renamed to is stopped twice, off the list: the pointer goes with
+        the record it led to, and the old name is a name again -- for the menu and for `create`
+        alike, which read the one rule so that they cannot disagree about whether a name is free.
         """
         self.adapters()
         config.ensure_dirs()
@@ -781,7 +781,12 @@ esac
             self.assertIn("atoll", orch.taken_names())
             with self.assertRaises(config.Error):
                 orch.create(cfg, "atoll", "/w", prompting=False, dry_run=True)
-            # stopping the seat the pointer leads to takes the pointer with it
+            # stopping the seat the pointer leads to keeps both a week, for its number to
+            # reopen it; stopping it again takes the pointer with the record
+            with contextlib.redirect_stdout(io.StringIO()):
+                orch.cmd_stop(["parser"])
+            self.assertTrue(config.session_path("atoll").exists())
+            self.assertIn("atoll", orch.taken_names())
             with contextlib.redirect_stdout(io.StringIO()):
                 orch.cmd_stop(["parser"])
             self.assertFalse(config.session_path("atoll").exists())

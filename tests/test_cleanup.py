@@ -120,18 +120,26 @@ class Cleanup(Sandbox):
         self.assertFalse(self.branch_exists(done_branch))
         self.assertTrue((mine / "run.json").is_file())
         self.assertTrue((done / "result.md").is_file())
-        for leaf in ("plan-atoll.md", "card-atoll.json", "hook-atoll.json", "notify-atoll.json",
+        # the seat itself is kept a week, for its number to reopen it: its record and every
+        # file of its own stay, with the stop mark in its seat file
+        for leaf in ("plan-atoll.md", "hook-atoll.json", "notify-atoll.json",
                      "compact-atoll.json", "stop-atoll.json", "session-atoll.json",
                      "rulebook-atoll.md"):
-            self.assertFalse((config.STATE / leaf).exists(), leaf)
-        self.assertTrue((config.STATE / "plan-other.md").is_file())
-        # Waiting writers and a reopened name must keep using the same lock inodes;
-        # the daily gc takes unused locks and the stop mark.
-        self.assertEqual({path.name for path in orch.session_owned_files("atoll")},
-                         {"seat-atoll.json", "seat-atoll.lock", "notify-atoll.lock"})
+            self.assertTrue((config.STATE / leaf).exists(), leaf)
         seat = watch.seat_read("atoll")
         self.assertTrue(seat.get("closed_by_owner"))
         self.assertTrue(seat.get("stopped_at"))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.cmd_stop(["atoll"]), 0)      # stopped again: gone
+        for leaf in ("plan-atoll.md", "card-atoll.json", "hook-atoll.json", "notify-atoll.json",
+                     "compact-atoll.json", "stop-atoll.json", "session-atoll.json",
+                     "rulebook-atoll.md", "seat-atoll.json"):
+            self.assertFalse((config.STATE / leaf).exists(), leaf)
+        self.assertTrue((config.STATE / "plan-other.md").is_file())
+        # Waiting writers and a reopened name must keep using the same lock inodes;
+        # the daily gc takes unused locks.
+        self.assertEqual({path.name for path in orch.session_owned_files("atoll")},
+                         {"seat-atoll.lock", "notify-atoll.lock"})
         self.assertEqual(sorted(self.closed), ["tab-run", "tab-seat"])
         left = browser._read_tabs()
         self.assertEqual(list(left), ["tab-stray"])
@@ -456,8 +464,9 @@ class Cleanup(Sandbox):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(stop.cmd_clean(["made"]), 0)
         gc.gc(lambda _message: None)
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(orch.cmd_stop(["atoll"]), 0)
+        for _ in ("stopped", "removed"):     # the second stop is what takes the seat itself
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(orch.cmd_stop(["atoll"]), 0)
         for directory, work in runs:
             self.assertTrue((directory / "run.json").is_file(), directory)
             self.assertTrue((work / "crosscheck.md").is_file(), work)

@@ -2423,14 +2423,16 @@ PY
 SEATLIST=$(COLUMNS=100 ak orch list 2>&1 | sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' | grep -Ec "$SEATWANT")
 SEATENV=$(tm show-environment -t =smoke-astra AGENTKIT_SESSION 2>/dev/null)
 ak orch stop smoke-astra >"$WORK/seat-stop.log" 2>&1; SEATSTOP=$?
-# the stop takes the record with the session: there is nothing left to be resumed into
-SEATKEPT=0; [ -e "$HOME/.agentkit/state/session-smoke-astra.json" ] && SEATKEPT=1
+# the stop keeps the record a week, for the seat's number to reopen it; a second stop takes it
+SEATKEPT=0; [ -e "$HOME/.agentkit/state/session-smoke-astra.json" ] || SEATKEPT=1
+ak orch stop smoke-astra >>"$WORK/seat-stop.log" 2>&1 || SEATKEPT=1
+[ -e "$HOME/.agentkit/state/session-smoke-astra.json" ] && SEATKEPT=1
 if [ "$SEATRC" = 0 ] && [ "$SEATDRY" = 0 ] && [ "$SEATUNCHANGED" = 0 ] &&
    [ "$SEATNOPIN" = 0 ] && [ "$SEATKEPT" = 0 ] &&
    grep -q 'OpenAI Codex' <<<"$PANE" && ! grep -q 'Hooks need review' <<<"$PANE" && [ "$SEATLIST" = 1 ] &&
    [ "$SEATENV" = "AGENTKIT_SESSION=smoke-astra" ] && [ "$SEATSTOP" = 0 ] &&
    ! tm has-session -t =smoke-astra 2>/dev/null; then
-  ok "6d ak orch: Codex seat exported/listed its models, has either verified Codex ownership or an explicit fresh-start record; dry-run reattach left them unchanged; stopped, record and all"
+  ok "6d ak orch: Codex seat exported/listed its models, has either verified Codex ownership or an explicit fresh-start record; dry-run reattach left them unchanged; stopped and kept a week, then removed with its record"
 else
   no "6d ak orch seat: exit=$SEATRC dry=$SEATDRY unchanged=$SEATUNCHANGED listed=$SEATLIST env=$SEATENV stop=$SEATSTOP nopin=$SEATNOPIN record-kept=$SEATKEPT"
   printf '%s\n' "$PANE" | head -12 | sed 's/^/      /'
@@ -4143,7 +4145,11 @@ jq -e '.renamed == "old-renamed"' "$NH/.agentkit/state/session-old-seat.json" \
   >/dev/null 2>&1 || NAME=1
 tm kill-session -t =old-renamed 2>/dev/null
 akp orch stop old-renamed >"$WORK/name-old-stop.log" 2>&1 || NAME=1
-grep -q '^stopped old-renamed$' "$WORK/name-old-stop.log" || NAME=1
+grep -q '^stopped old-renamed; its number reopens it for a week$' "$WORK/name-old-stop.log" || NAME=1
+[ -e "$NH/.agentkit/state/session-old-renamed.json" ] || NAME=1   # kept a week, for its number
+[ -e "$NH/.agentkit/state/session-old-seat.json" ] || NAME=1      # and the pointer still leads to it
+akp orch stop old-renamed >>"$WORK/name-old-stop.log" 2>&1 || NAME=1   # stopped again: gone
+grep -q '^removed old-renamed$' "$WORK/name-old-stop.log" || NAME=1
 [ -e "$NH/.agentkit/state/session-old-renamed.json" ] && NAME=1
 [ -e "$NH/.agentkit/state/session-old-seat.json" ] && NAME=1   # the pointer went with it
 # (g) its number -- here its name -- puts the orchestrator back in that same window, on that
@@ -4210,9 +4216,12 @@ typed $'\n' "${NENV[@]}" ak orch legacy-seat >"$WORK/name-alias-orch.log" 2>&1; 
 grep -q "used to be called" "$WORK/name-alias-orch.log" || NAME=1
 jq -e '.renamed == "legacy-renamed"' "$NH/.agentkit/state/session-legacy-seat.json" \
   >/dev/null 2>&1 || NAME=1
-# (h6) ... until that seat is stopped: the pointer goes with the record it led to, and the name
-# it used to be called is free again for `ak orch`, which makes a seat under it
+# (h6) ... until that seat is stopped twice, once to stop it and once to take it off the list:
+# the pointer goes with the record it led to, and the name it used to be called is free again
+# for `ak orch`, which makes a seat under it
 akn orch stop legacy-renamed >"$WORK/name-legacy-stop.log" 2>&1 || NAME=1
+[ -e "$NH/.agentkit/state/session-legacy-seat.json" ] || NAME=1   # kept with the stopped seat
+akn orch stop legacy-renamed >>"$WORK/name-legacy-stop.log" 2>&1 || NAME=1
 [ -e "$NH/.agentkit/state/session-legacy-seat.json" ] && NAME=1
 ( cd "$NSEAT" && typed $'\n' "${NENV[@]}" ak orch legacy-seat --model fable --workers opus ) \
   >"$WORK/name-alias-free.log" 2>&1 || NAME=1
@@ -4220,10 +4229,16 @@ jq -e --arg d "$NSEAT" '.cwd == $d and .repo == $d' \
   "$NH/.agentkit/state/session-legacy-seat.json" >/dev/null 2>&1 || NAME=1
 tm has-session -t =legacy-seat 2>/dev/null || NAME=1
 tm kill-session -t =legacy-seat 2>/dev/null
-# (i) stop is the one thing that ends a seat: the session, and the record it could come back
-# from -- the conversation id with it, so that nothing can be resumed into it ever again
+# (i) a stop ends the session and keeps the record a week, the conversation id with it, for the
+# seat's number to come back on; the second stop is what ends the seat for good -- the record
+# and the conversation id with it, so that nothing can be resumed into it ever again
 akn orch stop resume-seat >"$WORK/name-stop.log" 2>&1 || NAME=1
 tm has-session -t =resume-seat 2>/dev/null && NAME=1
+jq -e --arg c "$CONV" '.conversation == $c' "$NH/.agentkit/state/session-resume-seat.json" \
+  >/dev/null 2>&1 || NAME=1
+jq -e '.closed_by_owner == true and .stopped_at > 0' "$NH/.agentkit/state/seat-resume-seat.json" \
+  >/dev/null 2>&1 || NAME=1
+akn orch stop resume-seat >>"$WORK/name-stop.log" 2>&1 || NAME=1
 [ -e "$NH/.agentkit/state/session-resume-seat.json" ] && NAME=1
 grep -rqF "$CONV" "$NH/.agentkit/state" 2>/dev/null && NAME=1
 # (j) a record whose seat has been gone for over a week is forgotten, and its name is free again
@@ -4271,7 +4286,7 @@ for seat in my-big-task "$NSECOND" resume-seat by-hand pair-one pair-two old-sea
   tm kill-session -t "=$seat" 2>/dev/null
 done
 tmd kill-session -t =not-a-seat 2>/dev/null
-[ "$NAME" = 0 ] && ok "20f the seat is what it was called: n asks its name, Enter leaves ${NAUTO:-?} and then ${NSECOND:-?} for its orchestrator to name, a rename makes My Big/Task my-big-task in tmux and on its own status bar, a name renamed away is refused until that seat is stopped, a hand-made seat and a legacy one are listed and the legacy one renames on its own server, a harness that exits at once leaves the seat standing, a seat holds the conversation it was launched with and two started at once hold their own, a harness that can be given no id leaves a seat that restarts rather than resumes, an id no launcher ever handed out is stripped from the record that carries it, a stopped one is gone with its conversation -- and one tmux has already lost is stopped just the same, record and rename pointer with it -- and a week-old record is swept" \
+[ "$NAME" = 0 ] && ok "20f the seat is what it was called: n asks its name, Enter leaves ${NAUTO:-?} and then ${NSECOND:-?} for its orchestrator to name, a rename makes My Big/Task my-big-task in tmux and on its own status bar, a name renamed away is refused until that seat is stopped, a hand-made seat and a legacy one are listed and the legacy one renames on its own server, a harness that exits at once leaves the seat standing, a seat holds the conversation it was launched with and two started at once hold their own, a harness that can be given no id leaves a seat that restarts rather than resumes, an id no launcher ever handed out is stripped from the record that carries it, a stopped one keeps its record a week and its second stop takes it with its conversation -- and one tmux has already lost is stopped just the same, record and rename pointer with it -- and a week-old record is swept" \
              || { no "20f naming, exit and resume"; sed 's/^/      /' "$WORK/name-new.log" "$WORK/name-rename.log" "$WORK/name-dup.log" "$WORK/name-list3.log" "$WORK/name-resume.log" "$WORK/name-reopen.log" "$WORK/name-pair1.log" "$WORK/name-nopin.log" "$WORK/name-old-open.log" "$WORK/name-old-stop.log" 2>/dev/null | head -24; }
 
 # --- 20g: the update runs where the connection cannot take it down --------

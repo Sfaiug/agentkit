@@ -1,6 +1,6 @@
-"""`x` acts on the highlighted seat and a done one closes with that one key; a press begun on one
-screen is no click on the next; a stopped seat leaves no rulebook, no idle-compact stamp and no
-open card.
+"""`x` acts on the highlighted seat, a done one closes with that one key and a stopped one is
+taken off the list with it; a press begun on one screen is no click on the next; a seat stopped
+twice leaves no rulebook, no idle-compact stamp and no open card.
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
@@ -14,6 +14,7 @@ from contextlib import contextmanager, redirect_stdout
 import fcntl
 import hashlib
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -43,12 +44,15 @@ from pathlib import Path
 from agentkit import config, menu, orch
 
 SEATS = Path(os.environ["CLOSE_SEATS"])        # {name: word}, in the listing's order
+STOPPED = "stopped"      # a seat the owner stopped: a `needs you` row with `closed` set on it
 seats = lambda: json.loads(SEATS.read_text())
 orch.listing = lambda reconcile=True: [
-    {"name": name, "repo": None, "path": "/", "created": 0} for name in seats()]
+    {"name": name, "repo": None, "path": "/", "created": 0,
+     "closed": 1 if word == STOPPED else None} for name, word in seats().items()]
 orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {
-    "word": seats().get(session["name"], "working"), "reason": "", "since": None}
+    "word": seats().get(session["name"], "working").replace(STOPPED, "needs you"),
+    "reason": "", "since": None}
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
@@ -66,6 +70,7 @@ menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name
 sys.exit(menu.loop(config.load(), overlay=os.environ.get("CLOSE_OVERLAY") == "1"))
 """
 ESC, DOWN, ENTER = b"\x1b", b"\x1b[B", b"\r"
+stop_means = menu.stop_means     # the tests below name their pty menu `menu`
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
@@ -212,12 +217,12 @@ class CloseAndInfo(unittest.TestCase):
         menu.send(b"x")
         asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "beta" in line)
-        self.assertEqual(asked[row:row + 3], ["", "  Stop beta and everything it runs?",
-                                              "  No runs stop with it; ak cannot reopen the "
-                                              "session: Stop removes its record."])
+        self.assertEqual(asked[row:row + 2], ["", "  Stop beta and everything it runs?"])
+        means = list(itertools.takewhile(lambda line: line.strip(), asked[row + 2:]))
+        self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
         top, answers = menu.choices(after=mark)
-        self.assertEqual(top, row + 4)                      # the two lines under what it means
+        self.assertEqual(top, row + 3 + len(means))         # the two lines under what it means
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])  # Keep is where the highlight starts
         self.assertEqual(asked[top - 1:top + 2], ["", "", ""])
         self.assertEqual(asked[-1].strip(), "esc back")
@@ -268,6 +273,25 @@ class CloseAndInfo(unittest.TestCase):
         lines = menu.frame(lambda lines: "alpha" in menu.highlighted(lines))
         self.assertIn("   x stop   ", lines[-1])
         menu.leave()
+
+    def test_x_on_a_stopped_seat_removes_it_without_a_question(self):
+        menu = Menu(self, {"alpha": "working", "omega": "stopped"})
+        lines = menu.frame()
+        self.assertIn("omega", menu.highlighted(lines))     # needs you sorts first
+        self.assertRegex(lines[-1], r"   x remove   ")
+        menu.send(b"j")
+        lines = menu.frame(lambda lines: "alpha" in menu.highlighted(lines))
+        self.assertRegex(lines[-1], r"   x stop   ")
+        menu.send(b"k")
+        menu.frame(lambda lines: "omega" in menu.highlighted(lines))
+        mark = menu.mark()
+        menu.send(b"x")
+        menu.saw("<stopped omega>", after=mark)
+        lines = menu.frame(lambda lines: not any("omega" in line for line in lines), after=mark)
+        self.assertIn("alpha", menu.highlighted(lines))
+        menu.leave()
+        self.assertNotIn("everything it runs", menu.text())
+        self.assertEqual(menu.text().count("<stopped"), 1)
 
     def test_the_popup_closes_its_own_done_seat_and_asks_under_its_own_row(self):
         menu = Menu(self, {"alpha": "working", "omega": "done"}, own="omega")
@@ -343,10 +367,12 @@ class CloseAndInfo(unittest.TestCase):
         asked = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc back", after=mark)
         top, answers = menu.choices(after=mark)
         self.assertGreater(top, before)
-        self.assertEqual(asked[top - 6:top - 1], ["  Stop", f"  {long}",
-                                                  "  and everything it runs?",
-                                                  "  No runs stop with it; ak cannot reopen",
-                                                  "  the session: Stop removes its record."])
+        at = asked.index("  and everything it runs?")
+        self.assertEqual(asked[at - 2:at + 1], ["  Stop", f"  {long}", "  and everything it runs?"])
+        means = list(itertools.takewhile(lambda line: line.strip(), asked[at + 1:]))
+        self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
+        self.assertGreater(len(means), 2)                  # what it means wraps onto more lines
+        self.assertEqual(top, at + 2 + len(means))
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])
         for line in asked:
             self.assertLessEqual(terminal.cells(line), 40, line)
@@ -407,7 +433,10 @@ class ClosedSeat(Sandbox):
                 stamps / "4245.json", stamps / "log"]
         for path in mine + kept:
             path.write_text("{}\n")
-        self.stop()
+        self.stop()                                 # stopped: kept, for its number to reopen it
+        for path in mine + kept:
+            self.assertTrue(path.exists(), path)
+        self.stop()                                 # stopped again: gone
         for path in mine:
             self.assertFalse(path.exists(), path)
         for path in kept:
@@ -423,8 +452,9 @@ class ClosedSeat(Sandbox):
             path.write_text("{}\n")
         config.rename_session("atoll", "beta")    # what a rename moves, and what it leaves
         self.assertTrue(all(path.exists() for path in left))
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(orch.cmd_stop(["beta"]), 0)
+        for _ in ("stopped", "removed"):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(orch.cmd_stop(["beta"]), 0)
         for path in left + [config.session_path("atoll"), config.session_path("beta")]:
             self.assertFalse(path.exists(), path)
 
@@ -482,7 +512,7 @@ class ClosedSeat(Sandbox):
         card = json.loads(config.card_path("atoll").read_text())
         self.assertEqual(card["word"], "")
         self.assertEqual(len(card["open_needs"]), 1)
-        self.assertFalse(config.session_path("atoll").exists())
+        self.assertTrue(config.session_path("atoll").exists())    # kept a week, card or no card
 
     def test_a_done_seats_bar_offers_the_close(self):
         def key(word, last=""):

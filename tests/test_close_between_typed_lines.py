@@ -1,10 +1,10 @@
 """A seat closes only between the lines typed into it.
 
 Every line ak types into a seat goes in under the seat's own lock (`notify.session_lock`), the
-one a rename takes.  `ak orch stop` takes it too, around removing the seat's files, killing its
-tmux session and writing the stop mark, so a line under way finishes into the seat it was meant
-for and one waiting finds it closed -- never a seat opened again under the same name.  Offline:
-fake HOME, fake tmux, no real seat.
+one a rename takes.  `ak orch stop` takes it too, around killing its tmux session and writing
+the stop mark, and again around removing the seat's files when it is stopped a second time, so a
+line under way finishes into the seat it was meant for and one waiting finds it closed -- never a
+seat opened again under the same name.  Offline: fake HOME, fake tmux, no real seat.
 
 Locks survive the close so senders into a reopened seat still wait on the same inode.
 """
@@ -70,7 +70,7 @@ class CloseBetweenTypedLines(Sandbox):
         self.assertEqual(orch.cmd_stop([SEAT]), 0)     # signal handlers: the main thread's
         line.join(10)
         self.assertEqual(seen, [(True, [])], "the seat closed under a line being typed")
-        self.assertNotIn(SEAT, config.session_records())
+        self.assertIn(SEAT, config.session_records())     # kept a week, for its number to reopen it
         self.assertTrue(watch.seat_read(SEAT).get("stopped_at"))
         # while it closed, its lock was held on the very file a typer waits on
         self.assertEqual(self.killed, [False])
@@ -115,10 +115,11 @@ class CloseBetweenTypedLines(Sandbox):
             self.assertTrue(first_typed.wait(5), "first sender did not start")
             lock_inodes.append(lock_path.stat().st_ino)
 
-        # Reopen after the close releases its locks, just before its old final cleanup.
+        # Reopen after the second stop releases its locks, just before its old final cleanup.
         with patch.object(orch, "drop_aliases", side_effect=reopen_before_last_unlink):
             try:
-                self.assertEqual(orch.cmd_stop([SEAT]), 0)
+                self.assertEqual(orch.cmd_stop([SEAT]), 0)     # stopped: tmux gone, record kept
+                self.assertEqual(orch.cmd_stop([SEAT]), 0)     # stopped again: its files go
                 second = threading.Thread(target=lambda:
                     results.append(watch.type_into(dict(self.seat), "second", print)))
                 threads.append(second)

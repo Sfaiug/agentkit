@@ -156,10 +156,11 @@ seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
 checkouts, conversation, state files and tmux session. Any other it asks about
 on the question card (Questions), under that seat's row, the rows below moving
 down: `Stop <name> and everything it runs?`, then how many runs stop with it
-and that ak cannot reopen the session, its record gone; the key line reads `esc
-back` while it asks. The runs are counted off the draw, so the card is up at
-once: `Its runs stop` until the number lands. The key line says `x close` while
-a done seat is highlighted (in the popup, while its own seat is done) and
+and that the session stays listed for a week, its number reopening it and `x`
+on it again removing it; the key line reads `esc back` while it asks. The runs
+are counted off the draw, so the card is up at once: `Its runs stop` until the
+number lands. The key line says `x close` while a done seat is highlighted (in
+the popup, while its own seat is done), `x remove` while a stopped seat is, and
 `x stop` otherwise, and a done
 seat's tmux bar reads `Ctrl-b m  x close` at the right end of its second line.
 
@@ -241,6 +242,7 @@ UTF-8 key (`enter` is `⏎`):
 - `n new`: `n starts a session: you name it and pick the models that orchestrate, execute and review`
 - `x stop`: `x stops the highlighted session and everything it runs, asking first`
 - `x close`: `x closes the highlighted session, which is done: its runs, checkouts and files go`
+- `x remove`: `x takes the highlighted stopped session off the list now; left alone it goes a week after its stop`
 - `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
 - `esc leave`: `Esc leaves ak; the sessions go on working without it`
 - in the popup, `n start a session`: `n starts a session and switches this terminal to it, closing the popup`
@@ -293,7 +295,7 @@ Helpers: `terminal.confirm`, `terminal.choose`.
 
 Example:
 `  Stop fix-api and everything it runs?`
-`  2 runs stop with it; ak cannot reopen the session: Stop removes its record.`
+`  2 runs stop with it; the session stays listed for a week: its number reopens it, x on it again removes it now.`
 `› ✓ Keep`
 `  ✗ Stop`.
 

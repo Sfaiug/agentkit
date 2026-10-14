@@ -28,8 +28,10 @@ from agentkit import record
 
 Key = terminal.Key
 QUESTION = "Stop fix-api and everything it runs?"
-MEANS = "2 runs stop with it; ak cannot reopen the session: Stop removes its record."
-NONE = "No runs stop with it; ak cannot reopen the session: Stop removes its record."  # no runs
+TAIL = ("with it; the session stays listed for a week: its number reopens it, x on it again "
+        "removes it now.")
+MEANS = f"2 runs stop {TAIL}"
+NONE = f"No runs stop {TAIL}"           # no runs
 # The child's count of a seat's runs, slow: the card is up before it lands.
 SLOW = """
 import time
@@ -75,12 +77,10 @@ class QuestionCard(unittest.TestCase):
         self.assertEqual(stop.removesuffix("\x1b[K\n"), "  " + warn)
         # on a phone the question and its meaning wrap and no choice does
         _, card, out = ask([Key("esc")], cols=40)
+        means = [f"  {line}" for line in terminal.wrap(MEANS, 38)]
         self.assertEqual([terminal.ANSI.sub("", line) for line in card],
-                         ["", "  Stop fix-api and everything it runs?",
-                          "  2 runs stop with it; ak cannot reopen",
-                          "  the session: Stop removes its record.",
-                          "", "", ""])
-        self.assertIn("\x1b[9;1H\r", out)
+                         ["", "  Stop fix-api and everything it runs?", *means, "", "", ""])
+        self.assertIn(f"\x1b[{7 + len(means)};1H\r", out)
 
     def test_esc_keeps_and_enter_on_the_second_choice_answers(self):
         self.assertFalse(ask([Key("esc")])[0])
@@ -124,14 +124,14 @@ class QuestionCard(unittest.TestCase):
         top, _ = shown.choices(after=mark)
         self.assertLess(time.monotonic() - pressed, 1.0)     # the count takes 1.5 s
         asked = shown.frame(keys="esc back", after=mark)
-        self.assertEqual(asked[top - 4:top - 1], ["  Its runs stop with it; ak cannot",
-                                                  "  reopen the session: Stop removes its",
-                                                  "  record."])
+        its = [f"  {line}" for line in terminal.wrap(menu.stop_means(None), 38)]
+        self.assertEqual(asked[top - 1 - len(its):top - 1], its)
         # down on Keep; the count lands one line shorter, moving `✗ Stop` onto that row; up there
+        three = [f"  {line}" for line in terminal.wrap(menu.stop_means(3), 38)]
+        self.assertEqual(len(three), len(its) - 1)
         shown.send(f"\x1b[<0;4;{top}M".encode())
-        counted = shown.frame(lambda lines: "  3 runs stop with it; ak cannot reopen" in lines,
-                              keys="esc back", after=mark)
-        self.assertEqual(counted.index("  the session: Stop removes its record.") + 3, top)
+        counted = shown.frame(lambda lines: three[0] in lines, keys="esc back", after=mark)
+        self.assertEqual(counted.index(three[-1]) + 3, top)
         shown.send(f"\x1b[<0;4;{top}m".encode())             # no click: the card is still up
         time.sleep(0.3)
         self.assertNotIn("<stopped", shown.text())
@@ -157,7 +157,7 @@ class QuestionCard(unittest.TestCase):
             counted = [path.name for path in menu.session_runs("fix-api")]
         self.assertEqual(counted, ["going", "queued", "acknowledged", "retried"])
         self.assertEqual([menu.stop_means(runs) for runs in (None, 0, 1, 4)], [
-            f"{start} with it; ak cannot reopen the session: Stop removes its record." for start in
+            f"{start} {TAIL}" for start in
             ("Its runs stop", "No runs stop", "1 run stops", "4 runs stop")])
 
     def test_every_caller_asks_on_the_one_card(self):
@@ -168,7 +168,8 @@ class QuestionCard(unittest.TestCase):
         shown.send(b"x")
         asked = shown.frame(keys="esc back", after=mark)
         self.assertIn("  " + menu.STOP_ASK.format("omega"), asked)
-        self.assertIn("  " + NONE, asked)
+        for line in terminal.wrap(NONE, 98):           # the pty is 100 columns wide
+            self.assertIn("  " + line, asked)
         self.assertEqual(shown.choices(after=mark)[1], ["› ✓ Keep", "  ✗ Stop"])
         mark = shown.mark()
         shown.send(ESC)
