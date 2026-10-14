@@ -89,6 +89,17 @@ class AntigravitySeatStates(unittest.TestCase):
         self.assertEqual(watch._composer_rows("antigravity", pane("background-draft"),
                                               exact=True), ["draft while task runs"])
 
+    def test_a_draft_says_its_own_words_never_the_footer_or_key_hint(self):
+        # the owner reads `unsent: …` from it; the model footer and the chooser's key hint
+        # read there before
+        for name, words in (("draft", "Please look at the failing test in the"),
+                            ("chooser", "/us"),
+                            ("background-draft", "draft while task runs")):
+            with self.subTest(name):
+                found = watch.classify("antigravity", watch.pane_tail(pane(name)), None, None,
+                                       {}, 10000.0)
+                self.assertEqual((found["state"], found["evidence"]), ("draft", words))
+
     def test_the_seat_runs_under_the_wrapper_which_says_why_it_types_no_compact(self):
         with tempfile.TemporaryDirectory(prefix=".ak-test-agy-seat-", dir=REPO) as home:
             proc = subprocess.run(

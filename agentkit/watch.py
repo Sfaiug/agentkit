@@ -1630,6 +1630,10 @@ def screen_state(harness, tail):
         marks = rule["all"] + rule["any"]
         evidence = next((line for line in reversed(region)
                          if any(mark in line.lower() for mark in marks)), (drawn or [newest])[-1])
+        if rule["state"] == "draft" and chrome["draft"]:
+            # the chrome told the draft apart, but the owner reads its words: what the composer
+            # the manifest finds holds, read as a typed line's delivery reads it
+            evidence = " ".join(_composer_rows(harness, tail) or ()) or evidence
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
 
