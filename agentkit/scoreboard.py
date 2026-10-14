@@ -23,6 +23,66 @@ ANSWERS_FOR = 7 * 86400   # a merged change answers for its lines this long: a l
                           # through: not every rewrite is a defect, and churn falls on every
                           # reviewer's changes alike, so reviewers are compared by it
 
+# The measures a week's loss is read from, in the vision's order -- quality, speed, cost,
+# size: the words for it, the board's row, the part of that row's week (a share where two
+# parts make one), whether more is worse, and how it prints (`said`).  The weekly audit's.
+LOSSES = (
+    ("merged changes with a line rewritten within 7 days", "escaped", ("escaped", "merged"), True, "%"),
+    ("product runs ended without merging", "products", "unmerged", True, "%"),
+    ("product runs merged in round 1", "products", "first_round", False, "%"),
+    ("ak's runs ended without merging", "ak", "unmerged", True, "%"),
+    ("ak's runs merged in round 1", "ak", "first_round", False, "%"),
+    ("hours to merge a product run", "products", "hours", True, "h"),
+    ("hours to merge a run on ak", "ak", "hours", True, "h"),
+    ("run time waiting for a slot or a suite turn", "waits", "compute", True, "%"),
+    ("hours a merged change spent waiting", "merged", "waiting", True, "h"),
+    ("tokens per merged product run", "products", "tokens", True, "n"),
+    ("tokens per merged run on ak", "ak", "tokens", True, "n"),
+    ("ak's share of all tokens", "ak", "token_share", True, "%"),
+    ("runs the park stopped", "parks", "parked", True, "n"),
+    ("ak's code lines", "size", "code_lines", True, "n"),
+    ("ak's README words", "size", "readme_words", True, "n"),
+)
+
+
+def reading(stats, part):
+    """One measure off one week's row: None with no row; a share where `part` is (of, by)."""
+    if stats is None:
+        return None
+    if isinstance(part, tuple):
+        of, by = part
+        return stats[of] / stats[by] if stats[by] else None
+    return stats[part]
+
+
+def said(value, form):
+    """A measure's value in words: a share as a percentage, hours to a tenth, a count whole."""
+    if value is None:
+        return "not recorded"
+    if form == "%":
+        return f"{value:.0%}"
+    if form == "h":
+        return f"{value:.1f} hours"
+    return f"{value:,.0f}"
+
+
+def loss(board):
+    """The week's largest loss off a two-week board: (words, this week, the week before, form)
+    of the first measure in the vision's order that reads worse than the week before, else the
+    first that reads at all this week; None when nothing does.  The order is the judgement:
+    a quality measure a shade worse names the loss however much faster or cheaper the week
+    was, since speed and cost count only while quality held (the owner, 14 Oct).  A row the
+    board lacks reads as none, so a board from before a row was added answers the same way."""
+    first = None
+    for words, key, part, higher_worse, form in LOSSES:
+        now, before = (reading(stats, part) for stats in board.get(key, (None, None)))
+        if now is None:
+            continue
+        first = first or (words, now, before, form)
+        if before is not None and (now > before if higher_worse else now < before):
+            return words, now, before, form
+    return first
+
 
 def _git(repo, *args, ok=(0,)):
     """That repository's git output, or None when it cannot answer in time."""
