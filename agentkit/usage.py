@@ -583,7 +583,8 @@ def _write(change, fetched_at=None):
 
     The snapshot's own clock, `fetched_at`, stays as it is unless given.  A snapshot that was
     not there is not one anybody assembled, so it starts stale, and the next read assembles the
-    rest rather than answering with one provider for five minutes.
+    rest rather than answering with one provider for five minutes.  Being the one writer, it also
+    keeps the last two windows each weekly meter named (`_windows`).
     """
     cache = config.STATE / "usage.json"
     config.ensure_dirs()
@@ -599,7 +600,8 @@ def _write(change, fetched_at=None):
             fetched_at = _number(blob.get("fetched_at"))
         tmp = cache.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
         try:
-            tmp.write_text(json.dumps({"fetched_at": fetched_at or 0.0, "providers": providers}))
+            tmp.write_text(json.dumps({"fetched_at": fetched_at or 0.0, "providers": providers,
+                                       "windows": _windows(blob.get("windows"), providers)}))
             tmp.replace(cache)
         finally:
             tmp.unlink(missing_ok=True)
@@ -1118,7 +1120,7 @@ def record_pairs(cfg, name, account, before, tokens, meters, now=None):
         at = taken
     was = {m.get("name"): m for m in before if isinstance(m, dict)}
     named = [m for m in meters if isinstance(m, dict) and isinstance(m.get("name"), str)]
-    pairs = {}
+    pairs, read = {}, []
     for meter in _gating_meters(cfg, name, {provider: {"meters": named}})[0]:
         old = was.get(meter["name"]) or {}
         used, prior, ends = (_number(meter.get("used")), _number(old.get("used")),
@@ -1127,10 +1129,10 @@ def record_pairs(cfg, name, account, before, tokens, meters, now=None):
                 or _number(meter.get("resets_at")) != ends or ends <= at or used < prior):
             continue
         pairs[meter["name"]] = {"at": at, "tokens": tokens, "moved": used - prior,
-                                "resets_at": ends,
-                                "window_secs": _number(meter.get("window_secs"))}
-    if pairs:
-        _keep_pairs(provider, account, pairs)
+                                "resets_at": ends}
+        read.append((meter, pairs[meter["name"]]))
+    if read:
+        _keep_pairs(provider, account, read)
     return pairs
 
 
@@ -1149,23 +1151,67 @@ def _measured():
         return {}
 
 
-def _recent(pairs, ends, window):
-    """The pairs of the window ending at `ends` and of the one before it: the latest to end no
-    earlier than this one began, which a spent reset cut short ends later than that.  Any other
-    window is older, a week no turn was paired in among them, and a window of no known length
-    has none before it to count."""
+def _ends(value):
+    """The window ends one meter's list under the snapshot's `windows` holds."""
+    return [end for end in value if _number(end) is not None] if isinstance(value, list) else []
+
+
+def _windows(seen, providers):
+    """The ends of the last two windows each weekly meter of each subscription has named, from
+    `seen`, what the snapshot held, and the readings in `providers`, what it holds now.
+
+    Kept beside the readings because a window that brought no pair -- no turn ran in it, or
+    nobody knew its turn's tokens -- still stands between the window after it and older pairs
+    (`_recent`).  A meter missing from this reading, its window just rolled over, keeps what
+    it named.
+    """
+    seen = _record(seen)
+    kept = {name: _record(seen.get(name)) for name in providers}
+    for name, prov in providers.items():
+        accounts = _record(prov).get("accounts")
+        for account, record in (accounts.items() if isinstance(accounts, dict) and accounts
+                                else [(None, prov)]):
+            key = account or config.DEFAULT_ACCOUNT
+            held = kept[name][key] = _record(kept[name].get(key))
+            for meter in _record(record).get("meters") or []:
+                ends = _number(meter.get("resets_at")) if isinstance(meter, dict) else None
+                if (ends is not None and isinstance(meter.get("name"), str)
+                        and meter.get("window_secs") != SESSION_SECS):
+                    held[meter["name"]] = sorted({*_ends(held.get(meter["name"])), ends})[-2:]
+    return kept
+
+
+def _seen(provider, account, meter):
+    """What `_windows` holds for this subscription's `meter` in the snapshot."""
+    try:
+        blob = _record(json.loads((config.STATE / "usage.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        blob = {}
+    return _ends(_record(_record(_record(blob.get("windows")).get(provider)).get(
+        account or config.DEFAULT_ACCOUNT)).get(meter))
+
+
+def _recent(pairs, seen, ends, window):
+    """The pairs of the window ending at `ends` and of the window named before it, by a reading
+    (`seen`, `_windows`) or by a pair.
+
+    That one is the window before only while it ended no earlier than this one began: a reset
+    spent early ends it later than that, and a week nobody read leaves an older one, which
+    counts for nothing.  Its length unknown, the window named before is the one before.
+    """
     if ends is None:
         return []
-    begun = ends - window if window else ends
-    before = max((p["resets_at"] for p in pairs if begun <= p["resets_at"] < ends), default=None)
+    before = max((end for end in {*seen, *(pair["resets_at"] for pair in pairs)}
+                  if end < ends and (window is None or end >= ends - window)), default=None)
     return [pair for pair in pairs if pair["resets_at"] in (ends, before)]
 
 
-def _keep_pairs(provider, account, pairs):
-    """Add one turn's pairs, keeping each meter's latest window and the one before it.
+def _keep_pairs(provider, account, read):
+    """Add one turn's pairs, `(meter, pair)` by the reading after it, keeping each meter's
+    latest window and the one before it.
 
-    The latest is the one any pair names, not this turn's: a turn recording late must not drop
-    a later window's pairs.
+    The latest is the latest any reading or pair named, not this turn's: a turn recording late
+    must not drop a later window's pairs.
     """
     path = config.STATE / PAIRS
     config.ensure_dirs()
@@ -1175,10 +1221,12 @@ def _keep_pairs(provider, account, pairs):
         held = blob[provider] = _record(blob.get(provider))
         meters = held[account or config.DEFAULT_ACCOUNT] = _record(
             held.get(account or config.DEFAULT_ACCOUNT))
-        for meter, pair in pairs.items():
-            kept = [*_pairs(meters.get(meter)), pair]
-            meters[meter] = _recent(kept, max(p["resets_at"] for p in kept),
-                                    pair["window_secs"])
+        for meter, pair in read:
+            kept = [*_pairs(meters.get(meter["name"])), pair]
+            seen = _seen(provider, account, meter["name"])
+            meters[meter["name"]] = _recent(kept, seen,
+                                            max([*seen, *(p["resets_at"] for p in kept)]),
+                                            _number(meter.get("window_secs")))
         tmp = path.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
         try:
             tmp.write_text(json.dumps(blob))
@@ -1191,8 +1239,9 @@ def holds(provider, account, meter):
     """(the tokens 100% of this subscription's `meter`, a reading's, stands for, the pairs it is
     measured from): those of the window the reading names and the one before it (`_recent`),
     the first None while none of them moved it, or with no meter read."""
+    name = meter.get("name")
     pairs = _recent(_pairs(_record(_record(_measured().get(provider)).get(
-        account or config.DEFAULT_ACCOUNT)).get(meter.get("name"))),
+        account or config.DEFAULT_ACCOUNT)).get(name)), _seen(provider, account, name),
         _number(meter.get("resets_at")), _number(meter.get("window_secs")))
     moved = sum(pair["moved"] for pair in pairs)
     return (round(100 * sum(pair["tokens"] for pair in pairs) / moved) if moved > 0 else None,

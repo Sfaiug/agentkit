@@ -184,6 +184,18 @@ class SubscriptionCapacity(Sandbox):
         for begun in (NOW, NOW + 1000, NOW + 2000):
             turn(begun, 1)
         self.assertEqual(ends(), [NOW + 1000 + WEEK, NOW + 2000 + WEEK])
+        # ... and a week the meter's reading named, though no turn's pair came from it, is the
+        # week before the next as well: here a turn whose tokens nobody knows.
+        (config.STATE / "capacity.json").unlink()
+        turn(NOW, 1)
+        second = {"name": "weekly_all", "used": 10, "resets_at": NOW + 1000 + WEEK,
+                  "window_secs": WEEK}
+        self.assertTrue(usage.record_turn_meters(self.cfg, "anthropic", [second], "default",
+                                                 now=NOW + 1060))
+        self.assertEqual(self.holds(resets_at=NOW + 2000 + WEEK), (None, 0))
+        turn(NOW + 2000, 3)
+        self.assertEqual(ends(), [NOW + 2000 + WEEK])
+        self.assertEqual(self.holds(resets_at=NOW + 2000 + WEEK), (33_333_333, 1))
 
     def test_usage_json_carries_the_estimate_and_its_pairs(self):
         self.turn("opus", "default", 3_100_000, weekly=41)
