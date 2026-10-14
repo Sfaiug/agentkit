@@ -840,7 +840,9 @@ class Wiring(GrokSandbox):
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertIn("wrote seat-state hooks", first.stdout)
         wanted = json.loads(target.read_text())
-        self.assertEqual(set(wanted["hooks"]), {"UserPromptSubmit", "Stop", "Notification"})
+        # every event the manifest gives a meaning, and only those
+        self.assertEqual(set(wanted["hooks"]),
+                         {event["name"] for event in config.manifest("grokbuild")["hooks"]["event"]})
         stop = wanted["hooks"]["Stop"][0]["hooks"]
         self.assertEqual([entry["command"] for entry in stop],
                          [f"bash {REPO}/hooks/seat-state.sh",

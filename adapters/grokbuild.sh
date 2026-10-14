@@ -363,10 +363,13 @@ auth)
   fi ;;
 hooks)
   # The seat-state hooks, in agentkit's own file under the global hooks directory the TUI
-  # always trusts: UserPromptSubmit and Stop feed hooks/seat-state.sh, Stop also feeds the
-  # end-of-turn gate in hooks/orchestrator-stop.sh, and Notification feeds idle/permission
-  # facts to the same state script.  The file is agentkit's own, so installing it touches
-  # no file of the user's; an older agentkit file is backed up once before it is replaced.
+  # always trusts: UserPromptSubmit, Stop and the StopCancelled/StopFailure that end a turn
+  # instead of it feed hooks/seat-state.sh, Stop also feeds the end-of-turn gate in
+  # hooks/orchestrator-stop.sh, and Notification feeds idle/permission/question facts to the
+  # same state script.  So does PostToolUse, the question's answer, matched to
+  # ask_user_question alone: no other tool call starts a hook.  The file is agentkit's own,
+  # so installing it touches no file of the user's; an older agentkit file is backed up once
+  # before it is replaced.
   # Grok also loads these commands from ~/.claude/settings.json through its claude-compat
   # layer, and only deduplicates identical (event, command) pairs across the two sources --
   # so both must keep naming this same checkout path, or the hooks fire twice.
@@ -383,7 +386,11 @@ wanted = {"hooks": {
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": seat}]}],
     "Stop": [{"hooks": [{"type": "command", "command": seat},
                         {"type": "command", "command": stop}]}],
-    "Notification": [{"hooks": [{"type": "command", "command": seat}]}]}}
+    "StopCancelled": [{"hooks": [{"type": "command", "command": seat}]}],
+    "StopFailure": [{"hooks": [{"type": "command", "command": seat}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": seat}]}],
+    "PostToolUse": [{"matcher": "ask_user_question",
+                     "hooks": [{"type": "command", "command": seat}]}]}}
 target = os.path.join(d, "agentkit.json")
 try:
     with open(target) as fh:

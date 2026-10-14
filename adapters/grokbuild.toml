@@ -1,5 +1,5 @@
 # Grok Build: the TUI's own flags, its own error words, and its own hook events.
-# The captures behind the screen rules are tests/fixtures/grok-*.txt; the trust dialog's
+# The captures behind the screen rules are tests/fixtures/grok*-pane.txt; the trust dialog's
 # words are the executable's own strings (1.0.40), because no fresh folder on this host was
 # still untrusted enough to paint it.  Every other string here was seen on the wire.
 # A worker turn or seat still loads the checkout's AGENTS.md and a top-level CLAUDE.md: grok 1.0.40 has no switch for them.
@@ -57,27 +57,56 @@ working = "hooks"
 asking = "hooks"
 at_prompt = "hooks"
 
-# A prompt submitted is a turn in flight; a turn ended is the prompt again.  The kinds are
-# the Notification types grok names: idle_prompt about a minute after the session settles
-# (captured), permission_prompt when its permission UI waits (documented).  task_complete
-# and the StopCancelled/StopFailure rounds name no entry, so they leave the last hook fact alone.
+# A prompt submitted is a turn in flight; a turn ended is the prompt again, however it ended:
+# Stop on a completion, StopCancelled instead on Ctrl+C or a declined permission, StopFailure
+# instead on an API error.  The kinds are the Notification types grok names: idle_prompt about
+# a minute after the session settles, permission_prompt when its permission card waits, and
+# elicitation_dialog when ask_user_question's does (captured, 1.0.46).  That question's answer
+# is the tool's PostToolUse, the one tool grokbuild.sh hooks; an approved permission fires
+# nothing until its tool ends.  task_complete names no entry, so it leaves the last fact alone.
 [[hooks.event]]
 name = "UserPromptSubmit"
 state = "working"
+
+# hooks/orchestrator-stop.sh writes a Stop down once it has judged it, as claude.toml says: one
+# on background work or sent back to work is the turn going on.  It does so once it reads the
+# work in flight off grok's camelCase `backgroundTasks`; until then every Stop is a plain one.
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["background"]
+background = true
+
+[[hooks.event]]
+name = "Stop"
+state = "working"
+kinds = ["held"]
 
 [[hooks.event]]
 name = "Stop"
 state = "at_prompt"
 
 [[hooks.event]]
+name = "StopCancelled"
+state = "at_prompt"
+
+[[hooks.event]]
+name = "StopFailure"
+state = "at_prompt"
+
+[[hooks.event]]
 name = "Notification"
 state = "asking"
-kinds = ["permission_prompt"]
+kinds = ["permission_prompt", "elicitation_dialog"]
 
 [[hooks.event]]
 name = "Notification"
 state = "at_prompt"
 kinds = ["idle_prompt"]
+
+[[hooks.event]]
+name = "PostToolUse"
+state = "working"
 
 # The composer is grok's box: an empty `│ ❯` line, and the border underneath it carrying
 # the model, the effort and the permission mode.  The pattern matches the empty box only,
@@ -86,7 +115,8 @@ kinds = ["idle_prompt"]
 # narrow pane cuts the border's words short of its corner (`· always-appro─╯`, 1.0.46).
 [screen]
 composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
-footer = ['Shift\+Tab:mode.*', 'Enter:send.*']
+# the first Esc on a draft turns the hints into `Esc:press again to clear` (1.0.46)
+footer = ['Shift\+Tab:mode.*', 'Enter:send.*', 'Esc:press again to clear']
 # A line taller than the box scrolls inside it, the box's last rows showing, with a scrollbar
 # drawn just inside its right edge (captured 1.0.46 at 40 columns): never typed text.  Its
 # thumb ends in whichever block its scroll position needs (`▄` and `▂` captured), so the
@@ -95,32 +125,56 @@ scrolled = '\s+[▀-█]$'
 
 # Its trust dialog: the question with the pair of controls.  Words from the executable's
 # own strings; no fresh folder on this host was still untrusted enough to paint it, so the
-# layout is assumed.  No newest anchor: the composer and its key hints stay painted under
-# every grok dialog (the spinner line proves it), so a dialog line is never the newest one;
-# the full question with both controls is not something a transcript plausibly quotes.
+# layout is assumed.  No newest anchor: the composer and its key hints are taken to stay
+# painted under it (1.0.40's spinner line suggested so; 1.0.46's permission and question
+# cards replace them, below), so a dialog line would never be the newest one; the full
+# question with both controls is not something a transcript plausibly quotes.
 [[rule]]
 id = "asking.trust"
 state = "asking"
 lines = 8
 all = ["do you trust the contents of this directory?", "yes, proceed", "no, quit"]
 
+# Its permission card stands where the composer was, its own key hints the newest line:
+# `1/4:select │ Tab:next option │ … │ Ctrl+c:cancel` while it has the keys, `Tab/Space:permission
+# │ … │ Ctrl+c:cancel` parked (captured 1.0.46; a narrow pane cuts the hints after the second).
+# Their Ctrl+c:cancel is why the card comes before the spinner.
+[[rule]]
+id = "asking.permission"
+state = "asking"
+lines = 1
+newest = '^(?:\d+/\d+:select\s+│\s+Tab:next option|Tab/Space:permission)\b'
+
+# ask_user_question's card, the same way: `Tab:next answer │ Esc:scrollback │ Shift+x:dismiss`,
+# `Tab/Space:question │ … │ Ctrl+c:cancel` parked.  Its spinner's `Waiting on answers for …`
+# stays drawn a moment after the answer, so the hints alone say the card is up.
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 1
+newest = '^(?:Tab:next answer|Tab/Space:question)\b'
+
 # A turn in flight: the spinner line above the composer (`⠼ Responding… 0.8s … [stop]`)
 # and the footer turning to Ctrl+c:cancel.  Esc never cancels a grok turn, so none of the
-# other harnesses' interrupt words appear here.
+# other harnesses' interrupt words appear here.  /compact's spinner (`⠋ Compacting…`) runs
+# with no Ctrl+c:cancel under it (1.0.46).
 [[rule]]
 id = "working.turn"
 state = "working"
 lines = 8
-any = ["responding…", "ctrl+c:cancel"]
+any = ["responding…", "ctrl+c:cancel", "compacting…"]
 
 # A composer holding bright, typed text is a draft never sent.  Grok has no
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.
 # A dim-only composer is empty, so the suggestion rule reads at_prompt like the
 # other harnesses' -- the rule's dim shape is exercised by Codex's real placeholder.
+# The prompt row it reads has the box's closing border right under it, so it is at most the
+# fourth row up, over that border, a status line and the key hints: a slash command's dropdown,
+# drawn above the box with a bare rule under its last row, is never read for the draft (1.0.46).
 [[rule]]
 id = "prompt.draft"
 state = "draft"
-lines = 8
+lines = 4
 at_composer = true
 none = ["responding…", "ctrl+c:cancel"]
 
