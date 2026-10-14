@@ -3849,9 +3849,9 @@ def pick(cfg, providers, default):
 
     `agentkit · new session`, `n` on a terminal: what Enter takes is chosen before a key is
     pressed -- `default`, which is `choose()`'s, and both default groups with something left
-    to spend. A group whose defaults are all spent falls back by tier -- another company's
-    fresh model before the other group's company's, before its own -- among the fresh models
-    a run could start from, else among all fresh models. A
+    to spend. A group whose defaults are all spent falls back by tier -- a fresh model that is
+    not the other group's own before its own -- among the fresh models a run could start from,
+    else among all fresh models. A
     spent model is still a choice, only never a preselected one, so with every model spent
     nothing is chosen and Enter takes the highlight to the column that still wants a choice.
     ↑/↓, k/j and the wheel move through models, ←/→ through roles; space or a click chooses,

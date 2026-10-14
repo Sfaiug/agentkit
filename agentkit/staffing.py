@@ -233,17 +233,19 @@ def same_model(cfg, first, second):
 
 
 def reviewer_order(cfg, writers, order):
-    """Another company's models, then the writers' companies', then the writers' own; budget
-    order within each tier.  `writers` is the model that wrote the work, or every model that
-    wrote part of it: a PR's orchestrator and the fixer its fix was handed to.  A model tends
-    to miss the mistakes it makes, so its own review is the last choice -- but only a choice,
-    never a refusal: one worker reviews itself."""
+    """Every other model in the order given, then the writers' own.  `writers` is the model
+    that wrote the work, or every model that wrote part of it: a PR's orchestrator and the
+    fixer its fix was handed to.  A model tends to miss the mistakes it makes, so its own
+    review is the last choice -- but only a choice, never a refusal: one worker reviews
+    itself.  A reviewer from the writer's company counts as any other: a stronger reviewer
+    catches more than a different company does, and its separate turn is the fresh context
+    (AGENTS.md, Owner rules, 14 Oct)."""
     names = [writers] if isinstance(writers, str) else [name for name in (writers or []) if name]
     try:
         wrote = [config.model(cfg, name) for name in names]
     except config.Error:
         return []
-    cross, same, own = [], [], []
+    others, own = [], []
     for name in order:
         try:
             reviewed = config.model(cfg, name)
@@ -251,11 +253,9 @@ def reviewer_order(cfg, writers, order):
             continue
         if name in names or any(reviewed["model"] == each["model"] for each in wrote):
             own.append(name)
-        elif any(reviewed["provider"] == each["provider"] for each in wrote):
-            same.append(name)
         else:
-            cross.append(name)
-    return cross + same + own
+            others.append(name)
+    return others + own
 
 
 def head_writers(state):
@@ -268,28 +268,28 @@ def head_writers(state):
 
 
 def pair_tier(cfg, executor, reviewer):
-    """This pair's tier: 0 another company, 1 the executor's company, 2 its own model.
+    """This pair's tier: 0 another model, whatever its company, 2 the executor's own model.
 
     None when either name is unknown: no pick weighs a pair it cannot name.
     """
     if same_model(cfg, executor, reviewer):
         return 2
     try:
-        executed = config.model(cfg, executor)["provider"]
-        reviewed = config.model(cfg, reviewer)["provider"]
+        config.model(cfg, executor)
+        config.model(cfg, reviewer)
     except config.Error:
         return None
-    return 0 if executed != reviewed else 1
+    return 0
 
 
 def best_pair(cfg, executors, reviewers, allow_self=True):
     """The pair every automatic pick takes: tier first, then executor budget, then reviewer.
 
     Both lists are already budget-ordered, so the first pair in tier order wins: a review
-    by another company beats one by the executor's company, which beats the executor
-    reviewing itself.  A first pick that stopped at the cheapest executor would keep a
-    self-review while a cross-company pair is ready.  None when no pair forms -- or only
-    a self-review when `allow_self` is off, which a flake waits out.
+    by another model, whatever its company, beats the executor reviewing itself.  A first
+    pick that stopped at the cheapest executor would keep a self-review while a pair with
+    another reviewer is ready.  None when no pair forms -- or only a self-review when
+    `allow_self` is off, which a flake waits out.
     """
     best, key = None, None
     for ei, executor in enumerate(executors or []):
@@ -365,8 +365,8 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
                   allow_self=True):
     """(executor, reviewer) for work whose provider has run dry, or turns.Exhausted when none is left.
 
-    Both roles are re-picked as one pair (`best_pair`), so tier beats budget: a cross-company
-    review beats a same-company one, which beats a self-review.  Keeping the current reviewer
+    Both roles are re-picked as one pair (`best_pair`), so tier beats budget: a review by
+    another model beats a self-review.  Keeping the current reviewer
     instead would force a dearer executor on the run -- on 2026-09-22 a Grok refusal kept
     reviewer Muse and pushed execution onto Claude, though executor Muse with reviewer Claude
     was legal and cheaper.

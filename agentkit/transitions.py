@@ -38,7 +38,7 @@ def stall_summary(state):
 
 def review_providers(cfg, executor, reviewer):
     """The (executor, reviewer) providers.  Any reviewer may review any executor --
-    another company is only preferred, by reviewer_order, never required."""
+    another model is only preferred, by reviewer_order, never required."""
     executed = config.model(cfg, executor) if executor else None
     reviewed = config.model(cfg, reviewer)
     return (executed["provider"] if executed else None), reviewed["provider"]

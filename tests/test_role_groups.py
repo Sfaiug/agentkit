@@ -94,20 +94,20 @@ class RoleGroups(unittest.TestCase):
         config.save(self.cfg)
         self.assertEqual(config.load()["defaults"]["reviewers"], ["seat"])
 
-    def test_each_group_ranks_by_budget_and_cross_company_still_wins(self):
+    def test_each_group_ranks_by_budget_and_the_reviewer_is_another_model(self):
         self.groups()
         self.assertEqual(self.pick(), ("beta", "delta"))
         self.assertEqual(usage.pick_order(self.cfg, self.providers(), role="reviewer"),
                          ["gamma", "delta"])
-        # A same-company reviewer has more budget, but the other company reviews first.
+        # The executor's own model is the one reviewer that comes last: alpha reviews beta.
         self.wide["reviewers"] = ["beta", "alpha"]
         self.assertEqual(self.pick(), ("beta", "alpha"))
-        # Tier beats budget across pairs: alpha's cross-company review by gamma beats
-        # beta's same-company one, though beta has the higher budget.
+        # A reviewer from the executor's company counts as any other: beta, with the higher
+        # budget, executes and gamma reviews it, same company or not.
         self.wide["reviewers"] = ["gamma"]
-        self.assertEqual(self.pick(), ("alpha", "gamma"))
+        self.assertEqual(self.pick(), ("beta", "gamma"))
         self.cfg["models"]["gamma"]["reviews_own_provider"] = False
-        self.assertEqual(self.pick(), ("alpha", "gamma"))
+        self.assertEqual(self.pick(), ("beta", "gamma"))
 
     def test_overlapping_groups_prefer_another_company_over_self_review(self):
         self.groups(workers=("beta", "alpha"), reviewers=("beta",))
