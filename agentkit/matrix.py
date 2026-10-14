@@ -9,11 +9,11 @@ sessions.  LiveBench 2.0, its CSV files, no key: coding, long-horizon and reason
 what a successful coding task cost.
 `ak models --refresh` asks again before the day is up; a board that cannot answer keeps what it
 last said, its error beside it, and waits for the day like one that answered.  Callers at once
-share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
-A board's row is one model at one effort (`Acme 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default
-Fallback)` is Acme 5 (Default Fallback) at max), or at none where the board names no effort, with
-every number the board gives as `<board>.<field>`, a table's fields under the table's name
-(`aa.evaluations.artificial_analysis_coding_index`).
+share one collection: each writer of `state/matrix.json` holds `matrix.lock` from reading it to
+replacing it.  A board's row is one model at one effort (`Acme 5 (max)` is Acme 5 at max, `Acme 5
+(Max, Default Fallback)` is Acme 5 (Default Fallback) at max), or at none where the board names no
+effort, with every number the board gives as `<board>.<field>`, a table's fields under the table's
+name (`aa.evaluations.artificial_analysis_coding_index`).
 
 A row of the matrix is one model at one effort: an effort a board lists for it or the config
 runs it at in any role, so a board naming no effort counts for every effort of its model, and a
@@ -36,6 +36,7 @@ and never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, ar
 livebench.ai.
 """
 
+import contextlib
 import csv
 import fcntl
 import io
@@ -206,19 +207,46 @@ def cache_path():
     return config.STATE / "matrix.json"
 
 
+@contextlib.contextmanager
+def _locked():
+    """One writer of `matrix.json` at a time: `matrix.lock` held from reading it to replacing
+    it, so callers at once share one collection and no write loses another's."""
+    cache_path().parent.mkdir(parents=True, exist_ok=True)
+    with cache_path().with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _held():
+    """`matrix.json` as it is, {} where it is not or unreadable."""
+    try:
+        return json.loads(cache_path().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _write(cache):
+    tmp = cache_path().with_suffix(".tmp")
+    tmp.write_text(json.dumps(cache))
+    tmp.replace(cache_path())
+
+
+def config_key(cfg):
+    """What of the config the matrix is computed from: a change here recomputes it."""
+    return sorted([name, cfg["models"][name]["harness"], cfg["models"][name]["model"],
+                   *(config.role_effort(cfg["models"][name], role) for role in config.ROLE_EFFORTS),
+                   cfg["models"][name].get("benchmark") or ""]
+                  for name in config.offered(cfg))
+
+
 def collect(*, refresh=False, now=None):
     """The boards' rows, each board asked once a day (`refresh` asks now), as the cache holds
     them: {board: {"asked_at", "fetched_at", "rows", "error"}}.  The day counts from `asked_at`,
     answered or not; a board that fails keeps its last rows and their `fetched_at`.  One caller
     collects at a time, under `matrix.lock`, and the next reads what it wrote."""
     now = time.time() if now is None else now
-    cache_path().parent.mkdir(parents=True, exist_ok=True)
-    with cache_path().with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            cache = json.loads(cache_path().read_text())
-        except (OSError, ValueError):
-            cache = {}
+    with _locked():
+        cache = _held()
         secret = key()
         asks = {"artificialanalysis.ai": (lambda: artificial_analysis(secret)) if secret else None,
                 "arena.ai": arena, "livebench.ai": livebench}
@@ -234,10 +262,8 @@ def collect(*, refresh=False, now=None):
             except Exception as exc:          # noqa: BLE001 -- a board down is a note, not a crash
                 cache[board] = {**held, "asked_at": now,
                                 "error": " ".join(str(exc).split()) or type(exc).__name__}
-        tmp = cache_path().with_suffix(".tmp")
-        tmp.write_text(json.dumps(cache))
-        tmp.replace(cache_path())
-    return cache
+        _write(cache)
+    return {board: cache[board] for board in BOARDS}      # the matrix computed from them aside
 
 
 def normal(text):
@@ -422,6 +448,48 @@ def cell(found):
     return "-" if found is None else f"{found['score']:.0f} of {found['measures']}"
 
 
+def stored():
+    """The matrix as last computed, {"computed_at", "config", "rows"}, or {}."""
+    return _held().get("matrix") or {}
+
+
+def refresh(cfg, *, refresh=False, now=None):
+    """The boards (`collect`) and the matrix computed from them and the config, written beside
+    the boards in `state/matrix.json` so every pick reads one computed truth; computed again
+    only once a board answered anew or the config's models changed, since the harness catalogs
+    it asks take time.  Returns (boards, the scored rows); `recommended` reads off the rows."""
+    now = time.time() if now is None else now
+    boards = collect(refresh=refresh, now=now)
+    held = stored()
+    fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)
+    if (held.get("rows") is not None and held.get("computed_at", -1) >= fetched
+            and held.get("config") == config_key(cfg)):
+        return boards, held["rows"]
+    table = scored(rows(cfg, boards))
+    with _locked():
+        cache = _held()
+        cache["matrix"] = {"computed_at": now, "config": config_key(cfg), "rows": table}
+        _write(cache)
+    return boards, table
+
+
+def rank(cfg, role):
+    """Each configured model's place for `role` off the matrix as last computed, at the effort
+    the config runs it at in that role: (the measures its score rests on, the score), None for
+    a model the boards have nothing on or a matrix nobody computed yet.  A pick reads this and
+    never the boards."""
+    held = stored()
+    rows_by = {(row["harness"], row["model"], row["effort"]): row for row in held.get("rows") or []}
+    found = {}
+    for name in config.offered(cfg):
+        entry = cfg["models"][name]
+        row = rows_by.get((entry["harness"], entry["model"],
+                           config.role_effort(entry, CONFIG_ROLES[role])))
+        score = (row.get("scores") or {}).get(role) if row else None
+        found[name] = (score["measures"], score["score"]) if score else None
+    return found
+
+
 def row_label(row):
     """`acme` for a configured row, else `acme-5-5`, and `@ max` where an effort is."""
     return (row["name"] or row["model"]) + (f" @ {row['effort']}" if row["effort"] else "")
@@ -496,8 +564,7 @@ def main(argv):
     if flags - {"--json", "--refresh"}:
         raise config.Error(f"usage: ak models [--json] [--refresh]  (got {argv!r})")
     cfg = config.load()
-    boards = collect(refresh="--refresh" in flags)
-    table = scored(rows(cfg, boards))
+    boards, table = refresh(cfg, refresh="--refresh" in flags)
     own = live(cfg)
     if "--json" in flags:
         json.dump({"rows": table,

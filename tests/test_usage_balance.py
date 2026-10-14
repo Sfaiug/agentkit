@@ -361,7 +361,7 @@ class WeeklyBalance(unittest.TestCase):
         providers["meta"].update(meters=[], error="unknown: no usage endpoint")
         with redirect_stderr(io.StringIO()) as err:
             usage.pick_order(self.cfg, providers)
-        self.assertIn("budget 0 unknown: no usage endpoint; ranked last", err.getvalue())
+        self.assertIn("budget 0 unknown: no usage endpoint; after every known budget of its rank", err.getvalue())
         self.assertNotIn("unknown: unknown:", err.getvalue())
 
     def test_v5b_budget_label_agrees_with_rounded_number(self):
