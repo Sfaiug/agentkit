@@ -32,6 +32,8 @@ class OneProvider(unittest.TestCase):
         # processes carrying the hosting run's inherited marker.
         self.stack.enter_context(patch.object(run.worker, "kill_marked", return_value=True))
         self.stack.enter_context(patch.object(config, "active_session", return_value=None))
+        # the usage table reads ak's state: this temporary one's, never the caller's
+        self.stack.enter_context(patch.object(config, "STATE", self.root / "state"))
         self.stack.enter_context(redirect_stderr(io.StringIO()))
         self.cfg = {"defaults": {"orchestrator": "seat",
                                  "workers": ["alpha", "beta", "gamma", "delta"]},

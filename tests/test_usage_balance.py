@@ -37,6 +37,12 @@ class WeeklyBalance(unittest.TestCase):
         env = patch.dict(os.environ, {"OPENCODE_CONFIG_DIR": opencode.name})
         env.start()
         self.addCleanup(env.stop)
+        # the usage table reads ak's state: this temporary one's, never the caller's
+        state = tempfile.TemporaryDirectory(prefix=".ak-test-usage-state-", dir=REPO)
+        self.addCleanup(state.cleanup)
+        home = patch.object(config, "STATE", Path(state.name))
+        home.start()
+        self.addCleanup(home.stop)
         self.now = 10000
         self.clock = patch.object(usage.time, "time", side_effect=lambda: self.now)
         self.clock.start()

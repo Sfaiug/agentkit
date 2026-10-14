@@ -78,6 +78,10 @@ class SubscriptionCapacity(Sandbox):
             return []
         return blob.get(provider, {}).get(account, {}).get(meter, [])
 
+    def holds(self, resets_at=RESETS):
+        """Claude I's estimate beside a reading of its week ending at `resets_at`."""
+        return usage.holds("anthropic", "default", self.meter("weekly_all", 0, resets_at))
+
     def row(self, label):
         rows = [dict(zip(usage.HEADERS, row))
                 for row in usage.rows(self.cfg, usage.collect(self.cfg))]
@@ -89,7 +93,7 @@ class SubscriptionCapacity(Sandbox):
         self.turn("opus", "default", 1_200_000, weekly=43)
         self.assertEqual([(p["tokens"], p["moved"]) for p in self.pairs()],
                          [(3_100_000, 1), (5_000_000, 2), (1_200_000, 0)])
-        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (310_000_000, 3))
+        self.assertEqual(self.holds(), (310_000_000, 3))
         self.assertEqual(self.row("anthropic I")["holds"], "week ≈ 310M tokens")
         # the column follows `left`, and each subscription has its own: the other has no pair
         self.assertEqual(usage.HEADERS[usage.HEADERS.index("left") + 1], "holds")
@@ -102,10 +106,17 @@ class SubscriptionCapacity(Sandbox):
         self.assertEqual(usage.record_pairs(self.cfg, "opus", "default", before, 4_000_000,
                                             after, now=NOW + 60), {})
         self.assertEqual(self.pairs(), [])
-        # ... while a reading still inside the week the turn began in pairs
-        after = [self.meter("weekly_all", 95, resets_at=NOW + 30)]
+        # ... and so does a usage-limit reset spent during it, though the week before would
+        # still have run on: the reading names the new week's reset
+        before = [self.meter("weekly_all", 1)]
+        after = [self.meter("weekly_all", 2, resets_at=NOW + 60 + WEEK)]
+        self.assertEqual(usage.record_pairs(self.cfg, "opus", "default", before, 4_000_000,
+                                            after, now=NOW + 60), {})
+        self.assertEqual(self.pairs(), [])
+        # ... while a reading naming the reset the turn began under pairs
+        after = [self.meter("weekly_all", 2)]
         self.assertEqual(list(usage.record_pairs(self.cfg, "opus", "default", before, 4_000_000,
-                                                 after, now=NOW + 20)), ["weekly_all"])
+                                                 after, now=NOW + 60)), ["weekly_all"])
 
     def test_only_the_weekly_meters_gating_the_turns_model_count(self):
         before = [self.meter("weekly_all", 40), self.meter("weekly_scoped", 30),
@@ -123,10 +134,10 @@ class SubscriptionCapacity(Sandbox):
         self.turn("opus", "default", 2_000_000, weekly=40)
         self.assertEqual([(p["tokens"], p["moved"]) for p in self.pairs()], [(2_000_000, 0)])
         # alone, it moved nothing, so there is nothing to divide by
-        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (None, 1))
+        self.assertEqual(self.holds(), (None, 1))
         self.assertEqual(self.row("anthropic I")["holds"], "-")
         self.turn("opus", "default", 4_000_000, weekly=42)
-        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (300_000_000, 2))
+        self.assertEqual(self.holds(), (300_000_000, 2))
 
     def test_a_turn_without_its_own_reading_pairs_with_the_probe_after_it(self):
         def probe(cfg, provider, now, account=None):
@@ -143,16 +154,36 @@ class SubscriptionCapacity(Sandbox):
         self.assertEqual(self.row("openai")["holds"], "week ≈ 400M tokens")
 
     def test_pairs_older_than_the_previous_window_are_dropped(self):
-        def week(n, used):
-            return [{"name": "weekly_all", "used": used, "resets_at": NOW + n * WEEK,
-                     "window_secs": WEEK}]
+        def turn(begun, moved, ends=None):
+            """A turn just after the week ending at `ends` began at `begun`."""
+            ends = begun + WEEK if ends is None else ends
+            reading = [{"name": "weekly_all", "used": 10, "resets_at": ends, "window_secs": WEEK}]
+            usage.record_pairs(self.cfg, "opus", "default", reading, 1_000_000,
+                               [{**reading[0], "used": 10 + moved}], now=begun + 60)
+
+        def ends():
+            return [p["resets_at"] for p in self.pairs()]
+
         for n in (1, 2, 3):
-            # a turn in each of three weeks in a row, at its own week's start
-            usage.record_pairs(self.cfg, "opus", "default", week(n, 10), 1_000_000,
-                                  week(n, 10 + n), now=NOW + (n - 1) * WEEK + 60)
-            kept = [p["resets_at"] for p in self.pairs()]
-            self.assertEqual(kept, [NOW + k * WEEK for k in (1, 2, 3) if n - 1 <= k <= n])
-        self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (40_000_000, 2))
+            # a turn in each of three weeks in a row
+            turn(NOW + (n - 1) * WEEK, n)
+            self.assertEqual(ends(), [NOW + k * WEEK for k in (1, 2, 3) if n - 1 <= k <= n])
+        self.assertEqual(self.holds(resets_at=NOW + 3 * WEEK), (40_000_000, 2))
+        # The estimate is the reading's week and the one before it: once the meter names a
+        # later week, an older pair counts for nothing, though it is still on file.
+        self.assertEqual(self.holds(resets_at=NOW + 4 * WEEK), (33_333_333, 1))
+        self.assertEqual(self.holds(resets_at=NOW + 5 * WEEK), (None, 0))
+        # A week no turn was paired in is still the week before: the one before it goes.
+        (config.STATE / "capacity.json").unlink()
+        for n in (1, 3):
+            turn(NOW + (n - 1) * WEEK, n)
+        self.assertEqual(ends(), [NOW + 3 * WEEK])
+        # A usage-limit reset spent early starts the next week before the last one's end:
+        # of three such weeks, the first is older than the one before the latest.
+        (config.STATE / "capacity.json").unlink()
+        for begun in (NOW, NOW + 1000, NOW + 2000):
+            turn(begun, 1)
+        self.assertEqual(ends(), [NOW + 1000 + WEEK, NOW + 2000 + WEEK])
 
     def test_usage_json_carries_the_estimate_and_its_pairs(self):
         self.turn("opus", "default", 3_100_000, weekly=41)

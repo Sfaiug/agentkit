@@ -1097,9 +1097,10 @@ def record_pairs(cfg, name, account, before, tokens, meters, now=None):
 
     `before` is the subscription's reading from before the turn, and the reading after it is
     the turn's own `meters`, or where it carried none a probe after it: one the probe's cadence
-    answers with a reading from before the turn ended pairs nothing.  A meter pairs only while
-    its window before had not reset by the reading after, so both lie in the window the turn
-    ran in.  A meter that did not move pairs the tokens with zero, which keeps the estimate
+    answers with a reading from before the turn ended pairs nothing.  A meter pairs only when
+    both readings name the same reset, one still ahead of the reading after, so both lie in the
+    window the turn ran in: a window a spent usage-limit reset replaced early names a later
+    one.  A meter that did not move pairs the tokens with zero, which keeps the estimate
     from counting only the turns that moved it.  Only the weekly meters that gate `name` count:
     Fable's own cap says nothing of an Opus turn.  Returns the pairs written, by meter name.
     """
@@ -1123,12 +1124,13 @@ def record_pairs(cfg, name, account, before, tokens, meters, now=None):
         used, prior, ends = (_number(meter.get("used")), _number(old.get("used")),
                              _number(old.get("resets_at")))
         if (meter.get("window_secs") == SESSION_SECS or None in (used, prior, ends)
-                or ends <= at or used < prior):
+                or _number(meter.get("resets_at")) != ends or ends <= at or used < prior):
             continue
         pairs[meter["name"]] = {"at": at, "tokens": tokens, "moved": used - prior,
-                                "resets_at": ends}
+                                "resets_at": ends,
+                                "window_secs": _number(meter.get("window_secs"))}
     if pairs:
-        _keep_pairs(provider, account, pairs, at)
+        _keep_pairs(provider, account, pairs)
     return pairs
 
 
@@ -1147,11 +1149,23 @@ def _measured():
         return {}
 
 
-def _keep_pairs(provider, account, pairs, now):
-    """Add one turn's pairs, keeping each meter's current and previous window and no older.
+def _recent(pairs, ends, window):
+    """The pairs of the window ending at `ends` and of the one before it: the latest to end no
+    earlier than this one began, which a spent reset cut short ends later than that.  Any other
+    window is older, a week no turn was paired in among them, and a window of no known length
+    has none before it to count."""
+    if ends is None:
+        return []
+    begun = ends - window if window else ends
+    before = max((p["resets_at"] for p in pairs if begun <= p["resets_at"] < ends), default=None)
+    return [pair for pair in pairs if pair["resets_at"] in (ends, before)]
 
-    A pair's window is the one its `resets_at` ends: the latest pair of a window already reset
-    by `now` dates the previous window, and every pair whose window had reset by then is older.
+
+def _keep_pairs(provider, account, pairs):
+    """Add one turn's pairs, keeping each meter's latest window and the one before it.
+
+    The latest is the one any pair names, not this turn's: a turn recording late must not drop
+    a later window's pairs.
     """
     path = config.STATE / PAIRS
     config.ensure_dirs()
@@ -1163,8 +1177,8 @@ def _keep_pairs(provider, account, pairs, now):
             held.get(account or config.DEFAULT_ACCOUNT))
         for meter, pair in pairs.items():
             kept = [*_pairs(meters.get(meter)), pair]
-            last = max((p["at"] for p in kept if p["resets_at"] <= now), default=None)
-            meters[meter] = [p for p in kept if last is None or p["resets_at"] > last]
+            meters[meter] = _recent(kept, max(p["resets_at"] for p in kept),
+                                    pair["window_secs"])
         tmp = path.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
         try:
             tmp.write_text(json.dumps(blob))
@@ -1174,10 +1188,12 @@ def _keep_pairs(provider, account, pairs, now):
 
 
 def holds(provider, account, meter):
-    """(the tokens 100% of this subscription's meter named `meter` stands for, the pairs it is
-    measured from): the first None while no pair moved it, or with no meter named."""
-    pairs = _pairs(_record(_record(_measured().get(provider)).get(
-        account or config.DEFAULT_ACCOUNT)).get(meter))
+    """(the tokens 100% of this subscription's `meter`, a reading's, stands for, the pairs it is
+    measured from): those of the window the reading names and the one before it (`_recent`),
+    the first None while none of them moved it, or with no meter read."""
+    pairs = _recent(_pairs(_record(_record(_measured().get(provider)).get(
+        account or config.DEFAULT_ACCOUNT)).get(meter.get("name"))),
+        _number(meter.get("resets_at")), _number(meter.get("window_secs")))
     moved = sum(pair["moved"] for pair in pairs)
     return (round(100 * sum(pair["tokens"] for pair in pairs) / moved) if moved > 0 else None,
             len(pairs))
@@ -1716,7 +1732,7 @@ def rows(cfg, providers):
         shared = shared_week(cfg, name, prov, now) or {}
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    _held(holds(name, account, shared.get("name"))[0], shared),
+                    _held(holds(name, account, shared)[0], shared),
                     reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
@@ -1822,9 +1838,8 @@ def main(argv):
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
         for _, name, prov, account in _accounts(cfg, providers):
-            week = shared_week(cfg, name, prov) or {}
-            prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account,
-                                                                       week.get("name"))
+            prov["capacity_tokens"], prov["capacity_pairs"] = holds(
+                name, account, shared_week(cfg, name, prov) or {})
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)
         print()
