@@ -54,6 +54,17 @@ class AntigravitySeatStates(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(read(name), (reading, reading))
 
+    def test_a_dialog_s_words_typed_or_said_open_no_dialog(self):
+        # agy draws a dialog's header from the left edge, where a draft (`> `) and a reply
+        # (indented) never start
+        said = "Requesting permission for: 4. No, cancel Question 1/1: enter Select · esc Skip"
+        for name, words, reading in (
+                ("background-draft", "draft while task runs", ("draft", "draft.typed")),
+                ("ctrl-c", "promised.", ("at_prompt", "prompt.composer"))):
+            with self.subTest(name):
+                tail = watch.pane_tail(pane(name).replace(words, said))
+                self.assertEqual(watch.screen_state("antigravity", tail)[:2], reading)
+
     def test_a_terms_page_under_the_ctrl_c_footer_is_no_prompt(self):
         self.assertEqual(read("terms-ctrl-c")[0], (None, ""))
 

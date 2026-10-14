@@ -92,20 +92,26 @@ lines = 6
 all = ["you are currently not signed in", "select login method", "enter select"]
 
 # The permission dialog of a seat opened without --dangerously-skip-permissions: its header and
-# its refusing control, over an `esc to cancel` footer that is no turn running (captured).
+# its refusing control, over an `esc to cancel` footer that is no turn running (captured).  The
+# header is drawn from the left edge, where neither a reply (indented) nor a draft (`> `) is.
 [[rule]]
 id = "asking.permission"
 state = "asking"
 lines = 12
-all = ["requesting permission for:", "no, cancel"]
+all = ["no, cancel"]
+row = '^Requesting permission for:$'
+newest = '^esc to cancel\b'
 
 # The `ask_question` dialog, where the session's tools include it -- the seat's agent names only
-# run_command -- with its `enter Select · esc Skip` hint over the same footer (captured).
+# run_command -- its question drawn from the left edge, its `enter Select · esc Skip` hint over
+# the same footer (captured).
 [[rule]]
 id = "asking.question"
 state = "asking"
 lines = 8
 all = ["enter select", "esc skip"]
+row = '^Question \d+/\d+: '
+newest = '^esc to cancel\b'
 
 # The slash-command chooser a typed `/` opens: its `enter Select · tab Complete` hint over the
 # footer.  It is the owner's own line, never a turn, so it reads as a draft (captured).
