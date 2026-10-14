@@ -158,7 +158,7 @@ signatures = [
 ]
 
 # agy 1.2.9 has no compact command among its 46 slash commands; it compacts a conversation's
-# context itself.  tools/idle-compact.py would only ever say so, so a seat is not wrapped in it.
+# context itself, so tools/idle-compact.py, which a seat still runs under, types nothing.
 [compact]
 command = "none"
 

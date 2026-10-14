@@ -4,7 +4,8 @@ Nothing else tells ak about an answered question, an Esc, an error that ended a 
 change on a harness without a hook for it: tools/idle-compact.py, which every seat's harness runs
 under, sees the screen move and stop.  Offline: the wrapper runs under a pty around a fake
 harness, with a fake tmux on PATH that writes down every call and answers a capture with a
-fixture pane; the look itself is replaced in-process where the test counts looks.
+fixture pane; where a test counts looks, the seat's own look runs in-process on
+test_live_status's seat, its record, hooks and pane faked.
 """
 
 import fcntl
@@ -25,6 +26,9 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from agentkit import config, watch  # noqa: E402
+from test_live_status import LiveStatus  # noqa: E402
+
 WRAPPER = REPO / "tools/idle-compact.py"
 FIXTURES = REPO / "tests/fixtures"
 
@@ -57,46 +61,87 @@ for burst in range(bursts):
 
 
 class Check(unittest.TestCase):
-    """What the pane reads decides whether the seat is looked at."""
+    """What the pane reads, against what the seat's record says, decides whether it is looked at."""
 
-    def looks(self, panes):
+    def setUp(self):
+        self.seat = LiveStatus()
+        self.seat.setUp()
+        self.addCleanup(lambda: self.assertTrue(self.seat.doCleanups()))
+
+    def looks(self, harness="claude"):
+        """The seat's `Looks`, its look the seat's own, each one counted; its capture reads the
+        pane its look reads."""
         made = []
-        looks = idle_compact.Looks("acme", "claude", "/tmp/acme-sock", "%5",
-                                   look=lambda wait=True: made.append(wait))
-        reads = iter(panes)
-        looks.read = lambda: next(reads)
+
+        def look(wait=True):
+            made.append(wait)
+            watch.hook_look("herdr")
+        with patch.object(idle_compact.threading.Thread, "start"):
+            looks = idle_compact.Looks("herdr", harness, "/fake/agentkit-test", "%7", look=look)
+        looks.read = lambda: self.seat.pane.return_value
         return looks, made
 
-    def pane(self, name):
-        return (FIXTURES / name).read_text(encoding="utf-8")
+    def show(self, name, *swap):
+        """Put that fixture pane on the seat's screen, each (old, new) of `swap` replaced."""
+        text = (FIXTURES / name).read_text(encoding="utf-8")
+        for old, new in swap:
+            text = text.replace(old, new)
+        self.seat.pane.return_value = text
+        return text
 
-    def test_a_changed_reading_is_looked_at_and_an_unchanged_one_is_not(self):
-        looks, made = self.looks([self.pane("claude-question-pane.txt"),
-                                  self.pane("claude-question-pane.txt"),
-                                  self.pane("claude-prompt-pane.txt"),
-                                  self.pane("claude-working-pane.txt"),
-                                  self.pane("claude-working-pane.txt")])
+    def test_a_reading_its_record_does_not_hold_is_looked_at_and_one_it_holds_is_not(self):
+        looks, made = self.looks()
+        self.show("claude-question-pane.txt")
         looks.check()                      # the question went up
         self.assertEqual(made, [True])
         looks.check()                      # the same question, redrawn
         self.assertEqual(made, [True])
+        self.show("claude-prompt-pane.txt")
         looks.check()                      # answered: its composer
+        self.show("claude-working-pane.txt")
         looks.check()                      # its turn runs on
         looks.check()                      # ... and keeps drawing its spinner
         self.assertEqual(made, [True, True, True])
+        self.assertEqual(watch.seat_read("herdr")["state"], "working")
 
-    def test_a_pane_that_cannot_be_read_is_not_a_change(self):
-        looks, made = self.looks([self.pane("claude-prompt-pane.txt"), None,
-                                  self.pane("claude-prompt-pane.txt")])
+    def test_a_screen_that_moved_under_the_look_is_looked_at_where_it_settles(self):
+        # the edge's capture still shows the composer, the look's the turn it began
+        looks, made = self.looks()
+        prompt = self.show("claude-prompt-pane.txt")
+        looks.read = lambda: prompt
+        self.show("claude-working-pane.txt")
         looks.check()
+        self.assertEqual(watch.seat_read("herdr")["state"], "working")
+        # the turn ended, back on the composer the edge read: the record says otherwise
+        self.show("claude-prompt-pane.txt")
         looks.check()
+        self.assertEqual(made, [True, True])
+        self.assertEqual(watch.seat_read("herdr")["state"], "at_prompt")
+
+    def test_another_draft_is_looked_at_and_a_redrawn_timer_is_not(self):
+        looks, made = self.looks()
+        self.show("claude-draft-pane.txt")
+        looks.check()
+        self.show("claude-draft-pane.txt", ("Fix the login redirect", "Fix the search filter"))
+        looks.check()
+        self.assertEqual(made, [True, True])
+        self.assertEqual(watch.seat_read("herdr")["reason"], "unsent: Fix the search filter")
+        # a codex seat's timer line is what its working rule reads, and no news a second on
+        config.save_session(self.seat.cfg, "herdr", "astra", ["opus", "astra"],
+                            {"repo": self.seat.repo, "cwd": self.seat.repo})
+        looks, made = self.looks("codex")
+        self.show("codex-working-pane.txt")
+        looks.check()
+        self.show("codex-working-pane.txt", ("(0s", "(1s"))
         looks.check()
         self.assertEqual(made, [True])
+        self.assertEqual(watch.seat_read("herdr")["state"], "working")
 
-    def test_an_exited_harness_is_looked_at_without_waiting_for_the_look(self):
-        looks, made = self.looks([])
-        looks.ended()
-        self.assertEqual(made, [False])
+    def test_a_pane_that_cannot_be_read_is_not_a_change(self):
+        looks, made = self.looks()
+        looks.read = lambda: None
+        looks.check()
+        self.assertEqual(made, [])
 
     def test_only_a_named_seat_in_its_own_pane_is_looked_at(self):
         seat = {"AGENTKIT_SESSION": "acme", "TMUX": "/tmp/acme-sock,1,0", "TMUX_PANE": "%5"}
@@ -124,6 +169,11 @@ class Screen(unittest.TestCase):
         self.log = self.root / "tmux.jsonl"
         self.log.write_text("")
         self.bin = bin_dir
+        # the seat's record already says what the fixture pane reads, so no edge starts a look
+        # and each is one capture
+        record = self.root / ".agentkit" / config.seat_state_path("acme").relative_to(config.HOME)
+        record.parent.mkdir(parents=True)
+        record.write_text(json.dumps({"state": "at_prompt", "rule": "prompt.composer"}))
 
     def run_seat(self, **draw):
         env = {key: value for key, value in os.environ.items()

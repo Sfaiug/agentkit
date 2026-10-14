@@ -137,7 +137,10 @@ def plan(harness):
     command = [command] if isinstance(command, str) else [str(key) for key in command]
     context = str(table.get("context") or "none")
     signal_name = str(table.get("signal") or "screen")
-    if command == ["none"] or not command:
+    if command == ["none"]:
+        # a harness that compacts its own context: a seat has nothing to be told
+        return None, None
+    if not command:
         return None, f"{harness} has no compact command"
     if context == "none":
         return None, f"{harness} does not report context size"
@@ -423,19 +426,16 @@ class Looks:
     screen at rest or moving says only when to look, never what the seat is doing: the rules in
     its manifest say that.  So an edge reads the pane against them first, in a thread of its
     own, so the terminal never waits on tmux, and the seat's own look (`watch.hook_look`, which
-    a hook starts) runs only where that reading changed: a harness that redraws once a second
-    costs a capture a redraw, never a look.  One look at a time; edges during it are one more.
+    a hook starts) runs only where that reading is not what the seat's record says, whoever
+    looked last (`watch.unseen`): a harness that redraws once a second costs a capture a
+    redraw, never a look.  One look at a time; edges during it are one more.
     """
 
     def __init__(self, seat, harness, socket, pane, look=None):
         self.seat, self.harness, self.socket, self.pane = seat, harness, socket, pane
         self.look = look or self.start
-        self.seen = None
         self.wake = threading.Event()
         threading.Thread(target=self.follow, daemon=True).start()
-
-    def poke(self):
-        self.wake.set()
 
     def start(self, wait=True):
         try:
@@ -467,21 +467,10 @@ class Looks:
             self.check()
 
     def check(self):
-        """Read the pane, and look at the seat where what its rules read there changed."""
+        """Read the pane, and look at the seat where its record does not say what it reads."""
         pane = self.read()
-        if pane is None:
-            return
-        try:
-            seen = watch.screen_state(self.harness, watch.pane_tail(pane))[:2]
-        except config.Error:
-            seen = None
-        if seen != self.seen:
-            self.seen = seen
+        if pane is not None and watch.unseen(self.seat, self.harness, pane):
             self.look()
-
-    def ended(self):
-        """Its harness exited: look once more, without waiting, as this wrapper is ending."""
-        self.look(wait=False)
 
 
 def seat_looks(harness):
@@ -633,7 +622,7 @@ def run(options, command):
             drawn_mono = output_mono
             if looks is not None and not moving:
                 moving = True
-                looks.poke()
+                looks.wake.set()
             if output_mono - last_resize_mono > RESIZE_GRACE:
                 last_output_mono = output_mono
             if built is not None and built["signal"] == "screen":
@@ -660,7 +649,7 @@ def run(options, command):
             relay.poll(max(0.0, due - now_mono))
             if moving and time.monotonic() - drawn_mono >= SETTLE:
                 moving = False
-                looks.poke()
+                looks.wake.set()
 
             polling = now_mono >= next_poll_mono
             if polling:
@@ -723,7 +712,8 @@ def run(options, command):
         if child_status is None:
             _, child_status = os.waitpid(child_pid, 0)
         if looks is not None:
-            looks.ended()
+            # without waiting for it, as this wrapper is ending
+            looks.look(wait=False)
         return exit_code(child_status)
     finally:
         if relay is not None:

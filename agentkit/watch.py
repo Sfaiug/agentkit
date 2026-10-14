@@ -2628,6 +2628,24 @@ def asking(name, harness, pane):
     return _decided_state(name, harness, pane) == "asking"
 
 
+def unseen(launched, harness, pane):
+    """Does that pane read otherwise than the seat's record says, whoever looked at it last?
+
+    Another state or rule is news a look publishes, and so are other words of a question or
+    a draft, which the owner reads; a spinner's own line, redrawn with its timer, is not.
+    Read without writing anything, by the record and hook facts a look reads by.
+    """
+    try:
+        name = config.resolve_session(launched)
+        previous = seat_read(name)
+        found = classify(harness, pane_tail(pane), hook_facts(name),
+                         previous.get("opened_at"), previous, time.time())
+    except (config.Error, OSError):
+        return False
+    said = ("evidence",) if found["state"] in ("asking", "draft") else ()
+    return any(found[key] != previous.get(key) for key in ("state", "rule", *said))
+
+
 def _decided_state(name, harness, pane):
     """The live state positively read off that pane, or None where nothing decides one."""
     if not pane.strip():
