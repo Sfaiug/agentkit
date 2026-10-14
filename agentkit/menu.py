@@ -161,7 +161,6 @@ UNREAD = ((re.compile(r"already reset"), "window reset"),
 USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
          "(the menu; `ak attach` is the same)")
 RUN_RECORDS = "run-records.jsonl"   # under STATE: what `run_records` read, one line per run.json
-SETTLED = 60             # seconds a run.json's mtime lies behind the clock before its line is kept
 
 
 def read(prompt, default=None):
@@ -1740,11 +1739,10 @@ def run_records():
 
     A run.json is parsed only when it changed: each pass keeps what it read in RUN_RECORDS, one
     line per run under the stat it was read at (inode, mtime_ns, size), and a line whose stat no
-    longer matches is read again.  The stat comes before the read, and every record write
-    replaces the file, so a line can only be newer than its file, never stand for another; one
-    is kept only once its mtime lies SETTLED behind the clock, so no later write can share it, and
-    a live run writing its record every few seconds is read on each pass instead of rewriting the
-    file on each.  Passes racing to write the file cost the next one a re-read, nothing more.
+    longer matches is read again.  The stat comes before the read, so a line holds that file's
+    record or a newer one, never an older.  Passes racing to write the file cost the next one a
+    re-read, nothing more.  Which runs are left out is decided on every pass: a smoke run's
+    paths can come to resolve elsewhere with no record written.
     """
     cache = config.STATE / RUN_RECORDS
     try:
@@ -1758,7 +1756,7 @@ def run_records():
             known[name] = key, state, line
         except (ValueError, TypeError, RecursionError):
             continue
-    found, fresh, settled = [], [], (time.time() - SETTLED) * 1e9
+    found, fresh = [], []
     for run_dir in record.run_dirs():
         try:
             info = (run_dir / "run.json").stat()
@@ -1771,12 +1769,9 @@ def run_records():
             state = record.read_state(run_dir)
             if state is None:
                 continue
-            if state.get("unattended") or smoke_run(state):
-                state = None
-            line = json.dumps([run_dir.name, *key, state]) if info.st_mtime_ns < settled else None
-        if line:
-            fresh.append(line)
-        if state is not None:
+            line = json.dumps([run_dir.name, *key, state])
+        fresh.append(line)
+        if not state.get("unattended") and not smoke_run(state):
             found.append((run_dir, state))
     if fresh != lines:
         try:

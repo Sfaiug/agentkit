@@ -72,11 +72,6 @@ class RunRecords(Sandbox):
         record.save_state(directory, {"run_id": name, "state": "pass", **extra})
         return directory
 
-    def settle(self, *directories):
-        """Written long before the sandbox's clock reads, as an ended run's record was."""
-        for directory in directories:
-            os.utime(directory / "run.json", ns=(5000 * 10**9, 5000 * 10**9))
-
     def today(self):
         """What a pass that reads every run.json returns."""
         return [(run_dir, state) for run_dir in record.run_dirs()
@@ -95,7 +90,6 @@ class RunRecords(Sandbox):
         fix = self.write("20260101-0901-fix-api", state="running")
         worker = self.write("20260101-0902-worker", unattended=True)
         smoke = self.write("20260101-0903-smoke", task=str(config.TMP / "smoke-1" / "task.md"))
-        self.settle(acme, fix, worker, smoke)
         self.assertEqual(self.parsed(), sorted(d.name for d in (acme, fix, worker, smoke)))
         self.assertTrue((config.STATE / menu.RUN_RECORDS).is_file())
         self.assertEqual(self.parsed(), [])       # nothing changed: nothing parsed
@@ -105,16 +99,22 @@ class RunRecords(Sandbox):
         record.save_state(fix, state)
         docs = self.write("20260101-0904-docs")
         self.assertEqual(self.parsed(), [fix.name, docs.name])
-        # a record written just now is read on every pass until it settles, so no later write
-        # can share the stat it was kept under
-        self.assertEqual(self.parsed(), [fix.name, docs.name])
-        self.settle(fix, docs)
-        self.assertEqual(self.parsed(), [fix.name, docs.name])
         self.assertEqual(self.parsed(), [])
+
+    def test_a_kept_run_whose_repo_now_resolves_into_a_smoke_sandbox_is_left_out(self):
+        # which runs are the suite's is asked of the paths on every pass, not of the record alone
+        (self.root / "acme").mkdir()
+        (config.TMP / "smoke-1" / "acme").mkdir(parents=True)
+        repo = self.root / "repo"
+        repo.symlink_to(self.root / "acme")
+        acme = self.write("20260101-0900-acme", repo=str(repo))
+        self.assertEqual(self.parsed(), [acme.name])
+        repo.unlink()
+        repo.symlink_to(config.TMP / "smoke-1" / "acme")
+        self.assertEqual(self.parsed(), [])       # left out, and no record parsed
 
     def test_a_removed_run_leaves_the_kept_file(self):
         acme, fix = self.write("20260101-0900-acme"), self.write("20260101-0901-fix-api")
-        self.settle(acme, fix)
         self.parsed()
         (fix / "run.json").unlink()
         fix.rmdir()
