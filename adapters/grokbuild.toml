@@ -125,9 +125,10 @@ scrolled = '\s+[▀-█]$'
 
 # Its trust dialog: the question with the pair of controls.  Words from the executable's
 # own strings; no fresh folder on this host was still untrusted enough to paint it, so the
-# layout is assumed.  No newest anchor: the composer and its key hints stay painted under
-# every grok dialog (the spinner line proves it), so a dialog line is never the newest one;
-# the full question with both controls is not something a transcript plausibly quotes.
+# layout is assumed.  No newest anchor: the composer and its key hints are taken to stay
+# painted under it (1.0.40's spinner line suggested so; 1.0.46's permission and question
+# cards replace them, below), so a dialog line would never be the newest one; the full
+# question with both controls is not something a transcript plausibly quotes.
 [[rule]]
 id = "asking.trust"
 state = "asking"
@@ -167,9 +168,9 @@ any = ["responding…", "ctrl+c:cancel", "compacting…"]
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.
 # A dim-only composer is empty, so the suggestion rule reads at_prompt like the
 # other harnesses' -- the rule's dim shape is exercised by Codex's real placeholder.
-# Its prompt row is at most the fourth row up -- over the box's closing border, a status line
-# and the key hints -- so a slash command's dropdown, drawn above the box with a bare rule
-# under its last row, is never read for the draft (1.0.46).
+# The prompt row it reads has the box's closing border right under it, so it is at most the
+# fourth row up, over that border, a status line and the key hints: a slash command's dropdown,
+# drawn above the box with a bare rule under its last row, is never read for the draft (1.0.46).
 [[rule]]
 id = "prompt.draft"
 state = "draft"

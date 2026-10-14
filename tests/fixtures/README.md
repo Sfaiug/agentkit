@@ -100,8 +100,16 @@ footer turned to `Ctrl+c:cancel`), `grok-draft-pane.txt` and `grok-suggestion-pa
 are replay variants, not captures: a real composer tail with the wording being asserted
 above it. The trust dialog's words are the executable's own strings -- no fresh folder on
 this host was still untrusted enough to paint it, so its layout is assumed and its rule
-carries no `newest` anchor (the composer stays painted under every grok dialog). The stall
+carries no `newest` anchor (the composer taken to stay painted under it). The stall
 and auth words were read out of the same executable and match what the CLI prints.
+
+`grokbuild-*-pane.txt` are Grok Build 1.0.46 seats captured with `capture-pane -p -e -J` on a
+private tmux socket and a throwaway HOME, in a live sweep on 2026-10-14: the permission card
+focused, parked and at 60 columns, `ask_user_question`'s card focused and parked and the turn
+right after its answer, the prompt just after Ctrl+C, `/compact` running, a turn ended on a
+background shell, a draft under the first Esc's `Esc:press again to clear`, and `/model` typed
+under its one-row dropdown. Each is cut to the rows `watch.pane_tail` reads; the one workspace
+path left in them was replaced by an invented one.
 
 `grok-events.jsonl` is a real headless turn (`grok -p`, one line in, `ok` out), kept whole
 so `history.event_tokens` reads the harness's own `usage` objects. `grok-hook-*.json` are
