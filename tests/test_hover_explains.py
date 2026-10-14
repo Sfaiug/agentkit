@@ -250,7 +250,9 @@ class MainMenu(unittest.TestCase):
                 child = menu_child(self, cols=cols, rows=16)
                 lines = child.frame()
                 before = texts(played(child.text(), 16))
-                keys = next(row for row, line in enumerate(lines, 1) if "↑↓ move" in line)
+                # the key line starts with the page's place where the seats run to pages
+                keys = next(row for row, line in enumerate(lines, 1)
+                            if "↑↓ move" in line or line.strip().startswith("←"))
                 grid = played(child.text(), 16)
                 places = [(at(grid, "n new"), TIPS["n new"]),
                           (at(grid, "›"), TIPS["session"].format(name=name))]

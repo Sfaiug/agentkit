@@ -91,8 +91,9 @@ class SeatQuestionWhole(Sandbox):
         # the popup over an 80x27 terminal: 80% by 70%, less its border
         screen, _, _ = self.draw("fix-api", 62, 19)
         self.assertNotIn(QUESTION, screen)
-        self.assertIn("fields the importer needs. Reason 5:", screen)
-        self.assertTrue(screen.endswith("… n new x stop c config esc leave"), screen)
+        # the usage's one line keeps its row on every page, above the question
+        self.assertIn("fields the importer needs. Reason 4:", screen)
+        self.assertTrue(screen.endswith("… ← 1 / 3 → n new x stop c config esc leave"), screen)
 
     def test_no_row_moves_and_no_page_turns_as_the_highlight_moves(self):
         for width in (44, 62, 100):
