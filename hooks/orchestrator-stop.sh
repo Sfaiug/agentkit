@@ -213,10 +213,17 @@ def questioned(payload):
 def tells(payload):
     """Does this harness hand its Stop hook the background work it has in flight?
 
-    Claude Code does, as `background_tasks`, an empty list when there is none.  A harness that
-    does not -- Codex, Grok Build -- has its stops judged, and written down, as they always were.
+    Claude Code does, as `background_tasks`, an empty list when there is none, and Grok Build as
+    `backgroundTasks`.  A harness that does not -- Codex -- has its stops judged, and written
+    down, as they always were.
     """
-    return isinstance(payload.get("background_tasks"), list)
+    return isinstance(tasks(payload), list)
+
+
+def tasks(payload):
+    """The background work a Stop hands over, under either spelling, or None."""
+    found = payload.get("background_tasks")
+    return found if found is not None else payload.get("backgroundTasks")
 
 
 def background(payload):
@@ -228,9 +235,9 @@ def background(payload):
     A `monitor` is a watch, not work: the comment watch on an artifact the seat published stays
     in that list for the rest of the session, and counted, it held the seat working for days.
     """
-    tasks = payload.get("background_tasks")
-    return isinstance(tasks, list) and any(
-        isinstance(task, dict) and task.get("type") != "monitor" for task in tasks)
+    found = tasks(payload)
+    return isinstance(found, list) and any(
+        isinstance(task, dict) and task.get("type") != "monitor" for task in found)
 
 
 def told(seat, turn, kind):
