@@ -1,0 +1,105 @@
+"""A Codex seat's question, approval, draft and pickers read as they are.
+
+Each case is a pane a live sweep of Codex 0.160.1 seats captured -- the tail ak reads of it,
+names invented -- read beside the hook events Codex fired for it, as the hooks a seat's launch
+installs for them write them down: hooks/seat-state.sh, and a call's end through
+`codex-seat.py answered`, against a temporary HOME.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import unittest
+
+from fixtures.sandbox import REPO, Sandbox
+from agentkit import config, watch
+from agentkit.harness import codex
+
+SEAT = "fix-api"
+HOOK = {"PostToolUse": [sys.executable, str(REPO / "tools/codex-seat.py"), "answered"]}
+
+
+def tail(name):
+    return watch.pane_tail((REPO / f"tests/fixtures/codex-{name}-pane.txt").read_text())
+
+
+class CodexSeatStates(Sandbox):
+    def setUp(self):
+        super().setUp()
+        config.save_session(self.cfg, SEAT, "astra", ["astra"], {"cwd": str(self.root)})
+        (self.root / ".agentkit").mkdir()
+        (self.root / ".agentkit/state").symlink_to(config.STATE)
+        self.env = {"PATH": os.environ["PATH"], "HOME": str(self.root),
+                    "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
+
+    def hook(self, event, **payload):
+        """That event through the hook Codex runs for it; the seat's fact after it."""
+        subprocess.run(HOOK.get(event, ["bash", str(REPO / "hooks/seat-state.sh")]),
+                       input=json.dumps({"hook_event_name": event, **payload}),
+                       env=self.env, text=True, timeout=20, check=True)
+        return watch.hook_facts(SEAT)
+
+    def read(self, name):
+        """(state, who said it, why) of that pane beside the seat's fact."""
+        found = watch.classify("codex", tail(name), watch.hook_facts(SEAT), None, {}, 10000)
+        return found["state"], found["authority"], found["rule"]
+
+    def screen(self, name):
+        return watch.screen_state("codex", tail(name))[:2]
+
+    def test_a_plan_mode_question_asks_until_it_is_answered(self):
+        self.hook("UserPromptSubmit", prompt="Ask me which color.")
+        # its dialog's hint says `esc to interrupt`, at any width
+        self.hook("PreToolUse", tool_name="request_user_input", tool_use_id="call_1")
+        for name in ("question-up", "question-up-narrow"):
+            self.assertEqual(self.screen(name), ("asking", "asking.question"))
+            self.assertEqual(self.read(name), ("asking", "hook", "PreToolUse/request_user_input"))
+        # the call goes through to the dialog: only the question that waits for nobody is ak's
+        self.assertIsNone(codex.ask({"hook_event_name": "PreToolUse",
+                                     "tool_name": "request_user_input"}))
+        self.assertIsNone(watch.hook_state("codex", {"event": "PreToolUse", "at": 1.0,
+                                                     "kind": codex.QUESTION_TOOL})[0])
+        fact = self.hook("PostToolUse", tool_name="request_user_input", tool_use_id="call_1",
+                         tool_response={"answers": {"color": {"answers": ["Red"]}}})
+        self.assertEqual(watch.hook_state("codex", fact)[:2],
+                         ("working", "PostToolUse/request_user_input"))
+
+    def test_an_approved_call_runs_on_at_once(self):
+        self.hook("UserPromptSubmit", prompt="Touch a file outside the workspace.")
+        self.hook("PermissionRequest", tool_name="Bash", tool_use_id="exec-1")
+        self.hook("PostToolUse", tool_name="Bash", tool_use_id="exec-1")
+        self.assertEqual(self.read("approved"), ("working", "hook", "PostToolUse/Bash"))
+        # any other call's end says nothing the seat's fact lacks
+        running = self.hook("PostToolUse", tool_name="Bash", tool_use_id="exec-2")
+        self.assertEqual(self.hook("PostToolUse", tool_name="Bash", tool_use_id="exec-3"), running)
+        # ... nor brings back a turn the owner's Esc ended, as a shell left running ends later
+        ended = self.hook("Interrupt", turn_id="turn-1")
+        self.assertEqual(self.hook("PostToolUse", tool_name="Bash", turn_id="turn-1"), ended)
+
+    def test_a_sub_agent_leaves_the_seat_at_its_prompt(self):
+        self.hook("UserPromptSubmit", prompt="Spawn one sub-agent, then end your turn.")
+        stop = self.hook("Stop")
+        for event in ("SubagentStart", "SubagentStop"):
+            self.assertIsNone(watch.hook_state("codex", {"event": event, "at": 1.0})[0])
+        # the sub-agent's own calls go through the seat's hooks after the seat's Stop
+        self.assertEqual(self.hook("PostToolUse", tool_name="Bash", agent_id="agent-1",
+                                   agent_type="worker"), stop)
+        self.assertEqual(self.read("sub-agent-done"), ("at_prompt", "hook", "Stop"))
+
+    def test_what_the_owner_has_in_hand_is_a_draft(self):
+        self.hook("Stop")
+        # a draft past its prompt row, a one-row one over a warning, an open picker
+        for name, rule in (("draft-wrapped", "draft.rows"), ("draft-two-lines", "draft.rows"),
+                           ("draft-warning", "prompt.draft"), ("model-picker", "draft.picker"),
+                           ("effort-picker", "draft.picker")):
+            self.assertEqual(self.read(name), ("draft", "screen", rule), name)
+        self.assertEqual(watch.screen_state("codex", tail("draft-wrapped"))[2], "takes two rows")
+        self.assertEqual(self.screen("resumed-warning"), ("at_prompt", "prompt.suggestion"))
+
+    def test_the_hook_review_asks(self):
+        self.assertEqual(self.read("hooks-review-0160"), ("asking", "screen", "asking.chooser"))
+
+
+if __name__ == "__main__":
+    unittest.main()

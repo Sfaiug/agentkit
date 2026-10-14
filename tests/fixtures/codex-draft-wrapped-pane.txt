@@ -1,0 +1,15 @@
+  [38;5;12m144. [39mPigeon
+  [38;5;12m145. [39mDove
+  [38;5;12m146. [39mCuckoo-dove
+  [38;5;12m147. [39mPotoo
+  [38;5;12m148. [39mNightjar
+  [38;5;12m149. [39mWhip-poor-will
+  [38;5;12m150. [39mOilbird
+     OK
+[2m  Worked for 34s • 12:07
+[0m[1;2m› [0mRun `sleep 25` with your shell tool, then reply OK.
+[2m• [0mI’ll run the requested shell command now.
+■ Conversation interrupted - use /feedback if something went wrong
+[1m›[0m this is a draft I never sent and it is long enough to wrap across the narrow composer line of the pane so that it
+  takes two rows
+  [38;5;223mGPT-5.6-Luna low[39m · [38;5;151m/home/acme/fix-api[39m · [38;5;216mRun sleep and list animals

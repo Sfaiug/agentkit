@@ -57,7 +57,8 @@ at_prompt = "hooks"
 
 # Codex's hooks are installed per launch by the seat wrapper (tools/codex-seat.py), which
 # gives them to its own app server beside the SessionStart receipt. `adapters/codex.sh hooks`
-# says so and writes nothing. These four are the events 0.153.4 emits that name a state.
+# says so and writes nothing. These are the events Codex emits that name a state; a
+# sub-agent's SubagentStart and SubagentStop name none, as its end says nothing of the seat's turn.
 [[hooks.event]]
 name = "UserPromptSubmit"
 state = "working"
@@ -78,6 +79,18 @@ state = "at_prompt"
 [[hooks.event]]
 name = "PermissionRequest"
 state = "asking"
+
+# A Plan-mode turn's question going up (0.160.1), and a call's end once the owner has answered
+# it or approved the call: 0.03 s after the answer, 0.1 s after a quick approved command.  Any
+# other call's end never reaches seat-state.sh (agentkit/harness/codex.py, `answered`).
+[[hooks.event]]
+name = "PreToolUse"
+kinds = ["request_user_input"]
+state = "asking"
+
+[[hooks.event]]
+name = "PostToolUse"
+state = "working"
 
 [screen]
 composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|tab to queue message\b.*|[\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$'
