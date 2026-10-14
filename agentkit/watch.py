@@ -644,6 +644,7 @@ def screen(harness):
              else None,
              "folded": _pattern(block.get("folded"), path),
              "scrolled": _pattern(block.get("scrolled"), path),
+             "away": _pattern(block.get("away"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
@@ -1541,6 +1542,13 @@ def screen_state(harness, tail):
         while at and chrome["tray"].fullmatch(lines[at - 1]):
             at -= 1
         raw_lines, lines = raw_lines[:at] + raw_lines[-1:], lines[:at] + lines[-1:]
+    # A view the harness has scrolled up from its live bottom shows none of what a rule reads
+    # there -- a dialog's controls, the composer, a turn's spinner -- however much of it the rows
+    # left look like one: it reads nothing, and what the hooks said stands (`[screen] away`).
+    # The mark sits right above the closing rule, among rows that under a live bottom are all
+    # chrome, so transcript text never sits there.
+    if chrome["away"] and any(chrome["away"].search(row) for row in lines[-3:]):
+        return None, "", ""
     # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
     # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
     # it hid every question, which then read as answered.  In a renamed session -- every seat --
@@ -1644,7 +1652,8 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     seen, rule, line = screen_state(harness, tail)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
-    if hooked == "working" and interrupted is not None and interrupted >= when:
+    # Esc ends a turn with no Stop, a question's turn too: the dialog goes with it.
+    if hooked in ("working", "asking") and interrupted is not None and interrupted >= when:
         hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
