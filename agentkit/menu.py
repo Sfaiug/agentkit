@@ -133,7 +133,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, history, matrix, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
 from . import record
 
 KEYS = "n new   x stop   c config   esc leave"
@@ -2425,6 +2425,9 @@ REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
+# The config screen's line of what `ak models` recommends per role, and the key that takes it.
+ADVICE_NONE = "nothing yet: ak models"
+ADVICE_KEY = "r recommended"
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
@@ -2496,7 +2499,55 @@ def model_heading(provider):
     return terminal.styled(NAMES.get(provider, provider.title()), "accent")
 
 
-def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
+def advice(cfg):
+    """What `ak models` recommends per role off the matrix as last computed: {role: (its row's
+    label, the config name that runs it or None)}; {} while nothing is computed."""
+    return {role: (matrix.row_label(row), row.get("name"))
+            for role, row in matrix.recommended(matrix.stored().get("rows") or []).items()}
+
+
+def advice_line(found):
+    """The dim line under a seat's models: each role's recommended row, `r takes` where the
+    executor's or the reviewer's is a configured model."""
+    if not found:
+        return terminal.styled(f"  ak recommends  {ADVICE_NONE}", "dim")
+    said = " · ".join(f"{orch.ROLE_HEADS[number]} {label}" + ("" if name else " (not configured)")
+                      for number, role in enumerate(matrix.ROLES)
+                      for label, name in [found.get(role, ("-", None))])
+    takes = any(found.get(role, (None, None))[1] for role in ("execute", "review"))
+    return terminal.styled(f"  ak recommends  {said}"
+                           + ("   r takes exec and review" if takes else ""), "dim")
+
+
+def take_advice(cfg, name, selected, providers, found):
+    """`r`: the seat's executors and reviewers become the recommended rows that are configured
+    models, saved to its record at once as a flipped mark is; the orchestrator is only said,
+    since moving the seat is the owner's (the orchestrator mark asks first).  What to say
+    under the rows, or ""."""
+    taken = {role: found.get(role, (None, None))[1] for role in ("execute", "review")}
+    if not any(taken.values()):
+        return "nothing to take: the recommended rows are not configured models"
+    changed = {**selected, "reviewers": list(selected.get("reviewers", selected["workers"]))}
+    if taken["execute"]:
+        changed["workers"] = [taken["execute"]]
+    if taken["review"]:
+        changed["reviewers"] = [taken["review"]]
+    note = orch.role_refusal(cfg, changed, providers)
+    if note:
+        return note
+    try:
+        saved = config.update_session(config.resolve_session(name), workers=changed["workers"],
+                                      reviewers=changed["reviewers"])
+    except OSError as exc:
+        return f"session: {exc}"
+    if saved is None:
+        return f"session: {name} has no saved models"
+    selected.update(changed)
+    return ""
+
+
+def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None,
+                found=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, harness (dim), the three role
@@ -2512,7 +2563,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
     act on, -1 its label, and on Providers 0 or less `+ add`, 1 `− remove` and 2 or more the
-    last act it offers.  `cells`
+    last act it offers.  Under a session's models, `found` (`advice`) is what `ak models`
+    recommends per role, one dim line.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
     the terminal counts. On a phone the harness gives way, then the bars, then the label.
     """
@@ -2588,6 +2640,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 places[len(lines)] = (("model", name), cells if number == 0 else [])
                 lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
                              else part)
+    if selected is not None and found is not None:
+        lines.append(advice_line(found))
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
     values = ("", "", discord_value(), audit_value(cfg), version or "?")
@@ -2981,6 +3035,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
     here, column, top, clock = None, columns[1], 0, motion.Clock()
+    found = advice(cfg) if selected else None       # read once a visit: the tick keeps the file
     while True:
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
@@ -2990,10 +3045,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
-        keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
+        keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
+                + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
         body, places = config_body(cfg, version, None if terminal.away() else here, column,
-                                   selected, providers, moves)
+                                   selected, providers, moves, found)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         was = here
@@ -3010,6 +3066,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         note = ""
         if act == "back":
             return cfg
+        if act == "r" and found:
+            note = take_advice(cfg, session, selected, providers, found)
+            continue
         if act in ("enter", "space") and (here[0] == "row" or column < 0):
             clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
@@ -3580,7 +3639,8 @@ def show_config(dry_run=False, keyboard=None, session=None):
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
-                       config_body(cfg, version, selected=selected, providers=providers)[0],
+                       config_body(cfg, version, selected=selected, providers=providers,
+                                   found=advice(cfg) if selected else None)[0],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
