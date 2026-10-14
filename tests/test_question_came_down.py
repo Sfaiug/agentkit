@@ -62,6 +62,20 @@ class QuestionCameDown(Sandbox):
         self.assertEqual(self.looked(AFTER_QUESTION, fact), ("working", False))
         self.assertEqual(self.looked(PROMPT, fact), ("working", False))
 
+    def test_an_answered_question_under_its_agents_tray_leaves_its_turn_working(self):
+        """14 Oct: 2.1.292 lists the agents it runs in the background under its footer, and read
+        as the screen's newest rows they hid its composer: a seat whose question was answered
+        said `needs you` for the rest of a turn it went on working in."""
+        self.hook("UserPromptSubmit", prompt="Look into the parser, an agent beside you.")
+        fact = self.hook("Notification", notification_type="permission_prompt",
+                         message="Claude needs your permission")
+        for name in ("working", "idle"):
+            with self.subTest(name):
+                pane = (FIX / f"claude-tray-{name}-pane.txt").read_text(encoding="utf-8")
+                self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane))[:2],
+                                 ("at_prompt", "prompt.composer"))
+                self.assertEqual(self.looked(pane, fact), ("working", False))
+
     def test_a_question_the_screen_cannot_read_stays_a_question(self):
         """A dialog no rule matches is no composer: the hook's question stands."""
         self.hook("UserPromptSubmit", prompt="Build the parser.")

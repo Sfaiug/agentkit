@@ -100,6 +100,10 @@ folds_over = 800
 # That fold as its composer shows it, read without whitespace (2.1.291).  After a line ak typed
 # past `folds_over`, a composer holding one fold and nothing beside it is taken for that line.
 folded = '\[Pasted\s*text\s*#\d+\]'
+# 2.1.292 lists the agents running in the background under its footer, at the screen's foot:
+# `● main` and a row per agent, `◯ general-purpose  <what it does>  <time> · ↓ <tokens>`,
+# the one on view filled.
+tray = '[●◯] \S.*'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.

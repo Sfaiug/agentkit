@@ -69,6 +69,13 @@ composer suggestion (`38;5;242`, no faint attribute; typed text is `38;5;252`), 
 its background-task tray, `acme draft words` typed over the tray and not sent, and a turn
 running under the tray at its cap of four tasks and `+N`, twelve rows below the spinner.
 
+`claude-tray-working-pane.txt` and `claude-tray-idle-pane.txt` are Claude Code 2.1.292's actual
+`capture-pane -p -e -J` panes, 150 columns wide, from a scratch TUI on a private tmux socket with
+`--dangerously-skip-permissions`, beside a general-purpose agent it ran in the background: a turn
+running, then its turn over with the agent still going. Under its footer it lists `● main` and
+the agent. The scratch checkout's path and the host are replaced with `acme@build:~/code/fix-api`,
+and a warning only that scratch launch drew is left out.
+
 `muse-question-pane.txt` is Muse Code 1.4.7's actual `capture-pane -p -e -J` of a seat
 waiting on its own `Request user input` tool, the second of three questions, cut to the
 lines from its last finished step down. Its words are replaced with invented ones (the
