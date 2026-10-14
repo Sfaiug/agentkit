@@ -54,6 +54,19 @@ class AntigravitySeatStates(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(read(name), (reading, reading))
 
+    def test_a_taller_dialog_still_reads_asking(self):
+        # more choices, or a longer command, push its heading up; its hint stays on the footer
+        for name, short, tall in (
+                ("question", "  3. Write-in...",
+                 "  3. Green\n  4. Yellow\n  5. Orange\n  6. Write-in..."),
+                ("permission", "   touch perm2.txt",
+                 "   cat <<'EOF' >acme.txt\n   one\n   two\n   three\n   four\n   EOF")):
+            with self.subTest(name):
+                self.assertEqual(pane(name).count(short), 1)
+                tail = watch.pane_tail(pane(name).replace(short, tall))
+                self.assertEqual(watch.screen_state("antigravity", tail)[:2],
+                                 ("asking", f"asking.{name}"))
+
     def test_a_dialog_s_words_typed_or_said_open_no_dialog(self):
         # agy draws a dialog's header from the left edge, where a draft (`> `) and a reply
         # (indented) never start
