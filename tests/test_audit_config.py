@@ -30,9 +30,9 @@ class AuditSetting(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name) / ".agentkit"
         self.home.mkdir()
-        for name, value in (("HOME", self.home), ("SECRETS", self.home / "secrets"),
-                            ("STATE", self.home / "state")):
-            patcher = patch.object(config, name, value)
+        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
+            patcher = patch.object(config, name,
+                                   self.home if name == "HOME" else self.home / name.lower())
             patcher.start()
             self.addCleanup(patcher.stop)
         env = patch.dict(os.environ, {"HOME": str(tmp.name), "NO_COLOR": "1",
@@ -81,9 +81,12 @@ class AuditSetting(unittest.TestCase):
 
     def step(self, *answers):
         with patch.object(menu, "read", side_effect=list(answers)) as read, \
-                patch.object(menu, "pause") as pause, \
-                patch.object(terminal, "frame"), redirect_stdout(io.StringIO()):
+                patch.object(menu, "pause") as pause, patch.object(terminal, "width", return_value=40), \
+                patch.object(terminal, "frame") as frame, redirect_stdout(io.StringIO()):
             menu.config_audit(config.load())
+        # a phone's 40 columns hold every line the screen draws and every question with room to type
+        self.assertTrue(all(terminal.cells(line) <= 40 for line in frame.call_args.args[1]))
+        self.assertTrue(all(terminal.cells(call.args[0]) <= 20 for call in read.call_args_list))
         return read, pause
 
     def table(self):
@@ -92,9 +95,7 @@ class AuditSetting(unittest.TestCase):
     def test_enter_asks_four_questions_and_writes_the_table_keeping_what_was_not_answered(self):
         read, pause = self.step("off", "fable", "", "astra")
         self.assertEqual([call.args[0] for call in read.call_args_list],
-                         ["On (on/off): ", "Orchestrator: ",
-                          "Executors, space-separated (none: the orchestrator builds alone): ",
-                          "Reviewers, space-separated: "])
+                         ["On (on/off): ", "Orchestrator: ", "Executors: ", "Reviewers: "])
         self.assertEqual(pause.call_count, 0)
         self.assertEqual(self.table(), {"on": False, "orchestrator": "fable", "reviewers": ["astra"]})
         self.assertEqual(config.audit(config.load()), {
@@ -109,6 +110,12 @@ class AuditSetting(unittest.TestCase):
                                         "workers": ["opus", "astra"], "reviewers": ["opus"]})
         self.assertNotEqual(self.path.read_text(), before)
         self.assertEqual(oct(self.path.stat().st_mode & 0o777), "0o600")
+        # an [audit] that is not a table is shown as its error, and the answers replace it
+        self.path.write_text('audit = "broken"\n' + (REPO / config.DEFAULT_CONFIG_NAME).read_text())
+        self.assertIn("[audit] must be a table", menu.audit_value(config.load()))
+        read, pause = self.step("off", "", "", "")
+        self.assertEqual(pause.call_count, 0)
+        self.assertEqual(self.table(), {"on": False})
 
     def test_esc_and_a_refused_answer_write_nothing(self):
         before = self.path.read_text()

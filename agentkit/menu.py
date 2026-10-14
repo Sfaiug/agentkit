@@ -3332,16 +3332,19 @@ def config_audit(cfg):
     tick will read them (config.audit) before anything is written: one it refuses is said in
     one line, and the file stays as it was.
     """
-    terminal.frame("config · weekly audit", [f"  {audit_value(cfg)}"])
+    terminal.frame("config · weekly audit", [
+        "  " + part for text in (audit_value(cfg), "Executors and reviewers are space-separated; "
+                                 "none: the orchestrator builds alone.")
+        for part in terminal.wrap(text, terminal.layout_width() - 2)])
     answers = {}
     for key, prompt in (("on", "On (on/off): "), ("orchestrator", "Orchestrator: "),
-                        ("workers", "Executors, space-separated (none: the orchestrator builds alone): "),
-                        ("reviewers", "Reviewers, space-separated: ")):
+                        ("workers", "Executors: "), ("reviewers", "Reviewers: ")):
         answer = read(prompt, "")
         if _cancelled(answer):
             return
         answers[key] = answer
-    table = dict(cfg.get("audit") or {})
+    # an [audit] that is not a table has nothing to keep: the answers replace it
+    table = dict(cfg["audit"]) if isinstance(cfg.get("audit"), dict) else {}
     if answers["on"]:
         if answers["on"] not in ("on", "off"):
             pause(f"weekly audit: on or off, not {answers['on']!r}")
