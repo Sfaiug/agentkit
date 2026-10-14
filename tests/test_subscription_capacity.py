@@ -2,11 +2,12 @@
 
 Each turn that spent a known number of tokens and moved a weekly meter of its subscription,
 one that gates its model, within one window records the pair under `state/capacity.json`,
-per subscription and meter; a turn that moved nothing records its tokens against zero.  The week holds the sum
-of the tokens over the sum of the percent moved, over the meter's current and previous
-window, and `ak usage` shows it after `left` as `week ≈ 310M tokens`, `-` with no pair that
-moved it; `--json` carries `capacity_tokens` and `capacity_pairs`.  A temporary HOME,
-invented readings and fake turn event logs: no real login, endpoint or state.
+per subscription and meter; a turn that moved nothing records its tokens against zero.
+The week holds the sum of the tokens over the sum of the percent moved, over the meter's
+current and previous window, and `ak usage` shows it after `left` as `week ≈ 310M tokens`,
+`-` with no pair that moved it; `--json` carries `capacity_tokens` and `capacity_pairs`.
+A temporary HOME, invented readings and fake turn event logs: no real login, endpoint or
+state.
 """
 
 from contextlib import redirect_stdout
