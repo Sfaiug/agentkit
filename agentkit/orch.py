@@ -2253,10 +2253,18 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             handed = None
         held = {key: (config.session_records().get(current) or {}).get(key) for key in kept}
         config.update_session(current, rulebook_sha=handed, rulebook_told=None, rulebook_read=None)
+        # What the last harness's hooks said it was doing is not what this one is doing: a seat
+        # that went mid-turn, or with a question up, read `working` or `needs you` until its
+        # first Stop.  Gone before this harness can write its first, and back if it never runs.
+        facts = config.hook_facts_path(current)
+        last = on_disk(facts)
+        facts.unlink(missing_ok=True)
         try:
             _start_harness(name, model, cwd, cmd, session)
         except BaseException:
             config.update_session(current, **held)   # the harness that read the old one stays
+            if last and not facts.exists():
+                facts.write_bytes(last)
             raise
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
