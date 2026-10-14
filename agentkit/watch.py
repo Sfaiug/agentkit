@@ -1722,7 +1722,8 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
     # Esc ends a turn with no Stop, a question's turn too: the dialog goes with it.
-    if hooked in ("working", "asking") and interrupted is not None and interrupted >= when:
+    stopped = hooked in ("working", "asking") and interrupted is not None and interrupted >= when
+    if stopped:
         hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
@@ -1751,7 +1752,9 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
             # `session_state` reads it for the one thing the manifest reserves to hooks,
             # and which event said it, so a Stop on background work is not a turn in flight
             # for his own unsent text
-            "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None}
+            "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None,
+            # the owner stopped its last turn: until their next prompt the seat rests
+            "interrupted": stopped}
 
 
 def seat_read(name):
@@ -2582,8 +2585,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if asked:
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # Nothing running, asked or owed: the seat rests and nothing on it is the owner's to do -- a
-    # new seat, a conversation that ended, a plan it finished.
-    owed = still_owed(name, mine, index)
+    # new seat, a conversation that ended, a plan it finished.  So does a turn the owner stopped,
+    # whatever its plan still owes: they are in the seat and know (owner, 14 Oct 2026).
+    owed = None if found.get("interrupted") else still_owed(name, mine, index)
     if owed is None:
         return {"word": "idle", "reason": "", "since": found.get("began")}
     return {"word": "needs you", "since": found.get("began"), "reason": owed}

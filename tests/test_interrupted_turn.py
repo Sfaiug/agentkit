@@ -113,6 +113,17 @@ class InterruptedTurn(Sandbox):
         self.assertEqual(self.looked(), ("idle", True))
         self.assertEqual(self.handed_back(), ["The acme tests passed.", "Enter"])
 
+    def test_a_turn_the_owner_stopped_rests_whatever_its_plan_still_owes(self):
+        """The owner's rule (14 Oct 2026): Esc reads idle.  The owner is in the seat and stopped
+        it, so the line its plan owes is no `needs you`; their next prompt runs again."""
+        config.plan_path(SEAT).write_text(
+            "- [ ] the acme tests pass · check: `false` · acme · written 2026-10-14 09:00\n")
+        fact = self.prompt("Run the acme tests.")
+        self.said("user", fact["at"] + 3, INTERRUPT)
+        self.assertEqual(self.looked(), ("idle", True))
+        self.prompt("Now the lint too.")
+        self.assertEqual(self.looked(NEXT_TURN)[0], "working")
+
     def test_a_turn_interrupted_in_a_tool_call_is_at_its_prompt_too(self):
         fact = self.prompt("Run the acme tests.")
         self.said("user", fact["at"] + 3, TOOL_INTERRUPT)
