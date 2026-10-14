@@ -1,7 +1,8 @@
 # adapters/antigravity.toml -- everything agentkit reads off an Antigravity seat's screen, and
 # who has the authority to say what that seat is doing.  Paired with adapters/antigravity.sh;
 # the format is the adapter contract in docs/guide.md, "Adding a harness".
-# Verified against agy 1.2.9; see tests/fixtures/README.md for the captures.
+# Verified against agy 1.2.9, and its screen again against 1.3.5; see tests/fixtures/README.md
+# for the captures.
 # A worker turn or seat still loads GEMINI.md, AGENTS.md and rules/ of the workspace: agy 1.2.13 has no switch for them.
 version = 1
 
@@ -56,14 +57,19 @@ enforce = "nudge"
 # prompt the transcript echoes, which is why only the empty one is chrome.
 composer = '^>$'
 # and the line under it: a key hint on the left -- `? for shortcuts` at rest, `esc to cancel`
-# while a turn runs or a chooser is open, nothing over a draft -- and on the right the model
-# and effort (`Gemini 3.8 Flash · low`), or, on a seat opened with `--agent`, the agent with
-# them once agy has resolved the model (`agentkit (Gemini 3.8 Flash · low)  /agents`).
-footer = ['(?:\? for shortcuts|esc to cancel)?\s*(?:[^·]+ · (?:low|medium|high)|[\w.-]+(?: \([^)]*\))?\s+/agents)']
+# while a turn runs or a chooser is open, `press ctrl+c again to exit` after one Ctrl-C, nothing
+# over a draft -- and on the right the model and effort (`Gemini 3.8 Flash · low`), or, on a
+# seat opened with `--agent`, the agent with them once agy has resolved the model (`agentkit
+# (Gemini 3.8 Flash · low)  /agents`, and `agentkit (GPT-OSS 120B (Medium))  /agents` for a
+# label with brackets of its own), then ` · 1 task(s) · /tasks` while a command agy moved to the
+# background runs.  Below about 58 columns only the key hint is drawn (agy 1.3.5, captured).
+footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:[^·]+ · (?:low|medium|high)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)',
+          '\? for shortcuts']
 # What the composer holds: everything after its `>` down to the last rule on the screen, so a
 # `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
-# and nor is a prompt the transcript echoes under an earlier rule.
-draft = '^─+\n> ?(.*(?:\n(?!─+$).*)*)\n─+$(?![\s\S]*^─)'
+# and nor is a prompt the transcript echoes under an earlier rule.  The background commands
+# agy lists under the composer (`● [12:08:46] sleep 45 running`) close with a rule of their own.
+draft = '^─+\n> ?(.*(?:\n(?!─+$).*)*)\n─+$(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+\n─+$)?(?![\s\S]*^─)'
 # A line taller than the composer scrolls in it, its last rows showing, and the prompt row says
 # how many are above (`> ↑ 13 more lines`, captured at 40 columns): never typed text.
 scrolled = '^(?:> ?)?[↑↓] \d+ more lines?$'
@@ -84,6 +90,26 @@ id = "asking.signin"
 state = "asking"
 lines = 6
 all = ["you are currently not signed in", "select login method", "enter select"]
+
+# A dialog takes the composer's place, its key hint right on an `esc to cancel` footer that is no
+# turn running; elsewhere the row on the footer is a rule, which no draft or reply is, and the
+# rows above it grow with a dialog's command or choices.  The permission dialog of a seat opened
+# without --dangerously-skip-permissions (captured):
+[[rule]]
+id = "asking.permission"
+state = "asking"
+lines = 2
+all = ["tab amend", "ctrl+g edit/expand command"]
+newest = '^esc to cancel\b'
+
+# and the `ask_question` dialog, where the session's tools include it -- the seat's agent names
+# only run_command (captured).
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 2
+all = ["enter select", "esc skip"]
+newest = '^esc to cancel\b'
 
 # The slash-command chooser a typed `/` opens: its `enter Select · tab Complete` hint over the
 # footer.  It is the owner's own line, never a turn, so it reads as a draft (captured).
@@ -110,13 +136,16 @@ id = "draft.typed"
 state = "draft"
 lines = 8
 none = ["esc to cancel"]
-newest = '^(?:[^·?]+ · (?:low|medium|high)|[\w.-]+(?: \([^)]*\))?\s+/agents)$'
+newest = '^(?:[^·?]+ · (?:low|medium|high)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)$'
 
+# The footer with the empty composer drawn over it; the terms pages of agy's first run keep
+# the footer and draw no composer, `press ctrl+c again to exit` under them included (captured).
 [[rule]]
 id = "prompt.composer"
 state = "at_prompt"
 lines = 8
 at_composer = true
+row = '^>$'
 
 # A failed turn is a `⚠ <message>` line over `Error ID: <id>` (captured), and the stream-json
 # result of one carries `"status":"ERROR"` beside the same message.  The quota and transient
@@ -157,10 +186,15 @@ signatures = [
   "authentication failed or timed out",
 ]
 
-# agy 1.2.9 has no compact command among its 46 slash commands; it compacts a conversation's
-# context itself, so tools/idle-compact.py, which a seat still runs under, types nothing.
+# agy 1.3.5 compacts on `/compact`, and says how big the context was only on its screen when it
+# has (`20 steps summarized · context 7.6k → ~9.2k`): no hook is installed to report it, so
+# tools/idle-compact.py, which a seat runs under, says so once and types nothing.
 [compact]
-command = "none"
+command = ["/compact", "\r"]
+signal = "screen"
+context = "none"
+idle = 30
+stash = "none"
 
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 [effort]

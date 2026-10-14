@@ -1,0 +1,20 @@
+[32m●[39m [1m[33mRan[0m 1 command, che... [37m(ctrl+o to
+expand)
+
+[39m  OK
+
+[90m─────────────────────────────────────
+[1m[34m> Run `sleep 20` with your shell tool
+  and wait for it, then reply OK. Keep
+  thinking short.
+
+[0m[37m○[39m [37mThought for 55.3s[39m [37m(User wants sle...)
+[32m●[39m [1m[33mRan[0m [37m(sleep 20)
+[31m●[39m [1m[33mChecked[0m 1 task [37m(ctrl+o to expand)
+
+[39m  OK.
+
+[90m────────────────────────────────────────
+[94m>
+[90m────────────────────────────────────────
+? for shortcuts

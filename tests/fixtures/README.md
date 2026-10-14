@@ -277,6 +277,21 @@ is drawn from, `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrie
 `project` agy's `loadCodeAssist` answer names, the request `antigravity.sh usage` makes; it
 carries neither, and is unedited. Its Gemini window, 0.917436 left, is the panel's 91.74%.
 
+The agy 1.3.5 panes, captured 2026-10-14 as `capture-pane -p -e -J` from seats opened the way
+`adapters/antigravity.sh interactive` opens one, on a private tmux socket at 120×40, keep each
+capture's last 15 non-blank rows, all `watch.pane_tail` reads; only the account's address
+(`owner@acme.example`) and the workspace (`~/fix-api`) were replaced.
+`antigravity-bracketed-label-pane.txt` is a GPT-OSS seat at its prompt, its footer `agentkit
+(GPT-OSS 120B (Medium))  /agents`; `antigravity-narrow-pane.txt` the same at 40 columns, where
+the footer is `? for shortcuts` alone; `antigravity-background-pane.txt` and
+`antigravity-background-draft-pane.txt` a turn ended with a command agy moved to the background
+still running, listed under the composer over a footer ending `· 1 task(s) · /tasks`, empty and
+with a line typed and never sent; `antigravity-permission-pane.txt` the permission dialog of a
+seat opened without `--dangerously-skip-permissions`; `antigravity-question-pane.txt` the
+`ask_question` dialog of a plain `agy`, whose tools include it; `antigravity-ctrl-c-pane.txt` a
+seat at its prompt after one Ctrl-C, and `antigravity-terms-ctrl-c-pane.txt` the terms page a
+first run opens on, after one Ctrl-C.
+
 ## Seat-state captures (v5n)
 
 `claude-question-pane.txt` derives from the 2026-09-28 ANSI capture of an AskUserQuestion

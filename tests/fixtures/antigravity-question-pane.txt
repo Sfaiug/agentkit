@@ -1,0 +1,22 @@
+[39m  [38;5;75m▄[38;5;79m[48;5;75m▀[38;5;75m[49m▀[39m      [38;5;69m▀[48;5;69m▀[49m▄
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Use your ask_question tool (not plain text) to ask me one question: "Red or blue?" with options Red and Blue. After I
+  answer, run `sleep 20` with your shell tool and wait for it, then reply DONE. Keep thinking short.[0m                    
+
+[37m▸ Thought for 4s[39m                                                                                                        
+[37m  Let's call ask_question with one question.
+
+[1m[33m?[0m Red or blue?                                                                                                          
+
+[1m[33mQuestion[0m                                                                                                                
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+[1m[39mQuestion 1/1: Red or blue?[0m                                                                                              
+
+[94m> 1. Red
+[39m  2. Blue
+  3. Write-in...
+
+  [1m[94m↑/↓[0m[90m Navigate · [1m[94menter[0m[90m Select · [1m[94mesc[0m[90m Skip
+esc to cancel[39m                                                                                      [2mGPT-OSS 120B (Medium)

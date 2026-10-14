@@ -1,0 +1,20 @@
+[1m[34m> Run `sleep 40` with your shell tool and wait for it to finish (do not background it), then reply OK.
+
+[0m[37m○[39m [37mThought for 42.4s[39m [37m(User asks to run sleep 40 and wait for it to finish (foreground). According to tool usage, we...)
+[90m●[39m [1m[33mRan[0m [37m(sleep 40)[39m [37m(ctrl+o to expand)
+
+[90m────────────────────────────────────────────────────────────
+[1m[34m> Start `sleep 45` as a background command with your shell tool (do not wait for it), then reply STARTED and end your
+  turn.
+
+[0m[37m○[39m [37mThought for 2m 25s[39m [37m(We need to start sleep 45 as background command with shell tool, do not wait, then reply STAR...)
+[33m○[39m [1m[33mRunning[0m [37m(sleep 45)[39m [37m(ctrl+o to expand)
+
+[39m  STARTED
+
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[94m>[39m draft while task runs
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [33m●[39m [12:08:46] [94msleep 45[39m [33mrunning
+[90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m                                                          [94magentkit[39m [2m(GPT-OSS 120B (Medium))[0m  [94m/agents[2m[39m · 1 task(s) · /tasks
