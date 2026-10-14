@@ -91,7 +91,7 @@ class SeatQuestionWhole(Sandbox):
         # the popup over an 80x27 terminal: 80% by 70%, less its border
         screen, _, _ = self.draw("fix-api", 62, 19)
         self.assertNotIn(QUESTION, screen)
-        # the usage's one line keeps its row on every page, above the question
+        # the usage folded keeps its row on every page, above the question
         self.assertIn("fields the importer needs. Reason 4:", screen)
         self.assertTrue(screen.endswith("… ← 1 / 3 → n new x stop c config esc leave"), screen)
 

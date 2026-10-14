@@ -139,7 +139,7 @@ KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
-LEAST = 3                # rows a page keeps; the usage block folds to one line before fewer
+LEAST = 3                # rows a page keeps; the usage block folds before fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him.
 # `watch.session_state` is what decides which of the three a seat is.
 STATE_ORDER = ("needs you", "working", "done")
@@ -1138,9 +1138,10 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
         """The indented lines a last column takes under its row: one where it fits (a tasks bar
         always does), else its sentence wrapped, in what `most` leaves beside the row's own."""
         lines = [text] if terminal.cells(text) <= room else terminal.wrap(text, room)
-        keep = len(lines) if most is None else max(1, most - 1)
+        keep = len(lines) if most is None else most - 1
         if len(lines) > keep:
-            lines = lines[:keep - 1] + [terminal.cut(" ".join(lines[keep - 1:]), room)]
+            lines = (lines[:keep - 1] + [terminal.cut(" ".join(lines[keep - 1:]), room)]
+                     if keep > 0 else [])     # a block of one line is its row alone
         return ["    " + line for line in lines]
     blocks = []
     if narrow:
@@ -1252,9 +1253,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # rows in what is left, a page at a time. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
     key_text = keys
-    # With the keyboard ← and → turn the pages, and the key line starts with where he is; in a
-    # pipe `j` and `k` do.
-    page_keys = "   " + ("←  99 / 99  →" if owned else PAGE_KEYS)
+    # With the keyboard ← and → turn the pages, and the key line starts with where he is
+    # (`page_mark`); in a pipe `j` and `k` do.
+    page_keys = "" if owned else "   " + PAGE_KEYS
     tips = {}
     if owned and not asked:
         for info in infos:
@@ -1272,7 +1273,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      for number in range(1, len(usage_rows(cfg)) + 1)})
     # A question under a row is budgeted with the key line, so it never pushes a row off.
     k_single = terminal.key_height(key_text, tips, width) + len(asked)
-    k_paged = terminal.key_height(key_text + page_keys, tips, width) + len(asked)
+    k_paged = max(terminal.key_height(key_text + page_keys, tips, width), len(terminal.key_line(
+        key_text, width, owned and page_mark(98, 99)))) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -1308,8 +1310,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         keys = (k_paged if paged else k_single) + opens
         if compact:
             return max(1, height - 2 - (1 + keys + len(meters)))
-        # the whole block has a blank line above it; its one line sits right under the rule
-        chrome = 2 + (len(meters) + (len(meters) > 1) if meters else 0) + 2 + 1 + 1 + keys
+        # the whole block has a blank line above it; folded, it sits right under the rule
+        chrome = 2 + (len(meters) + (meters is meters_full) if meters else 0) + 2 + 1 + 1 + keys
         return max(1, height - 2 - chrome)
 
     def _seat_pages(room):
@@ -1339,13 +1341,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         return pages
 
     # The usage stays on top and the keys at the bottom, whatever the number of seats: those
-    # that do not fit between them turn pages.  The block folds to one line, every
-    # subscription's share left, where that keeps every seat on one page, or where the whole
+    # that do not fit between them turn pages.  The block folds to every subscription's share
+    # left (`usage_summary`) where that keeps every seat on one page, or where the whole
     # block leaves too few rows a page; one too short for that drops the frame and the blank
     # lines too (compact).
     least = LEAST * (2 if width < 60 else 1)
-    summary = usage_summary(meters_full, layout)
-    # one page before pages, the whole block before its one line, and compact last
+    summary = usage_summary(cfg, layout)
+    # one page before pages, the whole block before it folded, and compact last
     for meters, compact, paged in ((meters_full, False, False), (summary, False, False),
                                    (meters_full, False, True), (summary, False, True),
                                    (summary, True, True)):
@@ -1357,10 +1359,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         page = next((number for number, lines in enumerate(pages)
                      if any(name == cursor for _, name in lines)), page)
     page = min(max(page, 0), len(pages) - 1)
-    key_lines = terminal.key_line(key_text + (page_keys if len(pages) > 1 and not owned else ""),
-                                  width)
-    if owned and len(pages) > 1:
-        key_lines = page_mark(key_lines, page, len(pages), width)
+    key_lines = terminal.key_line(key_text + (page_keys if len(pages) > 1 else ""), width,
+                                  owned and len(pages) > 1 and page_mark(page, len(pages)))
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
     # what may move: (key, what it shows -- a word, or a bar's value and its blocks -- its first
@@ -1374,11 +1374,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                                      time.strftime("%H:%M"), width),
                 terminal.rule_line(width, updating or 0)]
     if meters:
-        if not compact and len(meters) > 1:
+        if not compact and meters is meters_full:
             out.append("")
         for number, line in enumerate(meters):
             out.append(line)
-            if number:            # its first line is the heading
+            if number and meters is meters_full:     # its first line is the heading
                 rows[number] = len(out)
             text = terminal.ANSI.sub("", line)
             bar = re.search("[█░]+", text)
@@ -1451,10 +1451,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if not compact:
         out.append("")
     if owned:
-        # the keys at the bottom, wherever the rows end, the two lines every draw keeps below
-        # and the room a tip in their place takes
-        tall = max(len(key_lines), (k_paged if len(pages) > 1 else k_single) - len(asked))
-        out += [""] * max(0, height - 2 - len(out) - tall)
+        # the keys at the bottom, wherever the rows end, above the two lines every draw keeps: a
+        # sentence in their place taller than they are rises into the room left for it (`lit`)
+        out += [""] * max(0, height - 2 - len(out) - len(key_lines))
     keys_top = len(out)
     out += key_lines
     if not owned:
@@ -1996,18 +1995,25 @@ def usage_rows(cfg):
     return rows
 
 
-def usage_summary(lines, width):
-    """The usage block in one line, for a screen too short to hold it and a few rows under it:
-    every row's label and the share it has left, `<label> 17% · <label> 74%`, `—` for one with
-    no meter, cut at the width.  `lines` are `usage_lines`' own."""
-    parts = []
-    for line in lines[1:]:
-        text = terminal.plain(line, spaced=True).strip()
-        bar = re.search("[█░#-]+", text)
-        figure = re.search(r"(\d+)% left", text)
-        label = (text[:bar.start()] if bar else text.split("  ")[0]).strip()
-        parts.append(f"{label} {figure.group(1)}%" if figure else f"{label} —")
-    return ["  " + terminal.cut(" · ".join(parts), max(1, width - 2))]
+def usage_summary(cfg, width):
+    """The usage block folded, for a screen too short to hold it and a few rows under it: each
+    row's label and what its shared week has left, `<label> 17% · <label> 74%`, a spent one's
+    credits in its 0%'s place as on its row, `—` for one with no week to draw; on a line, and
+    another wherever the width runs out, so no row is ever cut away."""
+    now, room, lines = time.time(), max(1, width - 2), []
+    for name, label, prov, _ in usage_rows(cfg):
+        try:
+            week = usage.shared_week(cfg, name, prov, now)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            week = None
+        left = None if week is None else percent_left(week)
+        part = f"{terminal.plain(label)} " + ("—" if left is None else
+                                              (not left and usage.credits_note(prov)) or f"{left}%")
+        if lines and terminal.cells(lines[-1] + " · " + part) <= room:
+            lines[-1] += " · " + part
+        else:
+            lines += terminal.wrap(part, room)
+    return ["  " + line for line in lines]
 
 
 def usage_tip(cfg, number, now=None):
@@ -3574,18 +3580,13 @@ def move_keys():
     return "↑↓ move   ⏎ open" if terminal.utf8() else "j/k move   enter open"
 
 
-def page_mark(lines, page, pages, width):
-    """The key line with where he is in front of it, `←  2 / 3  →`: each arrow a key a click
-    turns the page with, the place between them plain; on a line of its own above the keys
-    where both do not fit one."""
+def page_mark(page, pages):
+    """Where he is, `←  2 / 3  →`, the key line's first piece while the seats run to pages:
+    each arrow a key a click turns the page with, the place between them plain."""
     arrow = "←" if terminal.utf8() else "<"
     ahead = "→" if terminal.utf8() else ">"
-    mark = (f"{terminal.styled(arrow, 'dim')}  {page + 1} / {pages}  "
+    return (f"{terminal.styled(arrow, 'dim')}  {page + 1} / {pages}  "
             f"{terminal.styled(ahead, 'dim')}")
-    first = lines[0][2:] if lines else ""
-    if terminal.cells(terminal.plain(mark + "   " + first)) <= terminal.layout_width(width) - 2:
-        return ["  " + mark + ("   " + first if first else "")] + lines[1:]
-    return ["  " + mark] + lines
 
 
 def pressed(key, drawn, found):
@@ -3743,9 +3744,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 turn = ({"←": -1, "<": -1, "→": 1, ">": 1}.get(pressed(key, shown, found), 0)
                         if key.name == "click" else {"left": -1, "right": 1}.get(key.name, 0))
                 if turn:
-                    firsts = shown.get("turns") or []
-                    if 0 <= page + turn < len(firsts) and firsts[page + turn]:
-                        cursor = firsts[page + turn]
+                    # past a page with no seat starting on it: a heading alone, or the rest of
+                    # a seat taller than a page
+                    turns = shown.get("turns") or []
+                    cursor = next((name for name in (turns[page + 1:] if turn > 0
+                                                     else turns[:page][::-1])
+                                   if name and name != cursor), cursor)
                     look = False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing

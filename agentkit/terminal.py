@@ -522,10 +522,11 @@ def key_parts(text):
     return parts
 
 
-def key_line(text, term_width=None):
-    """The key line: each key dim, its word plain, wrapped to the layout."""
+def key_line(text, term_width=None, lead=None):
+    """The key line: each key dim, its word plain, wrapped to the layout; `lead`, a piece drawn
+    as it is, first."""
     room = layout_width(term_width) - 2
-    rendered = []
+    rendered = [lead] if lead else []
     for key, word in key_parts(text):
         rendered.append(styled(key, "dim") + (f" {word}" if word else ""))
     lines, line = [], ""
@@ -1249,8 +1250,10 @@ def lit(lines, spots, tips=None, keys=None):
     that means more than its label, {(what, cell): one sentence} (TIPS), a row's own (what,
     None) said of a cell of it with none of its own; a key-line item says its own (TIPS) on
     every screen.  The sentence wraps at words from the screen's row `keys` down, leaving the
-    rows above in place, until the pointer leaves it.  What only explains -- a cell that is a
-    tuple -- is not lit, nor a key-line item whose sentence stands in its place.
+    rows above in place, until the pointer leaves it; one that would run into the two rows a
+    screen keeps under its last rises over the blank rows above `keys` first, as under the
+    menu's keys, which stand at its bottom.  What only explains -- a cell that is a tuple -- is
+    not lit, nor a key-line item whose sentence stands in its place.
     """
     global _SPOTS, _POINTED, _SHOWN, _PAINTED, _TIPS, _KEYS
     _SPOTS, _POINTED, _TIPS, _KEYS = spots, pointer_spot(spots), tips or {}, keys
@@ -1262,7 +1265,11 @@ def lit(lines, spots, tips=None, keys=None):
             _POINTED.first - 1:_POINTED.last].partition(" ")
         tip = TIPS.get(f"{UTF8_KEYS.get(key, key)} {word}")
     if tip and keys:
-        lines = lines[:keys - 1] + ["  " + line for line in wrap(tip, layout_width() - 2)]
+        said, start = ["  " + line for line in wrap(tip, layout_width() - 2)], keys - 1
+        while 0 < start <= len(lines) and start + len(said) > height() - 2 and not plain(
+                lines[start - 1]):
+            start -= 1
+        lines = lines[:start] + said
     _PAINTED = lines
     depth = colour_depth()
     if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple) or tip and _POINTED.what is None

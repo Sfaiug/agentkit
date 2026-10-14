@@ -246,9 +246,9 @@ class Pages(Sandbox):
 
     def test_pages_fit_the_height_and_rows_keep_their_numbers(self):
         seats = self.seats(12)
-        usage = re.compile(r"usage left|^  Claude [—\d]", re.M)   # its block, or its one line
+        usage = re.compile(r"usage left|^  Claude [—\d]", re.M)   # its block, or folded
         # Every page keeps the usage and the keys: the whole block where it fits with a few rows
-        # under it, else its one line; a screen too short for that drops the frame as well.
+        # under it, else folded; a screen too short for that drops the frame as well.
         for width, height, keys in (
                 (40, 24, menu.KEYS), (100, 30, menu.KEYS), (40, 12, menu.KEYS),
                 (30, 14, menu.OVERLAY_KEYS), (78, 19, menu.OVERLAY_KEYS),
@@ -281,12 +281,13 @@ class Pages(Sandbox):
         lines, drawn = self.draw(seats, 100, 30)
         self.assertEqual(drawn, (0, 1))
         self.assertIn("usage left", "\n".join(lines))
-        # the popup over a seat, one seat listed: the usage keeps a line, and the title its own
+        # the popup over a seat, one seat listed: the usage folded keeps every subscription, on
+        # as many lines as that takes
         lines, drawn = self.draw(self.seats(1), 38, 14, keys=menu.OVERLAY_KEYS)
         self.assertEqual(drawn, (0, 1))
         self.assertLessEqual(len(lines) + 2, 14, "\n".join(lines))
         self.assertRegex("\n".join(lines), usage)
-        self.assertTrue(lines[0].startswith("agentkit"))
+        self.assertIn("ChatGPT —", "\n".join(lines))
         # one page draws exactly what it always drew: no page keys and no range
         lines, drawn = self.draw(self.seats(3), 40, 24)
         self.assertEqual(drawn, (0, 1))
@@ -310,7 +311,7 @@ class Pages(Sandbox):
             self.assertEqual(menu.loop(self.cfg), 0)
         headings = [line.strip() for line in out.getvalue().splitlines() if "your projects" in line]
         base = "your projects · 12 need you"
-        # six pages of two seats each: the usage's one line keeps its row on every page
+        # six pages of two seats each: the usage folded keeps its row on every page
         self.assertEqual(headings, [f"{base} 1/6", f"{base} 2/6",
                                     f"{base} 1/6", f"{base} 2/6",
                                     f"{base} 3/6", f"{base} 4/6",

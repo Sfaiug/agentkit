@@ -217,7 +217,9 @@ a mark, an effort or a provider's name, on a model's own screen its id and its
 effort, on `n` a model or a role's mark, and a provider or a subscription in the
 lists `+ add` and `− remove` open -- the key line says what it is in one plain
 sentence, in place of the keys: starting on the same row and wrapping at word
-boundaries onto further lines, never cut. The rows above stay in place. The keys
+boundaries onto further lines, never cut. The rows above stay in place; under the
+main menu's keys, which stand at the screen's bottom, a sentence taller than they
+are starts higher, on the blank rows reserved above them. The keys
 and their explanations have room reserved through `terminal.key_height` before an
 interactive list is drawn, so a full list never scrolls when the pointer rests on
 a key or a row. `terminal.key_line` returns only the keys' own rows, with no blank
@@ -446,10 +448,12 @@ keeps, wherever the rows end. Seats that do not fit between them turn pages, who
 under repeated headers, so a seat's lines never split across pages: one
 taller than a page is cut to it, its last line ending in `…`. Rows keep their
 global numbers. A screen too short for the usage block and a few rows under
-it draws the block as one line, every subscription's share left (`Claude I
-17% · ChatGPT 74% · Grok —`), and one too short for that drops the frame and
-the blank lines too (compact), the usage line kept. On a terminal the page up
-is the one the highlight is on and the key line says which (`←  1 / 2  →`);
+it draws the block folded, every subscription's share left, a spent week's
+credits in its place as on its row (`Claude I 17% · ChatGPT 74% · Grok —`), on
+a line and another wherever the width runs out, never cutting one away; one too
+short for that drops the frame and the blank lines too (compact), the usage
+kept. On a terminal the page up
+is the one the highlight is on and the key line starts with which (`←  1 / 2  →`);
 in a pipe the heading does (`your projects 2/3`), the page never the part that
 is cut, and `j` and `k` turn the pages.
 

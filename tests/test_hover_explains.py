@@ -253,17 +253,19 @@ class MainMenu(unittest.TestCase):
                 # the key line starts with the page's place where the seats run to pages
                 keys = next(row for row, line in enumerate(lines, 1)
                             if "↑↓ move" in line or line.strip().startswith("←"))
+                # the keys stand at the bottom: what is taller rises into the blank rows above
+                room = max(row for row, line in enumerate(before[:keys - 1], 1) if line) + 1
                 grid = played(child.text(), 16)
                 places = [(at(grid, "n new"), TIPS["n new"]),
                           (at(grid, "›"), TIPS["session"].format(name=name))]
                 for place, sentence in places:
                     with self.subTest(sentence=sentence):
                         child.send(move(*place))
-                        child.until(lambda text: explanation(played(text, 16), keys).replace(" ", "")
+                        child.until(lambda text: explanation(played(text, 16), room).replace(" ", "")
                                     == sentence.replace(" ", ""), "the whole explanation on a full page")
                         shown = texts(played(child.text(), 16))
-                        self.assertEqual([line.replace("›", " ") for line in shown[:keys - 1]],
-                                         [line.replace("›", " ") for line in before[:keys - 1]])
+                        self.assertEqual([line.replace("›", " ") for line in shown[:room - 1]],
+                                         [line.replace("›", " ") for line in before[:room - 1]])
                         self.assertLess(len(shown), 16, shown)
                         self.assertTrue(all(terminal.cells(line) <= cols for line in shown), shown)
                         child.send(move(1, 1))
@@ -278,6 +280,8 @@ class MainMenu(unittest.TestCase):
         lines = child.frame()
         row = next(number for number, line in enumerate(lines, 1) if line.startswith("  Claude"))
         keys = next(number for number, line in enumerate(lines, 1) if "↑↓ move" in line)
+        # the keys stand at the bottom: what is taller rises into the blank rows above
+        room = max(number for number, line in enumerate(lines[:keys - 1], 1) if line) + 1
         places = [(5, row, USAGE),
                   (lines[keys - 1].index("n new") + 1, keys, "  " + TIPS["n new"])]
         for column, point_row, sentence in places:
@@ -285,18 +289,18 @@ class MainMenu(unittest.TestCase):
                 child.send(move(column, point_row))
 
                 def ready(text):
-                    said = "  " + explanation(played(text), keys)
+                    said = "  " + explanation(played(text), room)
                     return sentence.fullmatch(said) if isinstance(sentence, re.Pattern) else said == sentence
 
                 child.until(ready, "the whole wrapped explanation")
                 shown = texts(played(child.text()))
                 self.assertTrue(all(terminal.cells(line) <= 40 for line in shown), shown)
                 self.assertLess(len(shown), 24, shown)
-                self.assertNotIn("…", "\n".join(shown[keys - 1:]))
+                self.assertNotIn("…", "\n".join(shown[room - 1:]))
                 self.assertTrue(shown[row - 1].startswith("  Claude"))
                 self.assertEqual(shown.index("acme"), lines.index("acme"))
                 child.send(move(1, 2))
-                child.until(lambda text: texts(played(text))[keys - 1:len(lines)] == lines[keys - 1:]
+                child.until(lambda text: texts(played(text))[room - 1:len(lines)] == lines[room - 1:]
                             and not any(texts(played(text))[len(lines):]), "the keys back without extra lines")
         child.leave()
 
