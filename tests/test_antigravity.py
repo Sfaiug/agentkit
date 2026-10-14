@@ -223,6 +223,11 @@ class Antigravity(unittest.TestCase):
         proc = self.adapter("interactive", "gemini-3.8-flash", "high")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         words = shlex.split(proc.stdout)
+        # under the wrapper every seat's harness runs under, which looks at the seat again as
+        # its screen moves and stops
+        self.assertEqual(words[:5], ["python3", str(REPO / "tools/idle-compact.py"),
+                                     "--harness", "antigravity", "--"])
+        words = words[5:]
         self.assertEqual(words[:3], ["env", "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
         self.assertEqual(words[words.index("--agent") + 1], "agentkit")
         # the id agy's own alias resolution makes of the model and the effort
@@ -450,7 +455,7 @@ class Antigravity(unittest.TestCase):
         proc, out = self.turn(EVENTS_CONTINUED, "c-two", **named)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         words = shlex.split(self.adapter("interactive", "gemini-3.8-flash", "high", "c-two",
-                                         env=named).stdout)
+                                         env=named).stdout)[5:]
         self.assertEqual(words[:11], ["env", "-u", "GEMINI_API_KEY", "-u", "GOOGLE_API_KEY",
                                       "-u", "AGY_ADC_AUTH", "DBUS_SESSION_BUS_ADDRESS=disabled:",
                                       "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy",
@@ -488,7 +493,7 @@ class Antigravity(unittest.TestCase):
         self.assertNotIn("--app_data_dir", self.argv_log.read_text())
         self.assertEqual(env_log.read_text().splitlines(), ["unix:path=/run/usual-bus|"])
         words = shlex.split(self.adapter("interactive", "gemini-3.8-flash", "high",
-                                         env=usual).stdout)
+                                         env=usual).stdout)[5:]
         self.assertEqual(words[:3], ["env", "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
         self.assertNotIn("--app_data_dir", " ".join(words))
         self.assertEqual([p.name for p in self.token.parent.iterdir()], ["antigravity-oauth-token"])

@@ -157,8 +157,10 @@ interactive)
   # outside this adapter's environment.
   acct=""
   [ -n "$ACCOUNT" ] && acct="-u GEMINI_API_KEY -u GOOGLE_API_KEY -u AGY_ADC_AUTH DBUS_SESSION_BUS_ADDRESS=disabled: "
-  printf 'env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions\n' \
-      "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" ;;
+  # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
+  # screen comes to rest, starts moving or agy exits; agy compacts itself, so nothing is typed.
+  printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions\n' \
+      "$REPO/tools/idle-compact.py" "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" ;;
 usage)
   # agy's `/usage` panel draws what `retrieveUserQuotaSummary` answers for the project
   # `loadCodeAssist` names: groups of models, each with its windows, the share of one left and

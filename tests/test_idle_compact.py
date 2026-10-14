@@ -507,13 +507,13 @@ class Seat(unittest.TestCase):
         self.assertTrue(any(e["event"] == "redraw" for e in events), events)
         self.assertNotIn("/compact", self.typed(events))
 
-    def test_v5e_i_a_harness_with_no_compact_command_is_told_so_and_never_typed_into(self):
+    def test_v5e_i_a_harness_that_compacts_itself_is_never_typed_into_nor_told_so(self):
         adapters = self.root / "adapters"
         adapters.mkdir()
         (adapters / "plain.toml").write_text('version = 1\n[compact]\ncommand = "none"\n')
         stderr, events = self.run_seat("--harness", "plain", FAKE_TOKENS=40000, FAKE_LIFE=5,
                                        AGENTKIT_ADAPTER_DIR=str(adapters))
-        self.assertIn("plain has no compact command", stderr)
+        self.assertNotIn("will not compact itself", stderr)
         self.assertEqual(self.typed(events), "", events)
 
     def test_v5e_i_a_harness_that_reports_no_context_size_is_told_so_and_never_typed_into(self):

@@ -1767,21 +1767,8 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     if pane is None:
         pane = pane_text(session)
     at = time.time() if now is None else now
-    fact = hook_facts(name)
     try:
-        # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
-        # whose hook lands while the record is read is a newer turn, which the record may not
-        # show yet
-        ended = None
-        if hook_state(harness, fact)[0] in ("working", "asking"):
-            ended = interrupted_at(harness, name)
-            if ended is None and cancelled(harness, name, pane):
-                # seen now, and never before the turn it ends
-                ended = max(at, _stamp(fact.get("at")) or at)
-        if ended is not None and hook_facts(name) != fact:
-            ended = None
-        found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
-                         interrupted=ended)
+        found = observed(name, harness, pane, previous, at)
     except config.Error as exc:
         # a manifest somebody is in the middle of writing is not a reason for a blank menu
         print(f"WARN cannot read what {name} is doing: {exc}", file=sys.stderr)
@@ -1792,6 +1779,33 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
     return found
+
+
+def observed(name, harness, pane, previous, at):
+    """`classify` of that pane with the seat's hook facts and an interruption its harness
+    recorded, writing nothing."""
+    fact = hook_facts(name)
+    # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
+    # whose hook lands while the record is read is a newer turn, which the record may not
+    # show yet
+    ended = None
+    if hook_state(harness, fact)[0] in ("working", "asking"):
+        ended = interrupted_at(harness, name)
+        if ended is None and cancelled(harness, name, pane):
+            # seen now, and never before the turn it ends
+            ended = max(at, _stamp(fact.get("at")) or at)
+    if ended is not None and hook_facts(name) != fact:
+        ended = None
+    return classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
+                    interrupted=ended)
+
+
+def word_from(found):
+    """What of an observation a seat's word is decided from and kept beside it: its state and
+    rule, and the words of a question or a draft, which the owner reads -- never a spinner's
+    own line, which a harness redraws with its timer."""
+    said = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
+    return [found.get("state"), found.get("rule"), said]
 
 
 def _turn_in_flight(harness, found):
@@ -2119,11 +2133,17 @@ def announce_state(session, cfg=None, look=False, **facts):
         if look:
             facts["harness"], facts["live"] = look_at(session, cfg=cfg)
         previous = seat_read(name)
+        if facts.get("live") is None:
+            facts["live"] = previous
         answer = session_state(name, session=session, cfg=cfg, previous=previous, **facts)
+        # what it was decided from goes beside it: a classifier-only write since (a typing
+        # preflight's) is a reading nobody has published yet (`unseen`)
+        decided = word_from(facts["live"])
         if (previous.get("word") != answer["word"] or previous.get("reason") != answer["reason"]
-                or previous.get("word_since") != answer["since"]):
+                or previous.get("word_since") != answer["since"]
+                or previous.get("word_from") != decided):
             seat_write(name, word=answer["word"], reason=answer["reason"],
-                       word_since=answer["since"])
+                       word_since=answer["since"], word_from=decided)
         statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
         if previous.get("word") != answer["word"]:
             statusbar.retell(session)
@@ -2626,6 +2646,18 @@ def asking(name, harness, pane):
     """Does that pane, with its seat's hook facts, put a question to the owner?  Read without
     writing anything, so it may be asked under the seat's typing lock."""
     return _decided_state(name, harness, pane) == "asking"
+
+
+def unseen(launched, harness, pane):
+    """Does that pane read otherwise than the seat's published word was decided from, whoever
+    published it?  Read as a look reads it (`observed`), writing nothing."""
+    try:
+        name = config.resolve_session(launched)
+        previous = seat_read(name)
+        found = observed(name, harness, pane, previous, time.time())
+    except (config.Error, OSError):
+        return False
+    return word_from(found) != previous.get("word_from")
 
 
 def _decided_state(name, harness, pane):
