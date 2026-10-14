@@ -417,10 +417,24 @@ none. A board's model is found by its letters and digits (`normal`: `claude-opus
 max), else by the board's name the id extends with a version only (`muse-wonder-full` for `muse-wonder-full-1.0`;
 `found`), else, on a board where neither finds it, by `benchmark` on the config entry; at the row's effort, else the
 board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it, every matched
-board's numbers and which board model each came from. The table puts the fullest rows first: model, harness, id and
-effort, the boards that have it, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a
-successful coding task); under it, one line per board with how many rows, when and its note, and the rows no board has.
-`--json` is the rows and the boards' notes. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+board's numbers and which board model each came from.
+
+Every row is scored per role (`scored`). A column is the row's share of the best value in that column among the rows
+(100 for the best, 0 below zero); a role's score is the mean of the role's measures the row has, kept with how many it
+rests on; a row with none of a role's measures has no score for it. `ROLES` names each role's measures and why, pinned
+by `tests/test_matrix_measures.py` so they change only with a visible test change and the owner's yes: orchestrate is
+Arena Agent's net improvement and steerability, Artificial Analysis's agentic index and LiveBench's long-horizon suite;
+execute is Artificial Analysis's coding and agentic indexes, LiveBench's coding and long-horizon suites; review, with no
+public review board exporting its numbers, is the intelligence and coding indexes and LiveBench's reasoning suite
+(Artificial Analysis's free endpoint carries its indexes, never one benchmark's score, which is Pro only). The
+recommendation per role is the row resting on the most of the role's measures, then the highest score, then the faster
+(`tok/s`), then the cheaper (`$/task`): a row the boards measured at that effort is never beaten by one that only
+inherits a board naming no effort. The table lists each model's rows under its best: model, harness, id and effort,
+`orch`, `exec` and `review` as `97 of 3`, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's
+cost of a successful coding task); under it the recommendation, what each role is scored on, one line per board with
+how many rows, when and its note, and the rows no board has. `--json` is the rows with their scores, the
+recommendation and the boards' notes. ak's own run numbers never rank (AGENTS.md, Owner rules). Attribution:
+artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history
 

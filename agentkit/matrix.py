@@ -20,8 +20,13 @@ model no board lists at any effort is one row at none.  A board's model is match
 letters and digits alone (`acme-5` is `Acme 5 (max)` at max), else by the board's name the id
 extends with a version (`acme-pro` for `acme-pro-1.0`); `benchmark` on a config entry names the
 board's model on a board where neither fits.  A board's row at another effort never stands in.
-ak's own run numbers never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai,
-arena.ai, livebench.ai.
+
+A column is scored as a share of the best value among the rows ak can run (the best is 100,
+below zero is 0); a role's score is the mean of the role's measures the row has, said with how
+many it rests on (`97 of 3`); the recommendation for a role is the row resting on the most of
+its measures, then the highest score, then the faster row, then the cheaper.  `ROLES` names
+each role's measures and why; ak's own run numbers never rank (AGENTS.md, Owner rules).
+Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 """
 
 import csv
@@ -49,7 +54,25 @@ COST = "livebench.cost_coding"           # dollars per successful coding task
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own
 EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none"}
-HEADERS = ("model", "harness", "id", "boards", "tok/s", "$/task")
+# What each role is scored on: a column (board.field) and, in plain words, why it stands for
+# that role.  Pinned by tests/test_matrix_measures.py: it changes only with the owner's yes.
+# Artificial Analysis's free endpoint carries its three indexes, never one benchmark's score.
+ROLES = {
+    "orchestrate": (("arena.agent", "real agent sessions: net improvement over the average"),
+                    ("arena.agent_steerability", "taking a correction mid-task"),
+                    ("aa.evaluations.artificial_analysis_agentic_index",
+                     "agentic work end to end, across Artificial Analysis's agent suites"),
+                    ("livebench.long_horizon", "work that runs for hours")),
+    "execute": (("aa.evaluations.artificial_analysis_coding_index", "coding across evaluations"),
+                ("aa.evaluations.artificial_analysis_agentic_index", "agentic work end to end"),
+                ("livebench.coding", "bug fixes and apps that must run"),
+                ("livebench.long_horizon", "work that runs for hours")),
+    "review": (("aa.evaluations.artificial_analysis_intelligence_index",
+                "general strength: no public review board exports its numbers"),
+               ("aa.evaluations.artificial_analysis_coding_index", "reading code"),
+               ("livebench.reasoning", "reasoning")),
+}
+HEADERS = ("model", "harness", "id", "orch", "exec", "review", "tok/s", "$/task")
 
 
 def fetch_bytes(url, headers=None):
@@ -275,6 +298,37 @@ def rows(cfg, boards):
     return table
 
 
+def scored(table):
+    """Each row's `scores`, {role: {"score", "measures"}} or None where no measure of the role
+    is there, and the recommendation per role: the row resting on the most of the role's
+    measures, then the highest score, then the faster, then the cheaper."""
+    best = {}
+    for row in table:
+        for column, value in row["values"].items():
+            best[column] = max(best.get(column, 0), value)
+    for row in table:
+        shares = {column: 100 * max(value, 0) / best[column]
+                  for column, value in row["values"].items() if best.get(column, 0) > 0}
+        row["scores"] = {}
+        for role, columns in ROLES.items():
+            have = [shares[column] for column, _ in columns if column in shares]
+            row["scores"][role] = ({"score": round(sum(have) / len(have), 1), "measures": len(have)}
+                                   if have else None)
+    recommended = {}
+    for role in ROLES:
+        ranked = [row for row in table if row["scores"][role] is not None]
+        if ranked:
+            recommended[role] = max(ranked, key=lambda row: (
+                row["scores"][role]["measures"], row["scores"][role]["score"],
+                row["values"].get(SPEED, 0), -row["values"].get(COST, 0)))
+    return recommended
+
+
+def cell(found):
+    """`97 of 3`: the score and the measures it rests on; `-` where the role has none."""
+    return "-" if found is None else f"{found['score']:.0f} of {found['measures']}"
+
+
 def row_label(row):
     """`acme` for a configured row, else `acme-5-5`, and `@ max` where an effort is."""
     return (row["name"] or row["model"]) + (f" @ {row['effort']}" if row["effort"] else "")
@@ -297,21 +351,41 @@ def boards_lines(boards):
     return lines
 
 
-def render(table, boards):
-    """The rows as a table, the fullest first, then what each board said and when."""
-    table = sorted(table, key=lambda row: (-len(row["values"]), row["harness"], row["model"]))
+def render(table, boards, recommended):
+    """The rows as a table, each model's rows under its best, the recommendation per role, what
+    each role is scored on, then what each board said and when."""
+    def best(row):
+        return max((found["score"] for found in row["scores"].values() if found), default=-1)
+    tops = {}
+    for row in table:
+        tops[(row["harness"], row["model"])] = max(tops.get((row["harness"], row["model"]), -1),
+                                                   best(row))
+    table = sorted(table, key=lambda row: (-tops[(row["harness"], row["model"])], row["harness"],
+                                           row["model"], -best(row)))
     lines_of = [HEADERS] + [
         (row["name"] or "-", row["harness"],
          row["model"] + (f" @ {row['effort']}" if row["effort"] else ""),
-         ", ".join(board.split(".")[0] + (f" ({hit.rsplit('(', 1)[1]}" if "(" in hit else "")
-                   for board, hit in row["matched"].items()) or "-",
+         *(cell(row["scores"][role]) for role in ROLES),
          _num(row["values"].get(SPEED)), _num(row["values"].get(COST), 2))
         for row in table]
     width = terminal.width()
     widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(HEADERS))]
-    lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(line, widths)).rstrip()
+    lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
              for line in lines_of]
     lines[0] = terminal.styled(lines[0], "dim")
+    if recommended:
+        lines.append("recommended: " + " · ".join(
+            f"{role} {row_label(row)} ({cell(row['scores'][role])})"
+            for role, row in recommended.items()))
+    else:
+        lines.append("no recommendation yet: no board has a row ak can run")
+    lines.append(terminal.styled(
+        "a score is the mean share of the best over the measures the boards give that row, "
+        "`97 of 3`; a row resting on more measures is recommended before a higher score on "
+        "fewer, then the faster, then the cheaper", "dim"))
+    for role, columns in ROLES.items():
+        lines.append(terminal.styled(f"{role}, {len(columns)} measures: " + ", ".join(
+            f"{column} ({why})" for column, why in columns), "dim"))
     lines += boards_lines(boards)
     unmatched = [row_label(row) for row in table if not row["values"]]
     if unmatched:
@@ -330,11 +404,13 @@ def main(argv):
     cfg = config.load()
     boards = collect(refresh="--refresh" in flags)
     table = rows(cfg, boards)
+    recommended = scored(table)
     if "--json" in flags:
-        json.dump({"rows": table, "boards": {board: {k: v for k, v in held.items() if k != "rows"}
-                                             for board, held in boards.items()}},
-                  sys.stdout, indent=2)
+        json.dump({"rows": table,
+                   "recommended": {role: row_label(row) for role, row in recommended.items()},
+                   "boards": {board: {k: v for k, v in held.items() if k != "rows"}
+                              for board, held in boards.items()}}, sys.stdout, indent=2)
         print()
     else:
-        print(render(table, boards))
+        print(render(table, boards, recommended))
     return 0
