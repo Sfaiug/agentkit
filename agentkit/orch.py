@@ -985,8 +985,9 @@ def slice_line():
 
 
 def tmux_argv(socket, *args):
-    """One tmux command line.  `socket=""` is the default server, where the legacy seats are."""
-    return ["tmux", *(["-L", socket] if socket else []), *args]
+    """One tmux command line, on the real tmux (`guard.real`) and never a seat's guard: ak's own
+    calls are not a seat's.  `socket=""` is the default server, where the legacy seats are."""
+    return [guard.real("tmux"), *(["-L", socket] if socket else []), *args]
 
 
 def tmux_env(client=False):
@@ -1010,6 +1011,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     fix_term()
     socket = socket_name() if socket is None else socket
     argv, env = tmux_argv(socket, *args), tmux_env(client)
+    plain = argv
     if path_shim:
         # tmux gives a pane it spawns the PATH of the client that asked, over the session env, so
         # the seat guard's dir is put first on this client's PATH: the harness's `tmux` is the shim.
@@ -1021,7 +1023,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
                               env=env, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
-    if proc.returncode != 0 and unit and argv[0] != "tmux":
+    if proc.returncode != 0 and argv != plain:
         return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
@@ -1797,7 +1799,7 @@ def popup_command():
 def tmux_version():
     """(major, minor) of the tmux here, or (0, 0) where it names no release."""
     try:
-        said = subprocess.run(["tmux", "-V"], capture_output=True, text=True, timeout=5).stdout
+        said = subprocess.run(tmux_argv("", "-V"), capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         said = ""
     found = re.search(r"(\d+)\.(\d+)", said)

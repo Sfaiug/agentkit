@@ -116,6 +116,7 @@ key uses.
 
 import colorsys
 import copy
+import fcntl
 import json
 import os
 import re
@@ -159,6 +160,8 @@ UNREAD = ((re.compile(r"already reset"), "window reset"),
           (re.compile(r"returned no meters"), "no reading yet"))
 USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
          "(the menu; `ak attach` is the same)")
+RUN_RECORDS = "run-records.jsonl"   # under STATE: what `run_records` read, one line per run.json
+SETTLED = 2              # seconds a run.json's mtime lies behind the clock before its line is kept
 
 
 def read(prompt, default=None):
@@ -1734,12 +1737,55 @@ def run_records():
     terminal, and there is nobody to offer it to.  A run launched by hand belongs to no seat
     either but does belong to the terminal it was started from.  Read-only: a bad record is
     skipped, never repaired.
+
+    A run.json is parsed only when it changed: each pass keeps what it read in RUN_RECORDS, one
+    line per run under the stat it was read at (inode, mtime_ns, size), and a line whose stat no
+    longer matches is read again.  The stat comes before the read, and every record write
+    replaces the file, so a line can only be newer than its file, never stand for another; one
+    is kept only once its mtime lies SETTLED behind the clock, so no later write can share it.
+    Passes racing to write the file cost the next one a re-read, nothing more.
     """
-    found = []
+    cache = config.STATE / RUN_RECORDS
+    try:
+        lines = cache.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    known = {}
+    for line in lines:
+        try:
+            name, *key, state = json.loads(line)
+            known[name] = key, state, line
+        except (ValueError, TypeError, RecursionError):
+            continue
+    found, fresh, settled = [], [], (time.time() - SETTLED) * 1e9
     for run_dir in record.run_dirs():
-        state = record.read_state(run_dir)
-        if state is not None and not state.get("unattended") and not smoke_run(state):
+        try:
+            info = (run_dir / "run.json").stat()
+        except OSError:
+            continue
+        key = [info.st_ino, info.st_mtime_ns, info.st_size]
+        if run_dir.name in known and known[run_dir.name][0] == key:
+            state, line = known[run_dir.name][1:]
+        else:
+            state = record.read_state(run_dir)
+            if state is None:
+                continue
+            if state.get("unattended") or smoke_run(state):
+                state = None
+            line = json.dumps([run_dir.name, *key, state]) if info.st_mtime_ns < settled else None
+        if line:
+            fresh.append(line)
+        if state is not None:
             found.append((run_dir, state))
+    if fresh != lines:
+        try:
+            with open(cache.with_suffix(".lock"), "w") as held:
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)   # held: that pass writes it
+                temp = cache.with_suffix(".tmp")
+                temp.write_text("".join(f"{line}\n" for line in fresh), encoding="utf-8")
+                temp.replace(cache)
+        except OSError:
+            pass
     return found
 
 

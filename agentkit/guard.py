@@ -57,6 +57,7 @@ A new shim is a link to that body and an entry in `REFUSALS`.
 """
 
 import os
+import stat
 import subprocess
 import sys
 
@@ -403,6 +404,27 @@ def main(args):
 def shim_dir():
     """The directory whose `tmux`, `gh` and `git` are the shims: first on every seat's PATH."""
     return config.HOME / "bin"
+
+
+def real(name):
+    """The `name` ak's own calls run: the first on PATH that is not its shim, tested as tools/shim
+    tests them, so a wrapper or a test's fake ahead of the shim still answers.  The guard is for a
+    seat's own commands; asked of ak's code it cost each tmux call of a look a Python start.
+    `name` itself where PATH holds no other, so the call fails as a bare one would."""
+    try:
+        shim = os.stat(shim_dir() / name)
+    except OSError:
+        shim = None
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        found = os.path.join(folder, name)
+        try:
+            info = os.stat(found)
+        except OSError:
+            continue
+        if (folder and stat.S_ISREG(info.st_mode) and os.access(found, os.X_OK)
+                and not (shim and os.path.samestat(info, shim))):
+            return found
+    return name
 
 
 def install_shim():
