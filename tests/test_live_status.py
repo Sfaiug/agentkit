@@ -168,6 +168,12 @@ class LiveStatus(unittest.TestCase):
                            env=env, text=True, capture_output=True, timeout=30, check=True)
             return time.monotonic() - began
 
+        def stop(payload):
+            """hooks/orchestrator-stop.sh judging that Stop, as Claude Code runs it beside it."""
+            subprocess.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
+                           input=json.dumps(payload), env=env, text=True, capture_output=True,
+                           timeout=30, check=True)
+
         def sets():
             # whole lines only: the look may be in the middle of writing the last one
             text = log.read_text(encoding="utf-8") if log.exists() else ""
@@ -189,20 +195,19 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(drawn(options[statusbar.TOP]), " ▐● working▌  herdr  opus orchestrates")
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         # Claude's Stop is written down by hooks/orchestrator-stop.sh, beside this hook, in
-        # whichever order the two finish: that one first, and the look publishes it at once
+        # whichever order the two finish, and that one looks at the seat once its word is down:
+        # that one first ...
         env["FAKE_TMUX_SLOW"] = "0"
-        self.hook("Stop")
-        began = time.monotonic()
+        stop({"hook_event_name": "Stop", "background_tasks": []})
         hook({"hook_event_name": "Stop", "background_tasks": []})
         published("needs you")
-        self.assertLess(time.monotonic() - began, 3.0)      # and never waits HOOK_LOOK_WAIT
         hook({"hook_event_name": "UserPromptSubmit", "prompt": "go"})
         published("working")
         # ... or this one first: the seat is as it was until that one's word lands, then it moves
         hook({"hook_event_name": "Stop", "background_tasks": []})
         time.sleep(1)
         self.assertEqual(dict(sets())["set-titles-string"], "herdr · working")
-        self.hook("Stop")
+        stop({"hook_event_name": "Stop", "background_tasks": []})
         options = published("needs you")
         self.assertEqual(drawn(options[statusbar.TOP]),
                          " ▐! needs you▌  herdr  opus orchestrates")

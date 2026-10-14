@@ -33,9 +33,9 @@ set -u
 
 # Look at the seat again, off the harness's path: see the header.  Only from inside a tmux
 # pane, which is where every seat's harness runs; watch.hook_look checks the pane is the seat's,
-# on the seat's own server.  `heard`, on Claude's Stop only, is when this hook heard it.
+# on the seat's own server.
 look() {
-  local seat=$1 heard=${2:-} answered=${3:-} said=${4:-}
+  local seat=$1 answered=${2:-} said=${3:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
   # the prompt's words go on its stdin: on its command line, a long one would never run it
   ( printf '%s' "$said" | /usr/bin/env python3 -c '
@@ -47,9 +47,8 @@ except OSError:
     pass
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import watch
-watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
-                float(sys.argv[4]) if sys.argv[4] else None, sys.stdin.read())
-' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" >/dev/null 2>&1 & )
+watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, sys.stdin.read())
+' "${BASH_SOURCE[0]}" "$seat" "$answered" >/dev/null 2>&1 & )
 }
 
 seat_state() {
@@ -70,14 +69,13 @@ seat_state() {
   fi
   [[ $event != SessionStart ]] || return 0
   ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
-  # A Stop that hands over the background work in flight -- Claude Code's -- is written down by
-  # hooks/orchestrator-stop.sh, which runs beside this and is the one that knows whether the
-  # turn ended there.  Written here too, it would read as the turn over until that one decided;
-  # the look is made again once that one's word lands.
+  # A Stop that hands over the background work in flight -- Claude Code's, Grok Build's -- is
+  # written down by hooks/orchestrator-stop.sh, which runs beside this and is the one that knows
+  # whether the turn ended there.  Written here too, it would read as the turn over until that
+  # one decided; that one looks at the seat once its word is down, however long it took.
   if [[ $event = Stop ]] &&
     "$jq" -e '(.background_tasks // .backgroundTasks) | type == "array"' <<<"$payload" \
       >/dev/null 2>&1; then
-    look "$seat" "$ts"
     return 0
   fi
   # the payload field that tells one kind of that event from another: Claude's Notification
@@ -160,7 +158,7 @@ config.record_hook_fact(row, fact, kept)
     owner=false
   fi
   if [[ $owner = true ]]; then
-    look "$seat" "" "$ts" "$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
+    look "$seat" "$ts" "$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
                                        | first // ""' <<<"$payload" 2>/dev/null)"
   else
     look "$seat"
