@@ -2223,6 +2223,10 @@ MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right 
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
 REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
               "Nothing new starts on it; + add a model brings it back.")
+# What another model's orchestrator mark asks of a seat, and what moving means.
+MOVE_ASK = ("Move {} to {}?",
+            "Its conversation starts again on {}, handed its plan, its runs and the last "
+            "exchange; its runs keep going.")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2830,6 +2834,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
+            if column == 0 and here[1] != selected.get("orchestrator") and not move_asked(
+                    cfg, version, session, selected, providers, here, column, title):
+                continue              # kept: the seat stays on its model
             note = session_mark(cfg, session, selected, here[1], column, providers)
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
@@ -3309,12 +3316,24 @@ def show_config(dry_run=False, keyboard=None, session=None):
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
+def move_asked(cfg, version, session, selected, providers, here, column, title):
+    """Whether `Move` was picked on the card the orchestrator mark of another model asks on,
+    drawn under the rows of the config screen as it stands; False, kept, on Esc.  A seat moved
+    by a slip loses its conversation to a handover, so the mark asks first, as `Remove` does."""
+    def around(card):     # the screen around the card, drawn again on a resize
+        lines = config_body(cfg, version, here, column, selected, providers)[0]
+        terminal.frame(title, [*lines, *card], "esc back")
+        return 3 + len(lines)
+    return terminal.confirm(MOVE_ASK[0].format(session, here[1]), MOVE_ASK[1].format(here[1]),
+                            "Move", around)
+
+
 def session_mark(cfg, name, selected, model, column, providers):
     """Act on one of a session's marks, saving it to the session's record at once.
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
-    under the same name, and a harness that is not installed or not logged in, or a meter
+    under the same name (the screen has asked first, `move_asked`), and a harness that is not installed or not logged in, or a meter
     that is spent, is refused in one line with the seat as it was. Reviewers keep one
     model, executors may be empty, and a flip leaving no allowed pair is refused. A run
     launched afterwards reads the record as left here; one already going keeps the groups

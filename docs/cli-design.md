@@ -279,8 +279,9 @@ Helpers: `terminal.pointed`, `terminal.lit`, `menu.usage_tip`, `motion.glinting`
 ## Questions
 
 Every yes-or-no question on a screen read with the keys -- `x` on a seat that
-is not done, in the menu and the popup, and `Remove` on a model, a provider or a
-subscription on the `c` screens -- is one card, `terminal.confirm`, drawn where
+is not done, in the menu and the popup, `Remove` on a model, a provider or a
+subscription on the `c` screens, and `Move` on another model's orchestrator mark of a
+seat there -- is one card, `terminal.confirm`, drawn where
 its screen asks it: a blank line, the question in the normal colour, one dim
 line saying what the answer means, the two choices, and a blank line. The safe
 choice is first and highlighted, `✓ Keep`; the one that ends something follows,
