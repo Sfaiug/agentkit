@@ -161,7 +161,7 @@ UNREAD = ((re.compile(r"already reset"), "window reset"),
 USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
          "(the menu; `ak attach` is the same)")
 RUN_RECORDS = "run-records.jsonl"   # under STATE: what `run_records` read, one line per run.json
-SETTLED = 2              # seconds a run.json's mtime lies behind the clock before its line is kept
+SETTLED = 60             # seconds a run.json's mtime lies behind the clock before its line is kept
 
 
 def read(prompt, default=None):
@@ -1742,8 +1742,9 @@ def run_records():
     line per run under the stat it was read at (inode, mtime_ns, size), and a line whose stat no
     longer matches is read again.  The stat comes before the read, and every record write
     replaces the file, so a line can only be newer than its file, never stand for another; one
-    is kept only once its mtime lies SETTLED behind the clock, so no later write can share it.
-    Passes racing to write the file cost the next one a re-read, nothing more.
+    is kept only once its mtime lies SETTLED behind the clock, so no later write can share it, and
+    a live run writing its record every few seconds is read on each pass instead of rewriting the
+    file on each.  Passes racing to write the file cost the next one a re-read, nothing more.
     """
     cache = config.STATE / RUN_RECORDS
     try:
