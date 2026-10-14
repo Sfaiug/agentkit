@@ -69,11 +69,11 @@ class QuestionCameDown(Sandbox):
         self.hook("UserPromptSubmit", prompt="Look into the parser, an agent beside you.")
         fact = self.hook("Notification", notification_type="permission_prompt",
                          message="Claude needs your permission")
-        for name in ("working", "idle"):
+        for name, read in (("working", ("working", "working.spinner")),
+                           ("idle", ("at_prompt", "prompt.composer"))):
             with self.subTest(name):
                 pane = (FIX / f"claude-tray-{name}-pane.txt").read_text(encoding="utf-8")
-                self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane))[:2],
-                                 ("at_prompt", "prompt.composer"))
+                self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane))[:2], read)
                 self.assertEqual(self.looked(pane, fact), ("working", False))
 
     def test_a_question_the_screen_cannot_read_stays_a_question(self):
