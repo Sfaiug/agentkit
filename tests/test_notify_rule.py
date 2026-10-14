@@ -290,7 +290,7 @@ class Rule(unittest.TestCase):
                 watch.save_state({"reviewed": {}, "own": {}, "stalls": {}, "seen_at": {}})
                 self.stall_tick(word, pane=pane)
                 self.assertEqual(len(self.posts), expected, self.posts)
-        self.assertNotIn("description", self.posts[0]["embeds"][0])
+        self.assertTrue(self.posts[0]["content"].endswith(" · seat <@42>"), self.posts[0])
         self.assertIn("is stuck with no progress for an hour", notify.last("seat")["text"])
 
     # --- (d, e) the needs-you the rule keeps -------------------------------
@@ -300,7 +300,9 @@ class Rule(unittest.TestCase):
                                 auth="Please run /login")
         self.assertEqual(len(self.posts), 1, self.posts)
         self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
-        self.assertNotIn("description", self.posts[0]["embeds"][0])
+        # the card says what to do: the alert itself, its first sentence where the push shows it
+        self.assertIn("needs login", self.posts[0]["embeds"][0]["description"])
+        self.assertIn("needs login", self.posts[0]["content"])
         self.assertIn("needs login", notify.last("seat")["text"])
         self.assertEqual(state["stalls"]["seat"]["kind"], "auth")
 
@@ -447,49 +449,42 @@ class Rule(unittest.TestCase):
                 self.decision(pr_state, decision, seat=self.seat())
             shaped.assert_not_called()
 
-    # --- (rule 10) a card is two words and the seat --------------------------
+    # --- (rule 10) a card leads with what it is about -------------------------
 
-    def test_v5d_a_done_card_is_two_words_and_the_seat(self):
-        long_text = "Parser fixed and the PR is up, see run 20260915-0001 and key abc123"
+    def test_v5d_a_done_card_leads_with_its_result(self):
+        long_text = ("Parser fixed and the PR is up. See run 20260915-0001 and key abc123 for the "
+                     "rest, which the seat's own summary says in full.")
         self.assertEqual(notify.main(["done", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
         payload = self.posts[0]
-        self.assertEqual(payload["content"], "<@42>")
+        # the push shows the content: the result's first sentence and the seat, the mention last
+        self.assertEqual(payload["content"], "Parser fixed and the PR is up. · seat <@42>")
+        self.assertEqual(payload["allowed_mentions"], {"users": ["42"]})
         self.assertEqual(payload["username"], "agentkit")
         embed = payload["embeds"][0]
         self.assertEqual(embed["title"], "Done · seat")
-        for absent in ("description", "fields", "footer", "url"):
+        self.assertEqual(embed["description"], long_text)
+        for absent in ("fields", "footer", "url"):
             self.assertNotIn(absent, embed)
-            self.assertNotIn(absent, json.dumps(payload))
-        self.assertNotIn(long_text, json.dumps(payload))
-        # the text is kept where it is useful: the outbox record, the log line,
-        # the terminal notice and --dry-run -- never on Discord
         self.assertEqual(notify.last("seat")["text"], long_text)
-        event = json.loads(next(notify.outbox().glob("*.json")).read_text())
-        self.assertEqual((event["text"], event["message"].split(": ", 1)[1]), (long_text, long_text))
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(notify.main(["done", long_text, "--dry-run"]), 0)
-        self.assertIn(long_text, out.getvalue() + err.getvalue())
+        self.assertIn('"content": "Parser fixed and the PR is up. \\u00b7 seat <@42>"',
+                      out.getvalue())
         self.assertEqual(len(self.posts), 1)   # a dry run posts nothing
 
-    def test_v5d_a_needs_card_is_two_words_and_the_seat(self):
-        long_text = "Which branch should this land on, and who owns the numbers below?"
+    def test_v5d_a_needs_card_leads_with_its_question(self):
+        long_text = "Which branch should this land on, and who owns the numbers below? Both ship Friday."
         self.assertEqual(notify.main(["needs", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
         payload = self.posts[0]
-        self.assertEqual(payload["content"], "<@42>")
-        self.assertEqual(payload["username"], "agentkit")
+        self.assertEqual(payload["content"],
+                         "Which branch should this land on, and who owns the numbers below? · seat <@42>")
         embed = payload["embeds"][0]
         self.assertEqual(embed["title"], "Needs you · seat")
-        for absent in ("description", "fields", "footer", "url"):
-            self.assertNotIn(absent, embed)
-        self.assertNotIn(long_text, json.dumps(payload))
+        self.assertEqual(embed["description"], long_text)
         self.assertEqual(notify.last("seat")["text"], long_text)
-        out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            self.assertEqual(notify.main(["needs", long_text, "--dry-run"]), 0)
-        self.assertIn(long_text, out.getvalue() + err.getvalue())
 
     def test_v5d_a_done_with_no_runs_going_posts_at_once(self):
         self.assertEqual(notify.main(["done", "Quick answer"]), 0)

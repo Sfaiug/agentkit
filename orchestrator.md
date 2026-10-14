@@ -48,7 +48,7 @@ A turn ends only on a fact ak records: an unanswered question asked through your
 
 ## Talk to the user
 
-- `ak notify done` once, when the whole job's work is finished, with what changed and where; never for a turn that only answered or discussed. Questions that do not block go into that message or wait in the terminal.
+- `ak notify done` once, when the whole job's work is finished: the result first, its first sentence within 80 characters, then what changed and where; never for a turn that only answered or discussed. Questions that do not block go into that message or wait in the terminal.
 - The user is told nothing else: never progress, never a run's PR link, never a status.
 
 ## Less is more

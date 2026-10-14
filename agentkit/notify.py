@@ -33,6 +33,7 @@ import itertools
 import json
 import math
 import os
+import re
 import secrets
 import stat
 import sys
@@ -58,6 +59,9 @@ SUBJECT_CAP = 60   # a title the phone shows whole, when the task has to stand i
 # start and cut the rest, so context written before the ask hides it.  One classic terminal line.
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
+# What Discord takes: a post past either is refused, and a refused card is never sent again.
+CONTENT_CAP = 1900          # of a message's 2000
+DESCRIPTION_CAP = 4096      # of one embed's description
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
@@ -229,6 +233,34 @@ def mention():
     """The `<@id>` that makes Discord push-notify the user, or "" when no id is configured."""
     user_id = _secret(USER_ID_ENV, "discord_user_id")
     return f"<@{user_id}>" if user_id else ""
+
+
+def lead(kind, text):
+    """The sentence a page leads with, and a row: a question up to its "?", else the first
+    sentence -- up to the first ".", "!" or "?" a space or the line's end follows -- of the first
+    line that says anything."""
+    first = next((line.strip() for line in str(text).splitlines() if line.strip()), "")
+    if kind == "needs":
+        asked, mark, _ = first.partition("?")
+        if mark:
+            return asked + mark
+    end = re.search(r"[.!?](?=\s|$)", first)
+    return first[:end.end()] if end else first
+
+
+def card_payload(kind, session, text):
+    """What a page posts.  A phone's push shows a message's content and not its embed, so the
+    content is the lead and the seat, with the owner's mention last and the only one it may
+    ping; the embed under it holds the whole text, and an edit to `Answered` or `Done` keeps it."""
+    user_id = _secret(USER_ID_ENV, "discord_user_id")
+    # a link in the content would unfold into a preview under the card
+    head = re.sub(r"(?<!<)(https?://\S+)", r"<\1>", lead(kind, text))
+    content = f"{head} \u00b7 {subject(session, text)}"
+    if len(content) > CONTENT_CAP:
+        content = content[:CONTENT_CAP - 1] + "\u2026"
+    return {"username": "agentkit", "content": content + (f" <@{user_id}>" if user_id else ""),
+            "allowed_mentions": {"users": [user_id]} if user_id else {"parse": []},
+            "embeds": [embed(kind, session, text)]}
 
 
 def webhook_url(url, message_id=None):
@@ -964,10 +996,7 @@ def _send_card(session, kind, card, answer):
     """Queue once under the session lock; the outbox owns any further attempts."""
     previous = last(session, include_seen=True)
     text = previous["text"] if kind == "done" and previous else answer["reason"]
-    payload = {"username": "agentkit", "embeds": [embed(kind, session, text)]}
-    who = mention()
-    if who:
-        payload["content"] = who
+    payload = card_payload(kind, session, text)
     key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
     with outbox_lock():
         event = _read_event(key)
@@ -1285,16 +1314,16 @@ def subject(session, text):
 
 
 def embed(kind, session, text):
-    """The card Discord hears: two words and the seat, nothing else.
-
-    The title names the seat; the colour says which of the two it is.  No
-    description, no fields, no footer, no PR link, no run id, no key hint: the
-    text `ak notify` was given lives on in the outbox record, the log line, the
-    terminal notice and `--dry-run`, never on Discord.
-    """
+    """The card under a page's lead: two words and the seat as its title, the colour saying
+    which of the two it is, and the whole of what was asked or done.  No fields, no footer, no
+    PR link, no run id, no key hint."""
     color = COLORS["fail" if kind == "done" and text.lstrip().upper().startswith("FAIL")
                    else kind]
+    text = str(text).strip()
+    if len(text) > DESCRIPTION_CAP:
+        text = text[:DESCRIPTION_CAP - 1] + "\u2026"
     return {"title": f"{TITLES[kind]} \u00b7 {subject(session, text)}"[:256], "color": color,
+            **({"description": text} if text else {}),
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
@@ -1335,6 +1364,14 @@ def asks_first(text):
         raise config.Error(f'put the question first, its "?" within {ASK_CAP} characters: '
                            "the status bar and the menu show a question's start; context "
                            "goes after it")
+
+
+def results_first(text):
+    """Refuse a done whose first sentence does not end within its first ASK_CAP characters."""
+    if len(lead("done", text)) > ASK_CAP:
+        raise config.Error(f"put the result first, its first sentence within {ASK_CAP} "
+                           "characters: the status bar, the menu and the page show a result's "
+                           "start; detail goes after it")
 
 
 def keep_back(name, text):
@@ -1379,11 +1416,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         raise config.Error("--file was removed: notification cards carry no attachments")
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
-        payload = {"username": "agentkit", "embeds": [embed(kind, name, text)]}
-        who = mention()
-        if who:
-            payload["content"] = who
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(card_payload(kind, name, text), indent=2))
         terminal_notice(name, f"{TITLES[kind]} · {subject(name, text)}: {text}", dry_run=True)
         return 0
     if not name:
@@ -1576,6 +1609,8 @@ def main(argv):
         return 0                          # before the plan's checks: a worker runs none of them
     if kind == "needs":
         asks_first(rest[0])
+    if kind == "done":
+        results_first(rest[0])
     if kind:
         return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
     raise config.Error(USAGE)

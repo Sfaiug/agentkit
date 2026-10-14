@@ -207,7 +207,7 @@ class Notifications(unittest.TestCase):
         self.cli("needs", "Merge PR #7? yes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
         payload = self.requests[0][2]
-        self.assertEqual(payload["content"], "<@123456789012345678>")
+        self.assertEqual(payload["content"], "Merge PR #7? · seat <@123456789012345678>")
         self.assertEqual(payload["embeds"][0]["title"], "Needs you · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0xF5A623)
         before = config.notify_path("seat").read_bytes()
@@ -243,12 +243,12 @@ class Notifications(unittest.TestCase):
         self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
         self.assertEqual(self.requests[-2][2]["embeds"][0]["title"], "Done · seat")
         payload = self.requests[-1][2]
-        self.assertEqual(payload["content"], "<@123456789012345678>")
+        self.assertEqual(payload["content"], "Shipped · seat <@123456789012345678>")
         self.assertEqual(payload["username"], "agentkit")
         self.assertEqual(payload["embeds"][0]["title"], "Done · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0x2ECC71)
-        self.assertNotIn("fields", payload["embeds"][0])   # the card is two words and the seat
-        self.assertNotIn("description", payload["embeds"][0])
+        self.assertNotIn("fields", payload["embeds"][0])
+        self.assertEqual(payload["embeds"][0]["description"], "Shipped")
         self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
         self.assertEqual(menu.state({"name": "seat"}), "done")
         count = len(self.requests)

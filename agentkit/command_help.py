@@ -144,7 +144,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                      "--dry-run prints the payload without posting.",
                      'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify done": (f"usage: {NOTIFY_DONE}",
-                    "Report the finished job; --dry-run prints the payload without posting.",
+                    "Report the finished job: the result first, its first sentence within 80\n"
+                    "characters. --dry-run prints the payload without posting.",
                     'ak notify done "Parser fixed" --dry-run'),
     "wait": ("usage: ak wait PR_URL|RUN_ID",
              "End this turn waiting on that pull request or run; ak wakes you with one line\n"

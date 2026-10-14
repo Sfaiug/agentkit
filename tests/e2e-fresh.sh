@@ -763,7 +763,7 @@ fi
 
 # ==== g) the two notifications, never posted ================================
 # Here, not later: this runs while the seat from step d is still up, and step d's `x`
-# closes it below. The cards are two words and the seat; the text stays in the preview.
+# closes it below. Each card leads with its question or result and the seat, the mention last.
 if doing g; then
   UID_WANT=$(cat "$UH/.agentkit/secrets/discord_user_id" 2>/dev/null)
   as "AGENTKIT_SESSION=${SEAT:-atoll} ak notify needs 'test?' --dry-run" >"$WORK/needs.json" 2>"$WORK/needs.err"
@@ -776,9 +776,9 @@ if doing g; then
   must "the done payload is not JSON" jq -e . "$WORK/done.json"
   if [ -n "$UID_WANT" ]; then
     must "the needs payload has no @mention" \
-      jq -e --arg m "<@$UID_WANT>" '.content == $m' "$WORK/needs.json"
+      jq -e --arg m "<@$UID_WANT>" '.content | endswith(" " + $m)' "$WORK/needs.json"
     must "the done payload has no @mention" \
-      jq -e --arg m "<@$UID_WANT>" '.content == $m' "$WORK/done.json"
+      jq -e --arg m "<@$UID_WANT>" '.content | endswith(" " + $m)' "$WORK/done.json"
   else
     skip "g: the @mention: the Discord user id is not on this host"
   fi
@@ -786,10 +786,10 @@ if doing g; then
     jq -e --arg s "${SEAT:-atoll}" '.embeds[0].title == ("Needs you · " + $s)' "$WORK/needs.json"
   must "the done embed does not name the session" \
     jq -e --arg s "${SEAT:-atoll}" '.embeds[0].title == ("Done · " + $s)' "$WORK/done.json"
-  must "the needs embed is two words and the seat, nothing else" \
-    jq -e '(.embeds[0] | has("description") | not) and (.embeds[0] | has("fields") | not)' "$WORK/needs.json"
+  must "the needs card does not lead with its question" \
+    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("test? · " + $s)) and .embeds[0].description == "test?" and (.embeds[0] | has("fields") | not)' "$WORK/needs.json"
   verdict "g  ak notify needs/done --dry-run" \
-    "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }two words and the seat, nothing posted"
+    "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }the question and the seat first, nothing posted"
 fi
 
 # ==== d, closing: x and Stop stop the seat ==================================
