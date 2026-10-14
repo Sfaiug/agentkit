@@ -2905,7 +2905,7 @@ def maintenance(log=print):
 
 
 def state_word(session, cfg=None):
-    """What the listing calls a seat: working, needs you or done, and nothing else.
+    """What the listing calls a seat: working, needs you, done or idle, and nothing else.
 
     One function decides it -- `watch.session_state` -- so the list, the menu, the overlay,
     the status bar and the window title can never say different words about the same seat.
@@ -2963,7 +2963,7 @@ def compacts(session, cfg):
 def explain(session, cfg):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
-    The word is one of the three every screen says; the evidence lines under it are the facts
+    The word is one of the four every screen says; the evidence lines under it are the facts
     behind it.  A seat whose process is gone was never classified, and saying so is the honest
     answer rather than inventing a rule that matched.
     """

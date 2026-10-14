@@ -76,7 +76,7 @@ and draws the row it answers; a failure is one dim line under the rows, the mark
 unchanged and shaking (Motion). Its `list` runs in a thread with a 20 s timeout, asked every minute
 and every ten seconds while the screen is open, so neither screen waits on it.
 Needing projects sort first, which is what carries the eye down to one. Under
-a heading seats sort needs you, then working, then done, then by name, and
+a heading seats sort needs you, then working, then done, then idle, then by name, and
 numbers stay global by seat name. The seat row's last column is the reason for
 `needs you` and `done` -- `session closed: press 2 to reopen`, the question
 the seat asked, `waiting for you`, the done summary's first line -- and for
@@ -251,6 +251,7 @@ UTF-8 key (`enter` is `⏎`):
 - `needs you`: `needs you: it asked you something, or it cannot go on without you`
 - `working`: `working: a run of its own is going, or a turn is, or a session it waits on works`
 - `done`: `done: it said so, and the row carries its summary`
+- `idle`: `idle: nothing is running, asked or owed; it waits for whatever you start next`
 - a project's heading: `{name}: the project the sessions under it work in, those needing you first`
 - one naming feature switches: `{name}: Enter or a click opens the switches of its hidden features`
 - a usage row: its label, `NN% left` (once it is at 0%, the credits it still runs on where it has any, `62,469 credits left`), `resets <when> (in 2 d 6 h)`, then `runs out early at this pace`, `lasts at this pace` or `on pace` (none once it is at 0%)
@@ -654,20 +655,22 @@ Example: `turn running 4h`, `2 running · silent 2h · <task>` — the `ak orch 
 ## States
 
 One state table, `terminal.STATES`, and it is the whole vocabulary: a session
--- and a run, and a project -- is `● working` (blue), `! needs you` (bold
-yellow) or `✓ done` (green), and nothing else exists. `watch.session_state`
+is `● working` (blue), `! needs you` (bold yellow), `✓ done` (green) or `○ idle`
+(dim: nothing running, asked or owed), and nothing else exists; a run and a
+project read one of the first three. An idle seat sorts last in its project, and
+neither a bar's tally nor the top line counts it. `watch.session_state`
 decides which, once, and every screen reads that: the menu row, the project
 heading, the top line, `ak orch list`, `ak orch why`, `ak run
 status`, the seat's own status bar and its window title. A whole row is never
 coloured, and the reason for the word lives in the row's last column.
 
-Example: `● working`, `! needs you`, `✓ done`.
+Example: `● working`, `! needs you`, `✓ done`, `○ idle`.
 
 A run, and only a run, can also be parked on something outside itself that lifts
 by itself -- a slot, a provider window, a target change, an expired login. Those rows say what
 the run waits for instead of a word, dim and under `terminal.STATE_STYLES`'
 open circle (`○ waiting for claude login`, `○ waiting`), which is what says
-nobody has to act on it. It is not a fourth state and no session ever wears it:
+nobody has to act on it, as an idle seat's does. It is no state and no session ever wears it:
 a phrase takes the style its first word names, so every listing still draws its
 state column through the same helpers.
 

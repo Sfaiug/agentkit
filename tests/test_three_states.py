@@ -352,7 +352,7 @@ class ThreeStates(Sandbox):
                 redirect_stdout(io.StringIO()) as why:
             self.assertEqual(orch.cmd_list(["--why"]), 0)
         for screen in (out.getvalue(), why.getvalue()):
-            for word in ("idle", "asking", "draft unsent", "stuck", "exited", "resumable",
+            for word in ("asking", "draft unsent", "stuck", "exited", "resumable",
                          "starts fresh", "legacy", "needs login", "unfinished",
                          "needs a look"):
                 self.assertNotIn(word, screen, word)
@@ -385,8 +385,8 @@ class ThreeStates(Sandbox):
                 watch.announce_state(self.seat, cfg=self.cfg)
                 self.assertEqual(self.options[TITLE], f"atoll · {word}")
 
-    def test_k_one_function_decides_and_the_table_holds_three_words(self):
-        self.assertEqual(list(terminal.STATES), ["working", "needs you", "done"])
+    def test_k_one_function_decides_and_the_table_holds_four_words(self):
+        self.assertEqual(list(terminal.STATES), ["working", "needs you", "done", "idle"])
         for word, (mark, colour) in terminal.STATES.items():
             self.assertEqual(terminal.state_text(word), f"{mark} {word}")
             self.assertEqual(terminal.state_colour(word), colour)
