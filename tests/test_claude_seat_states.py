@@ -9,10 +9,10 @@ hooks were still running read as one in flight.  Each case here is the sweep's o
 (tests/fixtures/README.md) and the payload its hooks recorded, replayed through the hook script
 a seat runs, `watch.hook_state`, `watch.screen_state` and `watch.classify`.
 """
+from datetime import datetime
 import json
 import os
 import subprocess
-import time
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox
@@ -104,8 +104,10 @@ class Heard(Sandbox):
         self.assertEqual(self.hook("PostCompact", trigger="auto", compact_summary="..."), turn)
 
     def test_an_event_heard_before_the_fact_standing_was_written_writes_nothing(self):
-        # an answer's hook, which Claude does not wait on, finishing after the Stop that followed
-        later = {"session": SEAT, "event": "Stop", "kind": "", "text": "", "at": time.time() + 60}
+        # an answer's hook, which Claude does not wait on, finishing after the Stop that followed;
+        # the hook reads the real clock, and this sandbox's time.time() is a fixed fake
+        later = {"session": SEAT, "event": "Stop", "kind": "", "text": "",
+                 "at": datetime.now().timestamp() + 60}
         config.hook_facts_path(SEAT).write_text(json.dumps(later))
         self.assertEqual(self.hook("PostToolUse", **ANSWERED), later)
 
