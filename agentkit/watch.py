@@ -1527,8 +1527,15 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
-    # A tray the harness draws between its composer and its footer is neither: left out, every
-    # rule reads the rows it reads where none is drawn, and never further up the transcript.
+    # A tray the harness draws under its footer, or between its composer and its footer, is
+    # neither: left out, every rule reads the rows it reads where none is drawn, and never
+    # further up the transcript.
+    if chrome["tray"]:
+        at = len(lines)
+        while at > 1 and chrome["tray"].fullmatch(lines[at - 1]):
+            at -= 1
+        if at < len(lines) and chrome_line(chrome, lines[at - 1]):
+            raw_lines, lines = raw_lines[:at], lines[:at]
     if chrome["tray"] and chrome_line(chrome, lines[-1]):
         at = len(lines) - 1
         while at and chrome["tray"].fullmatch(lines[at - 1]):
