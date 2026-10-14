@@ -1,0 +1,127 @@
+"""Among a session's marks, a run's executor and reviewer follow the matrix's rank for the role,
+then what their providers have left; the writer's own model last.
+
+The matrix every pick reads is the one `ak models` or the tick last computed and stored beside
+the boards in `state/matrix.json` (`matrix.refresh`), computed again only once a board answered
+anew or the config's models changed; `matrix.rank` reads each configured model's place for a
+role off it, (measures, score), None where the boards have nothing on it.  `usage.pick_order`
+puts the ranked models first, the most measures then the highest score, budget only among models
+ranked alike or by nothing, a model on credits after every one with a window left, and a spent
+model out; the reviewer's rank is the review score's.
+
+Offline: the boards answered by bytes, the catalogs and installed harnesses faked
+(tests/test_model_rows.py), fake meters, a throwaway HOME.
+"""
+
+import json
+from pathlib import Path
+import sys
+import time
+import unittest
+from unittest.mock import patch
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
+from fixtures.sandbox import Sandbox
+from agentkit import config, matrix, staffing, usage, watch
+import test_model_matrix as boards_test
+import test_model_rows as rows_test
+
+# Artificial Analysis rows with every index the roles are scored on
+MORE = [{"name": "Claude Opus 5.5 (max)", "evaluations": {
+             "artificial_analysis_coding_index": 60, "artificial_analysis_agentic_index": 70,
+             "artificial_analysis_intelligence_index": 58}, "performance": {"median_output_tokens_per_second": 95}},
+        {"name": "Claude Opus 5.5 (xhigh)", "evaluations": {
+             "artificial_analysis_coding_index": 60, "artificial_analysis_agentic_index": 70,
+             "artificial_analysis_intelligence_index": 56}, "performance": {"median_output_tokens_per_second": 82}},
+        {"name": "GPT 6 Astra (max)", "evaluations": {
+             "artificial_analysis_coding_index": 25, "artificial_analysis_agentic_index": 40,
+             "artificial_analysis_intelligence_index": 53}, "performance": {"median_output_tokens_per_second": 57}}]
+
+
+def meters(**used):
+    """Fake providers, each with one weekly meter `used` percent in."""
+    return {name: {"meters": [{"name": "weekly_all", "used": pct, "pace": pct - 50, "elapsed": 50,
+                               "window_secs": 604800, "resets_at": time.time() + 302400}],
+                   "resets": 0} for name, pct in used.items()}
+
+
+class PickByRank(Sandbox):
+    def setUp(self):
+        super().setUp()
+        rows_test.prepare(self)
+        boards_test.AA[:] = [entry for entry in boards_test.AA
+                                     if not entry["name"].startswith(("Claude Opus 5.5", "GPT 6 Astra"))] + MORE
+        self.stack.enter_context(patch.object(config, "active_session", return_value=None))
+        self.stack.enter_context(patch.object(usage, "readiness", side_effect=lambda cfg, read: read))
+        self.cfg["defaults"]["workers"] = ["astra", "opus", "fable"]
+        self.cfg["defaults"]["reviewers"] = ["astra", "opus", "fable"]
+        self.cfg["models"]["astra"]["effort"] = "max"          # the effort the boards scored
+
+    def test_the_matrix_is_stored_once_and_computed_again_only_on_news(self):
+        boards, table = matrix.refresh(self.cfg, now=10000)
+        held = json.loads(matrix.cache_path().read_text())["matrix"]
+        self.assertEqual(held["computed_at"], 10000)
+        self.assertEqual(matrix.row_label(matrix.recommended(held["rows"])["execute"]), "claude-opus-5-5 @ max")
+        self.assertEqual(matrix.stored()["config"], matrix.config_key(self.cfg))
+        with patch.object(matrix, "rows", side_effect=AssertionError("computed again")):
+            again = matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR - 1)
+        self.assertEqual([(matrix.row_label(row), row["scores"]) for row in again[1]],
+                         [(matrix.row_label(row), row["scores"]) for row in table])
+        # a board answering anew, or a model added, computes it again
+        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR)
+        self.assertEqual(matrix.stored()["computed_at"], 10000 + matrix.FRESH_FOR)
+        self.cfg["models"]["astra"]["effort"] = "xhigh"
+        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 1)
+        self.assertEqual(matrix.stored()["computed_at"], 10000 + matrix.FRESH_FOR + 1)
+        # the tick's pass is the same refresh, never on a dry run
+        passes = {what: (step, dry) for what, step, dry in watch.local_passes({}, False, print)}
+        self.assertFalse(passes["the boards pass did not run"][1])
+        with patch.object(matrix, "refresh") as refreshed:
+            passes["the boards pass did not run"][0]()
+        refreshed.assert_called_once()
+
+    def test_each_configured_model_s_place_for_a_role_is_read_off_the_stored_matrix(self):
+        self.assertEqual(matrix.rank(self.cfg, "execute"),
+                         {name: None for name in config.offered(self.cfg)})   # nothing computed yet
+        matrix.refresh(self.cfg, now=10000)
+        ranks = matrix.rank(self.cfg, "execute")
+        self.assertEqual(ranks["opus"], (4, 100.0))           # opus @ xhigh: four measures, all best
+        self.assertEqual(ranks["astra"][0], 3)                # astra @ max: three
+        self.assertIsNone(ranks["fable"])                     # no board has Fable 5.1
+        self.assertIsNone(ranks["gemini"])
+        self.assertEqual(matrix.rank(self.cfg, "review")["opus"][0], 2)
+        # the row at the effort the config runs the model at in that role
+        self.cfg["models"]["opus"]["review_effort"] = "max"
+        matrix.refresh(self.cfg, now=10001)
+        scores = {(row["model"], row["effort"]): row["scores"]["review"] for row in matrix.stored()["rows"]}
+        self.assertNotEqual(scores[("claude-opus-5-5", "max")], scores[("claude-opus-5-5", "xhigh")])
+        self.assertEqual(matrix.rank(self.cfg, "review")["opus"],
+                         (scores[("claude-opus-5-5", "max")]["measures"],
+                          scores[("claude-opus-5-5", "max")]["score"]))
+
+    def test_the_pick_follows_the_rank_then_the_budget_and_skips_the_spent(self):
+        providers = meters(anthropic=80, openai=10, meta=10, google=10, xai=10, mimo=10)
+        # nothing computed yet: budget order, as before
+        self.assertEqual(usage.pick_order(self.cfg, providers, quiet=True), ["astra", "opus", "fable"])
+        matrix.refresh(self.cfg, now=10000)
+        # ranked models first, the most measures then the score, whatever the budget;
+        # fable, which no board has, after them
+        self.assertEqual(usage.pick_order(self.cfg, providers, quiet=True), ["opus", "astra", "fable"])
+        self.assertEqual(usage.pick_order(self.cfg, providers, role="reviewer", quiet=True),
+                         ["opus", "astra", "fable"])
+        # the pair: the top-ranked executor, reviewed by the top-ranked other model
+        self.assertEqual(staffing.pick_models(self.cfg, providers, None, None, lambda _: None),
+                         ("opus", "astra"))
+        # a spent model is out, whatever its rank
+        providers = meters(anthropic=100, openai=10, meta=10, google=10, xai=10, mimo=10)
+        self.assertEqual(usage.pick_order(self.cfg, providers, quiet=True), ["astra"])
+        # budget decides among models ranked by nothing
+        self.cfg["defaults"]["workers"] = ["fable", "gemini", "grok"]
+        providers = meters(anthropic=10, openai=10, meta=10, google=90, xai=40, mimo=10)
+        self.assertEqual(usage.pick_order(self.cfg, providers, quiet=True), ["fable", "grok", "gemini"])
+
+
+if __name__ == "__main__":
+    unittest.main()

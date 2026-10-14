@@ -229,8 +229,10 @@ test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you
 
 Session records and `[defaults]` may list `reviewers` beside `workers`; new seats copy explicit default reviewers.
 With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
-Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by budget: the fraction of allowance left
-divided by the fraction of window left, using the smallest provider non-session meter. The pair is the best by reviewer -- another model, from the executor's company as readily as from another, before the executor's own -- then executor budget, then reviewer budget; equal budgets keep list order, and no model or run history gets a preference. A self-review is marked `self-reviewed` on the launch line, in `ak run status` and in `ak usage`. A model's own
+Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by the matrix's score for its role (`ak models`, the matrix the
+tick last computed, `matrix.rank`: the measures the score rests on, then the score, read off the row at the effort the
+config runs the model at in the role; a model no board has, or a matrix nobody computed yet, after every ranked one), then by budget: the fraction of allowance left divided by the fraction
+of window left, using the smallest provider non-session meter. The pair is the best by reviewer -- another model, from the executor's company as readily as from another, before the executor's own -- then executor budget, then reviewer budget; equal budgets keep list order, and no model or run history gets a preference. A self-review is marked `self-reviewed` on the launch line, in `ak run status` and in `ak usage`. A model's own
 `meter` still gates it. A meter at 100% used excludes a worker unless its provider or account has `credits` left, which rank it after every one with window left (seats and their accounts too) and show as `62,469 credits left`, or `$12.40 credits left` in money, on its usage row and under `ak usage`; so does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no for every subscription its provider lists, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
 log per pick; `--exec` or `--review` outside a bound group or naming an unavailable harness is refused, as is a resume whose saved executor no other model can take
@@ -462,7 +464,7 @@ read off the bracket in its name (`Claude Opus 5.5 (max)`; `Acme Pro (High) (081
 5 (Max, Default Fallback)` is `Acme 5 (Default Fallback)` at max; `(Non-reasoning)` is `none`, a bracket naming no effort
 leaves the row at none). A board that cannot answer keeps its last
 rows with the error beside them and, like one that answered, is not asked again before the day is up. Callers at once
-share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
+share one collection: each writer of `state/matrix.json` (`collect`, the stored matrix) holds `matrix.lock` from reading it to replacing it.
 
 The matrix (`rows`) is one row per model and effort the installed harnesses offer (every `config.manifests` name
 `config.harness_present` says is here, their `config.catalog`, and every configured model): an effort a board lists
