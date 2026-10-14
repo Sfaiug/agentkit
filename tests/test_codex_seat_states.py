@@ -20,8 +20,10 @@ SEAT = "fix-api"
 HOOK = {"PostToolUse": [sys.executable, str(REPO / "tools/codex-seat.py"), "answered"]}
 
 
-def tail(name):
-    return watch.pane_tail((REPO / f"tests/fixtures/codex-{name}-pane.txt").read_text())
+def tail(name, *swap):
+    """The tail ak reads of that capture, with one piece of its text swapped where given."""
+    text = (REPO / f"tests/fixtures/codex-{name}-pane.txt").read_text()
+    return watch.pane_tail(text.replace(*swap) if swap else text)
 
 
 class CodexSeatStates(Sandbox):
@@ -45,8 +47,8 @@ class CodexSeatStates(Sandbox):
         found = watch.classify("codex", tail(name), watch.hook_facts(SEAT), None, {}, 10000)
         return found["state"], found["authority"], found["rule"]
 
-    def screen(self, name):
-        return watch.screen_state("codex", tail(name))[:2]
+    def screen(self, name, *swap):
+        return watch.screen_state("codex", tail(name, *swap))[:2]
 
     def test_a_plan_mode_question_asks_until_it_is_answered(self):
         self.hook("UserPromptSubmit", prompt="Ask me which color.")
@@ -55,6 +57,14 @@ class CodexSeatStates(Sandbox):
         for name in ("question-up", "question-up-narrow"):
             self.assertEqual(self.screen(name), ("asking", "asking.question"))
             self.assertEqual(self.read(name), ("asking", "hook", "PreToolUse/request_user_input"))
+        # its hint's words in a draft or a thread's title are no dialog
+        words = "Please document enter to submit answer"
+        for name, said, reading in (("draft", "Fix the login redirect", ("draft", "prompt.draft")),
+                                    ("approved", "Run sleep and list animals",
+                                     ("working", "working.interrupt")),
+                                    ("sub-agent-done", "Run sleep and list animals",
+                                     ("at_prompt", "prompt.suggestion"))):
+            self.assertEqual(self.screen(name, said, words), reading, name)
         # the call goes through to the dialog: only the question that waits for nobody is ak's
         self.assertIsNone(codex.ask({"hook_event_name": "PreToolUse",
                                      "tool_name": "request_user_input"}))

@@ -110,14 +110,16 @@ all = ["› 1.", "2. "]
 any = ["press enter to", "enter confirm"]
 newest = '(?i)press enter to|^enter confirm · '
 
-# A Plan-mode turn's question (`request_user_input`) waits in a dialog whose hint is
-# `tab to add notes | enter to submit answer | esc to interrupt`, the last part on a row of its
-# own in a narrow pane: before the working rule, which its `esc to interrupt` would match.
+# A Plan-mode turn's question (`request_user_input`) waits in a dialog whose hint row is
+# `  tab to add notes | enter to submit answer | esc to interrupt`, the last part on a row of its
+# own in a narrow pane: before the working rule, which its `esc to interrupt` would match.  The
+# hint is read as drawn, at the bottom, so the words in a draft or a thread title are none.
 [[rule]]
 id = "asking.question"
 state = "asking"
 lines = 2
-any = ["enter to submit answer"]
+row = '^  tab to add notes \| enter to submit answer\b'
+newest = '(?:^| \| )esc to interrupt$'
 
 [[rule]]
 id = "working.interrupt"
