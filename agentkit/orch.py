@@ -1900,10 +1900,7 @@ def seat_command(name, cmd, socket=None):
               if value is None]
     unset = "unset " + " ".join(absent) + "\n" if absent else ""
     path.write_text('rm -f -- "$0"\n' + unset + 'exec ' + shlex.join(cmd) + "\n")
-    # tmux runs one command line through its default shell, and some (dash, fish) fork it
-    # rather than become it: `exec` keeps the pane's own process the harness, which is how
-    # `ended_seat_scopes` tells a live harness's scope.
-    return "exec " + shlex.join(["sh", str(path)])
+    return shlex.join(["sh", str(path)])
 
 
 def seat_env(name, server):
@@ -2626,16 +2623,11 @@ def retire_exited(name):
     return rc == 0 and session_absent(name)
 
 
-def no_server(rc, out):
-    """Did tmux answer that no server is up on its socket: one nothing listens on, or none?"""
-    return rc == 1 and ("no server running on" in out or
-                        ("error connecting to" in out and "(No such file or directory)" in out))
-
-
 def session_absent(name):
     """A failed tmux probe is not proof of absence (permissions and transport can fail too)."""
     rc, out = tmux_out("has-session", "-t", f"={name}")
-    return no_server(rc, out) or (rc == 1 and "can't find session:" in out)
+    return rc == 1 and ("can't find session:" in out or "no server running on" in out or
+                        ("error connecting to" in out and "(No such file or directory)" in out))
 
 
 def seatless(name):
@@ -2711,51 +2703,60 @@ def ended_seat_scopes(socket=None):
     A seat's harness starts in a scope of its own (`seat_command`), and each launch names a
     new one.  What a harness started and left behind -- a shell's background job, a test's
     helper, a server -- stays in its scope after it ends, held against the slice's CPU and
-    memory gates for as long as it runs.  A scope holds a live harness while a live pane's
-    process is in it; the server's own unit, which a seat's name may make look like a launch's,
-    holds the server.
+    memory gates for as long as it runs.  The harness is what came into its scope from outside,
+    so its parent is outside it: its tmux server, or the shell its pane runs the launch line
+    in, on whichever server the seat is (a legacy seat's is the owner's default one).  What it
+    left was started inside, and once orphaned is adopted by a service manager.  So a scope
+    holds no harness when it holds processes and each one's parent is in it or is a manager
+    (`init.scope`); one with a process or parent that cannot be read is kept.  Its
+    processes are read last: a scope the manager has made and not yet moved its harness into
+    holds none, and one it has moved it into holds the harness.
 
-    A scope counts only once a process is in it, read before the panes: the manager makes a
-    launch's scope before it moves the harness in, so a seat launched while this looks is in no
-    scope it counts.  Every server whose seats launch into the slice is asked: a legacy seat on
-    the owner's default server shares agentkit's.  A listing tmux cannot give, a line it does
-    not recognise, or a live pane that is not the server's own child or whose cgroup cannot be
-    read proves no harness gone, and then none is named: a box's PID namespace, or a listing
-    that is not the server's, names other processes by those numbers.  Only the default server
-    is taken at tmux's word that none is up, once agentkit's own answered from the same
-    directory: a tick whose tmux looks in another directory finds no server at all.
+    The server's own unit, which a seat's name may make look like a launch's, holds a server
+    a manager adopted too; tmux names that server.  A listing tmux cannot give, a line it does
+    not recognise, or a live pane that is not the server's own child, or a server whose cgroup
+    cannot be read, proves no harness gone, and then none is named: a box's PID namespace, or
+    a listing that is not the server's, names other processes by those numbers.
     """
     if not user_manager():
         return []
     socket = socket_name() if socket is None else socket
+    seats = slice_cgroup(seat_slice_name(socket))
     try:
-        scopes = sorted(entry.name for entry in slice_cgroup(seat_slice_name(socket)).iterdir()
-                        if SEAT_SCOPE.fullmatch(entry.name)
-                        and "populated 1" in (entry / "cgroup.events").read_text().splitlines())
+        scopes = sorted(entry.name for entry in seats.iterdir() if SEAT_SCOPE.fullmatch(entry.name))
     except OSError:
         return []
     if not scopes:
         return []
-    held = set()
-    for each in dict.fromkeys(each for each in (socket, "")
-                              if seat_slice_name(each) == seat_slice_name(socket)):
-        rc, out = tmux_out("list-panes", "-a", "-F", "#{pid} #{pane_dead} #{pane_pid}",
-                           socket=each, timeout=SLICE_WAIT)
-        if each != socket and no_server(rc, out):
-            continue
-        rows = [line.split() for line in out.splitlines()]
-        if rc != 0 or not rows or any(len(row) != 3 or not all(word.isdigit() for word in row)
-                                      for row in rows):
+    rc, out = tmux_out("list-panes", "-a", "-F", "#{pid} #{pane_dead} #{pane_pid}",
+                       socket=socket, timeout=SLICE_WAIT)
+    rows = [line.split() for line in out.splitlines()]
+    if rc != 0 or not rows or any(len(row) != 3 or not all(word.isdigit() for word in row)
+                                  for row in rows):
+        return []
+    servers = set()
+    for server, dead, pane in rows:
+        if dead != "1" and getattr(host.proc_stat(int(pane)), "ppid", None) != int(server):
             return []
-        for server, dead, pane in rows:
-            if dead != "1" and getattr(host.proc_stat(int(pane)), "ppid", None) != int(server):
-                return []
-            for pid in (server,) if dead == "1" else (server, pane):
-                cgroup = host.process_cgroup(int(pid))
-                if cgroup is None:
-                    return []
-                held.add(cgroup.rstrip("/").rsplit("/", 1)[-1])
-    return [scope for scope in scopes if scope not in held]
+        cgroup = host.process_cgroup(int(server))
+        if cgroup is None:
+            return []
+        servers.add(cgroup.rstrip("/").rsplit("/", 1)[-1])
+    return [scope for scope in scopes if scope not in servers and abandoned(seats / scope)]
+
+
+def abandoned(scope):
+    """Does that cgroup hold processes, each the child of one in it or of a manager?"""
+    try:
+        pids = (scope / "cgroup.procs").read_text().split()
+    except OSError:
+        return False
+    for pid in pids:
+        stat = host.proc_stat(int(pid))
+        parent = stat and host.process_cgroup(stat.ppid)
+        if not parent or parent.rstrip("/").rsplit("/", 1)[-1] not in (scope.name, "init.scope"):
+            return False
+    return bool(pids)
 
 
 def end_seat_leftovers(log):

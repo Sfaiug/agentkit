@@ -13,6 +13,6 @@ def resolved(args):
         return args
     from agentkit.guard import commands
     args = tuple(next(commands(args)))
-    path = shlex.split(args[-1])[-1]
+    _, path = shlex.split(args[-1])
     line = Path(path).read_text().splitlines()[-1]
     return (*args[:-1], line.removeprefix("exec "))
