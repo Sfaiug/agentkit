@@ -1,13 +1,11 @@
 """Claude Code 2.1.292's dialogs are heard the moment they open and close, and its spinner,
 compaction and mode footers read as what the seat is doing.
 
-A live sweep of 2.1.292 seats heard a question, a plan approval and a tool's permission prompt
-only through the notice Claude fires six seconds after the dialog, an answer through nothing,
-and read `/compact` as a seat waiting for its owner.  On the screen, a narrow pane, a draft
-typed during a turn and every mode but bypass hid the turn or the prompt, and a turn whose Stop
-hooks were still running read as one in flight.  Each case here is the sweep's own capture
-(tests/fixtures/README.md) and the payload its hooks recorded, replayed through the hook script
-a seat runs, `watch.hook_state`, `watch.screen_state` and `watch.classify`.
+A live sweep of 2.1.292 seats heard a dialog only through the notice Claude fires six seconds
+after it, an answer through nothing, and `/compact` as a seat waiting for its owner; a narrow
+pane, a draft typed during a turn and every mode but bypass hid the turn or the prompt, and a
+turn whose Stop hooks still ran read as running.  Each case is the sweep's own capture and hook
+payload, replayed through hooks/seat-state.sh, `watch.screen_state` and `watch.classify`.
 """
 from datetime import datetime
 import json

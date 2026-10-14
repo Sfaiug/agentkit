@@ -78,18 +78,13 @@ and a warning only that scratch launch drew is left out.
 
 `claude-permission-pane.txt`, `claude-plan-pane.txt`, `claude-narrow-working-pane.txt`,
 `claude-narrow-streaming-pane.txt`, `claude-draft-while-working-pane.txt`,
-`claude-stop-hooks-running-pane.txt`, `claude-compacting-pane.txt`, `claude-manual-mode-pane.txt`,
-`claude-plan-mode-pane.txt` and `claude-accept-edits-pane.txt` are Claude Code 2.1.292's actual
-`capture-pane -p -e -J` panes from a live sweep of a seat launched as `adapters/claude.sh
-interactive` launches one, cut to their last twelve rows: a Bash command's
-permission prompt and a plan's approval (relaunched without bypass permissions), a tool running
-and an answer streaming in a 60-column pane (the footer's `esc to interrupt` cut to `esc to …`,
-the spinner's parenthesis and the tip under it wrapped), a draft typed during a turn (the footer
-drops its hint), a turn over while its Stop hooks still run, `/compact` running, and an idle
-prompt in manual, plan and accept-edits mode.  The scratch checkout's path, the session's name,
-its Remote Control link and the time zone are replaced with invented ones
-(`/home/acme/code/fix-api`, `fix-api`, `UTC`).  `tests/test_claude_seat_states.py` replays them
-with the hook payloads the same sweep recorded.
+`claude-stop-hooks-running-pane.txt`, `claude-compacting-pane.txt` and `claude-manual-mode-`,
+`plan-mode-` and `accept-edits-pane.txt` are the last twelve rows of Claude Code 2.1.292's
+`capture-pane -p -e -J` from a live sweep of a seat as `adapters/claude.sh interactive` launches
+it: a Bash permission prompt and a plan approval (without bypass permissions), a tool running and
+an answer streaming 60 columns wide, a draft typed during a turn, a turn whose Stop hooks still
+run, `/compact` running, and an idle prompt in each other mode.  Its path, session name, Remote
+Control link and time zone are invented (`/home/acme/code/fix-api`, `fix-api`, `UTC`).
 
 `muse-question-pane.txt` is Muse Code 1.4.7's actual `capture-pane -p -e -J` of a seat
 waiting on its own `Request user input` tool, the second of three questions, cut to the
