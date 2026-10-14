@@ -2256,16 +2256,25 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         # What the last harness's hooks said it was doing is not what this one is doing: a seat
         # that went mid-turn, or with a question up, read `working` or `needs you` until its
         # first Stop.  Gone before this harness can write its first, and back if it never runs.
+        # Moved aside and linked back, never read, removed and written: the running harness's
+        # hooks publish by rename without this lock, and a fact one lands meanwhile is the one kept.
         facts = config.hook_facts_path(current)
-        last = on_disk(facts)
-        facts.unlink(missing_ok=True)
+        last = facts.with_name(f"{facts.name}.last")
+        try:
+            facts.replace(last)
+        except FileNotFoundError:
+            last.unlink(missing_ok=True)    # a launch killed past its move left one
         try:
             _start_harness(name, model, cwd, cmd, session)
         except BaseException:
             config.update_session(current, **held)   # the harness that read the old one stays
-            if last and not facts.exists():
-                facts.write_bytes(last)
+            try:
+                os.link(last, facts)        # refused where that harness wrote one since
+            except OSError:
+                pass
             raise
+        finally:
+            last.unlink(missing_ok=True)
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
         # title stays the echo, so the next tick retypes this name instead of taking

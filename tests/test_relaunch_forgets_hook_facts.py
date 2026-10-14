@@ -6,6 +6,7 @@ new harness starts, and puts them back where it never did.  Offline: fake HOME, 
 """
 
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -43,6 +44,29 @@ class RelaunchForgetsHookFacts(Sandbox):
             with self.assertRaises(config.Error):
                 orch.launch(SEAT, "opus", self.root, ["fake-harness"], "acme-conversation")
         self.assertEqual(json.loads(config.hook_facts_path(SEAT).read_text()), FACT)
+
+    def test_a_fact_the_running_harness_wrote_meanwhile_outlives_a_failed_start(self):
+        # its hooks publish by rename, holding none of ak's locks: one landing just before the
+        # move, or just before the put-back, is the one kept
+        facts, stop = config.hook_facts_path(SEAT), dict(FACT, event="Stop", at=9200.0)
+        replace = os.replace
+        for gap in ("replace", "link"):
+            with self.subTest(gap=gap):
+                facts.write_text(json.dumps(FACT))
+                real, pending = getattr(os, gap), [True]
+
+                def hook_first(*args, **kw):
+                    if pending:
+                        pending.clear()
+                        facts.with_name("hook.tmp").write_text(json.dumps(stop))
+                        replace(facts.with_name("hook.tmp"), facts)
+                    return real(*args, **kw)
+
+                with patch.object(os, gap, hook_first), \
+                        patch.object(orch, "start", side_effect=config.Error("no tmux")):
+                    with self.assertRaises(config.Error):
+                        orch.launch(SEAT, "opus", self.root, ["fake-harness"], "acme-conversation")
+                self.assertEqual(json.loads(facts.read_text()), stop)
 
 
 if __name__ == "__main__":
