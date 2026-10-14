@@ -152,7 +152,7 @@ sys.exit(0 if passive else 1)
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
   # The launch name still resolves after a rename; slash commands answer nothing, and nor does a
-  # turn the harness began itself on work it finished: Claude's `<task-notification>`, Grok's
+  # turn the harness began itself on work it finished: a `<task-notification>`, or a
   # `<system-reminder>` under a `task-completed-` or `subagent-completed-` prompt id.
   owner=true
   if "$jq" -e '([(.prompt // empty), (.message // empty)] | map(strings)
