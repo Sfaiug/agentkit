@@ -262,6 +262,8 @@ UTF-8 key (`enter` is `⏎`):
 - `exec`: `exec: a model that builds pieces beside the orchestrator; none, and it builds all`
 - `review`: `review: a model that may review the session's runs; one at least`
 - an effort: `effort: how hard {name} thinks, one of the efforts its harness takes for it`
+- on its own screen, `executes at`: `executes at: the effort {name} builds and fixes at; same is its effort`
+- and `reviews at`: `reviews at: the effort {name} reviews at; same is its effort`
 - a provider, or in `− remove` a subscription: `{name}: your subscription; its seats, runs and usage row use its login`
 - the provider a worker token is minted for: `{name}: its {note}`, the token's expiry
 - in `+ add`, another subscription: `{name}: another subscription of it, logged in on this terminal, then listed`

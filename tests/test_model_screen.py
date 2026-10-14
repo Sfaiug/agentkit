@@ -180,8 +180,8 @@ class ModelScreen(unittest.TestCase):
             self.assertNotIn("reviews_own_provider", screen.saved()["models"][name])
         lines = open_model(screen, DOWN, "opus")
         self.assertNotIn("Reviews its own company's work", "\n".join(lines))
-        # id, effort, then Remove: two steps down reaches the last row
-        lines = screen.press(DOWN + DOWN, lambda lines: lines[-1] == KEYS["remove"])
+        # id, effort, the two role efforts, then Remove: four steps down reaches the last row
+        lines = screen.press(DOWN * 4, lambda lines: lines[-1] == KEYS["remove"])
         self.assertEqual(highlighted(lines), "› Remove")
         screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
         lines = screen.press(UP + ENTER,
@@ -193,7 +193,7 @@ class ModelScreen(unittest.TestCase):
     def test_remove_asks_with_keep_preselected_and_removes(self):
         screen = Screen(self, child=CHILD)
         open_model(screen, DOWN, "opus")
-        lines = screen.press(DOWN * 2, lambda lines: lines[-1] == KEYS["remove"])
+        lines = screen.press(DOWN * 4, lambda lines: lines[-1] == KEYS["remove"])
         self.assertEqual(highlighted(lines), "› Remove")
         before = screen.path.read_bytes()
         mark = len(screen.text())
@@ -224,7 +224,7 @@ class ModelScreen(unittest.TestCase):
         open_model(screen, b"", "opus")
         before = screen.path.read_bytes()
         mark = len(screen.text())
-        lines = screen.press(DOWN * 2 + ENTER,
+        lines = screen.press(DOWN * 4 + ENTER,
                              lambda lines: "the config needs one model" in lines[-3])
         self.assertEqual(highlighted(lines), "› Remove")
         self.assertNotIn("Remove opus", screen.text()[mark:])     # nothing asked
@@ -263,8 +263,10 @@ class ModelScreen(unittest.TestCase):
                              lambda lines: title(lines) == "agentkit · config · haiku")
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[2:5], ["› model id  ‹ claude-haiku-4-5 ›",
-                                      "  effort    ‹ xhigh ›",
+        self.assertEqual(lines[2:7], ["› model id     ‹ claude-haiku-4-5 ›",
+                                      "  effort       ‹ xhigh ›",
+                                      "  executes at  ‹ same ›",
+                                      "  reviews at   ‹ same ›",
                                       "  Remove"])
         self.assertIn("  Not used as a reviewer yet", lines)
         self.assertNotIn("Reviews its own company's work", "\n".join(lines))
@@ -273,7 +275,7 @@ class ModelScreen(unittest.TestCase):
         number = next(n for n, line in enumerate(lines, 1)
                       if "‹ claude-haiku-4-5 ›" in line)
         for model, effort in (("claude-sonnet-5", "xhigh"), ("claude-sonnet-4-6", "high")):
-            screen.click(13, number,
+            screen.click(16, number,
                          lambda lines: any(f"‹ {model} ›" in line for line in lines))
             self.assertEqual(screen.saved()["models"]["haiku"]["model"], model)
             self.assertEqual(screen.saved()["models"]["haiku"]["effort"], effort)

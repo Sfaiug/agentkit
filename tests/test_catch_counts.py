@@ -191,13 +191,13 @@ class CatchCounts(unittest.TestCase):
                 run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n")
         self.assert_unused()
 
-    def test_phone_wraps_the_plain_line_and_keeps_only_the_three_action_rows(self):
+    def test_phone_wraps_the_plain_line_and_keeps_only_the_action_rows(self):
         self.review(self.loop(), self.records())
         lines, places = self.screen(width=40)
         self.assertEqual([row for row, _ in places.values()], list(menu.MODEL_ROWS))
-        self.assertGreater(len(lines), 4)
-        self.assertEqual(lines[3], "")
-        self.assertEqual(" ".join(line.strip() for line in lines[4:]),
+        self.assertGreater(len(lines), 6)
+        self.assertEqual(lines[5], "")
+        self.assertEqual(" ".join(line.strip() for line in lines[6:]),
                          "Reviewed 1 time · caught 1 · 1 already on main · 1 unproven")
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
