@@ -1712,17 +1712,21 @@ def new_session(cfg, dry_run, keyboard=None):
     return name
 
 
-def smoke_run(state):
-    """The suite's task or repo lives in its sandbox; a run's title proves nothing."""
+def smoke_run(state, resolved=None):
+    """The suite's task or repo lives in its sandbox; a run's title proves nothing.  A pass over
+    every run hands each call the same `resolved`, so a path many runs name is resolved once."""
+    resolved = {} if resolved is None else resolved
     for key in ("task", "repo"):
         value = state.get(key)
         if not isinstance(value, str) or not value:
             continue
-        try:
-            path = Path(value).expanduser().resolve().relative_to(config.TMP.resolve())
-        except (OSError, RuntimeError, ValueError):
-            continue
-        if path.parts and path.parts[0].startswith("smoke-"):
+        if value not in resolved:
+            try:
+                resolved[value] = (Path(value).expanduser().resolve()
+                                   .relative_to(config.TMP.resolve()).parts)
+            except (OSError, RuntimeError, ValueError):
+                resolved[value] = ()
+        if resolved[value] and resolved[value][0].startswith("smoke-"):
             return True
     return False
 
@@ -1756,7 +1760,7 @@ def run_records():
             known[name] = key, state, line
         except (ValueError, TypeError, RecursionError):
             continue
-    found, fresh = [], []
+    found, fresh, resolved = [], [], {}
     for run_dir in record.run_dirs():
         try:
             info = (run_dir / "run.json").stat()
@@ -1771,7 +1775,7 @@ def run_records():
                 continue
             line = json.dumps([run_dir.name, *key, state])
         fresh.append(line)
-        if not state.get("unattended") and not smoke_run(state):
+        if not state.get("unattended") and not smoke_run(state, resolved):
             found.append((run_dir, state))
     if fresh != lines:
         try:
