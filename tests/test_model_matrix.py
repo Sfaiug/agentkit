@@ -156,21 +156,23 @@ class ModelBoards(Sandbox):
                          len(matrix.ARENA_CONFIGS))
 
     def test_the_command_says_what_each_board_gave_and_when(self):
+        self.stack.enter_context(patch.object(matrix, "harnesses", return_value=[]))
         with patch.object(matrix.time, "time", return_value=10000):
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(matrix.main([]), 0)
-        lines = out.getvalue().splitlines()
+        lines = out.getvalue().splitlines()[1:]              # under the table's heading
         self.assertEqual([line.split(":")[0] for line in lines], list(matrix.BOARDS))
         self.assertRegex(lines[0], r"^artificialanalysis\.ai: 4 rows as of \d\d \w\w\w \d\d:\d\d$")
         self.boards.down.add("livebench.ai")
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(matrix.main(["--refresh", "--json"]), 0)
-        held = json.loads(out.getvalue())
+        held = json.loads(out.getvalue())["boards"]
         self.assertEqual(sorted(held), sorted(matrix.BOARDS))
         self.assertEqual(held["livebench.ai"]["error"], "livebench.ai refused")
-        self.assertEqual(len(held["livebench.ai"]["rows"]), 2)
+        self.assertEqual(json.loads(matrix.cache_path().read_text())["livebench.ai"]["rows"][0]["model"],
+                         "claude-opus-5.5")                      # what it last said stays
         out = io.StringIO()
         with redirect_stdout(out):
             matrix.main([])
