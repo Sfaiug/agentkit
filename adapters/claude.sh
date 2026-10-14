@@ -356,8 +356,8 @@ EVENTS = {"SessionStart": ("seat-state.sh",),
           "PostCompact": ("seat-state.sh",)}
 # The events only heard, never waited on: Claude Code 2.1.292 runs an `async` hook in the
 # background, where seat-state.sh would hold what it fires on for half a second.  A tool ending
-# is heard only where it is an answer, and waited on, so the turn's Stop is written after it.
-HEARD = ("PermissionRequest", "PreCompact", "PostCompact")
+# is heard only where it is an answer.
+HEARD = ("PermissionRequest", "PostToolUse", "PreCompact", "PostCompact")
 MATCHERS = {"PostToolUse": "AskUserQuestion|ExitPlanMode"}
 # The names each was generalised from: a settings.json written by an older checkout keeps its
 # entry, repointed, so nothing is left calling a file that is no longer there.

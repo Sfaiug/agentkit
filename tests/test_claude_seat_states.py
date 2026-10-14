@@ -124,9 +124,8 @@ class Heard(Sandbox):
         unwaited = [{"hooks": [{**ours, "async": True}]}]
         for event, groups in (("PermissionRequest", unwaited), ("PreCompact", unwaited),
                               ("PostCompact", unwaited),
-                              # waited on, so the turn's Stop is written after the answer
                               ("PostToolUse", [{"matcher": "Bash", "hooks": [acme]}, {
-                                  "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [ours]}])):
+                                  "matcher": "AskUserQuestion|ExitPlanMode", **unwaited[0]}])):
             with self.subTest(event=event):
                 self.assertEqual(hooks[event], groups)
         self.assertNotIn("async", json.dumps(hooks["Stop"]))
