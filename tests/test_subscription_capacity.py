@@ -1,8 +1,8 @@
 """A subscription's week is measured in tokens, from ak's own worker turns; offline.
 
-Each turn that spent a known number of tokens and moved a weekly meter of its subscription
-within one window records the pair under `state/capacity.json`, per subscription and meter;
-a turn that moved nothing records its tokens against zero percent.  The week holds the sum
+Each turn that spent a known number of tokens and moved a weekly meter of its subscription,
+one that gates its model, within one window records the pair under `state/capacity.json`,
+per subscription and meter; a turn that moved nothing records its tokens against zero.  The week holds the sum
 of the tokens over the sum of the percent moved, over the meter's current and previous
 window, and `ak usage` shows it after `left` as `week ≈ 310M tokens`, `-` with no pair that
 moved it; `--json` carries `capacity_tokens` and `capacity_pairs`.  A temporary HOME,
@@ -88,9 +88,6 @@ class SubscriptionCapacity(Sandbox):
         self.turn("opus", "default", 1_200_000, weekly=43)
         self.assertEqual([(p["tokens"], p["moved"]) for p in self.pairs()],
                          [(3_100_000, 1), (5_000_000, 2), (1_200_000, 0)])
-        # the 5-hour session is no week, and the turn carried no reading of Fable's cap
-        self.assertEqual(self.pairs(meter="session"), [])
-        self.assertEqual(self.pairs(meter="weekly_scoped"), [])
         self.assertEqual(usage.holds("anthropic", "default", "weekly_all"), (310_000_000, 3))
         self.assertEqual(self.row("anthropic I")["holds"], "week ≈ 310M tokens")
         # the column follows `left`, and each subscription has its own: the other has no pair
@@ -99,14 +96,27 @@ class SubscriptionCapacity(Sandbox):
 
     def test_a_pair_across_a_reset_is_not_recorded(self):
         # the week before the turn resets during it: the turn's reading is the next week's
-        self.cache(first=90)
-        blob = json.loads((config.STATE / "usage.json").read_text())
-        meters = blob["providers"]["anthropic"]["accounts"]["default"]["meters"]
-        meters[0]["resets_at"] = NOW + 30
-        (config.STATE / "usage.json").write_text(json.dumps(blob))
-        self.turn("opus", "default", 4_000_000, weekly=95, resets_at=NOW + 30 + WEEK)
+        before = [self.meter("weekly_all", 90, resets_at=NOW + 30)]
+        after = [self.meter("weekly_all", 95, resets_at=NOW + 30 + WEEK)]
+        self.assertEqual(usage.record_pairs(self.cfg, "opus", "default", before, 4_000_000,
+                                            after, now=NOW + 60), {})
         self.assertEqual(self.pairs(), [])
-        self.assertEqual(self.row("anthropic I")["holds"], "-")
+        # ... while a reading still inside the week the turn began in pairs
+        after = [self.meter("weekly_all", 95, resets_at=NOW + 30)]
+        self.assertEqual(list(usage.record_pairs(self.cfg, "opus", "default", before, 4_000_000,
+                                                 after, now=NOW + 20)), ["weekly_all"])
+
+    def test_only_the_weekly_meters_gating_the_turns_model_count(self):
+        before = [self.meter("weekly_all", 40), self.meter("weekly_scoped", 30),
+                  self.meter("session", 10, NOW + 3600, SESSION)]
+        after = [self.meter("weekly_all", 41), self.meter("weekly_scoped", 31),
+                 self.meter("session", 12, NOW + 3600, SESSION)]
+        # Fable's own cap says nothing of an Opus turn, and the 5-hour session is no week
+        self.assertEqual(list(usage.record_pairs(self.cfg, "opus", "default", before, 1_000_000,
+                                                 after)), ["weekly_all"])
+        self.assertEqual(sorted(usage.record_pairs(self.cfg, "fable", "default", before,
+                                                   1_000_000, after)),
+                         ["weekly_all", "weekly_scoped"])
 
     def test_a_turn_that_moved_no_meter_counts_its_tokens_against_zero(self):
         self.turn("opus", "default", 2_000_000, weekly=40)
