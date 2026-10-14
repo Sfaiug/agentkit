@@ -83,6 +83,30 @@ class OnlyQuestionsPage(unittest.TestCase):
                     notify.transition(SEAT, dict(answer, since=1000), now=now)
         self.assertEqual(self.posts, [f"Needs you · {SEAT}"] * 2)
 
+    def test_a_login_after_a_question_that_went_waits_its_own_minute(self):
+        # the word stays `needs you` from the dialog through the worker token's warning, so
+        # the token's minute counts from its own stamp, never from the word's beginning
+        real, tokens = watch.session_state, {}
+        live = {"state": "asking", "evidence": "Allow the command?", "began": 1000}
+
+        def state(*args, **kwargs):
+            return real(*args, **kwargs, live=live, harness="claude", auth_out={}, gh_out={},
+                        token_out=tokens)
+
+        with patch.object(watch, "session_state", side_effect=state), \
+                patch.object(notify, "installed_at", return_value=900):
+            for now in (1000, 1061):
+                notify.transition(SEAT, now=now, seat={"name": SEAT})
+            live.update(state="at_prompt", evidence="", began=1100)
+            notify.transition(SEAT, now=1100, seat={"name": SEAT})
+            tokens["claude"] = {"harness": "claude", "remedy": "replace it", "expired": True,
+                                "at": 1200}
+            for now in (1200, 1259):
+                notify.transition(SEAT, now=now, seat={"name": SEAT})
+            self.assertEqual(len(self.posts), 1)
+            notify.transition(SEAT, now=1261, seat={"name": SEAT})
+        self.assertEqual(self.posts, [f"Needs you · {SEAT}"] * 2)
+
     def test_an_alert_beside_a_standing_question_still_asks_it(self):
         notify.record(SEAT, "needs", "Which schema should acme use?", time=990)
         with notify.session_lock(SEAT) as name:

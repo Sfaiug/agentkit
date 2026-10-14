@@ -2085,6 +2085,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out,
                             menu_mod, run_mod, terminal_mod)
+    # What pages him came up when its rung says, whichever word stood before it.
+    if answer.get("page"):
+        answer["page_since"] = answer.get("since")
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2253,15 +2256,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
-                "since": found.get("began"), "page": found["state"] == "asking",
-                "page_since": found.get("began")}
+                "since": found.get("began"), "page": found["state"] == "asking"}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
     # and a watcher's own alert about the seat waits for its prompt (rung 6).
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
-                "since": last.get("time"), "page": notify.pages(last), "page_since": last.get("time")}
+                "since": last.get("time"), "page": notify.pages(last)}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -6653,10 +6655,12 @@ def main(argv):
                 log(f"WARN GitHub is unavailable; PR checks skipped ({reason})")
                 return 0
             # This one is the user's to fix, and the seats with a run that still owes GitHub
-            # a push are written down for the menu to say so.
+            # a push are written down for the menu to say so, from when it was first seen:
+            # its card's minute counts from there.
             log(f"gh is not logged in; PR checks skipped ({reason})")
             if not dry_run:
-                state["gh_out"] = {"at": time.time(), "seats": pushing_seats()}
+                state["gh_out"] = {"at": (state.get("gh_out") or {}).get("at") or time.time(),
+                                   "seats": pushing_seats()}
                 save_state(state)
             return 0
         if not dry_run:
