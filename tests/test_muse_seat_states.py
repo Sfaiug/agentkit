@@ -36,7 +36,11 @@ def pane(what):
 
 def read(what, fact=None):
     """(screen_state, classify) of that capture, with that hook fact recorded."""
-    tail = watch.pane_tail(pane(what))
+    return read_pane(pane(what), fact)
+
+
+def read_pane(text, fact=None):
+    tail = watch.pane_tail(text)
     return watch.screen_state("muse", tail)[:2], watch.classify(
         "muse", tail, fact or {}, None, {}, (fact or {}).get("at", 0) + 1)
 
@@ -72,10 +76,13 @@ class Seat(unittest.TestCase):
         (hook / "bash").write_text(
             "#!/bin/sh\n"
             'case ${1-} in */hooks/seat-state.sh)\n'
-            '  printf \'%s\\n\' "${TMUX-}" "${TMUX_PANE-}" "${AGENTKIT_SESSION-}" >"$HOME/reached"\n'
+            '  printf \'%s\\n\' "${TMUX-}" "${TMUX_PANE-}" "${AGENTKIT_SESSION-}" '
+            '>"$HOME/reached"\n'
             f"  TMUX= TMUX_PANE= exec {shlex.quote(shutil.which('bash'))} \"$@\" ;;\nesac\n"
             f"exec {shlex.quote(shutil.which('bash'))} \"$@\"\n")
-        for fake in (launch / "muse", hook / "tmux", hook / "bash"):
+        # timeout: a host without coreutils' -- stock macOS -- has none that runs
+        (hook / "timeout").write_text("#!/bin/sh\nexit 127\n")
+        for fake in (launch / "muse", hook / "tmux", hook / "bash", hook / "timeout"):
             fake.chmod(0o755)
         cls.hook_path = f"{hook}:{os.environ['PATH']}"
         rulebook = cls.home / "rules.md"
@@ -176,9 +183,11 @@ class WithoutYolo(Seat):
 
     def test_its_approval_dialog_asks(self):
         fact = self.fire(APPROVAL)
-        seen, found = read("approval", fact)
-        self.assertEqual(seen, (None, ""))      # its choices are no composer and no draft
-        self.assertEqual((found["state"], found["authority"]), ("asking", "hook"))
+        self.assertEqual(watch.hook_state("muse", fact)[:2],
+                         ("asking", "Notification/permission_prompt"))
+        # its choices are no composer and no draft: it asks from the moment it is drawn
+        self.assertEqual(read("approval")[0], ("asking", "asking.approval"))
+        self.assertEqual(read("approval", fact)[1]["state"], "asking")
 
 
 class Screens(unittest.TestCase):
@@ -193,6 +202,16 @@ class Screens(unittest.TestCase):
                             ("steering", "working"), ("compacted", "at_prompt")):
             with self.subTest(screen=what):
                 self.assertEqual(read(what)[0][0], state)
+
+    def test_a_dialog_s_words_typed_or_said_are_no_dialog(self):
+        raw = pane("tray-draft")
+        for words in ("Interrupt turn", "Submit answers",
+                      "Change approval defaults in /permissions"):
+            with self.subTest(words=words):
+                typed = raw.replace("acme draft words", f"Explain {words}")
+                said = raw.replace("acme draft words", "").replace("DONE", f"I updated {words}")
+                self.assertEqual(read_pane(typed)[0], ("draft", "prompt.draft"))
+                self.assertEqual(read_pane(said)[0][0], "at_prompt")
 
     def test_the_owner_s_own_pickers_are_never_typed_into(self):
         for what in ("model-picker", "resume-picker"):

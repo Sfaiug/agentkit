@@ -56,7 +56,7 @@ strips_timestamp = true
 
 # Muse 1.4.7's hooks reach a seat from its launch (`adapters/muse.sh interactive`).  Its own
 # question tool fires no tool hook, but its dialog opening is a Notification of its own kind,
-# which no text on the screen can fake: that decides `asking`, as an approval dialog's does on a
+# which no text on the screen can fake: that decides `asking`, as an approval's notice does on a
 # seat launched without yolo.  The turn's states stay the screen's, as on a muse with no hooks.
 [authority]
 working = "screen"
@@ -122,6 +122,14 @@ lines = 8
 # options are indented, and its key hint ends `Esc to interrupt` with no bracket
 row = '^[^\s❯›⟩>].*esc to interrupt\)'
 
+# an approval dialog, a seat launched without yolo draws where its composer was: its last line,
+# at the left edge, where no row a turn prints starts
+[[rule]]
+id = "asking.approval"
+state = "asking"
+lines = 3
+row = '^Change approval defaults in /permissions$'
+
 # what the status line says beside its approvals while a turn is being interrupted, compacted
 # or handed a queued line, where no spinner may be drawn in the rows the rule above reads
 [[rule]]
@@ -141,28 +149,31 @@ any = ["esc go back", "esc exit"]
 # A composer holding bright, typed text is a draft never sent. Muse has no
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.
 # Both are read with `-e` attributes; see watch.has_dim. Draft before prompt.
-# None is read under a dialog: a question's key hint, its review step's last choice (a line
-# typed there lands on `Submit answers`), or an approval's last line, over its status line.
+# None is read under a question's dialog: its key hint, or its review step's two choices as
+# drawn right over the composer, whichever holds the cursor (a line typed there lands on one).
 [[rule]]
 id = "prompt.draft"
 state = "draft"
 lines = 8
 at_composer = true
-none = ["esc to interrupt", "interrupt turn", "change approval defaults in /permissions"]
+none = ["esc to interrupt", "\n⟩ submit answers\ninterrupt turn\n─",
+        "\nsubmit answers\n⟩ interrupt turn\n─"]
 
 [[rule]]
 id = "prompt.suggestion"
 state = "at_prompt"
 lines = 8
 at_composer = true
-none = ["esc to interrupt", "interrupt turn", "change approval defaults in /permissions"]
+none = ["esc to interrupt", "\n⟩ submit answers\ninterrupt turn\n─",
+        "\nsubmit answers\n⟩ interrupt turn\n─"]
 
 [[rule]]
 id = "prompt.composer"
 state = "at_prompt"
 lines = 8
 at_composer = true
-none = ["esc to interrupt", "interrupt turn", "change approval defaults in /permissions"]
+none = ["esc to interrupt", "\n⟩ submit answers\ninterrupt turn\n─",
+        "\nsubmit answers\n⟩ interrupt turn\n─"]
 
 # `429`/`quota exhausted` are the 1.0.3 capture's own words; `usage limit reached` is how the
 # installed 1.3.0 executable spells the same model failure, first in the list of reasons a

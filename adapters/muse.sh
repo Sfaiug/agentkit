@@ -250,13 +250,16 @@ hook)
   # batch names its tools inside it, so it goes on named for its first, as a tool's own hook
   # is.  A question's notice names only the folder, so it goes on saying the question: the
   # first row under the dialog's running `Request user input` line on the seat's own pane,
-  # where its launch named the pane and a timeout can bound the read.
+  # where its launch named the pane; python3, which every host has, bounds the read.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   payload=$(cat)
   asked=""
   [ "$(jq -r '.notification_type // empty' <<<"$payload" 2>/dev/null)" = question_prompt ] &&
-    [ -n "${TMUX_PANE:-}" ] && command -v timeout >/dev/null &&
-    asked=$(timeout 5 tmux capture-pane -p -J -t "$TMUX_PANE" 2>/dev/null | awk '
+    [ -n "${TMUX_PANE:-}" ] &&
+    asked=$(python3 -c 'import subprocess, sys
+print(subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", sys.argv[1]],
+                     capture_output=True, encoding="utf-8", errors="replace", timeout=5).stdout)' \
+      "$TMUX_PANE" 2>/dev/null | awk '
       /Request user input .* — running / { q = ""; under = 1; next }
       under && NF { q = $0; under = 0 }
       END { gsub(/^ +| +$/, "", q); print q }')
