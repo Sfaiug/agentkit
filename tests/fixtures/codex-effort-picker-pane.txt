@@ -1,0 +1,15 @@
+  [38;5;12m148. [39mNightjar
+  [38;5;12m149. [39mWhip-poor-will
+  [38;5;12m150. [39mOilbird
+     OK
+[2m  Worked for 34s • 12:07
+[0m[1;2m› [0mRun `sleep 25` with your shell tool, then reply OK.
+[2m• [0mI’ll run the requested shell command now.
+■ Conversation interrupted - use /feedback if something went wrong
+  [1mSelect Reasoning Level for GPT-6-Luna[0m
+  1. Low               [2mFast responses with lighter reasoning[0m
+[1;7m› 2. Medium (default)  [0;7mBalances speed and reasoning depth for everyday tasks[1m
+[0m  3. High              [2mGreater reasoning depth for complex problems[0m
+  4. Extra high        [2mExtra high reasoning depth for complex problems[0m
+  5. More reasoning…   [2mMax consumes usage limits faster[0m
+  [1menter[0;2m default · [0;1ms[0;2m session · [0;1mesc[0;2m back

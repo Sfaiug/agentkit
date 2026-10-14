@@ -57,7 +57,8 @@ at_prompt = "hooks"
 
 # Codex's hooks are installed per launch by the seat wrapper (tools/codex-seat.py), which
 # gives them to its own app server beside the SessionStart receipt. `adapters/codex.sh hooks`
-# says so and writes nothing. These four are the events 0.153.4 emits that name a state.
+# says so and writes nothing. These are the events Codex emits that name a state; a
+# sub-agent's SubagentStart and SubagentStop name none, as its end says nothing of the seat's turn.
 [[hooks.event]]
 name = "UserPromptSubmit"
 state = "working"
@@ -79,25 +80,61 @@ state = "at_prompt"
 name = "PermissionRequest"
 state = "asking"
 
+# A Plan-mode turn's question going up (0.160.1), and a call's end while the seat's record holds
+# a question, as the owner's answer or approval let it run: 0.03 s after the answer, 0.1 s after
+# a quick approved command.  No other call's end reaches seat-state.sh (`codex.answered`).
+[[hooks.event]]
+name = "PreToolUse"
+kinds = ["request_user_input"]
+state = "asking"
+
+[[hooks.event]]
+name = "PostToolUse"
+state = "working"
+
 [screen]
 composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|tab to queue message\b.*|[\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$'
-footer = ['\? for shortcuts']
+# 0.160.1 draws `⚠ 1 warning · f2 to view` at the footer's end on a seat resumed on another
+# model than its thread's, and alone where a draft has put the shortcut hint away.
+footer = ['\? for shortcuts', '(?:\? for shortcuts\s+)?⚠ \d+ warnings? · f2 to view']
 
 # Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a
 # permission request -- is the same numbered chooser, so one rule covers them: the selected
 # option, a second option, and the key hint, in the last few lines with the hint newest.
+# 0.160.1's hook review hints `enter confirm · esc skip`.
 [[rule]]
 id = "asking.chooser"
 state = "asking"
 lines = 6
-all = ["› 1.", "2. ", "press enter to"]
-newest = '(?i)press enter to'
+all = ["› 1.", "2. "]
+any = ["press enter to", "enter confirm"]
+newest = '(?i)press enter to|^enter confirm · '
+
+# A Plan-mode turn's question (`request_user_input`) waits in a dialog whose hint row is
+# `  tab to add notes | enter to submit answer | esc to interrupt`, the last part on a row of its
+# own in a narrow pane: before the working rule, which its `esc to interrupt` would match.  The
+# hint is read as drawn, at the bottom, so the words in a draft or a thread title are none.
+[[rule]]
+id = "asking.question"
+state = "asking"
+lines = 2
+row = '^  tab to add notes \| enter to submit answer\b'
+newest = '(?:^| \| )esc to interrupt$'
 
 [[rule]]
 id = "working.interrupt"
 state = "working"
 lines = 8
 any = ["esc to interrupt"]
+
+# A picker the owner opened at the composer -- /model, its effort list, /permissions -- ends on
+# its key hint, `enter select · esc back` or `enter default · s session · esc back`.  It is the
+# owner's own hand at the composer, as a draft is, so nothing is typed into it.
+[[rule]]
+id = "draft.picker"
+state = "draft"
+lines = 1
+newest = '^enter \w+ · (?:.+ · )?esc back$'
 
 # A composer holding bright, typed text is a draft never sent. A composer whose
 # only content is dim -- the `Ask Codex …` placeholder -- is empty. Both are read
@@ -115,6 +152,17 @@ state = "at_prompt"
 lines = 8
 at_composer = true
 none = ["esc to interrupt"]
+
+# A draft a wrap or a newline has taken past its prompt row ends on a row of its own, indented
+# under that row, with the status line right under it: 0.160.1 draws its `? for shortcuts`
+# only under an empty composer.  The status line is the row with ` · ` in it.
+[[rule]]
+id = "draft.rows"
+state = "draft"
+lines = 2
+at_composer = true
+none = ["esc to interrupt", "? for shortcuts"]
+row = '^  (?!.* · )\S'
 
 [[rule]]
 id = "prompt.composer"

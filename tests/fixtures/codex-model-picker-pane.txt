@@ -1,0 +1,15 @@
+  [38;5;12m150. [39mOilbird
+     OK
+[2m  Worked for 34s • 12:07
+[0m[1;2m› [0mRun `sleep 25` with your shell tool, then reply OK.
+[2m• [0mI’ll run the requested shell command now.
+■ Conversation interrupted - use /feedback if something went wrong
+  [1mSelect Model and Effort[0m
+  1. GPT-6.1-Sol (default)   [2mLatest workhorse model for coding and everyday work.
+[0m  2. GPT-6-Astra             [2mFrontier intelligence for the most demanding work.
+[0m  3. GPT-6-Sol               [2mPrevious generation workhorse model.[0m
+  4. GPT-6-Luna              [2mFast and affordable model for easier tasks.[0m
+  5. GPT-5.6-Sol             [2mOlder generation workhorse model.[0m
+  6. GPT-5.6-Terra           [2mOlder balanced model for straightforward work.
+[0;1;7m› 7. GPT-5.6-Luna (current)  [0;7mOlder fast and efficient model.[1m
+[0m  [1menter[0;2m select · [0;1mesc[0;2m back

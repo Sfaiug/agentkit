@@ -1,0 +1,15 @@
+[2m• [0mRed
+[2m  Worked for 24s • 12:11
+[0m[1;2m› [0mStart the shell command `sleep 40; echo BGDONE` so it keeps running in the background (do not wait for it to finish),
+  then end your turn right away by replying STARTED.
+[2m• [0mSTARTED
+[2m  Worked for 5s • 12:11
+[0m[1;2m› [0mSpawn one sub-agent (your multi-agent spawn tool) whose task is: run `sleep 30` with the shell, then reply SUBDONE.
+  Do not wait for it; end your turn right away by replying SPAWNED.
+[2m• [0;1mSpawned [0m[38;5;75m0000aaaa-1111-7222-8333-444455556666[2m[39m [0m[38;5;5m(gpt-6-luna low)[39m
+[2m  └ [0mRun `sleep 30` with the shell, then reply exactly SUBDONE. Do not wait for any other work.
+[2m• [0mSPAWNED
+[2m  Worked for 7s • 12:12
+[0m[1m›[0m [2mAsk Codex to do anything[0m
+  [38;5;223mGPT-6-Luna low[39m · [38;5;151m/home/acme/fix-api[39m · [38;5;216mRun sleep and list animals[39m · Main [default]
+  [1m?[0m for shortcuts

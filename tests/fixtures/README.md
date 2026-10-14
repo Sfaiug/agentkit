@@ -157,6 +157,12 @@ checks neither read real credential files nor attempt automatic re-authenticatio
 outer blank lines were removed. Selecting `3`, then Enter reached the normal TUI without
 trusting the hook or making a model request; smoke 6d uses that same choice.
 
+`codex-{question-up,question-up-narrow,approved,draft-wrapped,draft-two-lines,resumed-warning,
+draft-warning,model-picker,effort-picker,hooks-review-0160,sub-agent-done}-pane.txt` are the tails
+ak reads (`watch.pane_tail`) of `capture-pane -p -e -J` captures from a live sweep of a Codex
+0.160.1 seat on 2026-10-14, with its workspace renamed `/home/acme/fix-api` and its sub-agent's
+id invented; `tests/test_codex_seat_states.py` replays them beside the hook events it fired.
+
 `v4z-40.txt` and `v4z-100.txt` come from the real renderer with fixed fake state in
 `tests/test_project_menus.py`: ATOLL, agentkit, newsletter-tool and scratch; running, asking,
 waiting, recovery and PASS states. Refresh with `python3 tests/test_project_menus.py --fixtures`.

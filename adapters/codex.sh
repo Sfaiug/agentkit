@@ -305,7 +305,8 @@ hooks)
   # which thread the seat owns, so there is nothing persistent to merge or back up here.
   # A launch is the only place they can go: the receipt path differs for every one of them.
   echo "codex: hooks are installed per launch by tools/codex-seat.py (SessionStart," \
-       "UserPromptSubmit, Stop, Interrupt, PermissionRequest); nothing to write here"
+       "UserPromptSubmit, Stop, Interrupt, PermissionRequest, PreToolUse, PostToolUse);" \
+       "nothing to write here"
   if command -v codex >/dev/null && ! codex --help 2>/dev/null | grep -q -- '--dangerously-bypass-hook-trust'; then
     echo "codex: this build reports no hook support; its seats fall back to screen rules" >&2
   fi ;;

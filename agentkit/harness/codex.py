@@ -26,8 +26,10 @@ from .. import config
 RECEIPT_ENV = "AGENTKIT_CODEX_RECEIPT"
 CAPTURE_ENV = "AGENTKIT_CODEX_CAPTURE"
 SOURCE = "codex-session-start"
-# The lifecycle hooks Codex 0.153.4 defines that name a state; adapters/codex.toml maps them.
+# The lifecycle hooks Codex 0.153.4 defines that name a state; adapters/codex.toml maps them,
+# and the script they run writes down what arrived.
 SEAT_EVENTS = ("UserPromptSubmit", "Stop", "Interrupt", "PermissionRequest")
+SEAT_STATE = "hooks/seat-state.sh"
 # ... and what rides the end of a turn beside them.  Codex documents a blocking Stop hook
 # (learn.chatgpt.com/docs/hooks#stop), and 0.153.4's own `stop.command.output` schema is
 # Claude's -- a `decision` of `block` with the `reason` beside it -- so the end-of-turn rule is
@@ -38,6 +40,9 @@ STOP_RULE = "hooks/orchestrator-stop.sh"
 # model or to ak, when anything is sent into the seat or the turn ends.  So a seat's PreToolUse
 # hook asks it through ak, as `ak notify needs` does, and refuses the call (`ask`).
 QUESTION_TOOL = "request_user_input_async"
+# A Plan-mode turn asks with `request_user_input`, which waits in a dialog of the seat's own: its
+# PreToolUse is the seat asking.  One group takes both tools, as Codex reads a matcher as a regex.
+QUESTIONS = "request_user_input(_async)?"
 FRESH = "Codex ownership unverified; starts fresh"
 BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"
 END = "# --- end agentkit browser bridge ---"
@@ -404,6 +409,21 @@ def ask(event):
         "Their answer comes as a message from them. Go on with whatever does not depend on it")}
 
 
+def answered(event):
+    """Does that PostToolUse end a call while the seat's record holds a question -- one the
+    owner's answer or approval let run, after which the turn runs on?  Only then is it news: any
+    other call ends in a turn already running, or in one that ended -- a shell the owner's Esc
+    left running, a sub-agent's call after the seat's Stop -- which it would bring back."""
+    if (not isinstance(event, dict) or event.get("hook_event_name") != "PostToolUse"
+            or os.environ.get("AK_RUN_ROLE") == "worker"):
+        return False
+    name = config.current_session()
+    if not name:
+        return False
+    from .. import watch
+    return watch.hook_state("codex", watch.hook_facts(name))[0] == "asking"
+
+
 def question_line(item):
     """One question the tool was called with, as the owner reads it: its title, its options
     numbered after it, so a number answers it."""
@@ -571,6 +591,14 @@ def main(argv, launch=None):
         if answer:
             print(json.dumps(answer))
         return 0
+    if argv == ["answered"]:
+        payload = sys.stdin.read()
+        try:
+            if answered(json.loads(payload)):
+                subprocess.run(["bash", str(config.REPO / SEAT_STATE)], input=payload, text=True)
+        except (OSError, ValueError, config.Error):
+            pass
+        return 0
     rulebook = None
     if argv[:1] == ["--rulebook"] and len(argv) > 1:
         rulebook, argv = argv[1], argv[2:]
@@ -617,15 +645,19 @@ def main(argv, launch=None):
             # leaves the seat holding its launch's rulebook again (`orch.rulebook_compacted`).
             # 3s, not the receipt hook's 5: Interrupt is capped there and 0.153.4 prints a
             # clamping warning into the seat on every launch that asks for more
-            seat = (shlex.join(["bash", str(config.REPO / "hooks/seat-state.sh")]), 3)
+            seat = (shlex.join(["bash", str(config.REPO / SEAT_STATE)]), 3)
             hooks.update((event, [seat]) for event in SEAT_EVENTS)
             hooks["SessionStart"].append(seat)
             hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
             # The seat's question goes to its owner through ak (`ask`); 10s, as recording it
-            # can take the notice's lock behind a card being posted
+            # can take the notice's lock behind a card being posted.  A Plan-mode question
+            # going up is written down beside it, and a call's end only while the seat's record
+            # holds a question (`answered`).
             hooks["PreToolUse"] = [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10)]
-            matchers = {"PreToolUse": QUESTION_TOOL}
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10), seat]
+            hooks["PostToolUse"] = [(shlex.join(
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "answered"]), 3)]
+            matchers = {"PreToolUse": QUESTIONS}
             os.environ[CAPTURE_ENV] = receipt
             for event, handlers in hooks.items():
                 run = ",".join(f'{{type="command",command={json.dumps(command)},timeout={timeout}}}'

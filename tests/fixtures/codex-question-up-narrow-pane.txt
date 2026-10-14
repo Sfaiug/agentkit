@@ -1,0 +1,15 @@
+[2m    answer: [0m[38;5;75mRed[39m
+[2m• [0mRed
+[2m  Worked for 28s • 12:03
+[0m[1;2m› [0mUse your request_user_input tool to ask me: "Which
+  fruit?" options Apple and Pear. After I answer, run
+  `sleep 20` with your shell tool, then reply with the
+  fruit.
+  [2mQuestion 1/1 (1 unanswered)[0m
+  [38;5;75mWhich fruit?[39m
+  [1;7m› 1. Apple              [0;7mChoose Apple.[1m
+[0m    2. Pear               [2mChoose Pear.[0m
+    3. None of the above  [2mOptionally, add details in notes
+[0m                          [2m(tab)[0m
+  [1mtab[0m to add notes[2m | [0;1menter[0m to submit answer
+  [1mesc[0m to interrupt

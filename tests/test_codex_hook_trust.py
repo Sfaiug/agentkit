@@ -31,6 +31,12 @@ CODEX = {
 # this hook, in the run that proved its PreToolUse fires for the seat's question tool.
 MATCHED = ({"PreToolUse": [("python3 /var/tmp/codex-hookprobe.Ofmeo2/hook.py matched block", 10)]},
            {"PreToolUse": "request_user_input_async"})
+# ... and two hooks in a group under a regex matcher, and a tool's end: what codex-cli 0.160.1's
+# app server answered `hooks/list` with on 14 Oct 2026, with no warning.
+QUESTIONS = ({"PreToolUse": [("/usr/bin/python3 /repo/tools/codex-seat.py ask", 10),
+                             ("bash /repo/hooks/seat-state.sh", 3)],
+              "PostToolUse": [("/usr/bin/python3 /repo/tools/codex-seat.py answered", 3)]},
+             {"PreToolUse": "request_user_input(_async)?"})
 
 
 def state(flag):
@@ -43,6 +49,10 @@ class HookTrust(unittest.TestCase):
         self.assertEqual(state(codex.trust(HOOKS)), CODEX)
         self.assertEqual(state(codex.trust(*MATCHED)), {
             "pre_tool_use:0:0": "442297c174d5350388b64c404bc3f722266af12302224584eb5e568cc0851806"})
+        self.assertEqual(state(codex.trust(*QUESTIONS)), {
+            "pre_tool_use:0:0": "e0235778b442be3fbec91a18a34bc7550c6e363ba7040b95602ee2bb87ed86ff",
+            "pre_tool_use:0:1": "ad06a04bbc6ec7918889960fd8c6563841b77d45e1423cbbba13601771489023",
+            "post_tool_use:0:0": "7fa0bfecd8d7c069ec92da951491afd852f4c4f04560e26102a858f9f37cc6e6"})
 
     def test_seat_launch_trusts_exactly_its_hooks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,13 +74,17 @@ class HookTrust(unittest.TestCase):
                     if "matcher" in groups[0]:
                         matchers[event] = groups[0]["matcher"]
         trusted = [flag for flag in flags if flag.startswith("hooks.state=")]
-        self.assertEqual(len(installed), 6, installed)
-        self.assertEqual(sum(map(len, installed.values())), 8)
+        self.assertEqual(len(installed), 7, installed)
+        self.assertEqual(sum(map(len, installed.values())), 10)
         # a compaction's SessionStart reaches the seat's hook (`orch.rulebook_compacted`)
         self.assertIn("hooks/seat-state.sh", installed["SessionStart"][-1][0])
-        # the seat's question tool, and only it, goes to its owner through ak
+        # the seat's question tools, and only they: the one that waits for nobody goes to its
+        # owner through ak, the Plan-mode dialog's is written down as the seat asking
         self.assertTrue(installed["PreToolUse"][0][0].endswith("tools/codex-seat.py ask"))
-        self.assertEqual(matchers, {"PreToolUse": "request_user_input_async"})
+        self.assertIn("hooks/seat-state.sh", installed["PreToolUse"][1][0])
+        self.assertEqual(matchers, {"PreToolUse": "request_user_input(_async)?"})
+        # a call's end goes through the check that it ends the question, never straight in
+        self.assertTrue(installed["PostToolUse"][0][0].endswith("tools/codex-seat.py answered"))
         self.assertEqual(trusted, [codex.trust(installed, matchers)])
         self.assertNotIn("--dangerously-bypass-hook-trust", seen[0])
 
