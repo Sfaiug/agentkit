@@ -644,6 +644,7 @@ def screen(harness):
              else None,
              "folded": _pattern(block.get("folded"), path),
              "scrolled": _pattern(block.get("scrolled"), path),
+             "away": _pattern(block.get("away"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
@@ -1527,6 +1528,21 @@ def screen_state(harness, tail):
     if not lines:
         return None, "", ""
     chrome = screen(harness)
+
+    def drawn_rule(row):
+        # a bare rule, or a rule the harness's own chrome names, as one carrying a session's name
+        return bool(re.fullmatch(RULE, row) or (row[:1] in "─━═" and chrome_line(chrome, row)))
+
+    # A view the harness has scrolled up from its live bottom shows none of what a rule reads
+    # there -- a dialog's controls, the composer, a turn's spinner -- however much of it the rows
+    # left look like one: it reads nothing, and what the hooks said stands (`[screen] away`).
+    # The mark sits on the row right above the bottom rule, over a transcript row a tray could
+    # take for its own, so it is read before any tray is left out; that row is never the
+    # composer's, so a draft quoting the mark stays a draft.
+    if (chrome["away"] and len(lines) > 1 and drawn_rule(lines[-1])
+            and chrome["away"].search(lines[-2])
+            and ruled_composer(chrome, raw_lines)[1] != len(lines) - 1):
+        return None, "", ""
     # A tray the harness draws under its footer, or between its composer and its footer, is
     # neither: left out, every rule reads the rows it reads where none is drawn, and never
     # further up the transcript.
@@ -1547,10 +1563,6 @@ def screen_state(harness, tail):
     # that rule carries the session's name, which the adapter's composer pattern knows.  A draft never sits there: its
     # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
     # typed stays a draft.
-    def drawn_rule(row):
-        # a bare rule, or a rule the harness's own chrome names, as one carrying a session's name
-        return bool(re.fullmatch(RULE, row) or (row[:1] in "─━═" and chrome_line(chrome, row)))
-
     newest = lines[-1]
     if chrome["ruled"] and len(lines) > 1 and drawn_rule(newest):
         above = strip_sgr(raw_lines[-2]).rstrip()
@@ -1644,7 +1656,8 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     seen, rule, line = screen_state(harness, tail)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
-    if hooked == "working" and interrupted is not None and interrupted >= when:
+    # Esc ends a turn with no Stop, a question's turn too: the dialog goes with it.
+    if hooked in ("working", "asking") and interrupted is not None and interrupted >= when:
         hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
