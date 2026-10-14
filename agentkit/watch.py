@@ -2054,7 +2054,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
     `page` in the answer marks a `needs you` only he can clear -- a question someone asked him,
-    or a login or worker token only he can renew -- which is what pages him
+    or a login, worker token or spent usage only he can renew -- which is what pages him
     (`notify.needs_transition`), and `page_since` when that came up, which the word's own
     beginning below may be older than.
 
@@ -2214,7 +2214,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     last = notify.last(name)
     if (waiting and not any(session.get(key) for key in orch.CLOSED)
             and not seat_closed_by_owner(name) and not owner_question(last)):
-        return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"]}
+        return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"],
+                "page": True}
     # 1a. ... and a run of this seat's parked on one is the same news about a login he has to
     # go and fix.  The run being parked is the evidence: nothing here re-asks the verb for it,
     # because the tick that can answer is the one that unparks it, and until it does the work
