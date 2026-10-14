@@ -43,14 +43,20 @@ set -u
 
 main() {
   umask 077
-  local seat script
+  local seat script payload
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
   # the seat's name is one component of a path here as it is everywhere else
   case "$seat" in */*|.|..|"") return 0 ;; esac
-  # The script goes in on the command line and the hook's own JSON stays on stdin, where the
-  # harness put it.  A turn that moved a lot of tool output ends in a payload no argument list
+  payload=$(/bin/cat) || return 0
+  # a sub-agent's Stop is never this seat's end, by the rule hooks/seat-state.sh reads it with
+  if /usr/bin/env jq -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1
+  then
+    return 0
+  fi
+  # The script goes in on the command line and the hook's own JSON on stdin, where the harness
+  # put it.  A turn that moved a lot of tool output ends in a payload no argument list
   # and no environment would carry -- Linux refuses a single one past 128 KB -- and a hook that
   # cannot be handed the turn it is judging would decide nothing at all, quietly.
   script=$(/bin/cat <<'STOPPY'
@@ -315,13 +321,6 @@ def held(launched, payload):
     return parked_reason(undecided) if undecided else REASON
 
 
-def sub_agent(payload):
-    """A sub-agent's turn run through the seat's hooks (Codex: `agent_id`, Grok: `subagentType`),
-    which hooks/seat-state.sh leaves alone too: its end is never the seat's."""
-    return any(payload.get(key) is not None
-               for key in ("agent_id", "agentId", "subagentType", "subagent_type"))
-
-
 def written(launched, kind):
     """This Stop, as hooks/seat-state.sh writes every other event down for the seat's row:
     under the name the seat goes by now, which is the name its row reads."""
@@ -339,8 +338,6 @@ def written(launched, kind):
 def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
-    if sub_agent(payload):
-        return
     back = held(launched, payload)
     if not back:
         # the stop stands: the turn a kept question was asked in has ended, and that is on
@@ -355,7 +352,7 @@ def main():
 main()
 STOPPY
 ) || return 0
-  /usr/bin/env python3 -c "$script" "$seat" "${BASH_SOURCE[0]}"
+  /usr/bin/env python3 -c "$script" "$seat" "${BASH_SOURCE[0]}" <<<"$payload"
 }
 
 main 2>/dev/null || true

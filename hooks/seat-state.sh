@@ -69,13 +69,10 @@ seat_state() {
       --hook "$PPID" <<<"$payload" || true
   fi
   [[ $event != SessionStart ]] || return 0
-  # A sub-agent's own turn is not the seat's: Codex runs its prompt through the seat's hooks with
-  # `agent_id`, Grok with `subagentType`, and its end is a SubagentStop, never this seat's Stop --
-  # written down, it would be a turn that never ends, and its prompt the owner's answer.
-  # hooks/orchestrator-stop.sh leaves its stops alone too.
+  # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
+  # and its prompt the owner's answer.
   if [[ $event = UserPromptSubmit || $event = Stop ]] &&
-    "$jq" -e '(.agent_id // .agentId // .subagentType // .subagent_type) != null' \
-      <<<"$payload" >/dev/null 2>&1; then
+    "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1; then
     return 0
   fi
   ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
