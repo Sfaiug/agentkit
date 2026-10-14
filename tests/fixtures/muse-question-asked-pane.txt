@@ -1,0 +1,40 @@
+[38;5;242m  [38;5;252mAs the Moon orbits Earth, its gravity pulls on the water in the oceans, creating a bulge of water on the side of Earth
+[38;5;242m  [38;5;252mfacing the Moon. On the opposite side of Earth, a second bulge forms not because of a direct pull, but because the
+[38;5;242m  [38;5;252mMoon pulls Earth itself more strongly than it pulls the distant water on the far side. In effect, water on the near
+[38;5;242m  [38;5;252mside is pulled toward the Moon, while water on the far side is left behind. Earth rotates through these two bulges
+[38;5;242m  [38;5;252meach day, so most coastal areas experience two high tides and two low tides in a period of about 24 hours and 50
+[38;5;242m  [38;5;252mminutes. That extra 50 minutes reflects the fact that the Moon moves a little in its orbit each day, so Earth must
+[38;5;242m  [38;5;252mrotate a bit further to bring the same location back under the Moon.
+
+[38;5;242m  [38;5;252mThe Sun also creates tides, though smaller. When the Sun, Earth, and Moon are aligned at new moon and full moon, their
+[38;5;242m  [38;5;252mtidal bulges reinforce each other and produce higher high tides and lower low tides, known as spring tides. The term
+[38;5;242m  [38;5;252mhas nothing to do with the season, but comes from the idea of tides springing forth. When the Moon is at first or
+[38;5;242m  [38;5;252mthird quarter and forms a right angle with the Sun as seen from Earth, the solar and lunar bulges partially cancel
+[38;5;242m  [38;5;252meach other, resulting in more moderate tides called neap tides.
+
+[38;5;242m  [38;5;252mThe simple picture of two bulges following the Moon is modified greatly by geography. Continents block the free
+[38;5;242m  [38;5;252mmovement of water, ocean basins have their own natural resonant frequencies, and the Coriolis effect from Earth's
+[38;5;242m  [38;5;252mrotation deflects moving water. As a result, tides do not appear as vast traveling bulges but as complex rotating wave
+[38;5;242m  [38;5;252msystems that sweep around ocean basins. In some enclosed seas the tidal range may be less than a foot, while in
+[38;5;242m  [38;5;252mfunnel-shaped bays such as the Bay of Fundy in Canada, the water can rise more than 50 feet between low and high tide.
+
+[38;5;242m  [38;5;252mPredicting tides requires accounting for all of these factors, and coastal communities have done so for centuries for
+[38;5;242m  [38;5;252mnavigation, fishing, and flood protection.
+
+[38;5;75m[48;5;237m❯ [38;5;252mUse your request_user_input tool (Request user input) to ask me one question: which colour, red or blue. After I[39m      
+[38;5;75m  [38;5;252manswer, run `sleep 20` with your shell tool, then reply with my answer.[39m                                               
+
+[38;5;251m[49m◆[38;5;247m [38;5;244mR[38;5;242mequest [38;5;244mu[38;5;247ms[38;5;251me[38;5;252mr[38;5;251m [38;5;247mi[38;5;244mn[38;5;242mput Col[38;5;244mo[38;5;247mu[38;5;251mr[38;5;246m — running[38;5;242m (4s)[39m                   
+
+[38;5;242m  [1m[38;5;252mWhich colour do you prefer, red or blue?[0m                                                                              
+[38;5;242m  
+  [1m[38;5;75m⟩ 1. Red[0m                                                                                                              
+[38;5;242m  [38;5;252m  2. Blue[39m                                                      
+[38;5;242m  [38;5;252m  3. None of the above  [2m[38;5;246mOptionally, add details in notes (tab).
+[0m[38;5;242m  
+  [38;5;246mEnter to select · ↑/↓ to move · Tab for an optional note · Esc to interrupt
+
+[38;5;242m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  [38;5;75mmuse-spark-1.2[38;5;246m · [38;5;75mminimal[38;5;246m · /home/acme/code/fix-api.wt/ws · [38;5;211mYOLO

@@ -9,7 +9,9 @@
 #                     login        -> `muse login`, unless already logged in
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
-#                     hooks        -> a no-op: Muse has none, so its seats are read off the screen
+#                     hooks        -> a no-op: a seat's launch carries its hooks (`interactive`)
+#                     hook         -> one hook event of a seat's muse, on stdin, handed on to
+#                                  hooks/seat-state.sh: what that launch's hooks run
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `model/list` over `muse serve`, else the [catalog] table
 #                                  of adapters/muse.toml
@@ -154,29 +156,37 @@ interactive)
     login=$(printf 'env -u META_API_KEY XDG_CONFIG_HOME=%q ' "$XDG_CONFIG_HOME")
   fi
   # Muse 1.4.7 runs lifecycle hooks, given on the command line, which replaces only the events
-  # it names: hooks/seat-state.sh writes down its question going up and its turn's end, the two
+  # it names: hooks/seat-state.sh, through the `hook` verb below, writes down its question or
+  # approval going up, its question answered, an Esc and its turn's end, the four
   # adapters/muse.toml gives a state.  No prompt hook: a seat that reports prompts has only them
   # answer its questions, and one opened before this, or on an older muse, reports none.  Muse
-  # hands a hook almost none of the seat's environment, so the seat's name rides in its command.
+  # hands a hook almost none of the seat's environment, so the seat's name rides in its command,
+  # and so do the pane and tmux server its look needs, which only the pane knows: `bash -c`
+  # writes them in where `@PANE@` stands as the pane starts.  Muse runs an Interrupt hook only
+  # alongside the turn, and a PostToolBatch one, run on every tool batch, need not hold it up.
   # Only where this muse's own schema names hook events: an older one refuses a launch carrying
   # settings it does not know, and its seat stays read off the screen alone, as does a launch
   # for no seat.
-  hooks=""
+  hooks="" pane=""
   [ -n "${AGENTKIT_SESSION:-}" ] && schema=$(mktemp -d) && {
     if muse schema generate-json-schema --out "$schema" >/dev/null 2>&1 &&
         grep -q '"notification"' "$schema"/*.json 2>/dev/null; then
-      run=$(jq -cn --arg c "env $(printf 'AGENTKIT_SESSION=%q bash %q' "$AGENTKIT_SESSION" \
-          "$REPO/hooks/seat-state.sh")" \
-        '[{hooks: [{type: "command", command: $c}]}]')
-      for event in Stop Notification; do
+      hook=$(printf 'env @PANE@ AGENTKIT_SESSION=%q bash %q hook' "$AGENTKIT_SESSION" \
+        "$REPO/adapters/muse.sh")
+      for event in Stop Notification PostToolBatch Interrupt; do
+        run=$(jq -cn --arg c "$hook" --arg event "$event" '[{hooks: [{type: "command", command: $c}
+          + if $event == "Interrupt" or $event == "PostToolBatch" then {async: true} else {} end]}]')
         hooks+=$(printf -- '-c %q ' "hooks.$event=$run")
       done
+      # shell-quoted for the hook's shell, then escaped for the JSON string that command is in
+      pane=$(printf 'bash -c %q ' 'p=$(printf "TMUX=%q TMUX_PANE=%q" "${TMUX-}" "${TMUX_PANE-}" | jq -Rr "tojson[1:-1]"); for a; do case $a in *@PANE@*) a=${a%%@PANE@*}$p${a#*@PANE@} ;; esac; set -- "$@" "$a"; shift; done; exec "$0" "$@"')
     fi
     rm -rf -- "$schema"
   }
-  # --model/--reasoning-effort are only legal with --provider meta, so it is named here too
-  printf '%spython3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--yolo --provider meta --model %q --reasoning-effort %q%s\n' \
-      "$login" "$REPO/tools/idle-compact.py" "$rules" "$resume" "$1" "$2" "${hooks:+ ${hooks% }}" ;;
+  # --model/--reasoning-effort are only legal with --provider meta, so it is named here too;
+  # the pane's own step goes first, so the program the line ends on is still muse itself
+  printf '%s%spython3 %q --harness muse -- env MUSE_NO_AUTO_UPDATE=1 MUSE_LAUNCHER_INSTALL=0 %smuse %s--yolo --provider meta --model %q --reasoning-effort %q%s\n' \
+      "$login" "$pane" "$REPO/tools/idle-compact.py" "$rules" "$resume" "$1" "$2" "${hooks:+ ${hooks% }}" ;;
 usage)
   # Recorded run quotas take precedence, even in a copied adapter without the probe helper.
   # One limit: each meter is trusted for at most its own window, so a weekly file is never
@@ -235,7 +245,28 @@ hooks)
   # Muse takes its hooks on the command line, and `interactive` builds that line where its
   # muse runs them (1.4.7): nothing persistent to write here.
   echo "muse: hooks are given per launch by \`adapters/muse.sh interactive\` (Stop," \
-       "Notification); nothing to write here" ;;
+       "Notification, PostToolBatch, Interrupt); nothing to write here" ;;
+hook)
+  # One event of a seat's muse, handed to hooks/seat-state.sh in the shape it reads.  A tool
+  # batch names its tools inside it, so it goes on named for its first, as a tool's own hook
+  # is.  A question's notice names only the folder, so it goes on saying the question: the
+  # first row under the dialog's running `Request user input` line on the seat's own pane,
+  # where its launch named the pane; python3, which every host has, bounds the read.
+  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+  payload=$(cat)
+  asked=""
+  [ "$(jq -r '.notification_type // empty' <<<"$payload" 2>/dev/null)" = question_prompt ] &&
+    [ -n "${TMUX_PANE:-}" ] &&
+    asked=$(python3 -c 'import subprocess, sys
+print(subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", sys.argv[1]],
+                     capture_output=True, encoding="utf-8", errors="replace", timeout=5).stdout)' \
+      "$TMUX_PANE" 2>/dev/null | awk '
+      /Request user input .* — running / { q = ""; under = 1; next }
+      under && NF { q = $0; under = 0 }
+      END { gsub(/^ +| +$/, "", q); print q }')
+  jq -c --arg asked "$asked" '(if .tool_calls then .tool_name //= .tool_calls[0].tool_name else . end)
+    | if $asked == "" then . else .message = $asked end' <<<"$payload" |
+    bash "$REPO/hooks/seat-state.sh" ;;
 models)
   # muse has no command that lists its models, but `muse serve` speaks MSP on stdio (`muse
   # schema`), and its `model/list` names the models this login's provider catalog offers,
@@ -254,6 +285,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" muse ;;
 *)
-  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login | muse.sh auth [seat] | muse.sh hooks | muse.sh models" >&2
+  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
   exit 2 ;;
 esac

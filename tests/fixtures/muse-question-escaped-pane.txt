@@ -1,0 +1,40 @@
+[1m[38;5;252m◆ [0m[38;5;252mBlue
+
+[38;5;75m[48;5;237m❯ [38;5;252mRun `sleep 25` with your shell tool, then reply OK.[39m                                                                   
+
+[38;5;151m[49m◆ [1m[38;5;252mRan command[0m[38;5;252m [38;5;75m· Sleep 25 seconds[38;5;242m · ✓ · 25s[2m · ctrl+o
+
+[0;1m[38;5;252m◆ [0m[38;5;252mOK
+
+[38;5;75m[48;5;237m❯ [38;5;252mUse your request_user_input tool (Request user input) to ask me one question: which colour, red or blue. After I[39m      
+[38;5;75m  [38;5;252manswer, run `sleep 20` with your shell tool, then reply with my answer.[39m                                               
+
+[38;5;242m[49m  [38;5;246mStructured user input answered — Colour: Red
+
+[38;5;151m◆ [1m[38;5;252mRan command[0m[38;5;252m [38;5;75m· Sleep 20 seconds[38;5;242m · ✓ · 20s[2m · ctrl+o
+
+[0;1m[38;5;252m◆ [0m[38;5;252mRed
+
+[38;5;75m[48;5;237m❯ [38;5;252mRun `sleep 40` with your shell tool, then reply OK.[39m                                                                   
+
+[38;5;221m[49m◆ [1m[38;5;252mRan command[0m[38;5;252m [38;5;75m· Sleep 40 seconds[38;5;242m · ⊘ · cancelled · 5.9s[2m · ctrl+o
+
+[0;1m[38;5;211m◆ [0m[38;5;211mInterrupted · Report issues with /feedback
+
+[38;5;75m[48;5;237m❯ [38;5;252mUse your request_user_input tool (Request user input) to ask me one question: which colour, red or blue. After I[39m      
+[38;5;75m  [38;5;252manswer, run `sleep 20` with your shell tool, then reply with my answer.[39m                                               
+
+[38;5;242m[49m  [38;5;246mQuestions 0/1 answered (interrupted)
+[38;5;242m  [38;5;246mWhich colour do you prefer, red or blue? (unanswered)
+[38;5;242m  [38;5;246minterrupted with 1 unanswered
+
+[1m[38;5;211m◆ [0m[38;5;211mInterrupted · Report issues with /feedback
+
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;75m❯ 
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;242m  [38;5;75mmuse-spark-1.2[38;5;246m · [38;5;75mminimal[38;5;246m · /home/acme/code/fix-api.wt/ws · [38;5;211mYOLO
+
+
+
+
