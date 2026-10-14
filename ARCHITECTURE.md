@@ -73,7 +73,8 @@
   launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
   Calls `run.*`; for run, gc, watch, menu.
 - `watch.py`: tick passes (`local_passes`), watch.json, seat state, errors, recovery,
-  typing receipts, PR scans, after-merge checks and `health:` probes. `session_state`
+  typing receipts, PR scans, after-merge checks, `health:` probes and the weekly audit's seat
+  and line (`tell_audit`). `session_state`
   and `waiting_on` decide state; hookless stops use stop.recorded_ending.
   For run, job, orch, menu, notify, update, usage, worker and hooks.
   Leaks: run.json writes and run state groups.
@@ -82,6 +83,10 @@
   the newest, with the project's own switch list as the line's check. `retire.json` under
   STATE. For watch. Leak: menu's `features_run`, `switch_rows`, `switches_command`; plan's
   `open_lines`, `LINE`, `add`.
+- `audit.py`: the weekly audit's week, report and line: the first tick of an ISO week writes
+  the board with its largest loss (`scoreboard.loss`) and the line the `audit` seat is told
+  (`weekly`); `audit.json` and `audit/<week>.md` under STATE. For watch, whose `tell_audit`
+  opens or resumes the seat and types the line.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.

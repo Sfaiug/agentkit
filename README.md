@@ -80,6 +80,8 @@ Agentkit does not stop until the work ships, or until it truly needs you. Truly 
 
 `AGENTS.md`'s `health:` command checks merged changes in production; passing reports them live.
 
+Once a week ak audits itself. The first tick of each ISO week (UTC) writes `~/.agentkit/state/audit/<week>.md`, the scoreboard with the week's largest loss against the vision named in one line (the first measure, quality then speed then cost then size, that reads worse than the week before, else the first the board reads at all), opens the `audit` seat with the models `[audit]` names when there is none (resumes it when its process is gone, leaves it alone while you closed it yourself), and types one line into it at its quiet prompt: the week, the loss, where the board is, and to build the smallest change that moves it through the line. You hear nothing until that seat's done notice. `[audit].on = false`, or `off` on the `c` screen's `Weekly audit` row, switches it off.
+
 A turn can end waiting on its job while the launcher is alive and any task is unsettled, even before the first run starts and after a seat rename. A job whose launcher is gone or whose tasks have all settled gives no wait.
 
 Sessions never message each other, on any harness. A session whose work must wait for another's pull request or run ends its turn with `ak wait <pull request URL or run id>`; the tick ends the wait when that pull request merges or closes or that run ends, or when gh could not read the pull request for three ticks running (while gh is logged out the wait holds, and the session reads `needs you: gh login expired`), and types one line into the session saying so, at its next quiet prompt. Nothing one session writes is ever typed into another, and a wait never names a session.

@@ -4163,7 +4163,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
     return cmd
 
 
-def ensure(cfg, name, log=print, saved=False):
+def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
     """The seat by that name, started with the default selection if it is not running.
 
     For a caller with no terminal and nobody to ask -- `ak watch`, from cron -- so nothing here
@@ -4175,6 +4175,10 @@ def ensure(cfg, name, log=print, saved=False):
     where tmux still has one -- and fresh only where nothing was recorded, never on this
     function's own selection.  The answer is then resume's: "resumed", "fresh", or False for a
     seat that is live; a seat with neither a pane nor a record is an error, not a new seat.
+
+    `roles` (`orchestrator`, `workers`, `reviewers`, the weekly audit's setting) is a fresh
+    seat's selection in place of the default one, recorded as a seat's own and remembered as
+    nobody's default; `repo` is the project it is filed under.
     """
     name = config.resolve_session(name)
     if saved:
@@ -4188,17 +4192,23 @@ def ensure(cfg, name, log=print, saved=False):
         return False
     refuse_held(name)
     providers = usage.collect(cfg)
-    model, reason, workers = select(cfg, providers, prompting=False)
+    if roles:
+        model, reason, workers = roles["orchestrator"], "its setting", list(roles["workers"])
+        cfg = {**cfg, "defaults": {**cfg["defaults"], "reviewers": list(roles["reviewers"])}}
+    else:
+        model, reason, workers = select(cfg, providers, prompting=False)
     # The usual login when none answers, as this seat always opened: it has a question to take.
     account = opening_account(cfg, model, providers, True)
-    with for_seat(name, ""):
+    with for_seat(name, str(repo) if repo else ""):
         cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
-    extra = {"cwd": str(seat_cwd()), "repo": None, "created": time.time(),
+    extra = {"cwd": str(seat_cwd()), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     if conversation:
         extra["conversation"] = conversation
         extra["id_source"] = LAUNCHER
-    config.remember_defaults(config.save_session(cfg, name, model, workers, extra))
+    recorded = config.save_session(cfg, name, model, workers, extra)
+    if not roles:
+        config.remember_defaults(recorded)
     from . import watch
     watch.forget(name, acknowledge=False)  # cron may reset a latch, never answer a question
     launch(name, model, seat_cwd(), cmd, conversation)

@@ -38,7 +38,7 @@ class V5s(Sandbox):
         self.back = "resumed"    # what the fake `ensure` answers, or the error it raises
         self.sent = True         # what the fake confirmed send answers
 
-        def ensure(cfg, name, log=print, saved=False):
+        def ensure(cfg, name, log=print, saved=False, **_kw):
             self.reopened.append((name, saved))
             if isinstance(self.back, Exception):
                 raise self.back
