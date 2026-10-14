@@ -304,9 +304,9 @@ class Tallies(Sandbox):
             started = time.perf_counter()
             screen, pages = self.draw(100, 30)
             elapsed = time.perf_counter() - started
-            self.assertEqual(read.call_count, records)      # each record once for the draw
+            self.assertEqual(read.call_count, 0)    # the first draw read each; none changed since
             self.draw(40, 24)
-            self.assertEqual(read.call_count, 2 * records)  # and once again for the next
+            self.assertEqual(read.call_count, 0)    # nor before the next
         self.assertLess(elapsed, 1.0, elapsed)
         self.assertTrue(screen.startswith("agentkit"), screen[:60])
         self.assertIn("14:02", screen.splitlines()[0])

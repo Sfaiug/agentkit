@@ -116,6 +116,7 @@ key uses.
 
 import colorsys
 import copy
+import fcntl
 import json
 import os
 import re
@@ -159,6 +160,7 @@ UNREAD = ((re.compile(r"already reset"), "window reset"),
           (re.compile(r"returned no meters"), "no reading yet"))
 USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
          "(the menu; `ak attach` is the same)")
+RUN_RECORDS = "run-records.jsonl"   # under STATE: what `run_records` read, one line per run.json
 
 
 def read(prompt, default=None):
@@ -1710,17 +1712,21 @@ def new_session(cfg, dry_run, keyboard=None):
     return name
 
 
-def smoke_run(state):
-    """The suite's task or repo lives in its sandbox; a run's title proves nothing."""
+def smoke_run(state, resolved=None):
+    """The suite's task or repo lives in its sandbox; a run's title proves nothing.  A pass over
+    every run hands each call the same `resolved`, so a path many runs name is resolved once."""
+    resolved = {} if resolved is None else resolved
     for key in ("task", "repo"):
         value = state.get(key)
         if not isinstance(value, str) or not value:
             continue
-        try:
-            path = Path(value).expanduser().resolve().relative_to(config.TMP.resolve())
-        except (OSError, RuntimeError, ValueError):
-            continue
-        if path.parts and path.parts[0].startswith("smoke-"):
+        if value not in resolved:
+            try:
+                resolved[value] = (Path(value).expanduser().resolve()
+                                   .relative_to(config.TMP.resolve()).parts)
+            except (OSError, RuntimeError, ValueError):
+                resolved[value] = ()
+        if resolved[value] and resolved[value][0].startswith("smoke-"):
             return True
     return False
 
@@ -1734,12 +1740,52 @@ def run_records():
     terminal, and there is nobody to offer it to.  A run launched by hand belongs to no seat
     either but does belong to the terminal it was started from.  Read-only: a bad record is
     skipped, never repaired.
+
+    A run.json is parsed only when it changed: each pass keeps what it read in RUN_RECORDS, one
+    line per run under the stat it was read at (inode, mtime_ns, size), and a line whose stat no
+    longer matches is read again.  The stat comes before the read, so a line holds that file's
+    record or a newer one, never an older.  Passes racing to write the file cost the next one a
+    re-read, nothing more.  Which runs are left out is decided on every pass: a smoke run's
+    paths can come to resolve elsewhere with no record written.
     """
-    found = []
+    cache = config.STATE / RUN_RECORDS
+    try:
+        lines = cache.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    known = {}
+    for line in lines:
+        try:
+            name, *key, state = json.loads(line)
+            known[name] = key, state, line
+        except (ValueError, TypeError, RecursionError):
+            continue
+    found, fresh, resolved = [], [], {}
     for run_dir in record.run_dirs():
-        state = record.read_state(run_dir)
-        if state is not None and not state.get("unattended") and not smoke_run(state):
+        try:
+            info = (run_dir / "run.json").stat()
+        except OSError:
+            continue
+        key = [info.st_ino, info.st_mtime_ns, info.st_size]
+        if run_dir.name in known and known[run_dir.name][0] == key:
+            state, line = known[run_dir.name][1:]
+        else:
+            state = record.read_state(run_dir)
+            if state is None:
+                continue
+            line = json.dumps([run_dir.name, *key, state])
+        fresh.append(line)
+        if not state.get("unattended") and not smoke_run(state, resolved):
             found.append((run_dir, state))
+    if fresh != lines:
+        try:
+            with open(cache.with_suffix(".lock"), "w") as held:
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)   # or the pass holding it writes
+                temp = cache.with_suffix(".tmp")
+                temp.write_text("".join(f"{line}\n" for line in fresh), encoding="utf-8")
+                temp.replace(cache)
+        except OSError:
+            pass
     return found
 
 

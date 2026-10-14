@@ -15,7 +15,7 @@ from collections import namedtuple
 from functools import lru_cache, wraps
 from itertools import zip_longest
 
-from . import motion
+from . import guard, motion
 
 
 # glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
@@ -1001,7 +1001,8 @@ def sense():
     features = ""
     if os.environ.get("TMUX"):
         try:
-            features = subprocess.run(["tmux", "display", "-p", "#{client_termfeatures}"],
+            features = subprocess.run([guard.real("tmux"), "display", "-p",
+                                       "#{client_termfeatures}"],
                                       stdin=subprocess.DEVNULL, capture_output=True,
                                       text=True, timeout=1).stdout
         except (OSError, subprocess.SubprocessError):
