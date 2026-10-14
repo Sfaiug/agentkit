@@ -2,7 +2,7 @@
 
 ## What matters most
 
-- `ak` shows seats as working, needs you or done; `ak run task.md` delivers a merged PR.
+- `ak` shows seats as working, needs you, done or idle; `ak run task.md` delivers a merged PR.
   Keep the inside behind those.
 - A **seat** is a harness TUI in tmux with `session-<name>.json`.
   A **run** is a task: executor, done-when, review, merge and hand-back,

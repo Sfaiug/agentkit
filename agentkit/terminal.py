@@ -21,22 +21,24 @@ from . import guard, motion
 # glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
 # with the classifier; every presentation (including tmux formats) comes from this table,
 # and its RGB is the palette on a dark background, the one ak takes when it cannot tell.
-# The three words a session reads, and the two presentation-only kinds the screens ask for
+# The four words a session reads, and the two presentation-only kinds the screens ask for
 # by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
 STATE_STYLES = {
     "needs you": ("!", "!", "f9e2af", "33", "1"),
     "working": ("●", "*", "89b4fa", "36", ""),
     "done": ("✓", "v", "a6e3a1", "32", ""),
+    # nothing running, asked or owed: quiet, as the eye should pass over it
+    "idle": ("○", "o", "6c7086", "37", "2"),
     "FAIL": ("✗", "x", "f38ba8", "31", ""),
     "dim": ("·", ".", "6c7086", "37", "2"),
-    # Not a fourth state: a run parked on something that lifts by itself says what it waits
-    # for instead of a word, and the open circle is what says nobody has to act on it.
+    # No session word: a run parked on something that lifts by itself says what it waits for
+    # instead of a word, and the open circle is what says nobody has to act on it.
     "waiting": ("○", "o", "6c7086", "37", "2"),
 }
 # The same words on a light background (`sense`): Catppuccin Latte, its yellow and green
 # darkened until every one reads on white; the accent and the highlight's `›` are `working`'s.
-LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39",
-         "dim": "6c6f85", "waiting": "6c6f85"}
+LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "idle": "6c6f85",
+         "FAIL": "d20f39", "dim": "6c6f85", "waiting": "6c6f85"}
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 # The background the pointer lights a key-line item or a cell on: a step off the terminal's own,
 # Mocha's surface0 on a dark one and Latte's on a light one.
@@ -354,14 +356,15 @@ def state_tone(word):
     return word if word in STATE_STYLES else "dim"   # a phrase reads dim, as `waiting` does
 
 
-# One state table for the whole CLI, and the whole vocabulary: a session -- and a run,
-# and a project -- is working, needs you, or done, and nothing else exists.
+# One state table for the whole CLI, and the whole vocabulary: a session is working, needs
+# you, done or idle, and nothing else exists; a run and a project read one of the first three.
 # `menu.py`, `ak run status` and `ak orch list` read this; no screen invents its own.
-# `watch.session_state` is what decides which of the three a session is.
+# `watch.session_state` is what decides which of the four a session is.
 STATES = {
     "working": ("●", "accent"),
     "needs you": ("!", "attention"),
     "done": ("✓", "good"),
+    "idle": ("○", "dim"),
 }
 
 
@@ -371,7 +374,7 @@ def state_glyph(word):
         return glyph(word)
     mark, _ = STATES[word]
     if not utf8():
-        return {"●": "*", "✓": "v", "!": "!"}.get(mark, mark)
+        return {"●": "*", "✓": "v", "!": "!", "○": "o"}.get(mark, mark)
     return mark
 
 
@@ -491,6 +494,7 @@ TIPS = {
     "needs you": "needs you: it asked you something, or it cannot go on without you",
     "working": "working: a run of its own is going, or a turn is, or a session it waits on works",
     "done": "done: it said so, and the row carries its summary",
+    "idle": "idle: nothing is running, asked or owed; it waits for whatever you start next",
     "project": "{name}: the project the sessions under it work in, those needing you first",
     "switches": "{name}: Enter or a click opens the switches of its hidden features",
     "unread": "{name}: no week to draw, {why}; the bar comes with the first reading of one",

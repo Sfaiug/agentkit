@@ -22,8 +22,8 @@ Enter leaves naming to the orchestrator once it knows the work. The name is the 
 status bar and the title of every message it sends until a rename of its conversation or
 `ak orch rename` changes it.
 
-A session is **working**, **needs you** or **done**, and nothing else exists: it works until
-it is done or it is blocked on him.  `watch.session_state` decides which, once, from the
+A session is **working**, **needs you**, **done** or **idle**, and nothing else exists: it works
+until it is done or it is blocked on him, or it rests with nothing running, asked or owed.  `watch.session_state` decides which, once, from the
 facts -- an expired login, its own runs, a turn in flight, a seat
 nobody is in any more, what it last said with `ak notify` -- and every screen here reads that
 one answer: the row, the top line, `ak orch list`, `ak orch why`, the
@@ -139,9 +139,10 @@ OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 LEAST = 3                # rows a page keeps; the usage block gives way before it holds fewer
-# The whole vocabulary, worst first: a rollup of seats says the one that wants him.
-# `watch.session_state` is what decides which of the three a seat is.
-STATE_ORDER = ("needs you", "working", "done")
+# The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
+# seat sorts last in its project.  `watch.session_state` is what decides which of the four a
+# seat is.
+STATE_ORDER = ("needs you", "working", "done", "idle")
 # Each company's own colour, for its name on the `c` screen and its usage bar and row's place: a
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
@@ -947,7 +948,7 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     is not listed, unless its AGENTS.md names its feature switches: that one is listed
     whether or not a seat sits there, carrying `switches`, the rows its `list` last answered
     ([] before any). Under a heading seats sort needs you, then working, then
-    done, then by name; numbers stay global by name.
+    done, then idle, then by name; numbers stay global by name.
 
     `found` is what `orch.listing` offers -- live seats and gone ones with a
     conversation to resume into -- and every one of them keeps its row and its

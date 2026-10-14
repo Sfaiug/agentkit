@@ -1,11 +1,11 @@
 """A seat's status bar: what each of its two lines says, and how tmux draws them.
 
-Line one opens with the seat's state as a chip -- `● working`, `! needs you` or `✓ done`, in
-dark bold text on that word's colour -- then the seat's name in bold, then `<model>
+Line one opens with the seat's state as a chip -- `● working`, `! needs you`, `✓ done` or
+`○ idle`, in dark bold text on that word's colour -- then the seat's name in bold, then `<model>
 orchestrates` with the model in its company's colour, then a working seat's tasks bar, as its
 menu row draws it, as wide as `BARS` lets it be.  Its right end is the owner's other seats on
 ak's own server: each that needs you by name, a click away, then how many others are working
-and done.  Where they do not fit beside the left part the bar narrows, then the names fold into
+and done; an idle one is not counted.  Where they do not fit beside the left part the bar narrows, then the names fold into
 a count, then only the count of those that need you stays, and only then is the left part cut.
 Line two carries why a seat needs you or is done, the question or the summary, or a working
 seat's live runs (`live`), with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m
