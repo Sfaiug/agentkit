@@ -415,13 +415,13 @@ def real(name):
         shim = os.stat(shim_dir() / name)
     except OSError:
         shim = None
-    for folder in os.environ.get("PATH", "").split(os.pathsep):
+    for folder in filter(None, os.environ.get("PATH", "").split(os.pathsep)):
         found = os.path.join(folder, name)
         try:
             info = os.stat(found)
         except OSError:
             continue
-        if (folder and stat.S_ISREG(info.st_mode) and os.access(found, os.X_OK)
+        if (stat.S_ISREG(info.st_mode) and os.access(found, os.X_OK)
                 and not (shim and os.path.samestat(info, shim))):
             return found
     return name

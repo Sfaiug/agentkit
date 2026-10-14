@@ -1781,7 +1781,7 @@ def run_records():
     if fresh != lines:
         try:
             with open(cache.with_suffix(".lock"), "w") as held:
-                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)   # held: that pass writes it
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)   # or the pass holding it writes
                 temp = cache.with_suffix(".tmp")
                 temp.write_text("".join(f"{line}\n" for line in fresh), encoding="utf-8")
                 temp.replace(cache)
