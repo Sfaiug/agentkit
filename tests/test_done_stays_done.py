@@ -69,10 +69,10 @@ class DoneStaysDone(Sandbox):
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
         self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close_needs))
 
-    def fact(self, event, kind="", text=""):
-        """What this seat's own lifecycle hook would have written."""
+    def fact(self, event, kind="", text="", at=NOW):
+        """What this seat's own lifecycle hook would have written, and when."""
         config.hook_facts_path(SEAT).write_text(json.dumps(
-            {"session": SEAT, "event": event, "kind": kind, "text": text, "at": NOW}))
+            {"session": SEAT, "event": event, "kind": kind, "text": text, "at": at}))
 
     def decide(self):
         """Look at the seat the way a screen does, then decide from what was seen."""
@@ -179,7 +179,7 @@ class DoneStaysDone(Sandbox):
         self.assertEqual(self.edits, [("2", "Done")])
         self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
 
-    def late_question_card_under(self, text, event_id=None):
+    def late_question_card_under(self, text, event_id=None, closed="Done"):
         """A question's card Discord takes only after a newer done, the question still up."""
         start = menu.time.time()
         self.fact("Notification", kind="permission_prompt", text=BASH)
@@ -200,13 +200,15 @@ class DoneStaysDone(Sandbox):
         self.fact("Stop")
         self.pane = PROMPT
         self.tick(1000)
-        self.assertEqual(self.edits, [("1", "Done")])
+        self.assertEqual(self.edits, [("1", closed)])
 
     def test_a_newer_done_leaves_a_late_question_card_open(self):
         self.late_question_card_under(SUMMARY)
 
     def test_a_newer_job_done_leaves_a_late_question_card_open(self):
-        self.late_question_card_under(*JOB)
+        # a job's own finish is no done of the seat's: the question's card closes as answered
+        # once nothing asks him any more
+        self.late_question_card_under(*JOB, closed="Answered")
 
     def test_a_jobs_all_finished_is_no_word_of_the_seats(self):
         self.fact("Stop")
@@ -222,21 +224,22 @@ class DoneStaysDone(Sandbox):
         record.save_state(other, {**record.read_state(other), "state": "pass",
                                "finished_at": NOW - 60})
         self.assertEqual(self.decide(), ("needs you", "waiting for you"))
-        # its card is the green one it always was, once, and no question card follows it
+        # a job's own finish pages nobody: the seat says done for the whole of its work, and
+        # no question card follows it
         self.tick()
         self.tick(600)
-        self.assertEqual(self.posts, ["Done · fix-api"])
+        self.assertEqual(self.posts, [])
         # a question on its screen is still the reason, never the job's line, and its card is
         # held its minute from when the card first reads it, not from the row's older word
         watch.seat_write(SEAT, word="needs you", reason="waiting for you",
                          word_since=notify._card_read(SEAT)["since"] + 1)
-        self.fact("Notification", kind="permission_prompt", text=BASH)
+        self.fact("Notification", kind="permission_prompt", text=BASH, at=NOW + 900)
         self.pane = ASKING
         self.assertEqual(self.decide(), ("needs you", BASH))
         self.tick(900)
-        self.assertEqual(self.posts, ["Done · fix-api"])
+        self.assertEqual(self.posts, [])
         self.tick(1020)
-        self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
+        self.assertEqual(self.posts, ["Needs you · fix-api"])
         # and the seat's own declaration after it is done
         self.fact("Stop")
         self.pane = PROMPT

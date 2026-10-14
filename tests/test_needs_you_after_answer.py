@@ -54,14 +54,16 @@ class NeedsYouAfterAnswer(unittest.TestCase):
     def tick(self, now, reason):
         """The watch tick's own pass, with only the seat's screen made up: it reads `needs you`."""
         with patch.object(watch, "_session_state", return_value={
-                "word": "needs you", "reason": reason, "since": 100}):
+                "word": "needs you", "reason": reason, "since": 100,
+                "page": reason != "waiting for you"}):
             self.assertEqual(notify.transition(SEAT, now=now, seat={"name": SEAT}), 0)
 
     def ask(self, at, question, since=100, event_id=None):
         """`ak notify needs` at `at`, with the seat's screen in `needs you` since `since`."""
         with patch.object(notify.time, "time", return_value=at), \
                 patch.object(watch, "_session_state", return_value={
-                    "word": "needs you", "reason": question, "since": since}):
+                    "word": "needs you", "reason": question, "since": since,
+                    "page": True}):
             self.assertEqual(notify.shaped("needs", question, session=SEAT, event_id=event_id), 0)
 
     def back_in_needs_you(self, reason):
@@ -77,8 +79,15 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}",
                                       f"Needs you · {SEAT}: {reason}"])
 
-    def test_waiting_for_the_owner_again_is_carded(self):
-        self.back_in_needs_you("waiting for you")
+    def test_waiting_for_the_owner_again_pages_nobody(self):
+        notify.record(SEAT, "needs", QUESTION, time=100)
+        self.tick(100, QUESTION)
+        self.tick(160, QUESTION)
+        notify.answered(SEAT, 200)
+        for now in (230, 300, 400, 500):
+            self.tick(now, "waiting for you")
+        self.assertEqual(self.edits, [("1", "Answered")])
+        self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}"])
 
     def test_a_dialog_after_the_answer_is_carded(self):
         self.back_in_needs_you("Allow the command?")
@@ -91,8 +100,8 @@ class NeedsYouAfterAnswer(unittest.TestCase):
             self.tick(160, QUESTION)
         notify.answered(SEAT, 200)
         for now in (230, 300, 400, 500):
-            self.tick(now, "waiting for you")
-        self.assertEqual(self.cards, [f"Needs you · {SEAT}: waiting for you"])
+            self.tick(now, "Allow the command?")
+        self.assertEqual(self.cards, [f"Needs you · {SEAT}: Allow the command?"])
 
     def test_an_edit_discord_did_not_take_is_tried_again_first(self):
         edit, refused = notify.close_needs.side_effect, []
@@ -104,7 +113,7 @@ class NeedsYouAfterAnswer(unittest.TestCase):
             return edit(card, status)
 
         notify.close_needs.side_effect = close
-        self.back_in_needs_you("waiting for you")
+        self.back_in_needs_you("Allow the command?")
 
     def test_a_new_question_before_the_tick_keeps_the_answer(self):
         notify.record(SEAT, "needs", QUESTION, time=100)

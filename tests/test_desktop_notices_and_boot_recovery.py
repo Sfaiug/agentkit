@@ -125,7 +125,7 @@ class DesktopAndBoot(Sandbox):
         # The notice goes where the card goes: the other client hears it while
         # the seat's own client stays quiet, which is the suppression above.
         with patch.object(notify, "_last_input", return_value=0):
-            self.transition({"word": "needs you", "since": 10000,
+            self.transition({"word": "needs you", "since": 10000, "page": True,
                                          "reason": "Which branch?"}, now=10060)
         self.assertEqual(self.output(other),
                          "\033]9;Needs you · source: Which branch?\007".encode())
@@ -142,7 +142,7 @@ class DesktopAndBoot(Sandbox):
             clock.now.return_value = fixed
             for kind, title, text, color, answer in (
                     ("needs", "Needs you", "Which branch?", 0xF5A623,
-                     {"word": "needs you", "since": 10000, "reason": "Which branch?"}),
+                     {"word": "needs you", "since": 10000, "page": True, "reason": "Which branch?"}),
                     ("done", "Done", "Checks passed", 0x2ECC71,
                      {"word": "done", "since": 10100, "reason": "Checks passed"})):
                 body = {"title": f"{title} · source", "color": color,
@@ -183,7 +183,7 @@ class DesktopAndBoot(Sandbox):
 
     def test_d_same_episode_toasts_once_and_a_new_episode_toasts_again(self):
         other = self.client("other")
-        held = {"word": "needs you", "since": 10000, "reason": "Which branch?"}
+        held = {"word": "needs you", "since": 10000, "page": True, "reason": "Which branch?"}
         resting = {"word": "working", "since": 10100, "reason": ""}
         with patch.object(notify, "_last_input", return_value=0):
             self.transition(held, now=10060)      # tells
@@ -305,7 +305,7 @@ class DesktopAndBoot(Sandbox):
                                 f"{ttys[2]}\tother\t@1\t{ttys[3]}\t1\n")
         self.assertEqual(notify.terminal_targets("source"), [(ttys[1], False), (ttys[2], False)])
         with patch.object(notify, "_last_input", return_value=0):
-            self.transition({"word": "needs you", "since": 10000,
+            self.transition({"word": "needs you", "since": 10000, "page": True,
                                          "reason": "Which branch?"}, now=10060)
         for client in (first, second):
             self.assertEqual(self.output(client),

@@ -166,7 +166,7 @@ class UnsentDraft(Sandbox):
         self.assertEqual(word, "needs you")
         self.assertNotIn("running", reason)
 
-    def test_c_an_attached_client_keeps_it_working_and_sends_no_card(self):
+    def test_c_an_attached_client_keeps_it_working_and_a_draft_pages_nobody(self):
         self.going()
         self.fact("Stop")
         self.attached = True
@@ -174,22 +174,19 @@ class UnsentDraft(Sandbox):
         self.tick()
         self.tick(120)
         self.assertEqual(self.posts, [])
-        # He leaves it sitting there: it is his to send, and the existing card and its
-        # hold say so, once
+        # He leaves it sitting there: it is his to send, and every screen says so, but a draft
+        # he never sent pages nobody
         self.attached = False
         self.assertEqual(self.decide(), ("needs you", f"unsent: {TEXT}"))
         self.tick(240)
-        self.assertEqual(self.posts, [])            # a minute of `needs you` first
         self.tick(360)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
         self.tick(480)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
-        # Back in the seat it is his typing again: the runs' word, and the card answered
+        self.assertEqual(self.posts, [])
+        # Back in the seat it is his typing again: the runs' word, and no card to answer
         self.attached = True
         self.assertEqual(self.decide(), ("working", RUNS))
         self.tick(600)
-        self.assertEqual(self.edits, [("1", "Answered")])
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+        self.assertEqual((self.posts, self.edits), ([], []))
 
     def test_c2_a_question_is_his_wherever_he_is_and_no_card_goes_while_he_is_in(self):
         # A question on the screen is not his typing: a client left attached to the seat

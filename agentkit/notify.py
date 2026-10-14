@@ -478,6 +478,23 @@ def answered(session, at):
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
 
 
+# The alerts ak raises where only the owner can act: an outside pull request's merge question,
+# a login, and a seat it could not reopen with a run of its own still going (`revive:`), ended
+# (`orphan:`) or interrupted (`recovery:`).  Every other alert says what happened to something
+# ak or a seat can still mend.
+OWNER_ALERTS = ("inbox:", "auth:", "revive:", "orphan:", "recovery:")
+
+
+def pages(notice):
+    """Does that notice page him: a question someone asked him -- the seat's own `ak notify
+    needs`, an outside pull request's merge question -- or a failure only he can fix?  Never
+    one answered since."""
+    if not notice or notice.get("kind") != "needs" or resolved(notice):
+        return False
+    source = notice.get("source")
+    return not source or str(source).startswith(OWNER_ALERTS)
+
+
 def job_done(notice):
     """A job's `all N tasks finished`: done to its card, the way it always was, and no word of
     the seat's, which only the seat says of itself."""
@@ -1002,23 +1019,6 @@ def _history(card):
     return card.get("began", card.get("since", 0)) < installed_at()
 
 
-def _went_at(name):
-    """When a seat nobody is in went, at the latest, or inf where nothing says.
-
-    Its record's `exited_since` is when the first tick saw its pane dead, and it stays when
-    tmux loses the pane as well.  Without one there is only the last time it was seen alive,
-    which a live seat's record renews every SEEN_EVERY at the next tick after: it went
-    within two of those.
-    """
-    from . import orch
-    record = config.session_records().get(name) or {}
-    for key, late in (("exited_since", 0), ("seen", 2 * orch.SEEN_EVERY)):
-        stamp = record.get(key)
-        if isinstance(stamp, (int, float)) and not isinstance(stamp, bool):
-            return stamp + late
-    return math.inf
-
-
 def _done_events(session):
     """Recorded completions of this seat, including its earlier names."""
     for path in outbox().glob("*.json"):
@@ -1054,8 +1054,14 @@ def _carded(session, declared):
 
 
 def needs_transition(session, card, answer, now, seat=None):
-    """One amber card once needs you has stood a minute and the owner has typed nothing into
+    """One amber card once a question has stood a minute and the owner has typed nothing into
     the seat for a minute, which stays `Needs you` for as long as the seat does.
+
+    Only what he alone can clear pages him: a question, or a failure only he can fix -- a login,
+    a seat ak could not reopen, a run whose seat is gone (`pages`).  Any other `needs you` -- an
+    idle prompt, a draft he never sent, a run its seat can still decide on -- is on every screen
+    and pages nobody.  The episode is kept all the same, so a question that comes up while the
+    word stands is carded as its own minute ends.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -1065,7 +1071,10 @@ def needs_transition(session, card, answer, now, seat=None):
     # A newer notice carries the answer to the one it replaced (`shaped`).
     answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
                       (declared.get("answered_at") or 0) if resolved(declared) else 0)
-    answered_here = answered_at > card["since"]
+    # What pages him stands no more once nothing he alone can clear does -- the dialog came
+    # down and the seat asks nothing -- though the word stays: a card that is out says so.
+    paging = bool(answer.get("page") or pages(declared))
+    answered_here = answered_at > card["since"] or (card.get("sent") and not paging)
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
     # A card that is out says what its seat says: input there is him looking, at a dialog as
@@ -1091,12 +1100,15 @@ def needs_transition(session, card, answer, now, seat=None):
                     **({"completed": card["completed"]} if card.get("completed") else {})}
         _card_write(session, card)
         return 0
-    if card.get("sent") or card.get("closed"):
+    if card.get("sent") or card.get("closed") or not paging:
         return 0
-    # Input in the seat holds back a card that is not out yet, for as long as he is there: a
-    # seat works on with its question standing, so a glance at it must not answer it, and the
-    # minute counts from his last key, though he left between two ticks.
-    if now - max(card["since"], _last_input(session, seat)) < CARD_WAIT:
+    # Its minute counts from when what pages him came up, not only from when the word did: the
+    # seat can read `needs you` long before a question stands.  Input in the seat holds back a
+    # card that is not out yet, for as long as he is there: a seat works on with its question
+    # standing, so a glance at it must not answer it, and the minute counts from his last key,
+    # though he left between two ticks.
+    came_up = answer.get("page_since") or (declared.get("time") if pages(declared) else 0) or 0
+    if now - max(card["since"], came_up, _last_input(session, seat)) < CARD_WAIT:
         return 0
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):
@@ -1165,12 +1177,11 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             # A screen may have observed an intervening episode since our last tick, but
             # not while a job's done stands: the screens read no notice there, and their
             # `needs you` is not the card's.
-            if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
-                         or job_done(declared)):
+            if card and (previous.get("word_since") or 0) <= card.get("since", 0):
                 previous = {"word": card["word"], "word_since": card["since"]}
             current = watch.session_state(name, now=time.time() if answer is not None else at,
                                           session=seat, records=records,
-                                          previous=previous, jobs=True)
+                                          previous=previous)
             # A newer declaration or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.
@@ -1203,9 +1214,6 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                     # to close closes nothing, not even an empty edit.
                     _close_card(name, card, "Answered")
                     card.pop("closed", None)
-                if seat is not None and any(seat.get(key) for key in orch.CLOSED):
-                    # a seat nobody is in began its word when it went, whichever tick reads it
-                    card["began"] = min(since, _went_at(name))
                 _card_write(name, card)
             if began is not None and not card.get("sent") and card.get("began") != began:
                 card["began"] = began
@@ -1421,10 +1429,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # event re-records nothing, but the latch is still evaluated: the first
         # attempt may have recorded without ever queueing the card.
         stamp = time.time()
-        # While a job's done stood the screens' record was not the card's, as in `transition`.
-        card = _card_read(name) if job_done(previous) else {}
-        answer = watch.session_state(name, now=stamp, jobs=True, previous={
-            "word": card["word"], "word_since": card["since"]} if card else None)
+        answer = watch.session_state(name, now=stamp)
         if answer["word"] == "needs you":
             since = answer.get("since")
             if not (isinstance(since, (int, float)) and math.isfinite(since)

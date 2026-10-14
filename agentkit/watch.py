@@ -2006,7 +2006,7 @@ def plan_progress(name):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
+                  previous=None, auth_out=None, gh_out=None, token_out=None):
     """`working`, `needs you` or `done` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those three words: the menu row, the project
@@ -2053,8 +2053,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     verbs answered per harness, `gh_out` what it found about `gh`, `token_out` what its daily
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
-    `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
-    always was, and no word of the seat's to every screen.
+    `page` in the answer marks a `needs you` only he can clear -- a question someone asked him,
+    or a login only he can renew -- which is what pages him (`notify.needs_transition`), and
+    `page_since` when that came up, which the word's own beginning below may be older than.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2081,7 +2082,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
         except config.Error:
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
-                            silent, live, harness, auth_out, gh_out, token_out, jobs,
+                            silent, live, harness, auth_out, gh_out, token_out,
                             menu_mod, run_mod, terminal_mod)
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
@@ -2175,7 +2176,7 @@ def hook_look(launched, heard=None, answered_at=None, said=""):
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
-                   found, harness, auth_out, gh_out, token_out, jobs, menu_mod, run_mod,
+                   found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
                    terminal_mod):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
@@ -2202,7 +2203,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # `moving again` used to take turns all night.
     out = logged_out(harness, auth_out)
     if out:
-        return {"word": "needs you", "reason": login_reason(harness), "since": out.get("at")}
+        return {"word": "needs you", "reason": login_reason(harness), "since": out.get("at"),
+                "page": True}
     # A question the seat asked outranks its wait for usage (1d): the wait ends by itself.
     waiting = seat_read(name).get("usage_wait")
     last = notify.last(name)
@@ -2220,12 +2222,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if parked:
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
         return {"word": "needs you", "reason": login_reason(first.get("waiting_for") or "a"),
-                "since": first.get("finished_at")}
+                "since": first.get("finished_at"), "page": True}
     # 1b. ... and the one login no harness owns: a run of its own cannot push until he
     # runs `gh auth login`, so the seat is blocked on him just the same
     if name in (gh_out.get("seats") or []):
         return {"word": "needs you", "reason": "gh login expired: run `gh auth login`",
-                "since": gh_out.get("at")}
+                "since": gh_out.get("at"), "page": True}
     # 1c. a worker token dies within a fortnight or is dead: every session reads the
     # warning, on any harness, because any seat's next turn on it can be the one that
     # fails.  The tick asks the `auth` verb once a day and keeps the answer; a replaced
@@ -2250,14 +2252,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
-                "since": found.get("began"), "question": found["state"] == "asking"}
+                "since": found.get("began"), "page": found["state"] == "asking",
+                "page_since": found.get("began")}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
     # and a watcher's own alert about the seat waits for its prompt (rung 6).
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
-                "since": last.get("time"), "question": True}
+                "since": last.get("time"), "page": notify.pages(last), "page_since": last.get("time")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -2338,13 +2341,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             reason = (status_mod.parked_line(first, name, now=at)
                       or f"run {name} parked: {reason}")
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
-    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
-    # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
+    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, handed back
+    # to the seat, which says done when the whole of its work is.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, typed text
     # nobody sent, or a question it kept back for its turn's end outranks it.  Read here,
     # once, for the live-check wait below and for rung 5.
     if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
-            not jobs and notify.job_done(last)) or seat_read(name).get("unasked")):
+            notify.job_done(last)) or seat_read(name).get("unasked")):
         last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it

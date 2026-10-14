@@ -59,7 +59,8 @@ class IdleTerminalGetsCard(Sandbox):
         return []
 
     def tick(self, elapsed=0, since=NOW, word="needs you"):
-        answer = {"word": word, "since": since, "reason": "Choose a branch?"}
+        answer = {"word": word, "since": since, "reason": "Choose a branch?",
+                  "page": word == "needs you"}
         with patch.object(watch, "session_state", return_value=answer):
             self.assertEqual(notify.transition(SEAT, answer, now=NOW + elapsed,
                                                seat=self.seat), 0)
