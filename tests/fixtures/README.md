@@ -81,7 +81,7 @@ and a warning only that scratch launch drew is left out.
 `claude-stop-hooks-running-pane.txt`, `claude-compacting-pane.txt`, `claude-manual-mode-pane.txt`,
 `claude-plan-mode-pane.txt` and `claude-accept-edits-pane.txt` are Claude Code 2.1.292's actual
 `capture-pane -p -e -J` panes from a live sweep of a seat launched as `adapters/claude.sh
-interactive` launches one, cut to the fifteen rows `watch.pane_tail` keeps: a Bash command's
+interactive` launches one, cut to their last twelve rows: a Bash command's
 permission prompt and a plan's approval (relaunched without bypass permissions), a tool running
 and an answer streaming in a 60-column pane (the footer's `esc to interrupt` cut to `esc to …`,
 the spinner's parenthesis and the tip under it wrapped), a draft typed during a turn (the footer

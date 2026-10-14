@@ -1,6 +1,3 @@
-  [38;5;231mforeground: python3 -c 'import time; time.sleep(20)'  [39m
-  [38;5;231mand then reply OK.[39m
-[38;5;246m[49m● [39mUser answered Claude's questions:
 [38;5;246m  ⎿  · Which fruit do you prefer? → Apple
 ●[39m Sleeping for 20 seconds using Python
 [38;5;246m  ⎿  $ python3 -c 'import time; time.sleep(20)'

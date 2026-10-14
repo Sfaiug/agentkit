@@ -133,22 +133,18 @@ class Heard(Sandbox):
 class Read(unittest.TestCase):
     """The screen alone, where 2.1.263's rules read it wrong."""
 
-    def test_a_running_turn_reads_working_however_its_footer_is_drawn(self):
+    def test_each_screen_reads_what_the_seat_is_doing(self):
         # a 60-column pane cuts `esc to interrupt`, a wrapped spinner under a wrapped tip sits
-        # nine rows up, and a composer holding text drops the footer's hint
-        for what in ("narrow-working", "narrow-streaming", "draft-while-working", "compacting"):
+        # nine rows up, a composer holding text drops the footer's hint, and a turn whose Stop
+        # hooks still run is over: its Stop decides
+        for what, state in (("narrow-working", "working"), ("narrow-streaming", "working"),
+                            ("draft-while-working", "working"), ("compacting", "working"),
+                            ("stop-hooks-running", None), ("manual-mode", "at_prompt"),
+                            ("plan-mode", "at_prompt"), ("accept-edits", "at_prompt")):
             with self.subTest(what=what):
-                self.assertEqual(watch.screen_state("claude", pane(what))[0], "working")
-
-    def test_a_turn_whose_stop_hooks_run_is_over(self):
-        self.assertEqual(watch.screen_state("claude", pane("stop-hooks-running"))[0], None)
+                self.assertEqual(watch.screen_state("claude", pane(what))[0], state)
         stopped = {"event": "Stop", "kind": "", "at": 100.0}
         self.assertEqual(read("stop-hooks-running", stopped), ("at_prompt", "hook"))
-
-    def test_every_mode_reads_its_prompt(self):
-        for what in ("manual-mode", "plan-mode", "accept-edits"):
-            with self.subTest(what=what):
-                self.assertEqual(watch.screen_state("claude", pane(what))[0], "at_prompt")
 
 
 if __name__ == "__main__":

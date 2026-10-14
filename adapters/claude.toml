@@ -174,12 +174,10 @@ lines = 8
 all = ["would you like to proceed?", "tell claude what to change"]
 newest = '^ctrl\+g to edit in\b'
 
-# 2.1.292's spinner: a glyph at the left edge, a verb ending in "…" and an optional parenthesis,
-# `✻ Moonwalking… (10s · ↓ 207 tokens)`, `✶ Compacting conversation… (0s)`.  A narrow pane
-# wraps the parenthesis onto the row under it, and a tip and a notice stand between it and the
-# composer.  Its done line (`✻ Brewed for 10s · done 12:01 PM`) and `✻ Waiting for 1
-# background agent to finish` have no "…".  While its Stop hooks run, the spinner and the
-# footer's `esc to interrupt` are still drawn over a turn that is over: the Stop decides.
+# 2.1.292's spinner, `✻ Moonwalking… (10s · ↓ 207 tokens)`, from the left edge, its parenthesis
+# wrapped in a narrow pane and a tip under it; its done line and `✻ Waiting for 1 background
+# agent to finish` have no "…".  Drawn on, with the footer's hint, while Stop hooks run a turn
+# that is over: the Stop decides.
 [[rule]]
 id = "working.spinner"
 state = "working"

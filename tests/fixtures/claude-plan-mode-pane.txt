@@ -1,6 +1,3 @@
-[38;5;246m[49m● [39mUser answered Claude's questions:
-[38;5;246m  ⎿  · Which drink do you prefer? → Tea
-[38;5;231m●[39m OK
 [38;5;246m✻[39m [38;5;246mBrewed for 6s · done 12:13 PM
 [48;5;237m❯ [38;5;231mUse the AskUserQuestion tool to ask me one question: which season do I prefer, summer or winter. After I answer, [39m
   [38;5;231mreply OK and stop.[39m
