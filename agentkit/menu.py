@@ -1396,6 +1396,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         lines = lines[:opens - 1] + [terminal.cut(" ".join(lines[opens - 1:]), said_room)]
     if lines:
         body = body[:under] + [(indent + line, cursor) for line in lines] + body[under:]
+    opened = range(top + under + 1, top + under + 1 + len(lines))   # the rows they are on
     at = max((number for number, (_, name) in enumerate(body, 1) if name == asking), default=0)
     if asked and at:
         body = body[:at] + [(line, None) for line in asked] + body[at:]
@@ -1473,6 +1474,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if clock is not None:
         clock.clear()
         rising = clock.rise(out)
+        moves += [(("opened",), ("seat", cursor) if opened else None, None, False),
+                  (("page",), page, None, False)]
         news = clock.look({key: shown for key, shown, _, _ in moves})
         for key, shown, cell, lit in moves:
             since, _ = news.get(key, (None, None))
@@ -1480,6 +1483,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
             elif since is None:
                 continue
+            elif key[0] in ("opened", "page"):    # what comes up out of the background
+                for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
+                    motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
+                        clock, row, since, None)
             elif key[0] == "sub":     # the pointer came onto it, or left it
                 ink, cells = washes[key[1]]
                 for row, column, text, rest, bright in cells:
