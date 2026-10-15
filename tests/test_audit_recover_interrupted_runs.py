@@ -516,7 +516,8 @@ if role == "reviewer" and (root / "fail-review").exists():
                          ["launched_session"], "owner")
         self.assertEqual((self.root / "calls").read_text().splitlines(),
                          ["executor", "reviewer", "executor", "reviewer"])
-        self.assertEqual(self.notified.call_args.args[0], "done")
+        # its seat has no pane: the job's end is the owner's, as a job whose seat is gone
+        self.assertEqual(self.notified.call_args.args[0], "needs")
 
     def test_a_dead_job_outside_the_ticks_bounds_stays_for_a_person(self):
         config.save_session(self.cfg, "owner", self.executor, [self.executor, self.reviewer])

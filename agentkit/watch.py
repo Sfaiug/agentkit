@@ -2119,7 +2119,7 @@ def unsent(name, harness, found, session):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
+                  previous=None, auth_out=None, gh_out=None, token_out=None):
     """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those four words: the menu row, the project
@@ -2172,8 +2172,6 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     verbs answered per harness, `gh_out` what it found about `gh`, `token_out` what its daily
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
-    `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
-    always was, and no word of the seat's to every screen.
 
     Typed text nobody sent is never a word: once no client is attached, whatever the ladder
     says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
@@ -2204,7 +2202,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
         except config.Error:
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
-                            silent, live, harness, auth_out, gh_out, token_out, jobs,
+                            silent, live, harness, auth_out, gh_out, token_out,
                             menu_mod, run_mod, terminal_mod)
     draft = unsent(name, harness, live, session)
     if draft:
@@ -2344,7 +2342,7 @@ def still_owed(name, mine, index, stopped):
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
-                   found, harness, auth_out, gh_out, token_out, jobs, menu_mod, run_mod,
+                   found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
                    terminal_mod):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
@@ -2514,13 +2512,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if waiting:
         return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
                 "resumes_at": waiting["until"]}
-    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
-    # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
-    # seat's own standing until a newer notice, but a question on its screen or a question it
-    # kept back for its turn's end outranks it; typed text nobody sent only joins its reason.
-    # Read here, once, for the live-check wait below and for rung 5.
+    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, handed to
+    # the seat, which says done once the whole of its work is.  Opening the seat, reading it and
+    # its redraws leave the seat's own standing until a newer notice, but a question on its
+    # screen or a question it kept back for its turn's end outranks it; typed text nobody sent
+    # only joins its reason.  Read here, once, for the live-check wait below and for rung 5.
     if last and last["kind"] == "done" and (found.get("state") == "asking" or (
-            not jobs and notify.job_done(last)) or seat_read(name).get("unasked")):
+            notify.job_done(last)) or seat_read(name).get("unasked")):
         last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
