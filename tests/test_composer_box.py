@@ -65,7 +65,7 @@ class ComposerBox(Sandbox):
                          ("draft", "prompt.draft", "Fix the acme login redirect, then run its tests"))
         self.assertEqual(watch.composer_draft("claude", MULTILINE),
                          "Fixtheacmeloginredirect,thenrunitstests")
-        self.assertEqual(self.looked(MULTILINE), ("needs you", False, []))
+        self.assertEqual(self.looked(MULTILINE), ("idle", False, []))
 
     def test_rows_that_read_like_a_rule_are_still_the_draft(self):
         for text, said in (("Fix the login\n  redirect", "Fix the login redirect"),
@@ -78,7 +78,7 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
                                  ("draft", "prompt.draft", said))
                 self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
-                self.assertEqual(self.looked(pane), ("needs you", False, []))
+                self.assertEqual(self.looked(pane), ("idle", False, []))
 
     def test_typed_rule_glyphs_and_prompt_marks_are_never_the_box(self):
         """The box's rules and prompt row start at the left edge; a draft's rows are indented."""
@@ -93,7 +93,7 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
                                  ("draft", "prompt.draft", said))
                 self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
-                self.assertEqual(self.looked(pane), ("needs you", False, []))
+                self.assertEqual(self.looked(pane), ("idle", False, []))
 
     def test_a_draft_in_a_box_with_corners_is_the_owners(self):
         for top, bottom in (("╭", "╮"), ("┌", "┐")):
@@ -103,7 +103,7 @@ class ComposerBox(Sandbox):
                     "⏵⏵ bypass permissions on (shift+tab to cycle)\n")
             with self.subTest(corners=top + bottom):
                 self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane))[0], "draft")
-                self.assertEqual(self.looked(pane), ("needs you", False, []))
+                self.assertEqual(self.looked(pane), ("idle", False, []))
 
     def test_a_prompt_mark_on_a_boxed_continuation_is_the_owners(self):
         for top, closing in (("╭╮", "╰╯"), ("┌┐", "└┘")):
@@ -118,7 +118,7 @@ class ComposerBox(Sandbox):
                                      ("draft", "prompt.draft", said))
                     self.assertEqual(watch.composer_draft("claude", pane),
                                      said.replace(" ", ""))
-                    self.assertEqual(self.looked(pane), ("needs you", False, []))
+                    self.assertEqual(self.looked(pane), ("idle", False, []))
 
     def test_an_empty_row_in_a_box_with_corners_is_no_draft(self):
         """Its edges are chrome on every row: both readers agree the composer is empty."""
@@ -150,7 +150,7 @@ class ComposerBox(Sandbox):
         self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
                          ("draft", "prompt.draft", "Fix the login"))
         self.assertEqual(watch.composer_draft("claude", pane), "Fixthelogin")
-        self.assertEqual(self.looked(pane), ("needs you", False, []))
+        self.assertEqual(self.looked(pane), ("idle", False, []))
 
     def test_a_tall_status_line_under_the_box_is_never_read_as_its_output(self):
         """Its top rule can fall out of the tail; the box is still found, and everything under
@@ -178,7 +178,7 @@ class ComposerBox(Sandbox):
                 self.assertEqual(watch.screen_state("claude", watch.pane_tail(pane)),
                                  ("draft", "prompt.draft", said))
                 self.assertEqual(watch.composer_draft("claude", pane), said.replace(" ", ""))
-                self.assertEqual(self.looked(pane), ("needs you", False, []))
+                self.assertEqual(self.looked(pane), ("idle", False, []))
 
     def test_older_output_far_above_is_never_the_composer_of_an_unruled_harness(self):
         """Only a ruled composer's box is read past the tail: elsewhere an older composer or

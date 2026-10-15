@@ -1,10 +1,11 @@
-"""The owner's unsent text reads needs you, even while the seat's runs go.
+"""The owner's unsent text never changes a seat's word; once they have left, its reason says it.
 
 On 25 Sep three seats read `working` for up to nineteen hours over text the owner had typed
-and never sent, because a seat's going runs sat above its draft on the ladder.  Typed text
-nobody sent, or a question on its screen, at a quiet prompt is him whatever its runs are
-doing, with the reason `unsent: <text>` -- except while a client is attached to the seat,
-where the draft is his typing, and never mid-turn, where the composer is the turn's.
+and never sent, and drafts were made `needs you`.  The owner's rule of 14 Oct 2026: text in
+the composer never changes the word.  Once no client is attached, the reason the ladder gives
+gets `unsent: <text>`, so the row still shows what they never sent; while they are in the seat
+it is their typing, and mid-turn the composer is the turn's.  A question on its screen needs
+them whatever its runs are doing.
 Offline: fake captures, fake hook records, a fake tmux that answers the attached-client
 question, and a sandboxed HOME.
 """
@@ -138,16 +139,14 @@ class UnsentDraft(Sandbox):
         first = next(n for n, line in enumerate(lines) if re.match(rf"\s*1\s+{SEAT}\b", line))
         return lines[first:first + 2]
 
-    def test_a_draft_at_a_quiet_prompt_with_two_going_runs_is_needs_you_unsent(self):
+    def test_a_draft_at_a_quiet_prompt_with_two_going_runs_keeps_their_word_and_says_unsent(self):
         self.going()
         self.fact("Stop")
-        self.assertEqual(self.decide(), ("needs you", f"unsent: {TEXT}"))
-        # ... and the row says it at any width, the runs never
+        self.assertEqual(self.decide(), ("working", f"{RUNS} · unsent: {TEXT}"))
+        # ... and the row says both at any width it has room
         for width in (170, 40):
             with self.subTest(width=width):
-                row = " ".join(self.row(width))
-                self.assertIn("! needs you", row)
-                self.assertNotIn("running", row)
+                self.assertIn("● working", " ".join(self.row(width)))
         self.assertIn(f"unsent: {TEXT}", " ".join(self.row(170)))
         # the same seat with its text sent is its runs' again
         self.pane = PROMPT
@@ -166,7 +165,7 @@ class UnsentDraft(Sandbox):
         self.assertEqual(word, "needs you")
         self.assertNotIn("running", reason)
 
-    def test_c_an_attached_client_keeps_it_working_and_sends_no_card(self):
+    def test_c_a_draft_sends_no_card_whether_the_owner_is_in_the_seat_or_has_left_it(self):
         self.going()
         self.fact("Stop")
         self.attached = True
@@ -174,22 +173,17 @@ class UnsentDraft(Sandbox):
         self.tick()
         self.tick(120)
         self.assertEqual(self.posts, [])
-        # He leaves it sitting there: it is his to send, and the existing card and its
-        # hold say so, once
+        # The owner leaves it sitting there: the row says what they never sent, and nothing pages
         self.attached = False
-        self.assertEqual(self.decide(), ("needs you", f"unsent: {TEXT}"))
-        self.tick(240)
-        self.assertEqual(self.posts, [])            # a minute of `needs you` first
-        self.tick(360)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
-        self.tick(480)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
-        # Back in the seat it is his typing again: the runs' word, and the card answered
+        self.assertEqual(self.decide(), ("working", f"{RUNS} · unsent: {TEXT}"))
+        for later in (240, 360, 480):
+            self.tick(later)
+        self.assertEqual(self.posts, [])
+        # Back in the seat it is their typing again
         self.attached = True
         self.assertEqual(self.decide(), ("working", RUNS))
         self.tick(600)
-        self.assertEqual(self.edits, [("1", "Answered")])
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+        self.assertEqual((self.posts, self.edits), ([], []))
 
     def test_c2_a_question_is_his_wherever_he_is_and_no_card_goes_while_he_is_in(self):
         # A question on the screen is not his typing: a client left attached to the seat
@@ -230,7 +224,7 @@ class UnsentDraft(Sandbox):
         # record is history, and the seat reads by its runs, as it always did
         self.going()
         self.fact("Stop")
-        self.assertEqual(self.decide()[0], "needs you")
+        self.assertEqual(self.decide(), ("working", f"{RUNS} · unsent: {TEXT}"))
         gone = dict(self.seat, exited=True)
         with patch.object(orch, "listing", return_value=[gone]):
             found = watch.session_state(SEAT, NOW, session=gone, cfg=self.cfg)

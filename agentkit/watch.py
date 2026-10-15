@@ -2096,6 +2096,20 @@ def plan_progress(name):
     return (done, total)
 
 
+def unsent(harness, found, session):
+    """`unsent: <text>` for typed text nobody sent at a quiet prompt once nobody is in the seat
+    to see it, else "".  Text in the composer never changes the word (owner, 14 Oct 2026): it
+    is a reason, so the seat the owner left reads what its runs and its turn say and still shows
+    what they never sent.  Three seats once read `working` over their own unsent text for
+    nineteen hours while they believed each had their message.  While a client is attached it
+    is their typing; a Stop on background work is a quiet prompt, its composer open."""
+    if (not harness or any(session.get(key) for key in orch.CLOSED) or session.get("attached")
+            or found.get("state") != "draft" or not _composer_open(harness, found)):
+        return ""
+    text = " ".join(str(found.get("evidence") or "").split())
+    return f"unsent: {text}" if text else ""
+
+
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
                   previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
@@ -2117,9 +2131,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       harness, because any seat's next turn on it can be the one that fails;
     * a question on its screen is him even during a turn, and so is one it asked with `ak
       notify needs` that nothing has answered (its own, from the end of the turn it asked
-      in: `keeps_back`); so is typed text nobody sent while no client
-      is attached and no turn is in flight -- the question, or `unsent: <text>` -- and a
-      move to another account that failed, whatever its runs do;
+      in: `keeps_back`); so is a move to another account that failed, whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -2156,6 +2168,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
     always was, and no word of the seat's to every screen.
 
+    Typed text nobody sent is never a word: once no client is attached, whatever the ladder
+    says gets `unsent: <text>` in its reason (`unsent`).
+
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
     number are read from `orch.listing(reconcile=False)` and never from the reconciling one.
@@ -2183,6 +2198,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out, jobs,
                             menu_mod, run_mod, terminal_mod)
+    draft = unsent(harness, live, session)
+    if draft:
+        answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2369,26 +2387,18 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     reason, since = token_alert(token_out)
     if reason:
         return {"word": "needs you", "reason": reason, "since": since}
-    # 1d. typed text nobody sent at a quiet prompt, or a question even during a turn: that is
-    # him, whatever its runs are doing.  Three seats read `working` over his own unsent
-    # text for nineteen hours while he believed each had his message.  A draft is not that
-    # while a client is attached to the seat -- it is his typing, and the seat reads as its
-    # runs and its turn say -- but a question is his to answer wherever he is, and its card
-    # is held back while he is in the seat by the card rule itself.  A Stop on background
-    # work is a quiet prompt here: its composer is open, so a line typed there is not sent.
-    # A seat nobody is in has no screen, so its record is history.
+    # 1d. a question on its screen, even during a turn: that needs the owner, whatever its runs
+    # are doing, and its card is held back while they are in the seat by the card rule itself.
+    # Typed text nobody sent is no word of its own: `unsent` adds it to the reason.  A seat
+    # nobody is in has no screen, so its record is history.
     gone = any(session.get(key) for key in orch.CLOSED)
     # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
     # shows, no turn is in flight until ak resumes it (3b).
     waiting = None if gone or seat_closed_by_owner(name) else seat_read(name).get("usage_wait")
-    if (harness and not gone and found.get("state") in ("asking", "draft")
-            and (found["state"] == "asking" or not session.get("attached"))
-            and (found["state"] == "asking" or waiting or _composer_open(harness, found))):
+    if harness and not gone and found.get("state") == "asking":
         asked = " ".join(str(found.get("evidence") or "").split())
-        if found.get("state") == "draft":
-            asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
-                "since": found.get("began"), "question": found["state"] == "asking"}
+                "since": found.get("began"), "question": True}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
@@ -2488,10 +2498,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 "resumes_at": waiting["until"]}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
-    # seat's own standing until a newer notice, but a question on its screen, typed text
-    # nobody sent, or a question it kept back for its turn's end outranks it.  Read here,
-    # once, for the live-check wait below and for rung 5.
-    if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
+    # seat's own standing until a newer notice, but a question on its screen or a question it
+    # kept back for its turn's end outranks it; typed text nobody sent only joins its reason.
+    # Read here, once, for the live-check wait below and for rung 5.
+    if last and last["kind"] == "done" and (found.get("state") == "asking" or (
             not jobs and notify.job_done(last)) or seat_read(name).get("unasked")):
         last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own

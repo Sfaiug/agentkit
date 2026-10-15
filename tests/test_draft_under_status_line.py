@@ -54,13 +54,13 @@ class DraftUnderStatusLine(Sandbox):
                 self.assertEqual(self.read(under_status(PROMPT, status))[:2],
                                  ("at_prompt", "prompt.composer"))
 
-    def test_the_draft_is_needs_you_unsent(self):
+    def test_the_draft_never_changes_the_word_and_says_unsent(self):
         live = watch.classify("claude", watch.pane_tail(under_status(DRAFT, STATUS[0])),
                               {"event": "Stop", "at": NOW - 60}, None, {}, NOW)
         found = watch.session_state(SEAT, NOW, session={"name": SEAT, "attached": False},
                                     cfg=self.cfg, records=[], live=live, harness="claude",
                                     auth_out={}, gh_out={}, token_out={}, previous={})
-        self.assertEqual((found["word"], found["reason"]), ("needs you", f"unsent: {TEXT}"))
+        self.assertEqual((found["word"], found["reason"]), ("idle", f"unsent: {TEXT}"))
 
     def test_a_picker_cursor_over_a_status_line_is_no_draft(self):
         # Under a cursor sits another option or the status line: never the composer's rule,

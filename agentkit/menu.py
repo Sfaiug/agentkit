@@ -943,7 +943,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is the reason for `needs you` and `done`, and for `working`
-    its place in the landing line, else the tasks bar from `seat_progress` -- its plan,
+    its place in the landing line or what the owner left unsent, else the tasks bar from
+    `seat_progress` -- its plan,
     else its unfinished jobs -- and `seat_runs`, else empty -- never two state words on one
     row. Every seat `orch.listing` offers gets
     a row: the ones tmux holds, and the ones only their record does -- a seat whose tmux
@@ -964,7 +965,10 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     bar = (done, total) if total > 0 else None
     word = found["word"]
     reason = found["reason"] or ""
-    sentence = "" if word == "working" and not reason.startswith("waiting · ") else reason
+    # what the owner typed and never sent ends any reason (`watch.unsent`), and a working row
+    # says it
+    draft = reason[reason.find("unsent: "):] if "unsent: " in reason else ""
+    sentence = draft if word == "working" and not reason.startswith("waiting · ") else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "tone": model_colour(cfg, orchestrator) if selection else "dim",
@@ -1082,8 +1086,9 @@ def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=F
 
 def tasks_bar(word, reason):
     """Is a seat's last column its tasks bar (`last_column`), not a sentence?  A working seat's
-    is, but while it waits in the landing line, which its reason says."""
-    return word == "working" and not (reason or "").startswith("waiting · ")
+    is, but while it waits in the landing line or holds what the owner left unsent, which its reason
+    says."""
+    return word == "working" and not (reason or "").startswith(("waiting · ", "unsent: "))
 
 
 def _last_text(info, room, narrow=False):

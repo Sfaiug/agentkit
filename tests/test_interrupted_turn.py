@@ -184,7 +184,7 @@ class InterruptedTurn(Sandbox):
     def test_a_draft_typed_after_an_interrupt_is_the_owners_and_closed_to_typing(self):
         fact = self.prompt("Run the acme tests.")
         self.said("user", fact["at"] + 3, INTERRUPT)
-        self.assertEqual(self.looked(DRAFT), ("needs you", False))
+        self.assertEqual(self.looked(DRAFT), ("idle", False))
         self.assertEqual(self.handed_back(lambda: DRAFT), [])
 
     def test_a_turn_cancelled_before_any_answer_is_the_owners_draft_again(self):
@@ -192,7 +192,7 @@ class InterruptedTurn(Sandbox):
         turn not yet answered; but the prompt is back in the composer word for word, which a
         turn that runs never leaves (review 20261006-2254 round 1)."""
         fact = self.prompt("Run the acme tests.")
-        self.assertEqual(self.looked(CANCELLED), ("needs you", False))   # its draft again
+        self.assertEqual(self.looked(CANCELLED), ("idle", False))        # its draft again
         self.assertEqual(self.handed_back(lambda: CANCELLED), [])         # and never typed onto
         # edited by a word, it is what a turn still thinking with the owner typing shows
         edited = CANCELLED.replace("Run the acme tests.\n", "Run the acme tests twice.\n")
