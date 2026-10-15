@@ -6,6 +6,7 @@ was asked.  The harness is the test's own: it leaves a server running in a sessi
 and ends when told.  No real unit, seat or tmux is touched.
 """
 
+import ctypes
 import fcntl
 import json
 import os
@@ -43,6 +44,9 @@ HARNESS = [sys.executable, "-c", """if True:
     while not (here / "end").exists():
         time.sleep(0.05)
 """]
+# ptrace's requests and options, as <sys/ptrace.h> numbers them
+TRACEME, CONT, DETACH, SETOPTIONS, GETEVENTMSG = 0, 7, 17, 0x4200, 0x4201
+TRACE_FORKS, EXITKILL = 2 | 4 | 8, 0x100000
 
 
 def wait_for(test, done, what):
@@ -117,6 +121,46 @@ class SeatScopeEndsWithHarness(Sandbox):
         for _ in range(20):
             self.assertEqual(self.pane(orch.seat_command("acme", ["true"])).wait(timeout=60), 0)
         wait_for(self, lambda: len(self.stopped()) == 20, "a hangup ended a scope's ending")
+
+    def test_a_pane_closed_as_the_scope_ending_forks_never_starts_its_harness(self):
+        # the launch ignores the hangup while it forks the scope's ending: tracing it holds it
+        # at that fork while the pane is closed
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.ptrace.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
+        main, side = os.openpty()
+
+        def traced_terminal():
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+            if libc.ptrace(TRACEME, 0, None, None):
+                raise OSError(ctypes.get_errno(), "ptrace")
+
+        try:
+            proc = subprocess.Popen(shlex.split(orch.seat_command("acme", ["true"])),
+                                    stdin=side, stdout=side, stderr=side,
+                                    start_new_session=True, preexec_fn=traced_terminal)
+            os.close(side)
+            os.waitpid(proc.pid, 0)                     # held at its first exec
+            libc.ptrace(SETOPTIONS, proc.pid, None, TRACE_FORKS | EXITKILL)
+            passed = 0
+            while True:
+                libc.ptrace(CONT, proc.pid, None, passed)
+                _, status = os.waitpid(proc.pid, 0)
+                if not os.WIFSTOPPED(status):
+                    break
+                passed = 0 if os.WSTOPSIG(status) == signal.SIGTRAP else os.WSTOPSIG(status)
+                if status >> 16:                        # a fork, whose child goes untraced
+                    child = ctypes.c_ulong()
+                    libc.ptrace(GETEVENTMSG, proc.pid, None, ctypes.byref(child))
+                    os.waitpid(child.value, 0)
+                    libc.ptrace(DETACH, child.value, None, None)
+                    if b"trap '' HUP" in Path(f"/proc/{proc.pid}/cmdline").read_bytes():
+                        os.close(main)
+                        main = None
+        finally:
+            if main is not None:
+                os.close(main)
+        self.assertEqual(os.waitstatus_to_exitcode(status), -signal.SIGHUP)
+        wait_for(self, self.stopped, "the closed pane's scope was never stopped")
 
 
 if __name__ == "__main__":
