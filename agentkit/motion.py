@@ -4,7 +4,8 @@ At rest only what a model works on moves, breathing: a working session's `●`, 
 and its moving tasks' squares (`menu.tips`); news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright and a
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
-opens comes up as the highlight comes to it, and a page's rows as it is turned to; an
+opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
+progress line grows to its length as the menu opens; an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
@@ -39,6 +40,8 @@ NEWS = 0.7          # ... and a seat's row on news: its word's colour that far t
 SWEEP = 0.4         # seconds a light takes across a done seat's line
 OPEN = 0.12         # ... the line under a row the highlight came to takes to come up
 TURN = 0.15         # ... and the rows of a page turned to
+GROW = 0.45         # ... a seat's progress line takes to grow to its length as ak opens
+STAGGER = 0.04      # ... and each row after the one above it
 HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
@@ -189,6 +192,20 @@ def fading(line, took):
     return start
 
 
+def growing(cells, began):
+    """A progress line on a screen just opened, `cells` each of its cells as the draw wrote it:
+    its done part grows from nothing to its length in GROW seconds from `began`, the rest of it
+    the empty track, and each cell is then as drawn; an animation for each cell, and when it is
+    still."""
+    done = sum(1 for text in cells if terminal.plain(text) in ("━", "╸", "="))
+    track = terminal.styled("─" if terminal.utf8() else "-", "dim")
+
+    def cell(n, text):
+        return lambda now: text if n < round(done * eased((now - began) / GROW)) or (
+            terminal.plain(text) not in ("━", "╸", "=")) else track
+    return [cell(n, text) for n, text in enumerate(cells)], began + GROW
+
+
 def sweeping(cells, began, kind, bright=False):
     """A line just done, `cells` each of its cells as the draw wrote it, from `began`: one light
     of `kind`'s colour crosses it left to right in SWEEP seconds, and each cell is then as
@@ -274,6 +291,7 @@ class Clock:
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.opened = None  # ... from its first draw
         self.rising = None  # ... the lines drawn, top down, and that time, while they come up
+        self.first = True   # the screen's first draw is still to come: its lines grow into it
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
