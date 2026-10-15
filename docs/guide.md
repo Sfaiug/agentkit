@@ -410,7 +410,7 @@ rows with the error beside them and, like one that answered, is not asked again 
 share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
 
 The matrix (`rows`) is one row per model and effort the installed harnesses offer (every `config.manifests` name
-`config.harness_installed` says is here, their `config.catalog`, and every configured model): an effort a board lists
+`config.harness_present` says is here, their `config.catalog`, and every configured model): an effort a board lists
 for the model, among those the harness offers, or one the config runs it at in any role (`config.role_effort`), so a
 board naming no effort counts for every effort of its model, and a model no board lists at any effort is one row at
 none. A board's model is found by its letters and digits (`normal`: `claude-opus-5-5` is `Claude Opus 5.5 (max)` at

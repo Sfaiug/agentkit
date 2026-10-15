@@ -49,7 +49,7 @@ class ModelRows(Sandbox):
         # acme has a manifest and no binary here: none of its models gets a row
         self.stack.enter_context(patch.object(config, "manifests", return_value=[
             (harness, {}) for harness in (*CATALOGS, "acme")]))
-        self.stack.enter_context(patch.object(config, "harness_installed",
+        self.stack.enter_context(patch.object(config, "harness_present",
                                               side_effect=lambda harness: harness in CATALOGS))
         self.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
         self.stack.enter_context(patch.object(terminal, "width", return_value=100))

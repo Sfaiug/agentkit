@@ -259,8 +259,8 @@ def harness_binary(name):
     return ""
 
 
-def harness_installed(harness):
-    """Whether that harness is here to run a turn: its adapter present and its program found,
+def harness_present(harness):
+    """Whether that harness is present to run a turn: its adapter here and its program found,
     the one its `[update] version` runs, else the adapter's own name, as `orch.agent_programs`
     reads them.  The one answer for a pick, a seat's move, the config screen and `ak models`."""
     try:

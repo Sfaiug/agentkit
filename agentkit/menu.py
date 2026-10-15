@@ -3176,7 +3176,7 @@ def config_add_provider(cfg, keyboard):
         return f"config: {exc}"
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
-    verbs = () if config.harness_installed(harness) else ("install",)
+    verbs = () if config.harness_present(harness) else ("install",)
     failed = _adapter_verbs(keyboard, harness, verbs if picked in kept else (*verbs, "login"),
                             picked)
     if failed:

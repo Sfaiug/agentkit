@@ -245,7 +245,7 @@ def rows(cfg, boards):
             names[(entry["harness"], entry["model"], config.role_effort(entry, role))] = name
     table = []
     for harness in sorted({name for name, _ in config.manifests()}):
-        if not config.harness_installed(harness):
+        if not config.harness_present(harness):
             continue
         listed = {item["id"]: item["efforts"] for item in config.catalog(harness)}
         for (h, model, effort), name in names.items():
