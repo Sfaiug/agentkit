@@ -101,8 +101,8 @@ to reopen`; one you stopped has no row under its project, only its row on the pa
 ended run is its orchestrator's business, so no row ever says `press r`.
 
 The screen is budgeted by height as well as width: a list of seats longer than the
-screen is drawn a page at a time -- on a terminal the page the highlight is on, from a pipe the
-one `j` and `k` turn to -- and a row keeps the number it has in the whole list on whichever page
+screen is drawn a page at a time -- on a terminal the page the highlight is on, which ← and →
+turn, from a pipe the one `j` and `k` turn to -- and a row keeps the number it has in the whole list on whichever page
 it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
@@ -1306,11 +1306,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # every number stays reachable. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
     key_text = keys
-    # With the keyboard the highlight turns the pages, so `j` and `k` are not offered then.
+    # With the keyboard ← and → turn the pages, the key line starting with where the owner is
+    # (`page_mark`); in a pipe `j` and `k` do.
     page_keys = "" if owned else "   " + PAGE_KEYS
     # A question under a row is budgeted with the key line, so it never pushes a row off.
     k_single = len(terminal.key_line(key_text, width)) + len(asked)
-    k_paged = len(terminal.key_line(key_text + page_keys, width)) + len(asked)
+    k_paged = len(page_mark(key_text, 98, 99, width) if owned
+                  else terminal.key_line(key_text + page_keys, width)) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -1400,10 +1402,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             decided = True
     if not decided:
         meters, compact, pages = [], True, _seat_pages(_room([], True, True))
-    key_lines = terminal.key_line(key_text + (page_keys if len(pages) > 1 else ""), width)
     if owned and cursor is not None:
         page = next((number for number, lines in enumerate(pages)
                      if any(name == cursor for _, name in lines)), page)
+    page = min(max(page, 0), len(pages) - 1)
+    key_lines = (page_mark(key_text, page, len(pages), width) if owned and len(pages) > 1
+                 else terminal.key_line(key_text + (page_keys if len(pages) > 1 else ""), width))
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
     # what may move: (key, what it shows -- a word, or a bar's value and its blocks -- its first
@@ -1444,10 +1448,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     body = [("  no sessions; n starts one", None)]
     if ordered:
         # One blank line between projects; seat rows two under their project.
-        # Rows keep their global numbers across pages, and the heading says which
-        # page is up without moving any number.
+        # Rows keep their global numbers across pages, and in a pipe the heading says which
+        # page is up without moving any number; with the keyboard the key line does.
         pages_count = len(pages)
-        page = min(max(page, 0), pages_count - 1)
         # The question is answered once, here and nowhere else on the screen.
         if total_needing <= 0:
             base = "your projects · nothing needs you"
@@ -1456,7 +1459,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         else:
             base = f"your projects · {total_needing} need you"
         # The page is what m turns: it is never the part that is cut.
-        suffix = "" if pages_count <= 1 else f" {page + 1}/{pages_count}"
+        suffix = "" if owned or pages_count <= 1 else f" {page + 1}/{pages_count}"
         heading = terminal.cut(base, max(1, layout - terminal.cells(suffix))) + suffix
         if compact:
             # Compact: the heading, the rows, the keys and the prompt are all that is left.
@@ -1563,7 +1566,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                      + "\033[J" + moved)
     sys.stdout.flush()
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
-                 ask=top + at + 1 if at else None, spots=spots)
+                 ask=top + at + 1 if at else None, spots=spots,
+                 turns=[next((name for _, name in lines if isinstance(name, (str, Path))), None)
+                        for lines in pages])
     return page, (len(pages) if ordered else 1)
 
 
@@ -3772,6 +3777,23 @@ def move_keys():
     return "↑↓ move   ⏎ open" if terminal.utf8() else "j/k move   enter open"
 
 
+def page_mark(keys, page, pages, width):
+    """The key line with where the owner is in front of the keys, `←  2 / 3  →`, wrapped with
+    them as one more item: each arrow a key a click turns the page with, the place between them
+    none."""
+    arrow, ahead = ("←", "→") if terminal.utf8() else ("<", ">")
+    return terminal.key_line(keys, width, first=f"{terminal.styled(arrow, 'dim')}  {page + 1} / "
+                                                f"{pages}  {terminal.styled(ahead, 'dim')}")
+
+
+def turned(turns, page, cursor, step):
+    """Where ← (`step` -1) or → (1) takes the highlight from `page`: to the first thing it can
+    rest on (`turns`, each page's) of the nearest page that way holding one other than `cursor`,
+    passing a page with none -- only a heading, or the rest of a tall seat; else nowhere."""
+    ahead = range(page + step, len(turns) if step > 0 else -1, step)
+    return next((turns[n] for n in ahead if turns[n] not in (None, cursor)), cursor)
+
+
 def pressed(key, drawn, found):
     """What one `terminal.Key` asks of the main screen, in the line menu's own words.
 
@@ -3793,7 +3815,8 @@ def pressed(key, drawn, found):
             return opens(spot.what)
         item = spot.cell or ""
         if item not in ("⏎", "enter", "esc"):
-            return item if len(item) == 1 else ""
+            # the page's place between the arrows is no seat's number
+            return item if len(item) == 1 and not item.isdigit() else ""
         key = terminal.Key({"⏎": "enter"}.get(item, item))
     if key.name == "enter":
         return opens(drawn["cursor"])
@@ -3932,6 +3955,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         at = order.index(cursor) + terminal.step(key)
                         cursor = order[min(max(at, 0), len(order) - 1)]
                     look = False          # the highlight moves over what is in hand
+                    continue
+                # ← and →, or a click on either arrow in front of the keys, turn the page
+                turn = ({"←": -1, "<": -1, "→": 1, ">": 1}.get(pressed(key, shown, found), 0)
+                        if key.name == "click" else {"left": -1, "right": 1}.get(key.name, 0))
+                if turn:
+                    cursor = turned(shown.get("turns") or [], page, cursor, turn)
+                    look = False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing
                 typed, key = key, pressed(key, shown, found)
