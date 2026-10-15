@@ -122,9 +122,9 @@
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
-- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs` for the scoreboard.
+- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs` and `parks` (the `parked_at` `leases.park` stamps) for the scoreboard.
   For run, gate, harness. Leak: parses harness event logs.
-- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), the week's largest loss in the vision's order (`loss`), words and wrapping.
+- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), who built them (`built`), what the park held (`parks`), the week's largest loss in the vision's order (`loss`), words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression; a harness config's stale trust and MCP entries, where its plugin

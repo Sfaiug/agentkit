@@ -33,7 +33,7 @@ import shutil
 import tempfile
 import time
 
-from . import config, gitcall, transitions, turns
+from . import config, gitcall, history, transitions, turns
 from . import record as run_record
 
 DIR = "leases"
@@ -112,8 +112,9 @@ def before_review(state):
     pull request's review builds nothing to set aside, a job's task is its job's to
     settle, as `transitions.parkable_conflict` leaves it, and a red target's repair and a suite's split
     are waited on: stopped, either would hold its line (`handback.repair_open`) or its suite
-    (`handback.open_followup`) for good."""
-    if state.get("review_pr") and not state.get("own_pr"):
+    (`handback.open_followup`) for good.  A run parked already is not: a second scan that
+    saw it live would move its wait and the moment of its stop (`parked_at`)."""
+    if (state.get("review_pr") and not state.get("own_pr")) or parked(state):
         return False
     return (not any(state.get(key) for key in ("job_id", "repair", "split_suite", "round_summaries"))
             and state.get("step") in (None, "executor", "done-when"))
@@ -130,11 +131,16 @@ def park(entry, holder, files, now):
     """Stop that run before its review, its branch and checkout kept, waiting on the holder:
     the record says what it waits on (`lease_wait`), for `restart` to read.  Decided on the
     record read under the stop's lock, as the scan takes a while: the state as stopped, or
-    None where the run had ended or reached its review meanwhile."""
+    None where the run had ended or reached its review meanwhile.  A run this call stopped
+    has the moment stamped on its history row (`parked_at`), what the scoreboard counts."""
     from . import stop
     why = f"waits on {holder}: both change {', '.join(files)}"
-    return stop.end(config.RUNS / entry["run"], keep=True, why=why, only_if=before_review,
-                    extra={"lease_wait": {"on": holder, "files": files, "since": now}})
+    wait = {"on": holder, "files": files, "since": now}
+    stopped = stop.end(config.RUNS / entry["run"], keep=True, why=why, only_if=before_review,
+                       extra={"lease_wait": wait})
+    if stopped is not None and stopped.get("lease_wait") == wait:
+        history.update_run(entry["run"], parked_at=now)
+    return stopped
 
 
 # One identity and moment for every commit the scan writes: a tree compared before hashes to

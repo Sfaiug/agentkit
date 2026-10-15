@@ -2,10 +2,10 @@
 and a visible test change (AGENTS.md, Owner rules, 14 Oct 2026): the rows and the parts each
 cell is built from (`scoreboard.MEASURES`), the rows and parts `compute` answers with, and
 the labels `render` shows, in that order; tests/test_scoreboard.py holds the words `render`
-says of each part.
+says of each part, tests/test_who_built.py those of `built` and `parks`.
 
 Offline: an empty sandbox HOME with no history database, and git answering nothing; the
-filled board reads literal history rows, and git answering one line to everything.
+filled board reads literal history rows and parks, and git answering one line to everything.
 """
 
 import os
@@ -26,8 +26,10 @@ NOW = 1_800_000_000
 PINNED = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
+    ("parks", "parks", ("parked",)),
     ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
     # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
@@ -71,6 +73,7 @@ class Measures(unittest.TestCase):
                  "slot_wait_seconds": 0, "suite_wait_seconds": 0, "merge_wait_seconds": 0,
                  "lander_wait_seconds": 0} for repo in ("acme", "toolkit")]
         with patch.object(scoreboard.history, "ended_runs", return_value=rows), \
+                patch.object(scoreboard.history, "parks", return_value=[NOW - 60]), \
                 patch.object(scoreboard, "_git", lambda *args, **kw: b"x\n"):
             board = scoreboard.compute(NOW)
         self.assertEqual({key: list(cells[0]) for key, cells in board.items()},

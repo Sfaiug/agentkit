@@ -8,7 +8,7 @@ import subprocess
 import time
 from statistics import median
 
-from . import config, gitcall, history, record, terminal
+from . import config, gitcall, history, record, terminal, transitions
 
 # The parts of a merged change's hours, each second of its runs' phase rows in the first that
 # holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
@@ -30,11 +30,15 @@ ANSWERS_FOR = 7 * 86400   # a merged change answers for its lines this long: a l
 MEASURES = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
+    ("parks", "parks", ("parked",)),
     ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
+
+PULL_REQUEST = re.compile(r".+#\d+")   # a change named by its pull request: `owner/repo#N`
 
 # The measures a week's loss is read from, in the vision's order -- quality, speed, cost,
 # size: the words for it, the board's row, the part of that row's week (a share where two
@@ -274,6 +278,39 @@ def compute(now=None):
                 by[0] += 1
         return found
 
+    def who_built(ended):
+        """The week's merged runs by who built the change: a seat, whose change comes as a
+        pull request's review (`change` names the PR, its own or another's), or a worker, a
+        task or fix run; each with the share of its merged runs that merged in round 1, None
+        with none merged.  A run neither can be told of (`by_seat`) counts in neither.  None
+        with no run ended."""
+        if not ended:
+            return None
+        merged = [(by_seat(row), row) for row in ended if delivered(row)]
+        stats = {}
+        for kind, seat in (("seat", True), ("worker", False)):
+            rounds = [row["rounds_used"] for by, row in merged if by is seat]
+            stats[f"{kind}_merged"] = len(rounds)
+            stats[f"{kind}_first_round"] = rounds.count(1) / len(rounds) if rounds else None
+        return stats
+
+    def by_seat(row):
+        """Whether a seat built that run's change: its row names a pull request, or, on a row
+        from before changes were recorded, its record does (`transitions.change_name`); None
+        where neither is left to say."""
+        change = row.get("change")
+        if change is None:
+            saved = record.read_state(config.RUNS / row["run_id"])
+            if saved is None:
+                return None
+            change = transitions.change_name(saved)
+        return bool(PULL_REQUEST.fullmatch(change or ""))
+
+    def in_week(at, end):
+        """Whether that moment falls in the week ending at `end`: the boundary between the two
+        weeks is the last 7 days', as is `now`."""
+        return end - week <= at and (at <= end if end == now else at < end)
+
     common = git("rev-parse", "--git-common-dir")
     own_names = {config.REPO.name}
     if common:
@@ -281,10 +318,11 @@ def compute(now=None):
     rows = [row for row in history.ended_runs(now - 2 * week, now)
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
 
+    held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     board, waits, merged_changes, escapes_seen = {"products": [], "ak": []}, [], [], []
+    built, parks = [], []
     for end in (now, now - week):
-        finished = [row for row in rows if end - week <= row["finished_at"] and
-                    (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
+        finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
         ended = [row for row in finished if row["final_state"] != "not_needed"]
         total_tokens = sum((row.get(role + "_tokens") or 0)
@@ -301,6 +339,8 @@ def compute(now=None):
                      if run_time else None)
         merged_changes.append(per_change(ended))
         escapes_seen.append(escapes(ended))
+        built.append(who_built(ended))
+        parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
@@ -339,8 +379,10 @@ def compute(now=None):
 
     before = git("rev-list", "--first-parent", "-1",
                  "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
+    board["built"] = built
     board["waits"] = waits
     board["merged"] = merged_changes
+    board["parks"] = parks
     board["escaped"] = escapes_seen
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
@@ -409,8 +451,26 @@ def render():
                                              (stats["readme_words"], "README words"),
                                              (stats["agents_words"], "AGENTS.md words")))
 
+    def built(stats):
+        if stats is None:
+            return "no runs ended"
+
+        def share(kind):
+            first = stats[f"{kind}_first_round"]
+            return (f"{stats[f'{kind}_merged']} merged"
+                    + (f", {first:.0%} in round 1" if first is not None else ""))
+
+        return (f"by seats, through their PRs' reviews: {share('seat')}; by workers, task and "
+                f"fix runs: {share('worker')}")
+
+    def parked(stats):
+        if stats is None:
+            return "not recorded"
+        return f"{stats['parked']} runs stopped by the park to wait on an older change's lines"
+
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
-             "waits": waited, "merged": split, "escaped": escapes, "size": size}
+             "built": built, "waits": waited, "merged": split, "parks": parked,
+             "escaped": escapes, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
     room = max(1, (terminal.content_width() - 12) // 2)
