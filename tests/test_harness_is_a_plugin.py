@@ -333,8 +333,9 @@ class Seats(Fixture):
         self.assertNotIn("restart", rows["echo-owned"])
         self.assertFalse(rows["codex-unbound"]["resumable"])
         self.assertEqual(rows["codex-unbound"]["restart"], codex_plugin.FRESH)
-        # nobody is in it, whatever the harness says it will do with its conversation
-        self.assertEqual(orch.state_word(rows["codex-unbound"], self.cfg), "needs you")
+        # nobody is in it and it owes nothing, whatever the harness says it will do with its
+        # conversation: it rests
+        self.assertEqual(orch.state_word(rows["codex-unbound"], self.cfg), "idle")
         # the guessed id is dropped from the record rather than offered back
         self.assertFalse(config.session_records()["echo-guessed"].get("conversation"))
 

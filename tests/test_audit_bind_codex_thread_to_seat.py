@@ -145,8 +145,8 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
                     self.assertEqual(record[key], original[key])
                 self.assertIsNone(orch.seat_conversation(record))
                 row = next(s for s in orch.listing() if s["name"] == name)
-                # nobody is in it: the row says so, and its number is the way back in
-                self.assertEqual(menu.state(row), "needs you")
+                # nobody is in it and it owes nothing: it rests, its number the way back in
+                self.assertEqual(menu.state(row), "idle")
                 self.assertIn("ownership unverified", menu.row(self.cfg, 1, row)[4])
                 for width in (40, 100):
                     with patch.object(terminal, "width", return_value=width), \
@@ -206,7 +206,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
         event = codex_plugin.read(record)["event"]
         self.seats = [{"name": "old", "exited": True, "created": 100,
                        "path": str(self.cwd), "resumable": False}]
-        self.assertEqual(menu.state(orch.listing()[0]), "needs you")
+        self.assertEqual(menu.state(orch.listing()[0]), "idle")    # gone, owing nothing
         # Actual tmux command construction reaches only the isolated socket stand-in.
         orch.rename("old", "renamed")
         self.seats[0]["name"] = "renamed"
@@ -249,7 +249,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
     def test_hook_trust_is_preserved_and_definition_is_stable(self):
         record = self.create("untrusted", "untrusted-thread", FAKE_UNTRUSTED="1")
         self.assertFalse(record["resumable"])
-        self.assertEqual(menu.state(orch.listing()[0]), "needs you")
+        self.assertEqual(menu.state(orch.listing()[0]), "idle")    # gone, owing nothing
         before = json.loads((self.root / "last-command.json").read_text())
         after, _ = self.resume("untrusted")
         self.assertEqual([a for a in before if a.startswith("hooks.SessionStart=")],

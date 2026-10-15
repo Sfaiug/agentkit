@@ -61,8 +61,8 @@ class CodexSeats(Sandbox):
                            "created": 100}]):
             with self.subTest(seats=seats), patch.object(orch, "sessions", return_value=seats):
                 self.assertTrue(orch.listing()[0]["resumable"])
-                # Nobody is in it: the seat needs him, and its number is the way back in.
-                self.assertEqual(menu.state(orch.listing()[0]), "needs you")
+                # Nobody is in it and it owes nothing: it rests, its number the way back in.
+                self.assertEqual(menu.state(orch.listing()[0]), "idle")
                 logs = []
                 with patch.object(orch, "launch") as launch, patch.object(orch, "attach"):
                     orch.resume(self.cfg, "codex-seat", log=logs.append)
@@ -83,7 +83,7 @@ class CodexSeats(Sandbox):
         self.assertIsNone(launch.call_args.args[4])
         self.assertIn("Codex ownership unverified; it starts fresh", logs[0])
         # The receipt is still a fact the resume reads; it is no state the row says.
-        self.assertEqual(menu.state(orch.listing()[0]), "needs you")
+        self.assertEqual(menu.state(orch.listing()[0]), "idle")
 
 
 class LaunchAndCache(Sandbox):

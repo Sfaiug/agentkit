@@ -217,7 +217,8 @@ class Projects(Sandbox):
 
     def test_v5ak_e_no_ending_ever_needs_him(self):
         # An ended run is its orchestrator's business, fresh or eight days old: a gone
-        # seat names its own number, and no row ever says `press r`.
+        # seat names its own number, and no row ever says `press r`.  The seat is the owner's
+        # while the ending still is; eight days old it has aged out, nobody's, and the seat rests.
         seat = self.seat("atoll-fix", "atoll")
         seat["exited"] = True
         failed = self.record("failed", owner=seat["name"], repo=seat["repo"],
@@ -229,7 +230,7 @@ class Projects(Sandbox):
         state["finished_at"] = NOW - 8 * DAY
         run_record.save_state(failed, state)
         self.assertRegex(self.draw(100, 30), re.compile(
-            r"atoll-fix\s+fable\s+! needs you\s+session closed: press 1 to reopen$", re.M))
+            r"atoll-fix\s+fable\s+○ idle\s+session closed: press 1 to reopen$", re.M))
         self.record("stopped", owner=seat["name"], repo=seat["repo"], title="Stopped work",
                     state="interrupted", finished_at=None, started_at=NOW - 2 * DAY,
                     interrupted_at=NOW - 2 * DAY, recovery_pending=True)

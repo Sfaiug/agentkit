@@ -502,8 +502,8 @@ class V5oMenu(Sandbox):
 
     def test_v5o_r_gone_seat_with_conversation_keeps_its_row(self):
         # What orch.listing offers, the menu draws: a seat whose tmux instance is
-        # gone keeps its row, marked with its lifecycle word, and its number opens
-        # the conversation where it stopped.
+        # gone keeps its row, marked with its lifecycle word -- owing nothing, it rests --
+        # and its number opens the conversation where it stopped.
         ghost = {"name": "ghost-seat", "repo": self.seats[0]["repo"],
                  "path": self.seats[0]["path"], "live": "at_prompt", "since": NOW - 60,
                  "created": NOW - 5 * DAY, "resumable": True}
@@ -515,7 +515,7 @@ class V5oMenu(Sandbox):
         screen = out.getvalue()
         self.assertEqual(pagination, (0, 1))
         row = next(line for line in screen.splitlines() if "ghost-seat" in line)
-        self.assertRegex(row, r"^\s*6  ghost-seat\s+\S+\s+! needs you.*session closed: press 6")
+        self.assertRegex(row, r"^\s*6  ghost-seat\s+\S+\s+○ idle.*session closed: press 6")
         # The live rows are untouched, and every number is still global.
         self.assertIn("atoll-job", screen)
         numbers = sorted(int(m.group(1)) for line in screen.splitlines()
