@@ -1578,8 +1578,7 @@ def screen_state(harness, tail):
             if rule["none"] and any(mark in low for mark in rule["none"]):
                 continue
             prompt = r"(?:│\s*)?[❯›⟩]"
-            marked = [index for index in range(len(region) - 1, -1, -1)
-                      if re.match(prompt, region[index])]
+            marked = prompt_rows(raws)
             end = None
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
@@ -1599,12 +1598,13 @@ def screen_state(harness, tail):
                 # only under no composer with its own rule, and never where the manifest says
                 # its composer always has one.
                 # A draft a wrap or a newline took past its prompt row goes on in rows indented
-                # under it, down to that chrome, as `_composer_rows` reads it.
+                # under it, a mark at the head of one its text, down to that chrome, as
+                # `_composer_rows` reads it.
                 def under(index):
                     for row in range(index + 1, len(region)):
                         if chrome_line(chrome, region[row]):
                             return row
-                        if not strip_sgr(raws[row])[:1].isspace() or re.match(prompt, region[row]):
+                        if not strip_sgr(raws[row])[:1].isspace():
                             return None
                     return None
                 marked = [index for index in marked if index + 1 == len(region)

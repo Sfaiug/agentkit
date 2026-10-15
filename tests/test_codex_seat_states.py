@@ -107,6 +107,11 @@ class CodexSeatStates(Sandbox):
             found = watch.classify("codex", watch.pane_tail(drawn), {"event": "Stop", "at": 1.0},
                                    None, {}, 2.0)
             self.assertEqual(found["state"], "draft", drawn[-200:])
+        # a row of it opening on a prompt mark is its text, never a composer of its own
+        for mark in "›❯⟩":
+            drawn = pane.replace("  line two", f"  {mark} quoted\n  line two")
+            self.assertEqual(watch.screen_state("codex", watch.pane_tail(drawn)),
+                             ("draft", "prompt.draft", f"line one of draft {mark} quoted line two"))
         # a placeholder wrapped onto a second row is still no draft: its faint carries on
         empty = (REPO / "tests/fixtures/codex-resumed-warning-pane.txt").read_text().replace(
             "Ask Codex to do anything", "Ask Codex to do\n  anything")
