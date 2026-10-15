@@ -322,10 +322,15 @@ def _kept(cached, fresh, now):
     in the reading against.  Only an answer with meters replaces them -- or a meterless
     harness's own answer, which is a reading with nothing to keep.  A failed ask where
     there is no reading to stand in -- meterless, or never a meter -- keeps that none and
-    the ask's own error is the error.
+    the ask's own error is the error.  An answer whose every meter is spent is a refusal and
+    names only the window it hit: the reading's other windows stand beside it (`_beside`),
+    and so does the moment they were measured at, the oldest the row now shows.
     """
     if fresh.get("meters") or fresh.get("none"):
-        return fresh
+        meters = _beside(cached.get("meters") if isinstance(cached, dict) else None,
+                         fresh.get("meters"), now)
+        return (fresh if meters is fresh.get("meters")
+                else {**fresh, "meters": meters, "fetched_at": _taken(cached)})
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
     keys = ("meters", "fetched_at", "resets", "credits", "currency", "error", "notes", "none",
@@ -337,13 +342,36 @@ def _kept(cached, fresh, now):
         keys = ("meters", "fetched_at", "resets", "credits", "currency", "notes", "none",
                 "none_reason")
     kept = {key: cached[key] for key in keys if key in cached}
-    if "fetched_at" not in kept:
-        # The ask that follows is this moment's; the measurement is not, so it is written down
-        # here rather than inferred from it.  A cached record that recorded neither has an age
-        # nobody can vouch for, which is not an age.
-        kept["fetched_at"] = _number(cached.get("probed_at"))
+    # The ask that follows is this moment's; the measurement is not, so it is written down
+    # here rather than inferred from it.
+    kept["fetched_at"] = _taken(cached)
     return {**fresh, **kept, "probe_error": fresh.get("error"), "probe_failed_at": now,
             "stale_since": now if since is None else since}
+
+
+def _beside(old, new, now):
+    """`new`, and where every meter of it is spent, each of `old` in a window it does not name.
+
+    An answer that is all spent is a refusal: it says when the window it hit opens again and
+    nothing about the others.  So the week a 5-hour refusal leaves out keeps the reading it
+    had, and the row still draws it; an answer with any room in it is a whole reading and
+    replaces all of `old`.  Windows are told apart by their length, because a refusal names
+    its meter in its own words, not always the name its reading gives that window.
+    """
+    if not new or any(m["used"] < 100 for m in new):
+        return new
+    named = {m.get("window_secs") for m in new}
+    kept = [m for m in old or [] if isinstance(m, dict) and _number(m.get("used")) is not None
+            and m.get("window_secs") not in named and not _past(m, now)]
+    return new + kept if kept else new
+
+
+def _taken(prov):
+    """When this reading was measured: its `fetched_at`, and only where no reading ever wrote
+    that down the last ask's `probed_at`.  A reading that recorded neither, or neither as a
+    number, has an age nobody can vouch for, which is not an age: None.
+    """
+    return _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
 
 
 def _probe_gently(cfg, provider, account=None):
@@ -493,10 +521,13 @@ def _gate_flags(providers, now, cfg):
         # A quota the harness recorded when it refused a run is the reading at once: it is a
         # file and no request, so neither the snapshot's five minutes nor the probe's cadence
         # stands between it and a pick.  It is normalized as a probed meter is, because every
-        # reader of the snapshot -- the table, the menu, the pick -- reads a probed one.
+        # reader of the snapshot -- the table, the menu, the pick -- reads a probed one.  It
+        # names only the window it hit, so the week beside it stays (`_beside`).
         recorded = harness_plugin(prov.get("harness")).usage_recorded(config.STATE, now)
         if recorded:
-            prov.update(meters=[_normalized(meter, now) for meter in recorded], error=None)
+            prov.update(meters=_beside(prov.get("meters"),
+                                       [_normalized(meter, now) for meter in recorded], now),
+                        error=None)
         # a provider that refused a worker is parked until it said it would have
         # capacity, or until the meter that showed the refusal opens a new window
         until = _number(prov.get("exhausted_until"))
@@ -1469,7 +1500,7 @@ def as_of(prov, now=None):
     """
     now = time.time() if now is None else now
     prov = prov if isinstance(prov, dict) else {}
-    taken = _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
+    taken = _taken(prov)
     if taken is None or now - taken <= AS_OF_AFTER:
         return ""
     try:
