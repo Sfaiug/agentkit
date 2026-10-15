@@ -40,7 +40,7 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
 from .staffing import (best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, reviewer_order, run_workers, same_model, started_round)
-from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
+from .transitions import (carried_lines, change_budget, change_on, first_review_refusal, replacement_refusal,
     delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
@@ -1883,18 +1883,6 @@ def follow_run(run_dir, cfg, offset=0):
 # --- a PR reviewed alone: the reviewer only ------------------------------------
 
 
-def pr_size_refusal(number, lines, carried=0):
-    """One sentence when a pull request adds more lines than a first review takes at once
-    (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts the added ones, less
-    `carried`, the ones `carried_lines` found moved unchanged from lines the diff deletes --
-    what a reviewer reads; nothing deleted counts."""
-    if lines - carried <= taskfile.MAX_PR_LINES:
-        return None
-    moved = f", {carried} of them moved unchanged from lines it deletes" if carried else ""
-    return (f"PR #{number} adds {lines} lines{moved} (generated files aside; deletions never "
-            f"count): a first review takes at most {taskfile.MAX_PR_LINES}; split it")
-
-
 def pr_view(url):
     data, why = gh_json(config.RUNS, "pr", "view", url, "--json",
                         "number,title,body,author,baseRefName,headRefOid,url,state,isDraft")
@@ -2394,7 +2382,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         # ... and a pull request that re-adds most of a budget-failed one's lines, no real split
         # of it, inherits that one's rounds (`replacement_refusal`)
         lines, carried = diff_lines(repo, base_sha, head, added_only=True), carried_lines(repo, base_sha, head)
-        why = (pr_size_refusal(number, lines, carried)
+        why = (first_review_refusal(f"PR #{number}", lines, carried)
                or replacement_refusal(repo, base_sha, head, number, lines - carried, exclude=run_dir))
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])

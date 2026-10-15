@@ -1575,8 +1575,29 @@ def rounds(lp, execv=None):
                 ok, dw_log = verify_work(lp)
                 lp.log(f"done-when after fix: {'all passed' if ok else 'still FAILING'}")
         same_failure(lp, ok, dw_log)
+        first_review_ceiling(lp)
         if review(lp, summary, ok, dw_log, "Re-review after fixes." if lp.rnd > 1 else "") == "PASS":
             return
+
+
+def first_review_ceiling(lp):
+    """A task's change gets its first review only up to `task.MAX_PR_LINES` added lines, as a
+    seat's own pull request does (`run.review_pr`): past it the run ends blocked with `split it`
+    before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
+    Only the change's first review: a later round, in this run or in one launched `from:` its
+    branch, reviews whatever the fix left.  A scratch run has no diff to count."""
+    if (lp.rnd != 1 or lp.scratch or lp.state.get("review_pr")
+            or transitions.rounds_spent_elsewhere(change=transitions.change_of(lp.state),
+                                                  exclude=lp.run_dir)[0]):
+        return
+    gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+    lines = transitions.diff_lines(lp.wt, lp.base_sha, "HEAD", added_only=True)
+    if lines <= taskfile.MAX_PR_LINES:
+        return          # nothing a moved block could bring under the ceiling
+    why = transitions.first_review_refusal(f"The change on {lp.state.get('branch') or 'its branch'}",
+                                           lines, transitions.carried_lines(lp.wt, lp.base_sha, "HEAD"))
+    if why:
+        raise turns.Blocked(why, f"## Blocked\n\n{why}")
 
 
 def fix_after_failed_review(lp, upstream, how):

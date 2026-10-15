@@ -11,12 +11,12 @@ from . import config
 TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "repo",
              "rounds", "stall_minutes", "target", "turn_hours")
 TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
-# Ceilings on what one review takes at once, from the measured round-1 pass rate by size
-# (9 Oct 2026: pull requests of 50 changed lines or fewer passed round 1 94% of the time,
-# 201-400 lines 43%, over 1,000 lines 20%): a task has at most this many per-round checks,
-# one behaviour a reviewer holds in one read, and a seat's own pull request's first review
-# this many added lines, generated files aside, nothing deleted counted and the blocks it
-# moves unchanged from lines it deletes left out (`transitions.carried_lines`).  Past either, split it.
+# Ceilings on what one review takes at once, from round-1 passes by the size first reviewed
+# (15 Oct 2026: 78-89% at 50 added lines or fewer, 34-59% at 201-400, 18-20% at 401-1,000):
+# a task has at most this many per-round checks, one behaviour a reviewer holds in one read,
+# and a change's first review, a seat's own pull request's or a task's, this many added lines,
+# generated files aside, nothing deleted counted and the blocks it moves unchanged from lines
+# it deletes left out (`transitions.carried_lines`).  Past either, split it.
 MAX_CHECKS = 3
 MAX_PR_LINES = 400
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
