@@ -15,7 +15,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, history, host, orch, turns, watch, worker
+from . import config, gitcall, handback, history, host, orch, transitions, turns, watch, worker
 from . import land as landing
 from . import record as run_record
 
@@ -44,11 +44,12 @@ def slot_lock():
 
 
 def slot_order(state):
-    # A green member only needs delivery before the target moves.
+    # A green member only needs delivery before the target moves.  A run started again after a
+    # park (`leases.restart`) waits from where its first attempt queued, not behind the queue.
     wait = state.get("waiting_on") or {}
     return (not (state.get("first") or "land" in wait or "fix" in wait),
             not landing.green_delivery(wait),
-            state.get("queued_at") or state.get("started_at") or 0,
+            transitions.first_queued(state),
             state.get("run_id") or "")
 
 
