@@ -1,7 +1,7 @@
 """Collisions between the live runs of one repository: the tick's scan, and what it enforces.
 
-A run's lease is its own diff against the base it was cut from, uncommitted edits included
-as a commit would take them (`gitcall.committable_paths`; what its checks generated is written
+A run's lease is its own diff against where its checkout meets the base it was cut from (a
+`from:` run's branch may predate that base), uncommitted edits included as a commit would take them (`gitcall.committable_paths`; what its checks generated is written
 down by the run and left out); no model declares, renews or releases anything.  Each tick, every pair of live runs of a repository is merged in memory (`git
 merge-tree --write-tree`, git's own conflict rule), each run's own diff brought onto the
 newer of their two bases first with main's side kept where the run clashes with it, so
@@ -95,7 +95,10 @@ def live(repo):
         if (not state.get("worktree") or not worktree.is_dir()
                 or worktree.resolve() == Path(state["repo"]).resolve()):
             continue        # a run working in the checkout it was launched from holds no diff of its own
-        found.append({"run": run_dir.name, "worktree": worktree, "base": state["base_sha"],
+        # its base is where its checkout meets the recorded one: a `from:` run's older branch
+        # holds none of what main gained since it was cut, which is no change of the run's
+        base = gitcall.git(worktree, "merge-base", "HEAD", state["base_sha"], check=False) or state["base_sha"]
+        found.append({"run": run_dir.name, "worktree": worktree, "base": base,
                       "started": state.get("started_at") or 0,
                       "artifacts": state.get("artifacts") or []})
     return sorted(found, key=lambda each: (each["started"], each["run"]))
