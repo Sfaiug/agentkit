@@ -192,6 +192,13 @@ RULES = [
                 r"ask_inbox|after_merge_deliver|sync_title)\(",
      "home": ("agentkit/watch.py", "agentkit/guard.py"),
      "max": 9},
+    # Every unit ak starts is started by orch.py, which decides what ends it: a seat's scope
+    # and detached work's end with what they started, and a run's is stopped by its reaper.
+    {"name": "unit starts",
+     "flags": (),
+     "pattern": r"\"systemd-run\"|StartTransientUnit",
+     "home": ("agentkit/orch.py",),
+     "max": 0},
 ]
 
 

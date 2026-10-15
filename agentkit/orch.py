@@ -637,7 +637,7 @@ def next_scope_unit(unit):
 
 
 def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=None,
-                   properties=(), nice=False, placement=None):
+                   properties=(), nice=False, placement=None, ends=True):
     """Start detached work inside the slice, appending its output to `output`; its pid.
 
     A scope where this process may be moved with its child; a service, which the manager
@@ -660,6 +660,10 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     be asked about it at all -- nothing new is started, whatever the unit is doing.
     Otherwise the attempt that could not be ended and the attempt after it would be two of
     the same task, one of them started by a manager that was only slow or briefly away.
+
+    A scope ends with the work, by `scope_ends` beside it, and stops what the work left
+    running in it; a service already does.  `ends=False` keeps it past the work's death for
+    a run's reaper, which reads there whether the memory cap ended it, then stops it.
     """
     target_slice = seat_slice_name() if target_slice is None else target_slice
 
@@ -701,7 +705,8 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     scoped = can_scope()
     # A scope has no ExecContext, so Nice=10 is rejected as a unit property.  Lower the
     # actual work command inside the scope; the service fallback keeps Nice as its property.
-    witness = ["sh", "-c", WITNESS, str(marker),
+    witness = ["sh", "-c", f"{scope_ends(unit)} {WITNESS}" if ends and scoped else WITNESS,
+               str(marker),
                *( (["nice", "-n", "10"] if nice and scoped else []) ), *argv]
     service_properties = (*properties, *( ("-p", "Nice=10") if nice else () ))
     placed, placed_env = (in_slice(witness, unit, env=env, target_slice=target_slice,
@@ -1886,6 +1891,14 @@ subprocess.run(sys.argv[2:])
 """
 
 
+def scope_ends(unit, systemctl="systemctl"):
+    """The shell words that start `SCOPE_ENDS` in the background, for a shell in `unit` about
+    to exec the work: its `$$` is then the work's own pid.  The stop is asked of `systemctl`."""
+    stop = [systemctl, "--user", "stop", "--no-block", f"{unit}.scope"]
+    return (f"{shlex.join([sys.executable, '-I', '-c', SCOPE_ENDS])} \"$$\" {shlex.join(stop)} "
+            "</dev/null >/dev/null 2>&1 &")
+
+
 def seat_command(name, cmd, socket=None):
     """The pane's command line: the harness, started inside a scope of its own in the seats slice.
 
@@ -1907,14 +1920,12 @@ def seat_command(name, cmd, socket=None):
     if user_manager():
         unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
         run, *literal = seat_scope_run()
-        ends = shlex.join([sys.executable, "-I", "-c", SCOPE_ENDS])
-        stop = shlex.join([str(Path(run).with_name("systemctl")), "--user", "stop",
-                           "--no-block", f"{unit}.scope"])
+        ends = scope_ends(unit, str(Path(run).with_name("systemctl")))
         cmd = ["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
                run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
                "--quiet", f"--unit={unit}", *literal, "--", "/bin/sh", "-c",
                "[ -t 0 ]; tty=$?; "
-               f"trap '' HUP; {ends} \"$$\" {stop} </dev/null >/dev/null 2>&1 & "
+               f"trap '' HUP; {ends} "
                'trap - HUP; [ $tty = 1 ] || [ -t 0 ] || kill -HUP $$; exec "$@"', "sh", *cmd]
     path = config.seat_file("launch", name)
     # new-session -e can set a variable, but cannot remove one inherited from its server.
