@@ -92,7 +92,8 @@ class SeatQuestionWhole(Sandbox):
         screen, _, _ = self.draw("fix-api", 62, 19)
         self.assertNotIn(QUESTION, screen)
         self.assertIn("fields the importer needs. Reason 5:", screen)
-        self.assertTrue(screen.endswith("… n new x stop c config esc leave"), screen)
+        # the seats run to pages, and the key line starts with where the owner is
+        self.assertTrue(screen.endswith("… ← 1 / 3 → n new x stop c config esc leave"), screen)
 
     def test_no_row_moves_and_no_page_turns_as_the_highlight_moves(self):
         for width in (44, 62, 100):

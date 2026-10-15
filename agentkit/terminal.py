@@ -469,10 +469,11 @@ def key_parts(text):
     return parts
 
 
-def key_line(text, term_width=None):
-    """The key line: each key dim, its word plain, wrapped to the layout."""
+def key_line(text, term_width=None, first=None):
+    """The key line: each key dim, its word plain, wrapped to the layout; `first`, drawn as it
+    is, the item in front of them."""
     room = layout_width(term_width) - 2
-    rendered = []
+    rendered = [first] if first else []
     for key, word in key_parts(text):
         rendered.append(styled(key, "dim") + (f" {word}" if word else ""))
     lines, line = [], ""
