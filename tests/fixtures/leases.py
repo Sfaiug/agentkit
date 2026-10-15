@@ -41,7 +41,7 @@ class LiveRuns(unittest.TestCase):
         self.git(self.repo, "init", "-qb", "main")
         self.git(self.repo, "config", "user.name", "Fixture")
         self.git(self.repo, "config", "user.email", "fixture@example.invalid")
-        (self.repo / "api.py").write_text("".join(f"line {n}\n" for n in range(1, 21)))
+        (self.repo / "api.py").write_text("".join(f"line {n}\n" for n in range(1, 31)))
         (self.repo / "other.py").write_text("other\n")
         self.git(self.repo, "add", ".")
         self.git(self.repo, "commit", "-qm", "Base")
@@ -53,13 +53,14 @@ class LiveRuns(unittest.TestCase):
                               text=True).stdout.strip()
 
     def run_on(self, name, started, state="running", base=None, repo=None, artifacts=(),
-               step="reviewer", rounds=1, session=None):
+               step="reviewer", rounds=1, session=None, at=None):
         """A live run of the repository with a checkout of its own, cut from `base`; `repo` is
         the checkout it was launched from, the main one unless given; `artifacts` what its
         checks generated, as it writes them down; `step` and `rounds` where its loop stands,
-        past its first review unless told otherwise; `session` the seat it was launched from."""
+        past its first review unless told otherwise; `session` the seat it was launched from;
+        `at` the commit its checkout starts at, `base` unless given (a `from:` run's branch)."""
         worktree = config.WT / name
-        self.git(self.repo, "worktree", "add", "-q", "-b", f"ak/{name}", str(worktree), base or self.base)
+        self.git(self.repo, "worktree", "add", "-q", "-b", f"ak/{name}", str(worktree), at or base or self.base)
         directory = config.RUNS / name
         directory.mkdir(parents=True)
         record.save_state(directory, {
