@@ -69,13 +69,20 @@ seat_state() {
       --hook "$PPID" <<<"$payload" || true
   fi
   [[ $event != SessionStart ]] || return 0
+  # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
+  # and its prompt the owner's answer.
+  if [[ $event = UserPromptSubmit || $event = Stop ]] &&
+    "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1; then
+    return 0
+  fi
   ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
   # A Stop that hands over the background work in flight -- Claude Code's -- is written down by
   # hooks/orchestrator-stop.sh, which runs beside this and is the one that knows whether the
   # turn ended there.  Written here too, it would read as the turn over until that one decided;
   # the look is made again once that one's word lands.
   if [[ $event = Stop ]] &&
-    "$jq" -e '.background_tasks | type == "array"' <<<"$payload" >/dev/null 2>&1; then
+    "$jq" -e '(.background_tasks // .backgroundTasks) | type == "array"' <<<"$payload" \
+      >/dev/null 2>&1; then
     look "$seat" "$ts"
     return 0
   fi
@@ -144,11 +151,15 @@ sys.exit(0 if passive else 1)
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
-  # The launch name still resolves after a rename; background reports and slash commands
-  # answer nothing.
+  # The launch name still resolves after a rename; slash commands answer nothing, and nor does a
+  # turn the harness began itself on work it finished: a `<task-notification>`, or a
+  # `<system-reminder>` under a `task-completed-` or `subagent-completed-` prompt id.
   owner=true
-  if "$jq" -e '[(.prompt // empty), (.message // empty)] | map(strings)
-               | any(contains("<task-notification") or test("^[[:space:]]*/"))' \
+  if "$jq" -e '([(.prompt // empty), (.message // empty)] | map(strings)
+                | any(contains("<task-notification") or test("^[[:space:]]*/")
+                      or test("^[[:space:]]*<system-reminder>")))
+               or ((.promptId // .prompt_id // "") | strings
+                   | test("^(task|subagent)-completed-"))' \
       <<<"$payload" >/dev/null 2>&1; then
     owner=false
   fi

@@ -43,14 +43,20 @@ set -u
 
 main() {
   umask 077
-  local seat script
+  local seat script payload
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
   # the seat's name is one component of a path here as it is everywhere else
   case "$seat" in */*|.|..|"") return 0 ;; esac
-  # The script goes in on the command line and the hook's own JSON stays on stdin, where the
-  # harness put it.  A turn that moved a lot of tool output ends in a payload no argument list
+  payload=$(/bin/cat) || return 0
+  # a sub-agent's Stop is never this seat's end, by the rule hooks/seat-state.sh reads it with
+  if /usr/bin/env jq -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1
+  then
+    return 0
+  fi
+  # The script goes in on the command line and the hook's own JSON on stdin, where the harness
+  # put it.  A turn that moved a lot of tool output ends in a payload no argument list
   # and no environment would carry -- Linux refuses a single one past 128 KB -- and a hook that
   # cannot be handed the turn it is judging would decide nothing at all, quietly.
   script=$(/bin/cat <<'STOPPY'
@@ -213,10 +219,17 @@ def questioned(payload):
 def tells(payload):
     """Does this harness hand its Stop hook the background work it has in flight?
 
-    Claude Code does, as `background_tasks`, an empty list when there is none.  A harness that
-    does not -- Codex, Grok Build -- has its stops judged, and written down, as they always were.
+    Claude Code does, as `background_tasks`, an empty list when there is none, and Grok Build as
+    `backgroundTasks`.  A harness that does not -- Codex -- has its stops judged, and written
+    down, as they always were.
     """
-    return isinstance(payload.get("background_tasks"), list)
+    return isinstance(tasks(payload), list)
+
+
+def tasks(payload):
+    """The background work a Stop hands over, under either spelling, or None."""
+    found = payload.get("background_tasks")
+    return found if found is not None else payload.get("backgroundTasks")
 
 
 def background(payload):
@@ -228,9 +241,9 @@ def background(payload):
     A `monitor` is a watch, not work: the comment watch on an artifact the seat published stays
     in that list for the rest of the session, and counted, it held the seat working for days.
     """
-    tasks = payload.get("background_tasks")
-    return isinstance(tasks, list) and any(
-        isinstance(task, dict) and task.get("type") != "monitor" for task in tasks)
+    found = tasks(payload)
+    return isinstance(found, list) and any(
+        isinstance(task, dict) and task.get("type") != "monitor" for task in found)
 
 
 def told(seat, turn, kind):
@@ -339,7 +352,7 @@ def main():
 main()
 STOPPY
 ) || return 0
-  /usr/bin/env python3 -c "$script" "$seat" "${BASH_SOURCE[0]}"
+  /usr/bin/env python3 -c "$script" "$seat" "${BASH_SOURCE[0]}" <<<"$payload"
 }
 
 main 2>/dev/null || true
