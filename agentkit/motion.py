@@ -5,7 +5,8 @@ and its moving tasks' squares (`menu.tips`); news moves once and is then still -
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright and a
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
 opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
-progress line grows to its length as the menu opens; an
+progress line grows to its length as the menu opens and glides to a new one as its plan moves,
+a task's next square fills through its half and one that failed nudges; an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
@@ -42,6 +43,8 @@ OPEN = 0.12         # ... the line under a row the highlight came to takes to co
 TURN = 0.15         # ... and the rows of a page turned to
 GROW = 0.45         # ... a seat's progress line takes to grow to its length as ak opens
 STAGGER = 0.04      # ... and each row after the one above it
+GLIDE = 0.7         # ... and to glide to a new length as its plan moves, a light at its head
+STEP = 0.15         # ... a task's next square takes to fill, through its half
 HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
@@ -192,18 +195,45 @@ def fading(line, took):
     return start
 
 
-def growing(cells, began):
-    """A progress line on a screen just opened, `cells` each of its cells as the draw wrote it:
-    its done part grows from nothing to its length in GROW seconds from `began`, the rest of it
-    the empty track, and each cell is then as drawn; an animation for each cell, and when it is
-    still."""
+def growing(cells, began, took=GROW, start=0, light=None):
+    """A progress line, `cells` each of its cells as the draw wrote it: its done part grows from
+    its first `start` cells to its length in `took` seconds from `began` -- from nothing as a
+    screen opens, from its old length as its plan moves, then with one cell of `light` at its
+    head -- the rest of it the empty track, and each cell is then as drawn; an animation for
+    each cell, and when it is still."""
     done = sum(1 for text in cells if terminal.plain(text) in ("━", "╸", "="))
     track = terminal.styled("─" if terminal.utf8() else "-", "dim")
 
     def cell(n, text):
-        return lambda now: text if n < round(done * eased((now - began) / GROW)) or (
-            terminal.plain(text) not in ("━", "╸", "=")) else track
-    return [cell(n, text) for n, text in enumerate(cells)], began + GROW
+        def at(now):
+            head = round(start + (done - start) * eased((now - began) / took))
+            if light and n == head - 1 and now < began + took:
+                return terminal.styled(terminal.plain(text), terminal.faded(light, -BRIGHTER))
+            filled = terminal.plain(text) in ("━", "╸", "=")
+            return text if n < head or not filled else track
+        return at
+    return [cell(n, text) for n, text in enumerate(cells)], began + took
+
+
+def stepping(square, kind, began, bright=False):
+    """A task's square, `square` as drawn in `kind`, that its next stage just filled: through
+    its half (`▣`) for the first half of STEP seconds, then as drawn; and when it is still."""
+    def at(now):
+        char = HALF.get(square, square) if now - began < STEP / 2 else square
+        text = terminal.styled(char, kind)
+        return terminal.highlight(text, mark=False) if bright else text
+    return at, began + STEP
+
+
+def nudging(text, began, bright=False):
+    """A task's squares, `text` as drawn, from the cell before them, that just failed: they
+    nudge a cell left, right, left and back in SHAKE seconds, as a refused mark does; and when
+    it is still."""
+    def at(now):
+        shift = (-1, 1, -1, 0)[min(3, int(4 * (now - began) / SHAKE))]
+        moved = " " * (1 + shift) + text + " " * (1 - shift)
+        return terminal.highlight(moved, mark=False) if bright else moved
+    return at, began + SHAKE
 
 
 def sweeping(cells, began, kind, bright=False):
@@ -341,6 +371,11 @@ class Clock:
         """
         if terminal.colour_depth() > 8 and (until is None or until > time.monotonic()):
             self.cells.update(dict.fromkeys(cells, (animation, until)))
+
+    def span(self, row, column, animations, until=None):
+        """Animate the cells of a span from `column` of `row`, an animation each, as `start`."""
+        for n, animation in enumerate(animations):
+            self.start([(row, column + n)], animation, until)
 
     def rise(self, lines):
         """Whether `lines`, a draw's screen top down, come up out of the background, the frames

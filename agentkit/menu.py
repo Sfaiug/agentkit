@@ -762,6 +762,16 @@ STAGES = {"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}
 FAILED_FOR = 86400   # a failed task stays red this long unless its seat starts it again first
 
 
+class Task(tuple):
+    """A task in flight, (stage, state) as it unpacks, and `run`, the run it is: what tells one
+    task's squares from another's from one draw to the next."""
+
+    def __new__(cls, stage, state, run):
+        task = super().__new__(cls, (stage, state))
+        task.run = run
+        return task
+
+
 def seat_tasks(name, records=None, now=None, index=None):
     """Each task in flight that seat launched, as (stage, state), furthest behind first: its
     stage 0, 1 or 2 (`STAGES`), and `moving` while a model or ak works on it, `waiting` while it
@@ -777,19 +787,19 @@ def seat_tasks(name, records=None, now=None, index=None):
     for run_dir, state in records:
         if transitions.launched_session(state) != name:
             continue
-        stage = STAGES.get(state.get("step"), 0)
+        stage, run = STAGES.get(state.get("step"), 0), Path(run_dir).name
         if transitions.landing_line(state):
-            found.append((2, "waiting"))
+            found.append(Task(2, "waiting", run))
         elif state.get("state") == "running":
-            found.append((stage, "moving"))
+            found.append(Task(stage, "moving", run))
         elif transitions.going(state, now=now):
-            found.append((stage, "waiting"))
+            found.append(Task(stage, "waiting", run))
         elif watch.awaiting_live(state, now=now):
-            found.append((2, "waiting"))
+            found.append(Task(2, "waiting", run))
         elif (state.get("state") in record.FAILED
               and now - (state.get("finished_at") or 0) < FAILED_FOR
               and not transitions.is_superseded(state, None, index)):
-            found.append((stage, "failed"))
+            found.append(Task(stage, "failed", run))
     return sorted(found, key=lambda task: (task[0], ("moving", "waiting", "failed").index(task[1])))
 
 
@@ -799,6 +809,12 @@ def _paint(text, kind, tmux=False):
         return terminal.styled(text, kind)
     rgb = terminal.STATE_STYLES[terminal.KINDS.get(kind, kind)][2]
     return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
+
+
+def line_at(text):
+    """Where a seat's progress line is in `text`, a row drawn plain: the match of its cells,
+    done and to do, before its `done of total`; None where it has none."""
+    return re.search("[━╸=─-]+(?= \\d+ of \\d+)", text)
 
 
 def tips(text, info, head):
@@ -1417,6 +1433,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         shown = seat and seat.get("runs_on") and terminal.cut(seat["orchestrator"], widths["orch"])
         if shown and text[model_at:model_at + len(shown)] == shown:
             models.append((len(out), model_at + 1, shown, lit, seat["runs_on"]))
+        bar = line_at(text) if seat and seat.get("bar") else None
+        if bar:       # a line that glides to its new length as the plan moves
+            moves.append((("bar", name), seat["bar"], (len(out), bar), lit))
+        if not head and name in seats and "■" in text:      # the line a row opens: its tasks
+            for group, task in zip(re.finditer("[■□]{3}", text), seats[name].get("tasks") or []):
+                moves.append((("task", getattr(task, "run", None)), tuple(task),
+                              (len(out), terminal.cells(text[:group.start()]) + 1), lit))
         if words.get(name) == "working":
             # what moves while a model works: the tip of its row's line, and on the line its
             # row opens each moving task's square, all breathing in the dot's phase
@@ -1487,19 +1510,34 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             for n, row in enumerate(row for row, (_, name) in enumerate(body, top + 1)
                                     if isinstance(name, str) and name in seats):
                 text = terminal.ANSI.sub("", out[row - 1])
-                line = re.search("[━╸=][━╸=─-]*(?= \\d+ of \\d+)", text)
+                line = line_at(text)
                 if line:
-                    frames, until = motion.growing(terminal.cell_texts(out[row - 1])[
-                        line.start():line.end()], began + n * motion.STAGGER)
-                    for k, animation in enumerate(frames):
-                        clock.start([(row, terminal.cells(text[:line.start()]) + 1 + k)],
-                                    animation, until)
+                    clock.span(row, terminal.cells(text[:line.start()]) + 1, *motion.growing(
+                        terminal.cell_texts(out[row - 1])[line.start():line.end()],
+                        began + n * motion.STAGGER))
         for key, shown, cell, lit in moves:
-            since, _ = news.get(key, (None, None))
+            since, before = news.get(key, (None, None))
             if shown == "working":
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
             elif since is None:
                 continue
+            elif key[0] == "bar" and before:    # the plan moved: its line glides there
+                row, line = cell
+                cells = terminal.cell_texts(out[row - 1])[line.start():line.end()]
+                clock.span(row, terminal.cells(terminal.ANSI.sub("", out[row - 1])[
+                    :line.start()]) + 1, *motion.growing(
+                    cells, since, motion.GLIDE, round(len(cells) * before[0] / max(1, before[1])),
+                    words.get(key[1]) or "working"))
+            elif key[0] == "task" and before:    # a task moved on a stage, or failed
+                row, column = cell
+                written = terminal.cell_texts(out[row - 1])
+                if shown[1] == "failed" != before[1]:
+                    clock.start([(row, column - 1)], *motion.nudging(
+                        "".join(written[column - 1:column + 2]), since, lit))
+                elif shown[0] > before[0]:
+                    clock.start([(row, column + shown[0])], *motion.stepping(
+                        terminal.plain(written[column - 1 + shown[0]]),
+                        {"moving": "working", "waiting": "dim"}.get(shown[1], "FAIL"), since, lit))
             elif key[0] in ("opened", "page"):    # what comes up out of the background
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
                     motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
@@ -1507,9 +1545,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             elif key[0] == "sub":     # the pointer came onto it, or left it
                 ink, cells = washes[key[1]]
                 for row, column, text, rest, bright in cells:
-                    frames, until = motion.colouring(text, since, ink, shown, rest, bright)
-                    for n, animation in enumerate(frames):
-                        clock.start([(row, column + n)], animation, until)
+                    clock.span(row, column, *motion.colouring(text, since, ink, shown, rest,
+                                                              bright))
             elif shown in ("needs you", "done"):
                 # its row glows in its word's colour and fades, and a line just done is crossed
                 # by one light
@@ -1517,15 +1554,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 motion.glowing(out[row - 1], shown, motion.NEWS)(clock, row, since, None)
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
-                line = re.search("[━╸]+─*", terminal.ANSI.sub("", out[row - 1]))
+                text = terminal.ANSI.sub("", out[row - 1])
+                line = line_at(text)
                 if shown == "done" and line:
-                    text = terminal.ANSI.sub("", out[row - 1])
-                    frames, until = motion.sweeping(
+                    clock.span(row, terminal.cells(text[:line.start()]) + 1, *motion.sweeping(
                         terminal.cell_texts(out[row - 1])[line.start():line.end()], since,
-                        shown, lit)
-                    for n, animation in enumerate(frames):
-                        clock.start([(row, terminal.cells(text[:line.start()]) + 1 + n)],
-                                    animation, until)
+                        shown, lit))
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
             if growing:       # a tip still growing in breathes once it is there

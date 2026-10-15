@@ -3,8 +3,8 @@
 `menu.loop` on a scripted wait over a true-colour terminal, news landing the way `Live` brings
 it -- the seats read again and a byte on the wake pipe: a seat turning `needs you` pulses its `!`
 twice toward the light over 600 ms and is still in its colour; one turning `done` has its `✓`
-settle from bright to its colour over 400 ms; a subscription's meter that moves and a seat's
-tasks bar are drawn as they are and never glide.  The first
+settle from bright to its colour over 400 ms; a seat's progress line glides to its new length
+with a light at its head over 700 ms.  The first
 draw, one after another screen, a notice or a resize, and a menu opened again draw what they find
 as it is, and nothing moves under NO_COLOR.  Offline, in a throwaway HOME:
 the probe is never started, the reads are the test's own and the keyboard is a stand-in.
@@ -243,16 +243,23 @@ class NewsMotion(Sandbox):
         self.assertEqual(sorted(first), sorted(first, key=first.get))
         self.assertLessEqual(3 * (min(first) - start[1]), max(first) - start[1], first)
 
-    def test_a_tasks_bar_is_drawn_as_it_is_and_never_glides(self):
+    def test_a_line_glides_to_its_new_length_with_a_light_at_its_head(self):
         self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (1, 4)}
         waits, at = self.run_menu([None, self.news(
             lambda: self.tasks.update({"fix-api": (4, 4)}))])
         screen, cells = self.written(waits, at)
         self.assertIn("4 of 4", terminal.ANSI.sub("", screen))     # the draw says it at once
-        dot = self.cell(screen, "fix-api", "●")
-        # and only the dot breathes on, with the tip of its line, the last of it done
-        self.assertEqual({cell for _, cell, _ in cells},
-                         {dot, self.cell(screen, "fix-api", "━ 4 of 4")})
+        start = self.cell(screen, "fix-api", "━")
+        light = terminal.faded("working", -motion.BRIGHTER)
+        light = tuple(int(light[n:n + 2], 16) for n in (1, 3, 5))
+        heads = [(when, column) for when, (row, column), text in cells
+                 if row == start[0] and painted(text)[0][1] == light]
+        # the head moves right, from a quarter of the line to its end, in about 700 ms
+        self.assertGreater(len({column for _, column in heads}), 3, heads)
+        self.assertEqual([column for _, column in heads], sorted(column for _, column in heads))
+        self.assertTrue(0.4 <= heads[-1][0] - heads[0][0] <= 0.9, heads[-1][0] - heads[0][0])
+        tip = self.cell(screen, "fix-api", "━ 4 of 4")
+        self.assertLessEqual(heads[-1][1], tip[1])
 
     def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}
