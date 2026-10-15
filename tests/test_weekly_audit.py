@@ -72,7 +72,7 @@ class Weekly(unittest.TestCase):
         # nothing worse than the week before: the first measure the board reads at all
         same = {**BOARD, "products": [STATS, STATS], "parks": [{"parked": 0}, {"parked": 0}]}
         self.assertEqual(scoreboard.loss(same), (REWRITTEN, .5, .6, "%"))
-        only_size = {**EMPTY, "size": [{"code_lines": 100, "readme_words": 9}, None]}
+        only_size = {**EMPTY, "size": [{"code_lines": 100, "readme_words": 9, "agents_words": 9}, None]}
         self.assertEqual(scoreboard.loss(only_size), ("ak's code lines", 100, None, "n"))
         self.assertIsNone(scoreboard.loss(EMPTY))
         self.assertEqual((scoreboard.said(.3, "%"), scoreboard.said(1.25, "h"),

@@ -73,9 +73,9 @@
   launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
   Calls `run.*`; for run, gc, watch, menu.
 - `watch.py`: tick passes (`local_passes`), watch.json, seat state, errors, recovery,
-  typing receipts, PR scans, after-merge checks, `health:` probes and the weekly audit's seat
-  and line (`tell_audit`). `session_state`
-  and `waiting_on` decide state; hookless stops use stop.recorded_ending.
+  typing receipts, PR scans, after-merge checks, `health:` probes and the weekly audit
+  (`tell_audit`). `session_state` and `waiting_on` decide state; hookless stops use
+  stop.recorded_ending.
   For run, job, orch, menu, notify, update, usage, worker and hooks.
   Leaks: run.json writes and run state groups.
 - `retire.py`: the tick's pass that writes, once a day, a plan line for each feature switch
