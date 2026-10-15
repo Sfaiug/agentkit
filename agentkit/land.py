@@ -567,7 +567,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if member == directory or scratch is not None:
                         log_path = member / "lander.log"
                         log_path.write_text(text)
-                        alone(member, {"fix": {"line": prompts.first_failure(text), "log": str(log_path)}})
+                        alone(member, {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
+                                               **({"conflict": True} if scratch is not None else {})}})
                     continue
                 if top != tip:
                     scratch, text = _stack_member(repo, saved, top, upstream, opened)
