@@ -1,8 +1,9 @@
 """The `c` screen shows what `ak models` recommends beside a seat's marks, and `r` takes it.
 
 Under a seat's models one dim line names the recommended row per role, read off the matrix as
-last computed (`matrix.stored`, `matrix.recommended`); `r` makes the recommended executor and reviewer the seat's marks
-where they are configured models, saved to its record at once, and says why when it cannot;
+last computed (`matrix.stored`, `matrix.recommended`); `r` makes the recommended executor and
+reviewer the seat's marks where an entry runs that model (tests/test_c_recommends_effort.py: at
+the row's effort), saved to its record at once, and says why when it cannot;
 the orchestrator is only said, since moving the seat asks first.  With nothing computed the
 line says so and `r` is no key.
 
@@ -60,11 +61,11 @@ class Recommends(Sandbox):
         return " ".join(terminal.plain(drawn.getvalue()).split())      # one space between words
 
     def test_the_line_names_each_role_s_row_and_r_takes_the_configured_ones(self):
-        self.store([row("claude", "claude-opus-5-5", "max", orchestrate=100, execute=50),
+        self.store([row("claude", "claude-sonnet-4-6", "max", orchestrate=100, execute=50),
                     row("claude", "claude-fable-5-1", "xhigh", "fable", execute=90),
                     row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         text = self.screen([Key("esc")])
-        self.assertIn("ak recommends orch claude-opus-5-5 @ max (not configured) · exec fable @ xhigh "
+        self.assertIn("ak recommends orch claude-sonnet-4-6 @ max (not configured) · exec fable @ xhigh "
                       "· review astra @ xhigh r takes exec and review", text)
         self.assertIn("⏎ mark r recommended esc back", text)
         self.screen([Key("char", "r"), Key("esc")])
@@ -73,13 +74,13 @@ class Recommends(Sandbox):
                          ("opus", ["fable"], ["astra"]))
 
     def test_an_unconfigured_recommendation_is_said_and_nothing_changes(self):
-        self.store([row("claude", "claude-opus-5-5", "max", execute=100), row("codex", "gpt-6-astra", "max", review=100)])
+        self.store([row("claude", "claude-sonnet-4-6", "max", execute=100), row("codex", "gpt-6-nano", "max", review=100)])
         text = self.screen([Key("char", "r"), Key("esc")])
         self.assertIn("nothing to take: the recommended rows are not configured models", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
         # one of the two configured: that one is taken, the other mark stays
-        self.store([row("claude", "claude-opus-5-5", "max", execute=100), row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
+        self.store([row("claude", "claude-sonnet-4-6", "max", execute=100), row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         self.screen([Key("char", "r"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))

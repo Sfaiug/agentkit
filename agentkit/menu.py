@@ -2499,11 +2499,22 @@ def model_heading(provider):
     return terminal.styled(NAMES.get(provider, provider.title()), "accent")
 
 
+# the roles `r` takes, as config.ROLE_EFFORTS names them
+TAKEN = {"execute": "executor", "review": "reviewer"}
+
+
 def advice(cfg):
     """What `ak models` recommends per role off the matrix as last computed: {role: (its row's
-    label, the config name that runs it or None)}; {} while nothing is computed."""
-    return {role: (matrix.row_label(row), row.get("name"))
-            for role, row in matrix.recommended(matrix.stored().get("rows") or []).items()}
+    label, the config name that runs it or None, its effort)}.  The name is the row's own, the
+    entry at that effort, else the first entry running that model on that harness, which `r`
+    sets the role's effort on; {} while nothing is computed."""
+    found = {}
+    for role, row in matrix.recommended(matrix.stored().get("rows") or []).items():
+        name = row.get("name") or next(
+            (name for name, entry in cfg["models"].items()
+             if (entry.get("harness"), entry.get("model")) == (row["harness"], row["model"])), None)
+        found[role] = (matrix.row_label(row), name, row.get("effort"))
+    return found
 
 
 def advice_line(found):
@@ -2513,28 +2524,45 @@ def advice_line(found):
         return terminal.styled(f"  ak recommends  {ADVICE_NONE}", "dim")
     said = " · ".join(f"{orch.ROLE_HEADS[number]} {label}" + ("" if name else " (not configured)")
                       for number, role in enumerate(matrix.ROLES)
-                      for label, name in [found.get(role, ("-", None))])
-    takes = any(found.get(role, (None, None))[1] for role in ("execute", "review"))
+                      for label, name, _ in [found.get(role, ("-", None, None))])
+    takes = any(found.get(role, (None, None, None))[1] for role in TAKEN)
     return terminal.styled(f"  ak recommends  {said}"
                            + ("   r takes exec and review" if takes else ""), "dim")
 
 
 def take_advice(cfg, name, selected, providers, found):
-    """`r`: the seat's executors and reviewers become the recommended rows that are configured
-    models, saved to its record at once as a flipped mark is; the orchestrator is only said,
-    since moving the seat is the owner's (the orchestrator mark asks first).  What to say
-    under the rows, or ""."""
-    taken = {role: found.get(role, (None, None))[1] for role in ("execute", "review")}
-    if not any(taken.values()):
+    """`r`: the seat's executors and reviewers become the recommended rows' entries, each at the
+    row's effort as the entry's own effort for that role (`exec_effort`, `review_effort`; unset
+    where it is the entry's effort), saved to the config and to the seat's record at once as a
+    flipped mark is; the orchestrator is only said, since moving the seat is the owner's (the
+    orchestrator mark asks first).  What to say under the rows, or ""."""
+    taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN}
+    if not any(name for name, _ in taken.values()):
         return "nothing to take: the recommended rows are not configured models"
     changed = {**selected, "reviewers": list(selected.get("reviewers", selected["workers"]))}
-    if taken["execute"]:
-        changed["workers"] = [taken["execute"]]
-    if taken["review"]:
-        changed["reviewers"] = [taken["review"]]
+    if taken["execute"][0]:
+        changed["workers"] = [taken["execute"][0]]
+    if taken["review"][0]:
+        changed["reviewers"] = [taken["review"][0]]
     note = orch.role_refusal(cfg, changed, providers)
     if note:
         return note
+    before = {each: dict(cfg["models"][each]) for each, _ in taken.values() if each}
+    for role, (each, effort) in taken.items():
+        if each:
+            key = config.ROLE_EFFORTS[TAKEN[role]]
+            if effort and effort != cfg["models"][each]["effort"]:
+                cfg["models"][each][key] = effort
+            else:
+                cfg["models"][each].pop(key, None)
+    if any(cfg["models"][each] != held for each, held in before.items()):
+        try:
+            config.save(cfg)
+        except (config.Error, OSError) as exc:     # as _saved: the file's entries stay
+            for each, held in before.items():
+                cfg["models"][each].clear()
+                cfg["models"][each].update(held)
+            return f"config: {exc}"
     try:
         saved = config.update_session(config.resolve_session(name), workers=changed["workers"],
                                       reviewers=changed["reviewers"])
