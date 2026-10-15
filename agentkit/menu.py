@@ -97,7 +97,8 @@ its orchestrator, executors and reviewers: the orchestrator moves the seat at on
 roles flip with the same keys and save at once.
 `ak run status` and `ak browser` stay as commands for
 orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
-to reopen`; an ended run is its orchestrator's business, so no row ever says `press r`.
+to reopen`, and one you stopped reads `idle` with `session closed by the owner: press N to
+reopen`; an ended run is its orchestrator's business, so no row ever says `press r`.
 
 The screen is budgeted by height as well as width: a list of seats longer than the
 screen is drawn a page at a time -- on a terminal the page the highlight is on, from a pipe the

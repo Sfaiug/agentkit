@@ -2094,11 +2094,12 @@ def plan_progress(name):
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
                   previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
-    """`working`, `needs you` or `done` -- why, and since when.  The one decision.
+    """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
 
-    Every screen reads this and says one of those three words: the menu row, the project
+    Every screen reads this and says one of those four words: the menu row, the project
     heading, the top line, `ak orch list`, `ak orch why`, the seat's own status bar and its
-    window title.  It works until it is done or it is blocked on him; nothing else exists.
+    window title.  It works until it is done or it is blocked on him, or he closed it and
+    it sits idle; nothing else exists.
 
     Top wins, and the ladder is the whole of it:
 
@@ -2122,7 +2123,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       working, its reason saying until when (`resumes_at`);
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
-    * nobody is in the seat any more and its number is the way back in;
+    * nobody is in the seat any more and its number is the way back in: `idle` where he
+      closed it, `needs you` where it went on its own;
     * it said it was done itself, a job never says it for it, nothing on its screen asks him
       and it kept no question back for its turn's end
       -- unless a run of its own still sits parked and undecided, which is him;
@@ -2476,7 +2478,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
         return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
                 "since": min(state["finished_at"] for state in pending)}
-    # 4. nobody is in it: its number is the way back into the conversation.
+    # 4. nobody is in it: its number is the way back into the conversation.  A seat the
+    # owner closed is `idle`: he ended it, so nothing in it is his to unblock, and a hand-back
+    # waiting on it waits for him to want it back; one that went on its own is `needs you`,
+    # his to bring back.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
     if gone:
@@ -2489,13 +2494,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             reason = f"{OWNER_CLOSED_REASON}: press {where} to reopen"
             if waiting:
                 reason += f" · {waiting} hand-backs waiting"
+            word = "idle"
         else:
             reason = f"session closed: press {where} to reopen"
+            word = "needs you"
         # a harness that cannot prove which conversation this seat owned says so itself,
         # and that sentence is the rest of the reason -- it is what the number will do
         restart = session.get("restart")
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
-        return {"word": "needs you", "since": None,
+        return {"word": word, "since": None,
                 "reason": f"{reason} · {told}" if told else reason}
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.

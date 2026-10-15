@@ -147,14 +147,16 @@ class Cleanup(Sandbox):
             path.write_text("{}\n" if path.suffix == ".json" else "plan\n")
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)
-        # kept, with the stop mark: its row stays -- no conversation to resume, so its number
-        # starts fresh -- and its name stays taken
+        # kept, with the stop mark: its row stays, idle -- no conversation to resume, so its
+        # number starts fresh -- and its name stays taken
         for path in files:
             self.assertTrue(path.exists(), path.name)
         self.assertTrue(watch.seat_closed_by_owner("atoll"))
         rows = {row["name"]: row for row in orch.listing(reconcile=False)}
         self.assertEqual((rows["atoll"]["resumable"], rows["atoll"]["restart"], rows["atoll"]["closed"]),
                          (False, "starts fresh", watch.seat_read("atoll")["stopped_at"]))
+        self.assertEqual(watch.session_state("atoll", session=rows["atoll"], cfg=self.cfg)["word"],
+                         "idle")
         self.assertIn("atoll", orch.taken_names())
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)      # stopped again: the seat goes

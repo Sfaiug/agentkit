@@ -3317,7 +3317,8 @@ def cmd_stop(argv):
     closed as `Answered`, the tabs the seat or its runs opened close, and the tmux session
     goes -- under the seat's own typing lock, so a line being typed into it finishes first.
     Its record and state files stay, the stop mark in the seat file, so its row keeps its
-    number (`listing`, `ghost`): the number reopens the conversation where it stopped, and a
+    number, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number reopens
+    the conversation where it stopped, and a
     hand-back for a run of its waits for that (`watch.seat_closed_by_owner`).  The run
     directories stay, their results collected by age; a card Discord would not take the edit
     for stays, for the tick to close; browser tabs with no recorded opener are left to the

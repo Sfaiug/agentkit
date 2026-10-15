@@ -44,14 +44,14 @@ from pathlib import Path
 from agentkit import config, menu, orch
 
 SEATS = Path(os.environ["CLOSE_SEATS"])        # {name: word}, in the listing's order
-STOPPED = "stopped"      # a seat the owner stopped: a `needs you` row with `closed` set on it
+STOPPED = "stopped"      # a seat the owner stopped: an `idle` row with `closed` set on it
 seats = lambda: json.loads(SEATS.read_text())
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0,
      "closed": 1 if word == STOPPED else None} for name, word in seats().items()]
 orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {
-    "word": seats().get(session["name"], "working").replace(STOPPED, "needs you"),
+    "word": seats().get(session["name"], "working").replace(STOPPED, "idle"),
     "reason": "", "since": None}
 menu.usage_lines = lambda cfg, width: []
 menu.Live.probe = lambda self, now=None: False
@@ -277,13 +277,11 @@ class CloseAndInfo(unittest.TestCase):
     def test_x_on_a_stopped_seat_removes_it_without_a_question(self):
         menu = Menu(self, {"alpha": "working", "omega": "stopped"})
         lines = menu.frame()
-        self.assertIn("omega", menu.highlighted(lines))     # needs you sorts first
-        self.assertRegex(lines[-1], r"   x remove   ")
-        menu.send(b"j")
-        lines = menu.frame(lambda lines: "alpha" in menu.highlighted(lines))
+        self.assertIn("alpha", menu.highlighted(lines))     # idle sorts last
         self.assertRegex(lines[-1], r"   x stop   ")
-        menu.send(b"k")
-        menu.frame(lambda lines: "omega" in menu.highlighted(lines))
+        menu.send(b"j")
+        lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
+        self.assertRegex(lines[-1], r"   x remove   ")
         mark = menu.mark()
         menu.send(b"x")
         menu.saw("<stopped omega>", after=mark)
