@@ -69,7 +69,9 @@ footer = ['(?:\? for shortcuts|esc to cancel|press ctrl\+c again to exit)?\s*(?:
 # `>` in a wrapped line is the line's own and a chooser's `> /usage` under that rule is not it,
 # and nor is a prompt the transcript echoes under an earlier rule.  The background commands
 # agy lists under the composer (`● [12:08:46] sleep 45 running`) close with a rule of their own.
-draft = '^─+\n> ?(.*(?:\n(?!─+$).*)*)\n─+$(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+\n─+$)?(?![\s\S]*^─)'
+# A composer taller than the read starts at its top, its `opening` rule above it: what the read
+# shows is its last rows, never proof of all it holds.
+draft = '(?:(?P<opening>^─+\n)> ?|\A(?:> ?)?(?!─))(?P<text>.*(?:\n(?!─+$).*)*)\n─+$(?:(?:\n\s*● \[\d\d:\d\d:\d\d\] .+)+\n─+$)?(?![\s\S]*^─)'
 # A line taller than the composer scrolls in it, its last rows showing, and the prompt row says
 # how many are above (`> ↑ 13 more lines`, captured at 40 columns): never typed text.
 scrolled = '^(?:> ?)?[↑↓] \d+ more lines?$'

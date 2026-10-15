@@ -104,7 +104,12 @@ class CodexSeatStates(Sandbox):
                            ("draft-warning", "prompt.draft"), ("model-picker", "draft.picker"),
                            ("effort-picker", "draft.picker")):
             self.assertEqual(self.read(name), ("draft", "screen", rule), name)
-        self.assertEqual(watch.screen_state("codex", tail("draft-wrapped"))[2], "takes two rows")
+        # and says all of it the composer shows, never only its last row
+        for name, words in (("draft-two-lines", "line one of draft line two"),
+                            ("draft-wrapped", "this is a draft I never sent and it is long enough"
+                             " to wrap across the narrow composer line of the pane so that it takes"
+                             " two rows")):
+            self.assertEqual(watch.screen_state("codex", tail(name))[2], words, name)
         self.assertEqual(self.screen("resumed-warning"), ("at_prompt", "prompt.suggestion"))
 
     def test_the_hook_review_asks(self):
