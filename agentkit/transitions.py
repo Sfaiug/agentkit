@@ -219,6 +219,18 @@ MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as g
                     # moved-line detection (--color-moved) asks before it calls lines moved
 
 
+def first_review_refusal(what, lines, carried=0):
+    """One sentence when `what` (a pull request, a task's change) adds more lines than a first
+    review takes at once (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts the
+    added ones, less `carried`, the ones `carried_lines` found moved unchanged from lines the
+    diff deletes -- what a reviewer reads; nothing deleted counts."""
+    if lines - carried <= taskfile.MAX_PR_LINES:
+        return None
+    moved = f", {carried} of them moved unchanged from lines it deletes" if carried else ""
+    return (f"{what} adds {lines} lines{moved} (generated files aside; deletions never "
+            f"count): a first review takes at most {taskfile.MAX_PR_LINES}; split it")
+
+
 def carried_lines(repo, base, head="HEAD"):
     """Added lines a reviewer need not read: the blocks moved unchanged, whitespace aside, from
     lines the same diff deletes -- a run of added lines reading as a run of deleted lines of one
@@ -1175,6 +1187,14 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
             spent += rounds
             runs += 1
     return spent, runs
+
+
+def change_reviewed(change):
+    """Whether a review of that change handed in its verdict (`round_summaries`) on any run of
+    it (`change_of`): a round under way holds its place in the budget (`rounds_spent`), but no
+    reviewer has judged the change yet."""
+    return any(state and change_of(state) == change and state.get("round_summaries")
+               for state in map(run_record.read_state, run_record.run_dirs()))
 
 
 def round_budget(asked, *, pr=None, change=None, exclude=None, what, own=0):
