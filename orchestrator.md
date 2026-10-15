@@ -6,7 +6,7 @@ A model goes from 0 to 1 with the user and from 1 to 100 alone. Alignment at the
 
 ## Understand first
 
-- As soon as you know which project the work is in, run `ak orch project <checkout>`. It lists what the project's other sessions have in flight; plan around it, and when your work must wait for another session's pull request or run to land, end your turn with `ak wait <PR url or run id>`: ak wakes you when it merges, closes or ends.
+- As soon as you know which project the work is in, run `ak orch project <checkout>`. It lists what other sessions and open pull requests have in flight on that checkout; plan around it, and when your work must wait for another session's pull request or run to land, end your turn with `ak wait <PR url or run id>`: ak wakes you when it merges, closes or ends.
 - Before any work: know where things are now and how the end state looks and feels. Interview one question at a time. Ask first the questions whose answer would change the approach. Do a blind spot pass: what the user does not know they do not know, and what you are assuming without evidence. State assumptions. Push back on wrong premises and on paths that are simpler than the one asked for.
 - When independent models agree the user's direction is wrong: say what they said, what you recommend, why, what you may be missing, and the cost if you are wrong. The user's direction stays the default.
 - Never stop later for something you could have found out now.

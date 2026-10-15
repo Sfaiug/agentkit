@@ -3415,7 +3415,8 @@ def cmd_project(argv):
             raise config.Error(f"no orchestrator session {name!r}")
     print(f"filed {name} under {repo.name}")
     flight = in_flight(name, repo)
-    print(f"in flight on {repo.name}, plan around it:" if flight
+    prs = open_prs(repo)
+    print(f"in flight on {repo.name}, plan around it:" if flight or prs
           else f"nothing else in flight on {repo.name}")
     room = terminal.layout_width() - 4
     for seat, lines, files in flight:
@@ -3427,6 +3428,12 @@ def cmd_project(argv):
         if files:
             for part in terminal.wrap(f"changing: {', '.join(sorted(files))}", room):
                 print(f"    {part}")
+    for number, title, files in prs:
+        for part in terminal.wrap(f"pull request #{number}, in no run: {title}", room + 2):
+            print(f"  {part}")
+        if files:
+            for part in terminal.wrap(f"changing: {', '.join(files)}", room):
+                print(f"    {part}")
     return 0
 
 
@@ -3434,26 +3441,61 @@ PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
 
 
 def in_flight(name, repo):
-    """What the other seats filed under the same checkout have in flight, so two sessions
-    never build the same thing unaware: [(seat, open plan lines, changed files)] by name.
+    """What the other seats have in flight on that checkout, so two sessions never build the
+    same thing unaware: [(seat, open plan lines, changed files)] by name.
 
-    A seat's open lines are its plan's unticked ones; its files are what its going runs
-    change against their base, committed or not, or a queued run's task `files:`.  A seat
-    with neither is left out.
+    A seat counts when it is filed under the checkout or has a going run on it, whatever it is
+    filed under: a seat filed elsewhere builds here too.  Its open lines are its plan's unticked
+    ones, of a seat filed elsewhere only those naming this checkout; its files are what its going
+    runs on the checkout change against their base, committed or not, or a queued run's task
+    `files:`.  A seat with neither is left out.
     """
     from . import menu, watch  # here, not at the top: menu imports this module
     target = checkout_of(repo)
-    seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
-             if seat != name and target and checkout_of(record.get("repo")) == target}
+    if not target:
+        return []
+    filed = {seat for seat, record in config.session_records().items()
+             if checkout_of(record.get("repo")) == target}
+    seats = {seat: ([], set()) for seat in filed if seat != name}
+    for directory, state in going_here(target):
+        seat = transitions.launched_session(state)
+        if seat and seat != name and not menu.smoke_run(state):
+            seats.setdefault(seat, ([], set()))[1].update(changed_files(state, directory))
     for seat, (lines, _) in seats.items():
-        plan = watch.plan_text(seat)
-        lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
+        for line in watch.plan_text(seat).splitlines():
+            found = PLAN_OPEN.match(line)
+            if found and (seat in filed or names_checkout(seat, line, target)):
+                lines.append(found.group(1).strip())
+    return [(seat, lines, files) for seat, (lines, files) in sorted(seats.items()) if lines or files]
+
+
+def going_here(target):
+    """(run directory, record) of each going run whose repository is that checkout."""
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
-        seat = transitions.launched_session(state)
-        if seat in seats and not menu.smoke_run(state) and transitions.going(state):
-            seats[seat][1].update(changed_files(state, directory))
-    return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
+        if transitions.going(state) and checkout_of(state.get("repo")) == target:
+            yield directory, state
+
+
+def names_checkout(seat, line, target):
+    """Whether that plan line of the seat's is written on that checkout (`plan.place`)."""
+    found = plan.LINE.match(line.strip())
+    return bool(found) and checkout_of(plan.place(seat, found["project"])) == target
+
+
+def open_prs(target):
+    """[(number, title, changed files)] of the checkout's open pull requests no going run is
+    reviewing or delivering -- a seat's PR waiting between runs, anybody's PR -- or [] where gh
+    cannot list them."""
+    taken = {state.get(key) for _, state in going_here(target) for key in ("review_pr", "pr")}
+    code, out = gitcall.gh(target, "pr", "list", "--state", "open", "--limit", "100",
+                           "--json", "number,title,url,files")
+    try:
+        found = json.loads(out) if code == 0 else []
+    except ValueError:
+        return []
+    return [(pr["number"], pr["title"], sorted(each["path"] for each in pr.get("files") or []))
+            for pr in found if isinstance(pr, dict) and pr.get("url") not in taken]
 
 
 def changed_files(state, directory):
