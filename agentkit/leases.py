@@ -19,7 +19,8 @@ same way, and the tick starts that review again.  A younger run past that point,
 pull request's review, a job's task, a red target's repair and a suite's split are only
 written down: the lander orders their landings.  The record under
 `~/.agentkit/state/leases/` holds the collisions as the last scan saw them.  A diff counts
-only while its run is going (`transitions.going`), is to land and its checkout is there; a record
+only while its run holds its lines (`holds`: going, and not waiting on a person or a spent
+provider window), is to land and its checkout is there; a record
 whose pair no longer collides, or whose holder is gone, is cleared on the next scan.
 """
 
@@ -81,15 +82,28 @@ def write(repo, waits):
         fresh.replace(target)
 
 
+# what a going run can wait on that ak does not move: an expired login, a stall only a resume
+# ends, a spent provider window that may take days
+STILL = ("waiting_login", "stalled", "exhausted")
+
+
+def holds(state, now=None):
+    """Whether that run's diff holds its lines: going (`transitions.going`) and moved by ak
+    itself, not waiting on a person or a provider window (`STILL`).  A younger run never waits
+    on work nothing moves: once its holder stands still it starts again, and where the two
+    still clash when both land, the landing line fixes it."""
+    return transitions.going(state, now=now) and state.get("state") not in STILL
+
+
 def live(repo):
-    """The runs of that repository whose diffs count: going, to land (a `--no-merge` run, a
+    """The runs of that repository whose diffs count: holding their lines (`holds`), to land (a `--no-merge` run, a
     scratch one among them, keeps its work local and stands in nobody's way), cut from a base,
     with a checkout of their own that is still there; oldest first by start."""
     found = []
     for run_dir in run_record.run_dirs():
         state = run_record.read_state(run_dir)
         if (not state or state.get("no_merge") or not state.get("base_sha")
-                or not transitions.going(state) or state.get("lease_wait") or not same_repo(state.get("repo"), repo)):
+                or not holds(state) or state.get("lease_wait") or not same_repo(state.get("repo"), repo)):
             continue
         worktree = Path(state.get("worktree") or "")
         if (not state.get("worktree") or not worktree.is_dir()
@@ -307,7 +321,7 @@ def scan(repo, log=lambda _: None, now=None):
         for older in runs[:at]:
             files = collide(repo, older, younger, trees)
             holder = run_record.read_state(config.RUNS / older["run"]) or {}
-            if not files or not transitions.going(holder) or parked(holder):
+            if not files or not holds(holder) or parked(holder):
                 continue        # one this scan parked, or that ended, holds no diff
             kept = before.get(younger["run"]) or {}
             since = kept.get("since") if kept.get("waits_on") == older["run"] else None
@@ -366,7 +380,8 @@ def task_naming(run_dir, directory, repo):
 
 def restart(log=print, now=None):
     """The tick's pass: a run stopped waiting on a holder (`park`) is started again once the
-    holder has landed or is over (stopped or failed: its diff no longer counts) -- its task
+    holder has landed, is over (stopped or failed: its diff no longer counts) or stands still
+    (`holds`: waiting on a person or a provider window) -- its task
     naming its repository and the new run (`task_naming`), with a fix run's regression folder and
     receipt (`CARRIED`), or a pull request's review as that review again (`--review-pr`), with
     the writer the stopped run captured at its launch (`own_pr`, `own_orchestrator`: the seat
@@ -382,9 +397,11 @@ def restart(log=print, now=None):
         wait = state["lease_wait"]
         holder_dir = config.RUNS / wait["on"]
         holder = run_record.read_state(holder_dir) if holder_dir.is_dir() else None
-        if holder and transitions.going(holder, now=now):
+        if holder and holds(holder, now=now):
             continue
-        why = f"{wait['on']} {'has landed' if holder and holder.get('merged') else 'is over'}"
+        why = f"{wait['on']} " + ("has landed" if holder and holder.get("merged") else
+                                  f"stands still ({holder['state']})" if holder and transitions.going(holder, now=now)
+                                  else "is over")
         directory = handback.free_run_dir(run_dir.name.split("-", 2)[-1])
         session = transitions.launched_session(state)
         with watch.state_lock():
