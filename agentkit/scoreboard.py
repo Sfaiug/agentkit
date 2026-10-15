@@ -24,7 +24,8 @@ ANSWERS_FOR = 7 * 86400   # a merged change answers for its lines this long: a l
                           # reviewer's changes alike, so reviewers are compared by it
 
 # What the board measures, row by row: the board's key, the row's label, and the parts each
-# week's cell is built from, in the vision's order (quality and speed, then cost, then size).
+# week's cell is built from, in the vision's order (quality and speed, then cost, then size):
+# `compute` answers with these rows and parts alone, and `render` draws these rows.
 # The owner's yes changes it (AGENTS.md, Owner rules), and tests/test_scoreboard_measures.py
 # pins it, so a board that measures something else is a visible test change, never a quiet one.
 MEASURES = (
@@ -339,7 +340,10 @@ def compute(now=None):
     board["merged"] = merged_changes
     board["escaped"] = escapes_seen
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
-    return board
+    # a cell answers with its measure's parts alone, so a part counted here and not named in
+    # MEASURES never reaches the board
+    return {key: [None if cell is None else {part: cell[part] for part in parts} for cell in board[key]]
+            for key, _, parts in MEASURES}
 
 
 def render():
