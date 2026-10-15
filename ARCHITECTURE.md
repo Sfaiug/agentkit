@@ -129,9 +129,9 @@
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
-- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs`, `parks` (the `parked_at` `leases.park` stamps) and `owner` for the scoreboard; the owner's moments, one row each naming no seat (`owner_time`, which notify writes).
+- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs`, `parks` (the `parked_at` `leases.park` stamps), `owner` and `intents_done` for the scoreboard; the owner's moments, one row each naming no seat (`owner_time`), and intents by conversation (`intent`, `last_done`), which notify writes.
   For run, gate, harness. Leak: parses harness event logs.
-- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the owner's time (`owner`), the week's largest loss in the vision's order (`loss`), words and wrapping.
+- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the owner's time (`owner`), intents, first message to done and to live (`intent`), the week's largest loss in the vision's order (`loss`), words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression; a harness config's stale trust and MCP entries, where its plugin

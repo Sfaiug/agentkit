@@ -1501,15 +1501,45 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         completion = _completion(name)
         if completion:
             extra["completion"] = completion
-        extra["runs"] = [directory.name for directory, state in menu.run_records()
-                         if transitions.launched_session(state) == name and
-                         (transitions.going(state) or transitions.unfinished(state))]
+        mine = [(directory.name, state) for directory, state in menu.run_records()
+                if transitions.launched_session(state) == name]
+        extra["runs"] = [run for run, state in mine
+                         if transitions.going(state) or transitions.unfinished(state)]
     if at is not None:
         extra["time"] = at
     record(name, kind, text, **extra)
     for _ in range(fresh):
         history.owner_time("asked", time.time() if at is None else at)
+    if kind == "done":
+        _intent(name, time.time() if at is None else at, mine)
     return previous
+
+
+def _intent(name, done_at, mine):
+    """Record the owner's intent that seat's done ends, read from its conversation itself: from
+    the owner's first message there since the conversation's last done to this one, with the
+    runs the seat started in between (`mine`, its run records).  `user_messages` leaves ak's
+    own lines out.  A done with no message of theirs since ends none.  Read here, from facts
+    already decided, never stamped by a prompt's hook: hook order, renames and reused names
+    moved such stamps after they were written."""
+    from . import orch
+    record = config.session_records().get(name)
+    if not record:
+        return
+    plugin, cwd = orch.seat_plugin(record), record.get("cwd")
+    try:
+        conversation = plugin.conversation(record, cwd)
+        since = history.last_done(f"{plugin.name}:{conversation}") if conversation else None
+        if since is None:
+            return
+        asked = [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)
+                 if since < message["at"] <= done_at]
+    except (OSError, ValueError):
+        return
+    if asked:
+        began = min(asked)
+        history.intent(f"{plugin.name}:{conversation}", began, done_at,
+                       [run for run, state in mine if began <= (state.get("started_at") or 0) <= done_at])
 
 
 def ask_kept(name, ended=False):

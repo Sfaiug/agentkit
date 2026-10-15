@@ -107,6 +107,17 @@ CREATE TABLE IF NOT EXISTS owner (
 )
 """
 
+# An owner's intent, by the conversation it was asked in: a rename keeps the conversation, and
+# a name opened anew starts one of its own.
+INTENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS intents (
+    conversation TEXT,
+    began_at REAL,
+    done_at REAL,
+    runs TEXT
+)
+"""
+
 
 def path():
     """The history database follows the configured HOME, including test homes."""
@@ -125,6 +136,7 @@ def _connect(*, readonly=False):
     connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
+    connection.execute(INTENTS_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -387,6 +399,46 @@ def owner(since, until):
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
+
+
+def intent(conversation, began_at, done_at, runs, *, log=None):
+    """An intent its seat said done to: from the owner's first message for it to the done, with
+    the runs the seat started in between."""
+    _write(lambda connection: connection.execute(
+        "INSERT INTO intents (conversation, began_at, done_at, runs) VALUES (?, ?, ?, ?)",
+        (conversation, began_at, done_at, json.dumps(runs))), log)
+
+
+def last_done(conversation):
+    """When that conversation's last intent was done, 0 with none yet; None where the database
+    cannot answer, so no intent is taken back to a conversation's first message."""
+    return _write(lambda connection: connection.execute(
+        "SELECT COALESCE(MAX(done_at), 0) FROM intents WHERE conversation=?",
+        (conversation,)).fetchone()[0])
+
+
+def intents_done(since, until):
+    """The intents done in the inclusive range, each with when it began, when it was done, and
+    when the last of its runs went live (None with none); None where the database cannot
+    answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                done = []
+                for began, ended, runs in connection.execute(
+                        "SELECT began_at, done_at, runs FROM intents WHERE done_at >= ? AND done_at <= ? "
+                        "ORDER BY done_at", (since, until)).fetchall():
+                    runs = json.loads(runs)
+                    live = connection.execute(
+                        f"SELECT MAX(live_at) FROM runs WHERE run_id IN ({', '.join('?' * len(runs))})",
+                        runs).fetchone()[0] if runs else None
+                    done.append({"began_at": began, "done_at": ended, "live_at": live})
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+    return done
 
 
 def open_step(run_id, step, at=None, *, log=None):
