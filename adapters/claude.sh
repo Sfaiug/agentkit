@@ -93,6 +93,7 @@ case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "claude.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
   model=$1 effort=$2 ws=$3 pf=$4 out=$5 sid=${6:-}
+  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   mkdir -p -- "$out" || exit 2
   cd -- "$ws" || { echo "claude.sh: no such workspace: $ws" >&2; exit 2; }
   if [ -n "$ACCOUNT" ]; then
@@ -101,6 +102,9 @@ run)
     mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
     [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
       ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
+    # and its settings are the usual login's file, as a seat's are; a turn that cannot make
+    # them so runs on what its login holds, the reason in its diagnostics
+    python3 "$REPO/agentkit/harness/claude.py" --share
   fi
   # The long-lived worker token, where there is one: a headless turn authenticates with it and
   # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn

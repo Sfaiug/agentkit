@@ -492,9 +492,9 @@ def _pin(settings):
     seats never message one another, on any harness or account; a seat waits on a pull
     request or run through ak (`ak wait`).  A message its safeguards flag switches
     the conversation to another model by itself instead of pausing the seat on a dialog
-    until the owner answers; an answer there writes this same setting, which an account
-    login's copy of the usual login's settings carried over.  Claude Code reads its user
-    settings again when the file changes, so a seat opened before this launch takes them too.
+    until the owner answers; an answer there writes this same setting, into the one file
+    every login reads.  Claude Code reads its user settings again when the file changes, so a
+    seat opened before this launch takes them too.
     """
     permissions = settings.setdefault("permissions", {})
     if not isinstance(permissions, dict):
@@ -539,18 +539,27 @@ def checked(account):
     return {CHECKED_ENV: "1"}
 
 
+def _pinned(path, settings, held=None):
+    """Pin the one settings file every Claude login reads (`_pin`), with what `held` holds alone
+    carried into it.  It is rewritten only where that changed it: a launch writing back whole
+    what it read would put that over a change a running session made since."""
+    before = json.dumps(settings, sort_keys=True)
+    settings = {**(held or {}), **settings}
+    _pin(settings)
+    if json.dumps(settings, sort_keys=True) != before:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write(path, settings)
+
+
 def _share(usual, own, shared, held):
     """Make a named login's settings the usual login's own file, linked: a change made on any
     login -- a seat's /config, a model asked to set one -- is every Claude session's, and no
     launch copies the usual settings back over it.  Claude Code writes through the link.  What
     a login's own file held alone is carried over first, the usual login's value winning where
     both have one, as the copy that stood here did; its hooks are a past checkout's, and go."""
-    if not own.is_symlink():
-        shared = {**{k: v for k, v in held.items() if k != "hooks"}, **shared}
-    _pin(shared)
-    usual.parent.mkdir(parents=True, exist_ok=True)
-    _write(usual, shared)
-    if own.is_symlink() and own.resolve() == usual.resolve():
+    linked = own.is_symlink() and own.resolve() == usual.resolve()
+    _pinned(usual, shared, None if linked else {k: v for k, v in held.items() if k != "hooks"})
+    if linked:
         return
     fd, name = tempfile.mkstemp(dir=own.parent, prefix=own.name + ".", suffix=".link")
     os.close(fd)
@@ -574,11 +583,9 @@ def account_config(check=False):
         return
     if not account:
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
-        _pin(values[0])
         answered(values[1])
-        paths[0].parent.mkdir(parents=True, exist_ok=True)
-        for path, data in zip(paths, values):
-            _write(path, data)
+        _write(paths[1], values[1])
+        _pinned(paths[0], values[0])
         return
     home = Path.home()
     directory = home / f".claude-{account}"
@@ -663,6 +670,11 @@ if __name__ == "__main__":
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
         from agentkit.harness.claude import capture
         capture(os.environ["AGENTKIT_SESSION"], json.load(sys.stdin), int(sys.argv[2]))
+        sys.exit(0)
+    if sys.argv[1:] == ["--share"]:
+        # a worker turn on a named login (adapters/claude.sh run) reads the one file too
+        (usual, _, own), (shared, _, held) = _settings(os.environ["AGENTKIT_ACCOUNT"])
+        _share(usual, own, shared, held)
         sys.exit(0)
     checking = sys.argv[1:] == ["--check"]
     account_config(check=checking)
