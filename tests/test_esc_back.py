@@ -80,7 +80,8 @@ def mark_return(module, name):
 
 for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
                      (menu, "config_add_provider"), (menu, "config_remove_provider"),
-                     (menu, "config_discord"), (menu, "show_features"), (menu, "new_session"),
+                     (menu, "config_discord"), (menu, "config_audit"), (menu, "show_features"),
+                     (menu, "new_session"),
                      (menu, "pause"), (terminal, "choose")):
     mark_return(module, name)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
@@ -289,7 +290,7 @@ class EscBack(unittest.TestCase):
                     and any("model id" in line for line in lines))
         menu_.press(LEFT + ENTER, model)
         menu_.back("config_model", model)
-        menu_.press(DOWN * 30 + UP * 3, lambda lines: config_(lines) and any(
+        menu_.press(DOWN * 30 + UP * 4, lambda lines: config_(lines) and any(
             line.startswith("›") and "add a model" in line for line in lines))
         menu_.press(ENTER, title("config · add a model"))
         menu_.back("config_add", title("config · add a model"))
@@ -300,6 +301,9 @@ class EscBack(unittest.TestCase):
         menu_.press(DOWN + ENTER, title("config · discord"))
         menu_.back("config_discord", title("config · discord"))
         self.assertEqual(list(menu_.home.rglob("discord_*")), [])   # the typed `q` is not saved
+        menu_.press(DOWN + ENTER, title("config · weekly audit"))
+        menu_.back("config_audit", title("config · weekly audit"))
+        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is an [audit] written
         menu_.back("config_matrix", config_)
         menu_.leave()
 

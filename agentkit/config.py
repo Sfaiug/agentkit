@@ -1151,6 +1151,38 @@ def reviewers(cfg):
     return list(selection.get("reviewers", selection["workers"]))
 
 
+def audit(cfg):
+    """The weekly audit's setting, `[audit]` in config.toml: whether it runs (`on`, true until
+    written false) and the models its seat takes, `orchestrator`, `workers` and `reviewers`,
+    each `[defaults]`'s where the table leaves it out.  A name no `[models.*]` entry offers,
+    or an empty reviewer list, is an Error naming it, so the `c` row and the tick say the same
+    thing."""
+    table = cfg.get("audit", {})
+    if not isinstance(table, dict):
+        raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit] must be a table")
+    defaults = cfg["defaults"]
+    on = table.get("on", True)
+    if not isinstance(on, bool):
+        raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit].on must be true or false (got {on!r})")
+    setting = {"on": on, "orchestrator": table.get("orchestrator", defaults["orchestrator"]),
+               "workers": table.get("workers", defaults["workers"]),
+               "reviewers": table.get("reviewers", defaults.get("reviewers", defaults["workers"]))}
+    for role in ("workers", "reviewers"):
+        names = setting[role]
+        if not isinstance(names, list) or any(not isinstance(name, str) for name in names):
+            raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit].{role} must list model names "
+                        f"(got {names!r})")
+        setting[role] = list(names)
+    if not isinstance(setting["orchestrator"], str):
+        raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit].orchestrator must be a model name "
+                    f"(got {setting['orchestrator']!r})")
+    if not setting["reviewers"]:
+        raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit].reviewers must name a model")
+    for name in (setting["orchestrator"], *setting["workers"], *setting["reviewers"]):
+        model(cfg, name)
+    return setting
+
+
 def role_groups(cfg, workers=None, reviewers=None):
     """Bind unbound picks only for explicit reviewers; preserve absence for legacy overrides."""
     if workers is None:
