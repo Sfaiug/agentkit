@@ -385,7 +385,7 @@ def compute(now=None):
     board["parks"] = parks
     board["escaped"] = escapes_seen
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
-    return {key: board[key] for key, _, _ in MEASURES}
+    return board
 
 
 def render():
