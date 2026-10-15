@@ -58,7 +58,7 @@ class UsageStaysOnTop(Sandbox):
         self.assertGreater(len(drawn["turns"]), 1)
         for first in drawn["turns"]:
             lines, _ = self.draw(100, 24, cursor=first)
-            self.assertRegex("\n".join(lines[:6]), r"usage left\n.*Claude +[█░]+ +21% left")
+            self.assertRegex(lines[2], r"Claude +[▰▱]+ +21% left")       # under the rule
             self.assertEqual(len(lines), 22, lines)
             self.assertIn("esc leave", lines[-1])
         lines, _ = self.draw(80, 24, seats=1)      # one seat: the keys still on the bottom row
@@ -74,7 +74,7 @@ class UsageStaysOnTop(Sandbox):
             lines, _ = self.draw(width, height, seats, keys=keys)
             text = "\n".join(lines)
             self.assertLessEqual(len(lines), height - 2, text)
-            self.assertNotIn("usage left", text)
+            self.assertNotIn("no reading yet", text)                   # not the grid
             self.assertNotIn("…", text.split("\nyour projects")[0].split("\nacme")[0])
             for label in labels:
                 self.assertRegex(text, rf"{re.escape(label)} (\d+%|—)", (width, height, label))
@@ -89,9 +89,11 @@ class UsageStaysOnTop(Sandbox):
         text = "\n".join(self.draw(30, 20)[0])
         self.assertIn("ChatGPT 62,469 credits left", text)
         self.assertRegex(text, r"Acme_Sub\S*… 83%")
+        self.assertIn("  MiMo   — no reading yet", self.draw(28, 30, seats=1)[0])   # the grid's too
         self.meters["openai"]["currency"] = "CHF"      # its label gives way, the line fits
         lines, _ = self.draw(28, 20, seats=1)
         self.assertIn("  CHF 62,469.67 credits left", lines)
+        self.assertIn("  CHF 62,469.67 credits left", self.draw(28, 30, seats=1)[0])   # no grid
         self.assertEqual([line for line in lines if terminal.cells(line) > 28], [])
 
     def test_only_a_screen_with_no_room_for_a_seat_cuts_the_readings_and_says_so(self):

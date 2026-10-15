@@ -615,8 +615,8 @@ class Antigravity(unittest.TestCase):
         self.assertIn("gemini", config.offered(cfg))
         self.assertNotIn("gemini", [cfg["defaults"]["orchestrator"], *cfg["defaults"]["workers"]])
         with patch.object(config, "STATE", self.root / "state"):
-            rows = menu.usage_lines(cfg, 100)
-        self.assertTrue(any(row.startswith("  Gemini ") for row in rows), rows)
+            labels = [label for _, label, _, _ in menu.usage_cells(cfg)]
+        self.assertIn("Gemini", labels)
 
 
 if __name__ == "__main__":

@@ -168,11 +168,9 @@ class Shown(unittest.TestCase):
         (config.STATE / "usage.json").write_text(json.dumps(
             {"fetched_at": self.now, "providers": providers}))
         for width in (100, 40):
-            rows = [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
-            claude = next(row for row in rows if row.lstrip().startswith("Claude"))
-            chat = next(row for row in rows if row.lstrip().startswith("ChatGPT"))
-            self.assertRegex(claude, r"░ +\$12\.40 credits left")
-            self.assertRegex(chat, r"░ +62,469 credits left")
+            grid = terminal.plain("\n".join(menu.usage_lines(self.cfg, width)))
+            self.assertRegex(grid, r"Claude +\$12\.40 credits left")
+            self.assertRegex(grid, r"ChatGPT +62,469 credits left")
         with patch.object(usage, "review_pair", return_value=None):
             shown = terminal.plain(usage.render(self.cfg, providers, ["opus", "astra"]))
         self.assertIn("anthropic: $12.40 credits left", shown)
@@ -191,9 +189,8 @@ class Shown(unittest.TestCase):
         (config.STATE / "usage.json").write_text(json.dumps(
             {"fetched_at": self.now, "providers": providers}))
         for width in (100, 40):
-            rows = [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
-            claude = next(row for row in rows if row.lstrip().startswith("Claude"))
-            self.assertRegex(claude, r"░ +unlimited credits")
+            grid = terminal.plain("\n".join(menu.usage_lines(self.cfg, width)))
+            self.assertRegex(grid, r"Claude +unlimited credits")
 
 
 if __name__ == "__main__":

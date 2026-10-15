@@ -91,13 +91,18 @@ class RefusalKeepsWeek(unittest.TestCase):
         return [{"name": name, "used": 100, "resets_at": self.five_ends, "window_secs": FIVE}]
 
     def row(self):
-        return terminal.plain(menu.usage_lines(self.cfg, 120)[1])
+        """Muse's share as its cell on the grid says it, then the rest as the line under it does."""
+        cells = menu.usage_cells(self.cfg)
+        number = next(n for n, (_, label, _, _) in enumerate(cells, 1)
+                      if terminal.plain(label) == "Muse")
+        rest = terminal.plain(menu.usage_detail(self.cfg, number, 120), True).split("  ", 1)[1]
+        return f"{cells[number - 1][3]} · {rest}"
 
     def assert_week_kept(self):
         week = usage.reset_when({"resets_at": self.week_ends}, self.now[0])
         five = usage.reset_when({"resets_at": self.five_ends}, self.now[0]).split()[-1]
         age = usage.as_of({"fetched_at": NOW}, self.now[0])
-        self.assertRegex(self.row(), rf"^\s*Muse\s+\S+\s+36% left · resets {week} · "
+        self.assertRegex(self.row(), rf"^36% left · resets {week} · "
                                      rf"5h spent until {five} · {age}$")
         prov = usage.collect(self.cfg)["meta"]
         self.assertTrue(prov["exhausted"])

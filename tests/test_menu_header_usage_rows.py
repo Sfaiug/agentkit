@@ -1,8 +1,8 @@
 """the menu's header and its usage rows, and the polarity `ak usage` prints; offline.
 
 These used to live in test_usage_menus_and_runs.py beside the runs drill-down.  They are the
-usage row's own behaviours, so they are their own file now, and they read the row as it stands
-today: the
+usage row's own behaviours, so they are their own file now, and they read it as it stands
+today, each subscription's cell and the line under it: the
 provider's shared week, when that week resets, a scoped cap only where it differs, the
 5-hour window's note, and the adapter's own reason when a probe failed.
 """
@@ -17,6 +17,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.subscriptions import said
 from agentkit import config, menu, terminal, usage
 
 
@@ -69,27 +70,20 @@ class UsageRow(Sandbox):
             # the resets in hand are `ak usage`'s column now, whether there are any or not
             self.providers["openai"]["resets"] = resets
             self.cache()
+            self.assertEqual(said(self.cfg)["ChatGPT"], "empty until Mon 00:00")
+            self.assertEqual(terminal.plain(menu.usage_detail(self.cfg, 6)),
+                             "ChatGPT resets Mon 00:00" + (" · 2 resets in hand" if resets else ""))
             for width in (40, 100):
-                line = menu.usage_lines(self.cfg, width)[6]
-                self.assertRegex(line, r"ChatGPT\s+░+\s+0% left")
-                self.assertNotIn("█", line)
-                self.assertEqual("resets Mon 00:00" in line, width == 100)
-                self.assertNotIn("+2 resets", line)
-                self.assertLessEqual(terminal.cells(line), width)
+                lines = menu.usage_lines(self.cfg, width)
+                self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
 
     def test_v5c_read_meter_beside_an_error_keeps_its_bar_and_marks_it(self):
         reason = "unknown: Muse usage probe timed out"
         self.providers["meta"] = {"meters": [self.meter("weekly", 10)], "error": reason}
         self.cache()
-        line = menu.usage_lines(self.cfg, 100)[3]
-        # the bar stands, and the adapter's own line says why in one place rather than two
-        self.assertRegex(line, r"Muse\s+█+░+\s+90% left · resets Sun 00:00 · "
-                               r"\? Muse usage probe timed out$")
-        # A whole sentence needs room a phone does not have, so it gives way -- but only it:
-        # the reset beside it comes back as soon as there is room for it, and the bar, which
-        # gives way first, is what makes that room.
-        self.assertTrue(menu.usage_lines(self.cfg, 40)[3].endswith("90% left"))
-        self.assertTrue(menu.usage_lines(self.cfg, 56)[3].endswith("90% left · resets Sun 00:00"))
+        # the meter stands, and the adapter's own line says why in one place rather than two
+        self.assertEqual(said(self.cfg)["Muse"],
+                         "90% left · resets Sun 00:00 · ? Muse usage probe timed out")
         # `ak usage` keeps saying it too, under the table
         providers = {"meta": {"meters": [{**self.meter("weekly", 10), "elapsed": 50, "pace": -40}],
                               "resets": 0, "error": reason}}
@@ -99,7 +93,7 @@ class UsageRow(Sandbox):
         with patch.object(sys.stdout, "isatty", return_value=True), \
                 patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
-            self.assertIn("\033[1;33m?\033[0m", menu.usage_lines(self.cfg, 100)[3])   # the table's `?`
+            self.assertIn("\033[1;33m?\033[0m", menu.usage_detail(self.cfg, 3))   # the table's `?`
 
     def test_v5c_no_reading_is_a_dash_and_why(self):
         cases = ((None, "no reading yet"),
@@ -136,11 +130,7 @@ class UsageRow(Sandbox):
             else:
                 self.providers["meta"] = prov
             self.cache()
-            for width in (40, 100):
-                line = menu.usage_lines(self.cfg, width)[3]
-                self.assertEqual(line.split(), ["Muse", "—", *why.split()], line)
-                self.assertNotRegex(line, "[█░%]")
-                self.assertNotIn("old", line)
+            self.assertEqual(said(self.cfg)["Muse"].split(), ["—", *why.split()])
 
     def test_v5c_no_row_says_how_old_its_reading_is(self):
         path = self.cache()
@@ -148,11 +138,8 @@ class UsageRow(Sandbox):
         self.providers["meta"]["fetched_at"] = 10000 - 30
         for fetched in (10000, 10000 - 600, 10000 - 7200, None):
             path.write_text(json.dumps({"fetched_at": fetched, "providers": self.providers}))
-            for width in (40, 100):
-                lines = menu.usage_lines(self.cfg, width)
-                self.assertRegex(lines[1], r"Claude\s+[█░]+\s+21% left")
-                self.assertNotRegex("\n".join(lines), r"\bold\b|age unknown", lines)
-                self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
+            self.assertTrue(said(self.cfg)["Claude"].startswith("21% left"))
+            self.assertNotRegex("\n".join(said(self.cfg).values()), r"\bold\b|age unknown")
 
     def test_v5c_claude_row_is_the_shared_week_and_never_fables_own_cap(self):
         meters = self.providers["anthropic"]["meters"]
@@ -165,9 +152,8 @@ class UsageRow(Sandbox):
                                                   (60, 100, 40, "Fable 0%")):
             meters[0]["used"], meters[1]["used"] = all_used, scoped_used
             self.cache()
-            line = menu.usage_lines(self.cfg, 100)[1]
-            self.assertRegex(line, rf"Claude\s+[█░]+\s+{left}% left · resets Sun 00:00 · "
-                                   rf"{note} · 5h spent until 00:00$")
+            self.assertEqual(said(self.cfg)["Claude"],
+                             f"{left}% left · resets Sun 00:00 · {note} · 5h spent until 00:00")
             # the picker and the table keep ranking on the tightest meter, as they always did
             table = {"anthropic": {"meters": [{**m, "elapsed": 50, "pace": 0} for m in meters]}}
             self.assertEqual(usage.rows(self.cfg, table)[0][2],
@@ -176,8 +162,7 @@ class UsageRow(Sandbox):
         # all, and borrowing the cap would be exactly the number the report called wrong
         self.providers["anthropic"]["meters"] = [self.meter("weekly_scoped", 9)]
         self.cache()
-        self.assertEqual(menu.usage_lines(self.cfg, 100)[1].split(),
-                         ["Claude", "—", "no", "shared", "week"])
+        self.assertEqual(said(self.cfg)["Claude"].split(), ["—", "no", "shared", "week"])
         table = {"anthropic": {"meters": [{**self.meter("weekly_scoped", 9),
                                            "elapsed": 50, "pace": 0}]}}
         row = dict(zip(usage.HEADERS, usage.rows(self.cfg, table)[0]))
@@ -197,8 +182,7 @@ class UsageRow(Sandbox):
                                     "—  window reset", "-")):
             self.providers["anthropic"]["meters"] = meters
             self.cache()
-            line = menu.usage_lines(self.cfg, 100)[1]
-            self.assertTrue(line.endswith(tail), line)
+            self.assertTrue(said(self.cfg)["Claude"].startswith(tail), said(self.cfg))
             readable = [{**m, "elapsed": 50, "pace": 0} for m in meters
                         if usage._number(m.get("used")) is not None]
             table = {"anthropic": usage._without_past({"meters": readable}, 10000, "the cache")}
@@ -233,30 +217,6 @@ class UsageRow(Sandbox):
             self.assertIn("69%", rendered)
             self.assertTrue(all(terminal.cells(line) <= width for line in rendered.splitlines()),
                             rendered)
-
-    def test_v5c_notes_give_way_before_the_bar_does_on_a_phone(self):
-        self.providers["anthropic"]["error"] = "unknown: claude usage exited 1"
-        self.cache()
-        # The bar gives way to the notes, down to four cells, and only then do the notes give
-        # way -- each on its own, the least worth keeping first, so one note too long for the
-        # room never takes a shorter one with it.  A spent 5h window is worth most, so it is
-        # the note that survives where only one can, ahead of the reset and the scoped cap.
-        for width, claude, chatgpt, muse in (
-                (30, "░   21% left", "░   69% left", "░    0% left"),
-                (40, "░   21% left · Fable 47%", "░   69% left", "░    0% left"),
-                (56, "░   21% left · 5h spent until 00:00", "░   69% left · resets Sun 00:00",
-                 "░    0% left · resets Thu 22:00"),
-                (100, "░   21% left · resets Sun 00:00 · 5h spent until 00:00 · "
-                      "? claude usage exited 1",
-                 "░   69% left · resets Sun 00:00 · 2 resets in hand",
-                 "░    0% left · resets Thu 22:00")):
-            lines = menu.usage_lines(self.cfg, width)
-            self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
-            self.assertTrue(lines[1].endswith(claude), lines)
-            self.assertTrue(lines[6].endswith(chatgpt), lines)
-            self.assertTrue(lines[3].endswith(muse), lines)
-            self.assertRegex(lines[1], r"Claude\s+█+░+\s+21% left")
-
 
 if __name__ == "__main__":
     unittest.main()
