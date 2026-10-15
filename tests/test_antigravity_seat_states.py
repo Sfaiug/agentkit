@@ -81,6 +81,11 @@ class AntigravitySeatStates(unittest.TestCase):
     def test_a_terms_page_under_the_ctrl_c_footer_is_no_prompt(self):
         self.assertEqual(read("terms-ctrl-c")[0], (None, ""))
 
+    def test_the_usage_panel_over_an_empty_composer_is_no_draft(self):
+        # agy 1.2.9's `/usage` draws its own key hint over the footer, which it leaves as bare
+        # as a draft's: the model footer read as unsent text before
+        self.assertEqual(read("usage")[0], (None, ""))
+
     def test_the_composer_over_the_background_commands_is_read(self):
         # as a typed line's delivery is confirmed, and as ak's own line left there is found
         self.assertEqual(watch.composer_draft("antigravity", pane("background")), "")

@@ -130,12 +130,15 @@ any = ["esc to cancel"]
 # A line typed and not sent: the footer drops its left-hand key hint while the composer holds
 # text, leaving only the model or the agent (captured).  The generic draft machinery reads a
 # `❯›⟩` mark and this composer's is `>`, so the footer is what tells the draft apart, and
-# nothing is typed into or sent from a seat reading draft.
+# nothing is typed into or sent from a seat reading draft.  It does only right under the
+# composer's closing rule: a panel drawn between them, `/usage`'s with its own key hint, leaves
+# the footer bare over an empty composer too (captured).
 [[rule]]
 id = "draft.typed"
 state = "draft"
-lines = 8
+lines = 2
 none = ["esc to cancel"]
+row = '^─+$'
 newest = '^(?:[^·?]+ · (?:low|medium|high)|[\w.-]+(?: \((?:[^()]|\([^()]*\))*\))?\s+/agents(?: · \d+ task\(s\) · /tasks)?)$'
 
 # The footer with the empty composer drawn over it; the terms pages of agy's first run keep
