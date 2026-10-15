@@ -7,7 +7,7 @@ refusing the record whole, which hid the seat's roles on `c`, stopped it launchi
 and stopped it resuming. The orchestrator's name is kept as recorded: an open seat is
 still running it, and picking another on `c` moves the seat. Saving a new session still
 refuses a model the config has not got, and a model entry that is there but broken
-still says so.
+still says so, as does a group that was already duplicated.
 
 Offline: session records in a throwaway HOME, the config's models taken out in memory.
 """
@@ -106,6 +106,41 @@ class RemovedModel(Sandbox):
         del self.cfg["models"]["opus"]["effort"]
         with self.assertRaisesRegex(config.Error, "missing 'effort'"):
             config.load_session(self.cfg, "fix-api")
+
+    def test_a_model_entry_missing_its_provider_still_says_so_wherever_it_is_named(self):
+        cases = [
+            ("orch-seat", {"orchestrator": "spark", "workers": ("opus",),
+                           "reviewers": ("astra",)}),
+            ("work-seat", {"orchestrator": "opus", "workers": ("spark",),
+                           "reviewers": ("astra",)}),
+            ("rev-seat", {"orchestrator": "opus", "workers": ("opus",),
+                          "reviewers": ("spark",)}),
+        ]
+        for name, picked in cases:
+            with self.subTest(name=name):
+                self.save(name=name, **picked)
+                provider = self.cfg["models"]["spark"].pop("provider")
+                try:
+                    with self.assertRaisesRegex(config.Error, "missing 'provider'"):
+                        config.load_session(self.cfg, name)
+                finally:
+                    self.cfg["models"]["spark"]["provider"] = provider
+
+    def test_a_duplicated_group_stays_invalid_once_its_model_is_removed(self):
+        for role, gone in (("workers", "spark"), ("reviewers", "grok")):
+            with self.subTest(role=role):
+                name = f"dup-{role}"
+                self.save(name=name, orchestrator="opus", workers=("opus",),
+                          reviewers=("astra",))
+                path = config.session_path(name)
+                data = json.loads(path.read_text())
+                data[role] = [gone, gone]
+                path.write_text(json.dumps(data))
+                with self.assertRaisesRegex(config.Error, "duplicates"):
+                    config.load_session(self.cfg, name)
+                config.remove_model(self.cfg, gone)
+                with self.assertRaisesRegex(config.Error, "duplicates"):
+                    config.load_session(self.cfg, name)
 
 
 if __name__ == "__main__":

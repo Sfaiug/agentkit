@@ -894,14 +894,16 @@ def _validate_session(cfg, name, data, prune=False):
     orchestrator = data.get("orchestrator")
     if not isinstance(orchestrator, str):
         raise Error(f"{session_path(name)}: orchestrator must be a model name")
-    # A record read back passes over a model the config no longer offers, the way `load`
+    # A record read back passes over a model the config no longer has, the way `load`
     # passes over one in [defaults]: models are renamed and removed while seats built on
     # them are still open, and the seat goes on with what is left.  The orchestrator's
     # name is kept as recorded -- an open seat is still running it, and picking another
     # moves the seat -- and a group emptied by the passing over takes the first model
-    # left, as an emptied default does.  A session being saved is checked whole.
+    # left, as an emptied default does.  A name still in [models.*] is not removed, so
+    # its entry is judged here, and the lists as recorded are judged before any passing
+    # over: a record already invalid stays invalid.  A session being saved is checked whole.
     left = offered(cfg) if prune else []
-    if not prune or orchestrator in left:
+    if not prune or orchestrator in cfg["models"]:
         try:
             model(cfg, orchestrator)
         except Error as exc:
@@ -913,15 +915,12 @@ def _validate_session(cfg, name, data, prune=False):
         listed = data.get(role)
         # no executor is a choice once reviewers are named: the orchestrator builds everything
         empty_ok = role == "workers" and "reviewers" in data
-        if (not isinstance(listed, list)
+        if (not isinstance(listed, list) or not (listed or empty_ok)
                 or any(not isinstance(worker, str) for worker in listed)):
             raise Error(f"{session_path(name)}: {role} must be a non-empty list of model names")
-        if prune and left:
-            kept = [worker for worker in listed if worker in left]
-            listed = [left[0]] if listed and not kept else kept
-        if not (listed or empty_ok):
-            raise Error(f"{session_path(name)}: {role} must be a non-empty list of model names")
         for worker in listed:
+            if prune and worker not in cfg["models"]:
+                continue
             try:
                 model(cfg, worker)
             except Error as exc:
@@ -929,6 +928,19 @@ def _validate_session(cfg, name, data, prune=False):
         if len(set(listed)) != len(listed):
             raise Error(f"{session_path(name)}: {role} contains duplicates")
         groups[role] = listed
+    if prune:
+        if left:
+            normalized = {"orchestrator": orchestrator, **groups}
+            _fall_back(normalized, left)
+            groups = {role: normalized[role] for role in groups}
+        # judge what is handed back: a fallen-back name was not listed above, and with
+        # nothing left a gone name has nowhere to fall back to
+        for listed in groups.values():
+            for worker in listed:
+                try:
+                    model(cfg, worker)
+                except Error as exc:
+                    raise Error(f"{session_path(name)}: {exc}") from None
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
     # harness kept -- is handed back untouched: only the model fields are this file's to judge.
@@ -1077,7 +1089,7 @@ def session_aliases():
 def load_session(cfg, name, required=True):
     """Read a session selection, following renames; optionally tolerate no file.
 
-    A model the config no longer offers is passed over in what comes back
+    A model the config no longer has is passed over in what comes back
     (_validate_session), so a seat whose models changed under it still reads; the file
     itself is left as it was.
     """
