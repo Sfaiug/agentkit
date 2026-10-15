@@ -1,6 +1,7 @@
 """The task file: front matter, title, done-when commands and size."""
 
 import os
+from pathlib import Path
 import re
 import subprocess
 
@@ -161,7 +162,33 @@ def launch_refusal(meta, cmds):
     if heredoc:
         return (f"done-when line {heredoc!r} opens a heredoc, but each line runs as a command of "
                 "its own: put the script in a file the change adds, or on one line")
+    elsewhere = next((cmd for cmd in cmds if enters_checkout(cmd, meta.get("repo"))), None)
+    if elsewhere:
+        return (f"done-when line {elsewhere!r} moves into {meta['repo']}, the checkout the run starts "
+                "from, so it checks that checkout and not the run's change: each line already runs "
+                "in the run's own checkout, so leave the `cd` out")
     return rounds_refusal(meta.get("rounds"), "task rounds")
+
+
+def enters_checkout(command, repo):
+    """Whether `command` moves into the checkout `repo:` names -- `cd` or `pushd` there, or
+    `git -C` on it -- in any of its spellings (as written, absolute, resolved, under `~`), as a
+    whole path and not the start of a longer name.  Naming it otherwise (a link to its venv, a
+    path a grep looks for) leaves the line in the run's checkout."""
+    if not repo or repo.lower() == "none":
+        return False
+    try:
+        path = Path(repo).expanduser()
+    except RuntimeError:
+        return False                    # `repo_line` refuses it with its own reason
+    home = Path.home()
+    forms = {repo.rstrip("/"), str(path), str(path.resolve())}
+    for each in (path, path.resolve()):
+        if each.is_relative_to(home):
+            forms.add(f"~/{each.relative_to(home)}")
+            forms.add(f"$HOME/{each.relative_to(home)}")
+    return any(re.search(r"\b(?:cd|pushd|git\s+-C)\s+[\"']?" + re.escape(form) + r"(?![\w.-])", command)
+               for form in forms if form not in ("", "."))
 
 
 def checks_refusal(every):
