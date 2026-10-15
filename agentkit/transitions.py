@@ -382,14 +382,12 @@ def history_finish(state, log=None):
                 size = diff_lines(repo, state["base_sha"], head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
-    # what its first review read, whatever the ending: the added lines at round 1's commit over
-    # the base its reviewer diffed against, less the blocks moved unchanged, as the first-review
-    # ceiling counts them, so the scoreboard weighs round-1 passes, landings and review by the
-    # size a reviewer was handed; a round no reviewer read (text only) names no base, no size
+    # what its first review read, whatever the ending: the added lines of the diff that review
+    # was handed less the blocks moved unchanged, as the first-review ceiling counts them, so
+    # the scoreboard weighs round-1 passes, landings and review by the size a reviewer was handed
     first = None
-    summaries = state.get("round_summaries") or []
-    round1 = summaries[0] if summaries and isinstance(summaries[0], dict) else {}
-    base, reviewed = round1.get("base_sha"), round1.get("head_sha")
+    read = state.get("first_review") or {}
+    base, reviewed = read.get("base_sha"), read.get("head_sha")
     if repo and base and reviewed:
         try:
             first = (diff_lines(repo, base, reviewed, added_only=True)

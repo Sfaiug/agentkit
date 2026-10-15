@@ -1387,10 +1387,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             passed_head = validation.get("head_sha")
     passed = {"passed_head_sha": passed_head} if passed_head else {}
     if record:
-        # the base its reviewer diffed against: landing and later rounds move the run's own
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
-             "finding_count": len(submitted.findings), "base_sha": lp.base_sha,
+             "finding_count": len(submitted.findings),
              "summary": summary.strip()[-4000:], **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict
@@ -1401,6 +1400,9 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     lp.state.pop("review_pending", None)
     if validation.get("head_sha"):
         lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
+        # the diff the run's first review read, for its history: landing and rounds move the base
+        lp.state.setdefault("first_review", {"base_sha": lp.state.get("base_sha"),
+                                             "head_sha": validation["head_sha"]})
     lp.save()
     own = hand_in.Review([row for row in submitted.records if not row.get("replayed")])   # ak's replays are no reviewer's catch
     history.record_review(lp.state.get("run_id"), str(out),
