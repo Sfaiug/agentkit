@@ -104,6 +104,14 @@ class AntigravitySeatStates(unittest.TestCase):
                 found = watch.classify("antigravity", watch.pane_tail(pane(name)), None, None,
                                        {}, 10000.0)
                 self.assertEqual((found["state"], found["evidence"]), ("draft", words))
+        # one taller than the read says the rows of it the read shows, which prove nothing whole
+        for name in ("tall-line", "tall-line-and-owner-words"):
+            with self.subTest(name):
+                found = watch.classify("antigravity", watch.pane_tail(pane(name)), None, None,
+                                       {}, 10000.0)
+                self.assertEqual((found["state"], found["evidence"]),
+                                 ("draft", ("20261006-1534 finished FAIL: a case. run " * 4)[:160]))
+                self.assertIsNone(watch._composer_rows("antigravity", pane(name), exact=True))
 
     def test_the_seat_runs_under_the_wrapper_which_says_why_it_types_no_compact(self):
         with tempfile.TemporaryDirectory(prefix=".ak-test-agy-seat-", dir=REPO) as home:

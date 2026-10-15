@@ -1630,9 +1630,10 @@ def screen_state(harness, tail):
         marks = rule["all"] + rule["any"]
         evidence = next((line for line in reversed(region)
                          if any(mark in line.lower() for mark in marks)), (drawn or [newest])[-1])
-        if rule["state"] == "draft" and chrome["draft"]:
-            # the chrome told the draft apart, but the owner reads its words: what the composer
-            # the manifest finds holds, read as a typed line's delivery reads it
+        if rule["state"] == "draft" and (chrome["draft"] or rule["chrome"]):
+            # the chrome or a row told the draft apart, but the owner reads its words: what the
+            # composer the rule reads at or the manifest finds holds, read as a typed line's
+            # delivery reads it
             evidence = " ".join(_composer_rows(harness, tail) or ()) or evidence
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
@@ -2984,8 +2985,8 @@ def _composer_rows(harness, pane, *, exact=False):
         # A composer no `❯›⟩` mark finds: its manifest finds the framed block it holds,
         # and finding none reads as empty -- where the composer itself is on the
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
-        # was read.
-        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws) if exact else "\n".join(rows)
+        # was read.  Its rows are read as drawn: their inset tells its prompt row from text.
+        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws)
         found = list(chrome["draft"].finditer(source))
         if exact and not found:
             return None
@@ -2994,18 +2995,16 @@ def _composer_rows(harness, pane, *, exact=False):
             return None
         parts = []
         for match in found:
-            edge = match.groupdict().get("edge")
-            if edge:
-                before = source[:match.start()].splitlines()
-                # A padding row inside a draft is not its opening edge, nor is an edge at
-                # the start of a cropped read proof that none of the draft sits above it.
-                if exact and (not match.groupdict().get("opening")
-                              or before and before[-1].startswith(edge)
-                              or not before and len(_content_rows(pane)) > PANE_LINES):
-                    return None
-                parts.extend(row[len(edge):] for row in match["text"].splitlines())
-            else:
-                parts.extend(match[1].splitlines())
+            edge = match.groupdict().get("edge") or ""
+            before = source[:match.start()].splitlines()
+            # A block read without its opening is the end of one cropped above the read, a
+            # padding row inside a draft is not its opening edge, nor is an edge at the start
+            # of a cropped read proof that none of the draft sits above it.
+            if exact and (not match.groupdict().get("opening") or edge and (
+                    before and before[-1].startswith(edge)
+                    or not before and len(_content_rows(pane)) > PANE_LINES)):
+                return None
+            parts.extend(row[len(edge):].strip() for row in match["text"].splitlines())
         return _unscrolled(chrome, parts, exact=exact)
 
     def end(at):
