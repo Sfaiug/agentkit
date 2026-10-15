@@ -535,6 +535,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     tip_green = set(tip_green or ())   # the pieces the target's tip passed on this pass, the
                                        # pass's own re-probe of a paused piece included
     limit = None
+
+    def alone(member, answer):
+        # A verdict no stack ahead can change -- the member against the target's bare tip --
+        # goes out at once, so its fix runs beside the checks of the members behind it.
+        verdicts[member] = answer
+        ready({member: answer})
+
     while pending:
         with ExitStack() as opened:
             top, stacks = tip, []
@@ -552,7 +559,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # tests code nobody will land, so the PR goes back to be reviewed.
                     log_path = member / "lander.log"
                     log_path.write_text(moved + "\n")
-                    verdicts[member] = {"fix": {"line": moved, "log": str(log_path), "moved": True}}
+                    alone(member, {"fix": {"line": moved, "log": str(log_path), "moved": True}})
                     continue
                 # Earlier changes can hide a target conflict, so try the bare tip first.
                 scratch, text = _stack_member(repo, saved, tip, upstream, opened)
@@ -560,7 +567,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if member == directory or scratch is not None:
                         log_path = member / "lander.log"
                         log_path.write_text(text)
-                        verdicts[member] = {"fix": {"line": prompts.first_failure(text), "log": str(log_path)}}
+                        alone(member, {"fix": {"line": prompts.first_failure(text), "log": str(log_path)}})
                     continue
                 if top != tip:
                     scratch, text = _stack_member(repo, saved, top, upstream, opened)
@@ -575,7 +582,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     if top == tip:
                         log_path = member / "lander.log"
                         log_path.write_text(failure + "\n")
-                        verdicts[member] = {"fix": {"line": failure, "log": str(log_path)}}
+                        alone(member, {"fix": {"line": failure, "log": str(log_path)}})
                     continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
