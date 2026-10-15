@@ -97,7 +97,9 @@ class SeatsInSlice(Sandbox):
         self.assertEqual(words[2:6], [str(self.bin / "systemd-run"), "--user",
                                       "--slice=agentkit-seats.slice", "--scope"])
         self.assertIn("--quiet", words[6:words.index("--")])
-        self.assertEqual(words[words.index("--") + 1:], HARNESS)
+        rest = words[words.index("--") + 1:]
+        # a shell starts the scope's ending beside the harness, then hands the harness its process
+        self.assertEqual((rest[:2], rest[3:]), (["/bin/sh", "-c"], ["sh", *HARNESS]))
         unit = next(word for word in words if word.startswith("--unit="))
         return unit.removeprefix("--unit=")
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def resolved(args):
-    """The spawn command's argv with its launch file replaced by the line it execs.
+    """The spawn command's argv with its launch file replaced by the command it execs.
 
     Ignore following option commands: these fakes inspect only what the pane runs.
     Read at spawn, because the next launch of that seat rewrites the file.
@@ -14,5 +14,5 @@ def resolved(args):
     from agentkit.guard import commands
     args = tuple(next(commands(args)))
     _, path = shlex.split(args[-1])
-    line = Path(path).read_text().splitlines()[-1]
-    return (*args[:-1], line.removeprefix("exec "))
+    # the command is the file's last statement, and may run over several lines
+    return (*args[:-1], Path(path).read_text().split("\nexec ", 1)[1].removesuffix("\n"))

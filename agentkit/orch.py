@@ -1870,6 +1870,22 @@ def tmux_conf():
     return path
 
 
+# Beside a launch's harness in its scope, from just before the harness starts: the harness is
+# its parent, so its parent changing says the harness has ended, with no number to outlive it
+# and whoever adopts it then.  The scope is stopped, with whatever the harness left running in
+# it.  Its own session keeps the hangup a harness's end sends its terminal's group off it, and
+# it is forked already ignoring that hangup: a harness can end before the fork first runs.  A
+# hangup the shell ignored meanwhile left the terminal it had hung up, so the shell then ends
+# itself the way that hangup would have, rather than start the harness on a closed pane.
+SCOPE_ENDS = """\
+import os, subprocess, sys, time
+os.setsid()
+while os.getppid() == int(sys.argv[1]):
+    time.sleep(1)
+subprocess.run(sys.argv[2:])
+"""
+
+
 def seat_command(name, cmd, socket=None):
     """The pane's command line: the harness, started inside a scope of its own in the seats slice.
 
@@ -1877,8 +1893,11 @@ def seat_command(name, cmd, socket=None):
     by hand, or before seats were placed -- is in none of agentkit's.  So the harness is put
     there as it starts, the way `in_slice` puts a server, rather than found and moved later.
     Every launch names a new scope, so a respawn never meets the one the last harness may
-    have left behind.  The bus is the one `user_manager` found: a server started from cron
-    never told its panes where it is.  Where no manager answers, the command runs plainly.
+    have left behind.  The scope ends with the harness, by `SCOPE_ENDS` started in it first,
+    and the harness keeps the pane's process, as the shell before it hands it over.  The stop is
+    asked of the `systemctl` beside that `systemd-run`, one package.  The bus is the one
+    `user_manager` found: a server started from cron never told its panes where it is.  Where
+    no manager answers, the command runs plainly.
 
     tmux refuses a command longer than its 16 KiB message ("command too long"), and a harness
     that takes its rulebook as an argument (Grok's `--rules`, OpenCode's config) carries tens
@@ -1888,9 +1907,15 @@ def seat_command(name, cmd, socket=None):
     if user_manager():
         unit = f"agentkit-seat-{name}-{uuid.uuid4().hex[:8]}"
         run, *literal = seat_scope_run()
+        ends = shlex.join([sys.executable, "-I", "-c", SCOPE_ENDS])
+        stop = shlex.join([str(Path(run).with_name("systemctl")), "--user", "stop",
+                           "--no-block", f"{unit}.scope"])
         cmd = ["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
                run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
-               "--quiet", f"--unit={unit}", *literal, "--", *cmd]
+               "--quiet", f"--unit={unit}", *literal, "--", "/bin/sh", "-c",
+               "[ -t 0 ]; tty=$?; "
+               f"trap '' HUP; {ends} \"$$\" {stop} </dev/null >/dev/null 2>&1 & "
+               'trap - HUP; [ $tty = 1 ] || [ -t 0 ] || kill -HUP $$; exec "$@"', "sh", *cmd]
     path = config.seat_file("launch", name)
     # new-session -e can set a variable, but cannot remove one inherited from its server.
     # Clear absent overrides before the harness starts; the session is refreshed below too.
