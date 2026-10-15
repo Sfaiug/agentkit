@@ -2,7 +2,8 @@
 
 At rest only what a model works on moves, breathing: a working session's `●`, the tip of its line
 and its moving tasks' squares (`menu.tips`); news moves once and is then still --
-a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, an
+a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright and a
+light crosses its line, either's row glowing in its word's colour as it fades, an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
@@ -33,6 +34,8 @@ TOGGLE = 0.08       # ... a mark takes to fill or to empty, half way for the fir
 SHAKE = 0.24        # ... a mark whose change was refused takes to nudge left, right, left and back
 GLOW = 1.0          # ... a row just added takes to fade from its glow into the highlight
 GLOWING = 0.6       # that glow at first: the accent that far toward the background
+NEWS = 0.7          # ... and a seat's row on news: its word's colour that far toward it
+SWEEP = 0.4         # seconds a light takes across a done seat's line
 HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
@@ -151,20 +154,37 @@ def toggled(mark, width, kind, bright, column):
     return start
 
 
-def glowing(line):
+def glowing(line, kind="accent", amount=GLOWING):
     """How a row just added moves on a screen's clock, `line` as the draw wrote it: its cells on
-    a soft glow of the accent that fades into the background in GLOW seconds, and then as
-    drawn, the pointer's cell lit (terminal.pointed).  A function of the clock, the screen row,
-    when it was added and what it was before."""
+    a soft glow of `kind`'s colour, `amount` of the way to the background, that fades into the
+    background in GLOW seconds, and then as drawn, the pointer's cell lit (terminal.pointed):
+    the accent's for a row just added, a word's for a seat's row whose word is news.  A function
+    of the clock, the screen row, when it was added and what it was before."""
     def start(clock, row, since, _):
         lit = terminal.pointed(row, 1, line)
 
         def at(now):
             x = eased((now - since) / GLOW)
-            rgb = terminal.faded("accent", GLOWING + (1 - GLOWING) * x)[1:]
+            rgb = terminal.faded(kind, amount + (1 - amount) * x)[1:]
             return lit if x >= 1 else terminal.backed(lit, rgb, 1, terminal.cells(lit))
         clock.start([(row, 1)], at, since + GLOW)
     return start
+
+
+def sweeping(cells, began, kind, bright=False):
+    """A line just done, `cells` each of its cells as the draw wrote it, from `began`: one light
+    of `kind`'s colour crosses it left to right in SWEEP seconds, and each cell is then as
+    drawn; an animation for each cell, and when it is still."""
+    light = terminal.faded(kind, -BRIGHTER)
+
+    def cell(n, text):
+        def at(now):
+            if n != int(len(cells) * (now - began) / SWEEP):
+                return text
+            lit = terminal.styled(terminal.plain(text), light)
+            return terminal.highlight(lit, mark=False) if bright else lit
+        return at
+    return [cell(n, text) for n, text in enumerate(cells)], began + SWEEP
 
 
 def colouring(text, began, colour, into, rest=None, bright=False):
@@ -331,11 +351,17 @@ class Clock:
             if amount > 0:
                 return out
             self.rising, self.shown = None, {}      # up, as drawn: every cell is written over it
-        for (row, column), (animation, until) in list(self.cells.items()):
-            text = animation(now)
+        # what spans more than its cell -- a whole row's glow -- first, and what moves inside
+        # it written again over it in the same frame
+        drawn = [(cell, animation(now), until) for cell, (animation, until) in self.cells.items()]
+        for (row, column), text, until in sorted(drawn, key=lambda one: terminal.cells(one[1]) < 2):
             if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
                 out += f"\033[{row};{column}H{terminal.pointed(row, column, text)}"
+                width = terminal.cells(text)
+                for inside in [cell for cell in self.shown if cell[0] == row
+                               and column < cell[1] < column + width]:
+                    del self.shown[inside]
             if until is not None and now >= until:
                 del self.cells[row, column]         # its last frame is out: still from here
         return out
