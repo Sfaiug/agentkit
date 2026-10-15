@@ -2088,7 +2088,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
     `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
-    always was, and no word of the seat's to every screen.
+    always was, and no word of the seat's to every screen.  `page` marks a `needs you` only the
+    owner can clear, which pages them (`notify.needs_transition`), from `page_since`.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2117,6 +2118,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out, jobs,
                             menu_mod, run_mod, terminal_mod)
+    # What pages the owner came up when its rung says, whichever word stood before it.
+    if answer.get("page"):
+        answer["page_since"] = answer.get("since")
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2242,7 +2246,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # `moving again` used to take turns all night.
     out = logged_out(harness, auth_out)
     if out:
-        return {"word": "needs you", "reason": login_reason(harness), "since": out.get("at")}
+        return {"word": "needs you", "reason": login_reason(harness), "since": out.get("at"),
+                "page": True}
     last = notify.last(name)
     # 1a. ... and a run of this seat's parked on one is the same news about a login he has to
     # go and fix.  The run being parked is the evidence: nothing here re-asks the verb for it,
@@ -2255,12 +2260,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if parked:
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
         return {"word": "needs you", "reason": login_reason(first.get("waiting_for") or "a"),
-                "since": first.get("finished_at")}
+                "since": first.get("finished_at"), "page": True}
     # 1b. ... and the one login no harness owns: a run of its own cannot push until he
     # runs `gh auth login`, so the seat is blocked on him just the same
     if name in (gh_out.get("seats") or []):
         return {"word": "needs you", "reason": "gh login expired: run `gh auth login`",
-                "since": gh_out.get("at")}
+                "since": gh_out.get("at"), "page": True}
     # 1c. a worker token dies within a fortnight or is dead: every session reads the
     # warning, on any harness, because any seat's next turn on it can be the one that
     # fails.  The tick asks the `auth` verb once a day and keeps the answer; a replaced
@@ -2268,7 +2273,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # of the cards rule, which keys episodes on the word.
     reason, since = token_alert(token_out)
     if reason:
-        return {"word": "needs you", "reason": reason, "since": since}
+        return {"word": "needs you", "reason": reason, "since": since, "page": True}
     # 1d. typed text nobody sent at a quiet prompt, or a question even during a turn: that is
     # him, whatever its runs are doing.  Three seats read `working` over his own unsent
     # text for nineteen hours while he believed each had his message.  A draft is not that
@@ -2288,14 +2293,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
-                "since": found.get("began"), "question": found["state"] == "asking"}
+                "since": found.get("began"), "page": found["state"] == "asking"}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
     # and a watcher's own alert about the seat waits for its prompt (rung 6).
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
-                "since": last.get("time"), "question": True}
+                "since": last.get("time"), "page": notify.pages(last)}
     # ... and so is a move to another account that failed: no wait ends it by itself, so
     # neither its runs nor its `ak wait` going says he was not needed.
     if waiting and not waiting.get("until"):
@@ -6708,10 +6713,12 @@ def main(argv):
                 log(f"WARN GitHub is unavailable; PR checks skipped ({reason})")
                 return 0
             # This one is the user's to fix, and the seats with a run that still owes GitHub
-            # a push are written down for the menu to say so.
+            # a push are written down for the menu to say so, from when it was first seen:
+            # its card's minute counts from there.
             log(f"gh is not logged in; PR checks skipped ({reason})")
             if not dry_run:
-                state["gh_out"] = {"at": time.time(), "seats": pushing_seats()}
+                state["gh_out"] = {"at": (state.get("gh_out") or {}).get("at") or time.time(),
+                                   "seats": pushing_seats()}
                 save_state(state)
             return 0
         if not dry_run:

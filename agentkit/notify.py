@@ -478,6 +478,21 @@ def answered(session, at):
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
 
 
+# The alerts only the owner can act on: a merge question, a login, a seat ak could not reopen
+# over a run going, ended or interrupted, a job whose seat is gone; ak or a seat mends the rest.
+OWNER_ALERTS = ("inbox:", "auth:", "revive:", "orphan:", "recovery:", "job:")
+
+
+def pages(notice):
+    """Does that notice page the owner: a question someone asked them -- the seat's own `ak notify
+    needs`, an outside pull request's merge question -- or a failure only they can fix?  Never
+    one answered since."""
+    if not notice or notice.get("kind") != "needs" or resolved(notice):
+        return False
+    source = notice.get("source")
+    return notice.get("page") is True or not source or str(source).startswith(OWNER_ALERTS)
+
+
 def job_done(notice):
     """A job's `all N tasks finished`: done to its card, the way it always was, and no word of
     the seat's, which only the seat says of itself."""
@@ -1054,8 +1069,12 @@ def _carded(session, declared):
 
 
 def needs_transition(session, card, answer, now, seat=None):
-    """One amber card once needs you has stood a minute and the owner has typed nothing into
+    """One amber card once a question has stood a minute and the owner has typed nothing into
     the seat for a minute, which stays `Needs you` for as long as the seat does.
+
+    Only a question or a failure only the owner can fix pages them (`page`, `pages`); any other
+    `needs you` is on every screen and pages nobody, its episode kept, so a question that comes up
+    while the word stands is carded as its own minute ends.
 
     Never for an episode that is history, nor for a seat the owner closed himself -- `x`,
     `ak orch stop` or a pause script: its row says so and its number reopens it, and nobody
@@ -1091,12 +1110,13 @@ def needs_transition(session, card, answer, now, seat=None):
                     **({"completed": card["completed"]} if card.get("completed") else {})}
         _card_write(session, card)
         return 0
-    if card.get("sent") or card.get("closed"):
+    if card.get("sent") or card.get("closed") or not (answer.get("page") or pages(declared)):
         return 0
-    # Input in the seat holds back a card that is not out yet, for as long as he is there: a
-    # seat works on with its question standing, so a glance at it must not answer it, and the
-    # minute counts from his last key, though he left between two ticks.
-    if now - max(card["since"], _last_input(session, seat)) < CARD_WAIT:
+    # Its minute counts from when what pages the owner came up, which may be long after the word
+    # did, and from their last key in the seat: a seat works on with its question standing, so a
+    # glance at it must not answer it, though they left between two ticks.
+    came_up = answer.get("page_since") or (declared.get("time") if pages(declared) else 0) or 0
+    if now - max(card["since"], came_up, _last_input(session, seat)) < CARD_WAIT:
         return 0
     from . import watch
     if _history(card) or watch.seat_closed_by_owner(session):

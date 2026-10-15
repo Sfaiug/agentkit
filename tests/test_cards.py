@@ -40,7 +40,9 @@ class Cards(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
 
     def answer(self, word, since, reason="question"):
-        return {"word": word, "since": since, "reason": reason}
+        # a needs you pages only where the owner alone can clear it (`notify.needs_transition`)
+        return {"word": word, "since": since, "reason": reason,
+                "page": word == "needs you" and reason != "waiting for you"}
 
     def transition(self, session, answer, **kwargs):
         with patch.object(watch, "session_state", return_value=answer):
@@ -195,16 +197,15 @@ class Cards(unittest.TestCase):
             notify.tick_cards()
         self.assertEqual(self.posts[0]["embeds"][0]["title"], "Done · seat")
 
-    def test_no_card_for_a_seat_the_owner_closed(self):
-        # `x`, `ak orch stop` or a pause script: the seat is gone on purpose, and nobody
-        # in it is asking him anything.  A seat that went on its own is still carded.
+    def test_no_card_for_a_gone_seat(self):
+        # Nobody in a gone seat is asking the owner anything: one they closed (`x`, `ak orch stop`,
+        # a pause script) went on purpose, and one that went on its own is ak's to reopen.
         orch.mark_owner_closed("seat")
         for name in ("seat", "crashed"):
             gone = {"name": name, "exited": True}
             notify.transition(name, now=time.time(), seat=gone)
             notify.transition(name, now=time.time() + notify.CARD_WAIT, seat=gone)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
-                         ["Needs you · crashed"])
+        self.assertEqual(self.posts, [])
         # ... and the menu still shows it, with the number that reopens it
         found = watch.session_state("seat", session={"name": "seat", "exited": True}, number=3)
         self.assertEqual(found["word"], "needs you")
@@ -310,33 +311,15 @@ class Cards(unittest.TestCase):
             # a question standing since before the install, first read by this version
             notify.record("seat", "needs", "Which branch?", time=now - 3600)
             self.transition("seat", self.answer("needs you", now - 3600), now=now)
-            # ... a pane that died before it, whichever tick first reads it gone, and a
-            # seat tmux lost long before it
-            config.save_session(cfg, "gone", "fable", ["opus"], {"exited_since": now - 7200})
-            config.save_session(cfg, "lost", "fable", ["opus"], {"seen": now - 3 * 86400})
             # ... and a done declared before it
             notify.record("finished", "done", "Shipped", time=now - 3600)
             self.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
-            # A seat last seen alive shortly before the install may have gone after it: its
-            # record is renewed only every few minutes, so it is still news.
-            config.save_session(cfg, "vanished", "fable", ["opus"], {"seen": now - 700})
-            # ... unless its record says its pane died before it, which outlives the pane
-            config.save_session(cfg, "dropped", "fable", ["opus"],
-                                {"seen": now - 700, "exited_since": now - 690})
-            for seat in ({"name": "gone", "exited": True}, {"name": "lost", "resumable": True},
-                         {"name": "vanished", "resumable": True},
-                         {"name": "dropped", "resumable": True}):
-                notify.transition(seat["name"], now=now, seat=seat)
-                notify.transition(seat["name"], now=now + notify.CARD_WAIT, seat=seat)
-            self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
-                             ["Needs you · vanished"])
-            self.assertEqual(json.loads(config.card_path("gone").read_text())["began"],
-                             now - 7200)
+            self.assertEqual(self.posts, [])
             # A word that begins after the install is news as ever.
             self.transition("seat", self.answer("working", now), now=now)
             self.transition("seat", self.answer("needs you", now), now=now + notify.CARD_WAIT)
         self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
-                         ["Needs you · vanished", "Needs you · seat"])
+                         ["Needs you · seat"])
 
     def test_an_episode_opened_before_the_install_is_not_sent_after_it(self):
         # opened by the version before, still inside its minute when the install landed

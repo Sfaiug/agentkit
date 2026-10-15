@@ -335,8 +335,7 @@ class Rule(unittest.TestCase):
                 with patch.object(notify.time, "time", return_value=at):
                     notify.tick_cards(log=self.log.append)
         self.assertEqual(self.posts, [])
-        # A seat that goes after the install is news, and is carded after its minute --
-        # unless the owner closed it himself.
+        # A seat that goes after the install asks the owner nothing either, whoever closed it.
         for name, closed in (("crashed", False), ("stopped", True)):
             config.save_session(cfg, name, "fable", ["opus"], {"exited_since": now})
             seats.append({"name": name, "exited": True, "legacy": False})
@@ -346,8 +345,7 @@ class Rule(unittest.TestCase):
             for at in (now + 2 * notify.CARD_WAIT, now + 3 * notify.CARD_WAIT):
                 with patch.object(notify.time, "time", return_value=at):
                     notify.tick_cards(log=self.log.append)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
-                         ["Needs you · crashed"])
+        self.assertEqual(self.posts, [])
 
     # --- (f) workers stay silent -------------------------------------------
 

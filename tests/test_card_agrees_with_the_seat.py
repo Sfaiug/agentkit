@@ -58,7 +58,8 @@ class CardAgreesWithTheSeat(unittest.TestCase):
 
     def says(self, word, since, now, reason=DIALOG):
         """One tick's look at the seat: the word it reads, and the card pass after it."""
-        answer = {"word": word, "since": since, "reason": reason}
+        answer = {"word": word, "since": since, "reason": reason,
+                  "page": word == "needs you" and reason != "waiting for you"}
         with patch.object(watch, "session_state", return_value=answer):
             notify.transition("seat", now=now)
         return json.loads(config.card_path("seat").read_text())
@@ -86,7 +87,7 @@ class CardAgreesWithTheSeat(unittest.TestCase):
         self.assertEqual(self.closed, ["Done"])
 
     def test_his_prompt_closes_it_while_the_seat_still_reads_needs_you(self):
-        self.says("needs you", 100, now=160, reason="waiting for you")
+        self.says("needs you", 100, now=160)    # the dialog, a minute up
         notify.answered("seat", 170)            # the harness's prompt hook, before any tick
         self.says("needs you", 100, now=180, reason="waiting for you")
         self.assertEqual(self.closed, ["Answered"])
