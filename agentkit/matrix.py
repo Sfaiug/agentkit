@@ -5,8 +5,8 @@ Three boards export their numbers.  Artificial Analysis, with the key the owner 
 the intelligence, coding, agentic and capability indexes, prices and output speed its free
 endpoint exports (per-benchmark scores are Pro's).  Arena Agent, its leaderboard's Hugging Face
 dataset, no key: net improvement over the average agent and steerability, measured on real agent
-sessions.  LiveBench 2.0, its CSV
-files, no key: coding, long-horizon and reasoning scores and what a successful coding task cost.
+sessions.  LiveBench 2.0, its CSV files, no key: coding, long-horizon and reasoning scores and
+what a successful coding task cost.
 `ak models --refresh` asks again before the day is up; a board that cannot answer keeps what it
 last said, its error beside it, and waits for the day like one that answered.  Callers at once
 share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
