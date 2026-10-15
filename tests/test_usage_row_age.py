@@ -11,6 +11,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import Sandbox
+from fixtures.subscriptions import number, said
 from agentkit import config, menu, terminal, usage
 
 NOW = 10000                # the clock the Sandbox pins; 1970-01-01 02:46:40 UTC, a Thursday
@@ -36,9 +37,11 @@ class UsageRowAge(Sandbox):
         (config.STATE / "usage.json").write_text(json.dumps(
             {"fetched_at": NOW, "providers": {"acme": prov}}))
 
-    def row(self, width=100):
-        rows = [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
-        return next(line for line in rows if line.split()[0] == "Acme")
+    def row(self, width=None):
+        """What the menu says of Acme: its cell, then the line under the grid in `width`."""
+        if width is None:
+            return "Acme " + said(self.cfg)["Acme"]
+        return terminal.plain(menu.usage_detail(self.cfg, number(self.cfg, "Acme"), width))
 
     def rendered(self, prov):
         with patch.object(terminal, "width", return_value=170), \
@@ -50,7 +53,7 @@ class UsageRowAge(Sandbox):
         self.assertRegex(self.row(), r"60% left · resets \w+ \d\d:\d\d · as of 01:46$")
         self.assertNotRegex(self.row(), "rate limited|unavailable")
         with patch.object(terminal, "colour_depth", return_value=8):
-            [line] = [line for line in menu.usage_lines(self.cfg, 100) if "Acme" in line]
+            line = menu.usage_detail(self.cfg, number(self.cfg, "Acme"))
         self.assertIn("\033[2mas of 01:46\033[0m", line)   # the age note is dim, like each note
         # `ak usage` says the same words under its table.
         self.assertRegex(self.rendered({"meters": [self.meter()], "fetched_at": OLD}),
@@ -127,10 +130,10 @@ class UsageRowAge(Sandbox):
 
     def test_a_phone_width_row_keeps_the_age_note(self):
         self.cache({"meters": [self.meter()], "fetched_at": OLD})
-        row = self.row(40)
+        row = self.row(20)
         self.assertIn("as of 01:46", row)      # the short note stays, as the refusal's own did
         self.assertNotIn("resets", row)        # ... and the long one gives way on its own
-        self.assertLessEqual(terminal.cells(row), 40)
+        self.assertLessEqual(terminal.cells(row) + 2, 20)
         self.assertIn("resets", self.row(100))
 
     def test_a_rolled_window_and_no_reading_keep_their_own_words(self):

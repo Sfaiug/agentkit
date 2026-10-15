@@ -529,9 +529,12 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     cache.write_text(json.dumps({"fetched_at": now[0] - 8 * 3600, "providers": {
         "anthropic": {"meters": [meter("weekly_all", 9), meter("weekly_scoped", 9)]}}}))
 
-    def lines(width=100):
-        return [re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line)
-                for line in menu.usage_lines(cfg, width)]
+    def lines(width=100):     # by place from 1: each cell, then the line under the grid
+        rows = [""]
+        for n, (_, label, left, said) in enumerate(menu.usage_cells(cfg), 1):
+            rest = terminal.plain(menu.usage_detail(cfg, n)).removeprefix(terminal.plain(label))
+            rows.append(f"  {terminal.plain(label)}  {said}" + (" ·" + rest if left and rest else ""))
+        return rows
 
     def tick(dry=False):
         with redirect_stdout(io.StringIO()) as output:
@@ -549,7 +552,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
                        ({}, "—  no reading yet", "—  no reading yet"),
                        ({"meters": [], "fetched_at": None}, "—  no reading yet", "—  no reading yet"),
                        ({"meters": [meter("weekly", 40)], "error": "offline", "fetched_at": None},
-                        "60% left · ? offline", "? offline"),
+                        "? offline", "? offline"),
                        ({"meters": [{**meter("weekly", 40), "resets_at": now[0] - 1}],
                          "fetched_at": now[0] - 600}, "—  window reset", "—  window reset")):
         if prov is None:
@@ -558,9 +561,8 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
             cache.write_text(json.dumps({"fetched_at": now[0], "providers": {"meta": prov}}))
         for width, tail in ((40, tail40), (100, tail100)):
             assert lines(width)[3].startswith("  Muse ") and lines(width)[3].endswith(tail), lines(width)
-            assert terminal.cells(lines(width)[3]) <= width, lines(width)
+            assert all(terminal.cells(line) <= width for line in menu.usage_lines(cfg, width))
     cache.write_bytes(before)
-    assert lines()[0] == "  usage left", lines()   # eight hours old, and silent on it
     before = cache.read_bytes()
     tick(dry=True)
     assert cache.read_bytes() == before and not calls and paid.call_count == 0
@@ -571,14 +573,9 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     assert fresh["providers"]["meta"]["fetched_at"] == 1000000, fresh
     for width in (40, 100):
         screen = lines(width)
-        assert screen[0] == "  usage left", screen
         # the shared week, weekly_all, and never Fable's own cap of 91% (v5c)
-        assert re.search(r"Claude\s+[█░]+\s+92% left", screen[1]), screen
-        # one column of bars, as wide as the row with the least room can afford
-        bar = 6 if width == 40 else 12
-        assert screen[1].count("█") + screen[1].count("░") == bar, screen
-        assert screen[1].count("█") == round(bar * 92 / 100), screen
-        assert all(terminal.cells(line) <= width for line in screen), screen
+        assert re.search(r"Claude\s+92% left", screen[1]), screen
+        assert all(terminal.cells(line) <= width for line in menu.usage_lines(cfg, width))
         assert screen[1].endswith("Fable 91%"), screen   # the short note fits on a phone too
         if width == 100:
             assert re.search(r"92% left · resets \w+ \d\d:\d\d · Fable 91%$", screen[1]), screen
@@ -592,7 +589,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     assert calls.count(("claude", "usage")) == 1, calls
     assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
-    assert re.search(r"ChatGPT\s+[█░]+\s+56%", "\n".join(lines())), lines()
+    assert re.search(r"ChatGPT\s+56%", "\n".join(lines())), lines()
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
     # Inside every cadence the tick asks no adapter anything: one cadence, host-wide, so
     # it re-assembles the snapshot off the reading already in it.
@@ -602,10 +599,9 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     assert calls.count(("claude", "usage")) == 1, calls
     assert calls.count(("codex", "usage")) == 2, calls
     assert json.loads(cache.read_text())["fetched_at"] == now[0]
-    assert re.search(r"ChatGPT\s+[█░]+\s+56%", "\n".join(lines())), lines()
+    assert re.search(r"ChatGPT\s+56%", "\n".join(lines())), lines()
     # Rendering never updates the snapshot, and never says how old it is.
     now[0] += 300
-    assert lines()[0] == "  usage left", lines()
     assert json.loads(cache.read_text())["fetched_at"] == now[0] - 300
     # One second short of Muse's own ten minutes the tick asks its adapter, which answers out
     # of its cache: no model request, and the row carries the reading it has and no age.
@@ -614,17 +610,16 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     assert paid.call_count == 0 and probe_cache.read_bytes() == probe_before
     for width in (40, 100):
         screen = lines(width)
-        assert screen[0] == "  usage left", screen
-        assert re.search(r"Muse\s+[█░]+\s+60%", screen[3]), screen
+        assert re.search(r"Muse\s+60%", screen[3]), screen
         assert "old" not in screen[3], screen
-        assert all(terminal.cells(line) <= width for line in screen), screen
+        assert all(terminal.cells(line) <= width for line in menu.usage_lines(cfg, width))
     # The next tick past the host's cadence finds that cache past its ten minutes, and spends
     # the one request.
     now[0] += usage.PROBE_EVERY
     tick()
     assert paid.call_count == 1, paid.call_count
     assert json.loads(probe_cache.read_text())["fetched_at"] == now[0]
-    assert re.search(r"Muse\s+[█░]+\s+0%", lines()[3]), lines()
+    assert re.search(r"Muse\s+empty until", lines()[3]), lines()
     assert "old" not in lines()[3], lines()
     now[0] += 180
     tick()
@@ -880,17 +875,17 @@ class SessionState(unittest.TestCase):
         def row(prov):
             (config.STATE / "usage.json").write_text(json.dumps(
                 {"fetched_at": self.now, "providers": {"openai": prov}}))
-            line = next(line for line in map(terminal.plain, menu.usage_lines(self.cfg, 100))
-                        if line.split()[:1] == ["ChatGPT"])
+            line = "ChatGPT " + next(said for _, label, _, said in menu.usage_cells(self.cfg)
+                                     if label == "ChatGPT")
             # the reset time is this machine's clock; the row's own words are what this reads
             return re.sub(r" · resets \w+ \d\d:\d\d", "", line).split()
         def dash(why):   # no reading is `—` and the words that say why (v5c)
             return ["ChatGPT", "—", *why.split()]
         for data, rc, expected in (({"meters": [meter(0)]}, 1, dash("not reached")),
                                    ({"meters": [meter(100)]}, 1, dash("not reached")),
-                                   # a meter read beside an error keeps its bar and gains a `?`
+                                   # a meter read beside an error keeps its bar
                                    ({"meters": [meter(0)], "error": "failed"}, 0,
-                                    ["ChatGPT", "█" * 12, "100%", "left", "·", "?", "failed"]),
+                                    ["ChatGPT", "100%", "left"]),
                                    ({}, 0, dash("no reading yet")),
                                    ({"meters": []}, 0, dash("no reading yet")),
                                    ({"meters": "broken"}, 0, dash("not reached")),
@@ -3795,7 +3790,7 @@ screen, said = lines[:told], lines[told:again]
 assert f" {WARNING}" in said and WARNING not in "\n".join(screen + lines[again:]), lines
 assert not [line for line in said if " — " in line], said   # no ending is handed back here
 assert any(line.strip().startswith("1  orch-notice") for line in screen), screen
-assert any("usage left" in line for line in screen), screen
+assert any("no reading yet" in line or "% left" in line for line in screen), screen
 # The menu at rest is the projects and their seats: a run of nobody's is neither a
 # heading nor a row, whatever its repository, and `ak run status` is where it is looked up.
 assert any(line == "no project" for line in screen), screen
@@ -5565,7 +5560,7 @@ else
 fi
 # --- 39: usage screen -----------------------------------------------------
 if python3 "$REPO/tests/test_usage_menus_and_runs.py" >"$WORK/usage-menus.log" 2>&1; then
-  ok "39 usage left at 40/100 columns: Claude 21% · resets Sun 00:00 · Fable 47%, ChatGPT 69%, Muse spent; the notes give way on a phone; project counts fold run details, all lines fit"
+  ok "39 the subscriptions at 40/100 columns: Claude 21%, ChatGPT 69%, Muse spent; project counts fold run details, all lines fit"
 else
   no "39 provider usage-left menu"; tail -30 "$WORK/usage-menus.log"
 fi

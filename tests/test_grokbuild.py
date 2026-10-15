@@ -266,11 +266,14 @@ fi
         return json.dumps(body), end
 
     def row(self, out):
-        """The menu's Grok row, plain, drawn from that probe as the cached reading."""
+        """What the menu's Grok cell says, and the line under the grid with the pointer on it,
+        plain, drawn from that probe as the cached reading."""
         (self.state / "usage.json").write_text(json.dumps(
             {"fetched_at": out["probed_at"], "providers": {"xai": out}}))
-        rows = [terminal.plain(line).strip() for line in menu.usage_lines(config.load(), 100)]
-        return next(line for line in rows if line.startswith("Grok"))
+        cfg = config.load()
+        number, said = next((number, said) for number, (_, label, _, said)
+                            in enumerate(menu.usage_cells(cfg), 1) if label == "Grok")
+        return said, terminal.plain(menu.usage_detail(cfg, number))
 
     def asked_tokens(self):
         """Every session key the endpoint was probed with, in order."""
@@ -506,8 +509,8 @@ fi
                 out = usage._probe(config.load(), "xai", time.time())
                 self.assertIsNone(out["error"])
                 self.assertNotIn("logged_in", out)   # nothing to ask the auth verb about
-                self.assertRegex(self.row(out),
-                                 r"^Grok\s+\S+\s+50% left · resets \w{3} \d\d:\d\d$")
+                self.assertEqual(self.row(out)[0], "50% left")
+                self.assertRegex(self.row(out)[1], r"^Grok resets \w{3} \d\d:\d\d$")
 
     def test_usage_refused_after_renewal_is_no_login(self):
         # Grok had its chance and the endpoint still refuses: a real logout, in every shape
@@ -546,7 +549,7 @@ fi
                 out = usage._probe(config.load(), "xai", time.time())
                 self.assertFalse(out["logged_in"])   # the auth verb was asked, and said no
                 self.assertEqual(menu.unread(out, [], [], time.time()), "no login")
-                self.assertRegex(self.row(out), r"^Grok\s+—\s+no login$")
+                self.assertEqual(self.row(out)[0], "—  no login")
 
     def test_usage_keeps_the_login_when_grok_could_not_renew(self):
         # Grok could not reach its IdP just now: a refresh token with no key beside it stays
@@ -574,7 +577,7 @@ fi
                 self.assertEqual(auth.returncode, 0, auth.stderr)
                 out = usage._probe(config.load(), "xai", time.time())
                 self.assertTrue(out["logged_in"])
-                self.assertRegex(self.row(out), r"^Grok\s+—\s+not reached$")
+                self.assertEqual(self.row(out)[0], "—  not reached")
 
     def test_a_refusal_names_the_key_that_was_sent(self):
         # The refusal is written down as the digest of the very key the endpoint refused,

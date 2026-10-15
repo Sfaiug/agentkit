@@ -174,10 +174,11 @@ class Projects(Sandbox):
         # No run row at any height: the menu at rest is the projects and their seats.
         full = self.draw(100, 30)[0]
         self.assertNotIn("↳", full)
-        self.assertIn("usage left", full)
-        folded, pages = self.draw(100, 18)
-        # The usage block gives way first, and every seat keeps its row.
-        self.assertNotIn("usage left", folded)
+        self.assertIn("no reading yet", full)                # the grid
+        folded, pages = self.draw(100, 14)
+        # The grid folds to every share left, each whole, and every seat keeps its row.
+        self.assertNotIn("no reading yet", folded)
+        self.assertIn("Claude 21% · MiMo — · Muse 50%", folded)
         self.assertNotIn("↳", folded)
         self.assertIn("atoll-plan", folded)
         self.assertEqual(pages[0], 0)

@@ -1,13 +1,11 @@
 agentkit                           14:02
 ────────────────────────────────────────
-
-  usage left
-  Claude   ███░░░░░░░░░   21% left
-  MiMo     —  no reading yet
-  Muse     ██████░░░░░░   50% left
-  Gemini   —  no reading yet
-  Grok     —  no reading yet
-  ChatGPT  ████████░░░░   69% left
+  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left
+  MiMo     — no reading yet
+  Muse     ▰▰▰▰▰▱▱▱▱▱  50% left
+  Gemini   — no reading yet
+  Grok     — no reading yet
+  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left
 
 your projects · 1 needs you
 
