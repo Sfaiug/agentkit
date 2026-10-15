@@ -33,6 +33,7 @@ import re
 import subprocess
 import sys
 import time
+from decimal import Decimal
 from pathlib import Path
 
 from . import command_help, config, staffing, terminal, turns, usage_probe, worker
@@ -1650,9 +1651,15 @@ def _buys(cost, tokens, meter):
         return "-"
     each = per_million(cost, tokens, meter)
     if each is None:
-        return f"{cost:g}"
+        return _digits(cost)
     about = "≈" if terminal.utf8() else "~"
-    return f"{cost:g} {about} {each:g} per 1M tokens"
+    return f"{_digits(cost)} {about} {_digits(each)} per 1M tokens"
+
+
+def _digits(value):
+    """`5,000,000` and `0.000012`, never `5e+06`: a price is in whatever its owner pays in, and
+    a month of a plan is millions in some of those."""
+    return f"{Decimal(str(value)).normalize():,f}"
 
 
 def _budget_label(value, reason):
