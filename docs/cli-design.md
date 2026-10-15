@@ -153,14 +153,15 @@ plain popup and says nothing (`orch.tmux_conf`, `terminal.inset`).
 
 `x` is the highlighted seat's, or in the popup the popup's own seat's. A done
 seat it closes at once, with no question: `orch.cmd_stop` takes its runs,
-checkouts, conversation, state files and tmux session. Any other it asks about
+checkouts and tmux session and keeps the seat, its number reopening it. Any
+other it asks about
 on the question card (Questions), under that seat's row, the rows below moving
 down: `Stop <name> and everything it runs?`, then how many runs stop with it
-and that ak cannot reopen the session, its record gone; the key line reads `esc
-back` while it asks. The runs are counted off the draw, so the card is up at
+and that the session stays listed, its number reopening it and `x` on it again
+removing it; the key line reads `esc back` while it asks. The runs are counted off the draw, so the card is up at
 once: `Its runs stop` until the number lands. The key line says `x close` while
-a done seat is highlighted (in the popup, while its own seat is done) and
-`x stop` otherwise, and a done
+a done seat is highlighted (in the popup, while its own seat is done), `x
+remove` while a stopped seat is, and `x stop` otherwise, and a done
 seat's tmux bar reads `Ctrl-b m  x close` at the right end of its second line.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
@@ -240,13 +241,14 @@ UTF-8 key (`enter` is `⏎`):
 - `⏎ start`: `Enter starts the session on what is marked, wherever the highlight is`
 - `n new`: `n starts a session: you name it and pick the models that orchestrate, execute and review`
 - `x stop`: `x stops the highlighted session and everything it runs, asking first`
-- `x close`: `x closes the highlighted session, which is done: its runs, checkouts and files go`
+- `x close`: `x closes the highlighted session, which is done: its runs and checkouts go, and its number reopens it`
+- `x remove`: `x takes the highlighted stopped session off the list now; left alone it goes with the sweep`
 - `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
 - `esc leave`: `Esc leaves ak; the sessions go on working without it`
 - in the popup, `n start a session`: `n starts a session and switches this terminal to it, closing the popup`
 - `c models`: `c opens this session's models: who orchestrates, executes and reviews`
 - `x stop this session`: `x stops this session and everything it runs, asking first`
-- `x close this session`: `x closes this session, which is done: its runs, checkouts and files go`
+- `x close this session`: `x closes this session, which is done: its runs and checkouts go, and its number reopens it`
 - a session row: `{name}: Enter or a click opens it, where you talk to its orchestrator`
 - `needs you`: `needs you: it asked you something, or it cannot go on without you`
 - `working`: `working: a run of its own is going, or a turn is, or a session it waits on works`
@@ -297,7 +299,7 @@ Helpers: `terminal.confirm`, `terminal.choose`.
 
 Example:
 `  Stop fix-api and everything it runs?`
-`  2 runs stop with it; ak cannot reopen the session: Stop removes its record.`
+`  2 runs stop with it; the session stays listed: its number reopens it, x on it again removes it.`
 `› ✓ Keep`
 `  ✗ Stop`.
 

@@ -150,6 +150,9 @@ class StopOwnRunsOnly(Sandbox):
                     self.assertEqual(orch.main(["stop", name]), 0)
                 self.assertEqual(record.read_state(mine)["state"], "stopped")
                 self.assertEqual(record.read_state(other)["state"], "running")
+                # stopped again, the session gone from tmux: the seat itself goes
+                with patch.object(orch, "sessions", return_value=[]), redirect_stdout(io.StringIO()):
+                    self.assertEqual(orch.main(["stop", name]), 0)
                 self.assertFalse(config.session_path(name).exists())
                 self.assertFalse(config.session_path(resolved).exists())
                 self.assertTrue(config.session_path("acme-ui").exists())

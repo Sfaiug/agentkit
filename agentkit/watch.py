@@ -3448,10 +3448,9 @@ OWNER_CLOSED_REASON = "session closed by the owner"
 def seat_closed(name):
     """Whether that seat stays gone: `ak orch stop` ended it, or nothing of it is left.
 
-    The stop writes `stopped_at` back into the seat's state file after the seat's other
-    files go, and a launch under the name clears it again.  A seat with neither a pane nor
-    a record was stopped, forgotten or never agentkit's to open: there is nothing to bring
-    back, and the owner is asked as before.
+    The stop writes `stopped_at` into the seat's state file, and a launch under the name
+    clears it again.  A seat with neither a pane nor a record was stopped, forgotten or never
+    agentkit's to open: there is nothing to bring back, and the owner is asked as before.
     """
     if seat_read(name).get("stopped_at"):
         return True
@@ -3461,9 +3460,9 @@ def seat_closed(name):
 def seat_closed_by_owner(name):
     """Whether the owner ended that seat on purpose: `x`, `ak orch stop` or a pause script.
 
-    The mark lives beside `stopped_at` in the seat's state file, which a stop writes back
-    after the seat's other files go, and a launch under the name clears it again.  A hand-back
-    for such a seat waits for the owner to reopen it; it never reopens the seat itself.
+    The mark lives beside `stopped_at` in the seat's state file, which the stop writes and a
+    launch under the name clears again.  A hand-back for such a seat waits for the owner to
+    reopen it; it never reopens the seat itself.
     """
     try:
         return bool(seat_read(name).get("closed_by_owner"))

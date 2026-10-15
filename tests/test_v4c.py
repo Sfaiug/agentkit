@@ -781,9 +781,10 @@ esac
             self.assertIn("atoll", orch.taken_names())
             with self.assertRaises(config.Error):
                 orch.create(cfg, "atoll", "/w", prompting=False, dry_run=True)
-            # stopping the seat the pointer leads to takes the pointer with it
-            with contextlib.redirect_stdout(io.StringIO()):
-                orch.cmd_stop(["parser"])
+            # the second stop of the seat the pointer leads to takes the pointer with the record
+            for _ in ("stopped", "removed"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    orch.cmd_stop(["parser"])
             self.assertFalse(config.session_path("atoll").exists())
             self.assertNotIn("atoll", orch.taken_names())
             with contextlib.redirect_stdout(io.StringIO()):

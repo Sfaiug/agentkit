@@ -121,7 +121,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                  "Explain one seat's state: the authority, the rule or hook event,\n"
                  "the evidence line and when that state began.",
                  "ak orch why parser-fix"),
-    "orch stop": ("usage: ak orch stop NAME", "Stop a session and remove its saved seat.",
+    "orch stop": ("usage: ak orch stop NAME",
+                  "Stop a session and keep it, its number reopening it; stop it again to remove it.",
                   "ak orch stop parser-fix"),
     "orch rename": ("usage: ak orch rename [--auto] [OLD] NEW",
                     "Rename a session; omit OLD to rename the session this runs in.\n"

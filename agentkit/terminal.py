@@ -480,16 +480,18 @@ TIPS = {
     "n new": "n starts a session: you name it and pick the models that orchestrate, execute "
              "and review",
     "x stop": "x stops the highlighted session and everything it runs, asking first",
-    "x close": "x closes the highlighted session, which is done: its runs, checkouts and files "
-               "go",
+    "x remove": "x takes the highlighted stopped session off the list now; left alone it goes "
+                "with the sweep",
+    "x close": "x closes the highlighted session, which is done: its runs and checkouts go, and "
+               "its number reopens it",
     "c config": "c sets the highlighted session's models, every model's effort, the providers "
                 "and Discord",
     "esc leave": "Esc leaves ak; the sessions go on working without it",
     "n start a session": "n starts a session and switches this terminal to it, closing the popup",
     "c models": "c opens this session's models: who orchestrates, executes and reviews",
     "x stop this session": "x stops this session and everything it runs, asking first",
-    "x close this session": "x closes this session, which is done: its runs, checkouts and files "
-                            "go",
+    "x close this session": "x closes this session, which is done: its runs and checkouts go, "
+                            "and its number reopens it",
     "session": "{name}: Enter or a click opens it, where you talk to its orchestrator",
     "needs you": "needs you: it asked you something, or it cannot go on without you",
     "working": "working: a run of its own is going, or a turn is, or a session it waits on works",

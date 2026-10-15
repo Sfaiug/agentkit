@@ -222,7 +222,10 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
         self.assertEqual(args[args.index("resume") + 1], "owned")
         receipt_path = codex_plugin.path_for(orch.records()["renamed"])
         with redirect_stdout(io.StringIO()):
-            orch.cmd_stop(["old"])
+            orch.cmd_stop(["old"])          # stopped: kept, the receipt with it
+        self.assertTrue(receipt_path.exists())
+        with redirect_stdout(io.StringIO()):
+            orch.cmd_stop(["old"])          # stopped again: gone, receipt and pointer with it
         codex_plugin.capture(receipt_path, event)
         self.assertFalse(receipt_path.exists())
         self.assertEqual(orch.listing(), [])
