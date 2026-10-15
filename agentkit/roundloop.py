@@ -1387,9 +1387,10 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             passed_head = validation.get("head_sha")
     passed = {"passed_head_sha": passed_head} if passed_head else {}
     if record:
+        # the base its reviewer diffed against: landing and later rounds move the run's own
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
-             "finding_count": len(submitted.findings),
+             "finding_count": len(submitted.findings), "base_sha": lp.base_sha,
              "summary": summary.strip()[-4000:], **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict

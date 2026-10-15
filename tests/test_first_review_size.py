@@ -1,7 +1,8 @@
 """Each run's history row keeps the size its first review read, whatever its ending.
 
-The size is the first-review ceiling's own measure, taken at the commit round 1 reviewed: the
-added lines, generated files aside, less the blocks moved unchanged from lines the diff deletes.
+The size is the first-review ceiling's own measure, taken at the commit round 1 reviewed over
+the base its reviewer diffed against, however landing moved the run's base since: the added
+lines, generated files aside, less the blocks moved unchanged from lines the diff deletes.
 A run that failed or was blocked keeps it as a merged one does, so the scoreboard can weigh
 round-1 passes, landings and review by size without counting only the runs that got through.
 """
@@ -15,6 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.own_pr import BRANCH, OwnPr  # noqa: E402
 from agentkit import config, history, run  # noqa: E402
 
 
@@ -28,6 +30,7 @@ class FirstReviewSize(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.object(config, "HOME", home).start()
         patch.object(config, "RUNS", home / "runs").start()
+        patch.object(config, "TMP", self.root).start()     # the private index's home
         self.addCleanup(history._OPEN.clear)
         self.acme = self.root / "acme"
         self.acme.mkdir()
@@ -49,7 +52,9 @@ class FirstReviewSize(unittest.TestCase):
     def finish(self, run_id, state, summaries):
         history.start_run(run_id, repo=str(self.acme), started_at=90)
         run.history_finish({"run_id": run_id, "repo": str(self.acme), "worktree": str(self.acme),
-                            "base_sha": self.base, "verdict": state.upper(), "state": state,
+                            # landing moved the run's base onto what it reviewed
+                            "base_sha": self.git("rev-parse", "HEAD"),
+                            "verdict": state.upper(), "state": state,
                             "round_summaries": summaries, "started_at": 90, "finished_at": 100})
         return history.get(run_id)["first_review_lines"]
 
@@ -64,8 +69,8 @@ class FirstReviewSize(unittest.TestCase):
         # the fix round adds more; the first review read none of it
         (self.acme / "fix.py").write_text("".join(f"fix_{n} = {n}\n" for n in range(40)))
         second = self.commit("Round 2")
-        summaries = [{"round": 1, "verdict": "FAIL", "head_sha": first},
-                     {"round": 2, "verdict": "FAIL", "head_sha": second}]
+        summaries = [{"round": 1, "verdict": "FAIL", "base_sha": self.base, "head_sha": first},
+                     {"round": 2, "verdict": "FAIL", "base_sha": self.base, "head_sha": second}]
         for ending in ("fail", "blocked", "pass"):
             with self.subTest(ending=ending):
                 self.assertEqual(self.finish(f"r-{ending}", ending, summaries), 12)
@@ -74,8 +79,36 @@ class FirstReviewSize(unittest.TestCase):
         self.assertIsNone(self.finish("r-no-round", "blocked", []))
         self.assertIsNone(self.finish("r-scratch", "pass", [{"round": 1, "verdict": "PASS"}]))
         # a commit the repository no longer holds leaves the size unknown and the ending recorded
-        self.assertIsNone(self.finish("r-gone", "fail", [{"round": 1, "head_sha": "f" * 40}]))
+        self.assertIsNone(self.finish("r-gone", "fail", [{"round": 1, "base_sha": self.base,
+                                                          "head_sha": "f" * 40}]))
         self.assertEqual(history.get("r-gone")["final_state"], "fail")
+
+
+class ReviewedRound(OwnPr):
+    """Through a real own-PR review: a round a reviewer read names the base it diffed against,
+    and a text-only head, passed with no reviewer, names none."""
+
+    def finished(self, state):
+        self.addCleanup(history._OPEN.clear)
+        history.start_run(state["run_id"], repo=str(self.repo))
+        run.history_finish(state)
+        return history.get(state["run_id"])["first_review_lines"]
+
+    def test_the_first_reviewed_round_keeps_its_size(self):
+        # round 1 reads the one line of the first head; the fix round's 5000 are not its
+        state = self.review(["FAIL", "PASS"])
+        self.assertEqual(len(state["round_summaries"]), 2)
+        self.assertEqual(self.finished(state), 1)
+
+    def test_a_text_only_round_keeps_no_size(self):
+        self.git("checkout", "-qb", "notes", "main")
+        (self.repo / "notes.md").write_text("note\n" * 500)
+        self.git("add", "notes.md")
+        self.git("commit", "-qm", "Notes")
+        self.git("push", "-q", "--force", "origin", f"{self.git('rev-parse', 'HEAD')}:refs/heads/{BRANCH}")
+        state = self.review([])
+        self.assertTrue(state["review"]["skipped"])
+        self.assertIsNone(self.finished(state))
 
 
 if __name__ == "__main__":

@@ -382,16 +382,18 @@ def history_finish(state, log=None):
                 size = diff_lines(repo, state["base_sha"], head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
-    # what its first review read, whatever the ending: the added lines at round 1's commit less
-    # the blocks moved unchanged, as the first-review ceiling counts them, so the scoreboard
-    # weighs round-1 passes, landings and review by the size a reviewer was handed
+    # what its first review read, whatever the ending: the added lines at round 1's commit over
+    # the base its reviewer diffed against, less the blocks moved unchanged, as the first-review
+    # ceiling counts them, so the scoreboard weighs round-1 passes, landings and review by the
+    # size a reviewer was handed; a round no reviewer read (text only) names no base, no size
     first = None
     summaries = state.get("round_summaries") or []
-    reviewed = summaries[0].get("head_sha") if summaries and isinstance(summaries[0], dict) else None
-    if repo and reviewed and state.get("base_sha"):
+    round1 = summaries[0] if summaries and isinstance(summaries[0], dict) else {}
+    base, reviewed = round1.get("base_sha"), round1.get("head_sha")
+    if repo and base and reviewed:
         try:
-            first = (diff_lines(repo, state["base_sha"], reviewed, added_only=True)
-                     - carried_lines(repo, state["base_sha"], reviewed))
+            first = (diff_lines(repo, base, reviewed, added_only=True)
+                     - carried_lines(repo, base, reviewed))
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # a commit no longer held leaves the size unknown, never the ending
     # the AGENTS.md its workers were handed, measured as the ceiling measures it
