@@ -927,6 +927,24 @@ def token_alert(token_out):
     return None, None
 
 
+def token_dead(token_out):
+    """The records of `token_out` whose worker token has expired: what pages the owner (rung 1c).
+    One that only nears its day stands on the ak screen instead (`token_standing`)."""
+    if not isinstance(token_out, dict):
+        return {}
+    return {harness: record for harness, record in token_out.items()
+            if isinstance(record, dict) and record.get("expired")}
+
+
+def token_standing(now=None):
+    """The worker token's note (`worker_token_note`) while the ak and `c` screens show it --
+    from TOKEN_WARN_DAYS out, and once it has expired -- else None."""
+    note = worker_token_note(now)
+    days = re.search(r"\(in (\d+) days\)", note or "")
+    return note if note and ("expired" in note or days and int(days.group(1))
+                             <= TOKEN_WARN_DAYS) else None
+
+
 def token_episode_restarted(answer, token_out, word_since):
     """The warning's new beginning where a replaced file restarted it, else None.
 
@@ -934,7 +952,7 @@ def token_episode_restarted(answer, token_out, word_since):
     -- or a file that is replaced -- while the seat already reads `needs you` would
     otherwise keep the older age, and the new episode would never be seen to begin.
     """
-    reason, begun = token_alert(token_out)
+    reason, begun = token_alert(token_dead(token_out))
     if reason is None or answer.get("reason") != reason:
         return None
     if (isinstance(begun, (int, float)) and not isinstance(begun, bool)
@@ -2361,12 +2379,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if name in (gh_out.get("seats") or []):
         return {"word": "needs you", "reason": "gh login expired: run `gh auth login`",
                 "since": gh_out.get("at")}
-    # 1c. a worker token dies within a fortnight or is dead: every session reads the
-    # warning, on any harness, because any seat's next turn on it can be the one that
-    # fails.  The tick asks the `auth` verb once a day and keeps the answer; a replaced
-    # file has a new date, which is what ends the episode.  One card per episode falls out
-    # of the cards rule, which keys episodes on the word.
-    reason, since = token_alert(token_out)
+    # 1c. a worker token is dead: every session reads it, on any harness, because any
+    # seat's next turn on it fails.  The tick asks the `auth` verb once a day and keeps the
+    # answer; a replaced file has a new date, which is what ends the episode.  One card per
+    # episode falls out of the cards rule, which keys episodes on the word.  One that only
+    # nears its day stands under the ak screen's grid instead (`token_standing`).
+    reason, since = token_alert(token_dead(token_out))
     if reason:
         return {"word": "needs you", "reason": reason, "since": since}
     # 1d. typed text nobody sent at a quiet prompt, or a question even during a turn: that is
