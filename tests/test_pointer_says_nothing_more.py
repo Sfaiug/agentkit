@@ -1,8 +1,7 @@
 """Pointing lights what it rests on and says nothing more: the key line stays the keys on every
 screen, whatever the pointer is on.  The owner's words (14 Oct 2026): "I dont think hovering
-should show extra info anywhere."  A usage row under it still sends one glint across its bar and
-stands a hairline tick at the share that would be left had it been spent as fast as time passes,
-through a glide too; and `i` is no key, its page gone.
+should show extra info anywhere."  The one line under a thing the pointer opens is its own --
+a subscription's, under the grid -- and `i` is no key, its page gone.
 
 The main menu runs as tests/test_close_and_info.py runs it, in a child process on a pty of its own,
 with the seats faked and its usage read from one fake meter in the child's own HOME: 40% of its
@@ -13,7 +12,6 @@ is the SGR report a terminal in modes 1003 and 1006 sends.  Nothing here reads t
 own child.
 """
 
-import json
 import os
 from pathlib import Path
 import re
@@ -25,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from agentkit import menu, motion, terminal, watch
+from agentkit import menu, terminal, watch
 import test_close_and_info
 from test_hover import ESC, at, move, played, run, texts
 from fixtures.sandbox import Sandbox
@@ -86,41 +84,6 @@ def keyline(text):
     return keys_of(played(text))
 
 
-class UsagePace(unittest.TestCase):
-    def test_the_pace_says_whether_the_allowance_lasts_the_week(self):
-        now, week = 1_800_000_000, 7 * 86400
-        for used, words in ((42, "runs out early at this pace"), (32, "lasts at this pace"),
-                            (40, "on pace")):
-            with self.subTest(used=used):
-                prov = {"meters": [{"name": "weekly", "used": used, "window_secs": week,
-                                    "resets_at": now + 0.6 * week}]}
-                with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov, None)]):
-                    sentence, pace = menu.usage_tip({"models": {}}, 1, now)
-                self.assertTrue(sentence.endswith(" · " + words), sentence)
-                self.assertIn(f"{100 - used}% left", sentence)
-                self.assertAlmostEqual(pace, 0.6)
-
-    def test_a_spent_meter_has_no_pace_words(self):
-        now, week = 1_800_000_000, 7 * 86400
-        prov = {"meters": [{"name": "weekly", "used": 100, "window_secs": week,
-                            "resets_at": now + 0.6 * week}]}
-        with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov, None)]):
-            sentence, pace = menu.usage_tip({"models": {}}, 1, now)
-        self.assertIn("0% left", sentence)
-        self.assertTrue(sentence.endswith(" (in 4 d 4 h)"), sentence)
-        self.assertAlmostEqual(pace, 0.6)
-
-    def test_a_spent_meter_on_credits_says_its_credits_where_its_0_stood(self):
-        now, week = 1_800_000_000, 7 * 86400
-        prov = {"meters": [{"name": "weekly", "used": 100, "window_secs": week,
-                            "resets_at": now + 0.6 * week}], "credits": 62469.67}
-        with patch.object(menu, "usage_rows", return_value=[("acme", "Acme II", prov, None)]):
-            sentence, _ = menu.usage_tip({"models": {}}, 1, now)
-        self.assertTrue(sentence.startswith("Acme II · 62,469 credits left · resets "), sentence)
-        self.assertNotIn("% left", sentence)
-        self.assertTrue(sentence.endswith(" (in 4 d 4 h)"), sentence)
-
-
 class MainMenu(unittest.TestCase):
     def test_a_seat_its_word_a_heading_and_each_key_say_nothing_on_the_key_line(self):
         child = menu_child(self)
@@ -136,50 +99,19 @@ class MainMenu(unittest.TestCase):
             keys)
         child.leave()
 
-    def test_a_usage_row_glints_then_ticks_at_the_pace_share_until_the_pointer_leaves(self):
+    def test_a_subscription_under_the_pointer_says_the_rest_under_the_grid(self):
         child = menu_child(self)
         lines = child.frame()
         row = next(number for number, line in enumerate(lines, 1) if line.startswith("  Claude"))
-        bar = re.search("[█░]+", lines[row - 1])
-        self.assertEqual(bar.group(), "████████░░░░")      # 68% left of twelve cells
-        mark = child.mark()
+        under = next(number for number in range(row, len(lines)) if not lines[number])
         child.send(move(5, row))
-        child.until(lambda text: "│" in texts(played(text))[row - 1], "the tick")
-        time.sleep(motion.SWEEP + 0.3)                        # the glint is over
-        self.assertEqual(keyline(child.text()), lines[-1])    # the keys stay the keys
-        grid = played(child.text())
-        cells = grid[row][bar.start():bar.end()]
-        shown = "".join(cell.char for cell in cells)
-        # 40% of the week gone: the tick at 60%, the seventh of twelve cells cut out of the fill
-        self.assertEqual(shown, "███████│░░░░")
-        self.assertTrue(cells[7].reverse)
-        # and before it one light crossed the bar, left to right
-        with patch.object(terminal, "colour_depth", return_value=24), \
-                patch.object(terminal, "_LIGHT", False):
-            light = terminal.faded(menu.COLOURS["anthropic"], -motion.BRIGHTER)
-            lit = [terminal.styled(char, light) for char in shown]
-        # each frame lights the cell the light has reached, so a slow one may pass one by
-        after = child.text()[mark:]
-        places = [after.find(f"\x1b[{row};{bar.start() + 1 + n}H{text}")
-                  for n, text in enumerate(lit)]
-        crossed = [place for place in places if place >= 0]
-        self.assertGreaterEqual(len(crossed), 2, after[-2000:])
-        self.assertEqual(crossed, sorted(crossed))
-        # a reading that moves glides there, and the tick stands through it: 58% left
-        week, now = 7 * 86400, time.time()
-        (child.seats.parent / ".agentkit/state/usage.json").write_text(json.dumps({
-            "fetched_at": now, "providers": {"anthropic": {"fetched_at": now, "meters": [
-                {"name": "weekly", "used": 42, "window_secs": week,
-                 "resets_at": now + 0.6 * week}]}}}))
-        child.until(lambda text: "58% left" in texts(played(text))[row - 1], "the moved reading")
-        time.sleep(motion.GLIDE + 0.3)                        # the glide is over
-        shown = "".join(cell.char for cell in played(child.text())[row][bar.start():bar.end()])
-        self.assertEqual(shown, "███████│░░░░")
-        # off the row the tick goes
+        # its name in its colour, then when its week resets, on the line under the grid; the
+        # keys stay where they are
+        child.until(lambda text: re.fullmatch(r"  Claude  resets \w{3} \d\d:\d\d",
+                                              texts(played(text))[under]), "its line")
+        self.assertEqual(keyline(child.text()), lines[-1])
         child.send(move(1, 2))
-        child.until(lambda text: "│" not in texts(played(text))[row - 1], "the tick gone")
-        shown = "".join(cell.char for cell in played(child.text())[row][bar.start():bar.end()])
-        self.assertEqual(shown, "███████░░░░░")
+        child.until(lambda text: not texts(played(text))[under], "the line gone")
         child.leave()
 
     def test_i_is_no_key_and_its_page_is_gone(self):

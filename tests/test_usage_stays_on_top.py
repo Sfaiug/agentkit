@@ -58,7 +58,7 @@ class UsageStaysOnTop(Sandbox):
         self.assertGreater(len(drawn["turns"]), 1)
         for first in drawn["turns"]:
             lines, _ = self.draw(100, 24, cursor=first)
-            self.assertRegex("\n".join(lines[:6]), r"usage left\n.*Claude +[█░]+ +21% left")
+            self.assertRegex(lines[2], r"Claude +[▰▱]+ +21% left")       # under the rule
             self.assertEqual(len(lines), 22, lines)
             self.assertIn("esc leave", lines[-1])
         lines, _ = self.draw(80, 24, seats=1)      # one seat: the keys still on the bottom row
@@ -70,7 +70,7 @@ class UsageStaysOnTop(Sandbox):
             lines, _ = self.draw(width, height, seats)
             text = "\n".join(lines)
             self.assertLessEqual(len(lines), height - 2, text)
-            self.assertNotIn("usage left", text)
+            self.assertNotIn("no reading yet", text)                   # not the grid
             self.assertNotIn("…", text.split("\nyour projects")[0].split("\nacme")[0])
             for label in labels:
                 self.assertRegex(text, rf"{re.escape(label)} (\d+%|—)", (width, height, label))

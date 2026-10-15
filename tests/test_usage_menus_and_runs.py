@@ -12,6 +12,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
+from fixtures.subscriptions import said
 from agentkit import config, macbridge, menu, orch, run, status, terminal, usage
 from agentkit import record as run_record
 
@@ -91,20 +92,10 @@ class UsageLeft(Sandbox):
                 self.assertTrue(all(terminal.cells(line) <= width for line in text.splitlines()))
                 self.assertNotIn("\033", text)
                 block, sessions = text.split("\nyour projects · ")
-                self.assertIn("usage left", block)
-                for name, left, filled in (("Claude", 21, 3), ("ChatGPT", 69, 8), ("Muse", 0, 0)):
-                    row = next(line for line in block.splitlines() if line.strip().startswith(name))
-                    self.assertRegex(row, rf"{name}\s+[█░]+\s+{left}% left")
-                    # one column: every bar is the width the row with the
-                    # least room can afford, and the bar is what gives way to a
-                    # note, so a phone's is narrower than a laptop's
-                    bar = 6 if width == 40 else 12
-                    self.assertEqual(row.count("█"), round(bar * left / 100))
-                    self.assertEqual(row.count("░"), bar - round(bar * left / 100))
-                self.assertEqual("resets Thu 22:00" in block, width == 100)
-                self.assertIn("Fable 47%", block)   # the short note fits on a phone too
+                self.assertRegex(block, r"Claude\s+[▰▱]+\s+21% left")
+                self.assertRegex(block, r"ChatGPT\s+[▰▱]+\s+69% left")
+                self.assertRegex(block, r"Muse\s+empty until Thu 22:00")
                 self.assertNotIn("+2 resets", block)
-                self.assertEqual(sum("░" in line for line in block.splitlines()), 3)
                 # Seats only: an orphan run is no row and makes no project, and
                 # merged runs were never rows either.
                 self.assertNotIn("Hidden unfinished work-run", sessions)
@@ -142,17 +133,15 @@ class UsageLeft(Sandbox):
         self.assertIn("60%", out.getvalue())
         # the resets in hand are `ak usage`'s column; the menu says when the week is back
         self.assertNotIn("+2 resets", out.getvalue())
-        self.assertEqual(out.getvalue().count("resets Sun 00:00"), 4)
 
     def test_colours_and_terminal_fallbacks(self):
         with patch.object(sys.stdout, "isatty", return_value=True), \
                 patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             lines = menu.usage_lines(self.cfg, 100)
-            # each company's own colour, the nearest of eight here: Claude red, ChatGPT white
-            self.assertIn("\033[31m███\033[0m\033[2m░░░░░░░░░\033[0m", lines[1])
-            self.assertIn("\033[37m████████\033[0m\033[2m░░░░\033[0m", lines[6])
-            self.assertIn("  \033[2m░░░░░░░░░░░░\033[0m  ", lines[3])
+            # grey at rest, eight colours or more: the empty cells dim and no company's colour
+            self.assertIn("▰▰\033[2m▱▱▱▱▱▱▱▱\033[0m", lines[0])
+            self.assertNotIn("\033[31m", "\n".join(lines))
             plain = [terminal.plain(line) for line in lines]
             for env in ({"TERM": "dumb"}, {"TERM": "xterm-256color", "NO_COLOR": ""}, {}):
                 with patch.dict(os.environ, env, clear=True):
@@ -174,7 +163,7 @@ class UsageLeft(Sandbox):
                 text = self.draw([], width)
                 self.assertIn("no sessions; n starts one", text)
                 self.assertEqual(text.count("—"), 6)
-                self.assertNotRegex(text, "[█░]")
+                self.assertNotRegex(text, "[▰▱]")
         with patch.object(type(path), "read_text", side_effect=PermissionError):
             self.assertEqual("\n".join(menu.usage_lines(self.cfg, 40)).count("—"), 6)
 
@@ -187,36 +176,31 @@ class UsageLeft(Sandbox):
                            ({"meters": [None]}, "—  bad reading"), ("bad", "—  no reading yet")):
             self.providers["meta"] = prov
             self.cache()
-            lines = menu.usage_lines(self.cfg, 100)
-            self.assertIn("69%", lines[6])
-            self.assertTrue(lines[3].endswith(tail), lines)
+            self.assertIn("69%", said(self.cfg)["ChatGPT"])
+            self.assertEqual(said(self.cfg)["Muse"], tail)
 
     def test_provider_names_come_from_config_and_bar_uses_tightest_week(self):
         self.cfg["providers"] = {"openai": {}, "界" * 80: {}}
         self.providers["openai"]["meters"].append(self.meter("other-week", 80))
         self.providers["界" * 80] = {"meters": [self.meter("weekly", -10)]}
         self.cache()
+        # the unknown provider sorts by the accent, a blue, and ChatGPT's white comes after
+        self.assertEqual([left for _, _, left, _ in menu.usage_cells(self.cfg)], [100, 20])
         for width in (40, 100):
             lines = menu.usage_lines(self.cfg, width)
-            self.assertEqual(len(lines), 3)
-            # the unknown provider is drawn in the accent, a blue, and ChatGPT's white comes after
-            self.assertIn("100%", lines[1])
-            self.assertIn("20%", lines[2])
             self.assertTrue(all(terminal.cells(line) <= width for line in lines))
         self.providers["openai"]["resets"] = 0
         self.providers["openai"]["meters"] = [self.meter("weekly", 120)]
         self.cache()
-        self.assertIn("0% left · resets Sun 00:00", menu.usage_lines(self.cfg, 100)[2])
+        self.assertEqual(said(self.cfg)["ChatGPT"], "empty until Sun 00:00")
 
     def test_spent_windows_keep_scoped_allowance_and_unspent_resets(self):
         self.providers["anthropic"]["meters"][0]["used"] = 100
         self.providers["openai"]["meters"][0]["used"] = 100
         self.cache()
-        lines = menu.usage_lines(self.cfg, 100)
-        self.assertIn("0% left · resets Sun 00:00 · Fable 47%", lines[1])
-        self.assertIn("0% left · resets Sun 00:00", lines[6])
-        self.assertNotIn("+2 resets", "\n".join(lines))
-        self.assertNotIn("█", "\n".join(lines))
+        self.assertEqual(said(self.cfg)["Claude"], "empty until Sun 00:00")
+        self.assertIn("Fable 47%", terminal.plain(menu.usage_detail(self.cfg, 1)))
+        self.assertEqual(said(self.cfg)["ChatGPT"], "empty until Sun 00:00")
 
     def test_rounded_zero_gets_spent_style_and_reset_note(self):
         for used, shown in ((99.49, 1), (99.5, 0), (99.9, 0), (100, 0)):
@@ -225,12 +209,9 @@ class UsageLeft(Sandbox):
             with patch.object(sys.stdout, "isatty", return_value=True), \
                     patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                     patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
-                line = menu.usage_lines(self.cfg, 100)[3]
-                self.assertIn(f"{shown}%", line)
-                self.assertIn("resets Thu 22:00", line)
-                if shown == 0:
-                    self.assertIn("\033[2m  0% left\033[0m", line)
-                    self.assertNotIn("\033[33m", line)
+                grid = "\n".join(menu.usage_lines(self.cfg, 100))
+                self.assertIn("1% left" if shown else
+                              terminal.styled("empty until Thu 22:00", "dim"), grid)
 
     def test_cache_age_is_never_shown_and_drawing_changes_no_allowance(self):
         path = self.cache()
@@ -239,14 +220,9 @@ class UsageLeft(Sandbox):
             before = path.read_bytes()
             for width in (40, 100):
                 lines = menu.usage_lines(self.cfg, width)
-                self.assertEqual(lines[0], "  usage left")
-                self.assertIn("21%", lines[1])
+                self.assertRegex(lines[0], r"Claude\s+[▰▱]+\s+21% left")
                 self.assertTrue(all(terminal.cells(line) <= width for line in lines))
             self.assertEqual(path.read_bytes(), before)
-        with patch.object(sys.stdout, "isatty", return_value=True), \
-                patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
-                patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
-            self.assertTrue(menu.usage_lines(self.cfg, 40)[0].startswith("\033[2m"))
 
     def test_startup_pauses_for_warnings_and_never_for_receipts_after_drawing_once(self):
         # A live seat's ending is that seat's to report, so the menu opens on the seats

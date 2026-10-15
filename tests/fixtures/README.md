@@ -388,15 +388,6 @@ run, and a merged run that must not appear. `tests/test_menu_at_rest_every_width
 byte for byte; the reviewer renders the same three and reads them as the owner would.
 Refresh with `python3 tests/test_menu_at_rest_every_width.py --fixtures`.
 
-## v5ai usage bars are one column (`v5ai-40.txt`, `v5ai-100.txt`)
-
-One fixed fake usage record over two widths, rendered with `menu.usage_lines`
-under a pinned clock: Claude carries `(Fable 98%)`, ChatGPT is spent with
-`back 21 Sep` and Muse carries `22m old`. At 40 columns every bar is the one
-width the row with the least room can afford; at 100 columns every bar is 12
-cells, as before. `tests/test_usage_bars_one_column.py` checks both byte for byte.
-Refresh with `python3 tests/test_usage_bars_one_column.py --fixtures`.
-
 ## Refused-run terminal records (v5i)
 
 A refused run's terminal event-log record is `turn.failed` (Codex), `result` (Claude) or

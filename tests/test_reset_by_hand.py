@@ -1,6 +1,6 @@
 """The owner spends a usage-limit reset by hand, from the Providers row of `c`; offline.
 
-A usage row on the `ak` menu says `1 reset in hand` (`2 resets in hand`) while its subscription
+A subscription's line under the grid of `ak` says `1 reset in hand` (`2 resets in hand`) while it
 holds any, and nothing with none.  The Providers row of `c` then offers `↻ spend a reset` beside
 `+ add` and `− remove`; it asks which subscription when more than one holds a reset, spends
 exactly one through `usage.replenish` -- the only caller of it in ak -- and the row shows the
@@ -65,7 +65,9 @@ class ResetByHand(unittest.TestCase):
         stack.enter_context(patch.object(usage.subprocess, "run", side_effect=adapter))
 
     def rows(self):
-        return [terminal.plain(line) for line in menu.usage_lines(self.cfg, 100)[1:]]
+        """What the line under the usage grid says of each subscription, the pointer on it."""
+        return [terminal.plain(menu.usage_detail(self.cfg, number))
+                for number in range(1, len(menu.usage_cells(self.cfg)) + 1)]
 
     def acts(self):
         return "".join(line for line, _ in menu.providers_lines(self.cfg, 13, 100))
@@ -73,8 +75,8 @@ class ResetByHand(unittest.TestCase):
     def test_a_usage_row_says_the_resets_its_subscription_holds(self):
         usage.collect(self.cfg, refresh=True)
         first, second = self.rows()
-        self.assertRegex(first, r"^ChatGPT I .* 0% left · resets .* · 2 resets in hand$")
-        self.assertRegex(second, r"^ChatGPT II .* 0% left · resets .* · 1 reset in hand$")
+        self.assertRegex(first, r"^ChatGPT I resets .* · 2 resets in hand$")
+        self.assertRegex(second, r"^ChatGPT II resets .* · 1 reset in hand$")
         self.assertIn("↻ spend a reset", self.acts())
         self.held.update({"": 0, "second": 0})
         (config.STATE / "usage.json").unlink()
@@ -94,10 +96,10 @@ class ResetByHand(unittest.TestCase):
             note = menu.config_spend_reset(self.cfg)
         self.assertEqual(asked, [["ChatGPT I", "ChatGPT II"]])
         self.assertEqual(self.spent, ["second"])          # exactly one, on the one picked
-        self.assertTrue(note.startswith("ChatGPT II · 100% left · resets "), note)
+        self.assertEqual(note, "ChatGPT II · 100% left")
         first, second = self.rows()
         self.assertIn("2 resets in hand", first)
-        self.assertRegex(second, r"^ChatGPT II .* 100% left · resets [^·]*$")
+        self.assertRegex(second, r"^ChatGPT II resets [^·]*$")
         # one subscription left holding one: nothing to ask, and it is the one spent from
         with patch.object(terminal, "choose", side_effect=choose):
             menu.config_spend_reset(self.cfg)

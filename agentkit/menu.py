@@ -1195,11 +1195,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     top to bottom, with the checkout of a project naming its feature switches where its heading
     is; `cursor`, the one highlighted; `spots`, the seat or heading on each screen row and the
     key line's items (`terminal.under`), the one under the pointer lit; `words`, each seat's
-    word.  A seat's state word, any other project's heading and a usage row are cells that only
-    explain (`terminal.Spot`), and nothing says what any of them is on the key line.  A usage row
-    under the pointer with a bar has a hairline tick at the share of its week that would be left
-    had it been spent as fast as time passes (`usage_tip`), standing through a glide, and one
-    light crosses that bar as the pointer comes onto it (`motion.glinting`).
+    word.  A seat's state word, any other project's heading and a subscription of the usage
+    grid are cells that only explain (`terminal.Spot`), and nothing says what any of them is on
+    the key line; a subscription under the pointer is drawn in its colour and the blank line
+    under the grid says the rest of it (`usage_detail`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
     `x close` while that seat is done and `x remove` while it is stopped (`closed` on its row,
@@ -1301,8 +1300,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         keys = (k_paged if paged else k_single) + opens
         if compact:
             return height - 2 - (1 + keys + len(meters))
-        # the whole block has a blank line above it; its folded readings sit under the rule
-        chrome = 2 + len(meters) + (meters is meters_full and bool(meters)) + 2 + 1 + 1 + keys
+        chrome = 2 + len(meters) + 2 + 1 + 1 + keys
         return height - 2 - chrome
 
     def _seat_pages(room):
@@ -1346,7 +1344,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         room = _room(meters, paged, compact)
         if (len(flat) <= room) if not paged else (room >= least or compact):
             break
-    folded = meters is summary
     if compact and room < 3 and len(meters) > 1:
         # what leaves a seat its heading and a line under its row, the readings cut said so
         meters = meters[:max(1, len(meters) + room - 3)]
@@ -1364,43 +1361,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                  else terminal.key_line(key_text + (page_keys if len(pages) > 1 else ""), width))
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
-    # what may move: (key, what it shows -- a word, or a bar's value and its blocks -- its first
-    # cell, highlighted, a bar's colour); a bar's news is its value, which rounding can hide
+    # what may move: (key, the word it shows, its first cell, highlighted)
     moves = []
-    bars = {}       # each usage row's number -> its screen row, blocks, first column and colour
-    rows = {}       # ... and each usage row's screen row, a bar on it or not
     explains = {}   # each seat row's state word, a cell that explains it
     if not compact:
         out += [terminal.header_line("updating" if updating is not None else "",
                                      time.strftime("%H:%M"), width),
                 terminal.rule_line(width, updating or 0)]
-    if meters:
-        if not compact and not folded:
-            out.append("")
-        for number, line in enumerate(meters):
-            out.append(line)
-            if folded:
-                continue          # the folded readings are no rows
-            if number:            # its first line is the heading
-                rows[number] = len(out)
-            text = terminal.ANSI.sub("", line)
-            bar = re.search("[█░]+", text)
-            if bar:
-                # its value is the figure beside it, or 0 where a spent week's credits stand in
-                # that figure's place (usage_lines)
-                figure = re.match(r" *(\d+)% left", text[bar.end():])
-                left = int(figure.group(1)) if figure else 0
-                # its filled cells' colour, its company's as `usage_lines` drew it; one spent
-                # has none drawn, and is red whoever's it is
-                shade = next((kind for kind in (fill(left, colour(cfg, name))
-                                                for name in cfg["providers"])
-                              if terminal.styled("█", kind).removesuffix("\033[0m") in line),
-                             fill(left, "accent"))
-                moves.append((("usage", text[:bar.start()].strip()),
-                              (left / 100, bar.group()),
-                              (len(out), terminal.cells(text[:bar.start()]) + 1), False, shade))
-                bars[number] = (len(out), bar.group(), terminal.cells(text[:bar.start()]) + 1,
-                                shade)
+    grid = len(out) + 1 if meters is meters_full else None     # the grid's first row
+    out += meters
     body = [("  no sessions; n starts one", None)]
     if ordered:
         # One blank line between projects; seat rows two under their project.
@@ -1450,7 +1419,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         text, word = terminal.ANSI.sub("", line), words.get(name)
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
-            moves.append((("word", name), word, (len(out), first), lit, None))
+            moves.append((("word", name), word, (len(out), first), lit))
             explains[len(out)] = [(first, first + terminal.cells(terminal.state_text(word)) - 1,
                                    ("state", word))]
     if not compact:
@@ -1466,59 +1435,33 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     spots = {top + number: ((None, [(1, layout, name)]) if isinstance(name, tuple)
                             else (name, explains.get(top + number, [])))
              for number, (_, name) in enumerate(body, 1) if name}
-    spots.update({row: (None, [(1, layout, ("usage", number))]) for number, row in rows.items()})
+    columns = usage_columns(layout)
+    spots.update({grid + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
+                                        ("usage", line * columns + n + 1)) for n in range(columns)])
+                  for line in range(len(meters)) if grid})
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
     # a question under a row has the keys and the rows, and nothing is explained while it asks
-    spot, glint = terminal.Spot() if asked else terminal.pointer_spot(spots), []
-    kind, ticked = spot.cell[0] if isinstance(spot.cell, tuple) else None, None
-    if kind == "usage":
-        _, pace = usage_tip(cfg, spot.cell[1])
-    if kind == "usage" and spot.cell[1] in bars:
-        row, blocks, _, shade = bars[spot.cell[1]]
-        glint = [terminal.styled(block, shade if block == "█" else "dim") for block in blocks]
-        if pace is not None:
-            tick = min(len(blocks) - 1, round(pace * len(blocks)))
-            # a hairline across its cell, cut out of a filled one's colour so the fill reads on
-            mark = "│" if terminal.utf8() else "|"
-            glint[tick] = (terminal.styled(mark, shade).replace("\033[", "\033[7;", 1)
-                           if blocks[tick] == "█" else mark)
-            ticked = row, tick
-            filled = blocks.count("█")
-            out[row - 1] = out[row - 1].replace(
-                terminal.styled("█" * filled, shade)
-                + terminal.styled("░" * (len(blocks) - filled), "dim"), "".join(glint), 1)
-    for number, (row, _, first, shade) in bars.items():
-        # whether the pointer is on it: coming onto it is news, the light's to cross
-        moves.append((("under", number), kind == "usage" and spot.cell[1] == number,
-                      (row, first), False, shade))
+    spot = terminal.Spot() if asked else terminal.pointer_spot(spots)
+    if grid and isinstance(spot.cell, tuple) and spot.cell[0] == "usage":
+        # the one the pointer is on in its colour, and the rest of it on the line under the grid
+        number = spot.cell[1]
+        out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=number)
+        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, number, layout)
     out = terminal.lit(out, spots)
     moved, rising = "", False
     if clock is not None:
         clock.clear()
         rising = clock.rise(out)
-        news = clock.look({key: shown for key, shown, _, _, _ in moves})
-        for key, shown, cell, lit, shade in moves:
-            since, before = news.get(key, (None, None))
+        news = clock.look({key: shown for key, shown, _, _ in moves})
+        for key, shown, cell, lit in moves:
+            since, _ = news.get(key, (None, None))
             if shown == "working":
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
             elif since is None:
                 continue
-            elif key[0] == "under":
-                if shown:             # the pointer came onto its row: one light across its bar
-                    cells, until = motion.glinting(glint, since, shade)
-                    for n, animation in enumerate(cells):
-                        clock.start([(cell[0], cell[1] + n)], animation, until)
             elif shown in ("needs you", "done"):
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
-            elif key[0] != "word" and len(before[1]) == len(shown[1]):
-                # a cell each, so a frame rewrites only the cells that moved
-                cells, until = motion.gliding(before[1], shown[1], since, shade, lit,
-                                              sweep=shown[0] == 1 > before[0])
-                if ticked and cell[0] == ticked[0]:   # the pointer's tick stands through it
-                    cells[ticked[1]] = lambda now: glint[ticked[1]]
-                for n, animation in enumerate(cells):
-                    clock.start([(cell[0], cell[1] + n)], animation, until)
         moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
     # write, so no draw ever shows a blank screen or a half-drawn one.  Lines that rise are
@@ -1921,12 +1864,11 @@ def fitting(notes, room):
     """Which of these notes fit in `room` cells, drawn in the order the row reads them.
 
     A note too long for the room gives way on its own, and the ones after it are not thrown
-    out with it: `as of 14:02` beside a four-cell bar is worth having on a phone even where
+    out with it: `as of 14:02` is worth having on a phone even where
     `resets Fri 14:00` will never fit.  Each note carries how much it is worth keeping when
     only some can be -- a spent 5h window first, then when the week is back, then why the
     reading may be wrong, then the 5h window, then the scoped cap -- and they are offered in
-    that order and drawn in the row's.  The bar has already given way to its floor by the
-    time anything is offered here.
+    that order and drawn in the row's.
     """
     kept, used = set(), 0
     for index in sorted(range(len(notes)), key=lambda i: notes[i][0]):
@@ -1957,12 +1899,6 @@ def colour(cfg, name):
     if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own):
         return own
     return COLOURS.get(name, "accent")
-
-
-def fill(left, own):
-    """A usage bar's filled cells, from the whole percent it shows left: the company's `own`
-    colour, then amber from 20% down and red from 5% down, whoever's meter it is."""
-    return "FAIL" if left <= 5 else "amber" if left <= 20 else own
 
 
 def hue(kind):
@@ -1998,46 +1934,6 @@ def usage_rows(cfg):
                          config.account_label(cfg, name, account, shown),
                          rec if isinstance(rec, dict) else {}, account))
     return rows
-
-
-def usage_tip(cfg, number, now=None):
-    """Usage row `number`, from 1, in one sentence -- why it has no week to draw, where it has
-    none -- and the share of its week that would be left had it been spent as fast as time
-    passes, from the meter's window and reset, or None where there is no such week: `Acme II ·
-    68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`, more left than that share
-    lasting the week; a spent meter has nothing left to pace, and its credits, where it has
-    any, stand in its 0%'s place as on the row (`Acme II · 62,469 credits left · resets …`).
-    The sentence is what `↻ spend a reset` says once it spent one (config_spend_reset); draw
-    stands its tick in a pointed row's bar at the share."""
-    now = time.time() if now is None else now
-    rows = usage_rows(cfg)
-    if not 0 < number <= len(rows):
-        return None, None
-    name, label, prov, _ = rows[number - 1]
-    try:
-        week = usage.shared_week(cfg, name, prov, now)
-        why = week is None and unread(prov, [m for m in prov.get("meters") or []
-                                             if m.get("window_secs") != usage.SESSION_SECS],
-                                      usage.readable(prov, now), now)
-    except (AttributeError, KeyError, TypeError, ValueError):
-        week, why = None, "bad reading"
-    if week is None:
-        return (f"{terminal.plain(label)}: no week to draw, {why}; the bar comes with the first "
-                "reading of one"), None
-    elapsed, at = usage._elapsed(week, now), usage._number(week.get("resets_at"))
-    pace = None if elapsed is None else 1 - elapsed / 100
-    resets, left = resets_note(week, now), percent_left(week)
-    if resets and at and at > now:
-        secs = int(at - now)
-        resets += " (in " + (f"{secs // 86400} d {secs % 86400 // 3600} h" if secs >= 86400
-                             else f"{secs // 3600} h" if secs >= 3600
-                             else f"{max(1, secs // 60)} min") + ")"
-    spent = None if pace is None or not left else (
-        "lasts at this pace" if left > round(100 * pace)
-        else "runs out early at this pace" if left < round(100 * pace) else "on pace")
-    shown = (not left and usage.credits_note(prov)) or f"{left}% left"
-    return " · ".join(part for part in (terminal.plain(label), shown, resets, spent)
-                      if part), pace
 
 
 def usage_summary(cfg, width):
@@ -2086,111 +1982,74 @@ def usage_cells(cfg, now=None):
     return found
 
 
-def usage_lines(cfg, width):
-    """The cached weekly allowances, without probing adapters or spending a reset.
+METER = 10        # cells of a subscription's meter on the ak screen
+COLUMN = 33       # ... and of its whole cell, its label, meter and share or `empty until` date
 
-    A row is one account's shared weekly meter -- the one every model of it draws on -- that a
-    bar can be drawn from: a numeric used% in a window that has not rolled over, as a bar and
-    `NN% left`, or, once that week is spent, the credits it still runs on in the percentage's
-    place (`62,469 credits left`, `usage.credits_note`) wherever they fit beside a four-cell
-    bar, so even a phone's row says what is left.  A provider that lists `accounts` has one row per account in config order, the
-    provider's name numbered in roman numerals (`Claude I`, `Claude II`), each from its own
-    reading; a provider without them keeps its single row.  After the percentage, joined with
-    ` · ` and each only when it applies: `62,469 credits left` for the credits not standing
-    in the percentage's place; `resets <weekday> <HH:MM>` from that meter, or `resets <day> <month>`
-    more than six days out in a window longer than a week; `1 reset in hand` (`in_hand`); one
-    note per scoped meter whose figure differs (`Fable 41%`); `5h 40% left` for the 5-hour
-    window, or `5h spent until 14:00` once it reads 100% used; `? <reason>` when the last probe
-    errored although the meter it read still stands, and `as of HH:MM` beside it when the
-    reading is older than half an hour, with the weekday when it is not from today.  A probe
-    the endpoint refused to answer says nothing at all: the reading it could not replace stands
-    as it was, and its age says the rest.  The filled cells are `fill`'s colour for what is
-    left, the empty ones dim, and the rows run by the `hue` of the provider's `colour`.  `ak
-    usage` keeps the rest -- week elapsed, headroom, budget, outlook -- and the picker keeps
-    ranking on the tightest meter: only this display changed.  The bars are one column, sized
-    once per draw from the row with the least room, down to four cells; the bar gives way to
-    the notes first, and only then does each note that still will not fit give way on its own
-    (`fitting`), so one long note never takes a short one with it.  An account whose every
-    readable week is one model's own cap has no shared week to show and says so rather than
-    wearing that cap's number.  A row with nothing to draw is `—` and the words that say why,
-    never `—` alone.
-    """
-    rows = usage_rows(cfg)
-    label_room = min(16, max((terminal.cells(terminal.plain(label)) for _, label, _, _ in rows),
-                             default=0), max(1, width - 16))
-    bar_width = min(12, max(1, width - label_room - 15))
-    now = time.time()
-    lines = [terminal.styled("  " + terminal.cut("usage left", width - 2), "dim")]
-    pending = []
-    # The bar never drops below this to keep a note; narrower notes give way first.
-    floor = min(4, bar_width)
-    for name, label, prov, _ in rows:
-        prefix = "  " + terminal.pad(label, label_room) + "  "
-        why = None
-        try:
-            weekly = [m for m in prov.get("meters") or []
-                      if m.get("window_secs") != usage.SESSION_SECS]
-            readable = usage.readable(prov, now)
-            week = usage.shared_week(cfg, name, prov, now)
-        except (AttributeError, KeyError, TypeError, ValueError):
-            weekly, readable, week, why = [], [], None, "bad reading"
-        if week is None:
-            why = why or unread(prov, weekly, readable, now)
-            why = terminal.cut(why, max(0, width - terminal.cells(prefix) - 3))
-            pending.append({"kind": "empty", "prefix": prefix, "why": why})
-            continue
-        left = max(0, min(100, 100 - week["used"]))
-        shown_pct = percent_left(week)
-        spent = shown_pct == 0
-        five = session_note(prov, now)
-        credits = usage.credits_note(prov)
-        # a spent week's credits are what it has left, so they stand where its 0% would, where
-        # they fit beside the bar's floor; elsewhere the 0% stays and they are a note like any
-        instead = bool(spent and credits) and (terminal.cells(prefix) + floor + 2 +
-                                               terminal.cells(credits) <= width)
-        # In the order the row reads them, each with how much it is worth keeping (`fitting`).
-        notes = [(rank, part) for rank, part in
-                 [(-1, "" if instead else credits), (0, resets_note(week, now)),
-                  (1, in_hand(prov)),
-                  *((3, note) for note in scoped_notes(cfg, name, readable, week)),
-                  *((five,) if five else ()),
-                  (1, fault(prov)), (1, usage.as_of(prov, now))] if part]
-        percent = credits if instead else f"{shown_pct:3d}% left"
-        base = terminal.cells(prefix) + terminal.cells(percent) + 2   # all but bar and notes
-        parts = fitting(notes, width - base - floor - 3)   # what the bar gives way to
-        taken = terminal.cells(" · ".join(parts)) + 3 if parts else 0
-        affordable = min(bar_width, max(1, width - base - taken))
-        pending.append({"kind": "bar", "prefix": prefix,
-                        "colour": fill(shown_pct, colour(cfg, name)),
-                        "left": left, "spent": spent, "dim": spent and not instead,
-                        "percent": percent, "base": base, "notes": notes,
-                        "affordable": affordable})
-    bars = [entry for entry in pending if entry["kind"] == "bar"]
-    if bars:
-        shared = min(entry["affordable"] for entry in bars)
-        if bar_width >= 4:
-            # Task-mandated floor, but never wider than the least room fits.
-            least = min(width - entry["base"] for entry in bars)
-            shared = min(max(4, shared), max(1, least))
-    else:
-        shared = bar_width
-    for entry in pending:
-        if entry["kind"] == "empty":
-            lines.append(entry["prefix"] + terminal.styled("—", "dim") + "  " +
-                         terminal.styled(entry["why"], "dim"))
-            continue
-        parts = fitting(entry["notes"], width - entry["base"] - shared - 3)
-        # anything left keeps a cell, so the red of a week all but spent is there to be seen
-        filled = max(0 if entry["spent"] else 1,
-                     min(shared, round(shared * entry["left"] / 100)))
-        bar = (terminal.styled("█" * filled, entry["colour"]) +
-               terminal.styled("░" * (shared - filled), "dim"))
-        line = (entry["prefix"] + bar + "  " +
-                (terminal.styled(entry["percent"], "dim") if entry["dim"] else entry["percent"]))
-        for part in parts:
-            line += terminal.styled(" · ", "dim") + _note_styled(part)
-        lines.append(line)
+
+def usage_columns(width):
+    """How many subscriptions a line of the grid holds at `width`: one to three, two apart."""
+    return max(1, min(3, width // (COLUMN + 2)))
+
+
+def usage_lines(cfg, width, lit=None):
+    """The cached weekly allowances as a grid, without probing adapters or spending a reset:
+    each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
+    a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
+    drawn; `lit`, from 1, the one the pointer is on, has its label and its meter's filled cells
+    in its provider's (`colour`).  The rest is said under the grid (`usage_detail`)."""
+    found = usage_cells(cfg)
+    if not found:
+        return []
+    columns, room = usage_columns(width), min(COLUMN, width - 2)
+    label_room = min(12, max(terminal.cells(terminal.plain(label)) for _, label, _, _ in found))
+    # a phone's one column is its width: the meter gives way first, down to four cells
+    meter = max(4, min(METER, room - label_room - 13))
+    full, empty = ("▰", "▱") if terminal.utf8() else ("#", "-")
+    lines = []
+    for start in range(0, len(found), columns):
+        cells = []
+        for number, (name, label, left, said) in enumerate(found[start:start + columns],
+                                                           start + 1):
+            ink = colour(cfg, name) if number == lit else None
+            shown = terminal.cut(terminal.plain(label), label_room)
+            text = ((terminal.styled(shown, ink) if ink else shown)
+                    + " " * (label_room - terminal.cells(shown) + 2))
+            if not left:     # no meter: `empty until`, or why there is none, or the credits
+                said = terminal.cut(said, room - label_room - 2)    # a spent week runs on
+                text += terminal.styled(said, "dim") if left is None else said
+            else:
+                filled = max(1, round(meter * left / 100))
+                text += ((terminal.styled(full * filled, ink) if ink else full * filled)
+                         + terminal.styled(empty * (meter - filled), "dim")
+                         + "  " + terminal.cut(said, room - label_room - meter - 4))
+            cells.append(text + " " * max(0, room - terminal.cells(text)))
+        lines.append(("  " + "  ".join(cells)).rstrip())
     return lines
+
+
+def usage_detail(cfg, number, width=None, now=None):
+    """What the line under the usage grid says of subscription `number`, from 1, while the
+    pointer is on it: its label in its provider's colour, then -- each where it applies, joined
+    with ` · ` -- when its week resets, the credits it holds, the resets in hand (`in_hand`),
+    each model's own cap that differs (`scoped_notes`), its 5-hour window (`session_note`), why
+    its last probe failed (`fault`) and how old the reading is (`usage.as_of`); for one with no
+    week to draw, why (`unread`).  In `width` cells the notes give way one by one, the least
+    worth keeping first (`fitting`)."""
+    now = time.time() if now is None else now
+    rows = usage_rows(cfg)
+    if not 0 < number <= len(rows):
+        return ""
+    name, label, prov, _ = rows[number - 1]
+    week, why, readable = reading(cfg, name, prov, now)
+    notes = [(0, why)] if week is None else [
+        (-1, usage.credits_note(prov)), (0, resets_note(week, now)), (1, in_hand(prov)),
+        *((3, note) for note in scoped_notes(cfg, name, readable, week)),
+        session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
+    label = terminal.plain(label)
+    notes = [note for note in notes if note[1]]
+    room = 10 ** 6 if width is None else width - 4 - terminal.cells(label)
+    return (terminal.styled(label, colour(cfg, name)) + "  " + terminal.styled(" · ", "dim")
+            .join(_note_styled(part) for part in fitting(notes, room)))
 
 
 def run_state_word(state):
@@ -3275,7 +3134,8 @@ def config_spend_reset(cfg):
     subscription the cached meters say holds one (resets_held), picked from a list, named as
     its usage row is, only when more than one does.  usage.replenish spends it and reads the
     meters back into the cache, so its usage row shows the week that came back; Esc while it
-    is spent lets it finish.  What to say under the matrix: that row's sentence (usage_tip)."""
+    is spent lets it finish.  What to say under the matrix: its name and what its cell on the
+    `ak` screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
     held, title = resets_held(cfg), "config · spend a reset"
     picked = next(iter(held), None)
     if len(held) > 1:
@@ -3294,7 +3154,8 @@ def config_spend_reset(cfg):
         return ""
     if not spent:
         return f"{picked}: no reset was spent"
-    return usage_tip(cfg, [label for _, label, _, _ in usage_rows(cfg)].index(picked) + 1)[0]
+    said = next(said for _, label, _, said in usage_cells(cfg) if label == picked)
+    return f"{picked} · {said}"
 
 
 def config_discord():

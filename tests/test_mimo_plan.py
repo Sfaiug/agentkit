@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, usage  # noqa: E402
+from agentkit import config, menu, terminal, usage  # noqa: E402
 
 WEEK = 604800
 PLAN_RESET = 1792713599      # 23 Oct 2026 01:59:59 CEST, the owner's plan meter
@@ -221,10 +221,9 @@ class MimoPlan(unittest.TestCase):
         (config.STATE / "usage.json").write_text(json.dumps(
             {"fetched_at": now, "providers": {"mimo": {"meters": [meter]}}}))
         with patch.object(menu.time, "time", return_value=now):
-            lines = menu.usage_lines(self.cfg, 170)
-        self.assertEqual(lines[0], "  usage left")
-        self.assertRegex(next(line for line in lines if "MiMo" in line),
-                         r"MiMo\s+[█░]+\s+70% left · resets 23 Oct$")
+            number = [label for _, label, _, _ in menu.usage_cells(self.cfg)].index("MiMo") + 1
+            self.assertEqual(terminal.plain(menu.usage_detail(self.cfg, number)),
+                             "MiMo resets 23 Oct")
         with patch.object(usage.time, "time", return_value=now):
             row = dict(zip(usage.HEADERS, usage.rows(self.cfg, {"mimo": {"meters": [
                 {**meter, "elapsed": 0, "pace": 30}]}})[-1]))

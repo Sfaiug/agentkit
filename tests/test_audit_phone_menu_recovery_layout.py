@@ -251,7 +251,7 @@ class Pages(Sandbox):
 
     def test_pages_fit_the_height_and_rows_keep_their_numbers(self):
         seats = self.seats(12)
-        usage = re.compile(r"usage left|^  Claude [—\d]", re.M)   # its block, or its one line
+        usage = re.compile(r"^  Claude +[—▰\d]", re.M)   # its grid, or its one line
         # Every page keeps the usage and the keys: the whole block where it fits with a few rows
         # under it, else its one line; a screen too short for that drops the frame as well.
         for width, height, keys in (
@@ -285,7 +285,7 @@ class Pages(Sandbox):
         # a screen that holds every seat and what each asks keeps the whole block, on one page
         lines, drawn = self.draw(seats, 100, 45)
         self.assertEqual(drawn, (0, 1))
-        self.assertIn("usage left", "\n".join(lines))
+        self.assertIn("no reading yet", "\n".join(lines))     # the grid, not its readings
         # the popup over a seat, one seat listed: the usage keeps every reading, the frame
         # giving way first
         lines, drawn = self.draw(self.seats(1), 38, 14, keys=menu.OVERLAY_KEYS)
@@ -825,7 +825,7 @@ class Phone(Sandbox):
         screen = phone.redraw("your projects", "/")
         # held short the frame goes compact: heading, rows, keys and prompt only
         self.fits(screen, 40, 12)
-        self.assertNotIn("usage left", "\n".join(screen))
+        self.assertNotIn("no reading yet", "\n".join(screen))
         self.every_page(phone, screen, lambda lines: lines, 12, 6)
         # the popup over a seat on that short screen fills it, and still pages rows
         phone.press("11")
