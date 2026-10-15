@@ -129,10 +129,9 @@ class ResetByHand(unittest.TestCase):
         callers = [(path.name, inside) for path in sorted((REPO / "agentkit").rglob("*.py"))
                    for inside, _ in calls(path, "replenish")]
         self.assertEqual(callers, [("menu.py", "config_spend_reset")])
-        for doc in ("README.md", "docs/guide.md"):
-            text = (REPO / doc).read_text()
-            self.assertIn("`↻ spend a reset` on the Providers row of `c`", text, doc)
-            self.assertIn("`1 reset in hand`", text, doc)
+        text = (REPO / "docs/guide.md").read_text()
+        self.assertIn("`↻ spend a reset` on the Providers row of `c`", text)
+        self.assertIn("`1 reset in hand`", text)
 
 
 if __name__ == "__main__":

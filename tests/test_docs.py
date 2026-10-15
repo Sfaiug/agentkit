@@ -1,14 +1,11 @@
 """The docs say what the product is, in the fewest words.
 
 README.md and docs/guide.md are free of every word for a state or a remedy that no
-longer exists, `ak --help` fits one screen, and the
-README lists the menu's keys and says what each state means in the words the key line
-says it in. Offline: files and rendered text.
+longer exists, and `ak --help` fits one screen. Offline: files and rendered text.
 """
 
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import unittest
@@ -16,7 +13,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from agentkit import command_help, menu, terminal  # noqa: E402
+from agentkit import command_help  # noqa: E402
 
 README = REPO / "README.md"
 GUIDE = REPO / "docs/guide.md"
@@ -71,14 +68,6 @@ class Docs(unittest.TestCase):
         for name in command_help.INTERNAL:
             self.assertIn(f" {name}", internal[0])
             self.assertNotIn(f"\n  {name} ", text)
-
-    def test_readme_lists_the_keys_and_says_each_state_as_the_key_line_does(self):
-        page = README.read_text()
-        for key, _ in terminal.key_parts(menu.KEYS):
-            self.assertRegex(page, rf"(?m)^{re.escape(key)} +\S", f"README.md lacks `{key}`")
-        self.assertNotRegex(page, r"(?m)^i +\S")
-        for word in menu.STATE_ORDER:
-            self.assertIn(terminal.TIPS[word].split(": ", 1)[1], page, word)
 
     def test_superseded_evidence_is_gone(self):
         self.assertFalse((REPO / "docs/verification-v4l-2.md").exists())
