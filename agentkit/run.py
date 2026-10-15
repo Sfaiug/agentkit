@@ -899,11 +899,12 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
             # from cron -- would otherwise be the one heavy thing on the machine with no
             # ceiling over it.  The pid that comes back is the one really doing the work.
             placement = {}
+            # kept past a death: the reaper reads there whether the memory cap ended it, then stops it
             pid = orch.start_in_slice(
                 child, unit, env, log_path,
                 log=note_in(log_path), target_slice=orch.run_slice_name(),
                 properties=properties,
-                nice=True, placement=placement)
+                nice=True, placement=placement, ends=False)
             # The child waits on this lock before adopting the receipt. The parent can never
             # overwrite a running child's state, and reaping sees the child, not its launcher.
             state.update(run_record.process_owner(pid), scope=placement.get("scope"),

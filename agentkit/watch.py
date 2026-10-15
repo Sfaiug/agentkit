@@ -4484,13 +4484,14 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
         placement = {}
         try:
             cap, properties = run_mod.run_scope_limits()
+            # kept past a death: the reaper reads there whether the memory cap ended it, then stops it
             pid = orch.start_in_slice(
                 [sys.executable, str(config.REPO / "bin" / "ak"), "run", verb, run_id],
                 unit,
                 {**config.child_env(), "AK_RUN_DEPTH": str(receipt.get("run_depth", 0))},
                 run_dir / "log.txt", log, target_slice=orch.run_slice_name(),
                 properties=properties,
-                nice=True, placement=placement)
+                nice=True, placement=placement, ends=False)
         except OSError as exc:
             log(f"WARN could not {verb} {run_id}: {exc}")
             return False

@@ -114,7 +114,7 @@ class RunScope(unittest.TestCase):
                 ["python3", "-c", "pass"], "agentkit-run-r1", {}, output,
                 target_slice=orch.RUNS_SLICE,
                 properties=("-p", "CPUWeight=40", "-p", "IOWeight=40"),
-                nice=True, placement=placement), 654)
+                nice=True, placement=placement, ends=False), 654)
         argv = popen.call_args.args[0]
         self.assertEqual(argv[:6], ["systemd-run", "--user", "--slice=agentkit-runs.slice",
                                     "--scope", "--quiet", "--unit=agentkit-run-r1"])
@@ -168,7 +168,7 @@ class RunScope(unittest.TestCase):
                                       dict(os.environ), self.root / "fake.log",
                                       target_slice=orch.RUNS_SLICE,
                                       properties=("-p", "CPUWeight=40", "-p", "IOWeight=40"),
-                                      nice=True, placement=placement)
+                                      nice=True, placement=placement, ends=False)
         self.assertGreater(pid, 0)
         argv = json.loads(argv_file.read_text())
         self.assertNotIn("Nice=10", argv)
