@@ -7,8 +7,8 @@ merge-tree --write-tree`, git's own conflict rule), each run's own diff brought 
 newer of their two bases first with main's side kept where the run clashes with it, so
 main's movement between the bases is nobody's diff and a run's conflict with main is not
 one with its neighbour.  A pair that cannot merge is written down on the younger run,
-by start, as waiting on the older (wait-die: the older never waits on the younger, so no
-cycle can form).  A younger run still before its review -- its executor turn, or ak's
+by the start of its first attempt (`transitions.first_started`: a restart keeps it), as waiting
+on the older (wait-die: the older never waits on the younger, so no cycle can form).  A younger run still before its review -- its executor turn, or ak's
 commit step, which runs this scan itself -- is stopped there with its branch kept, waiting
 on the holder (`park`): what it built cannot land as it is.  Once the holder has landed or is
 over, the tick starts its task again on the newest base (`restart`); until then the stopped
@@ -113,7 +113,7 @@ def live(repo):
         # holds none of what main gained since it was cut, which is no change of the run's
         base = gitcall.git(worktree, "merge-base", "HEAD", state["base_sha"], check=False) or state["base_sha"]
         found.append({"run": run_dir.name, "worktree": worktree, "base": base,
-                      "started": state.get("started_at") or 0,
+                      "started": transitions.first_started(state),
                       "artifacts": state.get("artifacts") or []})
     return sorted(found, key=lambda each: (each["started"], each["run"]))
 
@@ -430,7 +430,7 @@ def restart(log=print, now=None):
                 run.launch_for_seat(
                     directory, state,
                     {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
-                     **carried},
+                     "first_started_at": transitions.first_started(state), **carried},
                     opts={**{key: value for key, value in (state.get("launch_opts") or {}).items()
                              if key != "--first"},
                           **({"--review-pr": review} if review else {}),

@@ -623,6 +623,12 @@ def run_for_pr(url):
     return None, None
 
 
+def first_started(state):
+    """When this run's work was first started: its own start, or, for a run started again after
+    a park (`leases.restart`), its first attempt's, which every restart carries on."""
+    return state.get("first_started_at") or state.get("started_at") or 0
+
+
 def launched_session(state):
     """The seat this run was launched from, by its name now, or None: it was launched from none.
 
