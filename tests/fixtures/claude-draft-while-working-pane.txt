@@ -1,0 +1,12 @@
+  [38;5;231mtime.sleep(40)'  . Then run this one in the foreground (not background): python3 -c 'import time; time.sleep(15)'  . [39m
+  [38;5;231mThen reply OK and end your turn without waiting for the background one.[39m
+[38;5;246m[49m●[39m Running 40-second sleep in background[38;5;246m · 6s
+  ⎿  $ python3 -c 'import time; time.sleep(15)' (6s)
+[39m     [38;5;246m(ctrl+b ctrl+b (twice) to run in background)[39m
+[38;5;174m✽[39m [38;5;180mEnchanting…[38;5;174m [38;5;246m(11s · ↓[39m [38;5;246m334 tokens)[39m
+[38;5;246m  ⎿  Tip: Just want the answer? Run /focus now to hide the steps along the way[39m
+                                                                                [38;5;114m✔ Update installed · Restart to update[39m
+[38;5;244m─────────────────────────────────────────────────────────────────────────────────────────────────────────────── fix-api ─
+[38;5;246m❯ [39mdraft typed while working
+[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;211m⏵⏵ bypass permissions on[38;5;246m · [38;5;44m1 shell[39m

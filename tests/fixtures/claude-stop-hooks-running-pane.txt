@@ -1,0 +1,12 @@
+[38;5;231m●[39m OK
+[38;5;246m✻[39m [38;5;246mCogitated for 24s · done 12:25 PM[39m
+[38;5;114m●[39m Background command "Run 40-second sleep in background" completed (exit code 0)
+[38;5;231m●[39m Background task completed.
+[38;5;174m✻[39m [38;5;174mChanneling… [38;5;246m(running Stop hooks… 2/3 · 6s · ↓[39m [38;5;246m308 tokens · thought for 3s)
+  ⎿  Tip: Want a side agent watching your back while Claude works? Turn on You should know:
+[39m     [38;5;153m/plugin enable cc-plugin-you-should-know@builtin[39m
+                                                                                [38;5;114m✔ Update installed · Restart to update[39m
+[38;5;244m─────────────────────────────────────────────────────────────────────────────────────────────────────────────── fix-api ─
+[38;5;246m❯ [39m
+[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;211m⏵⏵ bypass permissions on[38;5;246m (shift+tab to cycle) · esc to interrupt[39m

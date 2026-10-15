@@ -76,6 +76,14 @@ running, then its turn over with the agent still going. Under its footer it list
 the agent. The scratch checkout's path and the host are replaced with `acme@build:~/code/fix-api`,
 and a warning only that scratch launch drew is left out.
 
+`claude-permission-pane.txt`, `claude-plan-pane.txt`, `claude-narrow-working-pane.txt`,
+`claude-narrow-streaming-pane.txt`, `claude-draft-while-working-pane.txt`,
+`claude-stop-hooks-running-pane.txt`, `claude-compacting-pane.txt` and `claude-manual-mode-`,
+`plan-mode-` and `accept-edits-pane.txt` are the last twelve rows of live Claude Code 2.1.292
+seat panes (`capture-pane -p -e -J`): a Bash permission prompt, a plan approval, a tool running
+and an answer streaming 60 columns wide, a draft typed in a turn, a turn whose Stop hooks run,
+`/compact`, and an idle prompt in each other mode; path, name, link and zone are invented.
+
 `muse-question-pane.txt` is Muse Code 1.4.7's actual `capture-pane -p -e -J` of a seat
 waiting on its own `Request user input` tool, the second of three questions, cut to the
 lines from its last finished step down. Its words are replaced with invented ones (the
@@ -209,9 +217,8 @@ Only the workspace path was redacted, to `/…/fixture-workspace`.
   `codex-hooks-review-pane.txt` is a second Codex dialog and is replayed through the same rule.
 
 **Not captured.** Claude Code's permission prompt needs a tool call, which needs a model, so
-there is no fixture for it and `adapters/claude.toml` declares no screen rule for its shape.
-Its authority is the `Notification` hook instead. Muse has no approval dialog of its own to
-reach offline; its picker is the only screen it stops on and waits.
+it is not among these; `claude-permission-pane.txt` below is one from a live seat. Muse has no
+approval dialog of its own to reach offline; its picker is the only screen it stops on and waits.
 
 `opencode-prompt-pane.txt`, `opencode-working-pane.txt`, `opencode-dialog-pane.txt` and
 `opencode-auth-pane.txt` are actual 100×30 `capture-pane -p` outputs from **OpenCode 2.0.13**,

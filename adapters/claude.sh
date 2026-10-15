@@ -330,12 +330,13 @@ auth)
     echo "claude: the OAuth token in $CREDS expired; run /login" >&2; exit 1; }
   echo "claude: the OAuth token in $CREDS is still valid$(who)" ;;
 hooks)
-  # SessionStart follows /clear's new conversation. The other events say a turn began, a
-  # turn ended, a prompt is waiting -- all to the one hook script, which writes the fact down and
-  # decides nothing.  Stop also carries the idle auto-compact stamp, so a seat left open all day
-  # compacts itself instead of filling its context, and the one hook that does decide something:
-  # a turn that ended with neither a question, nor a done, nor a run to wait on is sent back to
-  # work.  Merged into settings.json, never rewritten.
+  # SessionStart follows /clear's new conversation. The other events say a turn began, a turn
+  # ended, a prompt is waiting, a dialog went up or was answered, a /compact began or ended --
+  # all to the one hook script, which writes the fact down and decides nothing.  Stop also
+  # carries the idle auto-compact stamp, so a seat left open all day compacts itself instead of
+  # filling its context, and the one hook that does decide something: a turn that ended with
+  # neither a question, nor a done, nor a run to wait on is sent back to work.  Merged into
+  # settings.json, never rewritten.
   command -v python3 >/dev/null || { echo "claude.sh hooks: python3 is required" >&2; exit 2; }
   mkdir -p -- "$HOME/.claude" || exit 2
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -348,7 +349,16 @@ path, stamp, repo = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 EVENTS = {"SessionStart": ("seat-state.sh",),
           "UserPromptSubmit": ("seat-state.sh",),
           "Stop": ("seat-state.sh", "orchestrator-stop.sh"),
-          "Notification": ("seat-state.sh",)}
+          "Notification": ("seat-state.sh",),
+          "PermissionRequest": ("seat-state.sh",),
+          "PostToolUse": ("seat-state.sh",),
+          "PreCompact": ("seat-state.sh",),
+          "PostCompact": ("seat-state.sh",)}
+# The events only heard, never waited on: Claude Code 2.1.292 runs an `async` hook in the
+# background, where seat-state.sh would hold what it fires on for half a second.  A tool ending
+# is heard only where it is an answer.
+HEARD = ("PermissionRequest", "PostToolUse", "PreCompact", "PostCompact")
+MATCHERS = {"PostToolUse": "AskUserQuestion|ExitPlanMode"}
 # The names each was generalised from: a settings.json written by an older checkout keeps its
 # entry, repointed, so nothing is left calling a file that is no longer there.
 NAMES = {"seat-state.sh": ("seat-state.sh", "idle-compact-stop.sh"),
@@ -357,6 +367,11 @@ NAMES = {"seat-state.sh": ("seat-state.sh", "idle-compact-stop.sh"),
 
 def command(script):
     return f"bash {repo}/hooks/{script}"
+
+
+def wanted(event, script):
+    return {"type": "command", "command": command(script),
+            **({"async": True} if event in HEARD else {})}
 
 
 try:
@@ -384,15 +399,16 @@ def ours(entry, script):
 
 def entries(event, script):
     groups = hooks.get(event)
-    return [entry for group in (groups if isinstance(groups, list) else [])
+    return [(group, entry) for group in (groups if isinstance(groups, list) else [])
             if isinstance(group, dict) and isinstance(group.get("hooks"), list)
             for entry in group["hooks"] if ours(entry, script)]
 
 
 def wired(event, script):
     found = entries(event, script)
-    return (len(found) == 1 and found[0].get("type") == "command"
-            and found[0].get("command") == command(script))
+    return (len(found) == 1
+            and all(found[0][1].get(key) == value for key, value in wanted(event, script).items())
+            and MATCHERS.get(event) in (None, found[0][0].get("matcher")))
 
 
 # read before anything is mutated: the early exit below must see the file as it is on disk
@@ -409,11 +425,16 @@ for event, scripts in EVENTS.items():
     groups = list(groups) if isinstance(groups, list) else []
     for script in scripts:
         found = entries(event, script)
-        if found:                       # a checkout that moved keeps its entries, repointed
-            for entry in found:
-                entry["type"], entry["command"] = "command", command(script)
-        else:
-            groups.append({"hooks": [{"type": "command", "command": command(script)}]})
+        if not found:
+            groups.append({"hooks": [{}]})
+            found = [(groups[-1], groups[-1]["hooks"][0])]
+        for group, entry in found:      # a checkout that moved keeps its entries, repointed
+            entry.update(wanted(event, script))
+            if MATCHERS.get(event) not in (None, group.get("matcher")):
+                if len(group["hooks"]) > 1:     # the others keep the tools they run for
+                    group["hooks"] = [each for each in group["hooks"] if each is not entry]
+                    groups.append(group := {"hooks": [entry]})
+                group["matcher"] = MATCHERS[event]
     hooks[event] = groups
 data["hooks"] = hooks
 tmp = path.with_name(f"{path.name}.ak-tmp")

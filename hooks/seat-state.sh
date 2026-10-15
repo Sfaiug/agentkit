@@ -87,11 +87,13 @@ seat_state() {
     return 0
   fi
   # the payload field that tells one kind of that event from another: Claude's Notification
-  # carries notification_type, Codex's PermissionRequest carries the tool it wants -- and one
-  # harness spells both camelCase, so the twins are read beside them
-  kind=$("$jq" -r '.notification_type // .notificationType // .tool_name // .toolName // empty' \
-    <<<"$payload" 2>/dev/null) || kind=''
-  text=$("$jq" -r '(.message // .title // "") | .[0:160]' <<<"$payload" 2>/dev/null) || text=''
+  # carries notification_type, a PermissionRequest the tool it wants -- and one harness spells
+  # both camelCase, so the twins are read beside them -- and a compaction its trigger
+  kind=$("$jq" -r '.notification_type // .notificationType // .tool_name // .toolName // .trigger
+                   // empty' <<<"$payload" 2>/dev/null) || kind=''
+  # a question's own words, where the event carries one, before a notice's
+  text=$("$jq" -r '((.tool_input.questions[0].question)? // .message // .title // "") | .[0:160]' \
+    <<<"$payload" 2>/dev/null) || text=''
 
   dir="$HOME/.agentkit/state"
   # The record the seat's row reads is under the name the seat goes by now: `ak orch rename`
@@ -105,6 +107,9 @@ seat_state() {
   # Only events that could be passive ask the classifier; prompt and Stop stay on their fast
   # path. A notice the seat's own manifest gives no state writes nothing, even if another hook
   # ends the turn while Python is deciding: there is no old fact to put back over that Stop.
+  # Nor does one meaning what the fact standing means -- a permission notice six seconds after
+  # the PermissionRequest that wrote its question down -- or one heard before that fact was
+  # written: an event its harness does not wait on can finish after a newer one.
   # Where nothing can say -- no record names the harness, or the asking fails -- the event is
   # written as it always was: only a known passive notice is left out.
   if [[ $event != UserPromptSubmit && $event != Stop ]] &&
@@ -116,7 +121,10 @@ try:
     from agentkit import config, watch
     harness = watch.seat_model(config.load(), sys.argv[2])[0]
     fact = {"event": sys.argv[3], "kind": sys.argv[4], "at": float(sys.argv[5])}
-    passive = bool(harness) and watch.hook_state(harness, fact)[0] is None
+    state, standing = (watch.hook_state(harness, each)
+                       for each in (fact, watch.hook_facts(sys.argv[2])))
+    passive = bool(harness) and (state[0] in (None, standing[0])
+                                 or (standing[3] or 0) > state[3])
 except Exception:
     passive = False
 sys.exit(0 if passive else 1)

@@ -1,0 +1,12 @@
+[38;5;231m●[39m FINISHED
+[38;5;246m✻[39m [38;5;246mSautéed for 51s · done 12:20 PM[39m
+[38;5;246m[48;5;237m❯[39m [38;5;231m/model[39m [49m
+[38;5;246m  ⎿  [39mKept model as [38;5;153mHaiku 4.5
+[39m[38;5;246m[48;5;237m❯ [38;5;231m/compact[39m
+[49m[38;5;147m✻[39m [38;5;153mCo[38;5;147mmpacting conversation… [38;5;246m(9s)[39m
+[38;5;246m  ⎿  Tip: Hit shift+tab to cycle between manual mode, auto-accept edit mode, and plan mode[39m
+                                                                                [38;5;114m✔ Update installed · Restart to update[39m
+[38;5;244m─────────────────────────────────────────────────────────────────────────────────────────────────────────────── fix-api ─
+[38;5;246m❯ [39m
+[38;5;244m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;211m⏵⏵ bypass permissions on[38;5;246m (shift+tab to cycle) · esc to interrupt[39m
