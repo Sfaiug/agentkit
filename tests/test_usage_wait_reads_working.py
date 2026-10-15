@@ -3,8 +3,9 @@
 The owner's call (14 Oct 2026): a spent usage window is no question for him -- ak resumes the
 seat when the usage comes back, or on another account sooner -- so the seat reads `working`,
 its reason saying until when.  A harness upgrade does not wait for such a seat: no turn of it
-is in flight.  A move to another account that failed is no wait that ends by itself, and stays
-his.  Offline: a temporary HOME, no tmux.
+is in flight, so text the owner typed and never sent is his.  A move to another account that
+failed is no wait that ends by itself, and stays his whatever its runs or `ak wait` do.  Offline:
+a temporary HOME, no tmux.
 """
 
 from pathlib import Path
@@ -14,15 +15,15 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import orch, update, watch  # noqa: E402
+from agentkit import config, orch, update, watch  # noqa: E402
 
 SEAT = "acme-api"
 SPENT = "anthropic out of usage until 2026-10-15 20:00"
 
 
 class UsageWaitReadsWorking(Sandbox):
-    def decide(self, live=None):
-        found = watch.session_state(SEAT, now=10000, session={"name": SEAT}, records=[],
+    def decide(self, live=None, records=()):
+        found = watch.session_state(SEAT, now=10000, session={"name": SEAT}, records=list(records),
                                     live=live or {"state": "at_prompt", "began": 9000},
                                     harness="claude", auth_out={}, gh_out={}, token_out=None,
                                     previous={})
@@ -39,9 +40,25 @@ class UsageWaitReadsWorking(Sandbox):
         watch.seat_write(SEAT, usage_wait={"reason": SPENT, "until": 90000, "since": 9500})
         self.assertEqual(self.decide({"state": "working", "began": 9000})["reason"], SPENT)
 
+    def test_an_unsent_draft_under_the_refused_turn_is_his(self):
+        # the refused turn's UserPromptSubmit has no Stop: its hook still says working
+        watch.seat_write(SEAT, usage_wait={"reason": SPENT, "until": 90000, "since": 9500})
+        found = self.decide({"state": "draft", "evidence": "Fix the login redirect",
+                             "began": 9000, "hooked": "working", "hooked_at": 9000})
+        self.assertEqual((found["word"], found["reason"]),
+                         ("needs you", "unsent: Fix the login redirect"))
+
     def test_a_failed_move_to_another_account_is_his(self):
         failed = "anthropic account reopen failed: no such file"
         watch.seat_write(SEAT, usage_wait={"reason": failed, "since": 9500})
+        found = self.decide()
+        self.assertEqual((found["word"], found["reason"]), ("needs you", failed))
+        run = (config.RUNS / "acme-run", {"state": "running", "title": "Build endpoint",
+                                          "launched_session": SEAT, "started_at": 9940})
+        found = self.decide(records=[run])
+        self.assertEqual((found["word"], found["reason"]), ("needs you", failed))
+        watch.seat_write(SEAT, wait={"on": "https://github.com/acme/api/pull/1", "kind": "pr",
+                                     "at": 9940})
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]), ("needs you", failed))
 
