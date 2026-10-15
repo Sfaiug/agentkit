@@ -382,6 +382,18 @@ def history_finish(state, log=None):
                 size = diff_lines(repo, state["base_sha"], head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
+    # what its first review read, whatever the ending: the added lines at round 1's commit less
+    # the blocks moved unchanged, as the first-review ceiling counts them, so the scoreboard
+    # weighs round-1 passes, landings and review by the size a reviewer was handed
+    first = None
+    summaries = state.get("round_summaries") or []
+    reviewed = summaries[0].get("head_sha") if summaries and isinstance(summaries[0], dict) else None
+    if repo and reviewed and state.get("base_sha"):
+        try:
+            first = (diff_lines(repo, state["base_sha"], reviewed, added_only=True)
+                     - carried_lines(repo, state["base_sha"], reviewed))
+        except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
+            pass  # a commit no longer held leaves the size unknown, never the ending
     # the AGENTS.md its workers were handed, measured as the ceiling measures it
     rules = None
     if repo and state.get("base_sha"):
@@ -397,7 +409,7 @@ def history_finish(state, log=None):
                        started_at=state.get("started_at"), finished_at=now,
                        session=launched_session(state), peak_rss_mb=state.get("peak_rss_mb"),
                        task_files=json.dumps(files) if files is not None else None,
-                       changed_lines=size, rules_bytes=rules, log=log)
+                       changed_lines=size, rules_bytes=rules, first_review_lines=first, log=log)
 
 
 def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):

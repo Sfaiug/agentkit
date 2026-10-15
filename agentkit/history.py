@@ -68,7 +68,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
-              ("merge_sha", "TEXT"))
+              ("merge_sha", "TEXT"), ("first_review_lines", "INTEGER"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -228,7 +228,7 @@ def _update(connection, run_id, fields):
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha"}
+               "rules_bytes", "merge_sha", "first_review_lines"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -368,7 +368,7 @@ def close_step(run_id, at=None, *, keep=False, log=None):
 def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
-               changed_lines=None, rules_bytes=None, log=None):
+               changed_lines=None, rules_bytes=None, first_review_lines=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.
@@ -378,7 +378,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
-              "rules_bytes": rules_bytes}
+              "rules_bytes": rules_bytes, "first_review_lines": first_review_lines}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 
