@@ -1,4 +1,8 @@
-"""Run records: reads, stop-safe writes, recovery locks and process ownership."""
+"""Run records: reads, stop-safe writes, recovery locks and process ownership.
+
+One process never takes over another run's record (its pid, its stop, its ending): it leaves a
+verdict in that record and wakes its owner to act.
+"""
 
 import copy
 import fcntl

@@ -645,6 +645,12 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     nothing unprivileged is moved out of that one, so work detached from a tick would
     otherwise be the one thing running outside the ceiling.
 
+    Only a cgroup counts a run's CPU and memory with its killed and orphaned processes, and
+    only a process put in its scope at start stays there: moving it later races.  Process
+    groups, tree walks and subreapers each lost a race in review, and a PID namespace's
+    number names another namespace the moment it ends: a process is reached through a pidfd
+    or a process ak holds, never by such a number.
+
     The work says for itself whether it started, and nothing else is read as evidence.  A
     mark means it ran, however briefly; no mark means nothing ran at all -- a scope the
     manager would not make, a unit it took and never forked, a `systemd-run` that could not
@@ -1013,6 +1019,9 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     server -- and every pane it ever opens -- lives in agentkit's slice.  Where the scope
     cannot be made, the command is run again plainly: a seat outside the ceiling is worth
     more than no seat at all, and the same is true of a job.
+
+    Targets are `={name}:`, as a bare name also matches any longer one; every call on a run's
+    path passes a timeout; and a test's fake tmux answers only what real tmux 3.5a does.
     """
     fix_term()
     socket = socket_name() if socket is None else socket

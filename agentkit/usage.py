@@ -458,7 +458,11 @@ def _past(meter, now):
 
 
 def _without_past(prov, now, name):
-    """`prov` minus every meter whose window has rolled over, with its pace re-derived."""
+    """`prov` minus every meter whose window has rolled over, with its pace re-derived.
+
+    Dropping past-reset meters is on purpose: display work never changes which meters `collect`
+    keeps.
+    """
     meters = [m for m in prov.get("meters") or [] if not _past(m, now)]
     paces = [m["pace"] for m in meters if m.get("pace") is not None]
     if prov.get("none") and not prov.get("error"):

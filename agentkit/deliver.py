@@ -594,6 +594,9 @@ def merged_anyway(lp, url, upstream):
 def do_merge(lp, url, upstream):
     """Merge the PR, integrating once more if origin moved under it while the checks ran.
 
+    Task runs and a seat's own PR (`merge_own_pr`) both end here: a rule on what may merge
+    holds on both paths, and a guard on one alone is a bypass.
+
     `gh pr merge` answering `Base branch was modified` is a race with a merge to the
     target between the push and this call, not an ending: the answer is re-fetched, the
     PR is re-checked to still be mergeable, and the merge is tried again -- three times,
