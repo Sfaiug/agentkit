@@ -2516,8 +2516,8 @@ def _offered(harness, *screen):
 
 def config_model_id(cfg, name, step, screen):
     """`name`'s model id one step along the models its harness's catalog lists (_offered),
-    never past either end, and saved with the effort that follows it (_nearest); an id not
-    among them lands on the first.  `screen` is what waits on the catalog (`waited`).  What to
+    never past either end, and saved with its efforts following it (_nearest): `effort`, and
+    `exec_effort` and `review_effort` where set; an id not among them lands on the first.  `screen` is what waits on the catalog (`waited`).  What to
     say under the screen, or ""."""
     entry = cfg["models"][name]
     try:
@@ -2531,7 +2531,10 @@ def config_model_id(cfg, name, step, screen):
     if not 0 <= at < len(ids) or ids[at] == current:
         return ""
     before, levels = dict(entry), models[at]["efforts"]
-    entry["model"], entry["effort"] = ids[at], _nearest(entry.get("effort"), levels)
+    entry["model"] = ids[at]
+    for key in config.ROLE_EFFORTS.values():     # a role's own key follows only where it is set
+        if key == "effort" or key in entry:
+            entry[key] = _nearest(entry.get(key), levels)
     return _saved(cfg, entry, before)
 
 
