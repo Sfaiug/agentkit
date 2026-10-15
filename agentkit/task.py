@@ -28,8 +28,6 @@ ONCE_MARKER = re.compile(r"#\s*once\s*$")
 # (`bash: line 1: warning: …`)
 UNCLOSED_HEREDOC = re.compile(r"^[^:\n]+: (?:line \d+: )?warning: here-document at line \d+ "
                               r"delimited by end-of-file", re.M)
-# The words bash reads before a command's own name: a pipeline's `!` and compound commands'
-COMMAND_LEADS = {"!", "{", "if", "then", "elif", "else", "while", "until", "do", "time"}
 
 
 def front_matter(path):
@@ -174,49 +172,47 @@ def launch_refusal(meta, cmds):
 
 
 def enters_checkout(command, repo):
-    """Whether `command` runs `cd` or `pushd` into the checkout `repo:` names or a folder in it,
-    or `git -C` on one, reading the line as bash splits it (quotes, comments, `&&`, `;`, `|`)
-    with `~`, `$HOME` and `${HOME}` expanded.  An operand that is then no absolute path is a
-    folder of the run's own checkout, and naming the checkout as anything but such an operand
-    (a link to its venv, a path a grep looks for) leaves the line there too."""
+    """Whether `command` moves into the checkout `repo:` names or a folder in it: a `cd`, `pushd`
+    or `-C` anywhere among its words (`shell_words`), then past its options an absolute folder
+    there, `~`, `$HOME` and `${HOME}` expanded and `..` read both as `cd` does and through
+    links.  A relative folder is the run's own unless such a word before it on the line named
+    an absolute one, which it then counts from.  Naming the checkout otherwise (a link to its
+    venv, its venv's python, a path a grep looks for) leaves the line in the run's checkout."""
     if not repo or repo.lower() == "none":
         return False
     try:
-        owner = Path(os.path.realpath(Path(repo).expanduser()))
+        named = Path(repo).expanduser()
     except RuntimeError:
         return False                    # `repo_line` refuses it with its own reason
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    try:
-        words = list(lexer) + [";"]
-    except ValueError:
-        return False                    # an open quote: bash refuses the line itself
-    simple = []
-    for word in words:
-        if word and set(word) <= set(";&|()"):  # an operator ends a command, starts the next
-            if any(Path(path).is_absolute() and Path(os.path.realpath(path)).is_relative_to(owner)
-                   for path in map(home_expanded, moves_into(simple))):
+    owner = {os.path.normpath(named.absolute()), os.path.realpath(named)}
+    here, moving = None, False
+    for word in shell_words(command):
+        if word in ("cd", "pushd", "-C"):
+            moving = True
+        elif moving and not word.startswith("-"):
+            moving = False
+            folder = home_expanded(word)
+            here = folder if os.path.isabs(folder) else here and os.path.join(here, folder)
+            if here and any(Path(seen).is_relative_to(each) for each in owner
+                            for seen in (os.path.normpath(here), os.path.realpath(here))):
                 return True
-            simple = []
-        elif simple or word not in COMMAND_LEADS:
-            simple.append(word)
     return False
 
 
-def moves_into(words):
-    """The folders one command's words move into: `cd`'s or `pushd`'s operand, past its
-    options, and each `-C` that `git` reads before its subcommand."""
-    name, *rest = words or [""]
-    folders = []
-    while rest and rest[0].startswith("-") and rest[0] != "-":
-        flag = rest.pop(0)
-        if name in ("cd", "pushd") and flag == "--":
-            break
-        if name == "git" and flag in ("-C", "-c") and rest:
-            value = rest.pop(0)
-            if flag == "-C":
-                folders.append(value)
-    return rest[:1] if name in ("cd", "pushd") else folders
+def shell_words(command):
+    """The words bash splits `command` into, quotes removed, operators apart and its comment
+    left out, each followed by the words of a `$(...)` or backquoted command inside it.  A `~`
+    or `$` bash takes as written, after a quote or a backslash, is left unexpandable."""
+    text = re.sub(r"(?<=[^\s;&|()<>])#", "\0", command)    # inside a word `#` starts no comment
+    text = re.sub(r"(?<=['\"\\])~|(?<=['\\])\$", "\1", text)
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = [word.replace("\0", "#") for word in lexer]
+    except ValueError:
+        return []                       # an open quote: bash refuses the line itself
+    return [each for word in words for each in [word] + (
+        shell_words(word.replace("`", " ")) if "$(" in word or "`" in word else [])]
 
 
 def home_expanded(word):

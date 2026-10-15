@@ -1,11 +1,12 @@
 """A task whose done-when moves into the checkout its run starts from is refused at launch.
 
 Each done-when line runs in the run's own checkout; a line that changes into the checkout
-`repo:` names (`cd ~/code/acme && ...`, by its absolute path, `pushd`, `git -C` on it) checks
-the owner's checkout instead of the run's change, so `ak run` and a job refuse it before any
-run starts (`task.launch_refusal`).  Naming the checkout otherwise (in a comment, a quoted
-string, a link), a longer name that only starts the same way, a relative folder, which is the
-run's own, and a task naming no repository are left alone.  Offline: a temporary HOME.
+`repo:` names (`cd ~/code/acme && ...`, by its absolute path, `pushd`, `git -C` on it, behind a
+prefix or inside `$(...)`) checks the owner's checkout instead of the run's change, so `ak run`
+and a job refuse it before any run starts (`task.launch_refusal`).  Naming the checkout
+otherwise (in a comment, a quoted string, a link), a longer name that only starts the same way,
+a relative folder, which is the run's own, and a task naming no repository are left alone.
+Offline: a temporary HOME.
 """
 
 import os
@@ -39,7 +40,11 @@ class CheckStaysInRun(unittest.TestCase):
                      "git -c core.pager=cat -C ~/code/acme diff --quiet",
                      "cd $HOME/code/acme/tests && make", "true && pushd ~/code/acme && make",
                      "cd -- ~/code/acme && make", 'cd "${HOME}/code/acme" && make',
-                     'cd "$HOME"/code/acme && make', "(cd ~/code/acme; make) # once"):
+                     'cd "$HOME"/code/acme && make', "(cd ~/code/acme; make) # once",
+                     "MARK=1 command cd ~/code/acme && make", "printf a#b; cd ~/code/acme && make",
+                     'test "$(cd ~/code/acme && make && echo ok)" = ok', "diff <(cd ~/code/acme) x",
+                     "test `cd ~/code/acme && pwd` = x", "cd ~/code/acme/linked/.. && make",
+                     "git --git-dir .git -C ~/code/acme diff", "git -C ~/code -C acme diff"):
             with self.subTest(line=line):
                 said = self.refusal("pytest -q", line)
                 self.assertIn(repr(line), said)
@@ -52,7 +57,9 @@ class CheckStaysInRun(unittest.TestCase):
                                        "ln -sfn ~/code/acme/.venv .venv",
                                        "! grep -rn '~/code/acme/models.toml' README.md",
                                        "true # cd ~/code/acme", "! grep -Fq 'cd ~/code/acme' README.md",
-                                       "printf '%s\\n' 'git -C ~/code/acme diff' | grep -q acme"))
+                                       "printf '%s\\n' 'git -C ~/code/acme diff' | grep -q acme",
+                                       "cd '~/code/acme'", "cd '$HOME/code/acme'",
+                                       "~/code/acme/.venv/bin/python -m pytest", "grep -C 3 x ~/code/acme/y"))
         self.assertIsNone(self.refusal("cd ~/code/acme && make", repo="none"))
         self.assertIsNone(task.launch_refusal({}, ["cd ~/code/acme && make"]))
 
