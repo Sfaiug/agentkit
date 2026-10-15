@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import config, record as run_record, sentences, task as taskfile, worker
+from . import config, guard, record as run_record, sentences, task as taskfile, worker
 
 
 # what a test run, a build or an editor drops next to the work, and no reviewer should ever see
@@ -101,7 +101,7 @@ MERGES = ("merge", "merge-tree", "rebase")
 
 
 def merge_config(git, cwd, env, timeout):
-    """`env` with ak's own git config after any it carries, for a `git` (with its `-C`) that
+    """`env` with ak's own git config after any it carries, for a `git` (with its own options) that
     merges: `*.md` merges sentence by sentence (`sentences`).  Git reads one global attributes
     file, so ak's names the driver for `*.md` first and then holds the file this call's git
     would have read, as it reads now: every line of it, a `*.md` one included, decides as
@@ -154,7 +154,10 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
     """
     timeout = TOOL_CAP if timeout is None else timeout
     # Repeating checkout edits can turn a timeout into an "already in progress" failure.
-    args = cmd[3:] if len(cmd) > 1 and cmd[0] == "git" and cmd[1] == "-C" else cmd[1:]
+    start = 1
+    while cmd[0] == "git" and start < len(cmd) and cmd[start].startswith("-"):
+        start += 2 if cmd[start] in guard.GIT_VALUED else 1     # git's own options, `-C`, `-c`
+    args = cmd[start:]
     retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
     merges = cmd[0] == "git" and args and args[0] in MERGES
     for attempt in range(2):
@@ -164,7 +167,7 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
             proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
                                   encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
                                   timeout=timeout, env=merge_config(
-                                      cmd[:len(cmd) - len(args)], cwd, call, timeout) if merges else call)
+                                      cmd[:start], cwd, call, timeout) if merges else call)
             break
         except subprocess.TimeoutExpired:
             if attempt or not retry:

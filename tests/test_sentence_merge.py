@@ -77,6 +77,15 @@ class SentenceMerge(LiveRuns):
         self.assertEqual((branch / "README.md").read_text(), PARAGRAPH.replace(
             "first sentence", "first sentence on main").replace("second says", "second, the branch's, says"))
 
+    def test_a_rebase_behind_git_s_own_options_keeps_both_sentences(self):
+        branch = self.run_on(YOUNGER, 1000)
+        self.change(branch, "fourth ends", "fourth, the branch's, ends")
+        self.change(self.repo, "first sentence", "first sentence on main")
+        code, out = gitcall.git_out(branch, "-c", "rebase.updateRefs=false", "rebase", "main")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((branch / "README.md").read_text(), PARAGRAPH.replace(
+            "first sentence", "first sentence on main").replace("fourth ends", "fourth, the branch's, ends"))
+
     def test_a_clash_inside_one_sentence_stops_the_rebase_with_line_markers(self):
         branch = self.run_on(YOUNGER, 1000)
         self.change(branch, "second says", "second, the branch's, says")
