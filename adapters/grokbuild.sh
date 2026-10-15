@@ -80,7 +80,8 @@ share() {
   [ -e "$GROK_HOME/sessions" ] || ln -s -- "$USUAL/sessions" "$GROK_HOME/sessions" || return 1
   local repo
   repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  PYTHONPATH="$repo${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
+  # -P keeps the workspace's agentkit package from overriding this installation.
+  PYTHONPATH="$repo${PYTHONPATH:+:$PYTHONPATH}" python3 -P -c \
     'import sys; from agentkit.harness.grokbuild import share_settings; share_settings(*sys.argv[1:])' \
     "$USUAL" "$GROK_HOME"
 }

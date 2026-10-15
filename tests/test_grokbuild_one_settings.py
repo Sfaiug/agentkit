@@ -134,6 +134,20 @@ class OneSettings(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assert_shared()
 
+    def test_launches_use_the_installed_adapter_code_over_the_workspace(self):
+        package = self.home / "agentkit"
+        package.mkdir()
+        (package / "__init__.py").write_text(
+            'raise AssertionError("adapter imported the workspace package")\n')
+        rulebook = self.home / "rules.md"
+        rulebook.write_text("Fixture rules.")
+        for args in (("run", "grok-4.7", "xhigh", self.home, self.prompt, self.home / "out"),
+                     ("interactive", "grok-4.7", "xhigh")):
+            with self.subTest(verb=args[0]):
+                proc = self.adapter(*args, AGENTKIT_RULEBOOK=str(rulebook))
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assert_shared()
+
     def test_custom_usual_home_and_inherited_named_home(self):
         custom = self.home / "custom"
         self.launch(GROK_HOME=str(custom))
