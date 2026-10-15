@@ -2170,7 +2170,7 @@ def announce_state(session, cfg=None, look=False, **facts):
 def hook_look(launched, heard=None, answered_at=None, said=""):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
-    hooks/seat-state.sh starts this in the background on every event it writes down -- a turn
+    hooks/seat-state.sh starts this in the background on every event it hears -- a turn
     begun, a turn ended, a question going up -- so the seat's record and its bar move then, and
     not at the next menu draw or tick, while the harness waits on nothing.  `launched` is the
     name the harness carries.  Claude's Stop is the one hooks/orchestrator-stop.sh writes down,

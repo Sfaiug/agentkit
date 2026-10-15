@@ -1312,6 +1312,30 @@ def hook_facts_path(name):
     return seat_file("hook", name)
 
 
+def record_hook_fact(name, fact, keep=lambda standing: False):
+    """Put that lifecycle fact in place of the seat's last one, unless the one standing was
+    heard later or `keep(standing)` keeps it.
+
+    Both hooks writing one -- hooks/seat-state.sh, and hooks/orchestrator-stop.sh for the Stop
+    it judges -- read, decide and replace under the record's lock: an event its harness does not
+    wait on can finish after a newer one, and a decision made outside the lock would put it back
+    over that one.
+    """
+    path = hook_facts_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _record_lock(path):
+        try:
+            standing = _read_json(path)
+        except Error:
+            standing = None
+        standing = standing if isinstance(standing, dict) else {}
+        at = standing.get("at")
+        if (isinstance(at, (int, float)) and not isinstance(at, bool) and at > fact["at"]
+                or keep(standing)):
+            return
+        _write_json(path, fact, prepare=False)
+
+
 def compact_path(name):
     """Where tools/idle-compact.py writes down that it compacted that seat."""
     return seat_file("compact", name)

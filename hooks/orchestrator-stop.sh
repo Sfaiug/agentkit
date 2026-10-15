@@ -323,15 +323,12 @@ def held(launched, payload):
 
 def written(launched, kind):
     """This Stop, as hooks/seat-state.sh writes every other event down for the seat's row:
-    under the name the seat goes by now, which is the name its row reads."""
-    path = STATE / f"hook-{resolve(launched)}.json"
-    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    under the name the seat goes by now, which is the name its row reads, and in the order the
+    two hooks heard their events (`config.record_hook_fact`)."""
     try:
-        STATE.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps({"session": launched, "event": "Stop", "kind": kind,
-                                   "text": "", "at": time.time()}) + "\n")
-        tmp.replace(path)
-    except OSError:
+        config.record_hook_fact(resolve(launched), {"session": launched, "event": "Stop",
+                                                    "kind": kind, "text": "", "at": time.time()})
+    except (OSError, config.Error):
         pass        # a Stop nobody could write down is no reason to let the turn end
 
 

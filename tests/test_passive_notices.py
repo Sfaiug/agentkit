@@ -1,10 +1,12 @@
 """A notice with no manifest state leaves the last turn fact and typing gate alone.
 
 Both hooks run against a temporary HOME, with real captured panes and no live seat.
-A paused notice also proves it cannot put an earlier fact back over either hook's Stop.
+A paused notice also proves it cannot put an earlier fact, or itself, back over either hook's
+Stop or a prompt.
 """
 
 from datetime import datetime
+from itertools import product
 import json
 import os
 import shutil
@@ -128,6 +130,7 @@ exec "$REAL_PYTHON" "$@"
         python.chmod(0o755)
         env = {**self.env, "PATH": f"{bindir}:{self.env['PATH']}",
                "REAL_PYTHON": shutil.which("python3")}
+        later = datetime.now().timestamp() + 3600     # the hook reads the real clock
         for status in (1, 2, 127, 137):
             with self.subTest(status=status):
                 self.hook("UserPromptSubmit")
@@ -135,6 +138,16 @@ exec "$REAL_PYTHON" "$@"
                     "Notification", notification_type=PASSIVE[0],
                     env={**env, "CHECK_STATUS": str(status)}))
                 self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
+                # by the one writer still: a fact heard later outlasts any notice, and a Stop on
+                # background work an idle prompt
+                for standing, notice in (({"event": "UserPromptSubmit", "kind": "", "at": later},
+                                          PASSIVE[0]),
+                                         ({"event": "Stop", "kind": "background", "at": 1.0},
+                                          "idle_prompt")):
+                    before = json.dumps(standing).encode()
+                    config.hook_facts_path(SEAT).write_bytes(before)
+                    self.assertEqual(self.hook("Notification", notification_type=notice,
+                                               env={**env, "CHECK_STATUS": str(status)}), before)
 
     def test_a_renamed_seat_keeps_its_launch_names_hook_fact(self):
         self.hook("UserPromptSubmit")
@@ -159,7 +172,7 @@ exec "$REAL_PYTHON" "$@"
             self.assertNotEqual(after, before)
             self.assertEqual(self.looked(), ("needs you", True))
 
-    def test_a_paused_notice_never_restores_a_fact_over_a_new_stop_or_prompt(self):
+    def test_a_paused_notice_never_lands_over_a_new_stop_or_prompt(self):
         bindir = self.root / "bin"
         bindir.mkdir()
         ready, release = self.root / "ready", self.root / "release"
@@ -181,9 +194,10 @@ exec "$REAL_PYTHON" "$@"
         env = {**self.env, "PATH": f"{bindir}:{self.env['PATH']}",
                "REAL_PYTHON": shutil.which("python3"),
                "QUERY_READY": str(ready), "QUERY_RELEASE": str(release)}
-        for event, script in (("Stop", "seat-state.sh"), ("Stop", "orchestrator-stop.sh"),
-                              ("UserPromptSubmit", "seat-state.sh")):
-            with self.subTest(event=event, script=script):
+        newer = (("Stop", "seat-state.sh"), ("Stop", "orchestrator-stop.sh"),
+                 ("UserPromptSubmit", "seat-state.sh"))
+        for notice, (event, script) in product((PASSIVE[0], "permission_prompt"), newer):
+            with self.subTest(notice=notice, event=event, script=script):
                 ready.unlink(missing_ok=True)
                 release.unlink(missing_ok=True)
                 config.notify_path(SEAT).unlink(missing_ok=True)    # no question standing yet
@@ -193,7 +207,7 @@ exec "$REAL_PYTHON" "$@"
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
                     proc.stdin.write(json.dumps({"hook_event_name": "Notification",
-                                                 "notification_type": PASSIVE[0]}))
+                                                 "notification_type": notice}))
                     proc.stdin.close()
                     proc.stdin = None
                     deadline = time.monotonic() + 10
