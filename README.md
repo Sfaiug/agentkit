@@ -76,7 +76,7 @@ After `/clear` in a Claude seat's launched pane, reopening and title changes fol
 
 `ak plan` lists [numbered outcomes with checks or your judgement](docs/guide.md#the-states-and-the-cards).
 
-Muse logins share the usual login's user settings. On a named login's first launch, settings only it held are carried over; the usual login wins conflicts, including within nested settings. Each login keeps its own credentials.
+Muse logins share the usual login's user settings. On a named login's first launch, settings only it held are carried over; the usual login wins conflicts, including within nested settings. Migration and session writes use the same settings lock. Each login keeps its own credentials.
 
 ## While you are away
 
