@@ -2791,15 +2791,16 @@ fi
 fixture 52 -34.3  94 7.7  63 18.2
 UT="$WORK/usage-words.txt"
 # 140 columns so the full headings are what is checked; `holds` is what the week holds in
-# tokens, `-` with no turn of ours measured in this HOME; `resets` is when the shared week opens
+# tokens, `-` with no turn of ours measured in this HOME; `a month` is the subscription's price
+# and what it buys, `-` with no price on the provider; `resets` is when the shared week opens
 # again, the same answer the menu row gives, and `resets held` is the credits in hand.
 HOME="$PHOME" COLUMNS=140 ak usage >"$UT" 2>&1
 WHEN='(-|[A-Za-z]+ [0-9][0-9]:[0-9][0-9])'
 if grep -qi 'week elapsed' "$UT" && grep -q 'session  *resets held  *headroom  *budget  *outlook' "$UT" &&
-   grep -q ' left  *holds  *resets  *week elapsed' "$UT" && ! grep -q 'this week' "$UT" &&
-   grep -qE "^anthropic .*fable, opus +6% +- +$WHEN +86% +- +0 +0\.1 +[0-9]+\.[0-9] slack +runs out in ~1d$" "$UT" &&
-   grep -qE "^openai +astra +37% +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
-   grep -qE '^meta +spark +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
+   grep -q ' left  *holds  *a month  *resets  *week elapsed' "$UT" && ! grep -q 'this week' "$UT" &&
+   grep -qE "^anthropic .*fable, opus +6% +- +- +$WHEN +86% +- +0 +0\.1 +[0-9]+\.[0-9] slack +runs out in ~1d$" "$UT" &&
+   grep -qE "^openai +astra +37% +- +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
+   grep -qE '^meta +spark +- +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
    grep -q '^pick order: opus, astra, spark, grok$' "$UT" && ! grep -qw sol "$UT"; then
   ok "8e ak usage in words: $(grep '^openai ' "$UT")"
 else
