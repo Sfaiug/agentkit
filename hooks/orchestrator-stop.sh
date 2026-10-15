@@ -62,7 +62,6 @@ main() {
   script=$(/bin/cat <<'STOPPY'
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -71,7 +70,7 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.handback import handback_reason
 from agentkit.stop import recorded_ending, ways_out
-from agentkit.watch import owner_question, seat_read, turn_ended
+from agentkit.watch import owner_question, seat_read, start_look, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
@@ -333,24 +332,6 @@ def written(launched, kind):
         pass        # a Stop nobody could write down is no reason to let the turn end
 
 
-def look(launched):
-    """Have the seat looked at again now its Stop is on record, however long judging it took:
-    hooks/seat-state.sh's own look, started the same way, in a session of its own so the
-    harness waits on none of it.  Only from inside the seat's pane, which `watch.hook_look`
-    checks too."""
-    if not (os.environ.get("TMUX") and os.environ.get("TMUX_PANE")):
-        return
-    try:
-        subprocess.Popen(
-            ["/usr/bin/env", "python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
-             "from agentkit import watch; watch.hook_look(sys.argv[2])",
-             str(Path(sys.argv[2]).resolve().parents[1]), launched],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True)
-    except OSError:
-        pass        # the next look -- a screen settling, a menu draw, the tick -- has it
-
-
 def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
@@ -361,7 +342,8 @@ def main():
         turn_ended(resolve(launched))
     if tells(payload):
         written(launched, "background" if background(payload) else "held" if back else "")
-        look(launched)
+        # looked at again now its Stop is on record, however long judging it took
+        start_look(launched)
     if back:
         print(json.dumps({"decision": "block", "reason": back}))
 

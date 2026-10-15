@@ -2210,6 +2210,24 @@ def hook_look(launched, answered_at=None, said=""):
     return announce_state(session, cfg=config.load(), look=True, number=number)
 
 
+def start_look(launched):
+    """`hook_look` for that seat in a process of its own session, as hooks/seat-state.sh starts
+    it: whoever starts it -- the stop hook, the seat's wrapper -- ends none of it by ending.  The
+    process, or None outside a tmux pane, which is where every seat's harness runs, or where
+    none could start."""
+    if not (os.environ.get("TMUX") and os.environ.get("TMUX_PANE")):
+        return None
+    try:
+        return subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from agentkit import watch; watch.hook_look(sys.argv[2])",
+             str(Path(__file__).resolve().parents[1]), launched],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except OSError:
+        return None
+
+
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, jobs, menu_mod, run_mod,
                    terminal_mod):
