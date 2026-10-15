@@ -150,11 +150,15 @@ class StopOwnRunsOnly(Sandbox):
                     self.assertEqual(orch.main(["stop", name]), 0)
                 self.assertEqual(record.read_state(mine)["state"], "stopped")
                 self.assertEqual(record.read_state(other)["state"], "running")
+                self.assertTrue(watch.seat_closed_by_owner(resolved))   # stopped: kept a week
+                if exited is not None:
+                    self.tmux.assert_any_call("kill-session", "-t", f"={resolved}", socket="agentkit-test")
+                # stopped again, the session gone from tmux: off the list, its name free
+                with patch.object(orch, "sessions", return_value=[]), redirect_stdout(io.StringIO()):
+                    self.assertEqual(orch.main(["stop", name]), 0)
                 self.assertFalse(config.session_path(name).exists())
                 self.assertFalse(config.session_path(resolved).exists())
                 self.assertTrue(config.session_path("acme-ui").exists())
-                if exited is not None:
-                    self.tmux.assert_any_call("kill-session", "-t", f"={resolved}", socket="agentkit-test")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@ before the tmux session goes, the listing offers it with `closed` set for its nu
 it -- whether or not its harness can resume it -- its name stays taken, and the card `x` asks on
 says so.  A second stop takes it off the list: the record, every state file but the locks, the
 pointers a rename left and what its harness held, and the name is free again; the stop mark
-alone comes back into the seat file, nothing else of its live state with it.
+alone comes back into the seat file, nothing else of its live state with it.  A session tmux
+alone holds, with no record, goes with its one stop.
 
 Offline: a throwaway HOME, tmux faked, no runs and no real seat.
 """
@@ -138,6 +139,21 @@ class StopKeepsTheSeat(Sandbox):
                 patch.object(statusbar, "retell"):
             self.stop()
         self.assertEqual(marked, [True])
+
+    def test_a_session_with_no_record_goes_with_its_one_stop(self):
+        # made by hand, or from before records: nothing a week could keep, no number to reopen
+        # it, and the pointer a rename left goes with it
+        config.session_path("made").write_text('{"renamed": "by-hand"}\n')
+        session = {"name": "by-hand", "path": str(self.root), "created": 100,
+                   "attached": False, "exited": False, "legacy": True}
+        out = io.StringIO()
+        with patch.object(orch, "sessions", return_value=[session]), redirect_stdout(out):
+            self.assertIn("made", orch.taken_names())     # the pointer leads to a listed seat
+            self.assertEqual(orch.cmd_stop(["by-hand"]), 0)
+        self.assertEqual(out.getvalue(), "removed by-hand\n")
+        self.assertIn("kill-session", [args[0] for args in self.tmux])
+        self.assertFalse(config.session_path("made").exists())
+        self.assertNotIn("made", orch.taken_names())
 
     def test_the_card_says_the_seat_stays_and_how_it_goes(self):
         tail = ("with it; the session stays listed for a week: its number reopens it, "

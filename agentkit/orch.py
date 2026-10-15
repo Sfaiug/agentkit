@@ -3292,7 +3292,9 @@ def cmd_stop(argv):
     A record is enough on its own to stop: it is what holds the name, whether or not tmux still
     has the session -- a restarted server leaves nothing to kill -- and whether or not there was
     ever a conversation to come back to.  So either one is enough, and whatever there is of
-    each is stopped.
+    each is stopped.  A session with no record -- made by hand, or from before agentkit kept
+    records -- has nothing to keep a week and no number to reopen it, so its one stop is the
+    whole stop.
     """
     if len(argv) != 1:
         raise config.Error("usage: ak orch stop <name>")
@@ -3347,6 +3349,10 @@ def cmd_stop(argv):
                             raise config.Error(f"could not stop the session {name}: {out}")
                         from . import statusbar   # here, not at the top: its module imports this one
                         statusbar.retell(session)   # no other bar names or counts it any more
+                if not record:
+                    # tmux alone held it: no record to keep a week, no number to reopen it
+                    forget_seat(name, {}, lambda line: print(line, file=sys.stderr))
+                    removed = True
         if not removed:
             watch.forget(name)   # its stall record and its open question go with the owner's stop
     finally:

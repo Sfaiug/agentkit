@@ -4216,12 +4216,11 @@ typed $'\n' "${NENV[@]}" ak orch legacy-seat >"$WORK/name-alias-orch.log" 2>&1; 
 grep -q "used to be called" "$WORK/name-alias-orch.log" || NAME=1
 jq -e '.renamed == "legacy-renamed"' "$NH/.agentkit/state/session-legacy-seat.json" \
   >/dev/null 2>&1 || NAME=1
-# (h6) ... until that seat is stopped twice, once to stop it and once to take it off the list:
-# the pointer goes with the record it led to, and the name it used to be called is free again
-# for `ak orch`, which makes a seat under it
+# (h6) ... until that seat is stopped: tmux alone held it, with no record to keep a week and no
+# number to reopen it, so its one stop takes it off the list, the pointer with it, and the
+# name it used to be called is free again for `ak orch`, which makes a seat under it
 akn orch stop legacy-renamed >"$WORK/name-legacy-stop.log" 2>&1 || NAME=1
-[ -e "$NH/.agentkit/state/session-legacy-seat.json" ] || NAME=1   # kept with the stopped seat
-akn orch stop legacy-renamed >>"$WORK/name-legacy-stop.log" 2>&1 || NAME=1
+grep -q '^removed legacy-renamed$' "$WORK/name-legacy-stop.log" || NAME=1
 [ -e "$NH/.agentkit/state/session-legacy-seat.json" ] && NAME=1
 ( cd "$NSEAT" && typed $'\n' "${NENV[@]}" ak orch legacy-seat --model fable --workers opus ) \
   >"$WORK/name-alias-free.log" 2>&1 || NAME=1

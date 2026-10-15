@@ -727,11 +727,17 @@ class Phone(Sandbox):
         phone.press("x")                     # this session's, asked under its own row
         phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
-        # the seat is gone, so the attach is over: the menu is back, with no ghost row and no box
-        screen = phone.until("your projects", "1  phone-audit", "esc leave", absent=["│"],
-                             prompt="esc leave")
+        # the session is gone, so the attach is over: the menu is back, no box, the stopped seat
+        # still on its row for its number to reopen it, and `x` on it again takes it off at once
+        screen = phone.until("your projects", "1  new-2", "2  phone-audit", "x remove",
+                             absent=["│"], prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertFalse(self.has_seat("new-2"))
+        self.assertEqual(self.marked(screen), 1)
+        phone.press("x")
+        screen = phone.until("your projects", "1  phone-audit", "esc leave", absent=["new-2"],
+                             prompt="esc leave")
+        self.whole_page(screen, width, height)
         self.assertNotIn("2  phone-audit", "\n".join(screen))
         phone.settled()
         # eleven more seats, one named at the cap. A laptop holds all twelve on one
@@ -836,6 +842,10 @@ class Phone(Sandbox):
         else:
             self.assertIn(f"Stop {LONG_NAME} and everything it runs?", screen)
         self.stop_answered(phone)
+        # stopped, the seat keeps its row and the highlight; x on it again removes it
+        screen = phone.until("your projects", "x remove", prompt="esc leave")
+        self.assertEqual(self.marked(screen), 12)
+        phone.press("x")
         screen = phone.until("your projects", "11 need you", absent=[LONG_NAME[:20]],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
