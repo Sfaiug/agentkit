@@ -8,8 +8,10 @@ The run's child environment, depth and logger live here too, as every leaf start
 """
 
 import codecs
+import functools
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import config, record as run_record, task as taskfile, worker
+from . import config, record as run_record, sentences, task as taskfile, worker
 
 
 # what a test run, a build or an editor drops next to the work, and no reviewer should ever see
@@ -82,7 +84,7 @@ def tool_env():
     Dropping $AGENTKIT_SESSION keeps the tmux and gh shims' seatless premise true by construction
     -- they engage only on a seat's own by-hand call -- so ak's own merge is never refused.
     """
-    env = {k: v for k, v in config.child_env().items() if k != config.SESSION_ENV}
+    env = merge_config({k: v for k, v in config.child_env().items() if k != config.SESSION_ENV})
     env.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
     run_id = getattr(_RUN_CONTEXT, "state", {}).get("run_id")
     if run_id:
@@ -92,6 +94,51 @@ def tool_env():
         # context, which the loop never exports.
         env[worker.RUN_MARKER] = worker.run_marker(run_id)
     return env
+
+
+def merge_config(env):
+    """`env` with ak's own git config after any it carries: `*.md` merges sentence by sentence
+    (`sentences`), named in an attributes file that keeps the owner's global one first.  Every
+    merge, rebase and `merge-tree` ak runs reads it: the lease scan's, the lander's, a run's."""
+    driver = f"merge.{sentences.NAME}.driver"
+    count = int(env.get("GIT_CONFIG_COUNT") or 0)
+    if driver in (env.get(f"GIT_CONFIG_KEY_{n}") for n in range(count)):
+        return env
+    try:
+        attributes = attributes_file()
+    except OSError:
+        return env          # a state ak cannot write merges by git's line rule, as before
+    pairs = (("core.attributesFile", attributes),
+             (driver, f"{shlex.quote(sys.executable)} -I {shlex.quote(sentences.__file__)} %O %A %B %L"))
+    for n, (key, value) in enumerate(pairs, count):
+        env[f"GIT_CONFIG_KEY_{n}"], env[f"GIT_CONFIG_VALUE_{n}"] = key, value
+    env["GIT_CONFIG_COUNT"] = str(count + len(pairs))
+    return env
+
+
+def attributes_file():
+    """The attributes file ak's git calls read (`merge_config`), written again whenever it is
+    missing or the owner's global attributes changed."""
+    path = config.STATE / "merge-attributes"
+    text = attributes_text(str(Path.home()), os.environ.get("XDG_CONFIG_HOME"),
+                           os.environ.get("GIT_CONFIG_GLOBAL"))
+    if not path.is_file() or path.read_text(errors="replace") != text:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fresh = path.with_name(f".{path.name}.{os.getpid()}")
+        fresh.write_text(text)
+        os.replace(fresh, path)
+    return str(path)
+
+
+@functools.lru_cache(maxsize=8)
+def attributes_text(home, xdg, global_config):
+    """The owner's own global attributes, if any, then ak's line for Markdown: git reads one
+    global attributes file, so ak's git calls treat every other path as the owner's git does."""
+    own = subprocess.run(["git", "config", "--global", "--path", "--get", "core.attributesFile"],
+                         capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
+    own = Path(own) if own else Path(xdg or Path(home) / ".config") / "git" / "attributes"
+    return ((own.read_text(errors="replace").rstrip("\n") + "\n" if own.is_file() else "")
+            + f"*.md merge={sentences.NAME}\n")
 
 
 def tool_run(cmd, cwd=None, timeout=None, env=None):
