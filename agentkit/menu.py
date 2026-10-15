@@ -798,56 +798,6 @@ def seat_progress(name):
     return (job[0], job[1]) if job else (0, 0)
 
 
-# What a live run is doing, in the order a round does it and the words its seat's live line
-# says it in: the step of a round it is on, in the words a seat's bar reads, and which of its
-# models does it -- none of its own while it checks or lands.
-DOING = {"building": ("building", "executor"), "checking": ("checks", None),
-         "reviewing": ("review", "reviewer"), "landing": ("landing", None)}
-# A live run's step, as `Loop.step` records it; one not stepped yet builds.  A run in its
-# repository's line to land is landing, and one queued for a slot is waiting.
-STEPS = {"executor": "building", "done-when": "checking", "reviewer": "reviewing",
-         "merge": "landing"}
-FILLS = {"building": 1 / 4, "checks": 1 / 2, "review": 3 / 4, "landing": 7 / 8}   # of its slot
-
-
-def seat_runs(name, records=None):
-    """Each live run that seat launched, furthest on first: its `task` id -- its task file's name
-    up to the first `-`, the number of the PR it reviews (`#2157`), else the run's id -- what it
-    is `doing` (`DOING`, or `waiting` for a slot), the `step` of a round that is and `since`
-    when, its `round` of its `rounds`, and the `model` doing it.
-
-    `records` are the draw's own `run_records`, read here when they are not handed in.  The
-    menu row and the seat's own status bar both read this, as they read `seat_progress`.
-    Whatever it shows is in run.json once a step publishes (round directories come later), and
-    an open menu sees only the files `Live.watch` watches: a fact derived from anything else lags.
-    """
-    runs = []
-    for run_dir, state in run_records() if records is None else records:
-        if transitions.launched_session(state) != name:
-            continue
-        if transitions.landing_line(state):
-            doing, since = "landing", state["waiting_on"].get("joined")
-        elif state.get("state") == "running":
-            doing = STEPS.get(state.get("step"), "building")
-            since = state.get("step_at") or state.get("started_at")
-        elif state.get("state") == "queued":
-            doing, since = "waiting", state.get("queued_at")
-        else:
-            continue
-        step, model = DOING.get(doing, (doing, None))
-        pr = transitions.PR_PARTS.match(state.get("review_pr") or "")
-        task = (Path(state.get("task_file") or "").stem.split("-")[0]
-                or (f"#{pr.group(3)}" if pr else run_dir.name))
-        # the round anything last ran in, or a step was announced in before its directory was
-        # made: one landing, rechecked or waiting on a push is still in the round its summary
-        # closed, not the next
-        runs.append({"task": task, "doing": doing, "step": step, "since": since,
-                     "round": max(1, staffing.started_round(run_dir, state),
-                                  state.get("step_round") or 0),
-                     "rounds": state.get("rounds"), "model": state.get(model) if model else None})
-    return sorted(runs, key=lambda run: -FILLS.get(run["step"], 0))
-
-
 # The three squares of a task in flight: build (its executor, its checks, a fix after review),
 # review, land (the line, the merge, the deploy until it proves itself live).
 STAGES = {"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}
@@ -886,37 +836,46 @@ def seat_tasks(name, records=None, now=None, index=None):
     return sorted(found, key=lambda task: (task[0], ("moving", "waiting", "failed").index(task[1])))
 
 
-def squares(tasks, room):
+def _paint(text, kind, tmux=False):
+    """`text` in `kind`'s colour, as `terminal.styled` draws it, or as tmux text."""
+    if not tmux:
+        return terminal.styled(text, kind)
+    rgb = terminal.STATE_STYLES[terminal.KINDS.get(kind, kind)][2]
+    return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
+
+
+def squares(tasks, room, tmux=False):
     """`tasks` (`seat_tasks`) drawn in `room` cells: three squares each, two cells apart, the
     stages it has reached filled -- in working's colour while it moves, dim while it waits, red
     once it failed -- and the rest dim and empty; those that do not fit counted, `+3`.  No
-    colour: the shapes alone; no UTF-8: `#--`."""
+    colour: the shapes alone; no UTF-8: `#--`.  `tmux` draws it as tmux text."""
     full, empty = "■□" if terminal.utf8() else "#-"
     kinds = {"moving": "working", "waiting": "dim", "failed": "FAIL"}
     # a group takes five cells with its gutter, the count of the rest as many as its digits
     fit = len(tasks)
     while fit and 5 * fit - 2 + (len(f"  +{len(tasks) - fit}") if fit < len(tasks) else 0) > room:
         fit -= 1
-    drawn = [terminal.styled(full * (stage + 1), kinds[state])
-             + terminal.styled(empty * (2 - stage), "dim") for stage, state in tasks[:fit]]
+    drawn = [_paint(full * (stage + 1), kinds[state], tmux)
+             + _paint(empty * (2 - stage), "dim", tmux) for stage, state in tasks[:fit]]
     rest = len(tasks) - fit
-    return "  ".join(drawn + ([terminal.styled(f"+{rest}", "dim")] if rest else []))
+    return "  ".join(drawn + ([_paint(f"+{rest}", "dim", tmux)] if rest else []))
 
 
-def crew(info):
+def crew(info, tmux=False):
     """`astra builds · opus reviews`: who builds and who reviews a seat's work, its own
-    orchestrator where it builds alone, models in plain text and the verbs dim."""
+    orchestrator where it builds alone, models in plain text and the verbs dim; `tmux` draws it
+    as tmux text."""
     builds, reviews = info.get("crew") or ((), ())
-    if not builds and not reviews:
-        return ""
+
     def named(models, one, many):
         if not models:
             return ""
-        return (" and ".join(models) + terminal.styled(f" {one if len(models) == 1 else many}",
-                                                       "dim"))
-    parts = [part for part in (named(builds, "builds", "build"), named(reviews, "reviews",
-                                                                        "review")) if part]
-    return terminal.styled(" · ", "dim").join(parts)
+        names = " and ".join(terminal.plain(model) for model in models)
+        return ((orch.tmux_text(names) if tmux else names)
+                + _paint(f" {one if len(models) == 1 else many}", "dim", tmux))
+    parts = [part for part in (named(builds, "builds", "build"),
+                               named(reviews, "reviews", "review")) if part]
+    return _paint(" · ", "dim", tmux).join(parts)
 
 
 def silent_for_run(run_dir, state, now=None):
@@ -1045,7 +1004,6 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "tone": model_colour(cfg, orchestrator) if selection else "dim",
             "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
-            "runs": seat_runs(name, records) if word == "working" else [],
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
@@ -1138,23 +1096,22 @@ def _styled_cell(plain_text, width, kind=None, right=False):
 
 
 def last_column(word, reason, done, total, room=8, narrow=False, tmux=False, unsent=""):
-    """The one last column of a seat's row, and of its status bar.
-
-    For `needs you` and `done` the reason from the state function; for `working` its place
-    in the landing line, else what the owner left unsent (`unsent`, the state function's own
-    field: a run's title in the reason can say anything), else its progress
-    (`terminal.plan_bar`, a smooth line and `done of total`) in `room` cells when
-    `seat_progress` finds a plan or an unfinished job; else empty -- never `N running`.  The
-    line keeps 8 cells at least, which a row too short for them draws under itself; where
-    `room` is all there is -- a `narrow` screen's line, each width of a seat's bar -- it takes
-    that room and never more.  `tmux` draws it for a seat's bar.  The
-    row and the bar read this one function, so the two can never disagree.  Never two state
-    words on one row.
-    """
-    if not tasks_bar(word, reason):
+    """The one last column of a seat's row, and of its status bar's line one: for `working` its
+    place in the landing line, else what the owner left unsent (`unsent`, the state function's
+    own field: a run's title in the reason can say anything); else its progress
+    (`terminal.plan_bar`, a smooth line and `done of total`) in `room` cells, in its word's
+    colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest; else
+    empty -- never `N running`, and no other sentence: what a seat asks or did opens under its
+    row (`detail`).  The line keeps 8 cells at least, which a row too short for them draws
+    under itself; where `room` is all there is -- a `narrow` screen's line, each width of a
+    seat's bar -- it takes that room and never more.  `tmux` draws it for a seat's bar.  The
+    row and the bar read this one function, so the two can never disagree."""
+    if word == "working" and not tasks_bar(word, reason):
         return terminal.plain(reason or "")
-    if unsent:
+    if word == "working" and unsent:
         return terminal.plain(unsent)
+    if not total or word in (None, "idle"):
+        return ""
     return terminal.plan_bar(done, total, room, 0 if narrow else 8, word, tmux)
 
 
@@ -1166,18 +1123,11 @@ def tasks_bar(word, reason):
 
 
 def _last_text(info, room, narrow=False):
-    """The row's one last column in `room` cells: a working seat's (`last_column`), and the
-    progress line (`terminal.plan_bar`) of one asking or done while it has a plan, in its
-    word's colour; else empty.  What a seat not working says is read under the row (`detail`),
-    never beside it."""
+    """The row's one last column in `room` cells (`last_column`)."""
     bar = info.get("bar")
-    if info.get("word") == "working":
-        done, total = bar if bar and len(bar) == 2 else (0, 0)
-        return last_column("working", info.get("sentence"), done, total, room, narrow,
-                           unsent=info.get("unsent"))
-    if not bar or len(bar) != 2 or info.get("word") == "idle":
-        return ""
-    return terminal.plan_bar(*bar, room, 0 if narrow else 8, info.get("word"))
+    done, total = bar if bar and len(bar) == 2 else (0, 0)
+    return last_column(info.get("word"), info.get("sentence"), done, total, room, narrow,
+                       unsent=info.get("unsent"))
 
 
 def detail(cfg, info, room, now=None):

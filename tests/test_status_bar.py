@@ -1,8 +1,8 @@
 """The session's status bar says its state and progress; the in-session menu renames it.
 
 The bar is the menu row's own values -- the state function's word and `last_column` --
-written through the one writer by the tick and every menu draw; line two ends in the one
-key. The overlay offers four keys, and `r` renames everything that carries the name.
+written through the one writer by the tick and every menu draw; line two is the line the row
+opens, who builds and who reviews, and ends in the one key. The overlay offers four keys, and `r` renames everything that carries the name.
 Offline: fake seats, plan files and run records, `orch.tmux_out` patched.
 """
 
@@ -78,7 +78,8 @@ class StatusBar(Sandbox):
         found = watch.announce_state(self.seat, cfg=self.cfg)
         self.assertEqual(found["word"], "working")
         top = self.line(statusbar.TOP)
-        self.assertIn("herdr  fable orchestrates", top)
+        self.assertIn("herdr   fable", top)
+        self.assertNotIn("orchestrates", top)
         self.assertIn("● working", top)
         self.assertIn(" 2 of 5", top)                     # the count, after the line
         self.assertEqual(self.options["set-titles-string"], "herdr · working")
@@ -89,7 +90,8 @@ class StatusBar(Sandbox):
         found = watch.announce_state(self.seat, cfg=self.cfg)
         self.assertEqual(found["word"], "needs you")
         self.assertIn("! needs you", self.line(statusbar.TOP))
-        self.assertEqual(self.line(statusbar.WHY), "  Merge the MOV helper before or after?")
+        # its question is on the seat's own screen: line two is who builds and reviews
+        self.assertEqual(self.line(statusbar.WHY), "  opus builds · opus reviews")
         self.assertEqual(self.options["set-titles-string"], "herdr · needs you")
 
     def test_bar_and_row_come_from_one_function(self):
@@ -103,22 +105,22 @@ class StatusBar(Sandbox):
             watch.announce_state(self.seat, cfg=self.cfg)
         self.assertTrue(patched.called)
         self.assertIn("PATCHED", "\n".join(row))
-        self.assertIn("PATCHED", self.options[statusbar.TOP] + self.options[statusbar.WHY])
+        self.assertIn("PATCHED", self.options[statusbar.TOP])
 
     def test_line_two_ends_in_the_single_hint(self):
-        top, why, key, _ = statusbar.lines("herdr", "fable", "#D97757", "working", "tasks x 2/5")
+        top, why, key, _ = statusbar.lines("herdr", "fable", "working", "tasks x 2/5")
         self.assertTrue(key.startswith("Ctrl-b m#["), key)
         for hint in ("Ctrl-b d", "back to menu", "menu here", "close the menu"):
             for half in (top, why, key):
                 self.assertNotIn(hint, half)
         statusbar.dress("herdr", "fable")
         self.assertEqual(self.line(statusbar.KEY), "Ctrl-b m  menu ")
-        self.assertEqual(self.line(statusbar.TOP), " herdr  fable orchestrates")
+        self.assertEqual(self.line(statusbar.TOP), " herdr   fable")
         self.assertEqual(self.line(statusbar.WHY), "")
         self.assertEqual(self.options["set-titles-string"], "herdr")
-        # a reason carrying `#` is doubled, so tmux reads text and not a format
-        _, why, _, title = statusbar.lines("herdr", "fable", "#D97757", "done", "Merged #75")
-        self.assertIn("Merged ##75", why)
+        # a model carrying `#` is doubled, so tmux reads text and not a format
+        top, _, _, title = statusbar.lines("herdr", "fable#75", "done")
+        self.assertIn("fable##75", top)
         self.assertEqual(title, "herdr · done")
 
     def test_rename_moves_every_state_file_but_the_turn_latch_and_run_records(self):
@@ -159,7 +161,7 @@ class StatusBar(Sandbox):
                          "other")
         # the record moved and the pointer stayed; the bar says the new name at once
         self.assertEqual(config.resolve_session("herdr"), "parser")
-        self.assertIn("parser  fable orchestrates", self.line(statusbar.TOP))
+        self.assertIn("parser   fable", self.line(statusbar.TOP))
         self.assertNotIn("herdr", self.line(statusbar.TOP))
 
     def test_overlay_lists_the_four_entries(self):

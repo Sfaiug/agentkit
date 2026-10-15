@@ -1,7 +1,7 @@
-"""A question or summary that ends in `;` keeps it on its seat's bar.
+"""Text on a seat's bar that ends in `;` keeps it.
 
-tmux reads a `;` ending a call's word as the end of that command, so line two said `Review these
-steps` where the seat had asked `Review these steps;`.  tmux 3.5a itself, on a server of its own
+tmux reads a `;` ending a call's word as the end of that command, so line two once said `Review
+these steps` where the seat had asked `Review these steps;`.  tmux 3.5a itself, on a server of its own
 in this test's HOME.
 """
 
@@ -37,10 +37,10 @@ class ClosingSemicolon(Sandbox):
                               capture_output=True, text=True, timeout=10)
         return done.returncode, (done.stdout + done.stderr).rstrip("\n")
 
-    def test_line_two_says_what_the_seat_said_to_its_last_character(self):
+    def test_line_two_says_what_it_was_told_to_its_last_character(self):
         for word, said in (("needs you", "Review these steps;"),
                            ("done", "Finished these steps;")):
-            statusbar._write("acme", "opus", word=word, lasts=[said] * len(statusbar.BARS))
+            statusbar._write("acme", "opus", word=word, versions=[said] * len(statusbar.WHYS))
             for version in statusbar.WHYS:
                 with self.subTest(word=word, version=version):
                     self.assertEqual(self.tmux("show-options", "-v", "-t", "=acme:", version),

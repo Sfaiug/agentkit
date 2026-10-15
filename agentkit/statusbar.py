@@ -1,22 +1,22 @@
 """A seat's status bar: what each of its two lines says, and how tmux draws them.
 
-Line one opens with the seat's state as a chip -- `● working`, `! needs you`, `✓ done` or
-`○ idle`, in dark bold text on that word's colour -- then the seat's name in bold, then `<model>
-orchestrates` with the model in its company's colour, then a working seat's progress line, as its
-menu row draws it, as wide as `BARS` lets it be.  Its right end is the owner's other seats on
-ak's own server: each that needs you by name, a click away, then how many others are working
-and done; an idle one is not counted.  Where they do not fit beside the left part the bar narrows, then the names fold into
-a count, then only the count of those that need you stays, and only then is the left part cut.
-Line two carries why a seat needs you or is done, the question or the summary, or a working
-seat's live runs (`live`), with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m
-x close` once done.
+The bar is the seat's row on the `ak` screen with the line under it always open.  Line one is
+its state -- `! needs you` in dark bold text on its amber, the one loud thing on the bar, any
+other word as its glyph and word in its colour -- then the seat's name in bold, then the model
+that orchestrates it, dim, then its progress line, as its menu row draws it, as wide as `BARS`
+lets it be.  Its right end is the owner's other seats on ak's own server: each that needs you
+by name, a click away, then how many others are working and done; an idle one is not counted.  Where they do not fit
+beside the left part the line narrows, then the names fold into a count, then only the count
+of those that need you stays, and only then is the left part cut.  Line two is what its row
+opens under itself: who builds and who reviews, and each task in flight as its squares
+(`whys`), with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m  x close` once
+done.  It never moves: the seat is where the owner reads and types.
 
 The bar draws on the terminal's own background and foreground and never tmux's green.  The
-chips carry their own background, so they read on any terminal; the rest is
-the terminal's foreground or ak's dim, which read on a dark one and a light one alike.  tmux
-cannot say which a client is, and the tick that writes most bars has no terminal to ask, so a
-company colour that a light terminal draws in its mirror tone (a white one) is the terminal's
-own foreground, which is that tone wherever the bar is drawn.
+`needs you` chip carries its own background, so it reads on any terminal; the rest is
+the terminal's foreground, ak's dim or a state's colour, which read on a dark one and a light
+one alike: tmux cannot say which a client is, and the tick that writes most bars has no
+terminal to ask.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
 width, `@ak_seats`, `@ak_fold`, `@ak_need`, `@ak_why` and its folded versions, `@ak_key`), and
@@ -30,7 +30,6 @@ click over a name do what they do anywhere else on the bar, which is nothing.
 """
 
 import fcntl
-import time
 
 from . import config, menu, orch, terminal
 
@@ -50,9 +49,10 @@ CELLS = 36                         # a working seat's progress line and its coun
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
 DIM = terminal.STATE_STYLES["dim"][2]
-# Line two, then each version of it with one more of what runs do (`menu.DOING`) folded into its
-# count, and last the counts alone (`live`).
-WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, len(menu.DOING) + 2)))
+# Line two: who builds and reviews and every task's squares, then the squares cut to six, then
+# the squares alone, then who builds and reviews alone (`whys`).
+WHYS = (WHY, f"{WHY}1", f"{WHY}2", f"{WHY}3")
+FEW = 5 * 6 - 2   # six tasks' squares and their gaps
 
 
 def _cut(option, room):
@@ -102,114 +102,50 @@ LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
           ("status-format[0]", FORMATS[0]), ("status-format[1]", FORMATS[1]))
 
 
-def company(cfg, model):
-    """The colour `model`'s company is drawn in, as on its usage bar (`menu.model_colour`), for
-    tmux."""
-    return tone(menu.model_colour(cfg, model))
-
-
-def tone(kind):
-    """A colour as `terminal.styled` takes one -- a kind, `#RRGGBB` or None for none -- for tmux.
-
-    A light grey is `default`, the terminal's own foreground: the colour itself on a dark
-    terminal, and on a light one its mirror tone, as the usage rows draw it there.
-    """
-    if not kind:
-        return "default"
-    rgb = kind[1:] if kind.startswith("#") else terminal.STATE_STYLES[terminal.KINDS.get(kind,
-                                                                                         kind)][2]
-    return "default" if terminal.light_grey(rgb) else f"#{rgb}"
-
-
 def chip(word):
-    """The state as a chip: `● working` in dark bold text on the word's colour."""
+    """The state as its bar opens with it: `! needs you` in dark bold text on its amber, the one
+    loud thing on the bar; any other word as its glyph and word in its colour."""
     rgb = "#" + terminal.STATE_STYLES[word][2]
-    left, right = ("▐", "▌") if terminal.utf8() else ("", "")
     said = orch.tmux_text(terminal.state_text(word))
-    return (f"#[fg={rgb}]{left}#[fg=#{INK},bg={rgb},bold]{said}"
-            f"#[default]#[fg={rgb}]{right}#[default]")
+    if word == "needs you":
+        return f"#[fg=#{INK},bg={rgb},bold] {said} #[default]"
+    return f"#[fg={rgb}]{said}#[default]"
 
 
-def lines(name, model, colour, word=None, last=""):
+def lines(name, model, word=None, last="", why=""):
     """(line one, line two, its key, the window title): the seat's bar, as tmux text.
 
-    `last` is the seat's last column (`menu.last_column`): a working seat's progress line, tmux text
-    already, or its place in the landing line, which line one carries, or the reason a seat
-    needs you or is done, which line two does; a sentence is made text here.  Before its first
-    word a seat's bar is its name and who orchestrates it, and its title the name.
+    Line one is its row on the `ak` screen: its word, its name, the model that orchestrates it,
+    and `last`, its last column (`menu.last_column`): its progress, tmux text already, or a
+    working seat's place in the landing line or what the owner left unsent, made text here.  Line two is `why`, the
+    line its row opens under itself (`whys`).  Before its first word a seat's bar is its name and
+    its model, and its title the name.
     """
-    top = f" {chip(word)}  " if word else " "
+    top = f" {chip(word)}   " if word else " "
     top += f"#[bold]{orch.tmux_text(name)}#[nobold]"
     if model:
-        top += f"  #[fg={colour}]{orch.tmux_text(model)}#[fg=#{DIM}] orchestrates#[default]"
-    if word == "working" and last:
-        top += f"   {last if menu.tasks_bar(word, last) else orch.tmux_text(last)}"
-    why = f"  {orch.tmux_text(last)}" if word != "working" and last else ""
+        top += f"   #[fg=#{DIM}]{orch.tmux_text(model)}#[default]"
+    if last:
+        sentence = word == "working" and not menu.tasks_bar(word, last)
+        top += f"   {orch.tmux_text(last) if sentence else last}"
     key, verb = (CLOSE_HINT if word == "done" else HINT).split("  ", 1)
     title = f"{name} · {word}" if word else name
     # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
-    return (top, why, f"{key}#[fg=#{DIM}]  {verb} #[default]",
+    return (top, f"  {why}" if why else "", f"{key}#[fg=#{DIM}]  {verb} #[default]",
             orch.tmux_text(title).replace("%", "%%"))
 
 
-def live(runs, cfg, now):
-    """Line two of a working seat: its live runs (`menu.seat_runs`), as one version for each of
-    `WHYS`, the least folded first, each a list of (text, colour, bold), the text plain on one
-    line (`terminal.plain`), the colour as `terminal.styled` takes one, or None.
-
-    A run reads `gh2 ■■□□ opus reviewing · round 2 of 3 · 11m`: its task id in bold, red on its
-    last round; a cell for each step of a round, dim for those it passed, the current one in the
-    colour of the model doing it, hollow for those to come; that model (`menu.DOING`) in its
-    company's colour; what it is doing; its round once past the first; how long it has been on
-    this step.  Runs go in the order a round does what they do.  More than two doing one thing
-    are one count, `landing 8 · longest 2h`, and so are the runs queued for a slot, `waiting 2`.
-    Each next version folds one more into its count, the last first, and the last drops the
-    counts' times, so a line short of room folds whole runs into counts before anything is cut.
-    """
-    full, hollow = ("■", "□") if terminal.utf8() else ("#", "-")
-    doings, steps, dim = list(menu.DOING), list(menu.FILLS), "dim"
-    group = {doing: [run for run in runs if run["doing"] == doing]
-             for doing in (*doings, "waiting")}
-
-    def age(found):
-        ages = [now - run["since"] for run in found if type(run["since"]) in (int, float)]
-        return terminal.format_age(max(ages)) if ages else ""
-
-    def one(run):
-        at, model = steps.index(run["step"]), run["model"]
-        colour = menu.model_colour(cfg, model) if model else None
-        last = bool(run["rounds"]) and run["round"] >= run["rounds"]
-        parts = [(run["task"], "FAIL" if last else None, True), (" ", None, False),
-                 (full * at, dim, False), (full, colour, False),
-                 (hollow * (len(steps) - 1 - at), dim, False), (" ", None, False)]
-        if model:
-            parts += [(model, colour, False), (" ", None, False)]
-        said = ([f"round {run['round']}" + (f" of {run['rounds']}" if run["rounds"] else "")]
-                if run["round"] > 1 else []) + [part for part in (age([run]),) if part]
-        return [*parts, (run["doing"], None, False),
-                *([(" · " + " · ".join(said), dim, False)] if said else [])]
-
-    def count(doing, timed):
-        found, longest = group[doing], age(group[doing])
-        return [(f"{doing} {len(found)}", None, False),
-                *([(f" · {'longest ' if len(found) > 1 else ''}{longest}", dim, False)]
-                  if timed and longest and doing in menu.DOING else [])]
-
-    versions = []
-    for folded in range(len(WHYS)):
-        shown, timed = [], folded <= len(doings)
-        for at, doing in enumerate(doings):
-            if len(group[doing]) > 2 or (group[doing] and at >= len(doings) - folded):
-                shown.append(count(doing, timed))
-            else:
-                shown += [one(run) for run in group[doing]]
-        if group["waiting"]:
-            shown.append(count("waiting", timed))
-        # a task's file and a model may be named anything: each text is drawn as text, on one line
-        versions.append([(terminal.plain(text, spaced=True), colour, bold)
-                         for n, said in enumerate(shown)
-                         for text, colour, bold in ([("   ", None, False)] if n else []) + said])
-    return versions
+def whys(info):
+    """Line two, one version for each of `WHYS`: who builds and who reviews (`menu.crew`) and
+    every task in flight as its squares (`menu.squares`), then the squares cut to six, then the
+    squares alone, then who builds and reviews alone; as tmux text.  Inside a seat its question
+    or its summary is on its own screen, so line two is this for every word."""
+    who, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
+    if not tasks:
+        return [who] * len(WHYS)
+    every, few = (menu.squares(tasks, room, tmux=True) for room in (5 * len(tasks), FEW))
+    return [part for part in (f"{who}   {every}" if who else every,
+                              f"{who}   {few}" if who else few, every, who or few)]
 
 
 def seats():
@@ -333,9 +269,9 @@ def redress(session, answer, cfg=None, records=None):
 
     The one writer: the watch tick, every menu draw and a seat's own hook come through here --
     all call `watch.announce_state` -- so the bar says what the row says: the state function's
-    word and reason, and `menu.last_column` over `menu.seat_progress` and `menu.seat_runs`, from
-    the caller's run `records` where it has them.  A legacy seat lives on the user's own server,
-    where nothing is written.
+    word, `menu.last_column` over `menu.seat_progress`, and the line its row opens, who builds
+    and reviews and its tasks' squares (`menu.seat_tasks`) from the caller's run `records` where
+    it has them.  A legacy seat lives on the user's own server, where nothing is written.
     """
     try:
         if not orch.on_own_server(session):
@@ -347,14 +283,17 @@ def redress(session, answer, cfg=None, records=None):
         except config.Error:
             selection = None
         word = answer.get("word")
-        runs = menu.seat_runs(name, records) if word == "working" else []
         progress = menu.seat_progress(name)
         # each in its own cells and never more (`narrow`), so line one picks by the width it set
         lasts = [menu.last_column(word, answer.get("reason"), *progress, cells,
                                   narrow=True, tmux=True, unsent=answer.get("unsent"))
                  for cells in BARS]
-        _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,
-               live(runs, cfg, time.time()) if runs else ())
+        model = selection["orchestrator"] if selection else None
+        builds = (list(selection.get("workers") or []) or [model]) if selection else []
+        reviews = (list(selection.get("reviewers", selection.get("workers") or []))
+                   if selection else [])
+        info = {"crew": (builds, reviews), "tasks": menu.seat_tasks(name, records)}
+        _write(name, model, word, lasts, cfg, whys(info))
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the draw or the tick beneath it
         pass
 
@@ -364,24 +303,19 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=Fals
     mid-draw, or a draw under test, fails its `set-option` quietly.  `={name}:` is that session
     alone: tmux reads a plain name as the start of any session's, so a gone `new-1` would write
     `new-10`'s bar, and it refuses `=name` without the colon as a target.  `lasts` are the
-    seat's last column at each of `BARS`, and `versions` a working seat's line two (`live`),
-    else every version of it is the reason.  `every` has each other seat's bar count this one
-    again, in the same call."""
-    cfg = config.load() if cfg is None else cfg
-    lasts, colour = lasts or [""] * len(BARS), company(cfg, model)
-    tops = [lines(name, model, colour, word, last)[0] for last in lasts]
-    _, why, key, title = lines(name, model, colour, word, lasts[0])
-    whys = ([why] * len(WHYS) if not versions else
-            ["  " + "".join(f"#[fg={tone(colour)},{'bold' if bold else 'nobold'}]"
-                            f"{orch.tmux_text(said)}" for said, colour, bold in version)
-             + "#[default]"
-             for version in versions])
+    seat's last column at each of `BARS`, and `versions` its line two at each of `WHYS`
+    (`whys`), tmux text.  `every` has each other seat's bar count this one again, in the same
+    call."""
+    lasts = lasts or [""] * len(BARS)
+    versions = list(versions) or [""] * len(WHYS)
+    tops = [lines(name, model, word, last)[0] for last in lasts]
+    _, _, key, title = lines(name, model, word, lasts[0])
+    whys_drawn = [lines(name, model, word, "", version)[1] for version in versions]
     # With line one's right end, in one call, where a call per option made a seat's start wait
-    # seconds on a busy host; another only where a long question's reason, drawn in every
-    # width, would take it past what tmux takes in one.  The title last, so whoever sees it
-    # has the whole bar to read.  Each value whole: a question may end in the `;` tmux would
-    # take for the end of its command (`orch.tmux_set`).
+    # seconds on a busy host.  The title last, so whoever sees it has the whole bar to read.
+    # Each value whole: a name may end in the `;` tmux would take for the end of its command
+    # (`orch.tmux_set`).
     _tell(None if every else name,
           [(f"={name}:", option, value)
-           for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys), (KEY, key),
+           for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys_drawn), (KEY, key),
                                  ("set-titles-string", title))])

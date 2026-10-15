@@ -382,7 +382,7 @@ class Projects(Sandbox):
             return re.sub(r"#\[[^\]]*\]", "", text).strip()
 
         title = tmux("show-options", "-t", "state", "-v", "set-titles-string")
-        self.assertEqual(shown(statusbar.TOP), "state  fable orchestrates")
+        self.assertEqual(shown(statusbar.TOP), "state   fable")
         self.assertEqual(shown(statusbar.KEY), "Ctrl-b m  menu")
         self.assertEqual(title, "state")
         self.assertNotIn("#[", title)

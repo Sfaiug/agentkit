@@ -193,7 +193,7 @@ class LiveStatus(unittest.TestCase):
         # a turn begins: the look takes three seconds of capture, and the hook waits on none
         self.assertLess(hook({"hook_event_name": "UserPromptSubmit", "prompt": "go"}), 2.0)
         options = published("working")
-        self.assertEqual(drawn(options[statusbar.TOP]), " ▐● working▌  herdr  opus orchestrates")
+        self.assertEqual(drawn(options[statusbar.TOP]), " ● working   herdr   opus")
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         # Claude's Stop is written down by hooks/orchestrator-stop.sh, beside this hook, in
         # whichever order the two finish, and that one looks at the seat once its word is down:
@@ -211,7 +211,7 @@ class LiveStatus(unittest.TestCase):
         stop({"hook_event_name": "Stop", "background_tasks": []})
         options = published("idle")
         self.assertEqual(drawn(options[statusbar.TOP]),
-                         " ▐○ idle▌  herdr  opus orchestrates")
+                         " ○ idle   herdr   opus")
         self.assertEqual(watch.seat_read("herdr")["word"], "idle")
 
     def test_a_hook_outside_the_seat_s_own_pane_moves_no_bar(self):
@@ -339,7 +339,7 @@ class LiveStatus(unittest.TestCase):
         # the row's line is how much of the plan is done, which a step does not change
         self.assertIn(" 4 of 8", building)
         self.assertIn(" 4 of 8", reviewing)
-        self.assertEqual(menu.seat_runs("herdr")[0]["step"], "review")
+        self.assertEqual(menu.seat_tasks("herdr"), [(1, "moving")])
 
     def test_an_older_look_never_lands_on_the_bar_after_a_newer_one(self):
         # a menu's look decides on what it read; the turn ends and the seat's own hook publishes
@@ -496,7 +496,7 @@ class LiveStatus(unittest.TestCase):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         self.assertEqual(drawn(self.options[statusbar.TOP]),
-                         " ▐● working▌  herdr  sonnet orchestrates")
+                         " ● working   herdr   sonnet")
         self.assertEqual(self.options["set-titles-string"], "herdr · working")
         self.assertEqual(captures[1], captures[0] + 1)  # the background look came round
 
@@ -519,7 +519,7 @@ class LiveStatus(unittest.TestCase):
         hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": []})
         self.assertEqual(watch.hook_facts("tern")["event"], "Stop")
         self.assertEqual(watch.hook_look("herdr")["word"], "idle")
-        self.assertIn("○ idle▌  tern  opus orchestrates", drawn(self.options[statusbar.TOP]))
+        self.assertIn("○ idle   tern   opus", drawn(self.options[statusbar.TOP]))
 
     def test_the_row_and_the_bar_say_the_same_after_a_flip(self):
         self.plan(4, 8)
@@ -528,52 +528,49 @@ class LiveStatus(unittest.TestCase):
             with self.subTest(event=event):
                 self.hook(event)
                 watch.hook_look("herdr")                # the flip, from the seat's own hook
-                bar = self.options[statusbar.TOP], self.options[statusbar.WHY]
+                top = self.options[statusbar.TOP]
                 info, row = self.row()                  # ... and the menu's next draw
                 self.assertEqual(info["word"], word)
                 self.assertEqual(watch.seat_read("herdr")["word"], word)
                 self.assertIn(terminal.state_text(word), row)
                 # the bar is the row's own values, word and last column alike
-                self.assertEqual(bar, statusbar.lines(
-                    "herdr", "opus", statusbar.company(self.cfg, "opus"), info["word"],
+                self.assertEqual(top, statusbar.lines(
+                    "herdr", "opus", info["word"],
                     menu.last_column(info["word"], info["sentence"], *info["bar"],
-                                     statusbar.CELLS, tmux=True))[:2])
+                                     statusbar.CELLS, tmux=True))[0])
                 self.assertEqual(self.options["set-titles-string"], f"herdr · {word}")
 
     # --- the bar names who orchestrates ------------------------------------------
 
     def test_the_bar_names_who_orchestrates(self):
-        claude = statusbar.company(self.cfg, "opus")
         tasks = menu.last_column("working", "", 4, 8, statusbar.CELLS, tmux=True)
         self.assertEqual(
-            drawn(statusbar.lines("ak-verification", "opus", claude, "working", tasks)[0]),
-            f" ▐● working▌  ak-verification  opus orchestrates   {drawn(tasks)}")
+            drawn(statusbar.lines("ak-verification", "opus", "working", tasks)[0]),
+            f" ● working   ak-verification   opus   {drawn(tasks)}")
         self.assertTrue(drawn(tasks).endswith(" 4 of 8"), drawn(tasks))
         # through the one writer, from the session record's orchestrator
         self.plan(4, 8)
         statusbar.redress(dict(self.seat, repo=self.repo),
                           {"word": "working", "reason": "", "since": None}, cfg=self.cfg)
         self.assertEqual(drawn(self.options[statusbar.TOP]),
-                         f" ▐● working▌  herdr  opus orchestrates   {drawn(tasks)}")
+                         f" ● working   herdr   opus   {drawn(tasks)}")
         # before its first word a seat's bar is who is in it, as it always was
-        self.assertEqual(drawn(statusbar.lines("herdr", "opus", claude)[0]),
-                         " herdr  opus orchestrates")
+        self.assertEqual(drawn(statusbar.lines("herdr", "opus")[0]), " herdr   opus")
         with patch.dict(os.environ, {"LANG": "C"}):
             os.environ.pop("LC_ALL")
-            self.assertEqual(drawn(statusbar.lines("herdr", "opus", claude, "working")[0]),
-                             " * working  herdr  opus orchestrates")
+            self.assertEqual(drawn(statusbar.lines("herdr", "opus", "working")[0]),
+                             " * working   herdr   opus")
 
-    def test_the_reason_is_whole_and_each_client_cuts_it(self):
+    def test_line_two_is_whole_and_each_client_cuts_it(self):
         # two cells a glyph, so a cut at an odd column would halve one, and `#`s that tmux
         # reads doubled and shows once: the option holds it all, and tmux cuts it by cells
-        reason = "#1 漢字" * 40
-        _, why, _, _ = statusbar.lines("herdr", "opus", "#D97757", "needs you", reason)
-        self.assertEqual(why, "  " + reason.replace("#", "##"))
+        model = "#1 漢字" * 40
+        why = statusbar.whys({"crew": ([model], []), "tasks": []})[0]
+        self.assertEqual(statusbar.lines("herdr", "opus", "needs you", "", why)[1],
+                         "  " + model.replace("#", "##") + "#[fg=#6c7086] builds#[default]")
         self.assertIn("/…:" + statusbar.WHY, statusbar.FORMATS[1])
         statusbar.dress("herdr", "opus")
         self.assertNotIn("status-left-length", self.options)
-        self.assertEqual(drawn(statusbar.lines("herdr", "opus", "#D97757", "done", "shipped")[1]),
-                         "  shipped")
 
 
 if __name__ == "__main__":
