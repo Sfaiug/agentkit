@@ -482,8 +482,8 @@ TIPS = {
     "x stop": "x stops the highlighted session and everything it runs, asking first",
     "x remove": "x takes the highlighted stopped session off the list now; left alone it goes "
                 "with the sweep",
-    "x close": "x closes the highlighted session, which is done: its runs and checkouts go, and "
-               "its number reopens it",
+    "x close": "x closes the highlighted done session: its runs and checkouts go, and its number "
+               "reopens it",
     "c config": "c sets the highlighted session's models, every model's effort, the providers "
                 "and Discord",
     "esc leave": "Esc leaves ak; the sessions go on working without it",

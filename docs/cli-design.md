@@ -241,7 +241,7 @@ UTF-8 key (`enter` is `⏎`):
 - `⏎ start`: `Enter starts the session on what is marked, wherever the highlight is`
 - `n new`: `n starts a session: you name it and pick the models that orchestrate, execute and review`
 - `x stop`: `x stops the highlighted session and everything it runs, asking first`
-- `x close`: `x closes the highlighted session, which is done: its runs and checkouts go, and its number reopens it`
+- `x close`: `x closes the highlighted done session: its runs and checkouts go, and its number reopens it`
 - `x remove`: `x takes the highlighted stopped session off the list now; left alone it goes with the sweep`
 - `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
 - `esc leave`: `Esc leaves ak; the sessions go on working without it`
