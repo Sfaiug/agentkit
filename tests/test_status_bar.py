@@ -94,9 +94,11 @@ class StatusBar(Sandbox):
 
     def test_bar_and_row_come_from_one_function(self):
         self.plan("herdr", 1, 4)
+        self.receipt("20260101-0900-going", state="running", finished_at=None,
+                     started_at=NOW - 600)
         records = menu.run_records()
         info = menu.v5o_seat_info(self.cfg, 1, self.seat, records, {}, {}, NOW)
-        with patch.object(menu, "last_column", return_value="PATCHED") as patched:
+        with patch.object(terminal, "plan_bar", return_value="PATCHED") as patched:
             row = menu.v5o_seat_blocks([info], 100)[0]
             watch.announce_state(self.seat, cfg=self.cfg)
         self.assertTrue(patched.called)

@@ -212,12 +212,14 @@ class V5oMenu(Sandbox):
                 "orchestrator": "fable", "worker": "fable",
                 "sentence": "word " * 120, "bar": None, "running": 0,
                 "word": "needs you"}
-        lines = menu.v5o_seat_blocks([info], 100, most=2)[0]
+        said = {"atoll-job": menu.detail(None, info, 93)}
+        lines = menu.v5o_seat_blocks([info], 100, most=2, details=said)[0]
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[1].strip().endswith("…"))
         # Wrapping never splits a word: the break is at a space.
         self.assertNotRegex(lines[0], r"\S…$")
-        narrow = menu.v5o_seat_blocks([info], 40, most=2)[0]
+        narrow = menu.v5o_seat_blocks([info], 40, most=2,
+                                      details={"atoll-job": menu.detail(None, info, 33)})[0]
         self.assertGreaterEqual(len(narrow), 2)
         self.assertTrue(any("…" in line for line in narrow))
 
@@ -514,8 +516,10 @@ class V5oMenu(Sandbox):
             pagination = menu.draw(self.cfg, found)
         screen = out.getvalue()
         self.assertEqual(pagination, (0, 1))
-        row = next(line for line in screen.splitlines() if "ghost-seat" in line)
-        self.assertRegex(row, r"^\s*6  ghost-seat\s+\S+\s+! needs you.*session closed: press 6")
+        lines = screen.splitlines()
+        at = next(n for n, line in enumerate(lines) if "ghost-seat" in line)
+        self.assertRegex(lines[at], r"^\s*6  ghost-seat\s+\S+\s+! needs you$")
+        self.assertEqual(lines[at + 1].strip(), "session closed: press 6 to reopen")
         # The live rows are untouched, and every number is still global.
         self.assertIn("atoll-job", screen)
         numbers = sorted(int(m.group(1)) for line in screen.splitlines()

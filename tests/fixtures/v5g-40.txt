@@ -7,7 +7,7 @@ your projects · 1 needs you
 
 atoll
   2  atoll-proxy  fable  ! needs you
-    session closed: press 2 to reopen
+     session closed: press 2 to reopen
   1  atoll-fix    fable  ○ idle
 
 agentkit

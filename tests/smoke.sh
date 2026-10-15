@@ -4375,12 +4375,13 @@ grep -q 'no webhook configured; message: Needs you . smoke-shape: Which branch?'
 jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch?" and (.time | type == "number")' \
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
 # the first frame is the records as they stand: the line that leaves goes in once the seat's
-# look has landed and drawn its row again
-ROW="^ *$NUM  smoke-shape +astra +! needs you +Which branch\?$"
+# look has landed and drawn its row again, its question on the line under it
+ROW="^ *$NUM  smoke-shape +astra +! needs you"
 rm -f -- "$WORK/menu-shape.log"
-{ for _ in $(seq 300); do grep -qE "$ROW" "$WORK/menu-shape.log" 2>/dev/null && break; sleep 0.1; done
+{ for _ in $(seq 300); do grep -q 'Which branch?' "$WORK/menu-shape.log" 2>/dev/null && break
+    sleep 0.1; done
   printf '\n'; } | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
-grep -qE "$ROW" "$WORK/menu-shape.log" || SHAPE=1
+grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +Which branch\?$' || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
 # the freeform message went with the attachments: needs, done or --check

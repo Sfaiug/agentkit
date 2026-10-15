@@ -926,7 +926,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     bar = (done, total) if total > 0 else None
     word = found["word"]
     reason = found["reason"] or ""
-    sentence = "" if word == "working" and not reason.startswith("waiting · ") else reason
+    sentence = reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "tone": model_colour(cfg, orchestrator) if selection else "dim",
@@ -1044,10 +1044,27 @@ def tasks_bar(word, reason):
 
 
 def _last_text(info, room, narrow=False):
-    """The row's one last column in `room` cells: reason, progress line, or empty (`last_column`)."""
+    """The row's one last column in `room` cells: its progress line (`terminal.plan_bar`) while
+    it has a plan and is not at rest, in its word's colour, else empty.  What it asks or did is
+    read under the row (`detail`), never beside it."""
     bar = info.get("bar")
-    done, total = bar if bar and len(bar) == 2 else (0, 0)
-    return last_column(info.get("word"), info.get("sentence"), done, total, room, narrow)
+    if not bar or len(bar) != 2 or info.get("word") == "idle":
+        return ""
+    return terminal.plan_bar(*bar, room, 0 if narrow else 8, info.get("word"))
+
+
+def detail(cfg, info, room, now=None):
+    """The lines under a seat's row, in `room` cells: the question for `needs you` and what got
+    done for `done`, wrapped whole at words; a working seat's live line; nothing for one at
+    rest.  On a terminal the highlighted row alone opens them; from a pipe every row asking or
+    done does, as there is no highlight to open them."""
+    if not info:
+        return []
+    if info.get("word") in ("needs you", "done"):
+        said = terminal.plain(info.get("sentence") or "")
+        return terminal.wrap(said, room) if said else []
+    line = live_line(cfg, info, room, now)
+    return [line] if line else []
 
 
 def live_line(cfg, info, room, now=None):
@@ -1116,65 +1133,43 @@ def _head(info, widths):
     return number + ("  " + terminal.cut(" ".join(rest), left) if left > 0 else "")
 
 
-def v5o_seat_blocks(infos, term_width, widths=None, most=None):
+def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
     """One block of lines per seat, in order; no rendered line keeps trailing space.
 
     Fixed columns with two-space gutters, from `widths` (one `v5o_column_widths`
-    per draw): number, name, orchestrator, state, and one last column. Content is
-    capped at 100 columns. A long last column wraps at word boundaries onto as many
-    indented lines as it takes, so a seat's question is read whole on ak's own screen,
-    whatever harness the seat runs; a block of more than `most` lines is cut to them, ending
-    in `…`. A working seat's progress line takes the room the last column has. On a narrow phone
-    the last column goes on its own line. Never cut inside a glyph or a colour sequence.
+    per draw): number, name, orchestrator, state, and one last column, the seat's progress
+    line (`_last_text`) where it has a plan. Content is capped at 100 columns. A line too long
+    for the column, or one on a narrow phone, goes whole on the indented line under its row.
+    `details` are the lines each seat named in it opens under its row (`detail`), indented
+    under the name; a block of more than `most` lines is cut to them, ending in `…`. Never cut
+    inside a glyph or a colour sequence.
     """
     if widths is None:
         widths = v5o_column_widths(infos, term_width)
     room, narrow = widths["room"], widths["narrow"]
     if not infos:
         return []
-
-    def under(text, room):
-        """The indented lines a last column takes under its row: one where it fits (a progress line
-        always does), else its sentence wrapped, in what `most` leaves beside the row's own."""
-        lines = [text] if terminal.cells(text) <= room else terminal.wrap(text, room)
-        keep = len(lines) if most is None else max(1, most - 1)
-        if len(lines) > keep:
-            lines = lines[:keep - 1] + [terminal.cut(" ".join(lines[keep - 1:]), room)]
-        return ["    " + line for line in lines]
+    indent = " " * (2 + widths["num"] + 2)        # under the name
     blocks = []
-    if narrow:
-        for info in infos:
-            block = [_head(info, widths)]
-            second_room = max(1, room - 4)
-            tail = _last_text(info, second_room, narrow=True)
-            if tail:
-                # a progress line is drawn in the room, so what wraps is a sentence
-                block += under(tail, second_room)
-            blocks.append(block)
-        return [[line.rstrip() for line in block] for block in blocks]
-    # Wide: fixed columns, the last column gets what the row has left; a sentence too long for
-    # that wraps in ten cells at least.
-    sent_room, free = widths["sent"], widths["free"]
     for info in infos:
         head = _head(info, widths)
-        last = _last_text(info, free)
-        if not last:
-            blocks.append([head])
-            continue
-        if sent_room <= free and terminal.cells(last) <= free:
-            blocks.append([head + "  " + last])
-            continue
-        cont_room = max(1, room - 4)
-        bar = tasks_bar(info.get("word"), info.get("sentence"))
-        if bar or free < sent_room:
-            # a progress line too long for the column is never wrapped, which drops its colours, and
-            # a row without ten cells left starts nothing: either goes under its row, the bar
-            # drawn in that line's room and a sentence wrapped to it
-            blocks.append([head] + under(_last_text(info, cont_room), cont_room))
-            continue
-        wrapped = terminal.wrap(last, sent_room)
-        first, rest = wrapped[0], " ".join(wrapped[1:])
-        blocks.append([head + "  " + first] + (under(rest, cont_room) if rest else []))
+        last = "" if narrow else _last_text(info, widths["free"])
+        if last and widths["free"] >= 10 and terminal.cells(last) <= widths["free"]:
+            block = [head + "  " + last]
+        else:
+            # a line too long for the column is never wrapped, which drops its colours, and a
+            # row without ten cells left starts nothing: it goes under its row, in that room
+            under = _last_text(info, max(1, room - 4), narrow=narrow)
+            if terminal.cells(under) > room - 4:      # a count alone, on the narrowest screens
+                under = terminal.cut(under, max(1, room - 4))
+            block = [head] + (["    " + under] if under else [])
+        block += [indent + line for line in (details or {}).get(info["name"], [])]
+        if most is not None and len(block) > max(1, most):
+            # the row itself always stays: what is under it is cut, the last line ending in `…`
+            keep = max(1, most)
+            block = block[:1] if keep == 1 else block[:keep - 1] + [terminal.cut(
+                indent + " ".join(terminal.plain(line) for line in block[keep - 1:]), room)]
+        blocks.append(block)
     return [[line.rstrip() for line in block] for block in blocks]
 
 
@@ -1271,11 +1266,19 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             flat.pop()
         return flat
 
+    # What opens under a row (`detail`): from a pipe under every row asking or done, as nothing
+    # is highlighted there; with the keyboard under the highlighted row alone, below.
+    said_room = max(1, widths["room"] - (2 + widths["num"] + 2))
+    said = {info["name"]: detail(cfg, info, said_room) for info in infos}
+    opened = {} if owned else {name: lines for name, lines in said.items()
+                               if words.get(name) in ("needs you", "done")}
+
     def _seat_blocks(most=None):
         # Every line travels with the name of the seat it draws, or None, so the highlight and a
         # click find a seat on whichever page it lands.
         return [[[(line, info["name"]) for line in block] for info, block in
-                 zip(project["seats"], v5o_seat_blocks(project["seats"], width, widths, most))]
+                 zip(project["seats"], v5o_seat_blocks(project["seats"], width, widths, most,
+                                                       opened))]
                 for project in ordered]
 
     def heading(project):
@@ -1287,10 +1290,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
               for project, own in zip(ordered, _seat_blocks())]
     flat = _flat(blocks)
 
-    # The highlighted seat's live line goes under its row: a line kept on every page while any
-    # seat on screen has one, so no page overflows or turns as the highlight moves.
-    opens = int(owned and not asked and any(info["word"] == "working" and info.get("runs")
-                                            for info in infos))
+    # The highlighted seat's lines go under its row: as many kept on every page as the most any
+    # seat opens, up to half the screen, so no page overflows or turns as the highlight moves;
+    # a question longer than that is cut to them, ending in `…`.
+    opens = (min(max(map(len, said.values()), default=0), max(1, height // 2))
+             if owned and not asked else 0)
 
     def _room(meters, paged, compact=False):
         keys = (k_paged if paged else k_single) + opens
@@ -1424,10 +1428,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     top, above = len(out), None
     under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
     info = next((info for info in infos if info["name"] == cursor), None)
-    indent = 2 + widths["num"] + 2     # under the name
-    live = live_line(cfg, info, max(1, widths["room"] - indent)) if opens and under else ""
-    if live:
-        body = body[:under] + [(" " * indent + live, cursor)] + body[under:]
+    indent = " " * (2 + widths["num"] + 2)     # under the name
+    lines = said.get(cursor, []) if opens and under and info else []
+    if len(lines) > opens:
+        lines = lines[:opens - 1] + [terminal.cut(" ".join(lines[opens - 1:]), said_room)]
+    if lines:
+        body = body[:under] + [(indent + line, cursor) for line in lines] + body[under:]
     at = max((number for number, (_, name) in enumerate(body, 1) if name == asking), default=0)
     if asked and at:
         body = body[:at] + [(line, None) for line in asked] + body[at:]
