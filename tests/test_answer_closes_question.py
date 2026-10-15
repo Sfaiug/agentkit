@@ -194,18 +194,17 @@ class AnswerClosesQuestion(Sandbox):
         self.prompt()                   # the owner's own words still answer it
         self.assert_answered()
 
-    def test_a_hand_back_with_no_question_standing_is_no_prompt_of_the_owner_s(self):
-        """review 908: with no notice yet, or the latest one retired, a hand-back's prompt is
-        still the seat's own news, which no intent of the owner's begins at."""
+    def test_a_hand_back_is_no_prompt_of_the_owner_s_and_their_same_words_later_are(self):
+        """review 908: whatever notice stands, none or one retired, a hand-back's prompt is the
+        seat's own news, which no intent of the owner's begins at; the owner's same words, once
+        it was heard, are theirs."""
         config.update_session(SEAT, created=100)     # the seat the owner's history is about
-        self.assertTrue(self.handback())
-        self.prompt(prompt=HANDBACK)
-        self.hook("Stop")
         self.notice()
         notify.clear(SEAT)
         self.assertTrue(self.handback())
         self.prompt(prompt=HANDBACK)
-        turn = self.prompt()                          # the owner's own words
+        self.hook("Stop")
+        turn = self.prompt(prompt=HANDBACK)           # the owner's own words, the same ones
         with closing(sqlite3.connect(history.path())) as db:
             self.assertEqual(db.execute("SELECT seat, at FROM prompts").fetchall(), [(100, turn)])
 

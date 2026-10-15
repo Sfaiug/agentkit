@@ -59,6 +59,17 @@ class OwnerRecord(Sandbox):
         notify.answered(SEAT, 450.0)                       # an alert is nobody's question
         self.assertEqual([row[4] for row in self.rows("notices")], [200.0, 200.0, None, None])
 
+    def test_a_question_s_answer_is_the_first_prompt_since_whichever_look_ran_first(self):
+        """review 908: each prompt's look runs in the background, so a later prompt's can run
+        first, and a question kept back for its turn's end is written after the prompt since."""
+        self.said("needs", "Which schema?", 100.0)
+        notify.answered(SEAT, 200.0)
+        notify.answered(SEAT, 150.0)                       # the first answer, its look run second
+        notify.answered(SEAT, 300.0)
+        self.said("needs", "And the port?", 290.0)         # asked at its turn's end, written late
+        self.assertEqual([(row[1], row[4]) for row in self.rows("notices")],
+                         [(100.0, 150.0), (290.0, 300.0)])
+
     def test_a_delivered_card_pages_the_latest_notice_once(self):
         self.said("needs", "Which schema?", 100.0)
 

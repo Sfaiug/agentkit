@@ -2130,7 +2130,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, heard=None, answered_at=None, said=""):
+def hook_look(launched, heard=None, answered_at=None, said="", since=None):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it writes down -- a turn
@@ -2146,10 +2146,12 @@ def hook_look(launched, heard=None, answered_at=None, said=""):
     some other tmux, or a test's sandbox with a seat's name in its environment, never paints a
     real seat's bar with facts that are not that seat's. The owner's prompt timestamp travels
     through the same check before answering a question; waiting for its notice lock happens
-    here, off the harness's path.  A prompt `said` that is a line ak typed into the seat since
-    its latest notice, a question or one answered or retired, or ever before its first -- a
-    hand-back, a wait notice -- is the seat's own news, never the owner's answer or prompt: the
-    harness's hook reports it as it reports the owner's words.
+    here, off the harness's path.  A prompt `said` that is a line ak typed into the seat `since`
+    its previous prompt (0 before its first) -- a hand-back, a wait notice -- is the seat's own
+    news, never the owner's answer or prompt: the harness's hook reports it as it reports the
+    owner's words.  ak types only at a quiet prompt, after the one before, and its line is heard
+    before the next: a line older than that prompt is one heard already, and the owner's same
+    words later are theirs.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -2160,10 +2162,9 @@ def hook_look(launched, heard=None, answered_at=None, said=""):
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
-    asked = (notify.last(name, include_seen=True) or {}).get("time")
     if answered_at is not None and not (
-            said and any(sent.get("text") == said for sent in notify.typed_since(
-                name, asked if isinstance(asked, (int, float)) else 0))):
+            said and since is not None
+            and any(sent.get("text") == said for sent in notify.typed_since(name, since))):
         notify.answered(name, answered_at)
     cfg = config.load()
     answer = announce_state(session, cfg=cfg, look=True, number=number)

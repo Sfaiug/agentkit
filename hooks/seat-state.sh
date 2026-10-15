@@ -33,9 +33,10 @@ set -u
 
 # Look at the seat again, off the harness's path: see the header.  Only from inside a tmux
 # pane, which is where every seat's harness runs; watch.hook_look checks the pane is the seat's,
-# on the seat's own server.  `heard`, on Claude's Stop only, is when this hook heard it.
+# on the seat's own server.  `heard`, on Claude's Stop only, is when this hook heard it;
+# `since`, on a prompt, when the seat's previous prompt was (0 before its first).
 look() {
-  local seat=$1 heard=${2:-} answered=${3:-} said=${4:-}
+  local seat=$1 heard=${2:-} answered=${3:-} said=${4:-} since=${5:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
   # the prompt's words go on its stdin: on its command line, a long one would never run it
   ( printf '%s' "$said" | /usr/bin/env python3 -c '
@@ -48,12 +49,13 @@ except OSError:
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import watch
 watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None,
-                float(sys.argv[4]) if sys.argv[4] else None, sys.stdin.read())
-' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" >/dev/null 2>&1 & )
+                float(sys.argv[4]) if sys.argv[4] else None, sys.stdin.read(),
+                float(sys.argv[5]) if sys.argv[5] else None)
+' "${BASH_SOURCE[0]}" "$seat" "$heard" "$answered" "$since" >/dev/null 2>&1 & )
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner
+  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner since
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -138,6 +140,9 @@ sys.exit(0 if passive else 1)
     look "$seat"
     return 0
   fi
+  # the previous prompt's moment, before this one replaces it: a line ak typed since is the one
+  # this prompt may be
+  since=$("$jq" -r '(.turn | numbers) // 0' "$dir/stop-$seat.json" 2>/dev/null) || since=0
   tmp="$dir/stop-$seat.json.tmp.$$"
   "$jq" -n --arg session "$seat" --argjson turn "$ts" \
     '{session: $session, turn: $turn, blocks: 0}' \
@@ -154,7 +159,7 @@ sys.exit(0 if passive else 1)
   fi
   if [[ $owner = true ]]; then
     look "$seat" "" "$ts" "$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
-                                       | first // ""' <<<"$payload" 2>/dev/null)"
+                                       | first // ""' <<<"$payload" 2>/dev/null)" "$since"
   else
     look "$seat"
   fi

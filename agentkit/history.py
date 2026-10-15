@@ -99,8 +99,8 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 # One row per word a seat's notice said to the owner, dated at the notice (`at`): a question
 # the seat asked (`needs`), an alert of ak's own (`alert`: a login gone, a stall) or a done;
-# when its card first reached the owner (`paged_at`) and, for a question, when their prompt
-# answered it (`answered_at`).  What the board's owner's-time row reads.  Here and in `prompts`
+# when its card first reached the owner (`paged_at`) and, for a question, the owner's first prompt
+# since, which answers it (`answered_at`).  What the board's owner's-time row reads.  Here and in `prompts`
 # a seat is the moment it was created (`_owner_write`), never its name.
 NOTICES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS notices (
@@ -355,40 +355,42 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
         (review_id, harness, model, blocking, followup, note, run_id)), log)
 
 
-def _owner_write(session, statement, log, **values):
+def _owner_write(session, log, *statements, **values):
     """Write one of the owner's moments for that session's seat (`:seat`): the moment the seat
     was created, which a rename carries along and a name opened again never shares.  A name no
     seat record holds is no seat's."""
     seat = (config.session_records().get(session) or {}).get("created")
     if seat is not None:
-        _write(lambda connection: connection.execute(statement, {"seat": seat, **values}), log)
+        _write(lambda connection: [connection.execute(statement, {"seat": seat, **values})
+                                   for statement in statements], log)
 
 
 def noticed(session, at, kind, *, log=None):
     """A notice's word said to the owner, dated at the notice; said again at that moment,
-    nothing changes."""
-    _owner_write(session, "INSERT INTO notices (seat, at, kind) VALUES (:seat, :at, :kind) "
-                 "ON CONFLICT(seat, at) DO NOTHING", log, at=at, kind=kind)
+    nothing changes.  A question the owner's prompt since already answers, its look heard
+    first, is answered then."""
+    _owner_write(session, log, "INSERT INTO notices (seat, at, kind, answered_at) VALUES "
+                 "(:seat, :at, :kind, CASE WHEN :kind='needs' THEN (SELECT MIN(at) FROM prompts "
+                 "WHERE seat=:seat AND at >= :at) END) ON CONFLICT(seat, at) DO NOTHING",
+                 at=at, kind=kind)
 
 
 def paged(session, kind, at, *, log=None):
     """The card of the session's latest notice of that kind reached the owner (a `needs` card
     carries an alert too); the first page is the one kept."""
-    _owner_write(session, "UPDATE notices SET paged_at=:at WHERE seat=:seat AND paged_at IS NULL "
-                 "AND at = (SELECT MAX(at) FROM notices WHERE seat=:seat AND at <= :at AND "
-                 "(kind=:kind OR (:kind='needs' AND kind='alert')))", log, at=at, kind=kind)
-
-
-def answered(session, at, *, log=None):
-    """The owner's prompt answered every question the seat still had open."""
-    _owner_write(session, "UPDATE notices SET answered_at=:at WHERE seat=:seat AND kind='needs' "
-                 "AND answered_at IS NULL AND at <= :at", log, at=at)
+    _owner_write(session, log, "UPDATE notices SET paged_at=:at WHERE seat=:seat AND paged_at IS "
+                 "NULL AND at = (SELECT MAX(at) FROM notices WHERE seat=:seat AND at <= :at AND "
+                 "(kind=:kind OR (:kind='needs' AND kind='alert')))", at=at, kind=kind)
 
 
 def prompted(session, at, *, log=None):
-    """The owner's prompt into the seat, at its moment: what its `intents` are read from."""
-    _owner_write(session, "INSERT INTO prompts (seat, at) VALUES (:seat, :at) "
-                 "ON CONFLICT(seat, at) DO NOTHING", log, at=at)
+    """The owner's prompt into the seat, at its moment: what its `intents` are read from.  It
+    answers every question the seat asked by then, as the one prompt answers them all, and the
+    first such prompt is the answer kept, whichever look heard it first."""
+    _owner_write(session, log, "INSERT INTO prompts (seat, at) VALUES (:seat, :at) "
+                 "ON CONFLICT(seat, at) DO NOTHING",
+                 "UPDATE notices SET answered_at=MIN(COALESCE(answered_at, :at), :at) "
+                 "WHERE seat=:seat AND kind='needs' AND at <= :at", at=at)
 
 
 def review_counts(harness, model):

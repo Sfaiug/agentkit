@@ -460,7 +460,7 @@ def answered(session, at):
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
     """
     with session_lock(session) as session:
-        history.prompted(session, at)   # whatever it answers: the seat's intents are read from it
+        history.prompted(session, at)   # whatever notice stands: the owner's answer and intent
         ask_kept(session, ended=True)
         previous = last(session)
         if previous and previous.get("watcher") is True:
@@ -471,7 +471,6 @@ def answered(session, at):
                 _card_write(session, {**card, "answered_at": at})
             return
         previous["answered_at"] = at
-        history.answered(session, at)
         if not resolved(previous):
             return
         record(session, previous["kind"], previous["text"],
