@@ -1,7 +1,6 @@
 """Line one of a working seat's bar gives its progress line 36 cells, and where the client is
-short of room it narrows that line to 24 and then 12 cells before the other seats' names fold, then
-keeps only who needs you, and only then cuts.  Reads line one the way tmux 3.5a draws it, on a
-server of its own.
+short of room it narrows that line to 24 and then 12 cells, then folds how many other seats need
+you to `! 1 needs you`, and only then cuts.  Reads line one the way tmux 3.5a draws it, on a server of its own.
 """
 
 import os
@@ -13,6 +12,8 @@ from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
 from agentkit import config, menu, orch, statusbar, watch
+
+NEEDING = "! 1 other seat needs you"     # orbit-proxies, the other seat, needs you
 
 
 def drawn(value):
@@ -63,21 +64,19 @@ class LineOne(Sandbox):
         self.assertEqual(len(bar), 36, bar)
         shown = self.line(200)
         self.assertTrue(shown.startswith(" ● working   fix-api   fable   " + bar), shown)
-        self.assertTrue(shown.rstrip().endswith("! orbit-proxies needs you"), shown)
+        self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
 
-    def test_b_line_one_narrows_its_tasks_bar_before_the_names_fold_or_anything_is_cut(self):
+    def test_b_line_one_narrows_its_tasks_bar_before_anything_is_cut(self):
         lefts = []
         for width in (100, 90, 75):
             shown = self.line(width)
             self.assertNotIn("…", shown, width)
-            self.assertTrue(shown.rstrip().endswith("! orbit-proxies needs you"), shown)
-            lefts.append(len(shown.split("! orbit")[0].rstrip()))
+            self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
+            lefts.append(len(shown.split(NEEDING)[0].rstrip()))
         self.assertEqual(lefts, sorted(lefts, reverse=True))     # the bar narrows as room goes
         self.assertEqual(len(set(lefts)), len(statusbar.BARS))
-        shown = self.line(65)                                     # then the names fold
-        self.assertNotIn("…", shown)
-        self.assertTrue(shown.rstrip().endswith("! 1 needs you"), shown)
-        # a phone keeps this seat's own state and who needs you; the rest is cut
+        # then the count folds, and a phone keeps this seat's own state, its name and who needs
+        # you; the rest is cut
         shown = self.line(40)
         self.assertTrue(shown.startswith(" ● working   fix-api"), shown)
         self.assertTrue(shown.rstrip().endswith("… ! 1 needs you"), shown)
@@ -90,13 +89,13 @@ class LineOne(Sandbox):
                 bar = drawn(top).split("fable   ")[1]
                 self.assertEqual(len(bar), cells, (total, bar))
             shown = self.line(84)       # the 12-cell bar fits beside the name, so it stays
-            self.assertTrue(shown.rstrip().endswith("! orbit-proxies needs you"), shown)
+            self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
 
     def test_d_a_line_one_that_fits_is_never_cut_even_to_the_cell(self):
-        # the narrowest bar beside who needs you, whole, in the cells tmux counts
+        # the narrowest bar beside who needs you folded, whole, in the cells tmux counts
         least = 2 + sum(int(orch.tmux_out("display-message", "-p", "-t", "=fix-api:",
                                           "#{w:" + option + "}")[1])
-                        for option in (statusbar.TOPS[-1], statusbar.NEED))
+                        for option in (statusbar.TOPS[-1], statusbar.FOLD))
         for width in range(least - 3, 200):
             shown = self.line(width)
             self.assertEqual("…" in shown, width < least, (width, shown))
