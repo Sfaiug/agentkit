@@ -4,8 +4,9 @@ The step: `menu.show_config` runs in a child process on a pty of its own, throug
 tests/test_config_matrix.py's Screen, in a temporary HOME whose config.toml is the shipped
 default.  Claude's adapter is a fake in a directory of its own ($AGENTKIT_ADAPTER_DIR) whose
 `models` sleeps five seconds before it lists Opus at `low high` alone: every step taken while it
-sleeps must still be on the screen within 100 ms, off the catalog in hand, and the one after it
-answers steps along its listing.
+sleeps must be on the screen before it answers, off the catalog in hand, and the one after it
+answers steps along its listing.  No step is timed against the clock: host load at landing
+would break it (AGENTS.md), and a step drawn while the listing still sleeps is the proof.
 
 The run: adapters/opencode.sh with a stub `opencode` first on PATH that records its argv and the
 config document it was launched with, so a MiMo model at `none` and at `high` is seen asking
@@ -57,14 +58,13 @@ printf '%s' "${OPENCODE_CONFIG_CONTENT:-}" >"$STUB_DIR/config"
 EFFORT_KEYS = "  ↑↓←→ move   ⏎ effort   esc back"
 
 
-def timed(screen, keys, shown):
-    """Seconds from `keys` to the screen showing `shown`, read every 2 ms."""
+def drawn(screen, keys, shown):
+    """`keys` typed, then the screen showing `shown`, read every 2 ms for ten seconds."""
     mark, start = len(screen.text()), time.monotonic()
     os.write(screen.master, keys)
     while shown not in terminal.ANSI.sub("", screen.text()[mark:]):
         screen.case.assertLess(time.monotonic() - start, 10, f"{shown} never drawn")
         time.sleep(0.002)
-    return time.monotonic() - start
 
 
 class EffortStep(unittest.TestCase):
@@ -78,12 +78,14 @@ class EffortStep(unittest.TestCase):
         screen.frame()
         screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)   # opus's effort
         # the manifest's table while the listing sleeps: xhigh, max, then round to low
-        self.assertLess(timed(screen, ENTER, "‹ max ›"), 0.1)
-        self.assertLess(timed(screen, ENTER, "‹ low ›"), 0.1)
+        drawn(screen, ENTER, "‹ max ›")
+        self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
+        drawn(screen, ENTER, "‹ low ›")
+        self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         # and on the model's own screen, the listing still asleep
         screen.press(LEFT * 4 + ENTER, lambda lines: "agentkit · config · opus" in lines[0])
         screen.press(DOWN, lambda lines: "effort" in highlighted(lines))
-        self.assertLess(timed(screen, RIGHT, "‹ medium ›"), 0.1)
+        drawn(screen, RIGHT, "‹ medium ›")
         self.assertTrue((adapters / "asked").exists(), "the listing was asked for")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
@@ -93,8 +95,8 @@ class EffortStep(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, "the listing never answered")
             time.sleep(0.05)
         time.sleep(0.2)
-        self.assertLess(timed(screen, RIGHT, "‹ low ›"), 0.1)
-        self.assertLess(timed(screen, RIGHT, "‹ high ›"), 0.1)
+        drawn(screen, RIGHT, "‹ low ›")
+        drawn(screen, RIGHT, "‹ high ›")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.press(b"\x1b", lambda lines: "opus" in highlighted(lines))  # back to the matrix
         screen.leave()
