@@ -24,7 +24,7 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
         self.notice()
         before = config.stop_path(SEAT).read_text() if config.stop_path(SEAT).exists() else None
         for marker in ({"agent_id": "acme-agent", "agent_type": "worker"},
-                       {"subagentType": "general"}):
+                       {"agent_type": "worker"}, {"subagentType": "general"}):
             with self.subTest(marker=marker):
                 self.hook("UserPromptSubmit", wait=False, env={"TMUX": "", "TMUX_PANE": ""},
                           prompt="Read fix-api's schema.", **marker)
