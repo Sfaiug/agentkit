@@ -1,10 +1,9 @@
-"""A seat's own pull request's review is parked while an older live change holds its lines.
+"""A pull request's review is never parked, a seat's own included: its work is built already.
 
-Before any reviewer is picked, the review runs the lease scan itself (`run.park_own_review`):
-a diff that cannot merge with an older live change is stopped there, its branch kept, waiting
-on that change (`leases.park`), and the tick starts the review again once the change has
-landed (`leases.restart`).  Another's review, and one past its reviewer turn, are only written
-down.  Offline: the lease stage (`fixtures.leases`), a fake launch.
+An own review whose lines an older live change holds is only written down, like another's
+review and one past its reviewer turn, and goes on to its reviewer: the landing line fixes the
+conflict once the older change has landed (`leases.before_review`).  Offline: the lease stage
+(`fixtures.leases`), a fake launch.
 """
 
 import os
@@ -22,7 +21,7 @@ from agentkit import record
 URL = "https://github.com/acme/widget/pull/7"
 
 
-class SeatReservation(LiveRuns):
+class OwnReviewUnparked(LiveRuns):
     def setUp(self):
         super().setUp()
         # an older task run still building, which changed line 5
@@ -38,44 +37,20 @@ class SeatReservation(LiveRuns):
         self.edit(worktree, "api.py", line, f"the pull request's line {line}", commit=True)
         return directory
 
-    def test_the_own_review_is_parked_before_its_reviewer_turn_and_starts_again_once_the_older_landed(self):
-        self.review(YOUNGER)
-        found = leases.scan(self.repo, self.logs.append, now=2000)
-        self.assertEqual(found[YOUNGER]["waits_on"], OLDER)
-        state = self.state(YOUNGER)
-        self.assertEqual((state["state"], state["lease_wait"]),
-                         ("stopped", {"on": OLDER, "files": ["api.py"], "since": 2000}))
-        self.assertTrue(self.logs[-1].endswith("to start again once the older has landed or is over"))
-        holder = config.RUNS / OLDER
-        record.save_state(holder, {**record.read_state(holder), "state": "pass", "merged": True})
-        launched = []
-        with patch.object(run, "preflight"), \
-                patch.object(run, "spawn_bg", side_effect=lambda d, argv: launched.append(argv)):
-            leases.restart(log=self.logs.append, now=3000)
-        self.assertEqual(launched, [["--review-pr", URL]])
-        self.assertTrue(record.read_state(config.RUNS / self.state(YOUNGER)["lease_restarted"])["own_pr"])
-
-    def test_anothers_review_and_a_review_past_its_reviewer_turn_are_only_written_down(self):
-        theirs, reviewing, second = "20260101-1000-theirs", "20260101-1100-reviewing", "20260101-1200-second"
+    def test_every_review_is_only_written_down_and_goes_on(self):
+        mine, theirs, reviewing = YOUNGER, "20260101-1100-theirs", "20260101-1200-reviewing"
+        self.review(mine)
         self.review(theirs, own=False)
         self.review(reviewing, step="reviewer")
-        self.review(second, rounds=1, step="executor")
         found = leases.scan(self.repo, self.logs.append, now=2000)
         self.assertEqual({name: each["waits_on"] for name, each in found.items()},
-                         {theirs: OLDER, reviewing: OLDER, second: OLDER})
+                         {mine: OLDER, theirs: OLDER, reviewing: OLDER})
         self.assertEqual([self.state(name)["state"] for name in found], ["running"] * 3)
+        self.assertNotIn("lease_wait", self.state(mine))
         self.assertEqual([line.endswith("the younger is only written down") for line in self.logs],
                          [True] * 3)
 
-    def test_the_review_runs_the_scan_itself_and_its_save_raises_the_stop(self):
-        parked, clear = self.review(YOUNGER), self.review("20260101-1100-clear", line=15)
-        with self.assertRaises(record.StopRequested):
-            run.park_own_review(self.repo, parked, dict(record.read_state(parked)), self.logs.append)
-        self.assertEqual(self.state(YOUNGER)["lease_wait"]["on"], OLDER)
-        run.park_own_review(self.repo, clear, dict(record.read_state(clear)), self.logs.append)
-        self.assertEqual(self.state(clear.name)["state"], "running")        # nothing in its way
-
-    def test_an_own_review_of_text_alone_is_parked_before_it_skips_its_reviewer(self):
+    def test_an_own_review_of_text_alone_goes_on_to_its_verdict(self):
         self.git(self.repo, "checkout", "-qb", "pr-head")
         self.edit(self.repo, "api.py", 5, "the pull request's line 5", commit=True)
         head = self.git(self.repo, "rev-parse", "HEAD")
@@ -101,10 +76,9 @@ class SeatReservation(LiveRuns):
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
             "AK_MAX_RUNS": "0", "AGENTKIT_SESSION": "seat-b"}))
-        with self.assertRaises(record.StopRequested):
-            run.review_pr_round(config.load(), directory, URL, {"--review": None}, self.logs.append)
-        settle.assert_not_called()
-        self.assertEqual(self.state(YOUNGER)["lease_wait"]["on"], OLDER)
+        run.review_pr_round(config.load(), directory, URL, {"--review": None}, self.logs.append)
+        settle.assert_called_once()
+        self.assertNotIn("lease_wait", self.state(YOUNGER))
 
 
 if __name__ == "__main__":
