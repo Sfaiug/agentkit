@@ -233,7 +233,8 @@ def matching(index, model, effort, benchmark=None):
 
 def rows(cfg, boards):
     """One row per model and effort the installed harnesses offer, with the config name that
-    runs it, every board's numbers it matches and which board model each came from."""
+    runs it, every board's numbers it matches and which board model and effort each came
+    from."""
     indexes = {}
     for board, held in boards.items():
         for row in held.get("rows") or []:
@@ -269,8 +270,7 @@ def rows(cfg, boards):
                     hit = matching(index, model, effort, benchmark)
                     if hit is not None:
                         row["values"].update(hit["values"])
-                        row["matched"][board] = hit["model"] + (f" ({hit['effort']})"
-                                                               if hit["effort"] else "")
+                        row["matched"][board] = {"model": hit["model"], "effort": hit["effort"]}
                 table.append(row)
     return table
 
@@ -303,7 +303,7 @@ def render(table, boards):
     lines_of = [HEADERS] + [
         (row["name"] or "-", row["harness"],
          row["model"] + (f" @ {row['effort']}" if row["effort"] else ""),
-         ", ".join(board.split(".")[0] + (f" ({hit.rsplit('(', 1)[1]}" if "(" in hit else "")
+         ", ".join(board.split(".")[0] + (f" ({hit['effort']})" if hit["effort"] else "")
                    for board, hit in row["matched"].items()) or "-",
          _num(row["values"].get(SPEED)), _num(row["values"].get(COST), 2))
         for row in table]

@@ -420,7 +420,7 @@ none. A board's model is found by its letters and digits (`normal`: `claude-opus
 max), else by the board's name the id extends with a version only (`muse-wonder-full` for `muse-wonder-full-1.0`;
 `found`), else, on a board where neither finds it, by `benchmark` on the config entry; at the row's effort, else the
 board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it, every matched
-board's numbers and which board model each came from. The table puts the fullest rows first: model, harness, id and
+board's numbers and which board model and effort each came from. The table puts the fullest rows first: model, harness, id and
 effort, the boards that have it, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a
 successful coding task); under it, one line per board with how many rows, when and its note, and the rows no board has.
 `--json` is the rows and the boards' notes. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.

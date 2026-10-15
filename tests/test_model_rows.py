@@ -68,9 +68,10 @@ class ModelRows(Sandbox):
         self.assertEqual(sorted(name for name in rows if "opus-5-5" in name or name[:5] == "opus "),
                          ["claude-opus-5-5 @ max", "opus @ xhigh"])
         both = rows["claude-opus-5-5 @ max"]
-        self.assertEqual(both["matched"], {"artificialanalysis.ai": "Claude Opus 5.5 (max)",
-                                           "arena.ai": "Claude Opus 5.5 (max)",
-                                           "livebench.ai": "claude-opus-5.5"})
+        self.assertEqual(both["matched"], {
+            "artificialanalysis.ai": {"model": "Claude Opus 5.5", "effort": "max"},
+            "arena.ai": {"model": "Claude Opus 5.5", "effort": "max"},
+            "livebench.ai": {"model": "claude-opus-5.5", "effort": None}})
         self.assertEqual(both["values"]["arena.agent_steerability"], 0.2)
         self.assertEqual(both["values"]["aa.pricing.price_1m_input_tokens"], 4.0)
         self.assertEqual(both["name"], None)
@@ -85,10 +86,10 @@ class ModelRows(Sandbox):
         self.assertEqual(rows["astra @ xhigh"]["values"]["arena.agent"], 0.137)
         # an effort one role runs it at is a row too, and Arena's xhigh row never stands in
         self.assertEqual((rows["astra @ medium"]["name"], rows["astra @ medium"]["matched"]),
-                         ("astra", {"livebench.ai": "gpt-6-astra"}))
+                         ("astra", {"livebench.ai": {"model": "gpt-6-astra", "effort": None}}))
         # a board's `(Non-reasoning)` is ak's `none`, an effort Haiku offers
         self.assertEqual(rows["claude-haiku-4-5 @ none"]["matched"],
-                         {"artificialanalysis.ai": "Claude Haiku 4.5 (none)"})
+                         {"artificialanalysis.ai": {"model": "Claude Haiku 4.5", "effort": "none"}})
         # a model no board lists at any effort is one row at none
         self.assertEqual((rows["claude-opus-4-7"]["values"], rows["claude-opus-4-7"]["effort"]),
                          ({}, None))
@@ -97,14 +98,15 @@ class ModelRows(Sandbox):
         rows = self.table()
         # the id extends the board's name with a version: muse-wonder-full-1.0
         self.assertEqual(rows["wonder @ max"]["matched"],
-                         {"artificialanalysis.ai": "Muse Wonder Full (max)"})
+                         {"artificialanalysis.ai": {"model": "Muse Wonder Full", "effort": "max"}})
         # `contributor` is no version: Artificial Analysis's `Muse Spark 1.3` is not found
         # until the entry says what to look for, and LiveBench's exact id is found either way
-        self.assertEqual(rows["spark @ xhigh"]["matched"], {"livebench.ai": "muse-spark-1.3-contributor"})
+        lb = {"livebench.ai": {"model": "muse-spark-1.3-contributor", "effort": None}}
+        self.assertEqual(rows["spark @ xhigh"]["matched"], lb)
         self.cfg["models"]["spark"]["benchmark"] = "Muse Spark 1.3"
         rows = self.table()
         self.assertEqual(rows["spark @ xhigh"]["matched"], {
-            "artificialanalysis.ai": "Muse Spark 1.3 (xhigh)", "livebench.ai": "muse-spark-1.3-contributor"})
+            "artificialanalysis.ai": {"model": "Muse Spark 1.3", "effort": "xhigh"}, **lb})
         self.assertEqual(rows["spark @ xhigh"]["values"]["aa.evaluations.artificial_analysis_coding_index"], 40.0)
         # a shorter board name never stands for a longer id of another version
         index = {"claudesonnet5": [{"model": "Claude Sonnet 5", "effort": None, "values": {}}],
@@ -134,6 +136,15 @@ class ModelRows(Sandbox):
         self.assertEqual(sorted(data), ["boards", "rows"])
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         self.assertIn("claude-opus-5-5 @ max", [matrix.row_label(row) for row in data["rows"]])
+
+    def test_the_boards_column_shows_the_board_row_s_effort_never_a_bracket_of_its_name(self):
+        # a bracket naming no effort stays on the board's name: `Acme Pro (0813)` is at none
+        held = {"livebench.ai": {"rows": [{"model": "Acme Pro (0813)", "effort": None,
+                                           "values": {"livebench.coding": 1.0}}]}}
+        self.cfg["models"]["opus"]["benchmark"] = "Acme Pro (0813)"
+        table = [row for row in matrix.rows(self.cfg, held) if row["name"] == "opus"]
+        self.assertRegex(matrix.render(table, held).splitlines()[1],
+                         r"^opus +claude +claude-opus-5-5 @ xhigh +livebench +- +-$")
 
 
 if __name__ == "__main__":
