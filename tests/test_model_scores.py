@@ -2,9 +2,10 @@
 
 A column is a share of the best among the rows ak can run (100; zero or below, 0, still
 counted); a role's score is the mean of the role's measures the row has, said with how many it
-rests on; the recommendation is a row a board measured at its effort before one that only
-inherits a board naming no effort, then the row resting on the most measures, then the highest
-score, then the faster, then the cheaper, an unknown speed or cost last.  The table shows
+rests on; the recommendation is a row with a measure of the role at its effort before one whose
+measures of the role all inherit a board naming no effort, then the row resting on the most
+measures, then the highest score, then the faster, then the cheaper, an unknown speed or cost
+last.  The table shows
 `97 of 3` per role, the recommendation under it, and what each role is scored on.
 
 Offline: the boards' answers are handed in as bytes (tests/test_model_matrix.py's), the harness
@@ -104,19 +105,27 @@ class ModelScores(Sandbox):
                            rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"]["score"])
         self.assertEqual(matrix.scored([]), {})
 
-    def test_a_row_measured_at_its_effort_beats_one_that_only_inherits_a_board_naming_no_effort(self):
+    def test_a_measure_of_the_role_at_the_row_s_effort_beats_measures_all_inherited(self):
         _, table, rows, _ = self.scored()
-        # LiveBench names no effort: spark's one board is inherited, while Haiku's row at none
-        # is the board's own
-        self.assertEqual([rows[label]["measured"] for label in
-                          ("claude-opus-5-5 @ max", "claude-haiku-4-5 @ none", "spark @ xhigh")],
-                         [True, True, False])
-        rows["spark @ xhigh"]["values"] = {**rows["claude-opus-5-5 @ max"]["values"],
-                                           "livebench.coding": 99}
+        # `measured`: the columns a board's row at the row's effort gave; LiveBench names no
+        # effort, so spark's are all inherited, while Haiku's row at none is the board's own
+        coding = "aa.evaluations.artificial_analysis_coding_index"
+        self.assertIn(coding, rows["claude-opus-5-5 @ max"]["measured"])
+        self.assertNotIn("livebench.coding", rows["claude-opus-5-5 @ max"]["measured"])
+        self.assertIn(coding, rows["claude-haiku-4-5 @ none"]["measured"])
+        self.assertEqual(rows["spark @ xhigh"]["measured"], [])
+        # role by role: Arena measured astra at xhigh, so its orchestrate rests on a measure at
+        # its effort and wins on score, while its execute and review numbers are all inherited
+        # and lose to Opus's own at max, whatever the score
+        astra = rows["astra @ xhigh"]
+        astra["values"] = {**rows["claude-opus-5-5 @ max"]["values"], "livebench.coding": 99,
+                           "arena.agent": 1.0}
         recommended = matrix.scored(table)
-        self.assertGreater(rows["spark @ xhigh"]["scores"]["execute"]["score"],
+        self.assertGreater(astra["scores"]["execute"]["score"],
                            rows["claude-opus-5-5 @ max"]["scores"]["execute"]["score"])
-        self.assertEqual(matrix.row_label(recommended["execute"]), "claude-opus-5-5 @ max")
+        self.assertEqual({role: matrix.row_label(row) for role, row in recommended.items()},
+                         {"orchestrate": "astra @ xhigh", "execute": "claude-opus-5-5 @ max",
+                          "review": "claude-opus-5-5 @ max"})
 
     def test_the_table_says_each_score_with_its_measures_and_the_recommendation(self):
         held, table, _, recommended = self.scored()

@@ -428,10 +428,10 @@ Arena Agent's net improvement and steerability, Artificial Analysis's agentic in
 execute is Artificial Analysis's coding and agentic indexes, LiveBench's coding and long-horizon suites; review, with no
 public review board exporting its numbers, is the intelligence and coding indexes and LiveBench's reasoning suite
 (Artificial Analysis's free endpoint carries its indexes, never one benchmark's score, which is Pro only). The
-recommendation per role is a row a board measured at its effort (`measured`; a row at none counts when the board
-names none) before one that only inherits a board naming no effort, then the row resting on the most of the role's
-measures, then the highest score, then the faster (`tok/s`), then the cheaper (`$/task`), an unknown speed or cost
-after every measured one. The table lists each model's rows under its best: model, harness, id and effort,
+recommendation per role is a row with a measure of the role from a board's row at its effort (`measured` lists the
+columns such rows gave; a row at none's, when the board names none) before one whose measures of the role all inherit
+a board naming no effort, then the row resting on the most of the role's measures, then the highest score, then the
+faster (`tok/s`), then the cheaper (`$/task`), an unknown speed or cost after every measured one. The table lists each model's rows under its best: model, harness, id and effort,
 `orch`, `exec` and `review` as `97 of 3`, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's
 cost of a successful coding task); under it the recommendation, what each role is scored on, one line per board with
 how many rows, when and its note, and the rows no board has. `--json` is the rows with their scores, the
