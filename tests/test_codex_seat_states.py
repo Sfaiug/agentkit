@@ -112,6 +112,20 @@ class CodexSeatStates(Sandbox):
             self.assertEqual(watch.screen_state("codex", tail(name))[2], words, name)
         self.assertEqual(self.screen("resumed-warning"), ("at_prompt", "prompt.suggestion"))
 
+    def test_a_draft_cropped_above_the_tail_keeps_its_visible_rows(self):
+        for name in ("tall-line", "tall-line-and-owner-words"):
+            with self.subTest(name):
+                pane = tail(name)
+                rows = [watch.strip_sgr(row).strip() for row in pane.splitlines()]
+                found = watch.classify("codex", pane, None, None, {}, 10000)
+                self.assertEqual((found["state"], found["rule"], found["evidence"]),
+                                 ("draft", "draft.rows", " ".join(rows[:-1])[:160]))
+                # Visible rows cannot prove the whole composer for automatic Enter.
+                self.assertIsNone(watch._composer_rows("codex", pane, exact=True))
+                # A tail containing unrelated output is not wholly draft continuations.
+                mixed = "• Earlier output\n" + "\n".join(pane.splitlines()[1:])
+                self.assertEqual(watch.screen_state("codex", mixed)[2], rows[-2])
+
     def test_the_hook_review_asks(self):
         self.assertEqual(self.read("hooks-review-0160"), ("asking", "screen", "asking.chooser"))
 

@@ -1634,7 +1634,14 @@ def screen_state(harness, tail):
             # the chrome or a row told the draft apart, but the owner reads its words: what the
             # composer the rule reads at or the manifest finds holds, read as a typed line's
             # delivery reads it
-            evidence = " ".join(_composer_rows(harness, tail) or ()) or evidence
+            parts = _composer_rows(harness, tail)
+            # A prompt cropped above the tail leaves only continuation rows over the footer.
+            # The matched rule must recognize every visible row before they can say the draft.
+            if parts is None and rule["chrome"] and rule["row"] and all(
+                    rule["row"].search(strip_sgr(raw).rstrip())
+                    for raw in raw_lines[-PANE_LINES:-1]):
+                parts = lines[-PANE_LINES:-1]
+            evidence = " ".join(parts or ()) or evidence
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
 
