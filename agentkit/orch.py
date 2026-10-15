@@ -1873,7 +1873,8 @@ def tmux_conf():
 # Beside a launch's harness in its scope, from just before the harness starts: the harness is
 # its parent, so its parent changing says the harness has ended, with no number to outlive it
 # and whoever adopts it then.  The scope is stopped, with whatever the harness left running in
-# it.  Its own session keeps the hangup a harness's end sends its terminal's group off it.
+# it.  Its own session keeps the hangup a harness's end sends its terminal's group off it, and
+# it is forked already ignoring that hangup: a harness can end before the fork first runs.
 SCOPE_ENDS = """\
 import os, subprocess, sys, time
 os.setsid()
@@ -1910,8 +1911,8 @@ def seat_command(name, cmd, socket=None):
         cmd = ["env", f"XDG_RUNTIME_DIR={bus_env()['XDG_RUNTIME_DIR']}",
                run, "--user", f"--slice={seat_slice_name(socket)}", "--scope",
                "--quiet", f"--unit={unit}", *literal, "--", "/bin/sh", "-c",
-               f"(trap '' HUP; exec {ends} \"$$\" {stop}) </dev/null >/dev/null 2>&1 & "
-               'exec "$@"', "sh", *cmd]
+               f"trap '' HUP; {ends} \"$$\" {stop} </dev/null >/dev/null 2>&1 & "
+               'trap - HUP; exec "$@"', "sh", *cmd]
     path = config.seat_file("launch", name)
     # new-session -e can set a variable, but cannot remove one inherited from its server.
     # Clear absent overrides before the harness starts; the session is refreshed below too.

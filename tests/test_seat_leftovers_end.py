@@ -35,10 +35,11 @@ SYSTEMD_RUN = RECORD + '''rest = sys.argv[sys.argv.index("--") + 1:]
 os.execvp(rest[0], rest)
 '''
 HARNESS = [sys.executable, "-c", """if True:
-    import os, pathlib, subprocess, sys, time
+    import os, pathlib, signal, subprocess, sys, time
     here = pathlib.Path(sys.argv[1])
     server = subprocess.Popen(["sleep", "300"], start_new_session=True)
-    (here / "pids").write_text(f"{os.getpid()} {server.pid}")
+    hangup = int(signal.getsignal(signal.SIGHUP))
+    (here / "pids").write_text(f"{os.getpid()} {server.pid} {hangup}")
     while not (here / "end").exists():
         time.sleep(0.05)
 """]
@@ -95,9 +96,9 @@ class SeatScopeEndsWithHarness(Sandbox):
         proc = self.pane(orch.seat_command("acme", [*HARNESS, str(self.root)]))
         pids = self.root / "pids"
         wait_for(self, pids.exists, "the harness never started")
-        harness, self.server = map(int, pids.read_text().split())
-        # the harness keeps the pane's process: the scope's command hands it over
-        self.assertEqual(harness, proc.pid)
+        harness, self.server, hangup = map(int, pids.read_text().split())
+        # the harness keeps the pane's process, and its hangup: the scope's command hands it over
+        self.assertEqual((harness, hangup), (proc.pid, signal.SIG_DFL))
         unit, = [word.removeprefix("--unit=") for word in json.loads(self.runs.read_text())
                  if word.startswith("--unit=")]
         self.assertTrue(unit.startswith("agentkit-seat-acme-"), unit)
@@ -110,6 +111,12 @@ class SeatScopeEndsWithHarness(Sandbox):
         os.kill(self.server, 0)
         wait_for(self, self.stopped, "the ended harness's scope was never stopped")
         self.assertEqual(self.stopped(), [["--user", "stop", "--no-block", f"{unit}.scope"]])
+
+    def test_a_harness_ending_at_once_still_has_its_scope_stopped(self):
+        # its end hangs up the pane's group, which held a third of the endings still unforked
+        for _ in range(20):
+            self.assertEqual(self.pane(orch.seat_command("acme", ["true"])).wait(timeout=60), 0)
+        wait_for(self, lambda: len(self.stopped()) == 20, "a hangup ended a scope's ending")
 
 
 if __name__ == "__main__":
