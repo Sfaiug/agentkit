@@ -1161,6 +1161,21 @@ def pointed(row, column, text):
     return backed(text.replace("\033[7m", ""), POINTED[_LIGHT], first, last)
 
 
+def cell_texts(line):
+    """Each cell of `line` as a draw wrote it, alone: its character in the styles in force
+    there, so one cell can be written again without the rest."""
+    found, styles = [], ""
+    for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
+        if token.startswith("\033"):
+            params = token[2:-1] if token.endswith("m") else None
+            if params is not None:      # a reset starts the styles again, `0;1` with bold kept
+                styles = ("" if params in ("", "0") else token if params.startswith("0;")
+                          else styles + token)
+        else:
+            found.append(f"{styles}{token}\033[0m" if styles else token)
+    return found
+
+
 def backed(line, rgb, first, last):
     """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
     style in them kept and any past its end blank; reversed at eight colours."""

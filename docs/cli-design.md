@@ -521,7 +521,9 @@ terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 News moves once and is then still, on the same clock. A row that turns
 `needs you` gives its `!` two soft pulses toward the light, 600 ms in all; one
 that turns `done` has its `✓` appear bright and settle to `done`'s colour over
-400 ms. A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
+400 ms, and one light crosses its progress line, left to right over 400 ms
+(`motion.sweeping`). Either way its whole row glows in its word's colour and fades
+into the background over a second (`motion.glowing`). A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).

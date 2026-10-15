@@ -1487,8 +1487,21 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     for n, animation in enumerate(frames):
                         clock.start([(row, column + n)], animation, until)
             elif shown in ("needs you", "done"):
+                # its row glows in its word's colour and fades, and a line just done is crossed
+                # by one light
+                row = cell[0]
+                motion.glowing(out[row - 1], shown, motion.NEWS)(clock, row, since, None)
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
+                line = re.search("[━╸]+─*", terminal.ANSI.sub("", out[row - 1]))
+                if shown == "done" and line:
+                    text = terminal.ANSI.sub("", out[row - 1])
+                    frames, until = motion.sweeping(
+                        terminal.cell_texts(out[row - 1])[line.start():line.end()], since,
+                        shown, lit)
+                    for n, animation in enumerate(frames):
+                        clock.start([(row, terminal.cells(text[:line.start()]) + 1 + n)],
+                                    animation, until)
         for cell, char, bright in breaths:
             clock.start([cell], motion.breathing(char, "working", bright))
         moved = clock.frame()
