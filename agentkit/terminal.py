@@ -491,90 +491,44 @@ def key_line(text, term_width=None, first=None):
 
 # A tasks bar's own tones beside a state's, (Mocha RGB, eight-colour tone): the chip's dark ink
 # and the track under the tasks not merged yet, so the bar reads on any background.
-BAR_TONES = {"ink": ("11111b", "30"), "track": ("313244", "30")}
+BAR_TONES = {"ink": ("11111b", "30")}   # a chip's dark text, Mocha's crust
 
 
-def plan_bar(done, total, fills=(), room=8, least=8, word="working", tmux=False):
-    """A seat's tasks bar in `room` cells, its count included, never under `least` cells of bar
-    -- which a row too short for it then draws under itself: merged tasks solid in `word`'s
-    colour, then each task in flight -- `fills`, (how far its run's step took it, 0 to 1, whether
-    it is on its last round), furthest first -- part of the next slot, dotted, red on its last
-    round.  A tick parts the tasks while each has two cells; a plan with more tasks than that
-    gives each task in flight a cell of its own, those on their last round first when not all
-    fit.  `done/total` is a chip of dark bold text on the fill, ending at its head, or just past
-    the tasks in flight while the fill is shorter; where neither has room it follows a bar that
-    much shorter, so it never covers a task in flight.  The chip carries its own background, as
-    a seat's state chip does, so it reads on any terminal; without colour the bar is
-    `███▒▒░░░ 3/8`, and `###==--- 3/8` without UTF-8.  With no `least`, a room too small for a
-    cell of bar beside the count draws the count alone.  `tmux` draws it as a tmux format."""
+def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
+    """A seat's progress in `room` cells, its count included: a smooth line of how much of its
+    plan is done, then `done of total` -- never under `least` cells of line, which a row too
+    short for it then draws under itself.  The done part is `━` in `word`'s colour, on a
+    terminal fading in from half way to its background at the line's start to the colour at
+    its tip, with a half cell `╸` where the share ends inside one; the rest is a dim `─`.  It
+    says nothing of the tasks in flight, which the line under a highlighted row has.  Without
+    colour the shapes carry it, and without UTF-8 it is `===------ 3 of 8`.  With no `least`, a
+    room too small for a cell of line beside the count draws the count alone.  `tmux` draws it
+    as a tmux format, in `word`'s colour throughout: the tick that writes a bar knows no
+    terminal's background to fade toward."""
     total = max(0, int(total or 0))
     if not total:
         return ""
     done = max(0, min(int(done or 0), total))
-    count, colour, depth = f"{done}/{total}", tmux or bool(colour_depth()), colour_depth()
-    full, dot, empty, tick = "█▒░▏" if utf8() else "#=-|"
-    if colour:
-        full = empty = " "
-    fills = list(fills)
-
-    def layout(size):
-        """(cells, edges, the tasks in flight shown) for a bar `size` cells long."""
-        shown = min(total - done, size)
-        keep = sorted(sorted(range(len(fills)), key=lambda n: not fills[n][1])[:shown])
-        fly, ticked = [fills[n] for n in keep], 2 * total <= size
-        if ticked:
-            edges = [round(n * size / total) for n in range(total + 1)]
-        else:
-            rest = total - done - len(fly)
-            head = max(0, min(round(done * size / total), size - len(fly) - (rest > 0)))
-            edges = [0] * done + [head + n for n in range(len(fly) + 1)]
-        cells = [(full, "ink", word, False)] * edges[done]
-        for (fill, last), first, end in zip(fly, edges[done:], edges[done + 1:]):
-            lit = max(1, round(fill * (end - first)))
-            cells += ([(dot, "FAIL" if last else word, "track", False)] * lit
-                      + [(empty, "dim", "track", False)] * (end - first - lit))
-        cells += [(empty, "dim", "track", False)] * (size - len(cells))
-        if colour and ticked:
-            for n in range(1, total):
-                cells[edges[n]] = (tick, *cells[edges[n]][1:])
-        return cells, edges, fly
-
-    chip = f" {count} " if colour else ""
-    size = max(least, room if colour else room - len(count) - 1)
+    count = f"{done} of {total}"
+    size = max(least, room - len(count) - 1)
     if size < 1:
         return count
-    cells, edges, fly = layout(size)
-    head, past = edges[done], edges[done + len(fly)]
-    if chip and len(chip) > head and past + len(chip) > size:
-        # no room on the fill nor past the tasks in flight: the count follows a shorter bar
-        chip, size = "", max(least, room - len(count) - 1)
-        if size < 1:
-            return count
-        cells, edges, fly = layout(size)
-    if not colour:
-        return "".join(cell[0] for cell in cells) + f" {count}"
-    # on the merged fill, ending at its head; while that is shorter, just past the tasks in flight
-    start = head - len(chip) if len(chip) <= head else past
-    cells[start:start + len(chip)] = [(char, "ink", word, True) for char in chip]
-
-    def tone(name, back):
-        rgb, basic = BAR_TONES.get(name) or STATE_STYLES[name][2:4]
-        if tmux:
-            return f"{'bg' if back else 'fg'}=#{rgb}"
-        if depth == 24:
-            return f"{48 if back else 38};2;" + ";".join(str(int(rgb[i:i + 2], 16))
-                                                         for i in (0, 2, 4))
-        return (f"{48 if back else 38};5;{xterm_colour(rgb)}" if depth == 256
-                else str(int(basic) + (10 if back else 0)))
-    out = ""
-    for n, (char, ink, back, bold) in enumerate(cells):
-        if n and cells[n - 1][1:] == (ink, back, bold):
-            out += char
-        elif tmux:
-            out += f"#[{tone(ink, False)},{tone(back, True)},{'bold' if bold else 'nobold'}]{char}"
-        else:
-            out += f"\033[0;{'1;' if bold else ''}{tone(ink, False)};{tone(back, True)}m{char}"
-    return out + ("#[default]" if tmux else "\033[0m") + ("" if chip else f" {count}")
+    full, half, empty = "━╸─" if utf8() else "=--"
+    halves = round(2 * size * done / total) if utf8() else 2 * round(size * done / total)
+    ends = (halves + 1) // 2
+    cells = [full if n < halves // 2 else half for n in range(ends)]
+    rest = empty * (size - ends)
+    if tmux:
+        colour = STATE_STYLES[word][2]
+        return ((f"#[fg=#{colour}]" + "".join(cells) if cells else "")
+                + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
+                + f"#[default] {count}")
+    if not colour_depth():
+        return "".join(cells) + rest + f" {count}"
+    tip = max(1, ends - 1)
+    line = "".join(styled(char, faded(word, 0.5 * (1 - n / tip) if ends > 1 else 0))
+                   for n, char in enumerate(cells))
+    return line + styled(rest, "dim") + f" {count}"
 
 
 SIGNAL = "▁▂▃▄▅▆▇█"   # a bar of an effort's strength one to eight eighths high

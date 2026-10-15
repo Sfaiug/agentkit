@@ -240,7 +240,7 @@ class UnsentDraft(Sandbox):
         for shown in (" ".join(self.row(170)), self.bar()):
             with self.subTest(shown=shown):
                 self.assertNotIn("unsent: drafts", shown)
-                self.assertIn("0/1", shown)
+                self.assertIn("0 of 1", shown)
 
     def test_f_a_seat_nobody_is_in_is_never_read_by_its_last_draft(self):
         # The draft is written down in the seat's record; once nobody is in the seat that

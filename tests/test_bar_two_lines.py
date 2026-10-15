@@ -97,11 +97,11 @@ class TwoLines(Sandbox):
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "working")
         top = self.options[statusbar.TOP]
         self.assertTrue(top.startswith(f" #[fg=#89b4fa]▐{self.chip('working')}"), top)
-        # the run going is a quarter into the third task; the bar keeps its own colours
-        bar = menu.last_column("working", "", 2, 5, [menu.seat_runs("fix-api")[0]],
-                               statusbar.CELLS, tmux=True)
+        # two of five done: the line in working's colour, then its count
+        bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
         self.assertTrue(top.endswith(f"orchestrates#[default]   {bar}"), top)
-        self.assertIn(f"#[fg={INK},bg=#89b4fa,bold] 2/5 ", bar)
+        self.assertIn("#[fg=#89b4fa]━", bar)
+        self.assertTrue(bar.endswith("#[default] 2 of 5"), bar)
         self.assertEqual(drawn(top), f" ▐● working▌  fix-api  fable orchestrates   {drawn(bar)}")
         self.assertNotIn("left", top)
         # line two is its live run: who builds it, ten minutes into the step

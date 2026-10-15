@@ -2,7 +2,7 @@
 
 Line one opens with the seat's state as a chip -- `● working`, `! needs you`, `✓ done` or
 `○ idle`, in dark bold text on that word's colour -- then the seat's name in bold, then `<model>
-orchestrates` with the model in its company's colour, then a working seat's tasks bar, as its
+orchestrates` with the model in its company's colour, then a working seat's progress line, as its
 menu row draws it, as wide as `BARS` lets it be.  Its right end is the owner's other seats on
 ak's own server: each that needs you by name, a click away, then how many others are working
 and done; an idle one is not counted.  Where they do not fit beside the left part the bar narrows, then the names fold into
@@ -12,7 +12,7 @@ seat's live runs (`live`), with the one key at its right end: `Ctrl-b m  menu`, 
 x close` once done.
 
 The bar draws on the terminal's own background and foreground and never tmux's green.  The
-chips and the tasks bar carry their own background, so they read on any terminal; the rest is
+chips carry their own background, so they read on any terminal; the rest is
 the terminal's foreground or ak's dim, which read on a dark one and a light one alike.  tmux
 cannot say which a client is, and the tick that writes most bars has no terminal to ask, so a
 company colour that a light terminal draws in its mirror tone (a white one) is the terminal's
@@ -46,7 +46,7 @@ CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + H
          # a target is not a format, and the command run-shell -C runs is
          "run-shell -C \"switch-client -t '#{E:" + HIT + "}'\"")
 INK = terminal.BAR_TONES["ink"][0]  # the chip's dark text, Mocha's crust
-CELLS = 36                         # a working seat's tasks bar, its ticks there up to eighteen tasks
+CELLS = 36                         # a working seat's progress line and its count
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
 DIM = terminal.STATE_STYLES["dim"][2]
@@ -64,7 +64,7 @@ def _cut(option, room):
 
 
 def _line_one():
-    """The widest tasks bar beside the other seats by name that fits the client, else beside
+    """The widest progress line beside the other seats by name that fits the client, else beside
     them folded, else beside who needs you alone, each drawn whole; else the narrowest cut a
     space short of who needs you."""
     room = "#{e|-:#{client_width},#{e|+:#{w:" + NEED + "},2}}"
@@ -133,7 +133,7 @@ def chip(word):
 def lines(name, model, colour, word=None, last=""):
     """(line one, line two, its key, the window title): the seat's bar, as tmux text.
 
-    `last` is the seat's last column (`menu.last_column`): a working seat's tasks bar, tmux text
+    `last` is the seat's last column (`menu.last_column`): a working seat's progress line, tmux text
     already, or its place in the landing line, which line one carries, or the reason a seat
     needs you or is done, which line two does; a sentence is made text here.  Before its first
     word a seat's bar is its name and who orchestrates it, and its title the name.
@@ -351,7 +351,7 @@ def redress(session, answer, cfg=None, records=None):
         runs = menu.seat_runs(name, records) if word == "working" else []
         progress = menu.seat_progress(name)
         # each in its own cells and never more (`narrow`), so line one picks by the width it set
-        lasts = [menu.last_column(word, answer.get("reason"), *progress, runs, cells,
+        lasts = [menu.last_column(word, answer.get("reason"), *progress, cells,
                                   narrow=True, tmux=True, unsent=answer.get("unsent"))
                  for cells in BARS]
         _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,
