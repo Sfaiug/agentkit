@@ -161,7 +161,7 @@ class ModelBoards(Sandbox):
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(matrix.main([]), 0)
-        lines = out.getvalue().splitlines()[1:]              # under the table's heading
+        lines = out.getvalue().splitlines()[-3:]             # the last lines of the screen
         self.assertEqual([line.split(":")[0] for line in lines], list(matrix.BOARDS))
         self.assertRegex(lines[0], r"^artificialanalysis\.ai: 4 rows as of \d\d \w\w\w \d\d:\d\d$")
         self.boards.down.add("livebench.ai")

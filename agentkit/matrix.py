@@ -20,8 +20,12 @@ model no board lists at any effort is one row at none.  A board's model is match
 letters and digits alone (`acme-5` is `Acme 5 (max)` at max), else by the board's name the id
 extends with a version (`acme-pro` for `acme-pro-1.0`); `benchmark` on a config entry names the
 board's model on a board where neither fits.  A board's row at another effort never stands in.
-ak's own run numbers never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai,
-arena.ai, livebench.ai.
+
+Every row is scored per role: a column is the row's share of the best value among the rows
+(100 for the best; zero or below is 0 and still counts: Arena's net improvement can be
+negative), a role's score is the mean of the role's measures the row has, said with how many
+it rests on (`97 of 3`), and `ROLES` names each role's measures and why.  ak's own run numbers
+never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 """
 
 import csv
@@ -49,7 +53,25 @@ COST = "livebench.cost_coding"           # dollars per successful coding task
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own
 EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none"}
-HEADERS = ("model", "harness", "id", "boards", "tok/s", "$/task")
+# What each role is scored on: a column (board.field) and, in plain words, why it stands for
+# that role.  Pinned by tests/test_matrix_measures.py: it changes only with the owner's yes.
+# Artificial Analysis's free endpoint carries its three indexes, never one benchmark's score.
+ROLES = {
+    "orchestrate": (("arena.agent", "real agent sessions: net improvement over the average"),
+                    ("arena.agent_steerability", "taking a correction mid-task"),
+                    ("aa.evaluations.artificial_analysis_agentic_index",
+                     "agentic work end to end, across Artificial Analysis's agent suites"),
+                    ("livebench.long_horizon", "work that runs for hours")),
+    "execute": (("aa.evaluations.artificial_analysis_coding_index", "coding across evaluations"),
+                ("aa.evaluations.artificial_analysis_agentic_index", "agentic work end to end"),
+                ("livebench.coding", "bug fixes and apps that must run"),
+                ("livebench.long_horizon", "work that runs for hours")),
+    "review": (("aa.evaluations.artificial_analysis_intelligence_index",
+                "general strength: no public review board exports its numbers"),
+               ("aa.evaluations.artificial_analysis_coding_index", "reading code"),
+               ("livebench.reasoning", "reasoning")),
+}
+HEADERS = ("model", "harness", "id", "orch", "exec", "review", "tok/s", "$/task")
 
 
 def fetch_bytes(url, headers=None):
@@ -275,6 +297,30 @@ def rows(cfg, boards):
     return table
 
 
+def scored(table):
+    """Each row's `scores`: per role, {"score", "measures"}, or None where the row has none of
+    the role's measures.  A column is a share of the best value among the rows: 100 for the
+    best, 0 at zero or below (still a measure)."""
+    best = {}
+    for row in table:
+        for column, value in row["values"].items():
+            best[column] = max(best.get(column, 0), value)
+    for row in table:
+        shares = {column: 100 * max(value, 0) / best[column] if best[column] > 0 else 0.0
+                  for column, value in row["values"].items()}
+        row["scores"] = {}
+        for role, columns in ROLES.items():
+            have = [shares[column] for column, _ in columns if column in shares]
+            row["scores"][role] = ({"score": round(sum(have) / len(have), 1), "measures": len(have)}
+                                   if have else None)
+    return table
+
+
+def cell(found):
+    """`97 of 3`: the score and the measures it rests on; `-` where the role has none."""
+    return "-" if found is None else f"{found['score']:.0f} of {found['measures']}"
+
+
 def row_label(row):
     """`acme` for a configured row, else `acme-5-5`, and `@ max` where an effort is."""
     return (row["name"] or row["model"]) + (f" @ {row['effort']}" if row["effort"] else "")
@@ -298,20 +344,28 @@ def boards_lines(boards):
 
 
 def render(table, boards):
-    """The rows as a table, the fullest first, then what each board said and when."""
-    table = sorted(table, key=lambda row: (-len(row["values"]), row["harness"], row["model"]))
+    """The scored rows as a table, the best first, what each role is scored on, then what each
+    board said and when."""
+    def best(row):
+        return max((found["score"] for found in row["scores"].values() if found), default=-1)
+    table = sorted(table, key=lambda row: (-best(row), row["harness"], row["model"]))
     lines_of = [HEADERS] + [
         (row["name"] or "-", row["harness"],
          row["model"] + (f" @ {row['effort']}" if row["effort"] else ""),
-         ", ".join(board.split(".")[0] + (f" ({hit['effort']})" if hit["effort"] else "")
-                   for board, hit in row["matched"].items()) or "-",
+         *(cell(row["scores"][role]) for role in ROLES),
          _num(row["values"].get(SPEED)), _num(row["values"].get(COST), 2))
         for row in table]
     width = terminal.width()
     widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(HEADERS))]
-    lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(line, widths)).rstrip()
+    lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
              for line in lines_of]
     lines[0] = terminal.styled(lines[0], "dim")
+    lines.append(terminal.styled(
+        "a score is the mean share of the best row over the measures the boards give that row, "
+        "`97 of 3`; a board naming no effort counts for every effort of its model", "dim"))
+    for role, columns in ROLES.items():
+        lines.append(terminal.styled(f"{role}, {len(columns)} measures: " + ", ".join(
+            f"{column} ({why})" for column, why in columns), "dim"))
     lines += boards_lines(boards)
     unmatched = [row_label(row) for row in table if not row["values"]]
     if unmatched:
@@ -329,7 +383,7 @@ def main(argv):
         raise config.Error(f"usage: ak models [--json] [--refresh]  (got {argv!r})")
     cfg = config.load()
     boards = collect(refresh="--refresh" in flags)
-    table = rows(cfg, boards)
+    table = scored(rows(cfg, boards))
     if "--json" in flags:
         json.dump({"rows": table, "boards": {board: {k: v for k, v in held.items() if k != "rows"}
                                              for board, held in boards.items()}},
