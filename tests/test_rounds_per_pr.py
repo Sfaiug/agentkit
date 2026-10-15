@@ -57,19 +57,19 @@ class RoundsPerPr(Sandbox):
         self.earlier("20260101-0500-second", 1, branch="ak/first-2", change=first, **{"from": "ak/first"})
         self.earlier("20260101-0400-third", 1, branch="ak/first-3", change=first, **{"from": "ak/first-2"})
         self.earlier("20260101-0300-fresh", 0, review_pr=URL, pr=URL)
-        self.assertEqual(run.rounds_spent_elsewhere(pr=URL), (3, 2))
-        self.assertEqual(run.rounds_spent_elsewhere(pr=URL, exclude=own), (1, 1))
-        self.assertEqual(run.rounds_spent_elsewhere(pr=OTHER), (3, 1))
+        self.assertEqual(transitions.rounds_spent_elsewhere(pr=URL), (3, 2))
+        self.assertEqual(transitions.rounds_spent_elsewhere(pr=URL, exclude=own), (1, 1))
+        self.assertEqual(transitions.rounds_spent_elsewhere(pr=OTHER), (3, 1))
         # every run of a change carries its id, however far down the relaunches go
-        self.assertEqual(run.rounds_spent_elsewhere(change=first), (4, 3))
+        self.assertEqual(transitions.rounds_spent_elsewhere(change=first), (4, 3))
         self.assertEqual(run.round_budget(3, change=first, what="branch ak/first-3")[0], 0)
-        self.assertEqual(run.rounds_spent_elsewhere(change="20260101-0000-nothing"), (0, 0))
-        self.assertEqual(run.rounds_spent_elsewhere(), (0, 0))
+        self.assertEqual(transitions.rounds_spent_elsewhere(change="20260101-0000-nothing"), (0, 0))
+        self.assertEqual(transitions.rounds_spent_elsewhere(), (0, 0))
         # a pull request is one name however its URL is spelled
         for spelled in (URL + "/", "https://github.com/Acme/Widget/pull/7", " " + URL):
-            self.assertEqual(run.rounds_spent_elsewhere(pr=spelled), (3, 2), spelled)
+            self.assertEqual(transitions.rounds_spent_elsewhere(pr=spelled), (3, 2), spelled)
         self.earlier("20260101-0200-review-pr-widget-7", 1, review_pr=URL + "/", pr=URL + "/")
-        self.assertEqual(run.rounds_spent_elsewhere(pr=URL), (4, 3))
+        self.assertEqual(transitions.rounds_spent_elsewhere(pr=URL), (4, 3))
 
     def test_a_branch_belongs_to_the_newest_run_still_on_it_and_a_freed_name_to_nobody(self):
         repo = self.root / "acme"
