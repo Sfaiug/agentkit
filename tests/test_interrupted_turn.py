@@ -110,13 +110,13 @@ class InterruptedTurn(Sandbox):
         self.said("assistant", fact["at"] + 2, "Running them now.")
         self.assertEqual(self.looked(), ("working", False))
         self.said("user", fact["at"] + 3, INTERRUPT)
-        self.assertEqual(self.looked(), ("needs you", True))
+        self.assertEqual(self.looked(), ("idle", True))
         self.assertEqual(self.handed_back(), ["The acme tests passed.", "Enter"])
 
     def test_a_turn_interrupted_in_a_tool_call_is_at_its_prompt_too(self):
         fact = self.prompt("Run the acme tests.")
         self.said("user", fact["at"] + 3, TOOL_INTERRUPT)
-        self.assertEqual(self.looked(), ("needs you", True))
+        self.assertEqual(self.looked(), ("idle", True))
 
     def test_the_next_prompt_after_an_interrupt_is_a_turn_running(self):
         """Written down before its hook runs, it is the record's last message at once: the turn
@@ -179,7 +179,7 @@ class InterruptedTurn(Sandbox):
                 self.publish({"event": "Notification", "kind": kind, "at": fact["at"] + 1,
                               "text": "Claude needs your permission"})
                 self.said("user", fact["at"] + 3, INTERRUPT)
-                self.assertEqual(self.looked(), ("needs you", True))
+                self.assertEqual(self.looked(), ("idle", True))
 
     def test_a_draft_typed_after_an_interrupt_is_the_owners_and_closed_to_typing(self):
         fact = self.prompt("Run the acme tests.")

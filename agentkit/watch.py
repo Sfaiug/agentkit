@@ -2135,8 +2135,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * it said it was done itself, a job never says it for it, nothing on its screen asks him
       and it kept no question back for its turn's end
       -- unless a run of its own still sits parked and undecided, which is him;
-    * otherwise it is at its prompt with nothing running, which is him again -- with a
-      watcher's alert, the question on its screen, or the draft it never sent, for a reason.
+    * otherwise it is at its prompt with nothing running: the owner's again where a watcher's
+      alert or a question on its screen says so, or where something of its own is still theirs
+      (`still_owed`: work its plan owes, a done a run of its own then failed); with nothing
+      asked or owed it is `idle`.
 
     An ended run is its orchestrator's business: the run hands its ending back to the seat
     that launched it, so no reason ever names a run or sends him to one -- unless the
@@ -2289,6 +2291,27 @@ def start_look(launched):
             start_new_session=True)
     except OSError:
         return None
+
+
+def still_owed(name, mine, index):
+    """Why a seat with nothing running and nothing asked on its screen or in its notices is
+    still the owner's, or None where it rests.  Work its plan owes is a turn the stop hook let
+    stand on its third stop, or one a harness it cannot send back left: the stop hook's own test
+    says which (`stop.owed_line`), so this word and the turn's end never disagree; so does a
+    question it kept back for its turn's end.  A done it said that a run of its own then
+    failed stays theirs after the card pass marks that done seen.  Any other ending of its runs
+    is typed into the seat at its next quiet prompt, so it is the seat's to act on, not theirs.
+    `mine` is the seat's own (run_dir, state) pairs, `index` their supersession index."""
+    from . import stop as stop_mod    # stop imports this module
+    line = stop_mod.owed_line(name)
+    if line is not None or seat_read(name).get("unasked"):
+        return f"stopped with work open: {line}" if line else "stopped with work open"
+    declared = notify.last(name, include_seen=True)
+    if declared and declared["kind"] == "done" and not notify.job_done(declared):
+        failed = notify.failed_declaration(declared, mine, index)
+        if failed:
+            return f"run {failed[0]} failed; declaration dropped"
+    return None
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
@@ -2534,15 +2557,21 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                     f"run {run_dir.name} parked: {handback.handback_reason(state)}"}
         line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
         return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
-    # 6. at its prompt with nothing running: a watcher's alert, or nothing at all
+    # 6. at its prompt with nothing running: a watcher's alert, a question on its screen, or
+    # nothing at all
     if last:
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
-    # A question on its screen, and typed text nobody sent, are both him: the fact is a
-    # reason for the word, never a word of its own.
-    asked = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
-    return {"word": "needs you", "reason": " ".join(str(asked).split()) or "waiting for you",
-            "since": found.get("began")}
+    asked = " ".join(str(found.get("evidence") or "").split()) if found.get(
+        "state") == "asking" else ""
+    if asked:
+        return {"word": "needs you", "reason": asked, "since": found.get("began")}
+    # Nothing running, asked or owed: the seat rests and nothing on it is the owner's to do -- a
+    # new seat, a conversation that ended, a plan it finished.
+    owed = still_owed(name, mine, index)
+    if owed is None:
+        return {"word": "idle", "reason": "", "since": found.get("began")}
+    return {"word": "needs you", "since": found.get("began"), "reason": owed}
 
 
 MAX_BYTES = 8000        # tmux refuses one command past 16 KiB, and a typed line goes in whole

@@ -1,19 +1,17 @@
 agentkit                           14:02
 ────────────────────────────────────────
 
-your projects · 3 need you
+your projects · 1 needs you
 
 atoll
-  1  atoll-fix    fable  ! needs you
-    waiting for you
   2  atoll-proxy  fable  ! needs you
     session closed: press 2 to reopen
-
-no project
-  4  scribe       fable  ! needs you
-    waiting for you
+  1  atoll-fix    fable  ○ idle
 
 agentkit
   3  herdr        fable  ● working
+
+no project
+  4  scribe       fable  ○ idle
 
   n new   x stop   c config   esc leave

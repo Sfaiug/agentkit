@@ -369,7 +369,7 @@ class Seats(Fixture):
                 "exited": False, "legacy": False, "resumable": False, "repo": None}
         self.stack.enter_context(patch.object(statusbar, "redress", lambda *a, **_kw: None))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(1, "")))
-        for kind, word, rule in (("idle", "needs you", "prompt.composer"),
+        for kind, word, rule in (("idle", "idle", "prompt.composer"),
                                  ("working", "working", "working.interrupt"),
                                  ("asking", "needs you", "asking.chooser")):
             with self.subTest(kind=kind), patch.object(watch, "pane_text",

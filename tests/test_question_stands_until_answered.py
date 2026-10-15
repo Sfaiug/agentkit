@@ -99,6 +99,10 @@ class QuestionStands(unittest.TestCase):
         for notice in ({"watcher": True}, {}):      # {}: a dialog on its screen, no notice
             with self.subTest(notice=notice):
                 self.setUp()
+                if not notice:
+                    self.stack.enter_context(patch.object(watch, "session_state", side_effect=(
+                        lambda *_a, **_k: {"word": "needs you", "since": 100, "page": True,
+                                           "reason": "Allow the command?"})))
                 self.sent_card(**notice)
                 self.client = (0, "seat\t170")
                 self.needs_you(now=180)

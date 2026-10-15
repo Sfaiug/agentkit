@@ -237,7 +237,8 @@ class Cards(unittest.TestCase):
                         self.assertIsNone(notify.last("seat"))
                         clock[0] = 500.0
                         current = watch.session_state("seat", now=500.0, session=seat)
-                        self.assertEqual(current["since"], 100.0)
+                        # answered, and nothing owed: it rests, a word begun now
+                        self.assertEqual((current["word"], current["since"]), ("idle", 500.0))
                         self.assertEqual(notify.transition(
                             "seat", current if cached else None, now=500.0, seat=seat,
                             began=100.0 if cached else None), 0)

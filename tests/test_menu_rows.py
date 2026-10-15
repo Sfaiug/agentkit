@@ -99,8 +99,8 @@ class MenuRows(Sandbox):
         self.seat("first-seat", "atoll", orchestrator="fable")
         self.seat("second-seat", "atoll", orchestrator="astra")
         screen, _ = self.draw(100, 30)
-        self.assertRegex(screen, r"first-seat\s+fable\s+[●!✓]")
-        self.assertRegex(screen, r"second-seat\s+astra\s+[●!✓]")
+        self.assertRegex(screen, r"first-seat\s+fable\s+[●!✓○]")
+        self.assertRegex(screen, r"second-seat\s+astra\s+[●!✓○]")
 
     def test_plan_bar_from_plan_file(self):
         seat = self.seat("fix-api", "atoll", live="working")

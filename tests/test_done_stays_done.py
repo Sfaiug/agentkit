@@ -221,7 +221,7 @@ class DoneStaysDone(Sandbox):
         self.assertEqual(self.posts, [])
         record.save_state(other, {**record.read_state(other), "state": "pass",
                                "finished_at": NOW - 60})
-        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertEqual(self.decide(), ("idle", ""))
         # its card is the green one it always was, once, and no question card follows it
         self.tick()
         self.tick(600)
@@ -268,7 +268,7 @@ class DoneStaysDone(Sandbox):
         self.assertEqual(self.decide(), ("needs you", "Merge PR #7? yes/no"))
         notify.answered(SEAT, NOW)
         self.assertIsNone(notify.last(SEAT))
-        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertEqual(self.decide(), ("idle", ""))
 
 
 if __name__ == "__main__":
