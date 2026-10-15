@@ -70,7 +70,7 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.handback import handback_reason
 from agentkit.stop import recorded_ending, ways_out
-from agentkit.watch import owner_question, seat_read, turn_ended
+from agentkit.watch import owner_question, seat_read, start_look, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
@@ -342,6 +342,8 @@ def main():
         turn_ended(resolve(launched))
     if tells(payload):
         written(launched, "background" if background(payload) else "held" if back else "")
+        # looked at again now its Stop is on record, however long judging it took
+        start_look(launched)
     if back:
         print(json.dumps({"decision": "block", "reason": back}))
 

@@ -68,7 +68,6 @@ RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run:
                         # failed -- and a launch already on its way -- is retried at most this often
 DEAD_BACKOFF = 600      # a loop that dies again this soon after its resume waits this long
 DEAD_WINDOW = 3600      # a third death inside this parks the run and tells the seat once
-HOOK_LOOK_WAIT = 10.0   # how long a hook's look waits for the Stop hooks/orchestrator-stop.sh judges
 # What gh says when the credentials are the problem rather than the network: gh's own advice
 # when there is no login at all, and the API's own words when the token is rejected.  A
 # timeout, an unreachable api.github.com or a reply that was not JSON says none of these, and
@@ -2175,17 +2174,16 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, heard=None, answered_at=None, said=""):
+def hook_look(launched, answered_at=None, said=""):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it hears -- a turn
     begun, a turn ended, a question going up -- so the seat's record and its bar move then, and
     not at the next menu draw or tick, while the harness waits on nothing.  `launched` is the
-    name the harness carries.  Claude's Stop is the one hooks/orchestrator-stop.sh writes down,
-    beside this hook and once it has judged it, and `heard` is when this hook heard it: the seat
-    is looked at at once, which is right if that one has already written, and again when a fact
-    at least that new lands -- HOOK_LOOK_WAIT at most -- whichever of the two finished first.
-    Both hooks write that fact under the name the seat goes by now, which is where it is read.
+    name the harness carries.  A Stop that hands over its background work is the one
+    hooks/orchestrator-stop.sh writes down once it has judged it, and that one starts this look
+    then, however long the judging took.  Both hooks write that fact under the name the seat
+    goes by now, which is where it is read.
 
     Only a hook in the seat's own pane, on the seat's own server, moves its bar: a harness under
     some other tmux, or a test's sandbox with a seat's name in its environment, never paints a
@@ -2209,14 +2207,25 @@ def hook_look(launched, heard=None, answered_at=None, said=""):
             isinstance(asked, (int, float)) and said
             and any(sent.get("text") == said for sent in notify.typed_since(name, asked))):
         notify.answered(name, answered_at)
-    cfg = config.load()
-    answer = announce_state(session, cfg=cfg, look=True, number=number)
-    deadline = time.time() + HOOK_LOOK_WAIT
-    while heard is not None and time.time() < deadline:
-        if (_stamp(hook_facts(name).get("at")) or 0) >= heard:
-            return announce_state(session, cfg=cfg, look=True, number=number)
-        time.sleep(0.1)
-    return answer
+    return announce_state(session, cfg=config.load(), look=True, number=number)
+
+
+def start_look(launched):
+    """`hook_look` for that seat in a process of its own session, as hooks/seat-state.sh starts
+    it: whoever starts it -- the stop hook, the seat's wrapper -- ends none of it by ending.  The
+    process, or None outside a tmux pane, which is where every seat's harness runs, or where
+    none could start."""
+    if not (os.environ.get("TMUX") and os.environ.get("TMUX_PANE")):
+        return None
+    try:
+        return subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from agentkit import watch; watch.hook_look(sys.argv[2])",
+             str(Path(__file__).resolve().parents[1]), launched],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except OSError:
+        return None
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,

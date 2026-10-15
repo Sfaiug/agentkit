@@ -412,12 +412,6 @@ def record_compaction(harness, context_tokens, when):
         tmp.unlink(missing_ok=True)
 
 
-# hooks/seat-state.sh's own look, started the same way: a session of its own, so ending this
-# wrapper ends none of it
-LOOK = ("import sys; sys.path.insert(0, sys.argv[1]); from agentkit import watch; "
-        "watch.hook_look(sys.argv[2])")
-
-
 class Looks:
     """The seat looked at again when its screen comes to rest, starts moving, or its harness exits.
 
@@ -437,15 +431,9 @@ class Looks:
         self.wake = threading.Event()
         threading.Thread(target=self.follow, daemon=True).start()
 
-    def start(self, wait=True):
-        try:
-            process = subprocess.Popen(
-                [sys.executable, "-c", LOOK, str(Path(__file__).resolve().parents[1]), self.seat],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True)
-        except OSError:
-            return
-        if wait:
+    def start(self):
+        process = watch.start_look(self.seat)
+        if process:
             process.wait()
 
     def read(self):
