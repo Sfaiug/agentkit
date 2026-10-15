@@ -4511,11 +4511,12 @@ def tell_parked(run_id, step, seat, log):
     A refused card stays pending in `stalled_notified` and is retried on a later tick.
     """
     line = f"run {run_id} stalled three times at {step}; parked: ak run resume {run_id}"
+    alive = False
     if seat:
         try:
             alive = handback.launcher_watched(seat)
         except (config.Error, OSError):
-            alive = False
+            pass
         if alive:
             found = orch.find(seat) or {"name": seat}
             try:
@@ -4528,7 +4529,9 @@ def tell_parked(run_id, step, seat, log):
                     return True
             except (config.Error, OSError):
                 pass
-    event_id = f"stalled:{run_id}:{step}"[:200]
+    # A seat that is up hears of the run at its turn's end (`stop`); one that is gone never
+    # does, and nothing resumes a parked run: its orphan is the owner's (`notify.pages`).
+    event_id = f"{'stalled' if alive else 'orphan'}:{run_id}:{step}"[:200]
     if notify.shaped("needs", line, session=seat, event_id=event_id) == 0:
         return True
     log(f"WARN {run_id}: parking notice was not accepted; it stays pending for a later tick")

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import config, notify, orch, watch  # noqa: E402
+from agentkit import config, handback, notify, orch, watch  # noqa: E402
 
 SEAT = "acme-api"
 
@@ -56,7 +56,26 @@ class OnlyQuestionsPage(Sandbox):
                        "recovery:fix-api:900", "job:acme-batch:900"):
             self.assertEqual(self.held("agentkit could not reopen the seat.", seat=gone,
                                        source=source), [f"Needs you · {SEAT}"], source)
+        # ... and a seat stuck an hour that ak gave up typing into
+        for source in ("stuck:acme-api:900", "stall:acme-api:900"):
+            self.assertEqual(self.held("acme-api is stuck with no progress for an hour.",
+                                       source=source), [f"Needs you · {SEAT}"], source)
         self.assertEqual(self.held("Run fix-api stalled.", source="stalled:fix-api:900"), [])
+
+    def test_a_parked_run_pages_where_its_seat_is_gone_or_a_question_stands(self):
+        def parked(alive):
+            with patch.object(handback, "launcher_watched", return_value=alive), \
+                    patch.object(watch, "type_into", return_value=False), \
+                    patch.object(notify, "transition", return_value=0):
+                self.assertTrue(watch.tell_parked("fix-api", "review", SEAT, print))
+            return notify.pages(notify.last(SEAT))
+
+        self.assertFalse(parked(alive=True))     # its turn's end shows the seat the run
+        config.notify_path(SEAT).unlink()
+        self.assertTrue(parked(alive=False))     # nothing but the owner moves it
+        config.notify_path(SEAT).unlink()
+        notify.record(SEAT, "needs", "Which schema should acme use?", time=990)
+        self.assertTrue(parked(alive=True))      # said beside a question, which still stands
 
     def test_the_ladder_marks_only_what_the_owner_alone_can_clear(self):
         def page(found=None, notice=None, token=None):

@@ -478,15 +478,18 @@ def answered(session, at):
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
 
 
-# The alerts only the owner can act on: a merge question, a login, a seat ak could not reopen
-# over a run going, ended or interrupted, a job whose seat is gone; ak or a seat mends the rest.
-OWNER_ALERTS = ("inbox:", "auth:", "revive:", "orphan:", "recovery:", "job:")
+# The alerts only the owner can act on: a merge question, a login, a seat stuck an hour that ak
+# gave up typing into, a seat ak could not reopen or that is gone over a run going, ended,
+# interrupted or parked, a job whose seat is gone.  The rest, a run parked on a seat that is up,
+# its seat mends: its turn's end shows it the run (`stop`).
+OWNER_ALERTS = ("inbox:", "auth:", "stuck:", "stall:", "revive:", "orphan:", "recovery:", "job:")
 
 
 def pages(notice):
     """Does that notice page the owner: a question someone asked them -- the seat's own `ak notify
     needs`, an outside pull request's merge question -- or a failure only they can fix?  Never
-    one answered since."""
+    one answered since.  An alert said beside a question still standing pages as that one did
+    (`page`, `_said`)."""
     if not notice or notice.get("kind") != "needs" or resolved(notice):
         return False
     source = notice.get("source")
@@ -1493,6 +1496,8 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
+        if standing and pages(previous):
+            extra["page"] = True    # the question still stands, whatever the newer alert's source
         if standing and at is not None:
             at = max(at, previous["time"])
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
