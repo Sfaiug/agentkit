@@ -134,7 +134,7 @@ class ModelRows(Sandbox):
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)
         data = json.loads(out.getvalue())
-        self.assertEqual(sorted(data), ["boards", "rows"])
+        self.assertEqual(sorted(data), ["boards", "recommended", "rows"])
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         rows = {matrix.row_label(row): row for row in data["rows"]}
         self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 1})

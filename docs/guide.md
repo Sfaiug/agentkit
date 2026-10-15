@@ -401,8 +401,8 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 ## The boards
 
 `ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export, each at most once a day into
-`~/.agentkit/state/matrix.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the scored rows and each board's
-`asked_at`, `fetched_at` and `error`. Artificial
+`~/.agentkit/state/matrix.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the scored rows, the
+recommendation and each board's `asked_at`, `fetched_at` and `error`. Artificial
 Analysis is asked with the key in `~/.agentkit/secrets/artificialanalysis_key` (free at artificialanalysis.ai/login;
 without it the board says `no key` and the others are still asked): its free endpoint, page by page, one row per model
 and effort, every number it gives as `aa.<field>`, a table's fields under the table's name (`aa.evaluations.artificial_analysis_coding_index`,
@@ -434,10 +434,15 @@ with a visible test change and the owner's yes: orchestrate is Arena Agent's net
 Analysis's agentic index and LiveBench's long-horizon suite; execute is Artificial Analysis's coding and agentic indexes,
 LiveBench's coding and long-horizon suites; review, with no public review board exporting its numbers, is the
 intelligence and coding indexes and LiveBench's reasoning suite (Artificial Analysis's free endpoint carries its indexes,
-never one benchmark's score, which is Pro only). The table lists the best rows first: model, harness, id and effort,
-`orch`, `exec` and `review` as `97 of 3`, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's
-cost of a successful coding task); under it what each role is scored on, one line per board with how many rows, when and
-its note, and the rows no board has. `--json` is the scored rows and the boards' notes. ak's own run numbers never rank
+never one benchmark's score, which is Pro only). One row is recommended per role (`recommended`), among the rows with
+a score for it: the row resting on the most of the role's measures, then the highest score (exact; the table rounds
+it), then the faster (`tok/s`), then the cheaper (`$/task`), an unknown speed or cost after every measured one, then
+the row the config runs, then the higher effort (`effort_rank`), so a row the boards cannot tell from the one you run
+never recommends a change. The table lists the best rows first: model, harness, id and effort, `orch`, `exec` and
+`review` as `97 of 3`, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a
+successful coding task); under it the recommendation per role, or that no board has a row ak can run, what each role is
+scored on, one line per board with how many rows, when and its note, and the rows no board has. `--json` is the scored
+rows, the recommendation and the boards' notes. ak's own run numbers never rank
 (AGENTS.md, Owner rules). Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history
