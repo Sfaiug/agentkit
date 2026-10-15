@@ -154,6 +154,12 @@ class SelfReviewLast(unittest.TestCase):
                                                           "acme-one"))
         self.assertIn("(acme-two/acme-one, self-reviewed)", line)
 
+    def test_one_model_id_on_another_provider_is_another_model(self):
+        for name in ("acme-one", "beta-one"):
+            self.cfg["models"][name]["model"] = "default"
+        self.assertEqual(run.reviewer_order(self.cfg, "acme-one", ["acme-one", "beta-one"]),
+                         ["beta-one", "acme-one"])
+
     def test_a_launch_with_one_worker_is_not_refused(self):
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["acme-one"]))
         self.assertIsNone(run.pair_refusal(self.cfg, self.providers, ["acme-one"],

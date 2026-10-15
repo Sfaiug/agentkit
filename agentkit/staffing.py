@@ -239,19 +239,21 @@ def reviewer_order(cfg, writers, order):
     review is the last choice -- but only a choice, never a refusal: one worker reviews
     itself.  A reviewer from the writer's company counts as any other: a stronger reviewer
     catches more than a different company does, and its separate turn is the fresh context
-    (AGENTS.md, Owner rules, 14 Oct)."""
+    (AGENTS.md, Owner rules, 14 Oct).  Own is `same_model`'s: one model id under two
+    providers, as two `model = "default"` entries, is two models."""
     names = [writers] if isinstance(writers, str) else [name for name in (writers or []) if name]
     try:
-        wrote = [config.model(cfg, name) for name in names]
+        for name in names:
+            config.model(cfg, name)
     except config.Error:
         return []
     others, own = [], []
     for name in order:
         try:
-            reviewed = config.model(cfg, name)
+            config.model(cfg, name)
         except config.Error:
             continue
-        if name in names or any(reviewed["model"] == each["model"] for each in wrote):
+        if any(same_model(cfg, each, name) for each in names):
             own.append(name)
         else:
             others.append(name)
