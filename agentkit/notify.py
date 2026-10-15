@@ -479,9 +479,9 @@ def answered(session, at):
 
 
 # The alerts only the owner can act on: a merge question, a login, a seat stuck an hour that ak
-# gave up typing into, a seat ak could not reopen or that is gone over a run going, ended,
-# interrupted or parked, a job whose seat is gone.  The rest, a run parked on a seat that is up,
-# its seat mends: its turn's end shows it the run (`stop`).
+# gave up typing into, a seat ak could not reopen over a run going, ended or interrupted, a job
+# whose seat is gone.  A parked run's `stalled:` is none: a seat that is up sees the run at its
+# turn's end (`stop`), and the ladder pages one whose seat is gone.
 OWNER_ALERTS = ("inbox:", "auth:", "stuck:", "stall:", "revive:", "orphan:", "recovery:", "job:")
 
 

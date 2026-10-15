@@ -62,29 +62,23 @@ class OnlyQuestionsPage(Sandbox):
                                        source=source), [f"Needs you · {SEAT}"], source)
         self.assertEqual(self.held("Run fix-api stalled.", source="stalled:fix-api:900"), [])
 
-    def test_a_parked_run_pages_where_its_seat_is_gone_or_a_question_stands(self):
-        def parked(alive):
-            with patch.object(handback, "launcher_watched", return_value=alive), \
-                    patch.object(watch, "type_into", return_value=False), \
-                    patch.object(notify, "transition", return_value=0):
-                self.assertTrue(watch.tell_parked("fix-api", "review", SEAT, print))
-            return notify.pages(notify.last(SEAT))
-
-        self.assertFalse(parked(alive=True))     # its turn's end shows the seat the run
-        config.notify_path(SEAT).unlink()
-        self.assertTrue(parked(alive=False))     # nothing but the owner moves it
-        config.notify_path(SEAT).unlink()
+    def test_a_question_still_pages_with_a_parked_run_said_beside_it(self):
         notify.record(SEAT, "needs", "Which schema should acme use?", time=990)
-        self.assertTrue(parked(alive=True))      # said beside a question, which still stands
+        with patch.object(handback, "launcher_watched", return_value=True), \
+                patch.object(watch, "type_into", return_value=False), \
+                patch.object(notify, "transition", return_value=0):
+            self.assertTrue(watch.tell_parked("fix-api", "review", SEAT, print))
+        self.assertTrue(notify.pages(notify.last(SEAT)))
 
     def test_the_ladder_marks_only_what_the_owner_alone_can_clear(self):
-        def page(found=None, notice=None, token=None):
+        def page(found=None, notice=None, token=None, seat=None, records=()):
             config.notify_path(SEAT).unlink(missing_ok=True)
             if notice:
                 notify.record(SEAT, "needs", notice[0], source=notice[1], time=990)
-            answer = watch.session_state(SEAT, now=1000, session={"name": SEAT}, records=[],
-                                         live=found or {}, harness="claude", auth_out={},
-                                         gh_out={}, token_out=token, previous={})
+            answer = watch.session_state(SEAT, now=1000, session=seat or {"name": SEAT},
+                                         records=list(records), number=1, live=found or {},
+                                         harness="claude", auth_out={}, gh_out={},
+                                         token_out=token, previous={})
             return answer["word"], bool(answer.get("page"))
 
         asked = ("needs you", True)
@@ -94,6 +88,12 @@ class OnlyQuestionsPage(Sandbox):
                                                 "remedy": "replace it", "expired": True}}), asked)
         self.assertFalse(page(notice=("Run fix-api stalled.", "stalled:fix-api:900"))[1])
         self.assertFalse(page({"state": "at_prompt", "began": 995})[1])
+        # A run parked on a seat that went has nothing left to move it but the owner.
+        gone = {"name": SEAT, "exited": True}
+        stalled = [(config.RUNS / "fix-api", {"state": "stalled", "launched_session": SEAT,
+                                               "started_at": 900})]
+        self.assertEqual(page(seat=gone, records=stalled), asked)
+        self.assertEqual(page(seat=gone), ("needs you", False))
 
 
 if __name__ == "__main__":

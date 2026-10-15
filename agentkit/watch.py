@@ -2435,7 +2435,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         # and that sentence is the rest of the reason -- it is what the number will do
         restart = session.get("restart")
         told = " ".join(restart.split()) if isinstance(restart, str) else ""
-        return {"word": "needs you", "since": None,
+        # A run parked here (rung 3) has no turn's end left to show it to its seat, and ak
+        # reopens a seat only over a run going (rung 2): only the owner moves it now.
+        return {"word": "needs you", "since": None, "page": bool(parked),
                 "reason": f"{reason} · {told}" if told else reason}
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
@@ -4511,12 +4513,11 @@ def tell_parked(run_id, step, seat, log):
     A refused card stays pending in `stalled_notified` and is retried on a later tick.
     """
     line = f"run {run_id} stalled three times at {step}; parked: ak run resume {run_id}"
-    alive = False
     if seat:
         try:
             alive = handback.launcher_watched(seat)
         except (config.Error, OSError):
-            pass
+            alive = False
         if alive:
             found = orch.find(seat) or {"name": seat}
             try:
@@ -4529,9 +4530,7 @@ def tell_parked(run_id, step, seat, log):
                     return True
             except (config.Error, OSError):
                 pass
-    # A seat that is up hears of the run at its turn's end (`stop`); one that is gone never
-    # does, and nothing resumes a parked run: its orphan is the owner's (`notify.pages`).
-    event_id = f"{'stalled' if alive else 'orphan'}:{run_id}:{step}"[:200]
+    event_id = f"stalled:{run_id}:{step}"[:200]
     if notify.shaped("needs", line, session=seat, event_id=event_id) == 0:
         return True
     log(f"WARN {run_id}: parking notice was not accepted; it stays pending for a later tick")
