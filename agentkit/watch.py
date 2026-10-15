@@ -386,17 +386,18 @@ def tell_audit(cfg, log, now=None):
     if not found:
         return
     setting, state = found
-    if seat_closed_by_owner(audit.NAME):
+    name = config.resolve_session(audit.NAME)     # the name the owner may have given it since
+    if seat_closed_by_owner(name):
         if not state.get("held"):
             state["held"] = True
             audit.write(state)
-            log(f"audit: the {audit.NAME} seat was closed by the owner; week {state['week']}'s "
+            log(f"audit: the {name} seat was closed by the owner; week {state['week']}'s "
                 "line waits for them to open it")
         return
-    seat = orch.find(audit.NAME)
+    seat = orch.find(name)
     if not seat or seat.get("exited"):
         # the next tick types, once the harness sits at its prompt
-        orch.ensure(cfg, audit.NAME, log=log, saved=bool(seat) or audit.NAME in orch.records(),
+        orch.ensure(cfg, name, log=log, saved=bool(seat) or name in orch.records(),
                     roles=setting, repo=config.REPO)
         return
     if any(seat.get(key) for key in ("resumable", "restart")):
@@ -409,7 +410,7 @@ def tell_audit(cfg, log, now=None):
     if type_at_prompt(seat, state["line"], log, cfg=cfg, typed=state.get("typed"), receipt=kept):
         state["delivered"] = now
         audit.write(state)
-        log(f"audit: told the {audit.NAME} seat about week {state['week']}")
+        log(f"audit: told the {name} seat about week {state['week']}")
 
 
 @contextmanager

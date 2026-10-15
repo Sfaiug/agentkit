@@ -11,7 +11,8 @@ stopped), size (ak's code lines and README words) -- that reads worse than the w
 when none does, the first in that order the board reads at all, since nothing merges
 perfectly.  The line names the week, the loss and the report; `state/audit.json` keeps the
 week, the line and how far its delivery got, which `watch.tell_audit` reads each tick: it
-opens or resumes the seat and types the line at its quiet prompt, at least once.
+opens or resumes the seat and types the line at its quiet prompt, at least once.  A line typed
+and not yet delivered is finished before the next week's is written: its mark is what sends it.
 `[audit].on = false` writes nothing; a setting the config cannot read is one WARN line a tick.
 """
 
@@ -83,9 +84,10 @@ def line_for(week, target, found):
 
 
 def weekly(cfg, log, now=None):
-    """The tick's pass: the first tick of a new week writes its report and its line.  Answers
-    (the setting, the week's record) while that line is still to be delivered, for
-    `watch.tell_audit`; None while the audit is off or unreadable, or the week's line is in."""
+    """The tick's pass: the first tick of a new week writes its report and its line, once no
+    earlier line waits in the composer for its Enter.  Answers (the setting, the record) while
+    that line is still to be delivered, for `watch.tell_audit`; None while the audit is off or
+    unreadable, or the week's line is in."""
     now = time.time() if now is None else now
     try:
         setting = config.audit(cfg)
@@ -95,7 +97,7 @@ def weekly(cfg, log, now=None):
     if not setting["on"]:
         return None
     state, week = read(), week_of(now)
-    if state.get("week") != week:
+    if state.get("week") != week and (state.get("delivered") or not state.get("typed")):
         board = scoreboard.compute(now)
         found = scoreboard.loss(board)
         target = report(week, board, found)

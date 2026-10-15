@@ -133,6 +133,36 @@ class Weekly(unittest.TestCase):
         self.assertEqual((state["week"], state["delivered"], self.typed.call_count), ("2027-W03", None, 3))
         self.assertTrue((config.STATE / "audit" / "2027-W03.md").exists())
 
+    def test_a_line_typed_and_not_yet_sent_is_finished_before_the_next_week_s(self):
+        self.find.return_value = {"name": "audit", "created": 7}
+        lines = []
+
+        def typing(seat, text, log, cfg=None, typed=None, receipt=None):
+            lines.append((text, typed))
+            if typed is None:
+                receipt({"line": text, "seat": 7})
+                return False
+            return True
+
+        self.typed.side_effect = typing
+        first = self.tick()["line"]
+        state = self.tick(NOW + WEEK)        # its mark, not a new week's line, meets the composer
+        self.assertEqual((state["week"], state["delivered"]), ("2027-W02", NOW + WEEK))
+        state = self.tick(NOW + WEEK + 180)
+        self.assertEqual(state["week"], "2027-W03")
+        self.assertEqual(lines, [(first, None), (first, {"line": first, "seat": 7}),
+                                 (state["line"], None)])
+
+    def test_a_renamed_seat_is_found_and_left_closed_under_its_new_name(self):
+        config.save_session(self.cfg, "audit", "astra", ["opus"], {"cwd": str(self.root)})
+        config.rename_session("audit", "weekly")
+        self.find.side_effect = lambda name: {"name": name, "created": 7} if name == "weekly" else None
+        self.tick()
+        self.assertEqual((self.ensure.call_count, self.typed.call_args.args[0]["name"]), (0, "weekly"))
+        self.closed.side_effect = lambda name: name == "weekly"
+        self.tick(NOW + 180)
+        self.assertEqual((self.ensure.call_count, self.typed.call_count), (0, 1))
+
     def test_a_seat_whose_process_is_gone_is_resumed_and_one_the_owner_closed_waits(self):
         self.find.return_value = {"name": "audit", "exited": True}
         self.tick()
