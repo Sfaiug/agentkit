@@ -3448,7 +3448,8 @@ def in_flight(name, repo):
     filed under: a seat filed elsewhere builds here too.  Its open lines are its plan's unticked
     ones, of a seat filed elsewhere only those naming this checkout; its files are what its going
     runs on the checkout change against their base, committed or not, or a queued run's task
-    `files:`.  A seat with neither is left out.
+    `files:`.  A seat with neither is left out.  A going run launched from no seat counts as
+    `run <id>`, with its files.
     """
     from . import menu, watch  # here, not at the top: menu imports this module
     target = checkout_of(repo)
@@ -3459,8 +3460,9 @@ def in_flight(name, repo):
     seats = {seat: ([], set()) for seat in filed if seat != name}
     for directory, state in going_here(target):
         seat = transitions.launched_session(state)
-        if seat and seat != name and not menu.smoke_run(state):
-            seats.setdefault(seat, ([], set()))[1].update(changed_files(state, directory))
+        if seat != name and not menu.smoke_run(state):
+            seats.setdefault(seat or f"run {directory.name}", ([], set()))[1].update(
+                changed_files(state, directory))
     for seat, (lines, _) in seats.items():
         for line in watch.plan_text(seat).splitlines():
             found = PLAN_OPEN.match(line)
@@ -3483,19 +3485,38 @@ def names_checkout(seat, line, target):
     return bool(found) and checkout_of(plan.place(seat, found["project"])) == target
 
 
+OPEN_PRS_QUERY = (
+    "query($owner:String!,$repo:String!,$endCursor:String){repository(owner:$owner,name:$repo){"
+    "pullRequests(states:OPEN,first:100,after:$endCursor){nodes{number title url changedFiles "
+    "files(first:100){nodes{path}}} pageInfo{hasNextPage endCursor}}}}")
+
+
 def open_prs(target):
     """[(number, title, changed files)] of the checkout's open pull requests no going run is
     reviewing or delivering -- a seat's PR waiting between runs, anybody's PR -- or [] where gh
-    cannot list them."""
+    cannot list them all.
+
+    Every page of them; a pull request changing more files than its first page names reads
+    the rest from its own files endpoint."""
+    from . import watch  # here, not at the top: watch imports this module
     taken = {state.get(key) for _, state in going_here(target) for key in ("review_pr", "pr")}
-    code, out = gitcall.gh(target, "pr", "list", "--state", "open", "--limit", "100",
-                           "--json", "number,title,url,files")
+    pages, _ = watch.gh_json(target, "api", "graphql", "--paginate", "-F", "owner={owner}",
+                             "-F", "repo={repo}", "-f", f"query={OPEN_PRS_QUERY}")
+    found = []
     try:
-        found = json.loads(out) if code == 0 else []
-    except ValueError:
+        for page in pages:
+            for pr in page["data"]["repository"]["pullRequests"]["nodes"]:
+                if pr["url"] in taken:
+                    continue
+                files = [each["path"] for each in pr["files"]["nodes"]]
+                if pr["changedFiles"] > len(files):
+                    every, _ = watch.pages(target, f"repos/{{owner}}/{{repo}}/pulls/{pr['number']}"
+                                                   "/files?per_page=100")
+                    files = [each["filename"] for each in every]
+                found.append((pr["number"], pr["title"], sorted(files)))
+    except (KeyError, TypeError):
         return []
-    return [(pr["number"], pr["title"], sorted(each["path"] for each in pr.get("files") or []))
-            for pr in found if isinstance(pr, dict) and pr.get("url") not in taken]
+    return found
 
 
 def changed_files(state, directory):

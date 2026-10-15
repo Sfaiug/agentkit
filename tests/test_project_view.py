@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, gitcall, orch, terminal
+from agentkit import config, orch, terminal, watch
 from agentkit import record as run_record
 
 
@@ -30,7 +30,7 @@ class ProjectView(Sandbox):
     def setUp(self):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {config.SESSION_ENV: "fix-api"}))
-        self.stack.enter_context(patch.object(gitcall, "gh", return_value=(1, "")))   # no GitHub
+        self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "no GitHub")))
         self.acme = config.CODE / "acme"
         (self.acme / ".git").mkdir(parents=True)
         (config.CODE / "bramble" / ".git").mkdir(parents=True)
