@@ -392,16 +392,19 @@ Example at 40 columns:
 ## Height
 
 Height is budgeted the way width is, leaving one line for the prompt and one
-to spare. The usage block gives way first, then compact
-mode drops the frame and the blank lines so every number stays reachable.
-Pages start with a collapsed overview (every project header, no numbers),
-then whole seat blocks packed under repeated headers, so a seat's lines never
-split across pages: one taller than a page is cut to it, its last line ending
-in `…`. Rows keep their global numbers. On a terminal the page up is the one
-the highlight is on and the key line says which (`←  1 / 2  →`), and there is
-no overview page, since the highlight is never on it. In a pipe the heading
-says which page is up (`your projects 2/3`), in compact mode the page never the
-part that is cut, and `j` and `k` turn the pages.
+to spare. The usage is always under the header and the key line always last:
+with the keyboard it is at the screen's bottom, above the two lines every draw
+keeps, wherever the rows end. Seats that do not fit between them turn pages,
+whole seat blocks packed under repeated headers, so a seat's lines never split
+across pages: one taller than a page is cut to it, its last line ending in `…`.
+Rows keep their global numbers. A screen too short for the usage block
+and a few rows under it folds it to each subscription's reading, whole, in as
+many lines as the width takes (`Claude I 17% · ChatGPT 74% · Grok —`); one too
+short for that drops the frame and the blank lines too (compact), and only one
+with no room for a seat under its heading even then cuts the readings, ending
+in `· …`. On a terminal the page up is the one the highlight is on and the key
+line says which (`←  1 / 2  →`); in a pipe the heading does (`your projects
+2/3`), the page never the part that is cut, and `j` and `k` turn the pages.
 
 ## Usage rows
 

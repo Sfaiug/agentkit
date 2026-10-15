@@ -251,52 +251,48 @@ class Pages(Sandbox):
 
     def test_pages_fit_the_height_and_rows_keep_their_numbers(self):
         seats = self.seats(12)
-        # A seat's reason rides its own line on a phone, so a narrow page holds fewer
-        # of them than it did when the row was a word and nothing else.
-        for width, height, keys, size, meters, compact in (
-                (40, 24, menu.KEYS, 6, False, False), (100, 30, menu.KEYS, 12, True, False),
-                (40, 12, menu.KEYS, 3, False, True), (30, 14, menu.OVERLAY_KEYS, 3, False, True),
-                (78, 19, menu.OVERLAY_KEYS, 8, False, False),
-                (38, 22, menu.OVERLAY_KEYS, 5, False, False),
-                (38, 10, menu.OVERLAY_KEYS, 1, False, True)):
+        usage = re.compile(r"usage left|^  Claude [—\d]", re.M)   # its block, or its one line
+        # Every page keeps the usage and the keys: the whole block where it fits with a few rows
+        # under it, else its one line; a screen too short for that drops the frame as well.
+        for width, height, keys in (
+                (40, 24, menu.KEYS), (100, 30, menu.KEYS), (40, 12, menu.KEYS),
+                (30, 14, menu.OVERLAY_KEYS), (78, 19, menu.OVERLAY_KEYS),
+                (38, 22, menu.OVERLAY_KEYS), (38, 10, menu.OVERLAY_KEYS)):
             with self.subTest(width=width, height=height):
-                seen, pages = set(), None
+                seen, pages = [], None
                 for page in range(20):
                     lines, (drawn, pages) = self.draw(seats, width, height, page, keys)
                     if page >= pages:
                         self.assertEqual(drawn, pages - 1)     # asked past the end: the last page
                         break
                     self.assertEqual(drawn, page)
+                    text = "\n".join(lines)
                     # the whole page, the prompt and the answer's line are within the height
-                    self.assertLessEqual(len(lines) + 2, height, "\n".join(lines))
+                    self.assertLessEqual(len(lines) + 2, height, text)
                     self.assertTrue(all(terminal.cells(line) <= width for line in lines))
-                    self.assertEqual(("usage left" in "\n".join(lines)), meters)
-                    # the frame header goes only while a page holds a row; past that
-                    # the compact heading is the whole chrome. The commit hash left
-                    # the header, so the frame reads agentkit and the clock.
-                    self.assertEqual(lines[0].startswith("agentkit"), not compact)
-                    if compact:
-                        self.assertIn("your projects", lines[0])
-                    numbers = self.numbers(lines)
-                    if pages > 1 and page == 0:
-                        self.assertFalse(numbers)  # collapsed project overview
-                    else:
-                        start = len(seen) + 1
-                        self.assertEqual(numbers, set(range(start, min(12, start + size - 1) + 1)))
+                    self.assertRegex(text, usage)
+                    # no page without a seat on it, and the numbers run on from page to page
+                    numbers = sorted(self.numbers(lines))
+                    self.assertTrue(numbers, text)
+                    self.assertEqual(numbers, list(range(len(seen) + 1, len(seen) + len(numbers) + 1)))
+                    seen += numbers
                     for key in ("j more", "k previous"):    # on one key line, or on two
                         self.assertEqual(any(key in line for line in lines), pages > 1, key)
-                    heading = next(line for line in lines if "your projects" in line)
                     if pages > 1:
+                        heading = next(line for line in lines if "your projects" in line)
                         self.assertIn(f" {page + 1}/{pages}", heading)
-                    seen |= numbers
-                self.assertEqual(pages, 1 if size >= 12 else 1 + -(-12 // size))
-                self.assertEqual(seen, set(range(1, 13)))
-        # the popup over a seat, one seat listed: the meters give way rather than the title
+                self.assertEqual(seen, list(range(1, 13)))
+        # a screen that holds every seat keeps the whole block, on one page
+        lines, drawn = self.draw(seats, 100, 30)
+        self.assertEqual(drawn, (0, 1))
+        self.assertIn("usage left", "\n".join(lines))
+        # the popup over a seat, one seat listed: the usage keeps every reading, the frame
+        # giving way first
         lines, drawn = self.draw(self.seats(1), 38, 14, keys=menu.OVERLAY_KEYS)
         self.assertEqual(drawn, (0, 1))
         self.assertLessEqual(len(lines) + 2, 14, "\n".join(lines))
-        self.assertNotIn("usage left", "\n".join(lines))
-        self.assertTrue(lines[0].startswith("agentkit"))
+        self.assertRegex("\n".join(lines), usage)
+        self.assertIn("ChatGPT", "\n".join(lines))
         # one page draws exactly what it always drew: no page keys and no range
         lines, drawn = self.draw(self.seats(3), 40, 24)
         self.assertEqual(drawn, (0, 1))
@@ -320,11 +316,12 @@ class Pages(Sandbox):
             self.assertEqual(menu.loop(self.cfg), 0)
         headings = [line.strip() for line in out.getvalue().splitlines() if "your projects" in line]
         base = "your projects · 12 need you"
-        self.assertEqual(headings, [f"{base} 1/5", f"{base} 2/5",
-                                    f"{base} 1/5", f"{base} 2/5",
-                                    f"{base} 3/5", f"{base} 4/5",
-                                    f"{base} 4/5", f"{base} 4/5",
-                                    f"{base} 4/5"])
+        # six pages of two seats each: the usage's one line keeps its row on every page
+        self.assertEqual(headings, [f"{base} 1/6", f"{base} 2/6",
+                                    f"{base} 1/6", f"{base} 2/6",
+                                    f"{base} 3/6", f"{base} 4/6",
+                                    f"{base} 4/6", f"{base} 4/6",
+                                    f"{base} 4/6"])
         self.assertEqual(opened, [LONG_NAME, "seat-03"])   # 12 answered from the first page
         self.assertEqual(stopped, ["seat-11"])
 
