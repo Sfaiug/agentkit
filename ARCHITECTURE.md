@@ -107,7 +107,8 @@
 - `hand_in.py`: checks and renders `ak hand-in` findings, disputes and closings with bounded
   evidence; worker names the channel; run replays proofs, weighs findings, drops disputes.
 - `usage.py`: provider meters, budget, pace, exhaustion, probe cadence, resets,
-  `usage.json`. Offers `collect`, `pick_order`, `mark_exhausted`, `render`. Used by run,
+  `usage.json`, and what a week holds in tokens (`capacity.json`). Offers `collect`,
+  `pick_order`, `mark_exhausted`, `record_pairs`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and Muse call its private helpers.
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by

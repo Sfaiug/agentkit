@@ -583,7 +583,8 @@ def _write(change, fetched_at=None):
 
     The snapshot's own clock, `fetched_at`, stays as it is unless given.  A snapshot that was
     not there is not one anybody assembled, so it starts stale, and the next read assembles the
-    rest rather than answering with one provider for five minutes.
+    rest rather than answering with one provider for five minutes.  Being the one writer, it also
+    keeps the last two windows each weekly meter named (`_windows`).
     """
     cache = config.STATE / "usage.json"
     config.ensure_dirs()
@@ -599,7 +600,8 @@ def _write(change, fetched_at=None):
             fetched_at = _number(blob.get("fetched_at"))
         tmp = cache.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
         try:
-            tmp.write_text(json.dumps({"fetched_at": fetched_at or 0.0, "providers": providers}))
+            tmp.write_text(json.dumps({"fetched_at": fetched_at or 0.0, "providers": providers,
+                                       "windows": _windows(blob.get("windows"), providers)}))
             tmp.replace(cache)
         finally:
             tmp.unlink(missing_ok=True)
@@ -1079,6 +1081,173 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     return True
 
 
+# --- what a window holds in tokens -----------------------------------------------------------
+# A meter says a percent of its window, and what that window holds in tokens nobody publishes.
+# Every worker turn knows both halves: the tokens it spent and the meter's used% before and
+# after it.  `state/capacity.json` keeps those pairs per subscription and meter name, and a
+# meter's window holds the sum of their tokens over the sum of the percent they moved.
+PAIRS = "capacity.json"
+
+
+def reading(provider, account=None):
+    """The meters the snapshot holds for this subscription now: a turn's reading before it."""
+    return _cached_provider(provider, account).get("meters") or []
+
+
+def record_pairs(cfg, name, account, before, tokens, meters, now=None):
+    """Keep what one worker turn of `name` spent beside how far it moved each weekly meter.
+
+    `before` is the subscription's reading from before the turn, and the reading after it is
+    the turn's own `meters`, or where it carried none a probe after it: one the probe's cadence
+    answers with a reading from before the turn ended pairs nothing.  A meter pairs only when
+    both readings name the same reset, one still ahead of the reading after, so both lie in the
+    window the turn ran in: a window a spent usage-limit reset replaced early names a later
+    one.  A meter that did not move pairs the tokens with zero, which keeps the estimate
+    from counting only the turns that moved it.  Only the weekly meters that gate `name` count:
+    Fable's own cap says nothing of an Opus turn.  Returns the pairs written, by meter name.
+    """
+    tokens = _number(tokens)
+    if tokens is None or tokens <= 0 or not before:
+        return {}
+    provider = config.model(cfg, name)["provider"]
+    at = time.time() if now is None else now
+    if not meters:
+        prov = _probe_gently(cfg, provider, account)
+        meters = prov.get("meters") or []
+        taken = _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
+        if taken is None or taken < at:
+            return {}
+        at = taken
+    was = {m.get("name"): m for m in before if isinstance(m, dict)}
+    named = [m for m in meters if isinstance(m, dict) and isinstance(m.get("name"), str)]
+    pairs, read = {}, []
+    for meter in _gating_meters(cfg, name, {provider: {"meters": named}})[0]:
+        old = was.get(meter["name"]) or {}
+        used, prior, ends = (_number(meter.get("used")), _number(old.get("used")),
+                             _number(old.get("resets_at")))
+        if (meter.get("window_secs") == SESSION_SECS or None in (used, prior, ends)
+                or _number(meter.get("resets_at")) != ends or ends <= at or used < prior):
+            continue
+        pairs[meter["name"]] = {"at": at, "tokens": tokens, "moved": used - prior,
+                                "resets_at": ends}
+        read.append((meter, pairs[meter["name"]]))
+    if read:
+        _keep_pairs(provider, account, read)
+    return pairs
+
+
+def _pairs(value):
+    """The well-formed pairs of one meter's list in `capacity.json`."""
+    keys = ("at", "tokens", "moved", "resets_at")
+    return [pair for pair in value if isinstance(pair, dict)
+            and all(_number(pair.get(key)) is not None for key in keys)] \
+        if isinstance(value, list) else []
+
+
+def _measured():
+    try:
+        return _record(json.loads((config.STATE / PAIRS).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return {}
+
+
+def _ends(value):
+    """The window ends one meter's list under the snapshot's `windows` holds."""
+    return [end for end in value if _number(end) is not None] if isinstance(value, list) else []
+
+
+def _windows(seen, providers):
+    """The ends of the last two windows each weekly meter of each subscription has named, from
+    `seen`, what the snapshot held, and the readings in `providers`, what it holds now.
+
+    Kept beside the readings because a window that brought no pair -- no turn ran in it, or
+    nobody knew its turn's tokens -- still stands between the window after it and older pairs
+    (`_recent`).  A meter missing from this reading, its window just rolled over, keeps what
+    it named.
+    """
+    seen = _record(seen)
+    kept = {name: _record(seen.get(name)) for name in providers}
+    for name, prov in providers.items():
+        accounts = _record(prov).get("accounts")
+        for account, record in (accounts.items() if isinstance(accounts, dict) and accounts
+                                else [(None, prov)]):
+            key = account or config.DEFAULT_ACCOUNT
+            held = kept[name][key] = _record(kept[name].get(key))
+            for meter in _record(record).get("meters") or []:
+                ends = _number(meter.get("resets_at")) if isinstance(meter, dict) else None
+                if (ends is not None and isinstance(meter.get("name"), str)
+                        and meter.get("window_secs") != SESSION_SECS):
+                    held[meter["name"]] = sorted({*_ends(held.get(meter["name"])), ends})[-2:]
+    return kept
+
+
+def _seen(provider, account, meter):
+    """What `_windows` holds for this subscription's `meter` in the snapshot."""
+    try:
+        blob = _record(json.loads((config.STATE / "usage.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        blob = {}
+    return _ends(_record(_record(_record(blob.get("windows")).get(provider)).get(
+        account or config.DEFAULT_ACCOUNT)).get(meter))
+
+
+def _recent(pairs, seen, ends, window):
+    """The pairs of the window ending at `ends` and of the window named before it, by a reading
+    (`seen`, `_windows`) or by a pair.
+
+    That one is the window before only while it ended no earlier than this one began: a reset
+    spent early ends it later than that, and a week nobody read leaves an older one, which
+    counts for nothing.  Its length unknown, the window named before is the one before.
+    """
+    if ends is None:
+        return []
+    before = max((end for end in {*seen, *(pair["resets_at"] for pair in pairs)}
+                  if end < ends and (window is None or end >= ends - window)), default=None)
+    return [pair for pair in pairs if pair["resets_at"] in (ends, before)]
+
+
+def _keep_pairs(provider, account, read):
+    """Add one turn's pairs, `(meter, pair)` by the reading after it, keeping each meter's
+    latest window and the one before it.
+
+    The latest is the latest any reading or pair named, not this turn's: a turn recording late
+    must not drop a later window's pairs.
+    """
+    path = config.STATE / PAIRS
+    config.ensure_dirs()
+    with path.with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        blob = _measured()
+        held = blob[provider] = _record(blob.get(provider))
+        meters = held[account or config.DEFAULT_ACCOUNT] = _record(
+            held.get(account or config.DEFAULT_ACCOUNT))
+        for meter, pair in read:
+            kept = [*_pairs(meters.get(meter["name"])), pair]
+            seen = _seen(provider, account, meter["name"])
+            meters[meter["name"]] = _recent(kept, seen,
+                                            max([*seen, *(p["resets_at"] for p in kept)]),
+                                            _number(meter.get("window_secs")))
+        tmp = path.with_suffix(f".tmp-{os.getpid()}-{next(_WRITES)}")
+        try:
+            tmp.write_text(json.dumps(blob))
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+
+def holds(provider, account, meter):
+    """(the tokens 100% of this subscription's `meter`, a reading's, stands for, the pairs it is
+    measured from): those of the window the reading names and the one before it (`_recent`),
+    the first None while none of them moved it, or with no meter read."""
+    name = meter.get("name")
+    pairs = _recent(_pairs(_record(_record(_measured().get(provider)).get(
+        account or config.DEFAULT_ACCOUNT)).get(name)), _seen(provider, account, name),
+        _number(meter.get("resets_at")), _number(meter.get("window_secs")))
+    moved = sum(pair["moved"] for pair in pairs)
+    return (round(100 * sum(pair["tokens"] for pair in pairs) / moved) if moved > 0 else None,
+            len(pairs))
+
+
 def account(cfg, provider):
     """(the account a worker turn on this provider runs on, whether it has room left).
 
@@ -1428,8 +1597,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 # `resets` is when the shared week opens again, the same answer the menu row gives after that
 # same word, off the same meter.  The usage-limit credits that used to hold that heading are
 # `resets held`, which is what every note about them already says in longer words.  `left`
-# names no week, because not every window is one: MiMo's plan runs thirty days.
-HEADERS = ("provider", "model(s)", "left", "resets", "week elapsed", "session",
+# names no week, because not every window is one: MiMo's plan runs thirty days.  `holds` is
+# the tokens that shared week holds, as ak's own turns measured them (`record_pairs`).
+HEADERS = ("provider", "model(s)", "left", "holds", "resets", "week elapsed", "session",
            "resets held", "headroom", "budget", "outlook")
 
 
@@ -1445,6 +1615,22 @@ def _left(used):
 
 def _num(value, places):
     return "-" if value is None else f"{value:.{places}f}"
+
+
+def _held(tokens, meter):
+    """`week ≈ 310M tokens`, what all of `meter`'s window holds, in two significant digits and
+    an SI letter; `-` while unmeasured.  A window that is not a week says its length: `30d`."""
+    if tokens is None:
+        return "-"
+    shown, letter = float(f"{tokens:.2g}"), ""
+    for step in "kMGT":
+        if shown < 1000:
+            break
+        shown, letter = shown / 1000, step
+    window = _number(meter.get("window_secs"))
+    named = "week" if window in (None, 7 * 86400) else terminal.format_age(window)
+    about = "≈" if terminal.utf8() else "~"
+    return f"{named} {about} {shown:.{0 if shown >= 10 else 1}f}{letter} tokens"
 
 
 def _budget_label(value, reason):
@@ -1565,14 +1751,15 @@ def outlook(prov):
 
 
 def _accounts(cfg, providers):
-    """(label, provider, record) per provider, and per account of one that lists several."""
+    """(label, provider, record, account) per provider, and per account of one that lists
+    several: the account None for a provider with one login."""
     for name, prov in providers.items():
         accounts = prov.get("accounts")
         if isinstance(accounts, dict) and accounts:
-            yield from ((config.account_label(cfg, name, account, name), name, record)
+            yield from ((config.account_label(cfg, name, account, name), name, record, account)
                         for account, record in accounts.items())
         else:
-            yield name, name, prov
+            yield name, name, prov, None
 
 
 def rows(cfg, providers):
@@ -1580,19 +1767,22 @@ def rows(cfg, providers):
 
     `left` is the tightest weekly meter, because that is what the picker ranks on;
     `resets` is the shared week's, because that is the week the menu row names and the two
-    must say the same thing.  On a split allowance they can be different meters, which is why
-    the two lines under the table print both.  A provider with several accounts is a row per
-    account, `anthropic II`, each on its own meters.
+    must say the same thing, and `holds` is the tokens that same week holds.  On a split
+    allowance they can be different meters, which is why the two lines under the table print
+    both.  A provider with several accounts is a row per account, `anthropic II`, each on its
+    own meters and its own pairs.
     """
     now = time.time()
     out = []
-    for label, name, prov in _accounts(cfg, providers):
+    for label, name, prov, account in _accounts(cfg, providers):
         week = _weekly(prov)
         session = _worst([m for m in prov.get("meters") or []
                           if m.get("window_secs") == SESSION_SECS])
+        shared = shared_week(cfg, name, prov, now) or {}
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    reset_when(shared_week(cfg, name, prov, now), now) or "-",
+                    _held(holds(name, account, shared)[0], shared),
+                    reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
                     _num(_number(prov.get("resets")), 0),
@@ -1618,13 +1808,13 @@ def render(cfg, providers, order, *, repo=None):
     widths = [max(len(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
-        table[0] = ("provider", "model(s)", "left", "resets", "elapsed", "session",
+        table[0] = ("provider", "model(s)", "left", "holds", "resets", "elapsed", "session",
                     "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
         # an account's row keeps its whole name: `anthropic I…` would not say which one it is
-        named = max((terminal.cells(label) for label, name, _ in _accounts(cfg, providers)
+        named = max((terminal.cells(label) for label, name, *_ in _accounts(cfg, providers)
                      if label != name), default=0)
-        for i, cap in ((1, 14), (0, max(12, named)), (9, 18)):   # model(s), provider, outlook
+        for i, cap in ((1, 14), (0, max(12, named)), (10, 18)):   # model(s), provider, outlook
             widths[i] = min(widths[i], cap)
     if sum(widths) + len(widths) - 1 <= width:
         lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
@@ -1659,12 +1849,12 @@ def render(cfg, providers, order, *, repo=None):
                                                   for n, value in budgets))
     # the numbers say the provider is unknown; only the adapter can say why -- and a
     # refusal is not a why, so an error that only says the probe was refused says nothing
-    lines += [f"note: {name} {prov['error']}" for name, _, prov in _accounts(cfg, providers)
+    lines += [f"note: {name} {prov['error']}" for name, _, prov, _ in _accounts(cfg, providers)
               if prov.get("error") and not refusal_text(prov, prov["error"])]
     # ... and a reading older than half an hour says when it was taken, in the menu row's
     # own words -- while a meter of it remains; a probe the endpoint would not answer says
     # nothing about that at all
-    for name, _, prov in _accounts(cfg, providers):
+    for name, _, prov, _ in _accounts(cfg, providers):
         note = as_of(prov, now)
         meters = prov.get("meters") or []
         if note and any(not _past(meter, now) for meter in meters):
@@ -1672,7 +1862,7 @@ def render(cfg, providers, order, *, repo=None):
     # a reset the owner spent, for as long as the meters it went and re-read stay cached
     lines += [f"{name}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]
-    lines += [f"{name}: {credits_note(prov)}" for name, _, prov in _accounts(cfg, providers)
+    lines += [f"{name}: {credits_note(prov)}" for name, _, prov, _ in _accounts(cfg, providers)
               if credits_note(prov)]
     lines.append("pick order: " + (", ".join(order) if order else "(none: every worker's provider is exhausted)"))
     pair = review_pair(cfg, providers)
@@ -1696,6 +1886,9 @@ def main(argv):
     repo = Path.cwd().name
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
+        for _, name, prov, account in _accounts(cfg, providers):
+            prov["capacity_tokens"], prov["capacity_pairs"] = holds(
+                name, account, shared_week(cfg, name, prov) or {})
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)
         print()

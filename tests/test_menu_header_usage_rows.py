@@ -222,7 +222,7 @@ class UsageRow(Sandbox):
             if width == 40:      # the phone's label/value pairs carry the full heading
                 self.assertIn("  left          21%", rendered)
             else:
-                self.assertRegex(rendered, r"(?m)^provider +model\(s\) +left +resets ")
+                self.assertRegex(rendered, r"(?m)^provider +model\(s\) +left +holds +resets ")
             # the split-week detail says what is left too (wrapped on a phone); the gap stays
             # in points of the week
             self.assertIn("weekly_all 21% left, weekly_scoped 47% left, gap 26", " ".join(rendered.split()))
