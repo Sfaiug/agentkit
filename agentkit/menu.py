@@ -2217,8 +2217,12 @@ CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mar
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
                "still": ("↑↓ move", "arrows move"),
                "label": ("↑↓←→ move   ⏎ open", "arrows move   enter open")}
-# A model's own screen: the two values ←/→ step, then the one that asks first.
-MODEL_ROWS = ("model id", "effort", "Remove")
+# A model's own screen: the values ←/→ step, then the one that asks first; the role whose
+# effort each effort among them sets (its key: config.ROLE_EFFORTS), a worker's reading `same`
+# while its key is unset.
+MODEL_ROWS = ("model id", "effort", "executes at", "reviews at", "Remove")
+EFFORT_ROWS = {"effort": "orchestrator", "executes at": "executor", "reviews at": "reviewer"}
+SAME = "same"
 MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right choose"),
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
 REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
@@ -2473,25 +2477,36 @@ def _saved(cfg, table, before):
     return ""
 
 
-def config_effort(cfg, name, step, wrap=False):
-    """`name`'s effort one step along that model's own efforts (config.efforts), never past
-    either end unless `wrap` takes it round to the other, and saved; one set to an effort it
-    does not take lands on its first.  The efforts are read `now`, off the catalog already in
-    hand (config.catalog_now): a listing never stands between the key and its frame.  What to
-    say under the matrix, or ""."""
-    entry = cfg["models"][name]
+def config_effort(cfg, name, step, wrap=False, role="orchestrator"):
+    """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
+    key is unset) one step along that model's own efforts (config.efforts), never past either
+    end unless `wrap` takes it round to the other, and saved; one set to an effort it does not
+    take lands on its first, and a worker's stepped onto the effort itself is unset again
+    (_follows), while the effort's own step moves no other key.  The efforts are read `now`,
+    off the catalog already in hand (config.catalog_now): a listing never stands between the
+    key and its frame.  What to say under the matrix, or ""."""
+    entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"), now=True)
     except config.Error as exc:
         return f"config: {exc}"
-    current = entry.get("effort")
+    current = entry.get(key, entry.get("effort"))
     at = levels.index(current) + step if current in levels else 0
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
     before = dict(entry)
-    entry["effort"] = levels[at]
+    entry[key] = levels[at]
+    _follows(entry, [key])
     return _saved(cfg, entry, before)
+
+
+def _follows(entry, keys):
+    """Each of `keys`, a role's effort key (config.ROLE_EFFORTS), that sits on the effort
+    itself is unset: `same`, it follows the effort again; the effort is the one followed."""
+    for key in keys:
+        if key != "effort" and entry.get(key) == entry.get("effort"):
+            del entry[key]
 
 
 def _nearest(effort, levels):
@@ -2516,8 +2531,8 @@ def _offered(harness, *screen):
 
 def config_model_id(cfg, name, step, screen):
     """`name`'s model id one step along the models its harness's catalog lists (_offered),
-    never past either end, and saved with its efforts following it (_nearest): `effort`, and
-    `exec_effort` and `review_effort` where set; an id not among them lands on the first.  `screen` is what waits on the catalog (`waited`).  What to
+    never past either end, and saved with the efforts that follow it (_nearest); an id not
+    among them lands on the first.  `screen` is what waits on the catalog (`waited`).  What to
     say under the screen, or ""."""
     entry = cfg["models"][name]
     try:
@@ -2535,6 +2550,7 @@ def config_model_id(cfg, name, step, screen):
     for key in config.ROLE_EFFORTS.values():     # a role's own key follows only where it is set
         if key == "effort" or key in entry:
             entry[key] = _nearest(entry.get(key), levels)
+    _follows(entry, config.ROLE_EFFORTS.values())
     return _saved(cfg, entry, before)
 
 
@@ -2542,14 +2558,17 @@ def model_body(cfg, name, at=None):
     """A model's own screen's lines, and where its rows sit on them: {line: (row, cells)}, the
     cells `left` and `right` the arrows of the value on that line, counted from 1 (`under`).
 
-    Its model id and its effort, each between the arrows that step it, then `Remove` and
-    its reviewing so far; `at` is the highlighted row. On a phone, where a label and its
-    value do not fit on one line, the value goes under its label.
+    Its model id, its effort and the efforts it executes and reviews at, each between the
+    arrows that step it, then `Remove` and its reviewing so far; `at` is the highlighted row.
+    On a phone, where a label and its value do not fit on one line, the value goes under its
+    label.
     """
     entry, room = cfg["models"][name], terminal.layout_width()
     arrows = "‹ {} ›" if terminal.utf8() else "< {} >"
     values = [arrows.format(value) for value in (
-        entry.get("model", "?"), entry.get("effort", "?"))] + [""]
+        entry.get("model", "?"), entry.get("effort", "?"),
+        *(entry.get(config.ROLE_EFFORTS[EFFORT_ROWS[row]], SAME)
+          for row in MODEL_ROWS[2:4]))] + [""]
     wide = max(terminal.cells(row) for row in MODEL_ROWS)
     under = 2 + wide + 2 + max(terminal.cells(value) for value in values) > room
     lines, places = [], {}
@@ -2559,6 +2578,8 @@ def model_body(cfg, name, at=None):
         parts = ([f"  {row}", f"    {value}"] if under and value
                  else [f"  {terminal.pad(row, wide)}  {value}".rstrip()])
         last = first + terminal.cells(value) - 1
+        if row in MODEL_ROWS[2:4] and config.ROLE_EFFORTS[EFFORT_ROWS[row]] not in entry:
+            parts[-1] = parts[-1].replace(SAME, terminal.styled(SAME, "dim"))
         for number, line in enumerate(parts):
             places[len(lines)] = (row, [(first, first + 1, "left"), (last - 1, last, "right")]
                                   if number == len(parts) - 1 and value else [])
@@ -2573,11 +2594,11 @@ def model_body(cfg, name, at=None):
 
 @terminal.clicks_its_own
 def config_model(cfg, name):
-    """`config · <name>`: one model's id and effort, and `Remove`, read with the matrix's
-    keys until Esc, each change saved and drawn at once.
+    """`config · <name>`: one model's id, its effort, the efforts it executes and reviews at,
+    and `Remove`, read with the matrix's keys until Esc, each change saved and drawn at once.
 
     ↑/↓, k/j and the wheel move between rows and ←/→ step the value on one: the id through
-    its harness's catalog (config.catalog) and nothing else, the effort through that model's
+    its harness's catalog (config.catalog) and nothing else, each effort through that model's
     own (config.efforts).  Nothing is typed, so no id or effort ak does not offer is ever
     written.  Enter on `Remove` asks `Keep` or `Remove` under it, `Keep` picked and Esc
     keeping it; the last model is refused without asking, and one removed goes back to the
@@ -2593,7 +2614,7 @@ def config_model(cfg, name):
         entry = cfg["models"][name]
         spots = terminal.frame(title, shown, keys, places=places, tips={
             ("model id", None): terminal.TIPS["model id"].format(harness=entry.get("harness")),
-            ("effort", None): terminal.TIPS["effort"].format(name=name)})
+            **{(row, None): terminal.TIPS[row].format(name=name) for row in EFFORT_ROWS}})
         key = terminal.read_key()
         if key is None:
             continue                  # a resize: drawn again at the new size
@@ -2627,13 +2648,13 @@ def config_model(cfg, name):
                 before = copy.deepcopy(cfg)
                 config.remove_model(cfg, name)
                 note = _saved(cfg, cfg, before)
-        elif here in MODEL_ROWS[:2] and act in ("left", "right") and not terminal.unseen():
+        elif here != "Remove" and act in ("left", "right") and not terminal.unseen():
             step = 1 if act == "right" else -1
             try:
                 note = (config_model_id(cfg, name, step, (
                     title, lambda: model_body(cfg, name, here)[0], keys))
                         if here == "model id"
-                        else config_effort(cfg, name, step))
+                        else config_effort(cfg, name, step, role=EFFORT_ROWS[here]))
             except Back:
                 return                # Esc while the catalog was asked
 

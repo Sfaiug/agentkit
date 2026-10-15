@@ -188,7 +188,7 @@ class QuestionCard(unittest.TestCase):
         cfg["providers"]["anthropic"]["accounts"] = ["default", "b2"]
         with patch.object(terminal, "confirm", side_effect=confirm), \
                 patch.object(terminal, "read_key",
-                             side_effect=[Key("down"), Key("down"), Key("enter"), Key("esc")]), \
+                             side_effect=[*[Key("down")] * 4, Key("enter"), Key("esc")]), \
                 patch.object(terminal, "choose", side_effect=["ChatGPT", "Claude II"]), \
                 redirect_stdout(io.StringIO()):
             menu.config_model(cfg, "opus")
