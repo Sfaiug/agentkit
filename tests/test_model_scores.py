@@ -1,10 +1,11 @@
 """`ak models` scores every row per role and recommends one row per role.
 
-A column is a share of the best among the rows ak can run (100; below zero, 0); a role's score
-is the mean of the role's measures the row has, said with how many it rests on; the
-recommendation is the row resting on the most measures, then the highest score, then the
-faster, then the cheaper.  The table shows `97 of 3` per role, the recommendation under it, and
-what each role is scored on.
+A column is a share of the best among the rows ak can run (100; zero or below, 0, still
+counted); a role's score is the mean of the role's measures the row has, said with how many it
+rests on; the recommendation is a row a board measured at its effort before one that only
+inherits a board naming no effort, then the row resting on the most measures, then the highest
+score, then the faster, then the cheaper, an unknown speed or cost last.  The table shows
+`97 of 3` per role, the recommendation under it, and what each role is scored on.
 
 Offline: the boards' answers are handed in as bytes (tests/test_model_matrix.py's), the harness
 catalogs and the installed harnesses are faked (tests/test_model_rows.py's), a throwaway HOME.
@@ -69,6 +70,11 @@ class ModelScores(Sandbox):
         # the configured xhigh rests on fewer measures: no Arena row at that effort
         self.assertEqual(rows["opus @ xhigh"]["scores"]["orchestrate"], {"score": 100.0, "measures": 2})
         self.assertIsNone(rows["claude-opus-4-7"]["scores"]["review"])
+        # a measure no row has above zero scores 0 and still counts
+        table = [{"values": {"arena.agent": -0.1, "livebench.long_horizon": 40}},
+                 {"values": {"livebench.long_horizon": 100}}]
+        matrix.scored(table)
+        self.assertEqual(table[0]["scores"]["orchestrate"], {"score": 20.0, "measures": 2})
 
     def test_the_recommendation_rests_on_the_most_measures_then_score_speed_and_cost(self):
         _, _, rows, recommended = self.scored()
@@ -85,10 +91,32 @@ class ModelScores(Sandbox):
         rows["opus @ xhigh"]["values"][matrix.SPEED] = 95
         rows["opus @ xhigh"]["values"][matrix.COST] = 1.0
         self.assertEqual(matrix.row_label(matrix.scored(table)["execute"]), "opus @ xhigh")
+        # an unknown cost ranks after every measured one, and so does an unknown speed
+        del rows["opus @ xhigh"]["values"][matrix.COST]
+        self.assertEqual(matrix.row_label(matrix.scored(table)["execute"]), "claude-opus-5-5 @ max")
+        rows["opus @ xhigh"]["values"][matrix.COST] = 1.0
+        del rows["opus @ xhigh"]["values"][matrix.SPEED]
+        self.assertEqual(matrix.row_label(matrix.scored(table)["execute"]), "claude-opus-5-5 @ max")
         # a higher score on fewer measures never beats a row resting on more
-        rows["opus @ xhigh"]["scores"]["orchestrate"] = {"score": 100.0, "measures": 1}
+        rows["opus @ xhigh"]["values"]["aa.evaluations.artificial_analysis_agentic_index"] = 75
         self.assertEqual(matrix.row_label(matrix.scored(table)["orchestrate"]), "claude-opus-5-5 @ max")
+        self.assertGreater(rows["opus @ xhigh"]["scores"]["orchestrate"]["score"],
+                           rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"]["score"])
         self.assertEqual(matrix.scored([]), {})
+
+    def test_a_row_measured_at_its_effort_beats_one_that_only_inherits_a_board_naming_no_effort(self):
+        _, table, rows, _ = self.scored()
+        # LiveBench names no effort: spark's one board is inherited, while Haiku's row at none
+        # is the board's own
+        self.assertEqual([rows[label]["measured"] for label in
+                          ("claude-opus-5-5 @ max", "claude-haiku-4-5 @ none", "spark @ xhigh")],
+                         [True, True, False])
+        rows["spark @ xhigh"]["values"] = {**rows["claude-opus-5-5 @ max"]["values"],
+                                           "livebench.coding": 99}
+        recommended = matrix.scored(table)
+        self.assertGreater(rows["spark @ xhigh"]["scores"]["execute"]["score"],
+                           rows["claude-opus-5-5 @ max"]["scores"]["execute"]["score"])
+        self.assertEqual(matrix.row_label(recommended["execute"]), "claude-opus-5-5 @ max")
 
     def test_the_table_says_each_score_with_its_measures_and_the_recommendation(self):
         held, table, _, recommended = self.scored()

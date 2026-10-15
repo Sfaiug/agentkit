@@ -22,10 +22,12 @@ extends with a version (`acme-pro` for `acme-pro-1.0`); `benchmark` on a config 
 board's model on a board where neither fits.  A board's row at another effort never stands in.
 
 A column is scored as a share of the best value among the rows ak can run (the best is 100,
-below zero is 0); a role's score is the mean of the role's measures the row has, said with how
-many it rests on (`97 of 3`); the recommendation for a role is the row resting on the most of
-its measures, then the highest score, then the faster row, then the cheaper.  `ROLES` names
-each role's measures and why; ak's own run numbers never rank (AGENTS.md, Owner rules).
+zero or below is 0); a role's score is the mean of the role's measures the row has, said with
+how many it rests on (`97 of 3`); the recommendation for a role is a row a board measured at its
+effort before one that only inherits a board naming no effort, then the row resting on the most
+of the role's measures, then the highest score, then the faster row, then the cheaper, an
+unknown speed or cost after every measured one.  `ROLES` names each role's measures and why;
+ak's own run numbers never rank (AGENTS.md, Owner rules).
 Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 """
 
@@ -33,6 +35,7 @@ import csv
 import fcntl
 import io
 import json
+import math
 import re
 import sys
 import time
@@ -256,7 +259,8 @@ def matching(index, model, effort, benchmark=None):
 
 def rows(cfg, boards):
     """One row per model and effort the installed harnesses offer, with the config name that
-    runs it, every board's numbers it matches and which board model each came from."""
+    runs it, every board's numbers it matches, which board model each came from and whether a
+    board measured it at its effort (`measured`; a row at none, when the board names none)."""
     indexes = {}
     for board, held in boards.items():
         for row in held.get("rows") or []:
@@ -287,28 +291,32 @@ def rows(cfg, boards):
             for effort in sorted(efforts, key=lambda word: -EFFORT_ORDER.index(word)
                                  if word in EFFORT_ORDER else 1) or [None]:
                 row = {"harness": harness, "model": model, "effort": effort,
-                       "name": names.get((harness, model, effort)), "values": {}, "matched": {}}
+                       "name": names.get((harness, model, effort)), "values": {}, "matched": {},
+                       "measured": False}
                 for board, index in indexes.items():
                     hit = matching(index, model, effort, benchmark)
                     if hit is not None:
                         row["values"].update(hit["values"])
                         row["matched"][board] = hit["model"] + (f" ({hit['effort']})"
                                                                if hit["effort"] else "")
+                        row["measured"] |= hit["effort"] == effort
                 table.append(row)
     return table
 
 
 def scored(table):
     """Each row's `scores`, {role: {"score", "measures"}} or None where no measure of the role
-    is there, and the recommendation per role: the row resting on the most of the role's
-    measures, then the highest score, then the faster, then the cheaper."""
+    is there, and the recommendation per role: a row measured at its effort before one that only
+    inherits, then the row resting on the most of the role's measures, then the highest score,
+    then the faster, then the cheaper, an unknown speed or cost after every measured one."""
     best = {}
     for row in table:
         for column, value in row["values"].items():
             best[column] = max(best.get(column, 0), value)
     for row in table:
-        shares = {column: 100 * max(value, 0) / best[column]
-                  for column, value in row["values"].items() if best.get(column, 0) > 0}
+        # zero or below scores 0 and still counts: Arena's net improvement can be negative
+        shares = {column: 100 * max(value, 0) / best[column] if best[column] > 0 else 0.0
+                  for column, value in row["values"].items()}
         row["scores"] = {}
         for role, columns in ROLES.items():
             have = [shares[column] for column, _ in columns if column in shares]
@@ -319,8 +327,9 @@ def scored(table):
         ranked = [row for row in table if row["scores"][role] is not None]
         if ranked:
             recommended[role] = max(ranked, key=lambda row: (
-                row["scores"][role]["measures"], row["scores"][role]["score"],
-                row["values"].get(SPEED, 0), -row["values"].get(COST, 0)))
+                row.get("measured", False), row["scores"][role]["measures"],
+                row["scores"][role]["score"], row["values"].get(SPEED, -math.inf),
+                -row["values"].get(COST, math.inf)))
     return recommended
 
 
@@ -381,8 +390,9 @@ def render(table, boards, recommended):
         lines.append("no recommendation yet: no board has a row ak can run")
     lines.append(terminal.styled(
         "a score is the mean share of the best over the measures the boards give that row, "
-        "`97 of 3`; a row resting on more measures is recommended before a higher score on "
-        "fewer, then the faster, then the cheaper", "dim"))
+        "`97 of 3`; a row a board measured at its effort is recommended before one that only "
+        "inherits a board naming no effort, then more measures before a higher score on fewer, "
+        "then the faster, then the cheaper", "dim"))
     for role, columns in ROLES.items():
         lines.append(terminal.styled(f"{role}, {len(columns)} measures: " + ", ".join(
             f"{column} ({why})" for column, why in columns), "dim"))
