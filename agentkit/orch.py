@@ -2702,23 +2702,25 @@ def sweep(log):
 
 def forget_seat(name, record, log=lambda _: None):
     """Take a seat that is already gone off the host: its record, every state file of its own
-    but its locks, its card and its seat file, what its harness held for it, and the pointers a
-    rename left leading to it.
+    but its locks and its card, what its harness held for it, and the pointers a rename left
+    leading to it.
 
     The second half of ending a seat, and the only thing that frees its name: `cmd_stop` on a
     seat it already stopped, and `sweep` a week after.  Nothing is typed into a seat with no
     pane, so no typing lock is taken here; the lock files stay, so a seat opened under the name
-    again uses the inodes writers already hold or wait on.  The seat file stays for the stop
-    mark in it: a hand-back of the seat's runs reads it (`watch.seat_closed_by_owner`) and
-    waits rather than ask the owner to continue a seat they removed; the collector takes the
-    file a day after its last write once no hand-back waits on it (`gc.stale_seat_files`), and a
-    launch under the name clears the mark.  The card is closed here where Discord takes the
-    edit, and is the tick's to close where it does not.
+    again uses the inodes writers already hold or wait on.  The seat file goes with the rest
+    and comes back holding the stop mark alone, where there was one: a hand-back of the seat's
+    runs reads it (`watch.seat_closed_by_owner`) and waits rather than ask the owner to
+    continue a seat they removed, while nothing else of the seat's live state -- its wait, its
+    turn -- is left for a seat opened under the name to be told; the collector takes the mark
+    a day later once no hand-back waits on it (`gc.stale_seat_files`), and a launch under the
+    name clears it.  The card is closed here where Discord takes the edit, and is the tick's
+    to close where it does not.
     """
-    from . import notify
+    from . import notify, watch
+    closed = watch.seat_read(name)
     for path in session_owned_files(name):
-        if (path == config.card_path(name) or path == config.seat_state_path(name)
-                or path.suffix == ".lock"):
+        if path == config.card_path(name) or path.suffix == ".lock":
             continue
         if not retention.safe(path.parent.resolve() / path.name):
             continue
@@ -2726,6 +2728,8 @@ def forget_seat(name, record, log=lambda _: None):
             path.unlink(missing_ok=True)
         except OSError as exc:
             log(f"WARN could not remove {path.name}: {exc}")
+    if closed.get("closed_by_owner"):
+        watch.seat_write(name, stopped_at=closed.get("stopped_at"), closed_by_owner=True)
     notify.forget_card(name, log)     # its questions on Discord closed, not left standing
     seat_plugin(record).forget(record)
     drop_aliases(name)
@@ -3244,7 +3248,7 @@ def session_owned_files(name):
     The kind is the first component and the name the rest, so stopping `fix`
     takes `hook-fix.json` but leaves `session-atoll-fix.json`, `browser-tabs.json`
     and `<provider>-reset.json` alone. The seat-state file is included: a rename
-    moves it, and `forget_seat` leaves it for the stop mark in it, the one record
+    moves it, and `forget_seat` writes the stop mark back into it, the one record
     a later hand-back still reads.
     """
     name = config.normalize_session(name)
@@ -3280,10 +3284,10 @@ def cmd_stop(argv):
     tabs with no recorded opener are left to the idle rule.
 
     A stop on a seat already stopped -- `x` on its row again, `ak orch stop` again -- is the
-    other half: `forget_seat` takes the record, the state files but the locks and the seat file
-    with the stop mark, what the harness held for it and the pointers a rename left, and the
-    name is free again.  `sweep` does the same a week after the stop.  Those two are the only
-    things that end a seat for good, and the first is only ever the user's doing.
+    other half: `forget_seat` takes the record, the state files but the locks, what the harness
+    held for it and the pointers a rename left, leaving the stop mark alone in the seat file,
+    and the name is free again.  `sweep` does the same a week after the stop.  Those two are
+    the only things that end a seat for good, and the first is only ever the user's doing.
 
     A record is enough on its own to stop: it is what holds the name, whether or not tmux still
     has the session -- a restarted server leaves nothing to kill -- and whether or not there was

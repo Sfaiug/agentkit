@@ -3321,8 +3321,9 @@ OWNER_CLOSED_REASON = "session closed by the owner"
 def seat_stopped_at(name):
     """When the owner stopped that seat (`orch.cmd_stop`, `orch.mark_owner_closed`), or None.
 
-    The mark lives in the seat's state file, which outlives the seat's record (`orch.forget_seat`)
-    for a hand-back of its runs to read, and a launch under the name clears it again.
+    The mark lives in the seat's state file, and alone there once the seat's record is gone
+    (`orch.forget_seat`), for a hand-back of its runs to read; a launch under the name clears
+    it again.
     """
     return seat_read(name).get("stopped_at") or None
 

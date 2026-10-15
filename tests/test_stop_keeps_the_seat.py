@@ -1,9 +1,9 @@
 """`ak orch stop` keeps the seat: its record and state files stay with the stop mark, written
 before the tmux session goes, the listing offers it with `closed` set for its number to reopen
 it -- whether or not its harness can resume it -- its name stays taken, and the card `x` asks on
-says so.  A second stop takes it off the list: the record, every state file but the locks and
-the seat file with the stop mark, the pointers a rename left and what its harness held, and the
-name is free again.
+says so.  A second stop takes it off the list: the record, every state file but the locks, the
+pointers a rename left and what its harness held, and the name is free again; the stop mark
+alone comes back into the seat file, nothing else of its live state with it.
 
 Offline: a throwaway HOME, tmux faked, no runs and no real seat.
 """
@@ -75,6 +75,8 @@ class StopKeepsTheSeat(Sandbox):
 
     def test_a_second_stop_removes_the_seat_and_frees_its_name(self):
         self.stop()
+        watch.seat_write(SEAT, wait={"on": "https://github.com/acme/acme/pull/7", "kind": "pr"})
+        stopped = watch.seat_read(SEAT)["stopped_at"]
         plugin = MagicMock()
         plugin.reconcile.return_value = {}
         with patch.object(orch, "seat_plugin", side_effect=lambda record: plugin):
@@ -85,9 +87,11 @@ class StopKeepsTheSeat(Sandbox):
         for kind in KINDS:
             self.assertFalse(config.seat_file(kind, SEAT).exists(), kind)
         self.assertTrue(self.lock.exists())              # a reopened name keeps its lock inodes
-        # the stop mark stays: a hand-back of its runs waits on it rather than ask the owner to
-        # continue a seat they removed; the collector takes it a day later
-        self.assertTrue(watch.seat_closed_by_owner(SEAT))
+        # the stop mark alone stays: a hand-back of its runs waits on it rather than ask the
+        # owner to continue a seat they removed, and a seat opened under the name is told
+        # nothing of this one's wait; the collector takes the mark a day later
+        self.assertEqual(watch.seat_read(SEAT), {"session": SEAT, "stopped_at": stopped,
+                                                 "closed_by_owner": True})
         plugin.forget.assert_called_once()
         self.assertEqual(plugin.forget.call_args[0][0]["conversation"], "conv-1")
         self.assertEqual(orch.listing(reconcile=False), [])

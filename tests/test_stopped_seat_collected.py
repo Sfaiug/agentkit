@@ -2,8 +2,8 @@
 
 The week runs from the stop, not from the seat's last sighting in tmux: a seat long gone from
 tmux that the owner stops today keeps its row and its number the whole week, and `orch.sweep`
-takes it the day the week is out -- the record, every state file but the locks and the seat
-file with the stop mark -- so the name is free again.
+takes it the day the week is out -- the record, every state file but the locks, the stop mark
+alone written back into the seat file -- so the name is free again.
 
 Offline: a throwaway HOME, tmux faked, the clock injected, no runs and no real seat.
 """
@@ -58,6 +58,7 @@ class StoppedSeatCollected(Sandbox):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop([SEAT]), 0)
         self.assertEqual(watch.seat_read(SEAT).get("stopped_at"), NOW)
+        watch.seat_write(SEAT, wait={"on": "https://github.com/acme/acme/pull/7", "kind": "pr"})
         # stopped today: the sweep that runs next leaves it, and so does the one the day before
         # the week is out, its row and its number with it
         for at in (NOW, NOW + config.SESSION_STALE - 86400):
@@ -67,15 +68,16 @@ class StoppedSeatCollected(Sandbox):
             self.assertEqual([(row["name"], row["closed"]) for row in orch.listing()],
                              [(SEAT, NOW)])
             self.assertIn(SEAT, orch.taken_names())
-        # the week is out: the record and the files go, the locks and the stop mark stay for
-        # the collector, and the name is free
+        # the week is out: the record and the files go, the locks stay and the stop mark alone
+        # comes back for the collector, and the name is free
         self.sweep(NOW + config.SESSION_STALE)
         self.assertEqual(self.swept, [f"forgot the session {SEAT}, gone for 7d"])
         self.assertFalse(config.session_path(SEAT).exists())
         for kind in KINDS:
             self.assertFalse(config.seat_file(kind, SEAT).exists(), kind)
         self.assertTrue(self.lock.exists())
-        self.assertTrue(watch.seat_closed_by_owner(SEAT))
+        self.assertEqual(watch.seat_read(SEAT), {"session": SEAT, "stopped_at": NOW,
+                                                 "closed_by_owner": True})
         self.assertEqual(orch.listing(), [])
         self.assertNotIn(SEAT, orch.taken_names())
 
