@@ -1,9 +1,10 @@
-"""The highlighted seat on the `ak` screen opens its live line under its row.
+"""The highlighted seat on the `ak` screen opens its line under its row.
 
-The line is the seat bar's second line (`statusbar.live`) at the row's width, indented under the
-name and lit as the row is; no other row grows, and the height kept for it means no page
-overflows or turns as the highlight moves.  The orchestrator column draws each model in its
-company's colour.  Offline: fake seats and run records, the real renderer.
+For a working seat the line says who builds and who reviews and draws each task in flight as its
+squares (`menu.detail`), indented under the name and lit as the row is, never a task's name; no
+other row grows, and the height kept for it means no page overflows or turns as the highlight
+moves.  The orchestrator column draws each model in its company's colour.  Offline: fake seats
+and run records, the real renderer.
 """
 
 from contextlib import redirect_stdout
@@ -64,16 +65,15 @@ class MenuLiveLine(Sandbox):
         row = next(n for n, line in enumerate(lines) if re.search(rf"\d  {name}\b", line))
         return lines[row + 1]
 
-    def test_a_the_highlighted_seat_opens_its_live_line_and_no_other_row_grows(self):
+    def test_a_the_highlighted_seat_opens_its_line_and_no_other_row_grows(self):
         lines, _ = self.draw("fix-api")
         indent = " " * (2 + 1 + 2)                     # under the name
-        self.assertEqual(self.under(lines, "fix-api"),
-                         indent + "gh2 ■□□□ opus building · 3m")
-        self.assertNotIn("lg1", "\n".join(lines))      # web is not highlighted
+        self.assertEqual(self.under(lines, "fix-api"), indent + "opus builds · opus reviews   ■□□")
+        self.assertEqual(sum("builds" in line for line in lines), 1)   # web is not highlighted
         lines, _ = self.draw("web")
-        self.assertEqual(self.under(lines, "web"), indent + "lg1 ■■■□ astra reviewing · 3m")
-        self.assertNotIn("gh2", "\n".join(lines))
-        lines, _ = self.draw("zeta")                   # done: nothing to open
+        self.assertEqual(self.under(lines, "web"), indent + "opus builds · opus reviews   ■■□")
+        self.assertEqual(sum("builds" in line for line in lines), 1)
+        # no screen names a task
         self.assertNotIn("gh2", "\n".join(lines))
         self.assertNotIn("lg1", "\n".join(lines))
 
@@ -101,16 +101,14 @@ class MenuLiveLine(Sandbox):
                 patch.object(menu, "switches", return_value=[]):
             lines, _ = self.draw(config.CODE / "acme")
         self.assertTrue(any(line.startswith("›") and "acme" in line for line in lines), lines)
-        self.assertNotIn("gh2", "\n".join(lines))
-        self.assertNotIn("lg1", "\n".join(lines))
+        self.assertFalse(any("builds" in line for line in lines), lines)
 
-    def test_e_a_task_s_file_and_a_model_are_drawn_on_one_line_as_text(self):
-        # each may be named anything, a control character or an escape among it
+    def test_e_a_model_is_drawn_on_one_line_as_text(self):
+        # it may be named anything, a control character or an escape among it
         model = "opus\x1b[2J\nfast"
         self.cfg["models"][model] = dict(self.cfg["models"]["opus"])
-        state = record.read_state(config.RUNS / "20260101-0900-gh2-x")
-        record.save_state(config.RUNS / "20260101-0900-gh2-x",
-                          dict(state, task_file="/t/gh2\n\x1b[31mred\tx-task.md", executor=model))
+        config.save_session(self.cfg, "fix-api", "fable", [model],
+                            {"repo": str(config.CODE / "acme"), "cwd": str(config.CODE / "acme")})
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
@@ -118,21 +116,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("\x1b[2J", out.getvalue())
         lines = screen(out.getvalue())
         self.assertEqual(self.under(lines, "fix-api").strip(),
-                         "gh2 red x ■□□□ opus fast building · 3m")
-        # the seat bar's line two is the same text
-        versions = statusbar.live(menu.seat_runs("fix-api"), self.cfg, NOW)
-        self.assertEqual("".join(text for text, _, _ in versions[0]),
-                         "gh2 red x ■□□□ opus fast building · 3m")
-
-    def test_f_a_line_nothing_fits_is_cut_with_its_spacing_kept(self):
-        runs = [{"task": "b1", "doing": "building", "step": "building", "since": NOW - 60,
-                 "round": 1, "rounds": 3, "model": "opus"},
-                {"task": "r1", "doing": "reviewing", "step": "review", "since": NOW - 60,
-                 "round": 1, "rounds": 3, "model": "astra"}]
-        info = {"word": "working", "runs": runs}
-        self.assertEqual(menu.live_line(self.cfg, info, 24, NOW), "building 1   reviewing 1")
-        self.assertEqual(menu.live_line(self.cfg, info, 18, NOW), "building 1   revi…")
-        self.assertEqual(menu.live_line(self.cfg, None, 40, NOW), "")
+                         "opus fast builds · opus fast reviews   ■□□")
 
 
 if __name__ == "__main__":
