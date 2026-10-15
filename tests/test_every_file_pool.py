@@ -1,4 +1,4 @@
-"""The file sweep grows with memory and pauses each start during live CPU contention.
+"""The file sweep grows with memory and runs one file at a time during live CPU contention.
 
 Offline: injected readings, controlled futures and cgroup files in a temporary HOME.
 """
@@ -53,14 +53,14 @@ class EveryFilePool(unittest.TestCase):
                 self.assertGreater(every_file.pool_limit(
                     {**CALM, "cpu_pressure": pressure}), CALM["cpus"])
 
-    def test_high_pressure_overrides_even_the_serial_floor(self):
+    def test_high_pressure_keeps_the_pool_serial(self):
         for free in (0, 4600):
             for pressure in (20.01, 50, 100):
                 with self.subTest(free=free, pressure=pressure):
                     self.assertEqual(every_file.pool_limit(
-                        {**CALM, "free_mb": free, "cpu_pressure": pressure}), 0)
+                        {**CALM, "free_mb": free, "cpu_pressure": pressure}), 1)
         self.assertEqual(every_file.pool_limit({**CALM, "slice_cpu_quota": 2,
-                                               "slice_cpu_used": 2}), 0)
+                                               "slice_cpu_used": 2}), 1)
 
     def test_every_memory_bound_applies_including_an_enclosing_cgroup(self):
         for extra in ({"free_mb": 460},
@@ -116,16 +116,22 @@ class EveryFilePool(unittest.TestCase):
 
     def test_pressure_and_memory_are_reread_before_each_start(self):
         starts, out = self.sweep([
-            {**CALM, "cpu_pressure": 40},  # even the first file must wait
-            CALM,                        # first file starts
-            {**CALM, "cpu_pressure": 21},  # no queued file bypasses high pressure
+            {**CALM, "cpu_pressure": 40},  # the first file starts: one always runs
+            CALM,                        # the second file starts
+            {**CALM, "cpu_pressure": 21},  # no queued file joins under high pressure
             {**CALM, "cpu_pressure": 50},
-            CALM,                        # second file starts
+            CALM,                        # the third file starts
             {**CALM, "free_mb": 230},     # existing files keep their reservations
             {**CALM, "free_mb": 230},
             CALM])                       # memory recovered; the pool grows again
-        self.assertEqual(starts, [2, 5, 8, 9, 10, 11])
+        self.assertEqual(starts, [1, 2, 5, 8, 9, 10])
         self.assertIn(", 6 at once,", out)
+
+    def test_sustained_high_pressure_still_runs_every_file_one_at_a_time(self):
+        # Other work can keep the host contended longer than the gate waits for any output.
+        starts, out = self.sweep([{**CALM, "cpu_pressure": 90}], count=3, finish_each=True)
+        self.assertEqual(starts, [1, 2, 3])
+        self.assertIn(", 1 at once,", out)
 
     def test_persistent_background_stalls_let_a_sweep_start_and_grow(self):
         starts, out = self.sweep([CALM], count=9)
