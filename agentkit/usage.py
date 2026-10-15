@@ -1571,15 +1571,13 @@ def rows(cfg, providers):
 
 
 def review_pair(cfg, providers):
-    """The first runnable pair, using the loop's eligibility and company preference."""
+    """The first runnable pair, using the loop's eligibility and its own-model-last rule."""
     try:
         executor, reviewer = staffing.pick_models(cfg, providers, None, None, lambda _: None,
                                              quiet=True)
     except turns.QuotaDry:
         return None
     return {"executor": executor, "reviewer": reviewer,
-            "same_provider": config.model(cfg, executor)["provider"] ==
-                             config.model(cfg, reviewer)["provider"],
             "self_reviewed": staffing.same_model(cfg, executor, reviewer)}
 
 
@@ -1650,8 +1648,6 @@ def render(cfg, providers, order, *, repo=None):
     if pair:
         lines.append(f"review: {pair['executor']} by {pair['reviewer']}"
                      + (", self-reviewed" if pair.get("self_reviewed") else ""))
-        if pair["same_provider"]:
-            lines.append("one provider: reviewer on the same company")
     return "\n".join(part for line in lines for part in
                      ([line] if terminal.cells(terminal.plain(line)) <= width else
                       terminal.wrap(line, width)))

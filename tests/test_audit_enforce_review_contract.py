@@ -216,11 +216,11 @@ sys.exit(row["code"])
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}]})
         code, directory, state = self.launch("--exec", "opus", "--review", "astra")
         self.assertEqual(code, 0)
-        self.assertEqual([r["model"] for r in self.calls("reviewer")], ["astra", "spark"])
+        self.assertEqual([r["model"] for r in self.calls("reviewer")], ["astra", "fable"])
         self.assertTrue(run.review_pass(state, self.cfg))
-        self.assertEqual(state["review"]["reviewer"], "spark")
+        self.assertEqual(state["review"]["reviewer"], "fable")
         self.assertEqual(state["review"]["reviewer_provider"],
-                         config.model(self.cfg, "spark")["provider"])
+                         config.model(self.cfg, "fable")["provider"])
         self.assertEqual(self.calls("reviewer")[-1]["session"], [])
         waits = [c.args[0] for c in self.sleep.call_args_list
                  if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
@@ -236,7 +236,7 @@ sys.exit(row["code"])
         self.assertEqual(state["state"], "exhausted")
         self.assert_undelivered(state)
         self.assertEqual([r["model"] for r in self.calls("reviewer")],
-                         ["astra", "spark", "fable", "opus"])
+                         ["astra", "fable", "spark", "opus"])
         waits = [c.args[0] for c in self.sleep.call_args_list
                  if c.args and c.args[0] in turns.TRANSIENT_BACKOFF]
         self.assertEqual(waits, [])
@@ -270,17 +270,19 @@ sys.exit(row["code"])
             self.assertIn("fable", config.active_session(self.cfg)["workers"])
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable"])
             # The preference is gone by resume; the review is still pending, so only the
-            # reviewer moves to the best cross-company model for the saved executor.
+            # reviewer moves to the best other model for the saved executor, its company
+            # notwithstanding.
             self.providers["anthropic"]["meters"][1]["used"] = 80
             fail_then_pass = [
                 {"code": 0, "text": "VERDICT: FAIL\nFix the remaining finding."},
                 {"code": 0, "text": "VERDICT: PASS"}]
-            self.respond({state["reviewer"]: fail_then_pass, "astra": fail_then_pass})
+            self.respond({state["reviewer"]: fail_then_pass, "astra": fail_then_pass,
+                          "opus": list(fail_then_pass)})
             self.assertEqual(run.cmd_resume([directory.name, "--rounds", "2"]), 0)
             state = record.read_state(directory)
             self.assertEqual(state["executor"], "fable")
             self.assertEqual(state["rounds"], 2)
-            self.assertEqual(state["reviewer"], "astra")
+            self.assertEqual(state["reviewer"], "opus")
             self.assertEqual([r["model"] for r in self.calls("executor")], ["fable", "fable"])
             self.assertEqual(self.calls("executor")[1]["session"], ["session-fable"])
             self.assertTrue(run.review_pass(state, self.cfg))
@@ -354,7 +356,7 @@ sys.exit(row["code"])
             self.assert_undelivered(state)
             merge.assert_not_called()
 
-    def test_review_accepts_saved_same_provider_pair_and_prefers_cross_company_spares(self):
+    def test_review_accepts_saved_same_provider_pair_and_falls_back_to_the_next_spare(self):
         directory, state = self.legacy("fable")
         lp = self.loop_for(directory, state)
         count = len(self.calls())
@@ -365,7 +367,7 @@ sys.exit(row["code"])
         lp.spares = ["opus", "fable", "spark"]
         self.respond({"astra": [{"code": 1, "text": "You've hit your usage limit."}]})
         self.assertEqual(run.review(lp, "saved work", True, "passed"), "PASS")
-        self.assertEqual([r["model"] for r in self.calls()[count + 1:]], ["astra", "spark"])
+        self.assertEqual([r["model"] for r in self.calls()[count + 1:]], ["astra", "fable"])
 
     def test_done_when_failure_still_overrides_successful_review(self):
         directory, state = self.legacy()

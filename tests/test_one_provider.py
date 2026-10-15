@@ -75,18 +75,18 @@ class OneProvider(unittest.TestCase):
                            "reviewer": "beta", "reviewer_provider": "a",
                            "returncode": 0, "verdict": "PASS", "done_when": True}}
 
-    def test_two_providers_prefer_another_company_over_more_budget(self):
-        self.assertEqual(self.pick(), ("alpha", "gamma"))
+    def test_two_providers_pick_the_reviewer_by_budget_whatever_its_company(self):
+        self.assertEqual(self.pick(), ("alpha", "beta"))
         self.providers = self.meters(a=70, b=10)
-        self.assertEqual(self.pick(), ("gamma", "alpha"))
+        self.assertEqual(self.pick(), ("gamma", "delta"))
 
-    def test_reviewers_keep_budget_order_within_each_company_preference(self):
+    def test_reviewers_keep_budget_order_the_company_notwithstanding(self):
         self.cfg["models"]["gamma"]["meter"] = "smaller"
         self.providers["b"]["meters"].append(
             {**self.providers["b"]["meters"][0], "name": "smaller", "used": 95})
         self.cfg["models"]["delta"]["meter"] = "weekly"
-        self.assertEqual(self.pick("alpha"), ("alpha", "delta"))
-        self.assertEqual(self.pick("beta"), ("beta", "delta"))
+        self.assertEqual(self.pick("alpha"), ("alpha", "beta"))
+        self.assertEqual(self.pick("beta"), ("beta", "alpha"))
         self.providers["a"] = self.providers["b"]
         for name in ("gamma", "delta"):
             self.cfg["models"][name]["provider"] = "a"
@@ -107,8 +107,7 @@ class OneProvider(unittest.TestCase):
         self.cfg["defaults"]["workers"] = ["alpha"]
         self.assertEqual(self.pick(), ("alpha", "alpha"))
         self.assertEqual(usage.review_pair(self.cfg, self.providers),
-                         {"executor": "alpha", "reviewer": "alpha", "same_provider": True,
-                          "self_reviewed": True})
+                         {"executor": "alpha", "reviewer": "alpha", "self_reviewed": True})
 
     def test_stale_opt_out_is_ignored(self):
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
@@ -177,7 +176,7 @@ class OneProvider(unittest.TestCase):
                                     self.logs.append, resuming=True)
         # a harness that answered nothing is withheld from nothing
         self.unready(other=None)
-        self.assertEqual(self.pick(), ("alpha", "gamma"))
+        self.assertEqual(self.pick(), ("alpha", "beta"))
 
     def test_every_harness_is_asked_on_every_pick_whatever_its_meters_say(self):
         self.cfg["models"]["gamma"]["harness"] = "other"
@@ -334,18 +333,16 @@ class OneProvider(unittest.TestCase):
             text = usage.render(cfg, providers, order)
         self.assertNotIn("preferring Fable", text)
         self.assertIn("pick order: opus, fable\nreview: opus by fable", text)
-        self.assertIn("one provider: reviewer on the same company", text)
+        self.assertNotIn("one provider", text)          # the same company is any other
         # the opt-out is stale: same-company fable still reviews, and an alias of
         # fable leaves opus reviewing itself rather than no pair at all
         cfg["models"]["opus"]["reviews_own_provider"] = False
         self.assertEqual(usage.review_pair(cfg, providers),
-                         {"executor": "opus", "reviewer": "fable",
-                          "same_provider": True, "self_reviewed": False})
+                         {"executor": "opus", "reviewer": "fable", "self_reviewed": False})
         cfg["models"]["opus"]["reviews_own_provider"] = True
         cfg["models"]["opus"]["model"] = cfg["models"]["fable"]["model"]
         self.assertEqual(usage.review_pair(cfg, providers),
-                         {"executor": "opus", "reviewer": "opus",
-                          "same_provider": True, "self_reviewed": True})
+                         {"executor": "opus", "reviewer": "opus", "self_reviewed": True})
 
     def resume_integration(self, reviewer="beta"):
         lp = self.loop(reviewer=reviewer)
@@ -442,7 +439,7 @@ class OneProvider(unittest.TestCase):
                 opts = prepare.call_args.args[1]
                 self.assertEqual(opts["--review"], wanted)
                 self.assertEqual(self.pick(opts["--exec"], opts["--review"]),
-                                 ("beta", wanted or "gamma"))
+                                 ("beta", wanted or "alpha"))
                 self.assertNotIn("review_override", task)
                 self.assertTrue(task["rerun_attempted"])
 
@@ -470,9 +467,9 @@ class OneProvider(unittest.TestCase):
             self.assertEqual(run.review(lp, "Work done.", True, "passed"), "PASS")
         return calls
 
-    def test_silent_fallback_prefers_cross_company_over_same_company(self):
+    def test_silent_fallback_takes_the_next_spare_whatever_its_company(self):
         lp = self.loop(reviewer="gamma", spares=["alpha", "beta", "delta"])
-        self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "delta"])
+        self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "beta"])
 
     def test_silent_fallback_uses_same_company_and_ignores_stale_opt_out(self):
         lp = self.loop(reviewer="gamma", spares=["alpha", "beta", "delta"])
@@ -504,13 +501,12 @@ class OneProvider(unittest.TestCase):
         self.cfg["models"]["beta"]["provider"] = "b"
         self.assertFalse(run.review_pass(moved, self.cfg))
 
-    def test_usage_text_prints_pair_and_one_provider_note_after_order(self):
+    def test_usage_text_prints_the_pair_after_the_order(self):
         with patch.object(terminal, "width", return_value=100):
             self.providers = self.meters(b=100)
             rendered = usage.render(self.cfg, self.providers, ["alpha", "beta"])
-        self.assertIn("pick order: alpha, beta\nreview: alpha by beta\n"
-                      "one provider: reviewer on the same company", rendered)
-        self.assertNotIn("one provider:", usage.render(self.cfg, self.meters(), ["alpha"]))
+        self.assertIn("pick order: alpha, beta\nreview: alpha by beta", rendered)
+        self.assertNotIn("one provider", rendered)      # the same company is any other
 
     def test_usage_text_names_a_self_pair_self_reviewed(self):
         self.cfg["defaults"]["workers"] = ["alpha"]
@@ -522,12 +518,12 @@ class OneProvider(unittest.TestCase):
         for provider in self.providers.values():
             for meter in provider["meters"]:
                 meter.pop("pace")
-        self.assertIn("review: alpha by gamma",
+        self.assertIn("review: alpha by beta",
                       usage.render(self.cfg, self.providers, ["alpha", "beta", "gamma", "delta"]))
         # A partial report can mix meters with and without pace on the same provider.
         self.providers["a"]["meters"].append(
             {**self.providers["a"]["meters"][0], "name": "extra", "pace": 10})
-        self.assertIn("review: alpha by gamma",
+        self.assertIn("review: alpha by beta",
                       usage.render(self.cfg, self.providers, ["alpha", "beta", "gamma", "delta"]))
 
     def test_usage_json_carries_the_pair_from_the_cli(self):
@@ -552,7 +548,7 @@ class OneProvider(unittest.TestCase):
         data = json.loads(result.stdout)
         self.assertEqual(data["pick_order"], ["alpha", "beta"])
         self.assertEqual(data["review"], {"executor": "alpha", "reviewer": "beta",
-                                          "same_provider": True, "self_reviewed": False})
+                                          "self_reviewed": False})
 
 
 if __name__ == "__main__":

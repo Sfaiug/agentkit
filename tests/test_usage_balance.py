@@ -596,7 +596,9 @@ class WeeklyBalance(unittest.TestCase):
                         continue
                     self.assertEqual(usage.pick_order(self.cfg, providers)[0], "opus")
                     pair = run.pick_models(self.cfg, providers, None, None, lambda _: None)
-                    self.assertEqual(pair, ("opus", "fable") if used == 100 else ("opus", "astra"))
+                    # fable, with a budget known, reviews before the others whose meters say
+                    # nothing or are spent: its company is nothing against it
+                    self.assertEqual(pair, ("opus", "fable"))
                     self.assertEqual(run.review_providers(self.cfg, "opus", "fable"),
                                      ("anthropic", "anthropic"))
 

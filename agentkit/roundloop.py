@@ -1231,10 +1231,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.reviewer, lp.review_sid = offered.pop(0), None
         lp.spares = [n for n in spares if n != lp.reviewer]
         lp.save()
-        # said only where it is true: a spare may share the executor's company
-        theirs, spare = transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
-        lp.log(f"WARN reviewer fell back to {lp.reviewer}"
-               f"{' on another provider' if theirs not in (None, spare) else ''}")
+        transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
+        lp.log(f"WARN reviewer fell back to {lp.reviewer}")
         return f"reviewer-{lp.reviewer}"
     ask = None      # where the answer that gave no verdict is, for the call asking once more
     while True:
