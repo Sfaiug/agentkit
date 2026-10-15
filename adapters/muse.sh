@@ -55,8 +55,26 @@ AUTH="${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"
 # inherit it -- so all of the usual one but its muse/ is linked in, and gh or git read on.
 home() {
   [ -n "$ACCOUNT" ] || return 0
-  mkdir -p -- "$XDG_CONFIG_HOME/muse" || return 1
-  local entry link
+  mkdir -p -- "$XDG_CONFIG_HOME/muse" "$USUAL/muse" || return 1
+  local entry link settings="$XDG_CONFIG_HOME/muse/settings.json" usual="$USUAL/muse/settings.json" merged
+  local -a files=()
+  # Muse 1.4.7 writes settings.json through a link and keeps it (skills enable/disable, /theme).
+  # Import this login's settings once, with the usual login winning even within an object.
+  # The shell keeps Muse's flock until the merge and links finish; Python works on macOS too.
+  (
+    python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9 || return 1
+    if [ ! -L "$settings" ] || [ ! "$settings" -ef "$usual" ]; then
+      [ ! -e "$settings" ] || files+=("$settings")
+      [ ! -e "$usual" ] || files+=("$usual")
+      merged=$(jq -s 'reduce .[] as $s ({"schema_version": 1}; . * $s)' "${files[@]}" </dev/null) || return 1
+      if [ ! -e "$usual" ] || ! jq -e --argjson merged "$merged" '. == $merged' "$usual" >/dev/null; then
+        printf '%s\n' "$merged" >"$usual" || return 1
+      fi
+      ln -sfn -- "$usual" "$settings" || return 1
+    fi
+    # Muse locks beside the path it opened, so its writes on every login use this lock too.
+    ln -sfn -- "$USUAL/muse/.settings.json.lock" "$XDG_CONFIG_HOME/muse/.settings.json.lock"
+  ) 9>>"$USUAL/muse/.settings.json.lock" || return 1
   for entry in "$USUAL"/* "$USUAL"/.[!.]*; do
     link=$XDG_CONFIG_HOME/${entry##*/}
     [ "${entry##*/}" = muse ] || [ ! -e "$entry" ] || [ -e "$link" ] || [ -L "$link" ] ||

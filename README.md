@@ -76,6 +76,8 @@ After `/clear` in a Claude seat's launched pane, reopening and title changes fol
 
 `ak plan` lists [numbered outcomes with checks or your judgement](docs/guide.md#the-states-and-the-cards).
 
+Muse logins share the usual login's user settings. On a named login's first launch, settings only it held are carried over; the usual login wins conflicts, including within nested settings. Migration and session writes use the same settings lock. Each login keeps its own credentials.
+
 ## While you are away
 
 Agentkit does not stop until the work ships, or until it truly needs you. Truly needs you means exactly two things: a question only you can answer, or a failure it has tried every way around. Everything else it handles itself: a provider running dry or down for hours, a crash, a reboot, main moving underneath, its own upgrade (the host moves only to a commit whose `tests/live.sh`, agentkit's checks that need the outside world, passed on it; a run takes the new code at its next round, saying `picked up agentkit <old>..<new>`), a reviewer that hesitates, a test budget that was too small, a stuck session.
