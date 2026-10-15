@@ -516,15 +516,19 @@ def _settings(account):
     paths = ((home / ".claude/settings.json", directory / ".claude.json",
               directory / "settings.json") if account else
              (home / ".claude/settings.json", home / ".claude.json"))
-    values = []
-    for path in paths:
-        try:
-            values.append(json.loads(path.read_text()) if path.exists() else {})
-        except ValueError as exc:
-            raise ValueError(f"{path} is not JSON: {exc}") from exc
-        if not isinstance(values[-1], dict):
-            raise ValueError(f"{path} is not a JSON object")
-    return paths, values
+    return paths, [_read(path) for path in paths]
+
+
+def _read(path):
+    """What a file of Claude's configuration holds: nothing when it is not there, a ValueError
+    when it is not a JSON object."""
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError as exc:
+        raise ValueError(f"{path} is not JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    return data
 
 
 def checked(account):
@@ -539,10 +543,12 @@ def checked(account):
     return {CHECKED_ENV: "1"}
 
 
-def _pinned(path, settings, held=None):
+def _pinned(path, held=None):
     """Pin the one settings file every Claude login reads (`_pin`), with what `held` holds alone
-    carried into it.  It is rewritten only where that changed it: a launch writing back whole
-    what it read would put that over a change a running session made since."""
+    carried into it.  It is read again here and rewritten only where that changed it: a launch
+    writing back whole what it read at its start would put that over a change a running session
+    made since."""
+    settings = _read(path)
     before = json.dumps(settings, sort_keys=True)
     settings = {**(held or {}), **settings}
     _pin(settings)
@@ -551,15 +557,17 @@ def _pinned(path, settings, held=None):
         _write(path, settings)
 
 
-def _share(usual, own, shared, held):
+def _share(usual, own, held):
     """Make a named login's settings the usual login's own file, linked: a change made on any
     login -- a seat's /config, a model asked to set one -- is every Claude session's, and no
     launch copies the usual settings back over it.  Claude Code writes through the link.  What
     a login's own file held alone is carried over first, the usual login's value winning where
-    both have one, as the copy that stood here did; its hooks are a past checkout's, and go."""
-    linked = own.is_symlink() and own.resolve() == usual.resolve()
-    _pinned(usual, shared, None if linked else {k: v for k, v in held.items() if k != "hooks"})
-    if linked:
+    both have one, as the copy that stood here did; its hooks are a past checkout's, and go.
+    The link names the usual login's path, not whatever file that is now: a pin rewritten there
+    replaces a link the usual login had, which a named login linked to its target would miss."""
+    same = own.resolve() == usual.resolve()
+    _pinned(usual, None if same else {k: v for k, v in held.items() if k != "hooks"})
+    if own.is_symlink() and os.readlink(own) == str(usual):
         return
     fd, name = tempfile.mkstemp(dir=own.parent, prefix=own.name + ".", suffix=".link")
     os.close(fd)
@@ -585,7 +593,7 @@ def account_config(check=False):
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
         answered(values[1])
         _write(paths[1], values[1])
-        _pinned(paths[0], values[0])
+        _pinned(paths[0])
         return
     home = Path.home()
     directory = home / f".claude-{account}"
@@ -606,7 +614,7 @@ def account_config(check=False):
             answered(data)
             _write(path, data)
         else:
-            _share(paths[0], path, values[0], data)
+            _share(paths[0], path, data)
     for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
         source, target = home / ".claude" / name, directory / name
         if source.exists() and not target.exists() and not target.is_symlink():
@@ -673,8 +681,8 @@ if __name__ == "__main__":
         sys.exit(0)
     if sys.argv[1:] == ["--share"]:
         # a worker turn on a named login (adapters/claude.sh run) reads the one file too
-        (usual, _, own), (shared, _, held) = _settings(os.environ["AGENTKIT_ACCOUNT"])
-        _share(usual, own, shared, held)
+        (usual, _, own), (_, _, held) = _settings(os.environ["AGENTKIT_ACCOUNT"])
+        _share(usual, own, held)
         sys.exit(0)
     checking = sys.argv[1:] == ["--check"]
     account_config(check=checking)

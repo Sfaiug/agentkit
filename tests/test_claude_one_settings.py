@@ -94,9 +94,14 @@ class OneSettings(unittest.TestCase):
     def test_a_launch_puts_nothing_it_read_back_over_a_change_made_while_it_ran(self):
         self.usual.write_text(json.dumps({"autoCompactWindow": 1000000}))
         write = claude._write
-        for window, account in ((300000, "harbor"), (250000, "")):
-            with self.subTest(account=account):
+        cases = [(account, offered) for account in ("harbor", "") for offered in (False, True)]
+        for window, (account, offered) in zip(range(200000, 300000, 10000), cases):
+            with self.subTest(account=account, offered=offered):
                 self.launch(account)
+                if offered:     # an accepted auto-mode offer: this launch pins it back
+                    settings = self.read(self.usual)
+                    settings["permissions"]["defaultMode"] = "auto"
+                    self.usual.write_text(json.dumps(settings))
 
                 def configured(path, data):
                     # a running session's /config, while this launch writes its global config
@@ -106,7 +111,23 @@ class OneSettings(unittest.TestCase):
                     write(path, data)
                 with patch.object(claude, "_write", side_effect=configured):
                     self.launch(account)
-                self.assertEqual(self.read(self.usual)["autoCompactWindow"], window)
+                settings = self.read(self.usual)
+                self.assertEqual(settings["autoCompactWindow"], window)
+                self.assertEqual(settings["permissions"]["defaultMode"], "bypassPermissions")
+
+    def test_a_login_linked_where_the_usual_login_links_ends_on_the_usual_path(self):
+        # both logins' files link to one in a dotfiles checkout: pinning the usual path
+        # replaces its link with a file, and the named login follows it there
+        dotfiles = self.root / "dotfiles/claude.json"
+        dotfiles.parent.mkdir()
+        dotfiles.write_text(json.dumps({"permissions": {"defaultMode": "auto"}}))
+        self.usual.symlink_to(dotfiles)
+        own = self.own("harbor")
+        own.parent.mkdir()
+        own.symlink_to(dotfiles)
+        self.launch("harbor")
+        self.assertEqual(self.read(own)["permissions"]["defaultMode"], "bypassPermissions")
+        self.assertEqual(own.resolve(), self.usual.resolve())
 
     def test_a_worker_turn_on_a_named_login_reads_the_one_file(self):
         self.usual.write_text(json.dumps({"autoCompactWindow": 300000}))
