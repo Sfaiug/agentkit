@@ -2,11 +2,11 @@
 
 Prose keeps a paragraph on one line, so git's line rule calls two edits of one paragraph a
 conflict even where they change different sentences: the lease scan parks a run on it and the
-landing line hands it to a fixer.  ak's git calls (`gitcall.tool_env`) name this the driver
-for `*.md`: each text is cut after every sentence, the cut texts are merged by git's own
-three-way merge, and the result is joined back byte for byte.  Edits inside one sentence that
-clash are merged as git merges them without this driver, conflict markers included.  A
-repository's own `.gitattributes` still decides its paths first.
+landing line hands it to a fixer.  ak's git calls that merge (`gitcall.merge_config`) name
+this the driver for `*.md`: each text is cut after every sentence, the cut texts are merged by
+git's own three-way merge, and the result is joined back byte for byte.  Edits inside one
+sentence that clash are merged as git merges them without this driver, conflict markers
+included.  A repository's own `.gitattributes`, and the owner's, still decide their paths first.
 
 Git runs this file as a script, so it imports nothing of ak's.
 """
@@ -19,7 +19,9 @@ import tempfile
 
 NAME = "ak-sentences"
 
-# a private-use character no text carries: the cut ends its line with it, the join takes it out
+# a private-use character no text carries: the cut puts it on a line of its own between two
+# sentences, so edits of neighbouring sentences are not neighbouring lines, which git's merge
+# calls one clash; the join takes it out
 MARK = ""
 
 # a sentence's end: its stop, any closing quote, bracket or emphasis, then the spaces before
@@ -28,13 +30,13 @@ END = re.compile(r"[.!?;][\"')\]*_`]* +(?=\S)")
 
 
 def cut(text):
-    """`text` with a line break, marked, after every sentence that ends inside a line."""
-    return END.sub(lambda found: found.group(0) + MARK + "\n", text)
+    """`text` with a marked line after every sentence that ends inside a line."""
+    return END.sub(lambda found: found.group(0) + "\n" + MARK + "\n", text)
 
 
 def joined(text):
     """The text `cut` was given back."""
-    return text.replace(MARK + "\n", "")
+    return text.replace("\n" + MARK + "\n", "")
 
 
 def read(path):

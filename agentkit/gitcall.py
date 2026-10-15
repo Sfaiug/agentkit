@@ -8,7 +8,7 @@ The run's child environment, depth and logger live here too, as every leaf start
 """
 
 import codecs
-import functools
+import hashlib
 import os
 import re
 import shlex
@@ -84,7 +84,7 @@ def tool_env():
     Dropping $AGENTKIT_SESSION keeps the tmux and gh shims' seatless premise true by construction
     -- they engage only on a seat's own by-hand call -- so ak's own merge is never refused.
     """
-    env = merge_config({k: v for k, v in config.child_env().items() if k != config.SESSION_ENV})
+    env = {k: v for k, v in config.child_env().items() if k != config.SESSION_ENV}
     env.update(GIT_TERMINAL_PROMPT="0", GH_PROMPT_DISABLED="1")
     run_id = getattr(_RUN_CONTEXT, "state", {}).get("run_id")
     if run_id:
@@ -96,19 +96,47 @@ def tool_env():
     return env
 
 
-def merge_config(env):
-    """`env` with ak's own git config after any it carries: `*.md` merges sentence by sentence
-    (`sentences`), named in an attributes file that keeps the owner's global one first.  Every
-    merge, rebase and `merge-tree` ak runs reads it: the lease scan's, the lander's, a run's."""
+# the git commands that merge file contents, and so read a merge driver (`merge_config`)
+MERGES = ("merge", "merge-tree", "rebase")
+
+
+def merge_config(git, cwd, env, timeout):
+    """`env` with ak's own git config after any it carries, for a `git` (with its `-C`) that
+    merges: `*.md` merges sentence by sentence (`sentences`).  Git reads one global attributes
+    file, so ak's names the driver for `*.md` first and then holds the file this call's git
+    would have read, as it reads now: every line of it, a `*.md` one included, decides as
+    before, and a repository's own `.gitattributes` before that.  The lookup is part of the
+    call, under its timeout.  A file named by a relative path, one ak cannot read, or a state
+    it cannot write merges by git's line rule, as before."""
     driver = f"merge.{sentences.NAME}.driver"
     count = int(env.get("GIT_CONFIG_COUNT") or 0)
     if driver in (env.get(f"GIT_CONFIG_KEY_{n}") for n in range(count)):
         return env
+    named = subprocess.run([*git, "config", "--path", "--get", "core.attributesFile"], cwd=cwd,
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                           timeout=timeout, env=env)
+    if named.returncode not in (0, 1):
+        return env
+    # unset, git reads $XDG_CONFIG_HOME/git/attributes, or $HOME/.config/git/attributes
+    own = named.stdout.rstrip("\n") if named.returncode == 0 else os.path.join(
+        env.get("XDG_CONFIG_HOME") or os.path.join(env.get("HOME", ""), ".config"), "git", "attributes")
+    if not os.path.isabs(own):
+        return env
+    text = f"*.md merge={sentences.NAME}\n".encode()
     try:
-        attributes = attributes_file()
+        try:
+            text += Path(own).read_bytes().removeprefix(codecs.BOM_UTF8)    # git skips it on line 1
+        except FileNotFoundError:
+            pass
+        path = config.STATE / "merge-attributes" / hashlib.sha256(text).hexdigest()[:16]
+        if not path.is_file():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fresh = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+            fresh.write_bytes(text)
+            os.replace(fresh, path)
     except OSError:
-        return env          # a state ak cannot write merges by git's line rule, as before
-    pairs = (("core.attributesFile", attributes),
+        return env
+    pairs = (("core.attributesFile", str(path)),
              (driver, f"{shlex.quote(sys.executable)} -I {shlex.quote(sentences.__file__)} %O %A %B %L"))
     for n, (key, value) in enumerate(pairs, count):
         env[f"GIT_CONFIG_KEY_{n}"], env[f"GIT_CONFIG_VALUE_{n}"] = key, value
@@ -116,34 +144,9 @@ def merge_config(env):
     return env
 
 
-def attributes_file():
-    """The attributes file ak's git calls read (`merge_config`), written again whenever it is
-    missing or the owner's global attributes changed."""
-    path = config.STATE / "merge-attributes"
-    text = attributes_text(str(Path.home()), os.environ.get("XDG_CONFIG_HOME"),
-                           os.environ.get("GIT_CONFIG_GLOBAL"))
-    if not path.is_file() or path.read_text(errors="replace") != text:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fresh = path.with_name(f".{path.name}.{os.getpid()}")
-        fresh.write_text(text)
-        os.replace(fresh, path)
-    return str(path)
-
-
-@functools.lru_cache(maxsize=8)
-def attributes_text(home, xdg, global_config):
-    """The owner's own global attributes, if any, then ak's line for Markdown: git reads one
-    global attributes file, so ak's git calls treat every other path as the owner's git does."""
-    own = subprocess.run(["git", "config", "--global", "--path", "--get", "core.attributesFile"],
-                         capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
-    own = Path(own) if own else Path(xdg or Path(home) / ".config") / "git" / "attributes"
-    return ((own.read_text(errors="replace").rstrip("\n") + "\n" if own.is_file() else "")
-            + f"*.md merge={sentences.NAME}\n")
-
-
 def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
-    as `env` changes it (None drops a variable).
+    as `env` changes it (None drops a variable), with `merge_config` for a git that merges.
 
     Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
     callers can recover any unfinished checkout edits. The code is None on timeout;
@@ -153,13 +156,15 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
     # Repeating checkout edits can turn a timeout into an "already in progress" failure.
     args = cmd[3:] if len(cmd) > 1 and cmd[0] == "git" and cmd[1] == "-C" else cmd[1:]
     retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
+    merges = cmd[0] == "git" and args and args[0] in MERGES
     for attempt in range(2):
         try:
+            call = {name: value for name, value in {**tool_env(), **(env or {})}.items()
+                    if value is not None}
             proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
                                   encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                                  timeout=timeout,
-                                  env={name: value for name, value in
-                                       {**tool_env(), **(env or {})}.items() if value is not None})
+                                  timeout=timeout, env=merge_config(
+                                      cmd[:len(cmd) - len(args)], cwd, call, timeout) if merges else call)
             break
         except subprocess.TimeoutExpired:
             if attempt or not retry:
