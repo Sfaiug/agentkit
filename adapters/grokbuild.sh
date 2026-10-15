@@ -73,12 +73,16 @@ if [ -n "$ACCOUNT" ]; then
   unset XAI_API_KEY
 fi
 AUTH="$GROK_HOME/auth.json"
-# Grok keeps its conversations under its home's sessions/: an account's is the usual one's,
-# so a conversation begun on one subscription is resumed on the next
+# Conversations and user preferences belong to every login; auth.json stays each one's.
 share() {
   [ -n "$ACCOUNT" ] || return 0
   mkdir -p -- "$USUAL/sessions" "$GROK_HOME" || return 1
-  [ -e "$GROK_HOME/sessions" ] || ln -s -- "$USUAL/sessions" "$GROK_HOME/sessions"
+  [ -e "$GROK_HOME/sessions" ] || ln -s -- "$USUAL/sessions" "$GROK_HOME/sessions" || return 1
+  local repo
+  repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+  PYTHONPATH="$repo${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
+    'import sys; from agentkit.harness.grokbuild import share_settings; share_settings(*sys.argv[1:])' \
+    "$USUAL" "$GROK_HOME"
 }
 keyof() { jq -r '[.[] | select(type == "object") | .key // empty
   | select(type == "string" and test("[^[:space:]]"))] | first // empty' \

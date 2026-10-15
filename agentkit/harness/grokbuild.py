@@ -1,11 +1,72 @@
-"""Grok Build's launcher-issued conversation and its manually pinned session title."""
+"""Grok Build's shared settings, launcher-issued conversation and pinned session title."""
 
+import fcntl
 import json
 import os
 from pathlib import Path
+import tempfile
+import tomllib
 from urllib.parse import quote
 
 from . import LAUNCHER
+
+
+def share_settings(usual, directory):
+    """Keep credentials private while every login uses the usual user preferences.
+
+    Grok Build 1.0.46's bundled Configuration guide names these two files. Its user
+    config writer follows leaf symlinks, unlike its project config writer. Checked
+    in a temporary HOME with user-scoped MCP saves, /vim-mode, and /settings'
+    Respect manual folds toggle (which saves pager.toml): both links survive.
+    """
+    from ..config import _toml_key, _toml_value
+
+    def fill(shared, own):
+        changed = False
+        for key, value in own.items():
+            if key not in shared:
+                shared[key] = value
+                changed = True
+            elif isinstance(shared[key], dict) and isinstance(value, dict):
+                changed = fill(shared[key], value) or changed
+        return changed
+
+    usual, directory = Path(usual).resolve(), Path(directory)
+    # Serialize first launches across logins without creating another state file.
+    lock = os.open(usual, os.O_RDONLY)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        for name in ("config.toml", "pager.toml"):
+            source, link = usual / name, directory / name
+            if link.is_symlink() and link.resolve() == source.resolve():
+                continue
+            if link.exists():
+                own_text = link.read_text()
+                own = tomllib.loads(own_text)
+                target = source.resolve()
+                if target.exists():
+                    shared = tomllib.loads(target.read_text())
+                    changed = fill(shared, own)
+                    text = "".join(f"{_toml_key(key)} = {_toml_value(value)}\n"
+                                   for key, value in shared.items()) if changed else None
+                else:
+                    text = own_text
+                if text is not None:
+                    tomllib.loads(text)
+                    fd, temporary = tempfile.mkstemp(dir=target.parent)
+                    temporary = Path(temporary)
+                    try:
+                        with os.fdopen(fd, "w") as handle:
+                            handle.write(text)
+                        if target.exists():
+                            temporary.chmod(target.stat().st_mode & 0o777)
+                        temporary.replace(target)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+            link.unlink(missing_ok=True)
+            link.symlink_to(source)
+    finally:
+        os.close(lock)
 
 
 def session_dir(cwd, conversation):
