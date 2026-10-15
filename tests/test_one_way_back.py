@@ -95,7 +95,7 @@ class Back(unittest.TestCase):
         self.assertEqual(stopped.call_args[0][0], ["atoll-fix"])
         prompts = [call.args[0] for call in read.call_args_list]
         self.assertIn("stop atoll-fix and everything it is running? [y/N] ", prompts)
-        self.assertIn(menu.stop_means(None), screen)
+        self.assertIn(menu.stop_means(None), " ".join(screen.split()))   # wrapped to the width
         self.assertNotIn("reopens it later", screen)
 
     def test_v5u_x_y_stops_no_real_run(self):
@@ -116,7 +116,7 @@ class Back(unittest.TestCase):
                 redirect_stdout(out):
             menu.stop_this_session(False)
         self.assertEqual(stopped.call_count, 0)
-        self.assertIn(menu.stop_means(None), out.getvalue())
+        self.assertIn(menu.stop_means(None), " ".join(out.getvalue().split()))
         self.assertNotIn("reopens it later", out.getvalue())
 
     def test_v5u_x_n_goes_back(self):
