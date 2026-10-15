@@ -100,8 +100,8 @@ orchestrators; the menu no longer offers them. A gone session reads `session clo
 to reopen`; one you stopped has no row under its project, only its row on the past screen; an
 ended run is its orchestrator's business, so no row ever says `press r`.
 
-The screen is budgeted by height as well as width: a list of seats longer than the
-screen is drawn a page at a time -- on a terminal the page the highlight is on, which ← and →
+The screen is budgeted by height as well as width: the usage stays on top and the keys at the
+bottom, and a list of seats longer than the room between them is drawn a page at a time -- on a terminal the page the highlight is on, which ← and →
 turn, from a pipe the one `j` and `k` turn to -- and a row keeps the number it has in the whole list on whichever page
 it is drawn, so what a number opens never depends on the page that is up.
 
@@ -141,7 +141,7 @@ OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 PAST_KEYS = ("↑↓ move   ⏎ reopen   x remove   esc back", "j/k move   enter reopen   x remove   esc back")
-LEAST = 3                # rows a page keeps; the usage block gives way before it holds fewer
+LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
 # seat sorts last in its project.  `watch.session_state` is what decides which of the four a
 # seat is.
@@ -1236,8 +1236,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
-    one dim rule the width of the layout, then the usage block and the keys line
-    exactly as they are today, and between them one line that answers the
+    one dim rule the width of the layout, then the usage block, always, and the key line,
+    always last, and between them one line that answers the
     question once (`your projects · nothing needs you` / `· N need you`), then
     the projects and their seats -- the needing ones first -- and nothing else.
     A row's number is its place in the whole list, on
@@ -1303,9 +1303,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     widths = v5o_column_widths([seat for project in ordered
                                 for seat in project["seats"]], width)
     meters_full = usage_lines(cfg, layout)
-    # Height is budgeted the way width is: the usage block gives way first, then
-    # compact mode drops the frame and the blank lines so
-    # every number stays reachable. Sized from the rows on screen, leaving one
+    # Height is budgeted the way width is: the frame, the usage and the keys always, and the
+    # rows in what is left, a page at a time. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
     key_text = keys
     # With the keyboard ← and → turn the pages, the key line starting with where the owner is
@@ -1346,24 +1345,20 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     opens = int(owned and not asked and any(info["word"] == "working" and info.get("runs")
                                             for info in infos))
 
-    def _room(meters, compact, paged):
+    def _room(meters, paged, compact=False):
         keys = (k_paged if paged else k_single) + opens
         if compact:
-            return max(1, height - 2 - (1 + keys))
-        chrome = 2 + (len(meters) + 1 if meters else 0) + 2 + 1 + 1 + keys
-        return max(1, height - 2 - chrome)
+            return height - 2 - (1 + keys + len(meters))
+        # the whole block has a blank line above it; its folded readings sit under the rule
+        chrome = 2 + len(meters) + (meters is meters_full and bool(meters)) + 2 + 1 + 1 + keys
+        return height - 2 - chrome
 
     def _seat_pages(room):
-        # Collapsed overview first: every project header, no numbers. Then seat
-        # blocks packed whole under their project header, so a seat's lines never
-        # split across pages: one taller than a page under its header is cut to it, as the
-        # highlight shows only a seat's first page. A screen without room for a row and a line
-        # under it falls back to bare line splits so tiny screens still fit. The overview is
-        # a page the highlight is never on, so with the keyboard there is none.
-        headers = [heading(project) for project in ordered]
-        pages = [] if owned else (
-            [headers[i:i + room] for i in range(0, len(headers), room)] or [[]])
-        cur, cur_header = [], None
+        # Seat blocks packed whole under their project header, so a seat's lines never split
+        # across pages: one taller than a page under its header is cut to it, as the highlight
+        # shows only a seat's first page. A screen without room for a row and a line under it
+        # falls back to bare line splits so tiny screens still fit.
+        pages, cur, cur_header = [], [], None
         for project, own in zip(ordered, _seat_blocks(room - 1)):
             header = heading(project)
             for block in own or [[]]:     # a heading with no seat under it still has its place
@@ -1384,26 +1379,31 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             pages.append(cur)
         return pages
 
-    meters, compact, pages = meters_full, False, [flat]
-    # The usage block gives way first, then compact. The block stays only while
-    # everything fits one page with it: once the menu pages, the rows keep the
-    # room instead.
-    # A page still holds a few rows' worth below that, else compact takes over.
-    least = 3 * (2 if width < 60 else 1)
-    decided = False
-    for trial_meters in (meters_full, []):
-        room = _room(trial_meters, False, False)
-        if len(flat) <= room:
-            meters, compact, pages = trial_meters, False, [flat]
-            decided = True
+    # The usage stays on top and the keys at the bottom, whatever the number of seats: those
+    # that do not fit between them turn pages.  The block folds to its readings, each whole
+    # (`usage_summary`), where that keeps every seat on one page or where the whole block
+    # leaves too few rows a page; a screen too short for that drops the frame and the blank
+    # lines too (compact), and only one with no room for a seat under its heading even then
+    # cuts the readings.
+    least = LEAST * (2 if width < 60 else 1)
+    summary = usage_summary(cfg, layout)
+    # one page before pages, the whole block before its readings, and compact last
+    for meters, compact, paged in ((meters_full, False, False), (summary, False, False),
+                                   (meters_full, False, True), (summary, False, True),
+                                   (summary, True, True)):
+        room = _room(meters, paged, compact)
+        if (len(flat) <= room) if not paged else (room >= least or compact):
             break
-    if not decided:
-        room = _room([], False, True)
-        if room >= least:
-            meters, compact, pages = [], False, _seat_pages(room)
-            decided = True
-    if not decided:
-        meters, compact, pages = [], True, _seat_pages(_room([], True, True))
+    folded = meters is summary
+    if compact and room < 3 and len(meters) > 1:
+        # what leaves a seat its heading and a line under its row, the readings cut said so
+        meters = meters[:max(1, len(meters) + room - 3)]
+        meters[-1] = "  " + terminal.cut(meters[-1].strip() + " · …", layout - 2)
+        room = _room(meters, paged, compact)
+    if room < 1:
+        meters = meters[:max(0, len(meters) + room - 1)]      # what leaves one row
+    room = max(1, _room(meters, paged, compact))
+    pages = _seat_pages(room) if paged else [flat]
     if owned and cursor is not None:
         page = next((number for number, lines in enumerate(pages)
                      if any(name == cursor for _, name in lines)), page)
@@ -1423,10 +1423,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                                      time.strftime("%H:%M"), width),
                 terminal.rule_line(width, updating or 0)]
     if meters:
-        if not compact:
+        if not compact and not folded:
             out.append("")
         for number, line in enumerate(meters):
             out.append(line)
+            if folded:
+                continue          # the folded readings are no rows
             if number:            # its first line is the heading
                 rows[number] = len(out)
             text = terminal.ANSI.sub("", line)
@@ -1499,6 +1501,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                                    ("state", word))]
     if not compact:
         out.append("")
+    if owned:
+        # the keys at the bottom, wherever the rows end, over the two lines every draw keeps
+        out += [""] * max(0, height - 2 - len(out) - len(key_lines))
     keys_top = len(out)
     out += key_lines
     if not owned:
@@ -2106,6 +2111,52 @@ def usage_tip(cfg, number, now=None):
     shown = (not left and usage.credits_note(prov)) or f"{left}% left"
     return " · ".join(part for part in (terminal.plain(label), shown, resets, spent)
                       if part), pace
+
+
+def usage_summary(cfg, width):
+    """The usage block folded, for a screen too short for it and a few rows under it: each
+    subscription's label and what it has left -- `17%`, a spent week's credits, `0%` once spent
+    until its reset, `—` with no reading -- whole, as many to a line as fit, ` · ` between."""
+    lines = [""]
+    for _, label, left, said in usage_cells(cfg):
+        figure = f"{left}%" if left else said if left == 0 else "—" if said[0] == "—" else "0%"
+        # a label too long for the width gives way, never what it has left
+        part = f"{terminal.cut(label, max(1, width - 3 - terminal.cells(figure)))} {figure}"
+        if lines[-1] and terminal.cells(f"{lines[-1]} · {part}") > width - 2:
+            lines.append("")
+        lines[-1] += f" · {part}" if lines[-1] else part
+    return ["  " + line for line in lines if line]
+
+
+def reading(cfg, name, prov, now):
+    """(shared week or None, why it has none (`unread`), readable meters) of reading `prov`."""
+    try:
+        weekly = [m for m in prov.get("meters") or [] if m.get("window_secs") != usage.SESSION_SECS]
+        readable = usage.readable(prov, now)
+        week = usage.shared_week(cfg, name, prov, now)
+        return week, week is None and unread(prov, weekly, readable, now), readable
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None, "bad reading", []
+
+
+def usage_cells(cfg, now=None):
+    """Each subscription's (provider, label, left, said), in `usage_rows`' order: `left` 1 to
+    100 and `said` its `NN% left`; 0 for a spent week on credits, which count as usage left,
+    `said` them; or None, `said` its `empty until <when>`, or `—` and why (`unread`)."""
+    now = time.time() if now is None else now
+    found = []
+    for name, label, prov, _ in usage_rows(cfg):
+        week, why, _ = reading(cfg, name, prov, now)
+        if week is None:
+            found.append((name, label, None, f"—  {why}"))
+            continue
+        left, credits = percent_left(week), usage.credits_note(prov)
+        if left or credits:
+            found.append((name, label, left, f"{left}% left" if left else credits))
+        else:
+            when = resets_note(week, now).removeprefix("resets ")
+            found.append((name, label, None, f"empty until {when}" if when else "empty"))
+    return found
 
 
 def usage_lines(cfg, width):
