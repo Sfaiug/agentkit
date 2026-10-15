@@ -50,13 +50,14 @@ class Loss(unittest.TestCase):
         # and cost after speed, size last: everything better but the lines of code names those
         bigger = {**BOARD, "products": [STATS, {**STATS, "unmerged": .4, "hours": 2.0, "tokens": 2000}],
                   "escaped": [BOARD["escaped"][0], BOARD["escaped"][0]],
-                  "size": [{"code_lines": 110, "readme_words": 9}, {"code_lines": 100, "readme_words": 9}]}
+                  "size": [{"code_lines": 110, "readme_words": 9, "agents_words": 9},
+                           {"code_lines": 100, "readme_words": 9, "agents_words": 9}]}
         self.assertEqual(scoreboard.loss(bigger), ("ak's code lines", 110, 100, "n"))
 
     def test_nothing_worse_names_the_first_measure_the_board_reads_at_all(self):
         same = {**BOARD, "products": [STATS, STATS]}
         self.assertEqual(scoreboard.loss(same), (REWRITTEN, .5, .6, "%"))
-        only_size = {**EMPTY, "size": [{"code_lines": 100, "readme_words": 9}, None]}
+        only_size = {**EMPTY, "size": [{"code_lines": 100, "readme_words": 9, "agents_words": 9}, None]}
         self.assertEqual(scoreboard.loss(only_size), ("ak's code lines", 100, None, "n"))
         # a row a newer board adds is read once it is there, and read as none before
         self.assertEqual(scoreboard.loss({**EMPTY, "parks": [{"parked": 2}, {"parked": 0}]}),

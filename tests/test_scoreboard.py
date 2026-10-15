@@ -162,11 +162,11 @@ class Scoreboard(unittest.TestCase):
         self.assertEqual(board["products"][0]["runs"], 1)
         self.assertEqual(board["ak"][0]["token_share"], 1 / 3)
 
-    def test_size_counts_only_tracked_code_and_readme_words_at_both_commits(self):
+    def test_size_counts_only_tracked_code_readme_and_agents_words_at_both_commits(self):
         files = {"agentkit/core.py": "one\ntwo\n", "bin/ak": "one\ntwo\n",
                  "hooks/on.sh": "one\n", "adapters/echo.sh": "one\n",
                  "tools/tool.py": "one\n", "install.sh": "one\n",
-                 "README.md": "two words\n", "docs/notes.md": "ignored\n" * 100,
+                 "README.md": "two words\n", "AGENTS.md": "one\n", "docs/notes.md": "ignored\n" * 100,
                  "tests/test_fixture.py": "ignored\n" * 100}
         for name, content in files.items():
             path = self.repo / name
@@ -176,18 +176,20 @@ class Scoreboard(unittest.TestCase):
         (self.repo / "agentkit/core.py").write_text("one\ntwo\nthree\nfour\n")
         (self.repo / "install.sh").write_text("one\ntwo\n")
         (self.repo / "README.md").write_text("one two three four five\n")
+        (self.repo / "AGENTS.md").write_text("one two three\n")
         (self.repo / "tools/binary").write_bytes(b"\0binary\n" * 100)
         self.commit(3 * 86400)
         (self.repo / "agentkit/untracked.py").write_text("ignored\n" * 100)
         (self.repo / "agentkit/core.py").write_text("uncommitted\n" * 100)
         self.assertEqual(scoreboard.compute(NOW)["size"], [
-            {"code_lines": 11, "readme_words": 5}, {"code_lines": 8, "readme_words": 2}])
+            {"code_lines": 11, "readme_words": 5, "agents_words": 3},
+            {"code_lines": 8, "readme_words": 2, "agents_words": 1}])
 
     def test_new_install_and_missing_git_or_database_use_words_for_missing_data(self):
         (self.repo / "README.md").write_text("new install\n")
         self.commit(1)
         board = scoreboard.compute(NOW)
-        self.assertEqual(board["size"], [{"code_lines": 0, "readme_words": 2}, None])
+        self.assertEqual(board["size"], [{"code_lines": 0, "readme_words": 2, "agents_words": None}, None])
         self.assertFalse(history.path().exists())
         with patch.object(scoreboard.subprocess, "run", side_effect=OSError("git unavailable")):
             board = scoreboard.compute(NOW)
@@ -220,7 +222,7 @@ class Scoreboard(unittest.TestCase):
                     "hours": None, "tokens": None, "token_share": .6},
                    {"runs": 1, "merged": 1, "first_round": 1, "unmerged": 0,
                     "hours": None, "tokens": None, "token_share": None}],
-            "size": [{"code_lines": 17, "readme_words": 5}, None],
+            "size": [{"code_lines": 17, "readme_words": 5, "agents_words": 9}, None],
             "waits": [{"compute": .25, "merge_hours": 1.5, "lander_hours": .5}, None],
             "merged": [{"model": 1.375, "ak": 1.875, "waiting": 0.75, "seat": 1.0}, None],
             "escaped": [{"merged": 2, "escaped": 1, "open": 1, "unknown": 1,
@@ -247,7 +249,8 @@ class Scoreboard(unittest.TestCase):
             "          within 7 days (acme-reviewer 1 of 2); 1",
             "          merged under 7 days ago may still be; 1 with",
             "          no merge commit to follow",
-            "ak size   17 code lines, 5 README words                 size unavailable",
+            "ak size   17 code lines, 5 README words, 9 AGENTS.md    size unavailable",
+            "          words",
         ]
         with patch.object(scoreboard, "compute", return_value=board), \
                 patch.object(terminal, "content_width", return_value=100):
