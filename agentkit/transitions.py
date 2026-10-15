@@ -1189,6 +1189,14 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
     return spent, runs
 
 
+def change_reviewed(change):
+    """Whether a review of that change handed in its verdict (`round_summaries`) on any run of
+    it (`change_of`): a round under way holds its place in the budget (`rounds_spent`), but no
+    reviewer has judged the change yet."""
+    return any(state and change_of(state) == change and state.get("round_summaries")
+               for state in map(run_record.read_state, run_record.run_dirs()))
+
+
 def round_budget(asked, *, pr=None, change=None, exclude=None, what, own=0):
     """(the rounds this run may still have, None), or (0, why) once the change's budget is
     spent: `asked` less what the other runs (`exclude` names this one) spent on the same pull

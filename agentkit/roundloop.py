@@ -1471,6 +1471,7 @@ def resume_review(lp, verified=None):
     # fixer turn came before it is not known here -- but the next round has to be able to
     # compare against it
     same_failure(lp, ok, dw_log, compare=False)
+    first_review_ceiling(lp)
     return review(lp, pending["summary"], ok, dw_log,
                   pending.get("reason", "Resume the unfinished review."),
                   **({"record": False} if pending.get("record") is False else {}))
@@ -1584,11 +1585,11 @@ def first_review_ceiling(lp):
     """A task's change gets its first review only up to `task.MAX_PR_LINES` added lines, as a
     seat's own pull request does (`run.review_pr`): past it the run ends blocked with `split it`
     before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
-    Only the change's first review: a later round, in this run or in one launched `from:` its
-    branch, reviews whatever the fix left.  A scratch run has no diff to count."""
-    if (lp.rnd != 1 or lp.scratch or lp.state.get("review_pr")
-            or transitions.rounds_spent_elsewhere(change=transitions.change_of(lp.state),
-                                                  exclude=lp.run_dir)[0]):
+    Only the change's first review, a resumed one too: once a review of it, in this run or in
+    one launched `from:` its branch, handed in a verdict, a later one reviews whatever the fix
+    left.  A scratch run has no diff to count."""
+    if (lp.scratch or lp.state.get("review_pr")
+            or transitions.change_reviewed(transitions.change_of(lp.state))):
         return
     gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     lines = transitions.diff_lines(lp.wt, lp.base_sha, "HEAD", added_only=True)

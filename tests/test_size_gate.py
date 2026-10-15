@@ -84,11 +84,11 @@ class SizeGate(Sandbox):
     def test_a_task_s_first_review_takes_at_most_400_added_lines(self):
         # the branch already adds 2 lines a reviewer reads (dist/ is generated); the executor
         # adds the rest, uncommitted, as executors do
-        def loop(run_id, change=None):
+        def loop(run_id, change=None, **extra):
             state = {"run_id": run_id, "title": "Fix the API", "state": "running", "repo": str(self.repo),
                      "worktree": str(self.repo), "base": "main", "base_sha": self.base,
                      "branch": "fix-api", "executor": "opus", "reviewer": "astra", "rounds": 3,
-                     "round_summaries": [], **({"change": change} if change else {})}
+                     "round_summaries": [], **({"change": change} if change else {}), **extra}
             directory = config.RUNS / run_id
             directory.mkdir(parents=True)
             record.save_state(directory, state)
@@ -119,10 +119,21 @@ class SizeGate(Sandbox):
         # the work is committed on the branch the blocked run keeps, for the pieces
         self.assertIn("new.py", self.git("show", "--name-only", "--format=", "HEAD"))
         self.assertEqual(self.git("status", "--porcelain"), "")
-        # a change a run launched `from:` its branch already had reviewed is past its first review
+        # a round another run of the change has under way, its reviewer yet to judge, is no review
         self.git("reset", "-q", "--hard", self.head)
         earlier = config.RUNS / "20261015-0800-first-try"
         earlier.mkdir(parents=True)
+        record.save_state(earlier, {"run_id": earlier.name, "state": "running", "change": "the-change",
+                                    "step_round": 1, "round_summaries": []})
+        self.assertEqual(rounds(loop("20261015-0915-beside-it", "the-change"), taskfile.MAX_PR_LINES - 1)[:2],
+                         (0, refused))
+        # ... nor is a first review resumed on the saved work
+        self.git("reset", "-q", "--hard", self.head)
+        (self.repo / "new.py").write_text("".join(f"n{k} = {k}\n" for k in range(taskfile.MAX_PR_LINES - 1)))
+        self.assertEqual(rounds(loop("20261015-0918-resumed", review_pending={"round": 1, "summary": "built"}),
+                                0)[:2], (0, refused))
+        # a change a run launched `from:` its branch already had reviewed is past its first review
+        self.git("reset", "-q", "--hard", self.head)
         record.save_state(earlier, {"run_id": earlier.name, "state": "fail", "change": "the-change",
                                     "round_summaries": [{"round": 1, "verdict": "FAIL"}]})
         self.assertEqual(rounds(loop("20261015-0920-from-its-branch", "the-change"),
