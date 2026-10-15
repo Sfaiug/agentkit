@@ -2349,8 +2349,8 @@ with redirect_stdout(stdout), redirect_stderr(stderr):
     assert orch.cmd_list([]) == 0
 listed, warned = stdout.getvalue(), stderr.getvalue()
 assert all(name in listed for name in ("list-one", "list-bad", "list-three")), listed
-assert "list-bad" in listed and re.search(r"(?m)^list-bad\s+\S+\s+.*\s\?\s+\?\s+\S+$", listed), listed
-assert str(config.session_path("list-bad")) in warned and "retired-model" in warned, warned
+assert "list-bad" in listed and re.search(r"(?m)^list-bad\s+.*\sretired-model\s+opus,spark\s+\S+$", listed), listed
+assert warned == "", warned
 PY
 if [ "$SESSIONRC" = 0 ] &&
    grep -q '^orch: astra ' "$WORK/session-pick.log" &&
@@ -2361,7 +2361,7 @@ if [ "$SESSIONRC" = 0 ] &&
    jq -e '.pick_order == ["opus", "spark"]' "$WORK/session-usage.json" >/dev/null 2>&1 &&
    jq -e '.pick_order == ["opus", "astra"]' \
      "$WORK/session-default-usage.json" >/dev/null 2>&1; then
-  ok "6c session picker: the plan names the chosen workers and records nothing, usage applies workers or missing-state defaults, list tolerates stale state"
+  ok "6c session picker: the plan names the chosen workers and records nothing, usage applies workers or missing-state defaults, list names a seat whose model was removed"
 else
   no "6c session picker"; sed 's/^/      /' "$WORK/session-pick.log" | head -8
 fi
