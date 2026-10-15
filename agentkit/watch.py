@@ -2055,14 +2055,16 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a question on its screen is him even during a turn, and so is one it asked with `ak
       notify needs` that nothing has answered (its own, from the end of the turn it asked
       in: `keeps_back`); so is typed text nobody sent while no client
-      is attached and no turn is in flight -- the question, or `unsent: <text>` -- whatever
-      its runs do;
+      is attached and no turn is in flight -- the question, or `unsent: <text>` -- and a
+      move to another account that failed, whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
     * an error it launched is parked with no scheduled resume and still needs his
       attention -- recent, unacknowledged, not handed back or superseded -- or a run
       is stalled, or a merge wait only its age turned away;
+    * its subscription ran out and ak resumes it when the usage comes back, so the seat is
+      working, its reason saying until when (`resumes_at`);
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in;
@@ -2241,12 +2243,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     out = logged_out(harness, auth_out)
     if out:
         return {"word": "needs you", "reason": login_reason(harness), "since": out.get("at")}
-    # A question the seat asked outranks its wait for usage (1d): the wait ends by itself.
-    waiting = seat_read(name).get("usage_wait")
     last = notify.last(name)
-    if (waiting and not any(session.get(key) for key in orch.CLOSED)
-            and not seat_closed_by_owner(name) and not owner_question(last)):
-        return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"]}
     # 1a. ... and a run of this seat's parked on one is the same news about a login he has to
     # go and fix.  The run being parked is the evidence: nothing here re-asks the verb for it,
     # because the tick that can answer is the one that unparks it, and until it does the work
@@ -2281,9 +2278,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # work is a quiet prompt here: its composer is open, so a line typed there is not sent.
     # A seat nobody is in has no screen, so its record is history.
     gone = any(session.get(key) for key in orch.CLOSED)
+    # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
+    # shows, no turn is in flight until ak resumes it (3b).
+    waiting = None if gone or seat_closed_by_owner(name) else seat_read(name).get("usage_wait")
     if (harness and not gone and found.get("state") in ("asking", "draft")
             and (found["state"] == "asking" or not session.get("attached"))
-            and (found["state"] == "asking" or _composer_open(harness, found))):
+            and (found["state"] == "asking" or waiting or _composer_open(harness, found))):
         asked = " ".join(str(found.get("evidence") or "").split())
         if found.get("state") == "draft":
             asked = f"unsent: {asked}"
@@ -2296,6 +2296,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time"), "question": True}
+    # ... and so is a move to another account that failed: no wait ends it by itself, so
+    # neither its runs nor its `ak wait` going says he was not needed.
+    if waiting and not waiting.get("until"):
+        return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"]}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -2337,7 +2341,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # way round the word swung with every turn and each swing sent a new card.
     if gone:
         found = {}
-    elif harness:
+    elif harness and not waiting:
         flight, began = _turn_in_flight(harness, found)
         if flight:
             long = (isinstance(began, (int, float)) and not isinstance(began, bool)
@@ -2376,6 +2380,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             reason = (status_mod.parked_line(first, name, now=at)
                       or f"run {name} parked: {reason}")
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
+    # 3b. ... or its subscription ran out and ak resumes it when the usage comes back, or on
+    # another account sooner: it moves on without him, so it is working until then, the
+    # reason saying until when -- and nothing on him outranked it above.
+    if waiting:
+        return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
+                "resumes_at": waiting["until"]}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
     # seat's own standing until a newer notice, but a question on its screen, typed text
