@@ -27,7 +27,7 @@ Overlays and dry runs skip it. A screen whose content is still being fetched has
 segment glide along it (Motion). No other screen draws a bar for either.
 
 Helpers: `terminal.header_line`, `terminal.rule_line`, `terminal.key_line`,
-`terminal.key_height`, `terminal.layout_width`.
+`terminal.layout_width`.
 
 Example: `agentkit                                                              14:02`
 then `────────────────────────────────────────────────────────────────────────`.
@@ -207,69 +207,14 @@ colour the rows still follow it, and nothing else lights. Helpers: `terminal.und
 the one reading of a position back to what a screen drew there, for a click and the
 pointer alike, `terminal.lit`, `terminal.relight`, `terminal.away`, `terminal.unseen`.
 
-Nobody needs a manual: the key line is the tooltip. While the pointer rests on
-something that means more than its label -- a session row, a state word, a
-project's heading, a usage row, a key-line item on any screen, on `c` a model,
-a mark, an effort or a provider's name, on a model's own screen its id and its
-effort, on `n` a model or a role's mark, and a provider or a subscription in the
-lists `+ add` and `− remove` open -- the key line says what it is in one plain
-sentence, in place of the keys: starting on the same row and wrapping at word
-boundaries onto further lines, never cut. The rows above stay in place. The keys
-and their explanations have room reserved through `terminal.key_height` before an
-interactive list is drawn, so a full list never scrolls when the pointer rests on
-a key or a row. `terminal.key_line` returns only the keys' own rows, with no blank
-rows added for that room. A menu printed from a pipe reserves only its keys. The keys
-come back when the pointer leaves it, and any key brings them back too. A state
-word, a heading naming no switches, a usage row and a provider's name only
-explain: nothing lights on them and a click there does nothing of its own (`terminal.Spot`); a key-line
-item whose sentence stands in its place is not lit either. `esc back` means
-just what it says, so it lights and explains nothing. The sentences live in
-one table, `terminal.TIPS`, filled in with what each is about; a key-line item
-is keyed by its own text, the same on every screen, and without UTF-8 by its
-UTF-8 key (`enter` is `⏎`):
-
-- `↑↓ move` (and `↑↓←→ move`): `the arrow keys, k and j, or the wheel move the highlight; so does the pointer`
-- `⏎ open`: `Enter or a click opens what is highlighted: a session, a model's own screen, a list`
-- `⏎ mark`: `Enter, space or a click flips the mark, saved to the session at once`
-- `⏎ effort`: `Enter or space steps the effort up, round from its highest; a click on an arrow steps it`
-- `⏎ remove`: `Enter asks Keep or Remove first, and the last model always stays`
-- `←→ choose`: `← and → step the value through what its harness's catalog offers, saved at once`
-- `⏎ choose`: `Enter or a click picks the highlighted one; Esc goes back with nothing done`
-- `⏎ add`: `Enter or a click adds the highlighted one to the config; Esc goes back with nothing added`
-- `⏎ flip`: `Enter or a click flips the switch through the project's own command, at once`
-- `space choose`: `space or a click marks or unmarks the model for the role the highlight is on`
-- `⏎ start`: `Enter starts the session on what is marked, wherever the highlight is`
-- `n new`: `n starts a session: you name it and pick the models that orchestrate, execute and review`
-- `x stop`: `x stops the highlighted session and everything it runs, asking first`
-- `x close`: `x closes the highlighted done session: its runs and checkouts go, and its number reopens it`
-- `x remove`: `x takes the highlighted stopped session off the list now; left alone it goes with the sweep`
-- `c config`: `c sets the highlighted session's models, every model's effort, the providers and Discord`
-- `esc leave`: `Esc leaves ak; the sessions go on working without it`
-- in the popup, `n start a session`: `n starts a session and switches this terminal to it, closing the popup`
-- `c models`: `c opens this session's models: who orchestrates, executes and reviews`
-- `x stop this session`: `x stops this session and everything it runs, asking first`
-- `x close this session`: `x closes this session, which is done: its runs and checkouts go, and its number reopens it`
-- a session row: `{name}: Enter or a click opens it, where you talk to its orchestrator`
-- `needs you`: `needs you: it asked you something, or it cannot go on without you`
-- `working`: `working: a run of its own is going, or a turn is, or a session it waits on works`
-- `done`: `done: it said so, and the row carries its summary`
-- `idle`: `idle: nothing is running, asked or owed; it waits for whatever you start next`
-- a project's heading: `{name}: the project the sessions under it work in, those needing you first`
-- one naming feature switches: `{name}: Enter or a click opens the switches of its hidden features`
-- a usage row: its label, `NN% left` (once it is at 0%, the credits it still runs on where it has any, `62,469 credits left`), `resets <when> (in 2 d 6 h)`, then `runs out early at this pace`, `lasts at this pace` or `on pace` (none once it is at 0%)
-- a usage row with no week to draw: `{name}: no week to draw, {why}; the bar comes with the first reading of one`
-- a model, on `c` and `n`: `{name}: {model} through {harness}, at {effort} effort`
-- its id, on its own screen: `model id: what {harness} is asked to run, one its catalog lists`
-- `orch`: `orch: the model the session's orchestrator runs on, one only`
-- `exec`: `exec: a model that builds pieces beside the orchestrator; none, and it builds all`
-- `review`: `review: a model that may review the session's runs; one at least`
-- an effort: `effort: how hard {name} thinks, one of the efforts its harness takes for it`
-- on its own screen, `executes at`: `executes at: the effort {name} builds and fixes at; same is its effort`
-- and `reviews at`: `reviews at: the effort {name} reviews at; same is its effort`
-- a provider, or in `− remove` a subscription: `{name}: your subscription; its seats, runs and usage row use its login`
-- the provider a worker token is minted for: `{name}: its {note}`, the token's expiry
-- in `+ add`, another subscription: `{name}: another subscription of it, logged in on this terminal, then listed`
-- in `+ add`, a provider: `{name}: installed here if missing, logged in, and added with its first model`
+Nobody needs a manual, and nothing explains itself: the pointer lights what it
+rests on and the key line stays the keys, on every screen (the owner, 14 Oct
+2026: "I dont think hovering should show extra info anywhere"). A usage row under
+the pointer glints once and shows a tick at the share that would remain if usage
+kept pace with time. A state word, a heading naming no switches, a usage row and
+a provider's name only explain: nothing lights on them and a click there does
+nothing of its own (`terminal.Spot`). `esc back` means just what it says, so it
+lights nothing.
 
 A usage row under the pointer shows the one thing the row cannot: whether its
 allowance lasts the week at this pace. One glint of light crosses its bar, left to
@@ -342,14 +287,12 @@ between the arrows ←→ step (the id and each effort only through what the har
 catalog lists, each effort following the id; the last two read `same`, dim, while
 they follow its effort), then `Remove`, whose Enter asks on the question
 card under it, `Keep` picked; each value goes under its
-label on a phone. Esc returns to the matrix on that model's row. The worker
-token's expiry is the tooltip of the provider it is minted for on `Providers`
-(`claude worker token expires 2027-09-22 (in 142 days)`), and once it is 14
-days away or less, or past, that line stands under the rows whatever the
-pointer is on. There is no `i` page: what it said is the key line's now.
+label on a phone. Esc returns to the matrix on that model's row. Once the worker
+token's expiry is 14 days away or less, or past, it stands under the rows
+(`claude worker token expires 2026-10-21 (in 7 days)`). There is no `i` page.
 
 Helpers: `terminal.frame` (written over in place while a keyboard has the
-screen), `terminal.state_text`, `menu.config_tips`.
+screen), `terminal.state_text`.
 
 ## The new-session screen
 

@@ -1,6 +1,5 @@
 """Whatever the pointer is over lights up, on every screen: the row under it takes the keys' own
 highlight, a key-line item or a cell a subtle background, and that goes when the pointer leaves;
-one whose key line says what it is in its place lights nothing (tests/test_hover_explains.py);
 the keys and the pointer never show two highlights, nothing is acted on while the pointer has
 the highlight out, and a flood of moves is one draw.
 
@@ -32,7 +31,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal
-from agentkit.terminal import TIPS
 from test_config_matrix import Screen
 from test_menu_keys import Menu
 from fixtures.sandbox import Sandbox
@@ -112,8 +110,7 @@ def highlighted(grid):
 
 
 def on(menu, name):
-    """Wait for `menu` to show `name`'s row highlighted, whatever its key line says: resting on a
-    row, the pointer has it say what that row is (tests/test_hover_explains.py)."""
+    """Wait for `menu` to show `name`'s row highlighted."""
     menu.until(lambda text: any(name in line for line in highlighted(played(text))),
                f"{name} highlighted")
 
@@ -476,9 +473,8 @@ class MainMenu(unittest.TestCase):
         on(menu, "seat-c")
         keyline = (lines[-1].index("c config") + 1, len(lines))
         menu.send(move(*keyline))
-        menu.until(lambda text: texts(played(text))[keyline[1] - 1] == "  " + TIPS["c config"]
-                   and marked(played(text), "lit") == {} and not highlighted(played(text)),
-                   "c config explained, and no seat")
+        menu.until(lambda text: marked(played(text), "lit") == {keyline[1]: "c config"}
+                   and not highlighted(played(text)), "c config lit, and no seat")
         # a key moves the one highlight on from the pointer's, and the key line's light goes
         menu.send(b"k")
         menu.frame(lambda lines: any(line.startswith("› 2  seat-b") for line in lines))
@@ -513,8 +509,8 @@ class MainMenu(unittest.TestCase):
         menu.send(move(20, row))
         on(menu, "done-b")
         menu.send(move(*keyline))
-        menu.until(lambda text: texts(played(text))[keyline[1] - 1] == "  " + TIPS["x close"]
-                   and not highlighted(played(text)), "x close explained, and no seat")
+        menu.until(lambda text: "x close" in texts(played(text))[keyline[1] - 1]
+                   and not highlighted(played(text)), "x close lit, and no seat")
         mark = len(menu.text())
         menu.send(b"x")
         menu.frame(lambda lines: any(line.startswith("› 2  done-b") for line in lines),

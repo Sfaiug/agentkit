@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, watch, worker
+from agentkit import config, watch, worker
 
 
 class WorkerTokenBadBytes(unittest.TestCase):
@@ -47,8 +47,6 @@ class WorkerTokenBadBytes(unittest.TestCase):
 
     def test_the_config_screen_carries_on(self):
         self.assertIsNone(watch.worker_token_note())
-        tips = menu.config_tips(config.load(), watch.worker_token_note())
-        self.assertNotIn("worker token", "\n".join(tips.values()))
 
 
 if __name__ == "__main__":
