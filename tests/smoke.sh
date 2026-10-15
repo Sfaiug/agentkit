@@ -3814,9 +3814,9 @@ assert any("no reading yet" in line or "% left" in line for line in screen), scr
 # The menu at rest is the projects and their seats: a run of nobody's is neither a
 # heading nor a row, whatever its repository, and `ak run status` is where it is looked up.
 assert any(line == "no project" for line in screen), screen
-# the count is said once, on the top line; each needing row says its own word
-assert sum(line.lstrip().startswith("your projects") and "need" in line
-           for line in screen) <= 1, screen
+# no line counts who needs the owner; each needing row says its own word
+assert not any(re.search(r"\d+ needs? you|need you|nothing needs you", line)
+               for line in screen), screen
 # a usage row with no reading is `—` and why (v5c); a receipt is `— PASS`, `— FAIL`, `— ERROR`
 RECEIPT = re.compile(r" — (?:PASS|FAIL|ERROR)\b")
 second = menu_lines()
@@ -5456,7 +5456,7 @@ assert not hasattr(menu, "recover_run") and not hasattr(menu, "watch_run")
 lines = menu_lines("\n")
 assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
-assert any("your projects" in line for line in lines), lines
+assert any(line.strip().startswith("1  ") for line in lines), lines
 row = next(line for line in lines if "atoll-fix" in line)
 assert "fable" in row and "working" in row and row.endswith(" 2 of 5"), row   # the line's count
 assert not any("Teach the menu" in line for line in lines), lines

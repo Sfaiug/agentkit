@@ -343,9 +343,8 @@ class ThreeStates(Sandbox):
                 redirect_stdout(io.StringIO()) as out:
             menu.draw(self.cfg, seats)
         screen = out.getvalue()
-        self.assertIn("your projects · 1 needs you", screen)
-        # One needing seat, whatever the other two are, and the count says it once.
-        self.assertEqual(len(re.findall(r"needs? you", screen)), 2)   # the line and the row
+        # One needing seat, whatever the other two are, and its row alone says it.
+        self.assertEqual(len(re.findall(r"needs? you", screen)), 1)
         self.assertIn("● working", screen)
         self.assertIn("✓ done", screen)
 

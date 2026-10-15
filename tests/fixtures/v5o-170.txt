@@ -3,7 +3,6 @@ agentkit                                                                        
   Claude   ▰▰▱▱▱▱▱▱▱▱  21% left      MiMo     — no reading yet          Muse     ▰▰▰▰▰▱▱▱▱▱  50% left
   Gemini   — no reading yet          Grok     — no reading yet          ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left
 
-your projects · 2 need you
 
 agentkit
   3  herdr-quiet  fable  ! needs you

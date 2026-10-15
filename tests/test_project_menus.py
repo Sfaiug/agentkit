@@ -77,10 +77,9 @@ class Projects(Sandbox):
             self.assertIn("\nATOLL\n", screen)
             self.assertIn("\nagentkit\n", screen)
             self.assertNotIn("seats", screen)
-            self.assertIn("your projects · 1 needs you", screen)
-            # ... and the one row says the word once, in its state column; the seats that rest
-            # read idle
-            self.assertEqual(screen.count("needs you"), 2)
+            # the one row that needs the owner says the word once, in its state column; the seats
+            # that rest read idle
+            self.assertEqual(screen.count("needs you"), 1)
             # A run makes no project: not a scratch one, and not `not-a-checkout`.
             self.assertNotIn("scratch ·", screen)
             self.assertNotIn("not-a-checkout", screen)
@@ -175,7 +174,7 @@ class Projects(Sandbox):
         full = self.draw(100, 30)[0]
         self.assertNotIn("↳", full)
         self.assertIn("no reading yet", full)                # the grid
-        folded, pages = self.draw(100, 14)
+        folded, pages = self.draw(100, 12)
         # The grid folds to every share left, each whole, and every seat keeps its row.
         self.assertNotIn("no reading yet", folded)
         self.assertIn("Claude 21% · MiMo — · Muse 50%", folded)

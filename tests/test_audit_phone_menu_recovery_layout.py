@@ -278,9 +278,9 @@ class Pages(Sandbox):
                     seen += numbers
                     for key in ("j more", "k previous"):    # on one key line, or on two
                         self.assertEqual(any(key in line for line in lines), pages > 1, key)
-                    if pages > 1:
-                        heading = next(line for line in lines if "your projects" in line)
-                        self.assertIn(f" {page + 1}/{pages}", heading)
+                    if pages > 1:     # where the owner is, on the key line
+                        self.assertTrue(any(line.startswith(f"  {page + 1} / {pages}")
+                                            for line in lines), text)
                 self.assertEqual(seen, list(range(1, 13)))
         # a screen that holds every seat and what each asks keeps the whole block, on one page
         lines, drawn = self.draw(seats, 100, 45)
@@ -296,7 +296,6 @@ class Pages(Sandbox):
         # one page draws exactly what it always drew: no page keys and no range
         lines, drawn = self.draw(self.seats(3), 40, 24)
         self.assertEqual(drawn, (0, 1))
-        self.assertIn("your projects · 3 need you", lines)
         self.assertNotIn("j more", "\n".join(lines))
         self.assertEqual(self.draw(self.seats(3), 40, 24, page=7)[1], (0, 1))
 
@@ -314,14 +313,9 @@ class Pages(Sandbox):
                 patch.object(terminal, "height", return_value=12), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg), 0)
-        headings = [line.strip() for line in out.getvalue().splitlines() if "your projects" in line]
-        base = "your projects · 12 need you"
+        marks = re.findall(r"(?m)^  (\d+) / 6\b", out.getvalue())
         # six pages of two seats each: the usage's one line keeps its row on every page
-        self.assertEqual(headings, [f"{base} 1/6", f"{base} 2/6",
-                                    f"{base} 1/6", f"{base} 2/6",
-                                    f"{base} 3/6", f"{base} 4/6",
-                                    f"{base} 4/6", f"{base} 4/6",
-                                    f"{base} 4/6"])
+        self.assertEqual(marks, ["1", "2", "1", "2", "3", "4", "4", "4", "4"])
         self.assertEqual(opened, [LONG_NAME, "seat-03"])   # 12 answered from the first page
         self.assertEqual(stopped, ["seat-11"])
 
@@ -555,18 +549,16 @@ class Phone(Sandbox):
         for line in screen:
             self.assertLessEqual(terminal.cells(line), width, line)
 
-    def whole_page(self, screen, width, height, heading="your projects"):
+    def whole_page(self, screen, width, height):
         """A drawn page: title on the first line, the keys on the last, nothing scrolled off."""
         self.fits(screen, width, height)
         self.assertTrue(screen[0].startswith("agentkit"), "\n".join(screen))
         self.assertTrue(next(line for line in reversed(screen) if line.strip()).endswith("esc leave"),
                         "\n".join(screen))
-        return next(line for line in screen if heading in line)
 
     def popup_page(self, screen):
         """The page inside the popup: heading and keys both within the box."""
         inside = Terminal.inside(screen)
-        self.assertTrue(any("your projects" in line for line in inside), "\n".join(screen))
         self.assertTrue(next(line for line in reversed(inside) if line.strip()).endswith("esc leave"),
                         "\n".join(screen))
         return inside
@@ -672,7 +664,7 @@ class Phone(Sandbox):
         narrow = width < 60
         phone = Terminal(self, width, height)
         screen = phone.until("no sessions; n starts one", "esc leave", prompt="esc leave")
-        self.whole_page(screen, width, height, "no sessions")
+        self.whole_page(screen, width, height)
         # n asks a name, then one screen that fits: astra below opus and every worker added
         phone.press("n")
         phone.until("Name: auto", prompt="esc back")
@@ -738,14 +730,13 @@ class Phone(Sandbox):
         self.stop_answered(phone)
         # the session is gone, so the attach is over: the menu is back, no box, the stopped seat
         # still on its row for its number to reopen it, and `x` on it again takes it off at once
-        screen = phone.until("your projects", "1  new-2", "2  phone-audit", "x remove",
-                             absent=["│"], prompt="esc leave")
+        screen = phone.until("1  new-2", "2  phone-audit", "x remove", absent=["│"],
+                             prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertFalse(self.has_seat("new-2"))
         self.assertEqual(self.marked(screen), 1)
         phone.press("x")
-        screen = phone.until("your projects", "1  phone-audit", "esc leave", absent=["new-2"],
-                             prompt="esc leave")
+        screen = phone.until("1  phone-audit", "esc leave", absent=["new-2"], prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertNotIn("2  phone-audit", "\n".join(screen))
         phone.settled()
@@ -759,11 +750,13 @@ class Phone(Sandbox):
         self.seat(LONG_NAME)
         phone.keys("F5")                     # a key that does nothing: a draw, and no more
         if narrow:
-            screen = phone.until("your projects", "11  phone-au", prompt="esc leave")
+            screen = phone.until("esc leave", "11  phone-au", prompt="esc leave")
             self.whole_page(screen, width, height)
-            self.assertRegex(self.place(screen), r"^\d+ / \d+$")
+            # every seat on the one page, or a page of them and where it is
+            self.assertTrue(self.numbers(screen) == set(range(1, 13))
+                            or re.fullmatch(r"\d+ / \d+", self.place(screen)), screen)
         else:
-            screen = phone.until("your projects", "12  zz-very-long-session-", prompt="esc leave")
+            screen = phone.until("esc leave", "12  zz-very-long-session-", prompt="esc leave")
             self.whole_page(screen, width, height)
             self.assertEqual(self.numbers(screen), set(range(1, 13)))
         self.assertEqual(self.marked(screen), 11)
@@ -787,7 +780,7 @@ class Phone(Sandbox):
             self.assertIn(f"! needs you    {LONG_NAME}   astra", top)
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
         phone.keys("C-b", "d")
-        screen = phone.until("your projects", prompt="esc leave")
+        screen = phone.until("esc leave", prompt="esc leave")
 
         def full(screen):
             self.whole_page(screen, phone.width, phone.height)
@@ -800,29 +793,29 @@ class Phone(Sandbox):
         # the popup over a seat holds fewer rows still, and pages them the same way
         phone.press("11")                    # phone-audit, eleventh by name
         phone.until(STAND_IN, "   phone-a")
-        screen = phone.menu("your projects", "←  1 / ")
+        screen = phone.menu("esc leave", "←  1 / ")
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
         phone.until(STAND_IN, absent=["esc leave"])
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "d")
-        phone.until("your projects", prompt="esc leave")
+        phone.until("esc leave", prompt="esc leave")
         # `c` lists the config, `i` and `r` are no keys and say nothing
         phone.press("c")
         phone.until("add a model", "esc back")
         phone.keys("Escape")
-        phone.until("your projects", "esc leave", prompt="esc leave")
+        phone.until("esc leave", prompt="esc leave")
         phone.press("i")
-        phone.until("your projects", "esc leave", absent=["not a key"], prompt="esc leave")
+        phone.until("esc leave", absent=["not a key"], prompt="esc leave")
         phone.press("r")
-        screen = phone.until("your projects", "esc leave", absent=["not a key"], prompt="esc leave")
+        screen = phone.until("esc leave", absent=["not a key"], prompt="esc leave")
         # the terminal turned, then held short: the layout follows on the next redraw
         phone.resize(100, 30)
         screen = phone.redraw("12  zz-very-long-session-", "esc leave")
         self.whole_page(screen, 100, 30)
         self.assertNotIn("j more", "\n".join(screen))
         phone.resize(40, 12)
-        screen = phone.redraw("your projects", "/")
+        screen = phone.redraw("esc leave", "/")
         # held short the frame goes compact: heading, rows, keys and prompt only
         self.fits(screen, 40, 12)
         self.assertNotIn("no reading yet", "\n".join(screen))
@@ -837,10 +830,10 @@ class Phone(Sandbox):
         phone.until(STAND_IN, absent=["esc leave"])
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "d")
-        phone.until("your projects", prompt="esc leave")
+        phone.until("esc leave", prompt="esc leave")
         phone.resize(width, height)
         # the frame is back at the new size, on the page the highlight is on
-        screen = phone.redraw("agentkit", "your projects")
+        screen = phone.redraw("agentkit", "esc leave")
         self.whole_page(screen, width, height)
         # x stops the highlighted seat, on whichever page it is, once `Stop` answers the question
         # under its row; Esc leaves without a word of error
@@ -854,13 +847,11 @@ class Phone(Sandbox):
             self.assertIn(f"Stop {LONG_NAME} and everything it runs?", screen)
         self.stop_answered(phone)
         # stopped, the seat keeps its row and the highlight; x on it again removes it
-        screen = phone.until("your projects", "x remove", prompt="esc leave")
+        screen = phone.until("x remove", prompt="esc leave")
         self.assertEqual(self.marked(screen), 12)
         phone.press("x")
-        screen = phone.until("your projects", "11 need you", absent=[LONG_NAME[:20]],
-                             prompt="esc leave")
+        screen = phone.until("esc leave", absent=[LONG_NAME[:20]], prompt="esc leave")
         self.whole_page(screen, width, height)
-        self.assertIn("11 need you", "\n".join(screen))
         self.assertFalse(self.has_seat(LONG_NAME))
         self.assertTrue(self.has_seat("phone-audit"))
         phone.keys("Escape")
