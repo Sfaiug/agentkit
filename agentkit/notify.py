@@ -486,7 +486,8 @@ OWNER_ALERTS = ("inbox:", "auth:", "revive:", "orphan:", "recovery:", "job:")
 def pages(notice):
     """Does that notice page the owner: a question someone asked them -- the seat's own `ak notify
     needs`, an outside pull request's merge question -- or a failure only they can fix?  Never
-    one answered since."""
+    one answered since.  One asked beside a standing question that pages the owner still asks
+    it (`_said`), whatever raised it."""
     if not notice or notice.get("kind") != "needs" or resolved(notice):
         return False
     source = notice.get("source")
@@ -1084,6 +1085,12 @@ def needs_transition(session, card, answer, now, seat=None):
     # A newer notice carries the answer to the one it replaced (`shaped`).
     answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
                       (declared.get("answered_at") or 0) if resolved(declared) else 0)
+    # What pages the owner stands no more once nothing they alone can clear does -- the
+    # dialog came down and the seat asks nothing -- though the word stays: a card that is out
+    # says so, as answered now.
+    paging = bool(answer.get("page") or pages(declared))
+    if card.get("sent") and not paging:
+        answered_at = max(answered_at, now)
     answered_here = answered_at > card["since"]
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
@@ -1110,7 +1117,7 @@ def needs_transition(session, card, answer, now, seat=None):
                     **({"completed": card["completed"]} if card.get("completed") else {})}
         _card_write(session, card)
         return 0
-    if card.get("sent") or card.get("closed") or not (answer.get("page") or pages(declared)):
+    if card.get("sent") or card.get("closed") or not paging:
         return 0
     # Its minute counts from when what pages the owner came up, which may be long after the word
     # did, and from their last key in the seat: a seat works on with its question standing, so a
@@ -1493,6 +1500,8 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
+        if standing and pages(previous):
+            extra["page"] = True
         if standing and at is not None:
             at = max(at, previous["time"])
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
