@@ -2223,6 +2223,10 @@ MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right 
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
 REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
               "Nothing new starts on it; + add a model brings it back.")
+# What another model's orchestrator mark asks of a seat, and what moving means.
+MOVE_ASK = ("Move {} to {}?",
+            "Its conversation starts again on {}, handed its plan, its runs and the last "
+            "exchange; its runs keep going.")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2631,6 +2635,16 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
+def matrix_page(body, places, here, top, under, keys, tips=None):
+    """The page of a matrix screen's rows that fits over `under`, lines of its own below the
+    rows, and its key line: (top, room), the first line of `body` shown and how many are.  `top`
+    stays where it was while `here`'s lines are on the page, else moves the least that brings
+    them on, and never past the last page."""
+    room = max(1, terminal.height() - 5 - terminal.key_height(keys, tips) - len(under))
+    drawn = [number for number, (row, _) in places.items() if row == here] or [0]
+    return max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room)), room
+
+
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
                fetched=None, clock=None, moves=(), tips=None):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
@@ -2654,9 +2668,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     """
     said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
                   for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
-    room = max(1, terminal.height() - 5 - terminal.key_height(keys, tips) - len(said))
-    drawn = [number for number, (row, _) in places.items() if row == here] or [0]
-    top = max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room))
+    top, room = matrix_page(body, places, here, top, said, keys, tips)
     shown = body[top:top + room]
     spots = terminal.frame(title, shown + said, keys, places={
         line - top: place for line, place in places.items() if top <= line < top + room},
@@ -2830,6 +2842,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
+            if column == 0 and here[1] != selected.get("orchestrator") and not move_asked(
+                    cfg, version, session, selected, providers, here, column, top, title):
+                continue              # kept: the seat stays on its model
             note = session_mark(cfg, session, selected, here[1], column, providers)
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
@@ -3309,12 +3324,27 @@ def show_config(dry_run=False, keyboard=None, session=None):
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
+def move_asked(cfg, version, session, selected, providers, here, column, top, title):
+    """Whether `Move` was picked on the card the orchestrator mark of another model asks on,
+    drawn under the rows of the config screen as it stands, the page from `top` giving the card
+    its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
+    loses its conversation to a handover, so the mark asks first, as `Remove` does."""
+    def around(card):     # the screen around the card, drawn again on a resize
+        body, places = config_body(cfg, version, here, column, selected, providers)
+        first, room = matrix_page(body, places, here, top, card, "esc back")
+        shown = body[first:first + room]
+        terminal.frame(title, [*shown, *card], "esc back")
+        return 3 + len(shown)
+    return terminal.confirm(MOVE_ASK[0].format(session, here[1]), MOVE_ASK[1].format(here[1]),
+                            "Move", around)
+
+
 def session_mark(cfg, name, selected, model, column, providers):
     """Act on one of a session's marks, saving it to the session's record at once.
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
-    under the same name, and a harness that is not installed or not logged in, or a meter
+    under the same name (the screen has asked first, `move_asked`), and a harness that is not installed or not logged in, or a meter
     that is spent, is refused in one line with the seat as it was. Reviewers keep one
     model, executors may be empty, and a flip leaving no allowed pair is refused. A run
     launched afterwards reads the record as left here; one already going keeps the groups
