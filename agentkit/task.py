@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 
 from . import config
@@ -27,6 +28,8 @@ ONCE_MARKER = re.compile(r"#\s*once\s*$")
 # (`bash: line 1: warning: …`)
 UNCLOSED_HEREDOC = re.compile(r"^[^:\n]+: (?:line \d+: )?warning: here-document at line \d+ "
                               r"delimited by end-of-file", re.M)
+# The words bash reads before a command's own name: a pipeline's `!` and compound commands'
+COMMAND_LEADS = {"!", "{", "if", "then", "elif", "else", "while", "until", "do", "time"}
 
 
 def front_matter(path):
@@ -171,24 +174,54 @@ def launch_refusal(meta, cmds):
 
 
 def enters_checkout(command, repo):
-    """Whether `command` moves into the checkout `repo:` names -- `cd` or `pushd` there, or
-    `git -C` on it -- in any of its spellings (as written, absolute, resolved, under `~`), as a
-    whole path and not the start of a longer name.  Naming it otherwise (a link to its venv, a
-    path a grep looks for) leaves the line in the run's checkout."""
+    """Whether `command` runs `cd` or `pushd` into the checkout `repo:` names or a folder in it,
+    or `git -C` on one, reading the line as bash splits it (quotes, comments, `&&`, `;`, `|`)
+    with `~`, `$HOME` and `${HOME}` expanded.  An operand that is then no absolute path is a
+    folder of the run's own checkout, and naming the checkout as anything but such an operand
+    (a link to its venv, a path a grep looks for) leaves the line there too."""
     if not repo or repo.lower() == "none":
         return False
     try:
-        path = Path(repo).expanduser()
+        owner = Path(os.path.realpath(Path(repo).expanduser()))
     except RuntimeError:
         return False                    # `repo_line` refuses it with its own reason
-    home = Path.home()
-    forms = {repo.rstrip("/"), str(path), str(path.resolve())}
-    for each in (path, path.resolve()):
-        if each.is_relative_to(home):
-            forms.add(f"~/{each.relative_to(home)}")
-            forms.add(f"$HOME/{each.relative_to(home)}")
-    return any(re.search(r"\b(?:cd|pushd|git\s+-C)\s+[\"']?" + re.escape(form) + r"(?![\w.-])", command)
-               for form in forms if form not in ("", "."))
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = list(lexer) + [";"]
+    except ValueError:
+        return False                    # an open quote: bash refuses the line itself
+    simple = []
+    for word in words:
+        if word and set(word) <= set(";&|()"):  # an operator ends a command, starts the next
+            if any(Path(path).is_absolute() and Path(os.path.realpath(path)).is_relative_to(owner)
+                   for path in map(home_expanded, moves_into(simple))):
+                return True
+            simple = []
+        elif simple or word not in COMMAND_LEADS:
+            simple.append(word)
+    return False
+
+
+def moves_into(words):
+    """The folders one command's words move into: `cd`'s or `pushd`'s operand, past its
+    options, and each `-C` that `git` reads before its subcommand."""
+    name, *rest = words or [""]
+    folders = []
+    while rest and rest[0].startswith("-") and rest[0] != "-":
+        flag = rest.pop(0)
+        if name in ("cd", "pushd") and flag == "--":
+            break
+        if name == "git" and flag in ("-C", "-c") and rest:
+            value = rest.pop(0)
+            if flag == "-C":
+                folders.append(value)
+    return rest[:1] if name in ("cd", "pushd") else folders
+
+
+def home_expanded(word):
+    """`word` with a leading `~`, `$HOME` or `${HOME}` expanded, as bash expands it unquoted."""
+    return os.path.expanduser(re.sub(r"^\$(?:HOME|\{HOME\})(?=/|$)", "~", word))
 
 
 def checks_refusal(every):
