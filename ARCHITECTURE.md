@@ -53,8 +53,8 @@
   Leaks: run's state predicates, `git`, `git_out`, `Stopped`.
 - `leases.py`: the tick's collision scan: two live runs of a repository that cannot merge in
   memory over their shared base are recorded, the younger waiting on the older
-  (`state/leases/`); a younger before its review, or a seat's own PR before its reviewer turn,
-  stops there, branch kept (`park`), and starts again once the older landed (`restart`).
+  (`state/leases/`); a younger build before its review stops there, branch kept (`park`),
+  and starts again once the older landed (`restart`).
   Reads run records and `transitions.going`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member
