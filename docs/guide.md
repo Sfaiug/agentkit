@@ -398,7 +398,8 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 ## The boards
 
 `ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export, each at most once a day into
-`~/.agentkit/state/matrix.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the cache. Artificial
+`~/.agentkit/state/matrix.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the table's `rows` and each board's
+`asked_at`, `fetched_at` and `error`. Artificial
 Analysis is asked with the key in `~/.agentkit/secrets/artificialanalysis_key` (free at artificialanalysis.ai/login;
 without it the board says `no key` and the others are still asked): its free endpoint, page by page, one row per model
 and effort, every number it gives as `aa.<field>`, a table's fields under the table's name (`aa.evaluations.artificial_analysis_coding_index`,
