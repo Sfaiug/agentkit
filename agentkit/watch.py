@@ -371,6 +371,48 @@ def load_state():
     return data
 
 
+def tell_audit(cfg, log, now=None):
+    """The tick's pass for the weekly audit: the week's line (`audit.weekly`) goes into the
+    `audit` seat at its quiet prompt.  The seat is opened with the setting's models while there
+    is neither a seat nor a record of one, resumed while its record is there and its process
+    gone (`orch.ensure`), and left alone while the owner closed it on purpose: what the owner
+    stopped stays stopped, and the line waits for them to open it.  Delivered at least once:
+    the mark is kept in the audit's record from tick to tick until the composer reads empty,
+    and a tick that dies mid-line is finished by the next.  The one exception to "only a person
+    opens a seat" (AGENTS.md, Owner rules, 14 Oct)."""
+    from . import audit
+    now = time.time() if now is None else now
+    found = audit.weekly(cfg, log, now)
+    if not found:
+        return
+    setting, state = found
+    name = config.resolve_session(audit.NAME)     # the name the owner may have given it since
+    if seat_closed_by_owner(name):
+        if not state.get("held"):
+            state["held"] = True
+            audit.write(state)
+            log(f"audit: the {name} seat was closed by the owner; week {state['week']}'s "
+                "line waits for them to open it")
+        return
+    seat = orch.find(name)
+    if not seat or seat.get("exited"):
+        # the next tick types, once the harness sits at its prompt
+        orch.ensure(cfg, name, log=log, saved=bool(seat) or name in orch.records(),
+                    roles=setting, repo=config.REPO)
+        return
+    if any(seat.get(key) for key in ("resumable", "restart")):
+        return
+
+    def kept(mark):
+        state["typed"] = mark
+        audit.write(state)
+
+    if type_at_prompt(seat, state["line"], log, cfg=cfg, typed=state.get("typed"), receipt=kept):
+        state["delivered"] = now
+        audit.write(state)
+        log(f"audit: told the {name} seat about week {state['week']}")
+
+
 @contextmanager
 def state_lock():
     """Serialize lifecycle changes and watcher writes, including the read before each write."""
@@ -6665,6 +6707,9 @@ def local_passes(state, dry_run, log):
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
+        # The first tick of a week writes the board with its largest loss, and the `audit`
+        # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
+        ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.
         ("the card transition pass did not run", lambda: notify.tick_cards(log=log), False),

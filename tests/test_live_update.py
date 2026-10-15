@@ -108,7 +108,7 @@ class LiveUpdate(unittest.TestCase):
                                 (jobs, "deliver_job_handbacks"), (gc, "schedule_gc"),
                                 (orch, "stamp"), (orch, "sweep"), (usage, "collect"),
                                 (browser, "tidy"), (watch, "incoming"), (watch, "outgoing"),
-                                (update, "keep_current")):
+                                (update, "keep_current"), (watch, "tell_audit")):
                 stack.enter_context(patch.object(where, name))
             stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
             stack.enter_context(patch.object(config, "load", return_value=self.cfg))

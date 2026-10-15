@@ -388,9 +388,10 @@ def compute(now=None):
     return board
 
 
-def render():
-    """The two weeks beside each other without losing words on a phone."""
-    board = compute()
+def render(board=None):
+    """The two weeks beside each other without losing words on a phone; `board` is the one
+    computed here unless the caller holds one (the weekly audit's report)."""
+    board = compute() if board is None else board
 
     def week(stats, own):
         if stats is None:

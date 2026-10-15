@@ -29,7 +29,7 @@ PASSES = (
     (watch, "resume_waiting_login", True), (watch, "resume_errored", True),
     (watch, "resume_waiting", True), (watch, "sweep_preexisting", False),
     (watch, "offer_endings", False), (jobs, "deliver_job_handbacks", False),
-    (watch, "wait_over", False), (notify, "tick_cards", False),
+    (watch, "wait_over", False), (watch, "tell_audit", False), (notify, "tick_cards", False),
     (watch, "revive_seats", False), (gc, "schedule_gc", False), (orch, "stamp", False),
     (orch, "sweep", False), (browser, "tidy", False), (update, "go_live", False),
     (update, "keep_current", False), (watch, "incoming", True), (watch, "outgoing", True),

@@ -264,6 +264,7 @@ class V5AE(unittest.TestCase):
                    patch.object(orch, "stamp"),
                    patch.object(orch, "sweep"),
                    patch.object(notify, "retry_pending"),
+                   patch.object(watch, "tell_audit"),
                    patch.object(notify, "tick_cards")]
         for handle in healthy:
             self.stack.enter_context(handle)

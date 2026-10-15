@@ -473,7 +473,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     passes = {}
     for module, name in ((watch, "health"), (notify, "retry_pending"), (notify, "tick_cards"),
                          (gc, "schedule_gc"), (orch, "stamp"), (orch, "sweep"),
-                         (watch.browser, "tidy")):
+                         (watch.browser, "tidy"), (watch, "tell_audit")):
         passes[name] = stack.enter_context(patch.object(module, name))
     stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
     stack.enter_context(patch.object(orch, "sessions", return_value=[]))
@@ -732,8 +732,8 @@ class SessionState(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "_attempt", side_effect=self.deliver))
         self.close_needs = notify.close_needs
         self.edits = self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
-        for module, name in ((usage, "collect"), (gc, "schedule_gc"),
-                             (orch, "stamp"), (orch, "sweep"), (watch.browser, "tidy")):
+        for module, name in ((usage, "collect"), (gc, "schedule_gc"), (orch, "stamp"),
+                             (orch, "sweep"), (watch.browser, "tidy"), (watch, "tell_audit")):
             self.stack.enter_context(patch.object(module, name))
         self.stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
