@@ -97,6 +97,16 @@ CREATE TABLE IF NOT EXISTS reviews (
 )
 """
 
+# The owner's time, one row per moment and no seat named: each is whole when written, so no
+# rename, reused name or order of hooks can change it later.
+OWNER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS owner (
+    at REAL,
+    kind TEXT,
+    waited REAL
+)
+"""
+
 
 def path():
     """The history database follows the configured HOME, including test homes."""
@@ -114,6 +124,7 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
+    connection.execute(OWNER_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -354,6 +365,31 @@ def parks(since, until):
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
+
+
+def owner_time(kind, at, waited=None, *, log=None):
+    """A moment of the owner's time: a question a seat `asked` them, a card `paged` to them, or
+    a question `answered`, `waited` seconds after it was asked."""
+    _write(lambda connection: connection.execute(
+        "INSERT INTO owner (at, kind, waited) VALUES (?, ?, ?)", (at, kind, waited)), log)
+
+
+def owner(since, until):
+    """The owner's time in the inclusive range: the questions asked, the cards sent and the
+    hours each question answered then had waited; None where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                rows = connection.execute("SELECT kind, waited FROM owner WHERE at >= ? AND at <= ?",
+                                          (since, until)).fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+    return {"asked": sum(kind == "asked" for kind, _ in rows),
+            "paged": sum(kind == "paged" for kind, _ in rows),
+            "waits": [waited / 3600 for kind, waited in rows if kind == "answered"]}
 
 
 def open_step(run_id, step, at=None, *, log=None):

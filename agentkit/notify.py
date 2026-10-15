@@ -46,7 +46,7 @@ from http.client import HTTPException
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import command_help, config, retention, transitions
+from . import command_help, config, history, retention, transitions
 from . import record as run_record
 from . import harness
 
@@ -472,6 +472,7 @@ def answered(session, at):
         previous["answered_at"] = at
         if not resolved(previous):
             return
+        history.owner_time("answered", at, at - previous["time"])
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     from . import watch    # here, not at the top: watch imports this module
@@ -727,6 +728,8 @@ def _attempt(event):
     receipt = {}
     post(event["payload"], [], event["message"], receipt)
     event["status"] = receipt["status"]
+    if event["status"] == "delivered":
+        history.owner_time("paged", time.time())
     event["receipt"] = {k: receipt[k] for k in ("message_id", "webhook") if k in receipt}
     if receipt.get("error"):
         event["error"] = receipt["error"]
@@ -1461,6 +1464,7 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         # the seat's screen says what the alert would.  Taken in its place, the question was
         # lost once the alert was retracted, though nobody had answered it.
         return previous
+    fresh = 0     # the questions this notice asks the owner for the first time
     if kind == "needs":
         standing = (questions(previous) if watch.owner_question(previous)
                     and not resolved(previous) else [])
@@ -1475,6 +1479,8 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
             extra["questions"] = asked
         if standing and at is not None:
             at = max(at, previous["time"])
+        if not extra["watcher"]:
+            fresh = len(asked) - len(standing)
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
     if earlier:
         # The answer ends its card's episode at the next tick; the newer notice carries it
@@ -1490,6 +1496,8 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     if at is not None:
         extra["time"] = at
     record(name, kind, text, **extra)
+    for _ in range(fresh):
+        history.owner_time("asked", time.time() if at is None else at)
     return previous
 
 
