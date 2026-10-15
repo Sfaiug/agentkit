@@ -240,7 +240,8 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     entry = config.model(cfg, name)
     adapter = config.adapter(entry["harness"])
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
-    told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook)}
+    told = {**config.account_env(account), **config.compact_env(cfg),
+            config.RULEBOOK_ENV: str(rulebook)}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
     proc = subprocess.run([str(adapter), "interactive", entry["model"],
                            config.role_effort(entry, "orchestrator"),

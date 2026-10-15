@@ -671,7 +671,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     if entry["harness"] == "claude":
         cap = shell_timeout_ms()
         extra = {"BASH_DEFAULT_TIMEOUT_MS": cap, "BASH_MAX_TIMEOUT_MS": cap}
-    turn_env = {**config.seatless_env(), **extra, **(env or {})}
+    turn_env = {**config.seatless_env(), **config.compact_env(cfg), **extra, **(env or {})}
     ok, why = auth_ok(entry["harness"], run_id=turn_env.get(RUN_MARKER),
                       account=turn_env.get(config.ACCOUNT_ENV))
     if ok is False:

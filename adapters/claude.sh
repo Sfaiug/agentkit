@@ -106,6 +106,9 @@ run)
   # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
   tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && export CLAUDE_CODE_OAUTH_TOKEN="$tok"
+  # ak's compact_at, where the config sets one: Claude's own auto-compact window, which beats
+  # the `autoCompactWindow` setting
+  [ -z "${AGENTKIT_COMPACT_AT:-}" ] || export CLAUDE_CODE_AUTO_COMPACT_WINDOW="$AGENTKIT_COMPACT_AT"
   if [ -n "$sid" ]; then set -- -p --resume "$sid"; else set -- -p; fi
   # The prompt goes down stdin.
   # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
@@ -156,6 +159,9 @@ interactive)
   # that other seat and its resume reopened the conversation from before the move.
   printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 %s ' \
       "$OWN_RULES_OFF"
+  # ak's compact_at, as for a headless turn
+  [ -z "${AGENTKIT_COMPACT_AT:-}" ] ||
+    printf 'CLAUDE_CODE_AUTO_COMPACT_WINDOW=%q ' "$AGENTKIT_COMPACT_AT"
   # Seat preparation runs in the seat's actual cwd before the TUI, on either login: bypass
   # permissions, Claude's own messages between sessions refused (seats never message one another),
   # and the first-run questions answered, trust in this directory among them.

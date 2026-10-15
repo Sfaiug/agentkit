@@ -115,6 +115,8 @@ run)
   # above the `interactive` printf.
   case $model in ""|default) ;; *) set -- "$@" -m "$model" ;; esac
   if [ -n "$ACCOUNT" ]; then home || exit 2; set -- "$@" -c "$STORE"; fi
+  # ak's compact_at, where the config sets one: Codex's own auto-compact limit
+  [ -z "${AGENTKIT_COMPACT_AT:-}" ] || set -- "$@" -c "model_auto_compact_token_limit=$AGENTKIT_COMPACT_AT"
   # shellcheck disable=SC2086 # OWN_RULES_OFF is words of codex's own command line
   codex "$@" -c model_reasoning_effort="$effort" $OWN_RULES_OFF \
       --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --json \
@@ -148,6 +150,9 @@ interactive)
   # model at the effort given.  A real id is passed as -m, on a ChatGPT login as on an API
   # key.  The model value decides; the auth is never probed.
   mflag=""; case $1 in ""|default) ;; *) mflag=$(printf -- '-m %q ' "$1") ;; esac
+  # ak's compact_at, as for a headless turn
+  cflag=""; [ -z "${AGENTKIT_COMPACT_AT:-}" ] ||
+    cflag=$(printf -- '-c model_auto_compact_token_limit=%q ' "$AGENTKIT_COMPACT_AT")
   # The orchestrator rulebook this launch is handed.  Codex 0.153.4 has no instructions-file
   # option of its own (`codex --help`, `codex exec --help`); what it does take per launch is the
   # config key `developer_instructions`, whose text `codex debug prompt-input` shows arriving as
@@ -168,9 +173,9 @@ interactive)
   if [ -n "$ACCOUNT" ]; then
     printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$CODEX_HOME"
   fi
-  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"' %s\n" \
+  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s%s-c 'model_reasoning_effort=\"%s\"' %s\n" \
       "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
-      "$resume" "$mflag" "$2" "$OWN_RULES_OFF" ;;
+      "$resume" "$mflag" "$cflag" "$2" "$OWN_RULES_OFF" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   [ -r "$AUTH" ] || err "no $AUTH; run 'codex login' once"

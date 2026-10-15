@@ -48,6 +48,7 @@ SEAT_REPO_ENV = "AGENTKIT_SEAT_REPO"      # a new seat's project, for rulebook.p
 # origin/HEAD would win the short one
 RULES_REF = "refs/remotes/origin/HEAD"
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
+COMPACT_ENV = "AGENTKIT_COMPACT_AT"        # compact_at, for an adapter to hand its harness
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk
 UNATTENDED_ENV = "AGENTKIT_UNATTENDED"   # set below a run loop: what it starts is machinery
@@ -225,9 +226,11 @@ def child_env():
     seat variables and AK_RUN_SCOPE go the same way and for the same reason: they are the
     launch's, not its children's -- see `seat_env_names`.  So does AGENTKIT_ACCOUNT: it names
     the login one adapter call is for, and a turn on one account starts nothing that should
-    run on it unasked.
+    run on it unasked.  AGENTKIT_COMPACT_AT is read from the config for each launch, so one
+    taken out of it is not handed down.
     """
-    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", "IDLE_COMPACT_STATE", ACCOUNT_ENV, *seat_env_names()}
+    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", "IDLE_COMPACT_STATE", ACCOUNT_ENV, COMPACT_ENV,
+               *seat_env_names()}
     return {k: v for k, v in os.environ.items() if k not in dropped}
 
 
@@ -1182,6 +1185,24 @@ def audit(cfg):
         model(cfg, name)
     return setting
 
+
+def compact_at(cfg):
+    """`compact_at` in config.toml: the context size in tokens every seat and worker compacts at,
+    or None where it is left out and each harness compacts where it would on its own.  Anything
+    but a positive whole number is an Error naming it, so the `c` row and a launch say the same
+    thing."""
+    value = cfg.get("compact_at")
+    if value is not None and (type(value) is not int or value <= 0):
+        raise Error(f"~/.agentkit/{CONFIG_NAME}: compact_at must be a positive number of tokens "
+                    f"(got {value!r})")
+    return value
+
+
+def compact_env(cfg):
+    """What an adapter's `run` and `interactive` are told of compact_at: each hands it to its
+    harness in that harness's own setting, and one with none ignores it."""
+    value = compact_at(cfg)
+    return {COMPACT_ENV: str(value)} if value else {}
 
 def role_groups(cfg, workers=None, reviewers=None):
     """Bind unbound picks only for explicit reviewers; preserve absence for legacy overrides."""

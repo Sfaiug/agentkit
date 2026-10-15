@@ -2194,9 +2194,10 @@ def show_notices(messages):
 
 # The rows under the models, each running its own step; Providers `+ add` and `− remove`, and
 # `↻ spend a reset` while a subscription holds one (resets_held).
-CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Weekly audit", "Version")
+CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Weekly audit", "Compact at", "Version")
 PROVIDERS = ("row", "Providers")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
+COMPACT = ("row", "Compact at")  # the context size every seat and worker compacts at
 VERSION = ("row", "Version")    # agentkit's build, read and nothing more
 PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"),
                  ("↻ spend a reset", "spend a reset"))   # and each without UTF-8
@@ -2378,7 +2379,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                              else part)
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
-    values = ("", "", discord_value(), audit_value(cfg), version or "?")
+    values = ("", "", discord_value(), audit_value(cfg), compact_value(cfg), version or "?")
     for row, value in zip(CONFIG_ROWS, values):
         if ("row", row) == PROVIDERS:
             chosen = max(column, 0) if at == PROVIDERS else None
@@ -2855,6 +2856,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here != VERSION and act in ("enter", "space"):
                 if here == AUDIT:
                     config_audit(cfg)
+                elif here == COMPACT:
+                    config_compact(cfg)
                 else:
                     config_discord()
                 try:
@@ -3360,6 +3363,44 @@ def config_audit(cfg):
         config.save({**cfg, "audit": table})
     except (config.Error, OSError) as exc:
         pause(f"weekly audit: {exc}")
+
+
+def compact_value(cfg):
+    """`Compact at`'s value: the tokens every seat and worker compacts at, `300,000 tokens`, or
+    `auto` while each harness compacts where it would on its own; a setting the config cannot
+    read is shown as the error that says why."""
+    try:
+        tokens = config.compact_at(cfg)
+    except config.Error as exc:
+        return str(exc)
+    return f"{tokens:,} tokens" if tokens else "auto · each harness's own"
+
+
+def config_compact(cfg):
+    """`Compact at`: the tokens every seat and worker compacts at, written to `compact_at` in
+    config.toml, `300k` for 300,000; `auto` takes it out, so each harness compacts where it
+    would on its own.  An empty answer or Esc writes nothing; an answer that is not a positive
+    number is said in one line and the file stays as it was.  A seat or worker takes it at its
+    next launch."""
+    terminal.frame("config · compact at", [
+        "  " + part for text in (compact_value(cfg), "Every session and worker compacts its "
+                                 "context at this size, from its next start.")
+        for part in terminal.wrap(text, terminal.layout_width() - 2)])
+    answer = read("Tokens (or auto): ", "").strip().lower()
+    if _cancelled(answer) or not answer:
+        return
+    new = {k: v for k, v in cfg.items() if k != "compact_at"}
+    if answer != "auto":
+        try:
+            new["compact_at"] = int(answer[:-1]) * 1000 if answer.endswith("k") else int(answer)
+        except ValueError:
+            pause(f"compact at: a number of tokens or auto, not {answer!r}")
+            return
+    try:
+        config.compact_at(new)
+        config.save(new)
+    except (config.Error, OSError) as exc:
+        pause(f"compact at: {exc}")
 
 
 def show_config(dry_run=False, keyboard=None, session=None):
