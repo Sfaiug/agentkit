@@ -206,7 +206,7 @@ class DesktopAndBoot(Sandbox):
         self.assertIn("owned-thread", codex.args[2])
         self.assertEqual(config.session_records()["claude"]["seen"], 9000)
         self.assertEqual(config.session_path("fresh").read_bytes(), fresh)
-        self.assertFalse(config.session_path("stopped").exists())
+        self.assertTrue(config.session_path("stopped").exists())   # kept; no boot resumes it
         self.assertEqual(self.snapshot()["runs/interrupted/run.json"], interrupted)
         self.assertEqual(logs, ["resumed claude after reboot", "resumed codex after reboot"])
         self.assertEqual(watch.load_state()["boot_id"], "fake-boot-new")

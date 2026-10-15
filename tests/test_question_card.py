@@ -28,7 +28,7 @@ from agentkit import record
 
 Key = terminal.Key
 QUESTION = "Stop fix-api and everything it runs?"
-TAIL = "with it; ak cannot reopen the session: Stop removes its record."   # `menu.stop_means`
+TAIL = "with it; the session stays listed: its number reopens it, x on it again removes it."
 MEANS = f"2 runs stop {TAIL}"
 NONE = f"No runs stop {TAIL}"           # no runs
 # The child's count of a seat's runs, slow: the card is up before it lands.
@@ -114,20 +114,23 @@ class QuestionCard(unittest.TestCase):
                 self.assertNotIn("<stopped", shown.text())
 
     def test_the_card_is_up_before_its_runs_are_counted(self):
+        # a width where the count landing takes a line off the card, whatever the card's words
+        cols = next(width for width in range(36, 120)
+                    if len(terminal.wrap(menu.stop_means(None), width - 2))
+                    == len(terminal.wrap(menu.stop_means(3), width - 2)) + 1)
         with patch.object(test_close_and_info, "CHILD", test_close_and_info.CHILD.replace(
                 "orch.cmd_stop = cmd_stop\n", "orch.cmd_stop = cmd_stop\n" + SLOW)):
-            shown = Menu(self, {"alpha": "working"}, rows=24, cols=40)
+            shown = Menu(self, {"alpha": "working"}, rows=24, cols=cols)
         shown.frame()
         mark, pressed = shown.mark(), time.monotonic()
         shown.send(b"x")
         top, _ = shown.choices(after=mark)
         self.assertLess(time.monotonic() - pressed, 1.0)     # the count takes 1.5 s
         asked = shown.frame(keys="esc back", after=mark)
-        its = [f"  {line}" for line in terminal.wrap(menu.stop_means(None), 38)]
+        its = [f"  {line}" for line in terminal.wrap(menu.stop_means(None), cols - 2)]
         self.assertEqual(asked[top - 1 - len(its):top - 1], its)
         # down on Keep; the count lands one line shorter, moving `✗ Stop` onto that row; up there
-        three = [f"  {line}" for line in terminal.wrap(menu.stop_means(3), 38)]
-        self.assertEqual(len(three), len(its) - 1)
+        three = [f"  {line}" for line in terminal.wrap(menu.stop_means(3), cols - 2)]
         shown.send(f"\x1b[<0;4;{top}M".encode())
         counted = shown.frame(lambda lines: three[0] in lines, keys="esc back", after=mark)
         self.assertEqual(counted.index(three[-1]) + 3, top)

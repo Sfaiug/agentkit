@@ -90,12 +90,15 @@ On a terminal one seat row is highlighted as well: ↑/↓, k/j and the wheel mo
 click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
 the highlighted seat's: a done one is closed at once, and any other is asked about under its row,
-`Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  `c` holds
+`Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  A stopped
+seat keeps its row, its number reopening it, and `x` on it again takes it off the list at once
+-- the key line says `x remove` while one is highlighted.  `c` holds
 its orchestrator, executors and reviewers: the orchestrator moves the seat at once, the
 roles flip with the same keys and save at once.
 `ak run status` and `ak browser` stay as commands for
 orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
-to reopen`; an ended run is its orchestrator's business, so no row ever says `press r`.
+to reopen`, and one you stopped reads `idle` with `session closed by the owner: press N to
+reopen`; an ended run is its orchestrator's business, so no row ever says `press r`.
 
 The screen is budgeted by height as well as width: a list of seats longer than the
 screen is drawn a page at a time -- on a terminal the page the highlight is on, from a pipe the
@@ -1207,7 +1210,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     pointer comes onto it (`motion.glinting`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
-    `x close` while that seat is done.  `ask` is the seat `x` is asking about and the card it
+    `x close` while that seat is done and `x remove` while it is stopped (`closed` on its row,
+    `orch.ghost`).  `ask` is the seat `x` is asking about and the card it
     asks on (`terminal.confirm`): the card is drawn under its row, the rows below moving down,
     and `drawn["ask"]` is the screen row of its first line.
 
@@ -1238,7 +1242,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if cursor not in order:
         cursor = next((name for name in order if isinstance(name, str)),
                       order[0] if order else None)      # a seat before any heading
-    if owned and words.get(own or cursor) == "done":
+    stopped = {session["name"] for session in found if session.get("closed")}
+    if owned and (own or cursor) in stopped:
+        keys = keys.replace("x stop", "x remove", 1)
+    elif owned and words.get(own or cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
     asking, card = ask or (None, ())
     asked = list(card) if asking in words else []
@@ -1572,11 +1579,11 @@ def session_runs(name):
 
 def stop_means(runs):
     """What `Stop` means on the card `x` asks on: `runs`, how many runs stop with the seat, or
-    None while they are counted, and that ak cannot reopen it: `orch.cmd_stop` removes the
-    record a reopening would read."""
+    None while they are counted, and what becomes of the seat: `orch.cmd_stop` keeps its record,
+    so its number reopens it, and a second `x` removes it."""
     stop = ("Its runs stop" if runs is None else "No runs stop" if not runs
             else "1 run stops" if runs == 1 else f"{runs} runs stop")
-    return f"{stop} with it; ak cannot reopen the session: Stop removes its record."
+    return f"{stop} with it; the session stays listed: its number reopens it, x on it again removes it."
 
 
 def stop_question(name):
@@ -1585,10 +1592,11 @@ def stop_question(name):
 
 
 def close_seat(name, dry_run):
-    """End that seat and everything it runs, asking nothing: `x` on a done seat, or `Stop`.
+    """End that seat and everything it runs, asking nothing: `x` on a done seat, or `Stop`;
+    on a stopped seat, take it off the list.
 
     Its runs stop first, as `stop_session` stops them, then `orch.cmd_stop` takes their
-    checkouts, the conversation, the state files and the tmux session.
+    checkouts and the tmux session and keeps the seat -- or, stopped already, takes it.
     """
     stop_session_runs(name, dry_run)
     if dry_run:
@@ -1606,10 +1614,10 @@ def stop_session(found, dry_run):
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
     picked by number or by name; Esc and an empty Enter go back
     to the menu, as does anything but `y` to the one question, which says, as the
-    keyboard's card does, that nothing reopens the seat afterwards. Its runs stop
+    keyboard's card does, that its number reopens the seat. Its runs stop
     first, the same way `ak run stop` stops one, so none is left to read as an
-    accident afterwards. `ak orch stop` then removes the checkouts, the state files
-    and the tabs.
+    accident afterwards. `ak orch stop` then removes the checkouts and the tabs, and
+    keeps the seat.
     """
     if not found:
         pause("no session to stop")
@@ -3739,8 +3747,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let
     go without a word, `i` among them, and every key that does something gives the terminal back
     before it does it -- but `c`, `n` and `x`'s question, which are read with the keys on
-    the screen the menu has: `x` on a done seat closes it at once, and on any other asks `Keep`
-    or `Stop` under its row, Enter or a click answering and Esc keeping it.  Esc, and a click
+    the screen the menu has: `x` on a done seat closes it at once, on a stopped one removes it
+    at once, and on any other asks `Keep` or `Stop` under its row, Enter or a click answering
+    and Esc keeping it.  Esc, and a click
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
@@ -3857,8 +3866,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
             if key == "x" and drawn is not None and seat in drawn["words"]:
-                # the seat it acts on: a done one closes at once, any other is asked under its row
-                if drawn["words"][seat] != "done":
+                # the seat it acts on: a done one closes at once, a stopped one is taken off the
+                # list at once, any other is asked under its row
+                stopped = any(s.get("closed") for s in found if s["name"] == seat)
+                if drawn["words"][seat] != "done" and not stopped:
                     cursor = seat
 
                     # its runs are counted off the draw, so the card is up at once whatever

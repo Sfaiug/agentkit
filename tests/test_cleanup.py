@@ -1,4 +1,5 @@
-"""Stopping a session removes what it owns, and finished work does not wait a week.
+"""Stopping a session removes what it owns and keeps the seat for its number to reopen; stopping
+it again removes the seat, and finished work does not wait a week.
 
 Offline. Checkouts are tiny git repos under the test's own HOME. Pids are either
 dead or this process, and nothing here signals a real unit or a foreign process.
@@ -120,6 +121,8 @@ class Cleanup(Sandbox):
         self.assertFalse(self.branch_exists(done_branch))
         self.assertTrue((mine / "run.json").is_file())
         self.assertTrue((done / "result.md").is_file())
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.cmd_stop(["atoll"]), 0)      # stopped again: the seat goes
         for leaf in ("plan-atoll.md", "card-atoll.json", "hook-atoll.json", "notify-atoll.json",
                      "compact-atoll.json", "stop-atoll.json", "session-atoll.json",
                      "rulebook-atoll.md"):
@@ -135,6 +138,32 @@ class Cleanup(Sandbox):
         self.assertEqual(sorted(self.closed), ["tab-run", "tab-seat"])
         left = browser._read_tabs()
         self.assertEqual(list(left), ["tab-stray"])
+
+    def test_a_stop_keeps_the_seat_for_its_number_and_a_second_stop_takes_it(self):
+        self.seat("atoll")
+        files = [config.STATE / leaf for leaf in ("session-atoll.json", "plan-atoll.md",
+                                                   "rulebook-atoll.md", "stop-atoll.json")]
+        for path in files[1:]:
+            path.write_text("{}\n" if path.suffix == ".json" else "plan\n")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.cmd_stop(["atoll"]), 0)
+        # kept, with the stop mark: its row stays, idle -- no conversation to resume, so its
+        # number starts fresh -- and its name stays taken
+        for path in files:
+            self.assertTrue(path.exists(), path.name)
+        self.assertTrue(watch.seat_closed_by_owner("atoll"))
+        rows = {row["name"]: row for row in orch.listing(reconcile=False)}
+        self.assertEqual((rows["atoll"]["resumable"], rows["atoll"]["restart"], rows["atoll"]["closed"]),
+                         (False, "starts fresh", watch.seat_read("atoll")["stopped_at"]))
+        self.assertEqual(watch.session_state("atoll", session=rows["atoll"], cfg=self.cfg)["word"],
+                         "idle")
+        self.assertIn("atoll", orch.taken_names())
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.cmd_stop(["atoll"]), 0)      # stopped again: the seat goes
+        for path in files:
+            self.assertFalse(path.exists(), path.name)
+        self.assertEqual(orch.listing(reconcile=False), [])
+        self.assertNotIn("atoll", orch.taken_names())
 
     def test_merged_run_worktree_is_gone(self):
         directory, wt, branch = self.receipt("merged", state="pass", merged=True, age=60)
@@ -456,8 +485,9 @@ class Cleanup(Sandbox):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(stop.cmd_clean(["made"]), 0)
         gc.gc(lambda _message: None)
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(orch.cmd_stop(["atoll"]), 0)
+        for _ in ("stopped", "removed"):     # the second stop is what takes the seat itself
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(orch.cmd_stop(["atoll"]), 0)
         for directory, work in runs:
             self.assertTrue((directory / "run.json").is_file(), directory)
             self.assertTrue((work / "crosscheck.md").is_file(), work)

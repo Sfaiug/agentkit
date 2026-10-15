@@ -205,9 +205,9 @@ class Cards(unittest.TestCase):
             notify.transition(name, now=time.time() + notify.CARD_WAIT, seat=gone)
         self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
                          ["Needs you · crashed"])
-        # ... and the menu still shows it, with the number that reopens it
+        # ... and the menu still shows it, idle, with the number that reopens it
         found = watch.session_state("seat", session={"name": "seat", "exited": True}, number=3)
-        self.assertEqual(found["word"], "needs you")
+        self.assertEqual(found["word"], "idle")
         self.assertEqual(found["reason"], "session closed by the owner: press 3 to reopen")
 
     def test_resolved_questions_do_not_renew_an_old_episode(self):
