@@ -1,7 +1,9 @@
-"""`ak orch stop` keeps the seat: its record and state files stay with the stop mark, the listing
-offers it with `closed` set for its number to reopen it, its name stays taken, and the card `x`
-asks on says so.  A second stop takes it off the list: the record, every state file but the
-locks, the pointers a rename left and what its harness held, and the name is free again.
+"""`ak orch stop` keeps the seat: its record and state files stay with the stop mark, written
+before the tmux session goes, the listing offers it with `closed` set for its number to reopen
+it -- whether or not its harness can resume it -- its name stays taken, and the card `x` asks on
+says so.  A second stop takes it off the list: the record, every state file but the locks and
+the seat file with the stop mark, the pointers a rename left and what its harness held, and the
+name is free again.
 
 Offline: a throwaway HOME, tmux faked, no runs and no real seat.
 """
@@ -16,7 +18,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fixtures.sandbox import Sandbox
-from agentkit import browser, config, menu, orch, watch
+from agentkit import browser, config, menu, orch, statusbar, watch
 
 OLD, SEAT = "acme", "acme-ui"           # the seat was started as `acme` and renamed
 KINDS = ("plan", "rulebook", "hook", "notify", "compact", "stop")
@@ -80,9 +82,12 @@ class StopKeepsTheSeat(Sandbox):
         self.assertEqual(said, f"removed {SEAT}\n")
         self.assertFalse(config.session_path(SEAT).exists())
         self.assertFalse(config.session_path(OLD).exists())   # the pointer went with it
-        for kind in (*KINDS, "seat"):
+        for kind in KINDS:
             self.assertFalse(config.seat_file(kind, SEAT).exists(), kind)
         self.assertTrue(self.lock.exists())              # a reopened name keeps its lock inodes
+        # the stop mark stays: a hand-back of its runs waits on it rather than ask the owner to
+        # continue a seat they removed; the collector takes it a day later
+        self.assertTrue(watch.seat_closed_by_owner(SEAT))
         plugin.forget.assert_called_once()
         self.assertEqual(plugin.forget.call_args[0][0]["conversation"], "conv-1")
         self.assertEqual(orch.listing(reconcile=False), [])
@@ -96,6 +101,39 @@ class StopKeepsTheSeat(Sandbox):
         self.assertTrue(config.session_path(SEAT).exists())
         self.stop()
         self.assertFalse(config.session_path(SEAT).exists())
+
+    def test_a_stopped_seat_its_harness_cannot_resume_keeps_its_row(self):
+        # no conversation to come back on: before the stop it had no row, after it the row is
+        # what `x` removes it by and what keeps its name taken, and its number starts fresh
+        fresh = "acme-fresh"
+        config.save_session(self.cfg, fresh, self.cfg["defaults"]["orchestrator"],
+                            self.cfg["defaults"]["workers"], {"cwd": str(self.root), "created": 100})
+        self.assertFalse(orch.resumable(config.session_records()[fresh]))
+        self.assertNotIn(fresh, {row["name"] for row in orch.listing(reconcile=False)})
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.cmd_stop([fresh]), 0)
+        rows = {row["name"]: row for row in orch.listing(reconcile=False)}
+        self.assertEqual((rows[fresh]["resumable"], rows[fresh]["restart"],
+                          rows[fresh]["closed"]), (False, "starts fresh",
+                                                   watch.seat_stopped_at(fresh)))
+        self.assertIn(fresh, orch.taken_names())
+
+    def test_the_stop_mark_is_in_place_before_the_session_is_killed(self):
+        # a hand-back that meets the session gone finds the seat closed, never a ghost to reopen
+        marked = []
+        session = {"name": SEAT, "path": str(self.root), "created": 100,
+                   "attached": False, "exited": False, "legacy": False}
+
+        def tmux(*args, **_kw):
+            if args[0] == "kill-session":
+                marked.append(watch.seat_closed_by_owner(SEAT))
+            return 0, ""
+
+        with patch.object(orch, "sessions", return_value=[session]), \
+                patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(statusbar, "retell"):
+            self.stop()
+        self.assertEqual(marked, [True])
 
     def test_the_card_says_the_seat_stays_and_how_it_goes(self):
         tail = ("with it; the session stays listed for a week: its number reopens it, "

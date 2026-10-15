@@ -1460,14 +1460,10 @@ def ghost(name, record):
     tmux lost on its own: a stopped seat keeps its row for a week, and its number reopens it.
     """
     from . import watch   # here, not at the top: watch imports this module
-    try:
-        closed = watch.seat_read(name).get("stopped_at")
-    except (OSError, ValueError, config.Error):
-        closed = None
     return {"name": name, "path": record.get("cwd", ""),
             "created": record.get("created") or record.get("seen") or int(time.time()),
             "attached": False, "exited": False, "legacy": False, "resumable": True,
-            "closed": closed}
+            "closed": watch.seat_stopped_at(name)}
 
 
 def listing(reconcile=True):
@@ -1475,7 +1471,9 @@ def listing(reconcile=True):
 
     A seat whose tmux instance is gone is not a seat that never was -- the orchestrator's
     conversation is still in its harness's own store, and the record here says which one -- so
-    it keeps its row, and its number opens the conversation where it stopped.
+    it keeps its row, and its number opens the conversation where it stopped.  A seat the owner
+    stopped keeps its row for the week its record stays (`cmd_stop`, `sweep`), whether or not
+    its harness can resume it: the row is what `x` removes it by, and what keeps its name taken.
     A record whose harness keeps its row without owning anything -- `[conversation]
     always_offered`, because there ownership is evidence and not a field -- keeps it with that
     harness's own fresh-start explanation.
@@ -1503,12 +1501,12 @@ def listing(reconcile=True):
             continue
         plugin = seat_plugin(record)
         owned = resumable(record)
-        if owned or plugin.always_offered or unread_question(name):
-            row = ghost(name, record)
+        row = ghost(name, record)
+        if owned or row["closed"] or plugin.always_offered or unread_question(name):
             row["resumable"] = owned
             if not owned:
-                row["restart"] = (plugin.restart_word(record)
-                                  or "starts fresh; unread question retained")
+                row["restart"] = plugin.restart_word(record) or (
+                    "starts fresh" if row["closed"] else "starts fresh; unread question retained")
             ghosts.append(row)
     found = found + ghosts
     projects = (session_projects(kept) if reconcile else
@@ -2663,8 +2661,13 @@ def unread_question(name):
 
 
 def sweep(log):
-    """Retire old detached dead seats and stale records; preserve active job evidence."""
-    from . import notify
+    """Retire old detached dead seats and stale records; preserve active job evidence.
+
+    A record's week runs from the seat's last sighting, or from the owner's stop where there was
+    one (`watch.seat_stopped_at`): the stop is what keeps a seat long gone from tmux on the
+    list, and its number reopens it for the whole week.
+    """
+    from . import watch   # here, not at the top: watch imports this module
     found = {s["name"]: s for s in sessions()}
     protected = set()
     for directory in run_record.run_dirs():
@@ -2677,7 +2680,8 @@ def sweep(log):
     now = time.time()
     for name, record in records().items():
         seat = found.get(name)
-        since = record.get("exited_since") if seat else record.get("seen")
+        since = (record.get("exited_since") if seat
+                 else watch.seat_stopped_at(name) or record.get("seen"))
         if (name in protected or unread_question(name)
                 or not retention.expired(since, now, config.SESSION_STALE)):
             continue
@@ -2698,18 +2702,23 @@ def sweep(log):
 
 def forget_seat(name, record, log=lambda _: None):
     """Take a seat that is already gone off the host: its record, every state file of its own
-    but its locks and its card, what its harness held for it, and the pointers a rename left
-    leading to it.
+    but its locks, its card and its seat file, what its harness held for it, and the pointers a
+    rename left leading to it.
 
     The second half of ending a seat, and the only thing that frees its name: `cmd_stop` on a
     seat it already stopped, and `sweep` a week after.  Nothing is typed into a seat with no
     pane, so no typing lock is taken here; the lock files stay, so a seat opened under the name
-    again uses the inodes writers already hold or wait on.  The card is closed here where
-    Discord takes the edit, and is the tick's to close where it does not.
+    again uses the inodes writers already hold or wait on.  The seat file stays for the stop
+    mark in it: a hand-back of the seat's runs reads it (`watch.seat_closed_by_owner`) and
+    waits rather than ask the owner to continue a seat they removed; the collector takes the
+    file a day after its last write once no hand-back waits on it (`gc.stale_seat_files`), and a
+    launch under the name clears the mark.  The card is closed here where Discord takes the
+    edit, and is the tick's to close where it does not.
     """
     from . import notify
     for path in session_owned_files(name):
-        if path == config.card_path(name) or path.suffix == ".lock":
+        if (path == config.card_path(name) or path == config.seat_state_path(name)
+                or path.suffix == ".lock"):
             continue
         if not retention.safe(path.parent.resolve() / path.name):
             continue
@@ -3234,9 +3243,9 @@ def session_owned_files(name):
 
     The kind is the first component and the name the rest, so stopping `fix`
     takes `hook-fix.json` but leaves `session-atoll-fix.json`, `browser-tabs.json`
-    and `<provider>-reset.json` alone. The seat-state file is included: the stop
-    mark is written back afterwards, and it is the one record a later hand-back
-    still reads.
+    and `<provider>-reset.json` alone. The seat-state file is included: a rename
+    moves it, and `forget_seat` leaves it for the stop mark in it, the one record
+    a later hand-back still reads.
     """
     name = config.normalize_session(name)
     if not isinstance(name, str) or not name or not config.STATE.is_dir():
@@ -3271,10 +3280,10 @@ def cmd_stop(argv):
     tabs with no recorded opener are left to the idle rule.
 
     A stop on a seat already stopped -- `x` on its row again, `ak orch stop` again -- is the
-    other half: `forget_seat` takes the record, the state files but the locks, what the harness
-    held for it and the pointers a rename left, and the name is free again.  `sweep` does the
-    same a week after the stop.  Those two are the only things that end a seat for good, and
-    the first is only ever the user's doing.
+    other half: `forget_seat` takes the record, the state files but the locks and the seat file
+    with the stop mark, what the harness held for it and the pointers a rename left, and the
+    name is free again.  `sweep` does the same a week after the stop.  Those two are the only
+    things that end a seat for good, and the first is only ever the user's doing.
 
     A record is enough on its own to stop: it is what holds the name, whether or not tmux still
     has the session -- a restarted server leaves nothing to kill -- and whether or not there was
@@ -3318,6 +3327,15 @@ def cmd_stop(argv):
                 # Under the seat's typing lock, the one a rename takes: a line under way
                 # finishes into this seat before it closes, and one waiting finds it closed.
                 with notify.session_lock(name):
+                    # the owner ended this seat: a run of its that finishes later, or is still
+                    # going, brings it back through neither handback.announce nor the tick, until
+                    # a seat is launched under the name again.  The hand-back reads
+                    # `closed_by_owner` for the same decision, and a pause script that ends a
+                    # seat writes the same mark through `mark_owner_closed`.  The mark goes in
+                    # ahead of the kill: a hand-back that meets the session gone finds the seat
+                    # closed, never a ghost to reopen.
+                    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
+                                     usage_wait=None, usage_refusal=None)
                     if session:
                         rc, out = tmux_out("kill-session", "-t", f"={name}",
                                            socket=seat_socket(session))
@@ -3325,13 +3343,6 @@ def cmd_stop(argv):
                             raise config.Error(f"could not stop the session {name}: {out}")
                         from . import statusbar   # here, not at the top: its module imports this one
                         statusbar.retell(session)   # no other bar names or counts it any more
-                    # the owner ended this seat: a run of its that finishes later, or is still
-                    # going, brings it back through neither handback.announce nor the tick, until
-                    # a seat is launched under the name again.  The hand-back reads
-                    # `closed_by_owner` for the same decision, and a pause script that ends a
-                    # seat writes the same mark through `mark_owner_closed`.
-                    watch.seat_write(name, stopped_at=time.time(), closed_by_owner=True,
-                                     usage_wait=None, usage_refusal=None)
         if not removed:
             watch.forget(name)   # its stall record and its open question go with the owner's stop
     finally:

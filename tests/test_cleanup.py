@@ -133,13 +133,15 @@ class Cleanup(Sandbox):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)      # stopped again: gone
         for leaf in ("plan-atoll.md", "card-atoll.json", "hook-atoll.json", "notify-atoll.json",
                      "compact-atoll.json", "stop-atoll.json", "session-atoll.json",
-                     "rulebook-atoll.md", "seat-atoll.json"):
+                     "rulebook-atoll.md"):
             self.assertFalse((config.STATE / leaf).exists(), leaf)
         self.assertTrue((config.STATE / "plan-other.md").is_file())
-        # Waiting writers and a reopened name must keep using the same lock inodes;
-        # the daily gc takes unused locks.
+        # Waiting writers and a reopened name must keep using the same lock inodes, and a
+        # hand-back of its runs still reads the stop mark; the daily gc takes the mark and
+        # unused locks a day later.
         self.assertEqual({path.name for path in orch.session_owned_files("atoll")},
-                         {"seat-atoll.lock", "notify-atoll.lock"})
+                         {"seat-atoll.json", "seat-atoll.lock", "notify-atoll.lock"})
+        self.assertTrue(watch.seat_closed_by_owner("atoll"))
         self.assertEqual(sorted(self.closed), ["tab-run", "tab-seat"])
         left = browser._read_tabs()
         self.assertEqual(list(left), ["tab-stray"])

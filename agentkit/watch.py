@@ -3318,15 +3318,22 @@ PREEXISTING_NOTE = "pre-existing ending; not replayed"
 OWNER_CLOSED_REASON = "session closed by the owner"
 
 
+def seat_stopped_at(name):
+    """When the owner stopped that seat (`orch.cmd_stop`, `orch.mark_owner_closed`), or None.
+
+    The mark lives in the seat's state file, which outlives the seat's record (`orch.forget_seat`)
+    for a hand-back of its runs to read, and a launch under the name clears it again.
+    """
+    return seat_read(name).get("stopped_at") or None
+
+
 def seat_closed(name):
     """Whether that seat stays gone: `ak orch stop` ended it, or nothing of it is left.
 
-    The stop writes `stopped_at` back into the seat's state file after the seat's other
-    files go, and a launch under the name clears it again.  A seat with neither a pane nor
-    a record was stopped, forgotten or never agentkit's to open: there is nothing to bring
-    back, and the owner is asked as before.
+    A seat with neither a pane nor a record was stopped, forgotten or never agentkit's to
+    open: there is nothing to bring back, and the owner is asked as before.
     """
-    if seat_read(name).get("stopped_at"):
+    if seat_stopped_at(name):
         return True
     return not orch.find(name) and not config.session_records().get(name)
 
@@ -3334,9 +3341,9 @@ def seat_closed(name):
 def seat_closed_by_owner(name):
     """Whether the owner ended that seat on purpose: `x`, `ak orch stop` or a pause script.
 
-    The mark lives beside `stopped_at` in the seat's state file, which a stop writes back
-    after the seat's other files go, and a launch under the name clears it again.  A hand-back
-    for such a seat waits for the owner to reopen it; it never reopens the seat itself.
+    The mark lives beside `stopped_at` in the seat's state file (`seat_stopped_at`).  A
+    hand-back for such a seat waits for the owner to reopen it; it never reopens the seat
+    itself.
     """
     try:
         return bool(seat_read(name).get("closed_by_owner"))
