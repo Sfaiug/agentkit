@@ -1599,8 +1599,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 # `resets held`, which is what every note about them already says in longer words.  `left`
 # names no week, because not every window is one: MiMo's plan runs thirty days.  `holds` is
 # the tokens that shared week holds, as ak's own turns measured them (`record_pairs`).
-HEADERS = ("provider", "model(s)", "left", "holds", "resets", "week elapsed", "session",
-           "resets held", "headroom", "budget", "outlook")
+HEADERS = ("provider", "model(s)", "left", "holds", "a month", "resets", "week elapsed",
+           "session", "resets held", "headroom", "budget", "outlook")
+MONTH = 365.25 * 86400 / 12     # a month of a subscription, in seconds
 
 
 def _pct(value):
@@ -1631,6 +1632,33 @@ def _held(tokens, meter):
     named = "week" if window in (None, 7 * 86400) else terminal.format_age(window)
     about = "≈" if terminal.utf8() else "~"
     return f"{named} {about} {shown:.{0 if shown >= 10 else 1}f}{letter} tokens"
+
+
+def price(cfg, provider):
+    """What each of `provider`'s subscriptions costs a month, in whatever its owner pays in
+    (`price` on its table), or None."""
+    return _number(((cfg.get("providers") or {}).get(provider) or {}).get("price"))
+
+
+def per_million(cost, tokens, meter):
+    """What one million tokens cost on a subscription at `cost` a month whose `meter`'s window
+    holds `tokens`, in two significant digits; None while the window is unmeasured."""
+    if cost is None or not tokens:
+        return None
+    window = _number(meter.get("window_secs")) or 7 * 86400
+    return float(f"{cost * window / (MONTH * tokens / 1e6):.2g}")
+
+
+def _buys(cost, tokens, meter):
+    """`200 ≈ 0.15 per 1M tokens`, the price a month and what it buys (per_million); the price
+    alone while the window is unmeasured, `-` without one."""
+    if cost is None:
+        return "-"
+    each = per_million(cost, tokens, meter)
+    if each is None:
+        return f"{cost:g}"
+    about = "≈" if terminal.utf8() else "~"
+    return f"{cost:g} {about} {each:g} per 1M tokens"
 
 
 def _budget_label(value, reason):
@@ -1767,7 +1795,8 @@ def rows(cfg, providers):
 
     `left` is the tightest weekly meter, because that is what the picker ranks on;
     `resets` is the shared week's, because that is the week the menu row names and the two
-    must say the same thing, and `holds` is the tokens that same week holds.  On a split
+    must say the same thing, `holds` is the tokens that same week holds and `a month` the
+    subscription's price and what one million tokens cost at it.  On a split
     allowance they can be different meters, which is why the two lines under the table print
     both.  A provider with several accounts is a row per account, `anthropic II`, each on its
     own meters and its own pairs.
@@ -1780,8 +1809,9 @@ def rows(cfg, providers):
                           if m.get("window_secs") == SESSION_SECS])
         shared = shared_week(cfg, name, prov, now) or {}
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
+        held = holds(name, account, shared)[0]
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    _held(holds(name, account, shared)[0], shared),
+                    _held(held, shared), _buys(price(cfg, name), held, shared),
                     reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
@@ -1808,13 +1838,13 @@ def render(cfg, providers, order, *, repo=None):
     widths = [max(len(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
-        table[0] = ("provider", "model(s)", "left", "holds", "resets", "elapsed", "session",
-                    "held", "room", "budget", "outlook")
+        table[0] = ("provider", "model(s)", "left", "holds", "month", "resets", "elapsed",
+                    "session", "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
         # an account's row keeps its whole name: `anthropic I…` would not say which one it is
         named = max((terminal.cells(label) for label, name, *_ in _accounts(cfg, providers)
                      if label != name), default=0)
-        for i, cap in ((1, 14), (0, max(12, named)), (10, 18)):   # model(s), provider, outlook
+        for i, cap in ((1, 14), (0, max(12, named)), (11, 18)):   # model(s), provider, outlook
             widths[i] = min(widths[i], cap)
     if sum(widths) + len(widths) - 1 <= width:
         lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
@@ -1887,8 +1917,10 @@ def main(argv):
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
         for _, name, prov, account in _accounts(cfg, providers):
-            prov["capacity_tokens"], prov["capacity_pairs"] = holds(
-                name, account, shared_week(cfg, name, prov) or {})
+            shared = shared_week(cfg, name, prov) or {}
+            prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account, shared)
+            prov["price"] = price(cfg, name)
+            prov["price_per_1m"] = per_million(prov["price"], prov["capacity_tokens"], shared)
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)
         print()
