@@ -93,10 +93,6 @@ class LiveLine(Sandbox):
         found = {one["task"]: (one["doing"], one["since"]) for one in menu.seat_runs("fix-api")}
         self.assertEqual(found, {"b1": ("building", NOW - 60), "l1": ("landing", NOW - 3600),
                                  "q1": ("waiting", NOW - 30), "#2157": ("reviewing", NOW - 90)})
-        # a run in the line fills its slot on the tasks bar; a queued one has no step to show
-        bar = menu.last_column("working", "", 0, 4, menu.seat_runs("fix-api"), 16)
-        self.assertEqual(menu.last_column("working", "", 0, 4, [r for r in menu.seat_runs(
-            "fix-api") if r["step"] != "waiting"], 16), bar)
 
 
 class OnTmux(Sandbox):

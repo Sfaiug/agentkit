@@ -205,7 +205,7 @@ class V5oMenu(Sandbox):
         # A working seat without a plan reads its unfinished job's bar: short, never wrapped.
         screen, _ = self.draw(100, 30)
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertRegex(job, r"█+[▒░]+ 3/7$")
+        self.assertRegex(job, r"[━╸]+─+ 3 of 7$")
         self.assertNotIn("2 running", job)
         # A last column too long for a page's lines is cut with … on the last of them.
         info = {"number": "1", "name": "atoll-job", "count": "needs you",
@@ -233,7 +233,7 @@ class V5oMenu(Sandbox):
         # A working seat without a plan reads its unfinished job's bar, the orchestrator,
         # no title.
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertRegex(job, r"█+[▒░]+ 3/7$")
+        self.assertRegex(job, r"[━╸]+─+ 3 of 7$")
         self.assertIn("fable", job)
         self.assertNotIn("Rebuild the dashboard filters", screen)
         # A plan draws the bar; without a plan or a job there is no bar and no fake one.
@@ -241,7 +241,7 @@ class V5oMenu(Sandbox):
                                                         "- [ ] d\n- [ ] e\n- [ ] f\n"
                                                         "- [ ] g\n")
         screen, _ = self.draw(100, 30)
-        self.assertRegex(screen, r"█+[▒░]+ 3/7")
+        self.assertRegex(screen, r"[━╸]+─+ 3 of 7")
         solo = next(line for line in screen.splitlines() if "atoll-solo" in line)
         self.assertNotIn("2 running", solo)
         self.assertTrue(solo.rstrip().endswith("● working"))
@@ -449,7 +449,7 @@ class V5oMenu(Sandbox):
         # A seat row is two lines on a phone: head plus its last column indented.
         idx = next(i for i, line in enumerate(screen.splitlines()) if "atoll-job" in line)
         self.assertTrue(screen.splitlines()[idx + 1].startswith("    "))
-        self.assertRegex(screen.splitlines()[idx + 1], r"^    █+[▒░]+ 3/7$")
+        self.assertRegex(screen.splitlines()[idx + 1], r"^    [━╸]+─+ 3 of 7$")
 
     def test_v5o_n_no_age_in_seconds(self):
         for width in (40, 100, 170):

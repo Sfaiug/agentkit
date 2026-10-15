@@ -285,7 +285,7 @@ class NewsMotion(Sandbox):
         waits, at = self.run_menu([None, self.news(
             lambda: self.tasks.update({"fix-api": (4, 4)}))])
         screen, cells = self.written(waits, at)
-        self.assertIn("4/4", terminal.ANSI.sub("", screen))        # the draw says it at once
+        self.assertIn("4 of 4", terminal.ANSI.sub("", screen))     # the draw says it at once
         dot = self.cell(screen, "fix-api", "●")
         self.assertEqual({cell for _, cell, _ in cells}, {dot})    # and only the dot breathes on
 

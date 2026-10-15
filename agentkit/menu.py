@@ -11,7 +11,7 @@ the moment it is pressed, and from a pipe it is a line.
 
     atoll
     › 1  atoll-speed-check   fable   ! needs you   Merge the MOV helper before or after?
-      2  fix-api             fable   ● working     ████▒▒░░░░ 2/5
+      2  fix-api             fable   ● working     ━━━━╸───── 2 of 5
       3  web-portal          fable   ✓ done        hero swapped and published
 
       ↑↓ move   ⏎ open   n new   x stop   c config   esc leave
@@ -30,7 +30,7 @@ one answer: the row, the top line, `ak orch list`, `ak orch why`, the
 seat's own status bar and its window title.  `ak orch why <seat>` says what decided it.
 
 A row is number, name, orchestrator, state, and one last column: for `needs you` the reason
-from the state function, for `working` the tasks bar in the room the row has
+from the state function, for `working` its progress line in the room the row has
 (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under any name a rename led
 from, else from its unfinished jobs, and each live run of the seat by its step: `seat_runs`),
 else empty, for `done` the first line of the done summary.  Never two state words on one row,
@@ -905,7 +905,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is the reason for `needs you` and `done`, and for `working`
-    its place in the landing line, else the tasks bar from `seat_progress` -- its plan,
+    its place in the landing line, else its progress line from `seat_progress` -- its plan,
     else its unfinished jobs -- and `seat_runs`, else empty -- never two state words on one
     row. Every seat `orch.listing` offers gets
     a row: the ones tmux holds, and the ones only their record does -- a seat whose tmux
@@ -1020,37 +1020,34 @@ def _styled_cell(plain_text, width, kind=None, right=False):
     return space + styled if right else styled + space
 
 
-def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=False):
+def last_column(word, reason, done, total, room=8, narrow=False, tmux=False):
     """The one last column of a seat's row, and of its status bar.
 
     For `needs you` and `done` the reason from the state function; for `working` its place
-    in the landing line, else the tasks bar (`terminal.plan_bar`) in `room` cells when
-    `seat_progress` finds a plan or an unfinished job, each of `runs` (`seat_runs`) part of a
-    slot by its step, red on its last round; else empty -- never `N running`.  The bar keeps 8
-    cells at least, which a row too short for them draws under itself; where `room` is all there
-    is -- a `narrow` screen's line, each width of a seat's bar -- it takes that room and never
-    more.  `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two can never disagree.
-    Never two state words on one row.
+    in the landing line, else its progress (`terminal.plan_bar`, a smooth line and `done of
+    total`) in `room` cells when `seat_progress` finds a plan or an unfinished job; else empty
+    -- never `N running`.  The line keeps 8 cells at least, which a row too short for them
+    draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
+    a seat's bar -- it takes that room and never more.  `tmux` draws it for a seat's bar.  The
+    row and the bar read this one function, so the two can never disagree.  Never two state
+    words on one row.
     """
     if not tasks_bar(word, reason):
         return terminal.plain(reason or "")
-    fills = [(FILLS[run["step"]], bool(run["rounds"]) and run["round"] >= run["rounds"])
-             for run in runs if run["step"] in FILLS]
-    return terminal.plan_bar(done, total, fills, room, 0 if narrow else 8, word, tmux)
+    return terminal.plan_bar(done, total, room, 0 if narrow else 8, word, tmux)
 
 
 def tasks_bar(word, reason):
-    """Is a seat's last column its tasks bar (`last_column`), not a sentence?  A working seat's
+    """Is a seat's last column its progress line (`last_column`), not a sentence?  A working seat's
     is, but while it waits in the landing line, which its reason says."""
     return word == "working" and not (reason or "").startswith("waiting · ")
 
 
 def _last_text(info, room, narrow=False):
-    """The row's one last column in `room` cells: reason, tasks bar, or empty (`last_column`)."""
+    """The row's one last column in `room` cells: reason, progress line, or empty (`last_column`)."""
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
-    return last_column(info.get("word"), info.get("sentence"), done, total, info.get("runs", ()),
-                       room, narrow)
+    return last_column(info.get("word"), info.get("sentence"), done, total, room, narrow)
 
 
 def live_line(cfg, info, room, now=None):
@@ -1127,7 +1124,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
     capped at 100 columns. A long last column wraps at word boundaries onto as many
     indented lines as it takes, so a seat's question is read whole on ak's own screen,
     whatever harness the seat runs; a block of more than `most` lines is cut to them, ending
-    in `…`. A working seat's tasks bar takes the room the last column has. On a narrow phone
+    in `…`. A working seat's progress line takes the room the last column has. On a narrow phone
     the last column goes on its own line. Never cut inside a glyph or a colour sequence.
     """
     if widths is None:
@@ -1137,7 +1134,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
         return []
 
     def under(text, room):
-        """The indented lines a last column takes under its row: one where it fits (a tasks bar
+        """The indented lines a last column takes under its row: one where it fits (a progress line
         always does), else its sentence wrapped, in what `most` leaves beside the row's own."""
         lines = [text] if terminal.cells(text) <= room else terminal.wrap(text, room)
         keep = len(lines) if most is None else max(1, most - 1)
@@ -1151,7 +1148,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
             second_room = max(1, room - 4)
             tail = _last_text(info, second_room, narrow=True)
             if tail:
-                # a tasks bar is drawn in the room, so what wraps is a sentence
+                # a progress line is drawn in the room, so what wraps is a sentence
                 block += under(tail, second_room)
             blocks.append(block)
         return [[line.rstrip() for line in block] for block in blocks]
@@ -1170,7 +1167,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
         cont_room = max(1, room - 4)
         bar = tasks_bar(info.get("word"), info.get("sentence"))
         if bar or free < sent_room:
-            # a tasks bar too long for the column is never wrapped, which drops its colours, and
+            # a progress line too long for the column is never wrapped, which drops its colours, and
             # a row without ten cells left starts nothing: either goes under its row, the bar
             # drawn in that line's room and a sentence wrapped to it
             blocks.append([head] + under(_last_text(info, cont_room), cont_room))

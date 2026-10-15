@@ -111,7 +111,7 @@ class MenuRows(Sandbox):
         screen, _ = self.draw(100, 30)
         row = next(line for line in screen.splitlines() if "fix-api" in line)
         # two of five merged, and the run going a quarter into the next, in the row's room
-        self.assertRegex(row, r"● working  █+▒+░+ 2/5$")
+        self.assertRegex(row, r"● working  [━╸]+─+ 2 of 5$")
         self.assertEqual(terminal.cells(row), 100)
         self.assertNotIn("running", row)
 
@@ -157,7 +157,7 @@ class MenuRows(Sandbox):
         idle = self.seat("idle-work", "atoll", live="working")
         screen, _ = self.draw(100, 30)
         self.assertRegex(next(line for line in screen.splitlines() if "planned-work" in line),
-                         r"█+▒+░+ 1/3$")
+                         r"[━╸]+─+ 1 of 3$")
         row = next(line for line in screen.splitlines() if "running-work" in line)
         self.assertNotIn("2 running", row)
         self.assertTrue(row.rstrip().endswith("● working"))
