@@ -34,7 +34,7 @@ RULES = [
     # Scoreboard formulas and display words stay together so a change has one home.
     {"name": "scoreboard",
      "flags": (),
-     "pattern": r"\b(first_round|token_share|code_lines|readme_words)\b|"
+     "pattern": r"\b(first_round|token_share|code_lines|readme_words|agents_words)\b|"
                 r"Scoreboard \(reported tokens|no runs ended|median tokens per merged run",
      "home": ("agentkit/scoreboard.py",),
      "max": 0},

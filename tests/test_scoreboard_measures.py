@@ -29,7 +29,8 @@ PINNED = (
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
     ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
-    ("size", "ak size", ("code_lines", "readme_words")),
+    # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
+    ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
 
 

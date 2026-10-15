@@ -33,7 +33,7 @@ MEASURES = (
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
     ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
-    ("size", "ak size", ("code_lines", "readme_words")),
+    ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
 
 # The measures a week's loss is read from, in the vision's order -- quality, speed, cost,
@@ -55,6 +55,7 @@ LOSSES = (
     ("runs the park stopped", "parks", "parked", True, "n"),
     ("ak's code lines", "size", "code_lines", True, "n"),
     ("ak's README words", "size", "readme_words", True, "n"),
+    ("ak's AGENTS.md words", "size", "agents_words", True, "n"),
 )
 
 
@@ -327,11 +328,14 @@ def compute(now=None):
             return None
         code = git("grep", "-I", "-h", "--no-color", "-e", "^", ref, "--",
                    "agentkit/", "bin/", "hooks/", "adapters/", "tools/", "install.sh")
-        readme = git("show", f"{ref}:README.md")
-        if code is None and readme is None:
+        readme, agents = (git("show", f"{ref}:{name}") for name in ("README.md", "AGENTS.md"))
+        if code is None and readme is None and agents is None:
             return None
+
+        def words(text):
+            return len(text.decode("utf-8", "replace").split()) if text is not None else None
         return {"code_lines": code.count(b"\n") if code is not None else None,
-                "readme_words": len(readme.decode("utf-8", "replace").split()) if readme is not None else None}
+                "readme_words": words(readme), "agents_words": words(agents)}
 
     before = git("rev-list", "--first-parent", "-1",
                  "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
@@ -400,9 +404,10 @@ def render():
         if stats is None:
             return "size unavailable"
         code = stats["code_lines"]
-        words = stats["readme_words"]
-        return (f"{code} code lines" if code is not None else "code lines unknown") + ", " + (
-            f"{words} README words" if words is not None else "README words unknown")
+        return ", ".join(f"{value} {name}" if value is not None else f"{name} unknown"
+                         for value, name in ((code, "code lines"),
+                                             (stats["readme_words"], "README words"),
+                                             (stats["agents_words"], "AGENTS.md words")))
 
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
              "waits": waited, "merged": split, "escaped": escapes, "size": size}
