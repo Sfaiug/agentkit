@@ -168,7 +168,7 @@ class RunScope(unittest.TestCase):
                                       dict(os.environ), self.root / "fake.log",
                                       target_slice=orch.RUNS_SLICE,
                                       properties=("-p", "CPUWeight=40", "-p", "IOWeight=40"),
-                                      nice=True, placement=placement)
+                                      nice=True, placement=placement, ends=False)
         self.assertGreater(pid, 0)
         argv = json.loads(argv_file.read_text())
         self.assertNotIn("Nice=10", argv)
