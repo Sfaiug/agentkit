@@ -28,7 +28,7 @@ BOARD = {
     "products": [STATS, {**STATS, "runs": 8, "merged": 5, "first_round": .6, "unmerged": .2,
                          "hours": 2.0, "tokens": 900}],
     "ak": [None, None], "built": [None, None], "waits": [None, None], "merged": [None, None],
-    "parks": [{"parked": 1}, {"parked": 0}],
+    "parks": [{"parked": 1}, {"parked": 0}], "sunk": [None, None],
     "escaped": [{"merged": 6, "escaped": 3, "open": 0, "unknown": 0, "reviewers": {}},
                 {"merged": 5, "escaped": 3, "open": 0, "unknown": 0, "reviewers": {}}],
     "size": [None, None],

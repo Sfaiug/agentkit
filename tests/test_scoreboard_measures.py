@@ -2,7 +2,8 @@
 and a visible test change (AGENTS.md, Owner rules, 14 Oct 2026): the rows and the parts each
 cell is built from (`scoreboard.MEASURES`), the rows and parts `compute` answers with, and
 the labels `render` shows, in that order; tests/test_scoreboard.py holds the words `render`
-says of each part, tests/test_who_built.py those of `built` and `parks`.
+says of each part, tests/test_who_built.py those of `built` and `parks`,
+tests/test_sunk_tokens.py those of `sunk`.
 
 Offline: an empty sandbox HOME with no history database, and git answering nothing; the
 filled board reads literal history rows and parks, and git answering one line to everything.
@@ -30,6 +31,7 @@ PINNED = (
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
     ("parks", "parks", ("parked",)),
+    ("sunk", "sunk", ("share", "tokens")),
     ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
     # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
