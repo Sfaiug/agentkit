@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, watch
@@ -114,17 +115,27 @@ class CodexSeatStates(Sandbox):
 
     def test_a_draft_cropped_above_the_tail_keeps_its_visible_rows(self):
         for name in ("tall-line", "tall-line-and-owner-words"):
-            with self.subTest(name):
-                pane = tail(name)
-                rows = [watch.strip_sgr(row).strip() for row in pane.splitlines()]
-                found = watch.classify("codex", pane, None, None, {}, 10000)
-                self.assertEqual((found["state"], found["rule"], found["evidence"]),
-                                 ("draft", "draft.rows", " ".join(rows[:-1])[:160]))
-                # Visible rows cannot prove the whole composer for automatic Enter.
-                self.assertIsNone(watch._composer_rows("codex", pane, exact=True))
-                # A tail containing unrelated output is not wholly draft continuations.
-                mixed = "• Earlier output\n" + "\n".join(pane.splitlines()[1:])
-                self.assertEqual(watch.screen_state("codex", mixed)[2], rows[-2])
+            original = (REPO / f"tests/fixtures/codex-{name}-pane.txt").read_text()
+            for edit in (None, "    def login(): pass", "  owner · draft"):
+                with self.subTest(name=name, edit=edit):
+                    rows = tail(name).splitlines()
+                    if edit:
+                        rows[2] = edit
+                    pane = "\n".join(rows)
+                    capture = "\n".join(watch._content_rows(original)[:-watch.PANE_LINES] + rows)
+                    words = " ".join(watch.strip_sgr(row).strip() for row in rows[:-1])
+                    found = watch.classify("codex", pane, None, None, {}, 10000)
+                    self.assertEqual((found["state"], found["rule"], found["evidence"]),
+                                     ("draft", "draft.rows", words[:160]))
+                    # Display and pending delivery read the same rows, including owner edits.
+                    with patch.object(watch, "pane_text", return_value=capture), \
+                            patch.object(watch, "seat_model", return_value=("codex", "openai")):
+                        self.assertEqual(watch.composer_holds(SEAT, {}, words, self.cfg), "line")
+                        self.assertEqual(watch.composer_holds(SEAT, {}, words, self.cfg,
+                                                              exact=True), "other")
+                    # A short tail without a prompt cannot establish a cropped composer.
+                    self.assertEqual(watch.screen_state("codex", "\n".join(rows[1:]))[2],
+                                     watch.strip_sgr(rows[-2]).strip())
 
     def test_the_hook_review_asks(self):
         self.assertEqual(self.read("hooks-review-0160"), ("asking", "screen", "asking.chooser"))

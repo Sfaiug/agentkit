@@ -1635,12 +1635,10 @@ def screen_state(harness, tail):
             # composer the rule reads at or the manifest finds holds, read as a typed line's
             # delivery reads it
             parts = _composer_rows(harness, tail)
-            # A prompt cropped above the tail leaves only continuation rows over the footer.
-            # The matched rule must recognize every visible row before they can say the draft.
-            if parts is None and rule["chrome"] and rule["row"] and all(
-                    rule["row"].search(strip_sgr(raw).rstrip())
-                    for raw in raw_lines[-PANE_LINES:-1]):
-                parts = lines[-PANE_LINES:-1]
+            # The rule found a draft, but a full tail can leave its prompt above the read.
+            if (parts is None and rule["chrome"] and rule["row"]
+                    and len(raw_lines) >= PANE_LINES):
+                parts = _cropped_composer_rows(harness, tail)
             evidence = " ".join(parts or ()) or evidence
         return rule["state"], rule["id"], evidence[:160]
     return None, "", ""
@@ -3063,6 +3061,13 @@ def _unscrolled(chrome, rows, *, exact=False):
     return [row for row in rows if row.strip()]
 
 
+def _cropped_composer_rows(harness, pane):
+    """A composer's top is above the read: every row over its bottom chrome is its text,
+    read inside a box's edges and without scroll marks, as rows under its prompt are."""
+    tail = content_lines(harness, pane_tail(pane))
+    return _unscrolled(screen(harness), [_inside_box(row) for row in tail])
+
+
 def composer_holds(name, session, line, cfg=None, *, exact=False):
     """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
     anything else, nothing read, or a question to the owner on the screen, as a dialog that
@@ -3090,10 +3095,7 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
         return "empty"
     chrome = screen(harness)
     if not exact and rows is None and len(_content_rows(pane)) > PANE_LINES:
-        # its top above the read: every row over the chrome under it is the composer's, read as
-        # its rows under the prompt row are -- inside a box's edges, its scroll marks left out
-        tail = content_lines(harness, pane_tail(pane))
-        rows = _unscrolled(chrome, [_inside_box(row) for row in tail])
+        rows = _cropped_composer_rows(harness, pane)
     held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
