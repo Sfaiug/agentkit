@@ -1,13 +1,14 @@
-"""Every seat's bar names the owner's other seats that need them, and a click switches to one.
+"""Every seat's bar says how many of the owner's other seats need them, and a click goes there.
 
-Line one's right end: `! <name> needs you` in needs-you's colour for each other seat that
-needs you, then `● N working` and `✓ N done`, each only when it is not zero; a seat never
-counts itself.  A changed word, or a seat stopped, rewrites every other seat's bar at once,
-and an older reading never lands after a newer word.  A click on a name switches to its seat;
-every bar write binds that one key on ak's own server, and the wheel over a name moves no
-seat's window.  Where line one is short of room the names fold into `! 2 need you` before its
-left part is cut.  Offline with `orch.tmux_out` patched, except the last case, which runs tmux
-on a server of its own in this test's HOME and clicks through a pseudo-terminal.
+Line one's right end, the owner's design (14 Oct 2026): `! 2 other seats need you` in
+needs-you's colour, bold, while any other seat needs you, and nothing otherwise; a seat never
+counts itself, and where line one is short of room it folds to `! 2 need you` before anything
+is cut.  A changed word, or a seat stopped, rewrites every other seat's bar at once,
+and an older reading never lands after a newer word.  A click on it switches to the first of
+them; every bar write binds that one key on ak's own server, and the wheel over it moves no
+seat's window.  Offline with
+`orch.tmux_out` patched, except the last cases, which run tmux on a server of their own in
+this test's HOME and click through a pseudo-terminal.
 """
 
 from contextlib import redirect_stdout
@@ -70,43 +71,35 @@ class OtherSeats(Sandbox):
         return {"name": name, "path": "", "created": 0, "attached": False, "exited": False,
                 "legacy": False, "resumable": False, **extra}
 
-    def test_a_line_one_names_who_needs_you_and_counts_the_rest_never_itself(self):
+    def test_a_line_one_counts_who_else_needs_you_never_itself(self):
         statusbar.dress("fix-api", "fable")
-        named = self.options["fix-api"][statusbar.SEATS]
-        self.assertEqual(drawn(named), "! orbit-proxies needs you   ● 1 working   ✓ 1 done ")
-        self.assertIn(f"#[range=right]#[fg=#{NEEDS},bold]! orbit-proxies needs you"
-                      "#[default]#[norange]", named)          # a click away, in its colour
-        # the name is the right end's first 25 of its 51 cells, counted from the client's edge
+        needing = self.options["fix-api"][statusbar.NEED]
+        self.assertEqual(drawn(needing), "! 1 other seat needs you ")
+        self.assertIn(f"#[range=right]#[fg=#{NEEDS},bold]! 1 other seat needs you"
+                      "#[default]#[norange]", needing)          # a click away, in its colour
+        # its 24 cells and the space after them, counted from the client's edge
         at = statusbar.AT
         self.assertEqual(self.options["fix-api"][statusbar.HIT],
-                         f"#{{?#{{&&:#{{e|>:{at},26}},#{{e|<=:{at},51}}}},$1,}}")
-        self.assertEqual(drawn(self.options["fix-api"][statusbar.FOLD]),
-                         "! 1 needs you   ● 1 working   ✓ 1 done ")
-        self.assertNotIn("range=", self.options["fix-api"][statusbar.FOLD])
-        # each seat's names and their lookup side by side in one tmux command list, which no
+                         f"#{{?#{{&&:#{{e|>:{at},1}},#{{e|<=:{at},25}}}},$1,}}")
+        # each seat's count and its lookup side by side in one tmux command list, which no
         # click can land inside
         (sent,) = [args for args, _ in self.calls if statusbar.HIT in args]
-        ends = (statusbar.SEATS, statusbar.FOLD, statusbar.NEED, statusbar.HIT)
+        ends = (statusbar.NEED, statusbar.FOLD, statusbar.HIT)
         self.assertEqual([command[2:4] for command in commands(sent) if command[3] in ends],
                          [[f"={name}:", option] for name in IDS for option in ends])
         found = statusbar.seats()
         self.assertEqual(found[1], ("$1", "orbit-proxies", "needs you"))
-        named, folded, needing, hit = statusbar.others(found, "orbit-proxies")
-        self.assertEqual(drawn(named), "● 2 working   ✓ 1 done ")
-        self.assertEqual((named, needing, hit), (folded, "", ""))
-        # only the words there are, each only when it is not zero; no other seat, nothing
-        self.assertEqual(drawn(statusbar.others([("$1", "a", "working"), ("$2", "b", None)],
-                                                "c")[0]), "● 1 working ")
+        # working and done seats are no one's business on another bar, nor a seat itself
+        self.assertEqual(statusbar.others(found, "orbit-proxies"), ("", "", ""))
         self.assertEqual(statusbar.others([("$0", "fix-api", "needs you")], "fix-api"),
-                         ("", "", "", ""))
+                         ("", "", ""))
 
-    def test_b_names_are_plain_text_and_two_fold_into_one_count(self):
+    def test_b_two_are_one_count_and_the_click_goes_to_the_first(self):
         found = [("$4", "a#1", "needs you"), ("$5", "b%", "needs you"), ("$6", "me", "done")]
-        named, folded, needing, _ = statusbar.others(found, "me")
-        self.assertIn("! a##1 needs you", named)
-        self.assertIn("! b% needs you", named)
+        needing, folded, hit = statusbar.others(found, "me")
+        self.assertEqual(drawn(needing), "! 2 other seats need you ")
         self.assertEqual(drawn(folded), "! 2 need you ")
-        self.assertEqual(needing, folded)          # nothing else to count: `me` never counts itself
+        self.assertTrue(hit.endswith(",$4,}"), hit)
 
     def test_c_a_changed_word_reaches_every_other_bar_as_it_is_announced(self):
         answers = {name: {"word": word, "reason": "", "since": None}
@@ -118,10 +111,7 @@ class OtherSeats(Sandbox):
         answers["orbit-proxies"] = {"word": "working", "reason": "", "since": None}
         watch.announce_state(self.seat("orbit-proxies"), cfg=self.cfg)
         for name in ("fix-api", "web", "zeta"):
-            self.assertNotIn("needs you", drawn(self.options[name][statusbar.SEATS]), name)
-        self.assertEqual(drawn(self.options["fix-api"][statusbar.SEATS]),
-                         "● 2 working   ✓ 1 done ")
-        self.assertEqual(drawn(self.options["zeta"][statusbar.FOLD]), "● 3 working ")
+            self.assertEqual(self.options[name][statusbar.NEED], "", name)
         # every read and write on ak's own server, each bar's options on its own seat only
         for args, socket in self.calls:
             self.assertEqual(socket, "agentkit-test")
@@ -139,8 +129,7 @@ class OtherSeats(Sandbox):
             orch.cmd_stop(["orbit-proxies"])
         self.assertNotIn("orbit-proxies", self.ids)
         for name in ("fix-api", "web", "zeta"):
-            self.assertNotIn("needs you", drawn(self.options[name][statusbar.FOLD]), name)
-        self.assertEqual(drawn(self.options["zeta"][statusbar.SEATS]), "● 2 working ")
+            self.assertEqual(self.options[name][statusbar.NEED], "", name)
 
     def test_e_every_bar_write_binds_the_click_on_a_name_and_nothing_else(self):
         statusbar.dress("fix-api", "fable")
@@ -151,10 +140,10 @@ class OtherSeats(Sandbox):
             self.assertEqual((args[-len(statusbar.CLICK):], socket),
                              (statusbar.CLICK, "agentkit-test"))
         self.assertEqual(statusbar.CLICK[:3], ("bind-key", "-n", "MouseDown1StatusRight"))
-        self.assertEqual(statusbar.CLICK[5], f"#{{E:{statusbar.HIT}}}")   # only over a name
+        self.assertEqual(statusbar.CLICK[5], f"#{{E:{statusbar.HIT}}}")   # only over the count
         self.assertEqual([line for line in orch.tmux_conf().read_text().splitlines()
                           if re.search(r"Mouse|Wheel|Drag", line)], [])
-        for value in statusbar.FORMATS:   # no range of ak's but the names
+        for value in statusbar.FORMATS:   # no range of ak's but the count
             self.assertNotIn("range=", value)
 
     def test_f_an_older_reading_never_lands_after_a_newer_word(self):
@@ -167,7 +156,7 @@ class OtherSeats(Sandbox):
         def tmux(*args, **kw):
             # fix-api's own write, which read the seats before web came to need you, waits
             if (threading.current_thread().name == "older"
-                    and args[:4] == ("set-option", "-t", "=fix-api:", statusbar.SEATS)):
+                    and args[:4] == ("set-option", "-t", "=fix-api:", statusbar.NEED)):
                 paused.set()
                 go.wait(10)
             return self.tmux(*args, **kw)
@@ -188,7 +177,7 @@ class OtherSeats(Sandbox):
         go.set()
         older.join(10)
         newer.join(10)
-        self.assertIn("! web needs you", drawn(self.options["fix-api"][statusbar.SEATS]))
+        self.assertEqual(drawn(self.options["fix-api"][statusbar.NEED]), "! 2 other seats need you ")
 
 
 class OnTmux(Sandbox):
@@ -247,7 +236,7 @@ class OnTmux(Sandbox):
         return [self.tmux("display-message", "-p", "-t", f"={name}:", "#{window_index}")[1]
                 for name in ("fix-api", "orbit-proxies")]
 
-    def test_g_names_fold_before_the_left_part_is_cut_and_a_click_switches(self):
+    def test_g_the_count_folds_before_the_left_part_is_cut_and_a_click_switches(self):
         self.tmux("-f", "/dev/null", "new-session", "-d", "-s", "fix-api", "sleep 600")
         default = self.mouse_keys()
         self.assertEqual(self.tmux("source-file", str(orch.tmux_conf()))[0], 0)
@@ -262,7 +251,7 @@ class OnTmux(Sandbox):
         with patch.object(orch, "tmux_out", side_effect=self.tmux):
             statusbar.redress({"name": "fix-api", "legacy": False},
                               {"word": "working", "reason": ""}, cfg=self.cfg)
-        # the one key bound beside tmux's own: a click where only a name is drawn
+        # the one key bound beside tmux's own: a click where only the count is drawn
         added = sorted(set(self.mouse_keys()) - set(default))
         self.assertEqual([line.split()[3] for line in added], ["MouseDown1StatusRight"], added)
         self.assertEqual(sorted(set(default) - set(self.mouse_keys())), [])
@@ -280,26 +269,23 @@ class OnTmux(Sandbox):
         self.until(lambda: self.tmux("list-clients", "-F", "#{client_session}")[1] == "fix-api",
                    "the client never attached")
         whole = " ● working   fix-api   fable "   # 28 cells and the space after
-        self.assertEqual(self.width(100), whole + "! orbit-proxies needs you   ● 1 working   "
-                                                  "✓ 1 done ")
-        # 75 is too narrow for the names beside the whole left part, and wide enough for the fold
-        self.assertEqual(self.width(75), whole + "! 1 needs you   ● 1 working   ✓ 1 done ")
-        # narrower, only who needs you stays beside the whole left part
-        self.assertEqual(self.width(50), whole + "! 1 needs you ")
-        # and narrower still, the left part is cut: one `…`, the whole line the client's width
+        self.assertEqual(self.width(100), whole + "! 1 other seat needs you ")
+        # narrower, the count folds beside the whole left part, and only then is that cut: one
+        # `…`, the whole line the client's width
+        self.assertEqual(self.width(50), whole.rstrip() + " ! 1 needs you ")
         self.assertEqual(self.width(30), " ● working   f… ! 1 needs you ")
-        # the name is columns 50 to 74 of line one, row 19: the wheel over it moves no window
+        # the count is columns 76 to 99 of line one, row 19: the wheel over it moves no window
         self.width(100)
         for button, window in ((64, "1"), (65, "0")):        # up from the second, down from the first
             for name in ("fix-api", "orbit-proxies"):
                 self.tmux("select-window", "-t", f"={name}:{window}")
-            os.write(self.pty, f"\x1b[<{button};55;19M".encode())
+            os.write(self.pty, f"\x1b[<{button};85;19M".encode())
             time.sleep(0.3)
             self.drain()
             self.assertEqual(self.active(), [window, window])
-        # a click beside the name leaves the client where it is; one on the name moves it
-        for column, session in ((3, "fix-api"), (49, "fix-api"), (80, "fix-api"),
-                                (52, "orbit-proxies")):
+        # a click beside the count leaves the client where it is; one on it moves it
+        for column, session in ((3, "fix-api"), (49, "fix-api"), (70, "fix-api"),
+                                (85, "orbit-proxies")):
             os.write(self.pty, f"\x1b[<0;{column};19M\x1b[<0;{column};19m".encode())
             self.until(lambda: self.tmux("list-clients", "-F",
                                          "#{client_session}")[1] == session,
@@ -324,7 +310,7 @@ class OnTmux(Sandbox):
             return next(found for found in sessions() if found["name"] == name)
 
         def named():
-            return drawn(self.tmux("show-options", "-qv", "-t", "=fix-api:", statusbar.SEATS)[1])
+            return drawn(self.tmux("show-options", "-qv", "-t", "=fix-api:", statusbar.NEED)[1])
         with patch.object(orch, "tmux_out", side_effect=self.tmux), \
                 patch.object(orch, "sessions", side_effect=sessions), \
                 patch.object(watch, "sync_title"), \
@@ -333,16 +319,16 @@ class OnTmux(Sandbox):
             self.assertEqual(watch.announce_state(seat("web"), cfg=self.cfg, records=[])["word"],
                              "needs you")
             statusbar._write("fix-api", "fable", "working", cfg=self.cfg)
-            self.assertIn("! web needs you", named())
-            # renamed, its word the same: fix-api names it by its new name as rename returns
+            self.assertIn("! 1 other seat needs you", named())
+            # renamed, its word the same: fix-api counts it still as rename returns
             self.assertEqual(orch.rename("web", "renamed-web"), "renamed-web")
-            self.assertIn("! renamed-web needs you", named())
-            # gone by hand, then opened again under its name: named again as it opens
+            self.assertIn("! 1 other seat needs you", named())
+            # gone by hand, then opened again under its name: counted again as it opens
             self.assertEqual(self.tmux("kill-session", "-t", "=renamed-web:")[0], 0)
             statusbar._write("fix-api", "fable", "working", cfg=self.cfg)
             self.assertEqual(named(), "")
             orch.start("renamed-web", self.root, ["sleep", "600"], "fable")
-            self.assertIn("! renamed-web needs you", named())
+            self.assertIn("! 1 other seat needs you", named())
 
 
 if __name__ == "__main__":

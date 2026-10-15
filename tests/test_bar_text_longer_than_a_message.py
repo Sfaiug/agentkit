@@ -1,8 +1,7 @@
 """A bar's text reaches its bar when it is longer than a tmux message.
 
 tmux 3.5a refuses a client message past 16 KiB ("command too long") and sets nothing, so a
-question longer than that left the earlier question on line two, and the right end of a hundred
-seats needing you left the earlier names, counts and click targets.  What tmux refuses for its
+question longer than that left the earlier question on line two.  What tmux refuses for its
 length is told again in pieces, through calls like any other.  tmux itself, on a server of its
 own in this test's HOME.
 """
@@ -16,7 +15,6 @@ from unittest.mock import patch
 from fixtures.sandbox import Sandbox
 from agentkit import orch, statusbar
 
-RIGHT_END = (statusbar.SEATS, statusbar.FOLD, statusbar.NEED, statusbar.HIT)
 
 
 class LongerThanAMessage(Sandbox):
@@ -51,15 +49,6 @@ class LongerThanAMessage(Sandbox):
         self.assertEqual(done.returncode, 0, (name, done.stderr))
         return done.stdout.removesuffix("\n")
 
-    def right_end(self, seats):
-        """Tell acme's bar that many other seats need you; what `others` says of them."""
-        found = [(f"${n}", "acme" if not n else f"seat-{n}", "needs you")
-                 for n in range(seats + 1)]
-        self.assertEqual(self.tmux("set-option", "-t", "=acme:", statusbar.SEATS, "web")[0], 0)
-        with patch.object(statusbar, "seats", return_value=found):
-            statusbar._tell("acme")
-        return statusbar.others(found, "acme")
-
     def test_a_question_longer_than_a_message_replaces_the_earlier_one(self):
         statusbar._write("acme", "opus", word="needs you",
                          versions=["May I merge acme?"] * len(statusbar.WHYS))
@@ -71,20 +60,6 @@ class LongerThanAMessage(Sandbox):
             self.assertEqual(self.option(version), "  " + question, version)
         # and its title is still what the bar is told last
         self.assertIn("set-titles-string", self.calls[-1])
-
-    def test_a_hundred_seats_needing_you_are_on_the_right_end(self):
-        told = self.right_end(100)
-        # each fits a message, the four a bar is told in one list do not
-        self.assertLess(max(len(text.encode()) for text in told), orch.TMUX_MESSAGE)
-        self.assertGreater(sum(len(text.encode()) for text in told), 16 * 1024)
-        for name, text in zip(RIGHT_END, told):
-            self.assertEqual(self.option(name), text, name)
-
-    def test_names_no_message_carries_are_on_the_right_end_too(self):
-        told = self.right_end(300)
-        self.assertGreater(len(told[0].encode()), 16 * 1024)
-        for name, text in zip(RIGHT_END, told):
-            self.assertEqual(self.option(name), text, name)
 
     def test_a_question_a_call_carries_is_told_as_it_was_before(self):
         # longer than what several lists are packed into, shorter than tmux's own limit

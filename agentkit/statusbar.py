@@ -4,10 +4,10 @@ The bar is the seat's row on the `ak` screen with the line under it always open.
 its state -- `! needs you` in dark bold text on its amber, the one loud thing on the bar, any
 other word as its glyph and word in its colour -- then the seat's name in bold, then the model
 that orchestrates it, dim, then its progress line, as its menu row draws it, as wide as `BARS`
-lets it be.  Its right end is the owner's other seats on ak's own server: each that needs you
-by name, a click away, then how many others are working and done; an idle one is not counted.  Where they do not fit
-beside the left part the line narrows, then the names fold into a count, then only the count
-of those that need you stays, and only then is the left part cut.  Line two is what its row
+lets it be.  Its right end, while another seat on ak's own server needs you, says so in amber,
+`! 2 other seats need you`, a click away from the first of them; where it does not fit beside
+the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
+cut.  Line two is what its row
 opens under itself: who builds and who reviews, and each task in flight as its squares
 (`whys`), with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m  x close` once
 done.  It never moves: the seat is where the owner reads and types.
@@ -19,14 +19,14 @@ one alike: tmux cannot say which a client is, and the tick that writes most bars
 terminal to ask.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
-width, `@ak_seats`, `@ak_fold`, `@ak_need`, `@ak_why` and its folded versions, `@ak_key`), and
+width, `@ak_need` and `@ak_fold`, `@ak_why` and its folded versions, `@ak_key`), and
 two fixed formats draw them, so nothing a reason says is ever read as a format and each client
 picks what fits its own width.  Only ak's own tmux server is written to.
 
-A name is drawn in a `range=right`, which nothing else on a bar draws and no key of tmux's own
-is bound to, and the one key ak binds there is a click (CLICK): `@ak_hit` finds the seat whose
-name is under the pointer and the click switches that client to it.  The wheel and every other
-click over a name do what they do anywhere else on the bar, which is nothing.
+The right end is drawn in a `range=right`, which nothing else on a bar draws and no key of
+tmux's own is bound to, and the one key ak binds there is a click (CLICK): `@ak_hit` is the
+seat it leads to while the pointer is on it, and the click switches that client there.  The
+wheel and every other click over it do what they do anywhere else on the bar, which is nothing.
 """
 
 import fcntl
@@ -36,10 +36,10 @@ from . import config, menu, orch, terminal
 HINT = "Ctrl-b m  menu"            # line two's right end: the one key
 CLOSE_HINT = "Ctrl-b m  x close"   # ... and a done seat's, which that menu's `x` closes at once
 TOP, WHY, KEY = "@ak_top", "@ak_why", "@ak_key"   # line one, line two, and line two's key
-# line one's right end: the other seats, their names folded, and who needs you alone
-SEATS, FOLD, NEED = "@ak_seats", "@ak_fold", "@ak_need"
-HIT = "@ak_hit"   # the session id of the name under the pointer, or nothing
-# Where a name is: its cells counted from the client's right edge, the right end's own edge.
+NEED, FOLD = "@ak_need", "@ak_fold"   # line one's right end: how many other seats need you,
+                                      # and the same short, where it would cut this seat's name
+HIT = "@ak_hit"   # the session id the right end leads to while the pointer is on it, or nothing
+# Where the pointer is: its cells counted from the client's right edge, the right end's own edge.
 AT = "#{e|-:#{client_width},#{mouse_x}}"
 CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + HIT + "}",
          # a target is not a format, and the command run-shell -C runs is
@@ -64,12 +64,11 @@ def _cut(option, room):
 
 
 def _line_one():
-    """The widest progress line beside the other seats by name that fits the client, else beside
-    them folded, else beside who needs you alone, each drawn whole; else the narrowest cut a
-    space short of who needs you."""
-    room = "#{e|-:#{client_width},#{e|+:#{w:" + NEED + "},2}}"
-    found = "#[align=left]" + _cut(TOPS[-1], room) + " #[align=right]#{" + NEED + "}"
-    for left, right in reversed([(left, right) for right in (SEATS, FOLD, NEED) for left in TOPS]):
+    """The widest progress line beside who else needs you that fits the client, drawn whole,
+    then beside its short count; else the narrowest cut a space short of that."""
+    room = "#{e|-:#{client_width},#{e|+:#{w:" + FOLD + "},2}}"
+    found = "#[align=left]" + _cut(TOPS[-1], room) + " #[align=right]#{" + FOLD + "}"
+    for left, right in reversed([(left, right) for right in (NEED, FOLD) for left in TOPS]):
         fits = "#{e|<=:#{e|+:#{w:" + left + "},#{e|+:#{w:" + right + "},2}},#{client_width}}"
         whole = "#[align=left]#{" + left + "} #[align=right]#{" + right + "}"
         found = "#{?" + fits + "," + whole + "," + found + "}"
@@ -170,43 +169,23 @@ def seats():
 
 
 def others(found, name):
-    """(by name, folded, needing, hit): the right end of `name`'s line one, from `seats()`.
-
-    Each other seat that needs you is `! <name> needs you` in that word's colour; folded, they
-    are `! 2 need you`, which is all `needing` says.  `● N working` and `✓ N done` follow, each
-    only when it is not zero.  A seat never counts itself, and a session that has announced no
-    word -- a seat being dressed, or no seat at all -- is not counted.  The right end is drawn
-    flush against the client's right edge, so each name's cells from that edge are the same on
-    every client, and `hit` is the format that turns where the pointer is into that name's
-    session id.
-    """
-    words = [word for _, seat, word in found if seat != name]
-    needs = [(sid, seat) for sid, seat, word in found if seat != name and word == "needs you"]
-    mark = terminal.state_glyph("needs you")
-    counts = [(None, word, f"{terminal.state_glyph(word)} {words.count(word)} {word}")
-              for word in ("working", "done") if word in words]
-    named = [(sid, "needs you", f"{mark} {seat} needs you") for sid, seat in needs] + counts
-    needing = ([(None, "needs you", f"{mark} {len(needs)} "
-                                    f"{'needs' if len(needs) == 1 else 'need'} you")]
-               if needs else [])
-    folded = needing + counts
-    hit, start, edge = "", 0, sum(terminal.cells(said) + 3 for *_, said in named) - 2
-    for sid, _, said in named:
-        end = start + terminal.cells(said)
-        if sid:
-            hit += (f"#{{?#{{&&:#{{e|>:{AT},{edge - end}}},#{{e|<=:{AT},{edge - start}}}}},"
-                    f"{sid},}}")
-        start = end + 3
-    return _drawn(named), _drawn(folded), _drawn(needing), hit
-
-
-def _drawn(parts):
-    """Each part in its word's colour, needs you's in bold as its chip is, and a name in the
-    range its click is bound to; three spaces between them and one after."""
-    return "   ".join(
-        ("#[range=right]" if sid else "") + f"#[fg=#{terminal.STATE_STYLES[word][2]}"
-        f"{',bold' if word == 'needs you' else ''}]{orch.tmux_text(said)}#[default]"
-        + ("#[norange]" if sid else "") for sid, word, said in parts) + (" " if parts else "")
+    """(needing, folded, hit): the right end of `name`'s line one, from `seats()`: how many other
+    seats need you, `! 2 other seats need you` in that word's colour and bold, as its chip is,
+    and the same short, `! 2 need you`, for a client too narrow for both it and this seat's
+    name; or nothing; and `hit`, the format that turns the pointer on it into the first such
+    seat's session id.  A seat never counts itself, and a session that has announced no word --
+    a seat being dressed, or no seat at all -- is not counted.  It is drawn flush against the
+    client's right edge, so its cells from that edge are the same on every client."""
+    needs = [sid for sid, seat, word in found if seat != name and word == "needs you"]
+    if not needs:
+        return "", "", ""
+    mark, many = terminal.state_glyph("needs you"), len(needs)
+    said = f"{mark} {many} other {'seat needs' if many == 1 else 'seats need'} you"
+    short = f"{mark} {many} {'needs' if many == 1 else 'need'} you"
+    edge = terminal.cells(said) + 1     # the space after it, at the client's edge
+    hit = f"#{{?#{{&&:#{{e|>:{AT},1}},#{{e|<=:{AT},{edge}}}}},{needs[0]},}}"
+    return tuple(f"#[range=right]#[fg=#{terminal.STATE_STYLES['needs you'][2]},bold]"
+                 f"{orch.tmux_text(text)}#[default]#[norange] " for text in (said, short)) + (hit,)
 
 
 def retell(session):
@@ -239,15 +218,15 @@ def _tell(only=None, own=()):
         found, told = seats(), []
         for _, name, _ in found:
             if only in (None, name):
-                named, folded, needing, hit = others(found, name)
+                needing, folded, hit = others(found, name)
                 # One command list, which tmux runs whole before it reads another click: no
-                # click lands between the names a bar draws and the lookup that finds them.
+                # click lands between what a bar draws and the lookup that finds its seat.
                 # Where they are told one by one the lookup is emptied first, so a click finds
-                # no seat until the names it is for are drawn.
+                # no seat until what it is for is drawn.
                 target = f"={name}:"   # that session alone, as `_write` says
                 told.append(([(target, HIT, "")],
-                             [(target, SEATS, named), (target, FOLD, folded),
-                              (target, NEED, needing), (target, HIT, hit)]))
+                             [(target, NEED, needing), (target, FOLD, folded),
+                              (target, HIT, hit)]))
         # a seat gone since it was listed fails its own list and no other's (`orch.tmux_lists`)
         orch.tmux_options([*told, *(((), [option]) for option in own)], [CLICK],
                           socket=orch.socket_name())

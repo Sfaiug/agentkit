@@ -341,7 +341,7 @@ one, and the rest a dim `─` (`terminal.plan_bar`). It says nothing of the task
 flight. Without colour the shapes carry it, `━━━━╸──── 3 of 8`, and without UTF-8 it is
 `====----- 3 of 8`. A seat's tmux bar draws the same line in 36 cells, in the state's
 colour throughout, narrowing to 24 and then 12 where line one is short of room, before
-its other seats fold or anything is cut. No screen says when a seat's work will finish:
+anything is cut. No screen says when a seat's work will finish:
 its progress is its line and its count.
 
 The row the owner points at, with the pointer or ↑/↓, opens its lines under
@@ -462,12 +462,11 @@ green, and it never moves. Line one opens with its word: `! needs you` alone a
 chip, dark bold text on its amber, the one loud thing on the bar, which reads on
 either background; any other word its glyph and word in its colour. Then the
 seat's name in bold, the model that orchestrates it in `dim`, never a company's
-colour, and its progress line. Line one's right end is the owner's other seats on ak's server: each that needs
-you by name in needs-you's bold colour, a click on it switching to that seat,
-then how many others are working and done in their colours. Where they do not
-fit beside the left part, its progress line narrows first, then the names fold into
-one count (`! 2 need you`), then only who needs you stays, and only then is the
-left part cut.
+colour, and its progress line. Line one's right end, while another seat on ak's
+server needs you, is how many in needs-you's bold colour, `! 2 other seats need
+you`, a click on it switching to the first of them; nothing about working or done
+seats. Where it does not fit beside the left part, its progress line narrows
+first, then it folds to `! 2 need you`, and only then is the left part cut.
 
 Line two is what the row opens for any seat that is not asking or done: who
 builds and who reviews, and each task in flight as its squares (`statusbar.whys`),
