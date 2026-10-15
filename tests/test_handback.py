@@ -603,13 +603,19 @@ class HandBack(Sandbox):
                 patch.object(watch, "seat_model", return_value=("grokbuild", "acme")):
             alone = made(700) + " and fix the login"
             self.assertEqual(watch.composer_holds(SEAT, self.live(), alone, self.cfg), "line")
-        # an owner's `> ` heading the first row Antigravity's read shows is theirs, not a prompt
+        # Antigravity's read heading on an owner's `> ` in an indented row: theirs, not a prompt;
+        # on its empty prompt, eleven background commands under it: empty
         pane = (REPO / "tests/fixtures/antigravity-tall-line-pane.txt").read_text()
         tail = watch.pane_tail(pane)
-        pane = pane.replace(tail, tail.replace("20261006", "> 20261006", 1))
-        with patch.object(watch, "pane_text", return_value=pane), \
-                patch.object(watch, "seat_model", return_value=("antigravity", "acme")):
-            self.assertEqual(watch.composer_holds(SEAT, self.live(), made(700), self.cfg), "other")
+        edited = pane.replace(tail, tail.replace("20261006", "> 20261006", 1))
+        pane = (REPO / "tests/fixtures/antigravity-background-pane.txt").read_text()
+        row = next(row for row in pane.splitlines() if "[12:08:46]" in row)
+        listed = pane.replace(row, "\n".join([row] * 11)).replace("1 task(s)", "11 task(s)")
+        self.assertEqual(watch.strip_sgr(watch.pane_tail(listed).splitlines()[0]), ">")
+        for pane, line, holds in ((edited, made(700), "other"), (listed, "acme passed.", "empty")):
+            with patch.object(watch, "pane_text", return_value=pane), \
+                    patch.object(watch, "seat_model", return_value=("antigravity", "acme")):
+                self.assertEqual(watch.composer_holds(SEAT, self.live(), line, self.cfg), holds)
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()

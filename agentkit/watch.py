@@ -2985,8 +2985,8 @@ def _composer_rows(harness, pane, *, exact=False):
         # A composer no `❯›⟩` mark finds: its manifest finds the framed block it holds,
         # and finding none reads as empty -- where the composer itself is on the
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
-        # was read.
-        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws) if exact else "\n".join(rows)
+        # was read.  Its rows are read as drawn: their inset tells its prompt row from text.
+        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws)
         found = list(chrome["draft"].finditer(source))
         if exact and not found:
             return None
@@ -3004,7 +3004,7 @@ def _composer_rows(harness, pane, *, exact=False):
                     before and before[-1].startswith(edge)
                     or not before and len(_content_rows(pane)) > PANE_LINES)):
                 return None
-            parts.extend(row[len(edge):] for row in match["text"].splitlines())
+            parts.extend(row[len(edge):].strip() for row in match["text"].splitlines())
         return _unscrolled(chrome, parts, exact=exact)
 
     def end(at):
