@@ -842,6 +842,18 @@ def _paint(text, kind, tmux=False):
     return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
+def tips(text, info, head):
+    """Where, in `text`, a working seat's line drawn plain, what breathes while it works: on its
+    row (`head`), the tip of its progress line; on the line its row opens, each moving task's
+    square of the stage it is at (`seat_tasks`), in the order `squares` draws them.  Without
+    UTF-8 nothing does."""
+    if head:
+        tip = max(text.rfind("━"), text.rfind("╸"))
+        return [tip] if info.get("bar") and tip >= 0 else []
+    return [group.start() + stage for group, (stage, state)
+            in zip(re.finditer("[■□]{3}", text), info.get("tasks") or []) if state == "moving"]
+
+
 def squares(tasks, room=float("inf"), tmux=False, most=None):
     """`tasks` (`seat_tasks`) drawn in `room` cells, `most` of them at the most: three squares
     each, two cells apart, the stages it has reached filled -- in working's colour while it
@@ -1491,6 +1503,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     seats = {info["name"]: info for info in infos}
     model_at = 3 + widths["num"] + 2 + widths["name"] + 2     # the orchestrator column, from 1
     models = []     # each seat row's (screen row, model, highlighted, the subscriptions it runs on)
+    breaths = []    # what breathes while a model works: (cell, character, highlighted)
     for line, name in body:
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
@@ -1511,6 +1524,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                                       mark=name != above and not at) if lit else line)
         above = name
         text, word = terminal.ANSI.sub("", line), words.get(name)
+        if word == "working":
+            # what moves while a model works: the tip of its row's line, and on the line its
+            # row opens each moving task's square, all breathing in the dot's phase
+            for tip in tips(text, seats[name], seat is not None):
+                breaths.append(((len(out), terminal.cells(text[:tip]) + 1), text[tip], lit))
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
             moves.append((("word", name), word, (len(out), first), lit))
@@ -1566,6 +1584,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             elif shown in ("needs you", "done"):
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
+        for cell, char, bright in breaths:
+            clock.start([cell], motion.breathing(char, "working", bright))
         moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
     # write, so no draw ever shows a blank screen or a half-drawn one.  Lines that rise are

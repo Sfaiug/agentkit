@@ -521,10 +521,12 @@ Helpers: `menu.wait_key`, `terminal.read_key`, `terminal.readline`,
 
 ## Motion
 
-At rest one thing moves: each working session's `●`, on the main list and in the
-popup, eases from `working`'s colour to a tone of it half way to the background
-and back every two seconds, every dot in the same phase; its word and everything
-else stand still, but the rule while the usage is asked (below). Every animation, this one and those after it, runs on one
+At rest only what a model works on moves: each working session's `●`, on the main
+list and in the popup, the tip of its progress line, and on the line its
+highlighted row opens each moving task's square of the stage it is at
+(`menu.tips`) ease from `working`'s colour to a tone of it half way to the
+background and back every two seconds, all in the same phase; its word and
+everything else stand still, but the rule while the usage is asked (below). Every animation, this one and those after it, runs on one
 clock, `motion.Clock`, and no screen keeps a timer: a screen hands the clock the
 cells that move when it draws, and each of the menu's waits -- for a key, for a
 second digit, for the stop question's answer -- draws a frame only while
