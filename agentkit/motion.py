@@ -1,6 +1,7 @@
 """The one animation clock: which cells move, and what each shows at every frame.
 
-At rest one thing moves, a working session's `●` breathing; news moves once and is then still --
+At rest only what a model works on moves, breathing: a working session's `●`, the tip of its line
+and its moving tasks' squares (`menu.tips`); news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright, an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
