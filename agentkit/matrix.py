@@ -44,7 +44,7 @@ ARENA_URL = ("https://datasets-server.huggingface.co/rows?dataset=lmarena-ai/lea
 ARENA_CONFIGS = ("agent", "agent_steerability")
 LIVEBENCH = "https://livebench.ai/"
 BOARDS = ("artificialanalysis.ai", "arena.ai", "livebench.ai")
-SPEED = "aa.median_output_tokens_per_second"
+SPEED = "aa.performance.median_output_tokens_per_second"
 COST = "livebench.cost_coding"           # dollars per successful coding task
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own

@@ -46,9 +46,9 @@ class ModelRows(Sandbox):
         self.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE
                                               + "muse-spark-1.3-contributor,50.0,\n"))
         self.stack.enter_context(patch.object(matrix, "fetch_bytes", self.boards))
-        # grokbuild has a manifest and no binary here: none of its models gets a row
+        # acme has a manifest and no binary here: none of its models gets a row
         self.stack.enter_context(patch.object(config, "manifests", return_value=[
-            (harness, {}) for harness in (*CATALOGS, "grokbuild")]))
+            (harness, {}) for harness in (*CATALOGS, "acme")]))
         self.stack.enter_context(patch.object(config, "harness_installed",
                                               side_effect=lambda harness: harness in CATALOGS))
         self.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
