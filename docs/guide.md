@@ -397,9 +397,9 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 `~/.agentkit/state/matrix.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the cache. Artificial
 Analysis is asked with the key in `~/.agentkit/secrets/artificialanalysis_key` (free at artificialanalysis.ai/login;
 without it the board says `no key` and the others are still asked): its free endpoint, page by page, one row per model
-and effort, every number it gives as `aa.<field>`, a table's fields under the table's name (`aa.evaluations.terminalbench_v4_0`,
-`aa.pricing.price_1m_input_tokens`; Terminal-Bench 4.0, GDPval-AA, AA-Briefcase, the intelligence and coding indexes,
-prices, output speed). Arena Agent is read off its leaderboard's Hugging Face dataset, page by page, the `agent` and
+and effort, every number it gives as `aa.<field>`, a table's fields under the table's name (`aa.evaluations.artificial_analysis_coding_index`,
+`aa.pricing.price_1m_input_tokens`; the intelligence, coding, agentic and capability indexes, prices, output speed;
+per-benchmark scores are Pro's). Arena Agent is read off its leaderboard's Hugging Face dataset, page by page, the `agent` and
 `agent_steerability` boards as `arena.<board>`. LiveBench 2.0 is read off its newest release whose table answers (the
 dates are in its page's script): each suite as `livebench.<suite>` and `livebench.cost_coding`, the cost of a successful
 coding task as the site counts it; the release's cost file is part of the answer. A board's row is one model at one effort,
