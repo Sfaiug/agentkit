@@ -62,13 +62,13 @@ class LongerThanAMessage(Sandbox):
 
     def test_a_question_longer_than_a_message_replaces_the_earlier_one(self):
         statusbar._write("acme", "opus", word="needs you",
-                         lasts=["May I merge acme?"] * len(statusbar.BARS))
+                         versions=["May I merge acme?"] * len(statusbar.WHYS))
         question = "May I merge acme's fix; " + "The context of the question. " * 700
         self.assertGreater(len(question.encode()), 16 * 1024)
         statusbar._write("acme", "opus", word="needs you",
-                         lasts=[question] * len(statusbar.BARS))
+                         versions=[question] * len(statusbar.WHYS))
         for version in statusbar.WHYS:
-            self.assertEqual(self.option(version), "  " + orch.tmux_text(question), version)
+            self.assertEqual(self.option(version), "  " + question, version)
         # and its title is still what the bar is told last
         self.assertIn("set-titles-string", self.calls[-1])
 
@@ -91,9 +91,9 @@ class LongerThanAMessage(Sandbox):
         question = "May I merge acme's fix? " + "The context of the question. " * 540
         self.assertGreater(len(question.encode()), orch.TMUX_MESSAGE)
         statusbar._write("acme", "opus", word="needs you",
-                         lasts=[question] * len(statusbar.BARS))
+                         versions=[question] * len(statusbar.WHYS))
         for version in statusbar.WHYS:
-            self.assertEqual(self.option(version), "  " + orch.tmux_text(question), version)
+            self.assertEqual(self.option(version), "  " + question, version)
         # one call for each version, none of them a piece, and the title's call last
         whys = [args for args in self.calls if set(statusbar.WHYS) & set(args)]
         self.assertEqual([len(args) for args in whys], [5] * len(statusbar.WHYS))

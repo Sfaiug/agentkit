@@ -41,7 +41,7 @@ class PlanBar(Sandbox):
         self.repo = str(config.CODE / "acme")
 
     def test_the_done_share_is_a_line_in_the_words_colour_then_its_count(self):
-        drawn, after = cells(menu.last_column("working", "", 3, 8, 30, tmux=True))
+        drawn, after = cells(menu.last_column("working", 3, 8, 30, tmux=True))
         self.assertEqual(after, " 3 of 8")
         self.assertEqual(len(drawn), 30 - len(" 3 of 8"))
         # 23 cells, three eighths of them done: eight and a half
@@ -62,15 +62,14 @@ class PlanBar(Sandbox):
         self.assertTrue(terminal.plain(line).endswith(" 4 of 8"))
 
     def test_without_colour_or_utf8_it_reads_in_plain_characters(self):
-        self.assertEqual(menu.last_column("working", "", 3, 7, 20), "━━━━━╸─────── 3 of 7")
+        self.assertEqual(menu.last_column("working", 3, 7, 20), "━━━━━╸─────── 3 of 7")
         with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}):
-            self.assertEqual(menu.last_column("working", "", 3, 7, 20), "======------- 3 of 7")
+            self.assertEqual(menu.last_column("working", 3, 7, 20), "======------- 3 of 7")
         # a phone's line is all the room there is: the line takes that and never more
-        self.assertEqual(menu.last_column("working", "", 3, 7, 10, narrow=True), "━╸─ 3 of 7")
-        self.assertEqual(menu.last_column("working", "", 3, 7, 6, narrow=True), "3 of 7")
-        self.assertEqual(menu.last_column("working", "", 3, 7, 6), "━━━╸──── 3 of 7")
-        self.assertEqual(menu.last_column("working", "", 0, 0), "")     # no plan, no line
-        self.assertEqual(menu.last_column("needs you", "Merge first?", 3, 7), "Merge first?")
+        self.assertEqual(menu.last_column("working", 3, 7, 10, narrow=True), "━╸─ 3 of 7")
+        self.assertEqual(menu.last_column("working", 3, 7, 6, narrow=True), "3 of 7")
+        self.assertEqual(menu.last_column("working", 3, 7, 6), "━━━╸──── 3 of 7")
+        self.assertEqual(menu.last_column("working", 0, 0), "")     # no plan, no line
 
     def going(self, run_id, owner, ran=0, **extra):
         """A run that seat launched, its first `ran` rounds' directories made as the loop makes
@@ -83,33 +82,6 @@ class PlanBar(Sandbox):
             "run_id": run_id, "title": run_id, "state": "running", "launched_session": owner,
             "repo": self.repo, "executor": "opus", "reviewer": "astra", "rounds": 3,
             "round_summaries": [], "started_at": NOW - 900, **extra})
-
-    def test_a_seats_live_runs_with_their_task_step_round_and_models(self):
-        self.going("20261002-1500-fix-ci", "acme-ci", 2, task_file="/t/gh2-fix-ci.md",
-                   step="executor", step_at=NOW - 180, round_summaries=[{}])
-        self.going("20261002-1501-lint", "acme-ci", 3, task_file="/t/lg1-lint.md",
-                   step="reviewer", step_at=NOW - 660, executor="sol", reviewer="opus",
-                   round_summaries=[{}, {}])
-        self.going("20261002-1502-other", "web-portal", step="merge")
-        self.going("20261002-1503-ended", "acme-ci", state="pass")
-        self.assertEqual(menu.seat_runs("acme-ci"), [
-            {"task": "lg1", "doing": "reviewing", "step": "review", "since": NOW - 660,
-             "round": 3, "rounds": 3, "model": "opus"},
-            {"task": "gh2", "doing": "building", "step": "building", "since": NOW - 180,
-             "round": 2, "rounds": 3, "model": "opus"}])
-
-    def test_a_round_its_summary_closed_is_still_that_round(self):
-        # landing, an own PR's verdict owing its post, or checked and reviewed again on landing:
-        # round two of three is done, and no third has begun, so it is round two and not red
-        for n, (step, extra) in enumerate((
-                ("merge", {}), ("reviewer", {"own_pr_round_pending": 2}),
-                ("reviewer", {"review_pending": {"round": 2, "record": False}}),
-                ("done-when", {"review_pending": {"round": 2, "record": False}}))):
-            with self.subTest(step):
-                self.going(f"20261002-150{n}-land", f"acme-{n}", 2, step=step,
-                           round_summaries=[{"round": 1}, {"round": 2}], **extra)
-                [live] = menu.seat_runs(f"acme-{n}")
-                self.assertEqual((live["round"], live["rounds"]), (2, 3))
 
     def draw(self, width):
         with patch.object(terminal, "width", return_value=width), \
@@ -235,8 +207,6 @@ class PlanBar(Sandbox):
         info = {"number": "1", "name": "acme-ci", "orchestrator": "fable", "count": "working",
                 "word": "working", "bar": (0, 6), "runs": [],
                 "sentence": "waiting · 3rd in line to land on release/acme-api-integration"}
-        self.assertFalse(menu.tasks_bar("working", info["sentence"]))
-        self.assertTrue(menu.tasks_bar("working", ""))
         for width in (40, 50, 60, 100):
             with self.subTest(width=width):
                 for line in menu.v5o_seat_blocks([info], width)[0]:

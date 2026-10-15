@@ -137,7 +137,7 @@ class Back(unittest.TestCase):
 
     def test_v5u_status_bar_names_the_one_key(self):
         self.assertEqual(statusbar.HINT, "Ctrl-b m  menu")
-        top, _, key, _ = statusbar.lines("herdr", "fable", "#D97757", "working", "tasks x 2/5")
+        top, _, key, _ = statusbar.lines("herdr", "fable", "working", "tasks x 2/5")
         self.assertEqual(key, "Ctrl-b m#[fg=#6c7086]  menu #[default]")
         self.assertNotIn("Ctrl-b d", key)
         self.assertNotIn("back to menu", key)

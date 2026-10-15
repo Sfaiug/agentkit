@@ -1,11 +1,12 @@
-"""A seat's status bar is two lines in ak's colours, and opens with its state.
+"""A seat's status bar is its row on the `ak` screen, with the line under it always open.
 
-Line one: the state as a chip in dark bold text on that state's colour, the seat's name in
-bold, `<model> orchestrates` in the model's company colour, and a working seat's tasks bar,
-its own colours in it.  Line two: why it needs you or is done, the key at its right end.  The
-height is two on every write, so a seat dressed with one line gets its second at its next
-redraw and no pane resizes after; the bar is statusbar.py's alone, and no
-`@ak_runs` tally is left.  Offline: a temporary HOME, `orch.tmux_out` patched; no tmux runs.
+Line one: its word -- `! needs you` alone as a chip, dark bold text on its amber, any other word
+in its colour -- the seat's name in bold, the model that orchestrates it, dim, and its progress
+line.  Line two: who builds and who reviews and each task in flight as its squares, the key at
+its right end; inside a seat its question is on its own screen, so line two never repeats it.
+The height is two on every write, so a seat dressed with one line gets its second at its next
+redraw and no pane resizes after; the bar is statusbar.py's alone, and no `@ak_runs` tally is
+left.  Offline: a temporary HOME, `orch.tmux_out` patched; no tmux runs.
 """
 
 import os
@@ -21,6 +22,7 @@ from agentkit import record
 
 NOW = 1_800_000_000
 INK = "#11111b"
+DIM = terminal.STATE_STYLES["dim"][2]
 
 
 def drawn(value):
@@ -66,10 +68,6 @@ class TwoLines(Sandbox):
                                       "reviewer": "astra", "rounds": 2, "round_summaries": [],
                                       "finished_at": None, "started_at": NOW - 600})
 
-    def chip(self, word):
-        rgb = "#" + terminal.STATE_STYLES[word][2]
-        return f"#[fg={INK},bg={rgb},bold]{terminal.state_text(word)}#[default]"
-
     def test_a_dressing_a_seat_gives_it_two_lines_in_the_terminal_s_own_colours(self):
         statusbar.dress("fix-api", "fable")
         self.assertEqual(self.options["status"], "2")
@@ -78,9 +76,9 @@ class TwoLines(Sandbox):
         self.assertEqual(self.options["status-format[0]"], statusbar.FORMATS[0])
         self.assertEqual(self.options["status-format[1]"], statusbar.FORMATS[1])
         top = self.options[statusbar.TOP]
-        self.assertEqual(drawn(top), " fix-api  fable orchestrates")
+        self.assertEqual(drawn(top), " fix-api   fable")
         self.assertIn("#[bold]fix-api#[nobold]", top)
-        self.assertIn("#[fg=#D97757]fable", top)                    # Claude's own colour
+        self.assertIn(f"#[fg=#{DIM}]fable", top)                     # dim, never a company's
         self.assertEqual(drawn(self.options[statusbar.WHY]), "")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api")
@@ -91,66 +89,39 @@ class TwoLines(Sandbox):
             if args != statusbar.CLICK and args[0] != "list-sessions":
                 self.assertEqual(args[:3], ("set-option", "-t", "=fix-api:"))
 
-    def test_b_a_working_seat_opens_with_its_chip_and_draws_its_tasks_bar(self):
+    def test_b_a_working_seat_draws_its_word_its_line_and_who_builds_its_tasks(self):
         self.plan(2, 5)
         self.going()
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "working")
         top = self.options[statusbar.TOP]
-        self.assertTrue(top.startswith(f" #[fg=#89b4fa]▐{self.chip('working')}"), top)
+        self.assertTrue(top.startswith(" #[fg=#89b4fa]● working#[default]   #[bold]fix-api"), top)
         # two of five done: the line in working's colour, then its count
-        bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
-        self.assertTrue(top.endswith(f"orchestrates#[default]   {bar}"), top)
-        self.assertIn("#[fg=#89b4fa]━", bar)
-        self.assertTrue(bar.endswith("#[default] 2 of 5"), bar)
-        self.assertEqual(drawn(top), f" ▐● working▌  fix-api  fable orchestrates   {drawn(bar)}")
-        self.assertNotIn("left", top)
-        # line two is its live run: who builds it, ten minutes into the step
+        bar = menu.last_column("working", 2, 5, statusbar.CELLS, tmux=True)
+        self.assertTrue(top.endswith(f"fable#[default]   {bar}"), top)
+        self.assertEqual(drawn(top), f" ● working   fix-api   fable   {drawn(bar)}")
+        # line two is its row's open line: who builds and reviews, and its task building
         self.assertEqual(drawn(self.options[statusbar.WHY]),
-                         "  20260101-0900-going ■□□□ opus building · 10m")
+                         "  astra builds · astra reviews   ■□□")
+        self.assertNotIn("going", self.options[statusbar.WHY])      # never a task's name
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api · working")
 
-    def test_c_a_seat_that_needs_you_carries_its_question_on_line_two(self):
+    def test_c_a_seat_that_needs_you_says_so_loud_and_its_question_stays_on_its_screen(self):
         notify.record("fix-api", "needs", "Merge 50% of #75 first?")
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "needs you")
         top, why = self.options[statusbar.TOP], self.options[statusbar.WHY]
-        self.assertIn(self.chip("needs you"), top)
-        self.assertEqual(drawn(top), " ▐! needs you▌  fix-api  fable orchestrates")
-        # `#` doubled, so tmux draws it as it was said; a `%` is text as it is
-        self.assertEqual(why, "  Merge 50% of ##75 first?")
+        self.assertIn(f"#[fg={INK},bg=#f9e2af,bold] ! needs you #[default]", top)
+        self.assertEqual(drawn(top), "  ! needs you    fix-api   fable")
+        self.assertEqual(drawn(why), "  astra builds · astra reviews")
+        self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
-    def test_c2_a_seat_waiting_to_land_names_its_target_as_text(self):
-        # a branch may hold what tmux would read as a format, a command or a time
-        target = "release/#{session_name}#(true)%Y"
-        statusbar.redress(self.seat, {"word": "working",
-                                      "reason": f"waiting · 3rd in line to land on {target}"},
-                          cfg=self.cfg)
-        top = self.options[statusbar.TOP]
-        self.assertTrue(top.endswith("   waiting · 3rd in line to land on "
-                                     "release/##{session_name}##(true)%Y"), top)
-
-    def test_d_a_done_seat_carries_its_summary_and_the_close_key(self):
-        top, why, key, title = statusbar.lines("fix-api", "fable", "#D97757", "done",
-                                               "Merged the parser")
-        self.assertIn(self.chip("done"), top)
-        self.assertEqual(drawn(why), "  Merged the parser")
+    def test_d_a_done_seat_offers_the_close_key(self):
+        top, why, key, title = statusbar.lines("fix-api", "fable", "done", "", "astra builds")
+        self.assertIn("#[fg=#a6e3a1]✓ done#[default]", top)
+        self.assertEqual(drawn(why), "  astra builds")
         self.assertEqual(drawn(key), "Ctrl-b m  x close ")
         self.assertEqual(title, "fix-api · done")
-
-    def test_e_the_model_is_in_its_company_s_colour_from_the_one_table(self):
-        self.assertEqual(statusbar.company(self.cfg, "fable"), menu.COLOURS["anthropic"])
-        # ChatGPT's white is the terminal's own foreground: the mirror tone on a light terminal
-        self.assertEqual(menu.COLOURS["openai"], "#FFFFFF")
-        self.assertEqual(statusbar.company(self.cfg, "astra"), "default")
-        with patch.object(terminal, "_LIGHT", True):
-            self.assertEqual(terminal.on_background("FFFFFF"), "000000")   # as the usage rows
-        # a provider's own `colour` key wins, as on its usage row
-        self.cfg["providers"]["anthropic"] = dict(self.cfg["providers"]["anthropic"],
-                                                  colour="#123456")
-        self.assertEqual(statusbar.company(self.cfg, "fable"), "#123456")
-        self.assertEqual(statusbar.company(self.cfg, "no-such-model"),
-                         "#" + terminal.STATE_STYLES["working"][2])
 
     def test_f_a_seat_dressed_with_one_line_gets_two_and_a_legacy_seat_is_never_written(self):
         watch.announce_state(self.seat, cfg=self.cfg)

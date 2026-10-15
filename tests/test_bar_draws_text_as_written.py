@@ -1,6 +1,5 @@
-"""A seat's bar draws what it says as it was said: a `#`, a `%` or a `#{…}` in a question, a
-summary or a seat's name is text, never a format, a style or a time, and a tasks bar keeps
-every cell.
+"""A seat's bar draws what it says as it was said: a `#`, a `%` or a `#{…}` in a model's or a
+seat's name is text, never a format, a style or a time, and a progress line keeps every cell.
 
 Runs tmux itself: the seat on a server of its own, and a client attached to it in a pane of a
 second server, whose screen is read back as a person would see it.
@@ -58,22 +57,25 @@ class AsWritten(Sandbox):
             time.sleep(.1)
         return lines
 
-    def test_a_a_question_and_a_summary_draw_every_hash_and_percent_as_said(self):
+    def test_a_a_model_s_name_draws_every_hash_and_percent_as_said(self):
         for word in ("needs you", "done"):
-            statusbar._write("fix-api", "fable", word, [SAID] * len(statusbar.BARS), self.cfg)
-            self.assertIn("  " + SAID + " ", self.screen(SAID)[1], word)
+            line_two = statusbar.whys({"crew": ([SAID], []), "tasks": []})
+            statusbar._write("fix-api", SAID, word, None, self.cfg, line_two)
+            top, bottom = self.screen(SAID + " builds")
+            self.assertIn("   " + SAID, top, word)
+            self.assertIn("  " + SAID + " builds", bottom, word)
 
     def test_b_a_tasks_bar_keeps_every_cell(self):
         for lang in ("C.UTF-8", "C"):
             with self.subTest(lang=lang), patch.dict(os.environ, {"LANG": lang, "LC_ALL": lang}):
-                bars = [menu.last_column("working", "", 4, 8, cells, tmux=True)
+                bars = [menu.last_column("working", 4, 8, cells, tmux=True)
                         for cells in statusbar.BARS]
                 bar = bars[0]
                 cells = re.sub(r"#\[[^\]]*\]", "", bar)
                 self.assertEqual(len(cells), statusbar.CELLS)
                 statusbar._write("fix-api", "fable", "working", bars, self.cfg)
                 line = self.screen(" 4 of 8")[0].rstrip()
-                self.assertTrue(line.endswith("fable orchestrates   " + cells.rstrip()), line)
+                self.assertTrue(line.endswith("fable   " + cells.rstrip()), line)
 
     def test_c_a_seat_s_window_title_keeps_its_name_as_it_is(self):
         # a seat made by hand on ak's server keeps whatever name it was given

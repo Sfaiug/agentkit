@@ -72,11 +72,12 @@ class LongQuestion(Sandbox):
                 self.options[command[3]] = command[4]
         return 0, ""
 
-    def test_a_seat_asking_a_long_question_still_says_so_on_its_bar(self):
-        question = "May I merge acme? " + "The context of the question. " * 100
-        statusbar._write("acme", "opus", word="needs you", lasts=[question] * len(statusbar.BARS))
+    def test_a_seat_asking_says_so_on_its_bar_and_line_two_is_its_crew(self):
+        statusbar._write("acme", "opus", word="needs you",
+                         versions=["astra builds"] * len(statusbar.WHYS))
         self.assertIn("needs you", self.options["set-titles-string"])
-        self.assertIn("The context of the question.", self.options[statusbar.WHY])
+        self.assertIn(" ! needs you ", self.options[statusbar.TOP])
+        self.assertEqual(self.options[statusbar.WHY], "  astra builds")
 
 
 class SeatGoneMidWrite(Sandbox):

@@ -68,16 +68,15 @@ class Bar(Sandbox):
         offline(self)
 
     def test_v5y_a_line_one_reads_state_and_last_column(self):
-        top, why, key, title = statusbar.lines("herdr", "fable", "#D97757", "working",
-                                               "tasks x 2/5")
-        self.assertEqual(drawn(top), f" ▐{terminal.state_text('working')}▌  herdr  "
-                                     "fable orchestrates   tasks x 2/5")
+        top, why, key, title = statusbar.lines("herdr", "fable", "working", "tasks x 2/5")
+        self.assertEqual(drawn(top), f" {terminal.state_text('working')}   herdr   "
+                                     "fable   tasks x 2/5")
         self.assertEqual(why, "")
         self.assertEqual(drawn(key), "Ctrl-b m  menu ")
         self.assertEqual(title, "herdr · working")
         # the state word is the row's, from the same table
         for word in terminal.STATES:
-            labelled, _, _, titled = statusbar.lines("herdr", "fable", "#D97757", word)
+            labelled, _, _, titled = statusbar.lines("herdr", "fable", word)
             self.assertIn(terminal.state_text(word), labelled)
             self.assertEqual(titled, f"herdr · {word}")
 
@@ -116,7 +115,7 @@ class Bar(Sandbox):
                               cfg=self.cfg)
         self.assertEqual(tmux("show-options", "-t", "herdr", "-v", "status"), "2")
         shown = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.TOP}}}"))
-        self.assertIn("herdr  fable orchestrates", shown)
+        self.assertIn("herdr   fable", shown)
         self.assertIn("working", shown)
         self.assertIn("─ 1 of 3", shown)     # the line, then its count
         key = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.KEY}}}"))
@@ -124,7 +123,7 @@ class Bar(Sandbox):
         title = tmux("show-options", "-t", "herdr", "-v", "set-titles-string")
         self.assertEqual(title, "herdr · working")
 
-    def test_v5y_j_long_reason_draws_whole_on_a_wide_client(self):
+    def test_v5y_j_a_seat_that_needs_you_draws_whole_on_a_wide_client(self):
         tmux = self.isolated_tmux()
         name = "customer-portal-integration-sv"   # 30 columns, like a long checkout
         self.assertEqual(len(name), 30)
@@ -142,18 +141,18 @@ class Bar(Sandbox):
                               cfg=self.cfg)
         self.assertEqual(tmux("show-options", "-t", name, "-v", "status-left-length"), "")
         top = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.TOP}}}"))
-        self.assertEqual(top, f"▐! needs you▌  {name}  fable orchestrates")   # stripped
+        self.assertEqual(top, f" ! needs you    {name}   fable")   # stripped
+        # its question is on its own screen; line two is who builds and reviews
         why = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.WHY}}}"))
-        self.assertEqual(why, reason)
+        self.assertEqual(why, "opus builds · opus reviews")
 
     def test_v5y_d_no_runs_draws_no_tally(self):
-        top, why, _, _ = statusbar.lines("herdr", "fable", "#D97757", "working", "")
+        top, why, _, _ = statusbar.lines("herdr", "fable", "working", "")
         self.assertNotIn("running", top + why)
-        self.assertEqual(drawn(top), f" ▐{terminal.state_text('working')}▌  herdr  "
-                                     "fable orchestrates")
+        self.assertEqual(drawn(top), f" {terminal.state_text('working')}   herdr   fable")
         # without a word yet -- a seat just started -- the bar carries no state at all
-        initial, _, _, _ = statusbar.lines("herdr", "fable", "#D97757")
-        self.assertEqual(drawn(initial), " herdr  fable orchestrates")
+        initial, _, _, _ = statusbar.lines("herdr", "fable")
+        self.assertEqual(drawn(initial), " herdr   fable")
 
 
 class Writes(Sandbox):

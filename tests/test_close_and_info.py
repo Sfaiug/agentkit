@@ -514,7 +514,7 @@ class ClosedSeat(Sandbox):
 
     def test_a_done_seats_bar_offers_the_close(self):
         def key(word, last=""):
-            return statusbar.lines("atoll", "fable", "#D97757", word, last)[2].replace(
+            return statusbar.lines("atoll", "fable", word, last)[2].replace(
                 "#[fg=#6c7086]", "").replace("#[default]", "")
         self.assertEqual(key("done", "shipped"), "Ctrl-b m  x close ")
         for word in (None, "working", "needs you"):

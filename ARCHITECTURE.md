@@ -93,8 +93,8 @@
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`, which
   keeps what it read in `state/run-records.jsonl` and re-reads only a changed run.json, and
-  `tally`) and a seat's last column and live runs (`seat_runs`), for watch, run, orch, notify,
-  statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
+  `tally`) and a seat's last column, crew and task squares (`seat_tasks`), for watch, run,
+  orch, notify, statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `statusbar.py`: a seat's two tmux status lines, line one ending in the owner's other seats
   and the click that switches to one; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,

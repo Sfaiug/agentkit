@@ -279,15 +279,15 @@ class OnTmux(Sandbox):
         os.set_blocking(self.pty, False)
         self.until(lambda: self.tmux("list-clients", "-F", "#{client_session}")[1] == "fix-api",
                    "the client never attached")
-        whole = " ▐● working▌  fix-api  fable orchestrates "   # 41 cells and the space after
+        whole = " ● working   fix-api   fable "   # 28 cells and the space after
         self.assertEqual(self.width(100), whole + "! orbit-proxies needs you   ● 1 working   "
                                                   "✓ 1 done ")
-        # 88 is too narrow for the names beside the whole left part, and wide enough for the fold
-        self.assertEqual(self.width(88), whole + "! 1 needs you   ● 1 working   ✓ 1 done ")
+        # 75 is too narrow for the names beside the whole left part, and wide enough for the fold
+        self.assertEqual(self.width(75), whole + "! 1 needs you   ● 1 working   ✓ 1 done ")
         # narrower, only who needs you stays beside the whole left part
-        self.assertEqual(self.width(60), whole + "! 1 needs you ")
+        self.assertEqual(self.width(50), whole + "! 1 needs you ")
         # and narrower still, the left part is cut: one `…`, the whole line the client's width
-        self.assertEqual(self.width(40), " ▐● working▌  fix-api  f… ! 1 needs you ")
+        self.assertEqual(self.width(30), " ● working   f… ! 1 needs you ")
         # the name is columns 50 to 74 of line one, row 19: the wheel over it moves no window
         self.width(100)
         for button, window in ((64, "1"), (65, "0")):        # up from the second, down from the first
