@@ -301,10 +301,9 @@ class EscBack(unittest.TestCase):
         menu_.press(DOWN + ENTER, title("config · discord"))
         menu_.back("config_discord", title("config · discord"))
         self.assertEqual(list(menu_.home.rglob("discord_*")), [])   # the typed `q` is not saved
-        written = (menu_.home / ".agentkit" / "config.toml").read_text()
         menu_.press(DOWN + ENTER, title("config · weekly audit"))
         menu_.back("config_audit", title("config · weekly audit"))
-        self.assertEqual((menu_.home / ".agentkit" / "config.toml").read_text(), written)
+        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is an [audit] written
         menu_.back("config_matrix", config_)
         menu_.leave()
 
