@@ -98,10 +98,28 @@ class CodexSeatStates(Sandbox):
                                    agent_type="worker"), stop)
         self.assertEqual(self.read("sub-agent-done"), ("at_prompt", "hook", "Stop"))
 
+    def test_a_draft_past_its_prompt_row_is_one_however_its_rows_are_drawn(self):
+        self.hook("Stop")
+        pane = (REPO / "tests/fixtures/codex-draft-two-lines-pane.txt").read_text()
+        warning = (REPO / "tests/fixtures/codex-draft-warning-pane.txt").read_text().splitlines()[-1]
+        for drawn in (pane.replace("  line two", "    line two"),
+                      pane.replace("  line two", "  Red · Blue"), pane + warning + "\n"):
+            found = watch.classify("codex", watch.pane_tail(drawn), {"event": "Stop", "at": 1.0},
+                                   None, {}, 2.0)
+            self.assertEqual(found["state"], "draft", drawn[-200:])
+        # a placeholder wrapped onto a second row is still no draft: its faint carries on
+        empty = (REPO / "tests/fixtures/codex-resumed-warning-pane.txt").read_text().replace(
+            "Ask Codex to do anything", "Ask Codex to do\n  anything")
+        for drawn in (empty, "\n".join(empty.splitlines()[:-1] + ["  ? for shortcuts"]) + "\n"):
+            found = watch.classify("codex", watch.pane_tail(drawn), {"event": "Stop", "at": 1.0},
+                                   None, {}, 2.0)
+            self.assertEqual(found["state"], "at_prompt", drawn[-200:])
+
     def test_what_the_owner_has_in_hand_is_a_draft(self):
         self.hook("Stop")
-        # a draft past its prompt row, a one-row one over a warning, an open picker
-        for name, rule in (("draft-wrapped", "draft.rows"), ("draft-two-lines", "draft.rows"),
+        # a draft past its prompt row, read from that row down, a one-row one over a warning,
+        # an open picker
+        for name, rule in (("draft-wrapped", "prompt.draft"), ("draft-two-lines", "prompt.draft"),
                            ("draft-warning", "prompt.draft"), ("model-picker", "draft.picker"),
                            ("effort-picker", "draft.picker")):
             self.assertEqual(self.read(name), ("draft", "screen", rule), name)

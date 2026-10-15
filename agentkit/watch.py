@@ -1598,13 +1598,22 @@ def screen_state(harness, tail):
                 # a line without a rule under it, a composer drawn right on the footer, counts
                 # only under no composer with its own rule, and never where the manifest says
                 # its composer always has one.
+                # A draft a wrap or a newline took past its prompt row goes on in rows indented
+                # under it, down to that chrome, as `_composer_rows` reads it.
+                def under(index):
+                    for row in range(index + 1, len(region)):
+                        if chrome_line(chrome, region[row]):
+                            return row
+                        if not strip_sgr(raws[row])[:1].isspace() or re.match(prompt, region[row]):
+                            return None
+                    return None
                 marked = [index for index in marked if index + 1 == len(region)
-                          or (chrome_line(chrome, region[index + 1])
-                              and chrome_line(chrome, region[-1]))]
+                          or (under(index) is not None and chrome_line(chrome, region[-1]))]
                 marked = [index for index in marked if index + 1 < len(region)
                           and re.fullmatch(RULE, region[index + 1])] or [
                               index for index in marked
                               if index + 1 == len(region) or not chrome["ruled"]]
+                end = None if not marked or marked[0] + 1 == len(region) else under(marked[0])
             at = next(iter(marked), None)
             if at is None:
                 continue
