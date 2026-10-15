@@ -26,7 +26,8 @@ SESSION = 18000
 RESETS = NOW + 3 * 86400
 
 
-class SubscriptionCapacity(Sandbox):
+class Turns(Sandbox):
+    """Two Claude subscriptions and one ChatGPT, invented readings, and worker turns on them."""
     def setUp(self):
         super().setUp()
         self.now = NOW
@@ -87,6 +88,8 @@ class SubscriptionCapacity(Sandbox):
                 for row in usage.rows(self.cfg, usage.collect(self.cfg))]
         return next(row for row in rows if row["provider"] == label)
 
+
+class SubscriptionCapacity(Turns):
     def test_three_turns_give_the_estimate_on_their_subscriptions_row(self):
         self.turn("opus", "default", 3_100_000, weekly=41)
         self.turn("opus", "default", 5_000_000, weekly=43)
