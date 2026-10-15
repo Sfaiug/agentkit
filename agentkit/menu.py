@@ -808,6 +808,73 @@ def seat_runs(name, records=None):
     return sorted(runs, key=lambda run: -FILLS.get(run["step"], 0))
 
 
+# The three squares of a task in flight: build (its executor, its checks, a fix after review),
+# review, land (the line, the merge, the deploy until it proves itself live).
+STAGES = {"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}
+FAILED_FOR = 86400   # a failed task stays red this long unless its seat starts it again first
+
+
+def seat_tasks(name, records=None, now=None, index=None):
+    """Each task in flight that seat launched, as (stage, state), furthest behind first: its
+    stage 0, 1 or 2 (`STAGES`), and `moving` while a model or ak works on it, `waiting` while it
+    waits -- for a slot, for usage, behind an older change, for a login, for its turn in the
+    line, for the live check -- or `failed` once it ended with nothing delivered, until a later
+    run takes it up or FAILED_FOR has passed.  A run merged and live is done, and one not
+    started is no task in flight.  `index` is the draw's `transitions.supersession_index`."""
+    from . import watch   # here, not at the top: watch imports this module
+    now = time.time() if now is None else now
+    records = run_records() if records is None else records
+    index = transitions.supersession_index(records) if index is None else index
+    found = []
+    for run_dir, state in records:
+        if transitions.launched_session(state) != name:
+            continue
+        stage = STAGES.get(state.get("step"), 0)
+        if transitions.landing_line(state):
+            found.append((2, "waiting"))
+        elif state.get("state") == "running":
+            found.append((stage, "moving"))
+        elif transitions.going(state, now=now):
+            found.append((stage, "waiting"))
+        elif watch.awaiting_live(state, now=now):
+            found.append((2, "waiting"))
+        elif (state.get("state") in record.FAILED
+              and now - (state.get("finished_at") or 0) < FAILED_FOR
+              and not transitions.is_superseded(state, None, index)):
+            found.append((stage, "failed"))
+    return sorted(found, key=lambda task: (task[0], ("moving", "waiting", "failed").index(task[1])))
+
+
+def squares(tasks, room):
+    """`tasks` (`seat_tasks`) drawn in `room` cells: three squares each, two cells apart, the
+    stages it has reached filled -- in working's colour while it moves, dim while it waits, red
+    once it failed -- and the rest dim and empty; those that do not fit counted, `+3`.  No
+    colour: the shapes alone; no UTF-8: `#--`."""
+    full, empty = "■□" if terminal.utf8() else "#-"
+    kinds = {"moving": "working", "waiting": "dim", "failed": "FAIL"}
+    fit = len(tasks) if 5 * len(tasks) - 2 <= room else max(0, (room - 3) // 5)
+    drawn = [terminal.styled(full * (stage + 1), kinds[state])
+             + terminal.styled(empty * (2 - stage), "dim") for stage, state in tasks[:fit]]
+    rest = len(tasks) - fit
+    return "  ".join(drawn + ([terminal.styled(f"+{rest}", "dim")] if rest else []))
+
+
+def crew(info):
+    """`astra builds · opus reviews`: who builds and who reviews a seat's work, its own
+    orchestrator where it builds alone, models in plain text and the verbs dim."""
+    builds, reviews = info.get("crew") or ((), ())
+    if not builds and not reviews:
+        return ""
+    def named(models, one, many):
+        if not models:
+            return ""
+        return (" and ".join(models) + terminal.styled(f" {one if len(models) == 1 else many}",
+                                                       "dim"))
+    parts = [part for part in (named(builds, "builds", "build"), named(reviews, "reviews",
+                                                                        "review")) if part]
+    return terminal.styled(" · ", "dim").join(parts)
+
+
 def silent_for_run(run_dir, state, now=None):
     """`2h` when a running run has had no write for more than an hour, else None.
 
@@ -927,7 +994,10 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     word = found["word"]
     reason = found["reason"] or ""
     sentence = reason
+    builds = (list(selection.get("workers") or []) or [orchestrator]) if selection else []
+    reviews = list(selection.get("reviewers", selection.get("workers") or [])) if selection else []
     return {"number": str(number), "name": name, "session": session,
+            "crew": (builds, reviews), "tasks": seat_tasks(name, records, now, index),
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "tone": model_colour(cfg, orchestrator) if selection else "dim",
             "sentence": sentence, "bar": bar,
@@ -1055,35 +1125,20 @@ def _last_text(info, room, narrow=False):
 
 def detail(cfg, info, room, now=None):
     """The lines under a seat's row, in `room` cells: the question for `needs you` and what got
-    done for `done`, wrapped whole at words; a working seat's live line; nothing for one at
-    rest.  On a terminal the highlighted row alone opens them; from a pipe every row asking or
-    done does, as there is no highlight to open them."""
+    done for `done`, wrapped whole at words; for any other, who builds and who reviews (`crew`)
+    and each task in flight as its squares (`squares`), never a task's name.  On a terminal the
+    highlighted row alone opens them; from a pipe every row asking or done does, as there is
+    no highlight to open them."""
     if not info:
         return []
     if info.get("word") in ("needs you", "done"):
         said = terminal.plain(info.get("sentence") or "")
         return terminal.wrap(said, room) if said else []
-    line = live_line(cfg, info, room, now)
-    return [line] if line else []
-
-
-def live_line(cfg, info, room, now=None):
-    """The highlighted seat's live line in `room` cells, or "" for a seat with no live run, or
-    no seat at all (a project's heading): its bar's second line (`statusbar.live`), the first
-    version that fits, else the last cut."""
-    from . import statusbar   # here, not at the top: the bar's module imports this one
-    if not info or info.get("word") != "working" or not info.get("runs"):
-        return ""
-    versions = statusbar.live(info["runs"], cfg, time.time() if now is None else now)
-    fits = next((version for version in versions
-                 if sum(terminal.cells(said) for said, _, _ in version) <= room), None)
-    if fits is None:          # cut as tmux cuts the bar: its own spacing kept
-        return terminal.cut("".join(said for said, _, _ in versions[-1]), room, spaced=True)
-    painted = ""
-    for said, kind, bold in fits:
-        said = terminal.styled(said, kind) if kind else said
-        painted += terminal.styled(said, "bold") if bold else said
-    return painted
+    who = terminal.cut(crew(info), room)
+    tasks = info.get("tasks") or []
+    left = room - terminal.cells(who) - 3
+    line = who + ("   " + squares(tasks, left) if tasks and left >= 3 else "")
+    return [line] if terminal.plain(line) else []
 
 
 def v5o_column_widths(infos, term_width):

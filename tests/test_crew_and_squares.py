@@ -1,0 +1,85 @@
+"""The line under a working row says who builds, who reviews, and each task as its squares.
+
+The owner's design (14 Oct 2026): pointing at a working seat opens one line under its row --
+`astra builds · fable reviews   ■□□  ■■□` -- with each task in flight as three squares
+(build, review, land), the stages it reached filled: in working's colour while a model or ak
+works on it, dim while it waits, red once it failed.  No task's name appears anywhere.
+Offline: a temporary HOME, fake run records, no tmux.
+"""
+
+from pathlib import Path
+import os
+import sys
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures.sandbox import Sandbox  # noqa: E402
+from agentkit import config, menu, terminal  # noqa: E402
+
+SEAT = "acme-api"
+NOW = 1_800_000_000
+
+
+def run(name, **state):
+    return Path(name), {"run_id": name, "launched_session": SEAT, "started_at": NOW - 600,
+                        "task_file": f"/t/{name}.md", **state}
+
+
+class CrewAndSquares(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
+
+    def test_each_run_is_a_task_at_its_stage_moving_waiting_or_failed(self):
+        records = [
+            run("g1-parser", state="running", step="executor"),
+            run("g2-review", state="running", step="reviewer"),
+            run("g3-merge", state="running", step="merge"),
+            run("g4-queued", state="queued"),
+            run("g5-line", state="waiting", waiting_on={"line": "main", "joined": NOW}),
+            run("g6-failed", state="fail", verdict="FAIL", step="reviewer", handed_back=True,
+                finished_at=NOW - 60),
+            run("g7-merged", state="pass", merged=True, live_at=NOW - 30),
+            run("other", state="running", step="executor", launched_session="other-seat"),
+        ]
+        self.assertEqual(menu.seat_tasks(SEAT, records, NOW), [
+            (0, "moving"), (0, "waiting"), (1, "moving"), (1, "failed"),
+            (2, "moving"), (2, "waiting")])
+
+    def test_squares_fill_the_stages_reached_and_count_what_does_not_fit(self):
+        tasks = [(0, "moving"), (1, "waiting"), (2, "failed")]
+        with patch.object(terminal, "colour_depth", return_value=0):
+            self.assertEqual(menu.squares(tasks, 40), "■□□  ■■□  ■■■")
+            self.assertEqual(menu.squares(tasks * 4, 21), "■□□  ■■□  ■■■  +9")
+        with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}), \
+                patch.object(terminal, "colour_depth", return_value=0):
+            self.assertEqual(menu.squares(tasks, 40), "#--  ##-  ###")
+        with patch.object(terminal, "colour_depth", return_value=24):
+            drawn = menu.squares(tasks, 40)
+            working, dim, red = (terminal.styled("■", "working"), terminal.styled("□", "dim"),
+                                 terminal.styled("■■■", "FAIL"))
+            self.assertTrue(drawn.startswith(working + terminal.styled("□□", "dim")), drawn)
+            self.assertIn(terminal.styled("■■", "dim") + dim, drawn)
+            self.assertTrue(drawn.endswith(red), drawn)
+
+    def test_the_line_names_who_builds_and_reviews_and_never_a_task(self):
+        config.save_session(self.cfg, SEAT, "opus", ["astra"], {"reviewers": ["fable"]})
+        records = [run("g1-parser-rewrite", state="running", step="executor"),
+                   run("g2-schema-switch", state="running", step="reviewer")]
+        info = menu.v5o_seat_info(self.cfg, 1, {"name": SEAT, "created": NOW}, records, {},
+                                  None, NOW)
+        info["word"] = "working"
+        with patch.object(terminal, "colour_depth", return_value=0):
+            [line] = menu.detail(self.cfg, info, 80)
+        self.assertEqual(line, "astra builds · fable reviews   ■□□  ■■□")
+        self.assertNotIn("parser", line)
+        # a seat whose orchestrator builds alone says so
+        info["crew"] = (["opus"], ["fable", "spark"])
+        with patch.object(terminal, "colour_depth", return_value=0):
+            self.assertTrue(menu.detail(self.cfg, info, 80)[0].startswith(
+                "opus builds · fable and spark review"))
+
+
+if __name__ == "__main__":
+    unittest.main()
