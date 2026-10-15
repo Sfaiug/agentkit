@@ -5,7 +5,9 @@ a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles f
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
-header glides while its content is fetched -- and every motion runs on this same clock
+header glides while its content is fetched; a subscription the pointer comes onto washes into
+its company's colour, its models with it, and drains when it leaves -- and every motion runs on
+this same clock
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news
 (`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
@@ -36,6 +38,9 @@ FADE = 0.12         # seconds a popup's content takes to come up out of the back
 WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
 LAP = 1.2           # ... the segment on that rule takes along it, and again, until it lands
 SEGMENT = 8         # cells that segment is long
+WASH = 0.3          # seconds a subscription's colour takes to wash in under the pointer
+DRAIN = 0.2         # ... and to drain once the pointer leaves it
+EDGE = 0.4          # how lit the edge of that wash is: that far toward the foreground
 
 
 def breath(now):
@@ -159,6 +164,33 @@ def glowing(line):
             return lit if x >= 1 else terminal.backed(lit, rgb, 1, terminal.cells(lit))
         clock.start([(row, 1)], at, since + GLOW)
     return start
+
+
+def colouring(text, began, colour, into, rest=None, bright=False):
+    """`text`, cells drawn in `rest` (None: plain) and in a company's `colour` while the pointer
+    is on its subscription, from `began`, when the pointer came onto it (`into`) or left it: the
+    colour washes in left to right in WASH seconds, a light riding its edge, or drains right to
+    left in DRAIN; an animation for each cell, and when it is still.  `bright` is the
+    highlighted row's, where every cell is."""
+    took, size = WASH if into else DRAIN, len(text)
+    start, end = terminal.faded(rest or "dim", 0 if rest else -1), terminal.faded(colour, 0)
+    lift = terminal.faded("dim", -1)
+
+    def mixed(one, other, amount):
+        return "#" + "".join(
+            f"{round(int(one[i:i + 2], 16) * (1 - amount) + int(other[i:i + 2], 16) * amount):02x}"
+            for i in (1, 3, 5))
+
+    def cell(n, char):
+        def at(now):
+            reached = eased((now - began) / took)
+            p = min(1, max(0, (reached if into else 1 - reached) * (size + 2) - n))
+            kind = (rest if p <= 0 else colour if p >= 1 else
+                    mixed(mixed(start, end, p), lift, EDGE * math.sin(math.pi * p)))
+            text = terminal.styled(char, kind) if kind else char
+            return terminal.highlight(text, mark=False) if bright else text
+        return at
+    return [cell(n, char) for n, char in enumerate(text)], began + took
 
 
 def fetching(clock, began):
