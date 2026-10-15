@@ -18,7 +18,8 @@ COMMANDS = {
     "models": ("usage: ak models [--json] [--refresh]",
                "Read the public boards' numbers per model and effort: Artificial Analysis (key in\n"
                "~/.agentkit/secrets/artificialanalysis_key, free), Arena Agent and LiveBench, each asked\n"
-               "once a day; --refresh asks now, --json prints the cache.",
+               "once a day; --refresh asks now, --json prints the table's rows and when each board was\n"
+               "asked and answered, or its error.",
                "ak models"),
     "usage": ("usage: ak usage [--json]", "Show provider usage and worker pick order.",
               "ak usage --json"),
