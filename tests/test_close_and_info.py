@@ -14,6 +14,7 @@ from contextlib import contextmanager, redirect_stdout
 import fcntl
 import hashlib
 import io
+import itertools
 import json
 import os
 from pathlib import Path
@@ -66,6 +67,7 @@ menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name
 sys.exit(menu.loop(config.load(), overlay=os.environ.get("CLOSE_OVERLAY") == "1"))
 """
 ESC, DOWN, ENTER = b"\x1b", b"\x1b[B", b"\r"
+stop_means = menu.stop_means     # the tests below name their pty menu `menu`
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
@@ -212,12 +214,12 @@ class CloseAndInfo(unittest.TestCase):
         menu.send(b"x")
         asked = menu.frame(keys="esc back", after=mark)
         row = next(number for number, line in enumerate(asked, 1) if "beta" in line)
-        self.assertEqual(asked[row:row + 3], ["", "  Stop beta and everything it runs?",
-                                              "  No runs stop with it; ak cannot reopen the "
-                                              "session: Stop removes its record."])
+        self.assertEqual(asked[row:row + 2], ["", "  Stop beta and everything it runs?"])
+        means = list(itertools.takewhile(lambda line: line.strip(), asked[row + 2:]))
+        self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
         self.assertFalse(any(line.startswith("›") for line in asked), asked)
         top, answers = menu.choices(after=mark)
-        self.assertEqual(top, row + 4)                      # the two lines under what it means
+        self.assertEqual(top, row + 3 + len(means))         # the two lines under what it means
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])  # Keep is where the highlight starts
         self.assertEqual(asked[top - 1:top + 2], ["", "", ""])
         self.assertEqual(asked[-1].strip(), "esc back")
@@ -343,10 +345,12 @@ class CloseAndInfo(unittest.TestCase):
         asked = menu.frame(lambda lines: len(lines[0]) == 40, keys="esc back", after=mark)
         top, answers = menu.choices(after=mark)
         self.assertGreater(top, before)
-        self.assertEqual(asked[top - 6:top - 1], ["  Stop", f"  {long}",
-                                                  "  and everything it runs?",
-                                                  "  No runs stop with it; ak cannot reopen",
-                                                  "  the session: Stop removes its record."])
+        at = asked.index("  and everything it runs?")
+        self.assertEqual(asked[at - 2:at + 1], ["  Stop", f"  {long}", "  and everything it runs?"])
+        means = list(itertools.takewhile(lambda line: line.strip(), asked[at + 1:]))
+        self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
+        self.assertGreater(len(means), 1)                  # what it means wraps onto more lines
+        self.assertEqual(top, at + 2 + len(means))
         self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])
         for line in asked:
             self.assertLessEqual(terminal.cells(line), 40, line)
