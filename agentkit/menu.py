@@ -2397,16 +2397,25 @@ def model_heading(cfg, provider):
     return terminal.styled(provider_name(cfg, provider), "accent")
 
 
+# the roles `r` takes: each one's group in a seat's record and its name in config.ROLE_EFFORTS
+TAKEN = {"execute": ("workers", "executor"), "review": ("reviewers", "reviewer")}
+
+
 def advice(cfg, held):
     """What `ak models` recommends per role off `held`, the matrix as last computed
-    (matrix.stored): {role: (its row's label, the configured model that runs it in that role or
-    None)}; {} while nothing is computed.  The model is read off `cfg` as it stands
-    (matrix.runs), not the row as stored, so the same matrix is read against the config each
-    draw: a model removed on this screen is `(not configured)` at once."""
+    (matrix.stored): {role: (its row's label, the configured model that runs it or None, the
+    row's effort)}; {} while nothing is computed.  The model is read off `cfg` as it stands,
+    not the row as stored, so the same matrix is read against the config each draw: the one
+    running the row in that role (matrix.runs), else the first running that model on that
+    harness, which `r` sets the row's effort on; a model removed on this screen is `(not
+    configured)` at once."""
     found = {}
     for role, row in matrix.recommended(held.get("rows") or []).items():
-        name = matrix.runs(cfg, row, role)
-        found[role] = (matrix.row_label({**row, "name": name}), name)
+        name = matrix.runs(cfg, row, role) or next(
+            (name for name in config.offered(cfg)
+             if (cfg["models"][name]["harness"], cfg["models"][name]["model"])
+             == (row["harness"], row["model"])), None)
+        found[role] = (matrix.row_label({**row, "name": name}), name, row.get("effort"))
     return found
 
 
@@ -2418,8 +2427,8 @@ def advice_lines(found):
         said = " · ".join(f"{orch.ROLE_HEADS[number]} {label}"
                           + ("" if name else " (not configured)")
                           for number, role in enumerate(matrix.ROLES)
-                          for label, name in [found.get(role, ("-", None))])
-        if any(found.get(role, (None, None))[1] for role in ("execute", "review")):
+                          for label, name, _ in [found.get(role, ("-", None, None))])
+        if any(found.get(role, (None, None, None))[1] for role in TAKEN):
             said += " · r takes exec and review"
     else:
         said = ADVICE_NONE
@@ -2430,17 +2439,36 @@ def advice_lines(found):
 
 
 def take_advice(cfg, name, selected, providers, found):
-    """`r`: the seat's executors and reviewers become the recommended rows that are configured
-    models, saved to its record at once as a flipped mark is (marks_saved); the orchestrator is
-    only said, since moving the seat is the owner's (the orchestrator mark asks first).  What
-    to say under the rows, or ""."""
-    taken = {group: found.get(role, (None, None))[1]
-             for group, role in (("workers", "execute"), ("reviewers", "review"))}
-    if not any(taken.values()):
+    """`r`: the seat's executors and reviewers become the recommended rows' models, each at
+    the row's effort as its entry's own for that role (`exec_effort`, `review_effort`; unset
+    where it is the entry's effort or the row names none), saved to the config and then to
+    the seat's record at once as a flipped mark is (marks_saved); a config that cannot be
+    saved changes no mark and says why.  The orchestrator is only said, since moving the seat
+    is the owner's (the orchestrator mark asks first).  What to say under the rows, or ""."""
+    taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN}
+    if not any(model for model, _ in taken.values()):
         return "nothing to take: the recommended rows are not configured models"
-    changed, note = orch.role_groups(cfg, selected, providers,
-                                     **{group: [model] for group, model in taken.items() if model})
-    return note or marks_saved(name, selected, changed)
+    changed, note = orch.role_groups(cfg, selected, providers, **{
+        TAKEN[role][0]: [model] for role, (model, _) in taken.items() if model})
+    if note:
+        return note
+    before = {model: dict(cfg["models"][model]) for model, _ in taken.values() if model}
+    for role, (model, effort) in taken.items():
+        if model:
+            key = config.ROLE_EFFORTS[TAKEN[role][1]]
+            if effort and effort != cfg["models"][model]["effort"]:
+                cfg["models"][model][key] = effort
+            else:
+                cfg["models"][model].pop(key, None)
+    if any(cfg["models"][model] != held for model, held in before.items()):
+        try:
+            config.save(cfg)
+        except (config.Error, OSError) as exc:     # as _saved: the file's entries stay
+            for model, held in before.items():
+                cfg["models"][model].clear()
+                cfg["models"][model].update(held)
+            return f"config: {exc}"
+    return marks_saved(name, selected, changed)
 
 
 def marks_saved(name, selected, changed):
