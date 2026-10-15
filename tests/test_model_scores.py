@@ -39,9 +39,9 @@ class ModelScores(unittest.TestCase):
         # hle, which no role is scored on, is nothing
         self.assertEqual(mini["scores"]["execute"]["measures"], 3)
         self.assertAlmostEqual(mini["scores"]["execute"]["score"],
-                               round((100 * 25 / 60 + 100 * 40 / 70 + 100 * 93.7 / 96.3) / 3, 1))
+                               (100 * 25 / 60 + 100 * 40 / 70 + 100 * 93.7 / 96.3) / 3)
         # a net improvement below zero scores 0 and counts; steerability it has none of does not
-        self.assertEqual(mini["scores"]["orchestrate"], {"score": round(100 * 40 / 70 / 2, 1), "measures": 2})
+        self.assertEqual(mini["scores"]["orchestrate"], {"score": 100 * 40 / 70 / 2, "measures": 2})
         # a measure no row has above zero scores 0 and still counts
         table = [{"values": {"arena.agent": -0.1, "livebench.long_horizon": 40}}, {"values": {}}]
         matrix.scored(table)
@@ -65,6 +65,7 @@ class ModelScores(unittest.TestCase):
         self.assertRegex(lines[3], r"^- +acme +acme-mini +- +50 of 1 +50 of 2 +- +-$")
         self.assertRegex(lines[4], r"^- +acme +acme-old +- +- +- +- +-$")
         text = "\n".join(lines)
+        self.assertIn("recommended: execute acme-pro @ max (100 of 1) · review acme-pro @ max (100 of 2)", text)
         self.assertIn("a score is the mean share of the best row over the measures", text)
         self.assertIn("execute, 4 measures: aa.evaluations.artificial_analysis_coding_index "
                       "(coding across evaluations)", text)

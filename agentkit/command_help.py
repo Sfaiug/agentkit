@@ -16,10 +16,11 @@ HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND
 # MODEL in usage/examples stands for one of that file's keys.
 COMMANDS = {
     "models": ("usage: ak models [--json] [--refresh]",
-               "Score every model and effort per role from the public boards: Artificial Analysis\n"
-               "(key in ~/.agentkit/secrets/artificialanalysis_key, free), Arena Agent and LiveBench,\n"
-               "each asked once a day; --refresh asks now, --json prints the scored rows and when each\n"
-               "board was asked and answered, or its error.",
+               "Score every model and effort per role from the public boards and recommend one per\n"
+               "role: Artificial Analysis (key in ~/.agentkit/secrets/artificialanalysis_key, free),\n"
+               "Arena Agent and LiveBench, each asked once a day; --refresh asks now, --json prints\n"
+               "the scored rows, the recommendation and when each board was asked and answered, or\n"
+               "its error.",
                "ak models"),
     "usage": ("usage: ak usage [--json]", "Show provider usage and worker pick order.",
               "ak usage --json"),
@@ -213,7 +214,7 @@ PURPOSES = {
     "hand-in": "hand in review evidence or close a worker turn",
     "attach": "the menu",
     "usage": "show provider usage and worker pick order",
-    "models": "score every model and effort per role from the public boards",
+    "models": "score every model and effort per role from the public boards, recommend one per role",
     "browser": "inspect the shared browser, sign in, register MCP tools, or install the stack",
     "update": "upgrade harnesses and verify with acceptance gates",
     "watch": "check PRs and stalled sessions",

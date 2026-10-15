@@ -24,14 +24,18 @@ board's model on a board where neither fits.  A board's row at another effort ne
 Every row is scored per role: a column is the row's share of the best value among the rows
 (100 for the best; zero or below is 0 and still counts: Arena's net improvement can be
 negative), a role's score is the mean of the role's measures the row has, said with how many
-it rests on (`97 of 3`), and `ROLES` names each role's measures and why.  ak's own run numbers
-never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+it rests on (`97 of 3`), and `ROLES` names each role's measures and why.  One row is
+recommended per role: the row resting on the most of the role's measures, then the highest
+score, then the faster, then the cheaper (an unknown speed or cost after every measured one),
+then the row the config runs, then the higher effort.  ak's own run numbers never rank
+(AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 """
 
 import csv
 import fcntl
 import io
 import json
+import math
 import re
 import sys
 import time
@@ -284,8 +288,7 @@ def rows(cfg, boards):
                        for row in found(index, model, benchmark)
                        if row["effort"] and (not offered or row["effort"] in offered)}
             efforts |= {effort for (h, m, effort) in names if (h, m) == (harness, model)}
-            for effort in sorted(efforts, key=lambda word: -EFFORT_ORDER.index(word)
-                                 if word in EFFORT_ORDER else 1) or [None]:
+            for effort in sorted(efforts, key=lambda word: -effort_rank(word)) or [None]:
                 row = {"harness": harness, "model": model, "effort": effort,
                        "name": names.get((harness, model, effort)), "values": {}, "matched": {}}
                 for board, index in indexes.items():
@@ -295,6 +298,12 @@ def rows(cfg, boards):
                         row["matched"][board] = {"model": hit["model"], "effort": hit["effort"]}
                 table.append(row)
     return table
+
+
+def effort_rank(effort):
+    """Where an effort stands among the words ak knows, the highest last; a word ak does not
+    know, or no effort, stands below them all."""
+    return EFFORT_ORDER.index(effort) if effort in EFFORT_ORDER else -1
 
 
 def scored(table):
@@ -311,9 +320,25 @@ def scored(table):
         row["scores"] = {}
         for role, columns in ROLES.items():
             have = [shares[column] for column, _ in columns if column in shares]
-            row["scores"][role] = ({"score": round(sum(have) / len(have), 1), "measures": len(have)}
+            row["scores"][role] = ({"score": sum(have) / len(have), "measures": len(have)}
                                    if have else None)
     return table
+
+
+def recommended(table):
+    """One row per role among the scored rows with a score for it, none for a role no row has
+    a measure of: the row resting on the most of the role's measures, then the highest score,
+    then the faster, then the cheaper (an unknown speed or cost after every measured one), then
+    the row the config runs, then the higher effort."""
+    picks = {}
+    for role in ROLES:
+        ranked = [row for row in table if row["scores"][role]]
+        if ranked:
+            picks[role] = max(ranked, key=lambda row: (
+                row["scores"][role]["measures"], row["scores"][role]["score"],
+                row["values"].get(SPEED, -math.inf), -row["values"].get(COST, math.inf),
+                row["name"] is not None, effort_rank(row["effort"])))
+    return picks
 
 
 def cell(found):
@@ -344,8 +369,8 @@ def boards_lines(boards):
 
 
 def render(table, boards):
-    """The scored rows as a table, the best first, what each role is scored on, then what each
-    board said and when."""
+    """The scored rows as a table, the best first, the recommendation per role, what each role
+    is scored on, then what each board said and when."""
     def best(row):
         return max((found["score"] for found in row["scores"].values() if found), default=-1)
     table = sorted(table, key=lambda row: (-best(row), row["harness"], row["model"]))
@@ -360,9 +385,15 @@ def render(table, boards):
     lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
              for line in lines_of]
     lines[0] = terminal.styled(lines[0], "dim")
+    picks = recommended(table)
+    lines.append("recommended: " + " · ".join(
+        f"{role} {row_label(row)} ({cell(row['scores'][role])})" for role, row in picks.items())
+        if picks else "no recommendation yet: no board has a row ak can run")
     lines.append(terminal.styled(
         "a score is the mean share of the best row over the measures the boards give that row, "
-        "`97 of 3`; a board naming no effort counts for every effort of its model", "dim"))
+        "`97 of 3`; a board naming no effort counts for every effort of its model; recommended "
+        "is the row with the most of the role's measures, then the highest score, then the "
+        "faster, then the cheaper, then the one the config runs, then the higher effort", "dim"))
     for role, columns in ROLES.items():
         lines.append(terminal.styled(f"{role}, {len(columns)} measures: " + ", ".join(
             f"{column} ({why})" for column, why in columns), "dim"))
@@ -385,9 +416,10 @@ def main(argv):
     boards = collect(refresh="--refresh" in flags)
     table = scored(rows(cfg, boards))
     if "--json" in flags:
-        json.dump({"rows": table, "boards": {board: {k: v for k, v in held.items() if k != "rows"}
-                                             for board, held in boards.items()}},
-                  sys.stdout, indent=2)
+        json.dump({"rows": table,
+                   "recommended": {role: row_label(row) for role, row in recommended(table).items()},
+                   "boards": {board: {k: v for k, v in held.items() if k != "rows"}
+                              for board, held in boards.items()}}, sys.stdout, indent=2)
         print()
     else:
         print(render(table, boards))
