@@ -132,7 +132,6 @@ from pathlib import Path
 
 from . import command_help, config, gitcall, history, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
 from . import record
-from .harness import load as harness_plugin
 
 KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
@@ -3177,8 +3176,7 @@ def config_add_provider(cfg, keyboard):
         return f"config: {exc}"
     if first in cfg["models"]:
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
-    program = (harness_plugin(harness).update["version"] or [harness])[0]
-    verbs = () if config.harness_binary(program) else ("install",)
+    verbs = () if config.harness_installed(harness) else ("install",)
     failed = _adapter_verbs(keyboard, harness, verbs if picked in kept else (*verbs, "login"),
                             picked)
     if failed:

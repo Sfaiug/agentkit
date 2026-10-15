@@ -156,7 +156,7 @@ class ModelBoards(Sandbox):
                          len(matrix.ARENA_CONFIGS))
 
     def test_the_command_says_what_each_board_gave_and_when(self):
-        self.stack.enter_context(patch.object(matrix, "harnesses", return_value=[]))
+        self.stack.enter_context(patch.object(config, "manifests", return_value=[]))
         with patch.object(matrix.time, "time", return_value=10000):
             out = io.StringIO()
             with redirect_stdout(out):

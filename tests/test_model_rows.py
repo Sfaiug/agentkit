@@ -1,14 +1,15 @@
 """`ak models` lists every model and effort the installed harnesses offer with the public boards'
 numbers for each.
 
-A row is a model at an effort a board lists or the config runs; a board naming no effort counts
-for every effort of its model; a row at another effort never stands in; a board's model is
-matched by its letters and digits, else by the board's name the id extends with a version, else
-by `benchmark` on the config entry; the table puts the fullest rows first and names the rows no
-board has.
+A row is a model at an effort a board lists or the config runs it at in any role; a board naming
+no effort counts for every effort of its model; a row at another effort never stands in; a
+board's model is matched by its letters and digits, else by the board's name the id extends with
+a version, else, on a board where neither finds it, by `benchmark` on the config entry; the table
+puts the fullest rows first and names the rows no board has.
 
 Offline: the boards' answers are handed in as bytes (tests/test_model_matrix.py's), the harness
-catalogs and the installed harnesses are faked, and a throwaway HOME holds the cache and key.
+manifests, catalogs and the installed harnesses are faked, and a throwaway HOME holds the cache
+and key.
 """
 
 from contextlib import redirect_stdout
@@ -42,9 +43,13 @@ class ModelRows(Sandbox):
             {"name": "Muse Wonder Full (max)", "evaluations": {"artificial_analysis_coding_index": 57.1}},
             {"name": "Muse Spark 1.3 (xhigh)", "evaluations": {"artificial_analysis_coding_index": 40.0}}]
         self.addCleanup(lambda: boards_test.AA.__delitem__(slice(-2, None)))
+        self.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE
+                                              + "muse-spark-1.3-contributor,50.0,\n"))
         self.stack.enter_context(patch.object(matrix, "fetch_bytes", self.boards))
-        self.stack.enter_context(patch.object(matrix, "harnesses", return_value=list(CATALOGS)))
-        self.stack.enter_context(patch.object(matrix, "installed",
+        # grokbuild has a manifest and no binary here: none of its models gets a row
+        self.stack.enter_context(patch.object(config, "manifests", return_value=[
+            (harness, {}) for harness in (*CATALOGS, "grokbuild")]))
+        self.stack.enter_context(patch.object(config, "harness_installed",
                                               side_effect=lambda harness: harness in CATALOGS))
         self.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
         self.stack.enter_context(patch.object(terminal, "width", return_value=100))
@@ -57,7 +62,9 @@ class ModelRows(Sandbox):
         return {matrix.row_label(row): row for row in matrix.rows(self.cfg, held)}
 
     def test_a_row_per_effort_the_boards_list_or_the_config_runs(self):
+        self.cfg["models"]["astra"]["exec_effort"] = "medium"
         rows = self.table()
+        self.assertEqual({row["harness"] for row in rows.values()}, set(CATALOGS))
         self.assertEqual(sorted(name for name in rows if "opus-5-5" in name or name[:5] == "opus "),
                          ["claude-opus-5-5 @ max", "opus @ xhigh"])
         both = rows["claude-opus-5-5 @ max"]
@@ -76,6 +83,9 @@ class ModelRows(Sandbox):
         # the boards' efforts count only among those the harness offers: Astra's xhigh does
         self.assertIn("astra @ xhigh", rows)
         self.assertEqual(rows["astra @ xhigh"]["values"]["arena.agent"], 0.137)
+        # an effort one role runs it at is a row too, and Arena's xhigh row never stands in
+        self.assertEqual((rows["astra @ medium"]["name"], rows["astra @ medium"]["matched"]),
+                         ("astra", {"livebench.ai": "gpt-6-astra"}))
         # a board's `(Non-reasoning)` is ak's `none`, an effort Haiku offers
         self.assertEqual(rows["claude-haiku-4-5 @ none"]["matched"],
                          {"artificialanalysis.ai": "Claude Haiku 4.5 (none)"})
@@ -88,10 +98,13 @@ class ModelRows(Sandbox):
         # the id extends the board's name with a version: muse-wonder-full-1.0
         self.assertEqual(rows["wonder @ max"]["matched"],
                          {"artificialanalysis.ai": "Muse Wonder Full (max)"})
-        # `contributor` is no version: nothing matches until the entry says what to look for
-        self.assertEqual(rows["spark @ xhigh"]["values"], {})
+        # `contributor` is no version: Artificial Analysis's `Muse Spark 1.3` is not found
+        # until the entry says what to look for, and LiveBench's exact id is found either way
+        self.assertEqual(rows["spark @ xhigh"]["matched"], {"livebench.ai": "muse-spark-1.3-contributor"})
         self.cfg["models"]["spark"]["benchmark"] = "Muse Spark 1.3"
         rows = self.table()
+        self.assertEqual(rows["spark @ xhigh"]["matched"], {
+            "artificialanalysis.ai": "Muse Spark 1.3 (xhigh)", "livebench.ai": "muse-spark-1.3-contributor"})
         self.assertEqual(rows["spark @ xhigh"]["values"]["aa.evaluations.artificial_analysis_coding_index"], 40.0)
         # a shorter board name never stands for a longer id of another version
         index = {"claudesonnet5": [{"model": "Claude Sonnet 5", "effort": None, "values": {}}],

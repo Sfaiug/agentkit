@@ -15,27 +15,25 @@ board names no effort, with every number the board gives as `<board>.<field>`, a
 under the table's name (`aa.evaluations.artificial_analysis_coding_index`).
 
 A row of the matrix is one model at one effort: an effort a board lists for it or the config
-runs it at, so a board naming no effort counts for every effort of its model, and a model no
-board lists at any effort is one row at none.  A board's model is matched by name, letters and
-digits alone (`acme-5` is `Acme 5 (max)` at max), else by the board's name the id extends with a
-version (`acme-pro` for `acme-pro-1.0`); `benchmark` on a config entry names the board's model
-where neither fits.  A board's row at another effort never stands in.  ak's own run numbers
-never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+runs it at in any role, so a board naming no effort counts for every effort of its model, and a
+model no board lists at any effort is one row at none.  A board's model is matched by name,
+letters and digits alone (`acme-5` is `Acme 5 (max)` at max), else by the board's name the id
+extends with a version (`acme-pro` for `acme-pro-1.0`); `benchmark` on a config entry names the
+board's model on a board where neither fits.  A board's row at another effort never stands in.
+ak's own run numbers never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai,
+arena.ai, livebench.ai.
 """
 
 import csv
 import fcntl
 import io
 import json
-import os
 import re
 import sys
 import time
 import urllib.request
-from pathlib import Path
 
 from . import command_help, config, terminal
-from .harness import load as harness_plugin
 
 FRESH_FOR = 86400        # a board is asked at most once a day: none moves faster than that
 TIMEOUT = 30             # seconds one request may take
@@ -205,45 +203,30 @@ def collect(*, refresh=False, now=None):
     return cache
 
 
-def installed(harness):
-    """Whether that harness's adapter and binary are here, the way the config screen asks."""
-    try:
-        config.adapter(harness)
-        version = harness_plugin(harness).update["version"]
-    except (config.Error, KeyError, TypeError):
-        return False
-    named = isinstance(version, list) and version and isinstance(version[0], str)
-    return bool(config.harness_binary(version[0] if named else harness))
-
-
-def harnesses():
-    """Every harness with an adapter manifest here, in name order."""
-    root = Path(os.environ.get(config.ADAPTER_DIR_ENV) or config.REPO / "adapters").expanduser()
-    return sorted(path.stem for path in root.glob("*.toml"))
-
-
 def normal(text):
     """A model's name as every board and config spells it alike: its letters and digits."""
     return re.sub(r"[^a-z0-9]", "", text.rsplit("/", 1)[-1].lower())
 
 
-def found(index, model):
+def found(index, model, benchmark=None):
     """A board's rows for one model: under its exact name, else under a board's name naming no
-    version of its own that `model` extends with one (`Acme Pro` for
-    `acme-pro-1.0`, never `Acme 5` for `acme-5-5`); none where the
-    board has nothing for it."""
+    version of its own that `model` extends with one (`Acme Pro` for `acme-pro-1.0`, never
+    `Acme 5` for `acme-5-5`), else under `benchmark`, the config entry's name for it on a board
+    where neither fits; none where the board has nothing for it."""
     wanted = normal(model)
     if wanted in index:
         return index[wanted]
     stems = [stem for stem in index if stem and not stem[-1].isdigit()
              and wanted.startswith(stem) and wanted[len(stem):].isdigit()]
-    return index[max(stems, key=len)] if stems else []
+    if stems:
+        return index[max(stems, key=len)]
+    return index.get(normal(benchmark), []) if benchmark else []
 
 
-def matching(index, model, effort):
+def matching(index, model, effort, benchmark=None):
     """The board's row for that model at that effort, else its row naming no effort, else None:
     a row at another effort never stands in."""
-    hits = found(index, model)
+    hits = found(index, model, benchmark)
     return next((row for row in hits if row["effort"] == effort),
                 next((row for row in hits if row["effort"] is None), None))
 
@@ -255,13 +238,14 @@ def rows(cfg, boards):
     for board, held in boards.items():
         for row in held.get("rows") or []:
             indexes.setdefault(board, {}).setdefault(normal(row["model"]), []).append(row)
-    names = {}
+    names = {}        # (harness, model, effort) -> the config name some role runs it at
     for name in config.offered(cfg):
         entry = cfg["models"][name]
-        names[(entry["harness"], entry["model"], entry["effort"])] = name
+        for role in config.ROLE_EFFORTS:
+            names[(entry["harness"], entry["model"], config.role_effort(entry, role))] = name
     table = []
-    for harness in harnesses():
-        if not installed(harness):
+    for harness in sorted({name for name, _ in config.manifests()}):
+        if not config.harness_installed(harness):
             continue
         listed = {item["id"]: item["efforts"] for item in config.catalog(harness)}
         for (h, model, effort), name in names.items():
@@ -269,11 +253,12 @@ def rows(cfg, boards):
                 listed.setdefault(model, [])
         for model, offered in listed.items():
             own = [name for (h, m, _), name in names.items() if (h, m) == (harness, model)]
-            looked = next((cfg["models"][name]["benchmark"] for name in own
-                           if cfg["models"][name].get("benchmark")), model)
+            benchmark = next((cfg["models"][name]["benchmark"] for name in own
+                              if cfg["models"][name].get("benchmark")), None)
             # the efforts worth a row: the boards' for this model, among those the harness
             # offers, and the config's
-            efforts = {row["effort"] for index in indexes.values() for row in found(index, looked)
+            efforts = {row["effort"] for index in indexes.values()
+                       for row in found(index, model, benchmark)
                        if row["effort"] and (not offered or row["effort"] in offered)}
             efforts |= {effort for (h, m, effort) in names if (h, m) == (harness, model)}
             for effort in sorted(efforts, key=lambda word: -EFFORT_ORDER.index(word)
@@ -281,7 +266,7 @@ def rows(cfg, boards):
                 row = {"harness": harness, "model": model, "effort": effort,
                        "name": names.get((harness, model, effort)), "values": {}, "matched": {}}
                 for board, index in indexes.items():
-                    hit = matching(index, looked, effort)
+                    hit = matching(index, model, effort, benchmark)
                     if hit is not None:
                         row["values"].update(hit["values"])
                         row["matched"][board] = hit["model"] + (f" ({hit['effort']})"
