@@ -3374,8 +3374,8 @@ def show_config(dry_run=False, keyboard=None, session=None):
     `Discord`, `Weekly audit` and `Version`, read with the menu's keyboard (config_matrix), so
     nothing is typed.
     On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
-    and so it is for a record naming a model removed here, saying so under the rows: the
-    screen that adds it back still opens.
+    and so it is for a record that will not read, saying so under the rows: the screen that
+    changes the models still opens.
 
     Providers, models, efforts and the two Discord secrets live here, the way they live in
     ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's

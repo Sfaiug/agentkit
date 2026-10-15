@@ -888,16 +888,27 @@ def check_stop_owner(owner):
             raise Error(f"owned by seat {owner}; a seat stops only its own runs")
 
 
-def _validate_session(cfg, name, data):
+def _validate_session(cfg, name, data, prune=False):
     if not isinstance(data, dict):
         raise Error(f"{session_path(name)}: expected a JSON object")
-    orchestrator, workers = data.get("orchestrator"), data.get("workers")
+    orchestrator = data.get("orchestrator")
     if not isinstance(orchestrator, str):
         raise Error(f"{session_path(name)}: orchestrator must be a model name")
-    try:
-        model(cfg, orchestrator)
-    except Error as exc:
-        raise Error(f"{session_path(name)}: {exc}") from None
+    # A record read back passes over a model the config no longer has, the way `load`
+    # passes over one in [defaults]: models are renamed and removed while seats built on
+    # them are still open, and the seat goes on with what is left.  The orchestrator's
+    # name is kept as recorded -- an open seat is still running it, and picking another
+    # moves the seat -- and a group emptied by the passing over takes the first model
+    # left, as an emptied default does.  A name still in [models.*] is not removed, so
+    # its entry is judged here, and the lists as recorded are judged before any passing
+    # over: a record already invalid stays invalid.  A session being saved is checked whole.
+    left = offered(cfg) if prune else []
+    if not prune or orchestrator in cfg["models"]:
+        try:
+            model(cfg, orchestrator)
+        except Error as exc:
+            raise Error(f"{session_path(name)}: {exc}") from None
+    groups = {}
     for role in ("workers", "reviewers"):
         if role == "reviewers" and role not in data:
             continue
@@ -908,16 +919,32 @@ def _validate_session(cfg, name, data):
                 or any(not isinstance(worker, str) for worker in listed)):
             raise Error(f"{session_path(name)}: {role} must be a non-empty list of model names")
         for worker in listed:
+            if prune and worker not in cfg["models"]:
+                continue
             try:
                 model(cfg, worker)
             except Error as exc:
                 raise Error(f"{session_path(name)}: {exc}") from None
         if len(set(listed)) != len(listed):
             raise Error(f"{session_path(name)}: {role} contains duplicates")
+        groups[role] = listed
+    if prune:
+        if left:
+            normalized = {"orchestrator": orchestrator, **groups}
+            _fall_back(normalized, left)
+            groups = {role: normalized[role] for role in groups}
+        # judge what is handed back: a fallen-back name was not listed above, and with
+        # nothing left a gone name has nowhere to fall back to
+        for listed in groups.values():
+            for worker in listed:
+                try:
+                    model(cfg, worker)
+                except Error as exc:
+                    raise Error(f"{session_path(name)}: {exc}") from None
     # the orchestrator's own model may work for it too: nothing here excludes one from the other
     # Whatever else the record carries -- where the seat ran, when, and the conversation the
     # harness kept -- is handed back untouched: only the model fields are this file's to judge.
-    return {**data, "orchestrator": orchestrator, "workers": workers}
+    return {**data, "orchestrator": orchestrator, **groups}
 
 
 @contextmanager
@@ -1060,7 +1087,12 @@ def session_aliases():
 
 
 def load_session(cfg, name, required=True):
-    """Read and validate a session selection, following renames; optionally tolerate no file."""
+    """Read a session selection, following renames; optionally tolerate no file.
+
+    A model the config no longer has is passed over in what comes back
+    (_validate_session), so a seat whose models changed under it still reads; the file
+    itself is left as it was.
+    """
     name = resolve_session(name)
     path = session_path(name)
     data = _read_json(path)
@@ -1068,7 +1100,7 @@ def load_session(cfg, name, required=True):
         if not required:
             return None
         raise Error(f"{SESSION_ENV}={name!r}, but {path} does not exist")
-    return _validate_session(cfg, name, data)
+    return _validate_session(cfg, name, data, prune=True)
 
 
 def rename_session(old, new):

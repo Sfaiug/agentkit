@@ -656,6 +656,26 @@ esac
                    if "restart to pick up updates" in line]
         self.assertCountEqual(flagged, ["old", "codex", "muse"])
 
+    def test_list_names_a_seat_whose_model_was_removed(self):
+        config.ensure_dirs()
+        cfg = config.load()
+        (config.STATE / "installed-at").write_text("1000")
+        config.save_session(cfg, "old", "opus", ["spark"])
+        config.save_session(cfg, "agy", "gemini", ["spark"])
+        config.remove_model(cfg, "gemini")        # agy is still open on it
+        config.save(cfg)
+        found = [{"name": name, "path": "/repo", "created": 900, "attached": False}
+                 for name in ("old", "agy")]
+        out = io.StringIO()
+        with patch.object(orch, "sessions", return_value=found), contextlib.redirect_stdout(out):
+            orch.cmd_list([])
+        said = out.getvalue()
+        self.assertTrue(any(line.split()[:1] == ["agy"] and "gemini" in line
+                            for line in said.splitlines()), said)
+        flagged = [line.split()[0] for line in said.splitlines()
+                   if "restart to pick up updates" in line]
+        self.assertEqual(flagged, ["old"])        # no harness of a gone model to ask
+
     def adapters(self, cannot_pin=()):
         """A fake adapter for every harness, and $AGENTKIT_ADAPTER_DIR pointing at them.
 
