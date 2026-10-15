@@ -970,6 +970,37 @@ def token_alert(token_out):
     return None, None
 
 
+def token_dead(token_out):
+    """The records of `token_out` whose worker token has expired: what pages the owner (rung 1c).
+    One that only nears its day stands on the ak screen instead (`token_standing`)."""
+    if not isinstance(token_out, dict):
+        return {}
+    return {harness: record for harness, record in token_out.items()
+            if isinstance(record, dict) and record.get("expired")}
+
+
+def token_standing(now=None):
+    """The worker token's note (`worker_token_note`) while the ak and `c` screens show it --
+    from TOKEN_WARN_DAYS out, and once it has expired -- else None."""
+    note = worker_token_note(now)
+    days = re.search(r"\(in (\d+) days\)", note or "")
+    return note if note and ("expired" in note or days and int(days.group(1))
+                             <= TOKEN_WARN_DAYS) else None
+
+
+def remind_worker_tokens(token_out, now=None):
+    """Page the owner once a local day while a worker token ends within a login's window
+    (`logins.REMIND_WITHIN`), as a login's end does: nearer than the ak screen's line alone
+    says, and before it is every seat's word (`token_dead`)."""
+    from . import logins   # here, as the tick takes it: logins reads through the menu
+    now = time.time() if now is None else now
+    day = time.strftime("%Y-%m-%d", time.localtime(now))
+    for harness, record in sorted(token_out.items() if isinstance(token_out, dict) else ()):
+        reason = token_warning(record)
+        if reason and not record.get("expired") and record["days"] * 86400 <= logins.REMIND_WITHIN:
+            notify.page(f"token:{harness}:{day}", f"{harness} worker token", reason)
+
+
 def token_episode_restarted(answer, token_out, word_since):
     """The warning's new beginning where a replaced file restarted it, else None.
 
@@ -977,7 +1008,7 @@ def token_episode_restarted(answer, token_out, word_since):
     -- or a file that is replaced -- while the seat already reads `needs you` would
     otherwise keep the older age, and the new episode would never be seen to begin.
     """
-    reason, begun = token_alert(token_out)
+    reason, begun = token_alert(token_dead(token_out))
     if reason is None or answer.get("reason") != reason:
         return None
     if (isinstance(begun, (int, float)) and not isinstance(begun, bool)
@@ -2505,12 +2536,12 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if name in (gh_out.get("seats") or []):
         return {"word": "needs you", "reason": "gh login expired: run `gh auth login`",
                 "since": gh_out.get("at")}
-    # 1c. a worker token dies within a fortnight or is dead: every session reads the
-    # warning, on any harness, because any seat's next turn on it can be the one that
-    # fails.  The tick asks the `auth` verb once a day and keeps the answer; a replaced
-    # file has a new date, which is what ends the episode.  One card per episode falls out
-    # of the cards rule, which keys episodes on the word.
-    reason, since = token_alert(token_out)
+    # 1c. a worker token is dead: every session reads it, on any harness, because any
+    # seat's next turn on it fails.  The tick asks the `auth` verb once a day and keeps the
+    # answer; a replaced file has a new date, which is what ends the episode.  One card per
+    # episode falls out of the cards rule, which keys episodes on the word.  One that only
+    # nears its day stands under the ak screen's grid instead (`token_standing`).
+    reason, since = token_alert(token_dead(token_out))
     if reason:
         return {"word": "needs you", "reason": reason, "since": since}
     # 1d. a question on its screen, even during a turn: that needs the owner, whatever its runs
@@ -4182,7 +4213,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
 def health(cfg, state, dry_run, log):
     """One pass over the toolkit's seats: nudge the stalled ones, leave the working ones be."""
     from . import menu as menu_mod   # here, not at the top: the menu draws without the tick
-    poll_worker_token(state)   # each declared worker token, once a day: every seat reads the warning
+    poll_worker_token(state)   # each declared worker token, once a day: the ak screen says it
     stalls, seats = state["stalls"], orch.sessions()
     # one pass over run.json serves every live seat; a failed read is None, never a seat
     # with no runs
@@ -6933,8 +6964,10 @@ def local_passes(state, dry_run, log):
         ("the tick's watch.json was not saved", lambda: save_state(state), False),
         ("the usage refresh did not finish", read_usage, True),
         # when each subscription's login ends and whose it is, each asked hourly at most; one
-        # ending within 3 days pages the owner once a day
+        # ending within 3 days pages the owner once a day, and so does a worker token
         ("the login-end read did not run", lambda: logins.remind(config.load()), False),
+        ("the worker-token reminder did not run",
+         lambda: remind_worker_tokens(state.get("worker_tokens")), False),
         # the public boards once a day, and the matrix every pick reads, computed again only
         # when a board answered anew or the config's models or the harnesses installed changed;
         # a dry run reads nothing

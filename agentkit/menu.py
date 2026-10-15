@@ -1610,6 +1610,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 *((row, model_at, model, "dim", bright) for row, model, bright, on in models
                   if number in on)]
             moves.append((("sub", number), number == pointed, None, False))
+        from . import watch    # here, not at the top: the menu draws without the tick
+        token = None if pointed else watch.token_standing()
+        if token:     # a worker login that ends soon, or has: under the grid, at rest
+            out[grid + len(meters) - 1] = "  " + terminal.styled(
+                terminal.cut(token, layout - 2), "amber" if "expired" in token else "dim")
         if pointed:
             out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
                                                               ending=ending)
@@ -3081,10 +3086,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
     """
     from . import watch   # here, not at the top: the menu draws without the tick
-    token = watch.worker_token_note()       # a file's date, read once a visit
-    days = re.search(r"\(in (\d+) days\)", token or "")
-    standing = token if token and ("expired" in token or days and int(days.group(1))
-                                   <= watch.TOKEN_WARN_DAYS) else ""
+    standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
     here, column, top, clock = None, columns[1], 0, motion.Clock()

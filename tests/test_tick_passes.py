@@ -33,6 +33,7 @@ PASSES = (
     (watch, "save_state", "the tick's watch.json was not saved", False),
     (usage, "collect", "the usage refresh did not finish", False),
     (logins, "remind", "the login-end read did not run", False),
+    (watch, "remind_worker_tokens", "the worker-token reminder did not run", False),
     (matrix, "refresh", "the boards pass did not run", False),
     (staffing, "_cached_providers", "the usage refresh did not finish", True),
     (watch, "resume_exhausted", "the exhausted-resume pass did not run", True),
