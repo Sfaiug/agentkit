@@ -539,6 +539,26 @@ def checked(account):
     return {CHECKED_ENV: "1"}
 
 
+def _share(usual, own, shared, held):
+    """Make a named login's settings the usual login's own file, linked: a change made on any
+    login -- a seat's /config, a model asked to set one -- is every Claude session's, and no
+    launch copies the usual settings back over it.  Claude Code writes through the link.  What
+    a login's own file held alone is carried over first, the usual login's value winning where
+    both have one, as the copy that stood here did; its hooks are a past checkout's, and go."""
+    if not own.is_symlink():
+        shared = {**{k: v for k, v in held.items() if k != "hooks"}, **shared}
+    _pin(shared)
+    usual.parent.mkdir(parents=True, exist_ok=True)
+    _write(usual, shared)
+    if own.is_symlink() and own.resolve() == usual.resolve():
+        return
+    fd, name = tempfile.mkstemp(dir=own.parent, prefix=own.name + ".", suffix=".link")
+    os.close(fd)
+    os.unlink(name)
+    os.symlink(usual, name)
+    os.replace(name, own)
+
+
 def account_config(check=False):
     """Keep the owner's configuration beside an alternate login's own credentials.
 
@@ -577,12 +597,9 @@ def account_config(check=False):
                 if value is True:
                     data[key] = True
             answered(data)
+            _write(path, data)
         else:
-            data.update(values[0])
-            # Hooks belong to the current installation, not every past checkout.
-            data["hooks"] = values[0].get("hooks", {})
-            _pin(data)
-        _write(path, data)
+            _share(paths[0], path, values[0], data)
     for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
         source, target = home / ".claude" / name, directory / name
         if source.exists() and not target.exists() and not target.is_symlink():

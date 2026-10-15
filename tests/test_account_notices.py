@@ -112,6 +112,8 @@ class AccountNotices(unittest.TestCase):
                     "keep": "usual-keep"}))
                 self.usual.write_text(json.dumps({"userID": "usual-user"}))
                 named_settings.parent.mkdir(parents=True, exist_ok=True)
+                # a login's own file from before the link: the last launch made it one
+                named_settings.unlink(missing_ok=True)
                 named_settings.write_text(json.dumps({
                     "permissions": {"defaultMode": "auto"}, "custom": "named-keep"}))
                 self.named.write_text(json.dumps({
