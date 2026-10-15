@@ -41,10 +41,10 @@ from .staffing import (best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (carried_lines, change_budget, change_on, first_review_refusal, replacement_refusal,
-    delivery, diff_lines, failed_at_budget, failed_in_integration,
+    change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, rounds_spent_elsewhere, settled, stands_on_dependency)
+    queued, report_config, review_pass, review_providers, round_budget, settled, stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
@@ -2366,7 +2366,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
     text_only = is_own and text_only_pr(repo, base_sha, head)
-    if is_own and not text_only and not summaries and not rounds_spent_elsewhere(pr=url, exclude=run_dir)[0]:
+    if is_own and not text_only and not change_reviewed(pr=url):
         # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once, the
         # lines it moves unchanged aside: past it, the run ends blocked with the reason before
         # any reviewer is picked, and the PR is split; a later round reviews whatever the fix left
