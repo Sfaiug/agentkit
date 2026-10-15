@@ -8,8 +8,10 @@ The run's child environment, depth and logger live here too, as every leaf start
 """
 
 import codecs
+import hashlib
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from . import config, record as run_record, task as taskfile, worker
+from . import config, guard, record as run_record, sentences, task as taskfile, worker
 
 
 # what a test run, a build or an editor drops next to the work, and no reviewer should ever see
@@ -94,9 +96,57 @@ def tool_env():
     return env
 
 
+# the git commands that merge file contents, and so read a merge driver (`merge_config`)
+MERGES = ("merge", "merge-tree", "rebase")
+
+
+def merge_config(git, cwd, env, timeout):
+    """`env` with ak's own git config after any it carries, for a `git` (with its own options) that
+    merges: `*.md` merges sentence by sentence (`sentences`).  Git reads one global attributes
+    file, so ak's names the driver for `*.md` first and then holds the file this call's git
+    would have read, as it reads now: every line of it, a `*.md` one included, decides as
+    before, and a repository's own `.gitattributes` before that.  The lookup is part of the
+    call, under its timeout.  A file named by a relative path, one ak cannot read, or a state
+    it cannot write merges by git's line rule, as before."""
+    driver = f"merge.{sentences.NAME}.driver"
+    count = int(env.get("GIT_CONFIG_COUNT") or 0)
+    if driver in (env.get(f"GIT_CONFIG_KEY_{n}") for n in range(count)):
+        return env
+    named = subprocess.run([*git, "config", "--path", "--get", "core.attributesFile"], cwd=cwd,
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                           timeout=timeout, env=env)
+    if named.returncode not in (0, 1):
+        return env
+    # unset, git reads $XDG_CONFIG_HOME/git/attributes, or $HOME/.config/git/attributes
+    own = named.stdout.rstrip("\n") if named.returncode == 0 else os.path.join(
+        env.get("XDG_CONFIG_HOME") or os.path.join(env.get("HOME", ""), ".config"), "git", "attributes")
+    if not os.path.isabs(own):
+        return env
+    text = f"*.md merge={sentences.NAME}\n".encode()
+    try:
+        try:
+            text += Path(own).read_bytes().removeprefix(codecs.BOM_UTF8)    # git skips it on line 1
+        except FileNotFoundError:
+            pass
+        path = config.STATE / "merge-attributes" / hashlib.sha256(text).hexdigest()[:16]
+        if not path.is_file():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fresh = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+            fresh.write_bytes(text)
+            os.replace(fresh, path)
+    except OSError:
+        return env
+    pairs = (("core.attributesFile", str(path)),
+             (driver, f"{shlex.quote(sys.executable)} -I {shlex.quote(sentences.__file__)} %O %A %B %L"))
+    for n, (key, value) in enumerate(pairs, count):
+        env[f"GIT_CONFIG_KEY_{n}"], env[f"GIT_CONFIG_VALUE_{n}"] = key, value
+    env["GIT_CONFIG_COUNT"] = str(count + len(pairs))
+    return env
+
+
 def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
-    as `env` changes it (None drops a variable).
+    as `env` changes it (None drops a variable), with `merge_config` for a git that merges.
 
     Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
     callers can recover any unfinished checkout edits. The code is None on timeout;
@@ -104,15 +154,20 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
     """
     timeout = TOOL_CAP if timeout is None else timeout
     # Repeating checkout edits can turn a timeout into an "already in progress" failure.
-    args = cmd[3:] if len(cmd) > 1 and cmd[0] == "git" and cmd[1] == "-C" else cmd[1:]
+    start = 1
+    while cmd[0] == "git" and start < len(cmd) and cmd[start].startswith("-"):
+        start += 2 if cmd[start] in guard.GIT_VALUED else 1     # git's own options, `-C`, `-c`
+    args = cmd[start:]
     retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
+    merges = cmd[0] == "git" and args and args[0] in MERGES
     for attempt in range(2):
         try:
+            call = {name: value for name, value in {**tool_env(), **(env or {})}.items()
+                    if value is not None}
             proc = subprocess.run(cmd, cwd=None if cwd is None else str(cwd), capture_output=True,
                                   encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
-                                  timeout=timeout,
-                                  env={name: value for name, value in
-                                       {**tool_env(), **(env or {})}.items() if value is not None})
+                                  timeout=timeout, env=merge_config(
+                                      cmd[:start], cwd, call, timeout) if merges else call)
             break
         except subprocess.TimeoutExpired:
             if attempt or not retry:
