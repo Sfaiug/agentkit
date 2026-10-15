@@ -45,6 +45,7 @@ class Breathes(Sandbox):
 
     def drawn(self, cursor):
         clock = motion.Clock()
+        clock.first = False         # opened already: no line grows in
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
