@@ -23,6 +23,19 @@ ANSWERS_FOR = 7 * 86400   # a merged change answers for its lines this long: a l
                           # through: not every rewrite is a defect, and churn falls on every
                           # reviewer's changes alike, so reviewers are compared by it
 
+# What the board measures, row by row: the board's key, the row's label, and the parts each
+# week's cell is built from, in the vision's order (quality and speed, then cost, then size).
+# The owner's yes changes it (AGENTS.md, Owner rules), and tests/test_scoreboard_measures.py
+# pins it, so a board that measures something else is a visible test change, never a quiet one.
+MEASURES = (
+    ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
+    ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
+    ("merged", "merged", ("model", "ak", "waiting", "seat")),
+    ("escaped", "escaped", ("merged", "escaped", "open", "unknown", "reviewers")),
+    ("size", "ak size", ("code_lines", "readme_words")),
+)
+
 # The measures a week's loss is read from, in the vision's order -- quality, speed, cost,
 # size: the words for it, the board's row, the part of that row's week (a share where two
 # parts make one), whether more is worse, and how it prints (`said`).  The weekly audit's.
@@ -391,13 +404,10 @@ def render():
         return (f"{code} code lines" if code is not None else "code lines unknown") + ", " + (
             f"{words} README words" if words is not None else "README words unknown")
 
+    words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
+             "waits": waited, "merged": split, "escaped": escapes, "size": size}
     rows = [("", "last 7 days", "7 days before"),
-            ("products", *(week(stats, False) for stats in board["products"])),
-            ("ak", *(week(stats, True) for stats in board["ak"])),
-            ("waits", *(waited(stats) for stats in board["waits"])),
-            ("merged", *(split(stats) for stats in board["merged"])),
-            ("escaped", *(escapes(stats) for stats in board["escaped"])),
-            ("ak size", *(size(stats) for stats in board["size"]))]
+            *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
     room = max(1, (terminal.content_width() - 12) // 2)
     lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())
     for label, current, previous in rows:
