@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, watch
@@ -111,6 +112,30 @@ class CodexSeatStates(Sandbox):
                              " two rows")):
             self.assertEqual(watch.screen_state("codex", tail(name))[2], words, name)
         self.assertEqual(self.screen("resumed-warning"), ("at_prompt", "prompt.suggestion"))
+
+    def test_a_draft_cropped_above_the_tail_keeps_its_visible_rows(self):
+        for name in ("tall-line", "tall-line-and-owner-words"):
+            original = (REPO / f"tests/fixtures/codex-{name}-pane.txt").read_text()
+            for edit in (None, "    def login(): pass", "  owner · draft"):
+                with self.subTest(name=name, edit=edit):
+                    rows = tail(name).splitlines()
+                    if edit:
+                        rows[2] = edit
+                    pane = "\n".join(rows)
+                    capture = "\n".join(watch._content_rows(original)[:-watch.PANE_LINES] + rows)
+                    words = " ".join(watch.strip_sgr(row).strip() for row in rows[:-1])
+                    found = watch.classify("codex", pane, None, None, {}, 10000)
+                    self.assertEqual((found["state"], found["rule"], found["evidence"]),
+                                     ("draft", "draft.rows", words[:160]))
+                    # Display and pending delivery read the same rows, including owner edits.
+                    with patch.object(watch, "pane_text", return_value=capture), \
+                            patch.object(watch, "seat_model", return_value=("codex", "openai")):
+                        self.assertEqual(watch.composer_holds(SEAT, {}, words, self.cfg), "line")
+                        self.assertEqual(watch.composer_holds(SEAT, {}, words, self.cfg,
+                                                              exact=True), "other")
+                    # A short tail without a prompt cannot establish a cropped composer.
+                    self.assertEqual(watch.screen_state("codex", "\n".join(rows[1:]))[2],
+                                     watch.strip_sgr(rows[-2]).strip())
 
     def test_the_hook_review_asks(self):
         self.assertEqual(self.read("hooks-review-0160"), ("asking", "screen", "asking.chooser"))
