@@ -90,10 +90,9 @@ class MenuRows(Sandbox):
         notify.record("agentkit-need", "needs", "Which schema?")
         screen, _ = self.draw(100, 30)
         self.assertLess(screen.index("\nagentkit\n"), screen.index("\natoll\n"))
-        self.assertIn("your projects · 1 needs you", screen)
-        # Headings are the basename in accent, no counts, no state words.
+        # Headings are the basename in bold, no counts, no state words.
         self.assertNotIn("seats", screen)
-        self.assertNotIn("needs you", screen.split("your projects")[0].rsplit("\n", 2)[0])
+        self.assertEqual(screen.count("needs you"), 1)
 
     def test_orchestrator_column(self):
         self.seat("first-seat", "atoll", orchestrator="fable")

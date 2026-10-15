@@ -123,9 +123,9 @@ class SeatQuestionWhole(Sandbox):
                                   keys=f"{menu.move_keys()}   {menu.KEYS}", look=False)
                     lines = [terminal.ANSI.sub("", line) for line in
                              out.getvalue().split("\033[J")[0].split("\n")[:-1]]
-                    # the heading and the keys stay, over the two lines every draw keeps
+                    # the usage and the keys stay, over the two lines every draw keeps
                     self.assertLessEqual(len(lines), height - 2, "\n".join(lines))
-                    self.assertTrue(any("your projects" in line for line in lines), lines)
+                    self.assertTrue(lines[0].startswith("  Claude"), lines)
                     self.assertIn("esc leave", lines[-1])
 
     def test_no_page_turns_as_the_highlight_moves(self):

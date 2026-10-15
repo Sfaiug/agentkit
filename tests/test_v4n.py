@@ -208,10 +208,13 @@ class Rendering(Sandbox):
                 self.assertNotIn("\033", rendered)
                 for phrase in menu.KEYS.split("   "):
                     self.assertIn(phrase, rendered)
-                # Rows carry one of the three words and nothing else; these three
+                # Each row carries one of the four words and nothing else; these three
                 # seats are all live, so none of them says its session is closed.
-                self.assertIn("needs you", rendered)
-                self.assertNotIn("session closed", rendered.split("\nRuns:")[0])
+                seats = rendered.split("\nRuns:")[0]
+                for name in ("customer-portal-app", "parser", "archive"):
+                    line = next(line for line in seats.splitlines() if f"  {name}  " in line)
+                    self.assertTrue(any(word in line for word in terminal.STATES), line)
+                self.assertNotIn("session closed", seats)
                 (config.RUNS / "receipt/run.json").unlink()
                 (config.RUNS / "receipt").rmdir()
 

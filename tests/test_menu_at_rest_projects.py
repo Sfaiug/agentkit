@@ -169,51 +169,26 @@ class Projects(Sandbox):
         self.assertTrue(row.rstrip().endswith("● working"))   # the parked one resumes itself
         self.assertEqual(self.headings(screen), ["atoll"])
         # Its own runs are still going, so the seat is working and needs nobody yet.
-        self.assertIn("your projects · nothing needs you", screen)
+        self.assertNotIn("needs you", screen)
         self.assertEqual(menu.v5o_groups(self.cfg, self.seats)[2], 0)
         # The records stay for `ak run status`, which is where runs are looked up.
         self.assertEqual({d.name for d, _ in menu.run_records()},
                          {"going", "parked", "failed"})
 
-    def test_v5ak_d_the_count_is_said_once_on_the_top_line(self):
+    def test_v5ak_d_no_line_counts_who_needs_the_owner_but_each_row_says_it(self):
         self.seat("atoll-fix", "atoll")
         self.notices["atoll-fix"] = {"kind": "needs", "text": "Which schema?",
                                      "time": NOW - 300}
         self.seat("atoll-plan", "atoll", live="asking")
         self.seat("herdr", "agentkit", since=NOW - DAY)
-        count = re.compile(r"nothing needs you|\d+ needs? you|\d+ need you")
-
-        def counted(screen):
-            return [line for line in screen.splitlines() if count.search(line)]
-
-        screen = self.draw(100, 30)
-        self.assertEqual(counted(screen), ["your projects · 2 need you"])
-        # No heading ever says it, however many of its seats need him.
-        for line in self.headings(screen):
-            self.assertNotIn("needs you", line)
-            self.assertNotIn("need you", line)
-        # A seat's own state word is its state, said once on each needing row.
-        self.assertEqual(screen.count("! needs you"), 2)
-        # One needing seat, and none at all: still once, still the top line.
-        self.seats = self.seats[:1]
-        self.assertEqual(counted(self.draw(100, 30)), ["your projects · 1 needs you"])
-        self.seats[0]["live"] = "working"
-        self.notices.clear()
-        self.assertEqual(counted(self.draw(100, 30)),
-                         ["your projects · nothing needs you"])
-        # And at every width, including the phone's compact frame: no line but the
-        # heading ever says it, and on the narrowest screens the heading is cut
-        # rather than repeated -- the page is the one part that is never cut.
-        self.seats[0]["live"] = "at_prompt"
-        for width, height in ((40, 30), (40, 12), (170, 30), (100, 10), (30, 8)):
+        for width, height in ((100, 30), (40, 30), (40, 12), (170, 30), (100, 10), (30, 8)):
             screen = self.draw(width, height)
-            said = [line for line in screen.splitlines()
-                    if re.search(r"\d+ needs? you|nothing needs you", line)]
-            self.assertLessEqual(len(said), 1, screen)
-            for line in said:
-                self.assertTrue(line.lstrip().startswith("your projects"), line)
-            head = next(line for line in screen.splitlines() if "your projects" in line)
-            self.assertTrue(head.lstrip().startswith("your projects"), head)
+            self.assertNotRegex(screen, r"nothing needs you|\d+ needs? you|\d+ need you")
+        # A seat's own state word is its state, said once on each needing row.
+        screen = self.draw(100, 30)
+        self.assertEqual(screen.count("! needs you"), 2)
+        for line in self.headings(screen):
+            self.assertNotIn("need", line)
 
     def test_v5ak_e_no_ending_ever_needs_him(self):
         # An ended run is its orchestrator's business, fresh or eight days old: a gone
@@ -249,7 +224,7 @@ class Projects(Sandbox):
                         started_at=NOW - 4 * 3600, rounds=2, round_summaries=[],
                         quota_dry=word == "exhausted")
         screen = self.draw(100, 30)
-        self.assertIn("nothing needs you", screen)
+        self.assertNotIn("needs you", screen)
         self.assertNotIn("press", screen.split("n new")[0])
         for name in ("parked", "stuck-run"):
             state = run_record.read_state(config.RUNS / name)

@@ -148,11 +148,8 @@ class V5oMenu(Sandbox):
 
     def test_v5o_a_needs_line_and_needing_first(self):
         screen, _ = self.draw(100, 30)
-        # The question is answered once, on the top line, and on no other line.
-        self.assertIn("your projects · 2 need you", screen)
-        self.assertNotIn("nothing needs you", screen)
-        # The top line says it once, and each needing row says its own word.
-        self.assertEqual(len(re.findall(r"need you|needs you", screen)), 3)
+        # Each needing row says its own word, and no other line counts them.
+        self.assertEqual(len(re.findall(r"need you|needs you", screen)), 2)
         # Needing rows first: the needing projects sort before the quiet one.
         self.assertLess(screen.index("\nagentkit\n"), screen.index("\natoll\n"))
         self.assertLess(screen.index("\nno project\n"), screen.index("\natoll\n"))
@@ -189,7 +186,7 @@ class V5oMenu(Sandbox):
                         patch.object(terminal, "height", return_value=30), \
                         redirect_stdout(io.StringIO()) as out:
                     menu.draw(self.cfg, quiet)
-                self.assertIn("nothing needs you", out.getvalue())
+                self.assertNotIn("needs you", out.getvalue())
 
     def test_v5o_b_no_seat_row_wider_than_100_on_170(self):
         screen, _ = self.draw(170, 30)
@@ -533,8 +530,7 @@ class V5oMenu(Sandbox):
         self.assertNotIn("Orphan going fine", screen)
         self.assertNotIn("↳", screen)
         # The fixture's own needs are unchanged: no extra one appears.
-        self.assertIn("your projects · 2 need you", screen)
-        self.assertNotIn("3 need", screen)
+        self.assertEqual(screen.count("! needs you"), 2)
         # The records still have it, going, under nobody's seat.
         found = list(menu.run_records())
         self.assertIn("orphan-going", [d.name for d, _ in found])

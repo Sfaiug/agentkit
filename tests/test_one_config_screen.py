@@ -43,8 +43,8 @@ from agentkit import config, menu, orch, run, usage
 cfg = config.load()
 config.save_session(cfg, "fix-api", "opus", ["opus", "astra"],
                     {"reviewers": ["astra"], "cwd": "/", "created": 0})
-orch.listing = lambda reconcile=True: [{"name": "fix-api", "repo": None, "path": "/",
-                                        "created": 0}]
+orch.listing = lambda reconcile=True: [{"name": "fix-api", "repo": str(config.CODE / "ACME"),
+                                        "path": "/", "created": 0}]     # under ACME's heading
 orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "",
                                                      "since": None}

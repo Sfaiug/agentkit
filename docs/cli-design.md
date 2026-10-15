@@ -35,14 +35,11 @@ then `────────────────────────�
 ## Width and rhythm
 
 The layout is `min(terminal width, 120)` columns (`terminal.layout_width`);
-seat content is capped at 100 (`terminal.content_width`). Section titles
-(`Usage`, `Projects`) are plain words in the accent style, flush left, one
-blank line above each; content sits two spaces under them; one blank line
-between projects; seat rows two spaces under their project line. Nothing else
-is indented.
+seat content is capped at 100 (`terminal.content_width`). A project's name is
+bold, flush left; one blank line between projects; seat rows two spaces under
+their project line. Nothing else is indented.
 
 Example:
-`your projects · 1 needs you`
 `atoll`
 `  1  atoll-fix  fable  ● working  ━━━━━╸─────── 2 of 5`.
 
@@ -51,8 +48,8 @@ Example:
 Projects and their seats, and nothing else. A project is a checkout under
 `~/code`, or agentkit's own at `~/agentkit` -- so a run's worktree, a
 temporary repository under `~/.agentkit/tmp` and a run id are none of them a
-heading, and a checkout nobody sits in is not listed unless its `AGENTS.md`
-names its feature switches (`features:`). As soon as its project is known, the orchestrator
+heading, and a checkout nobody sits in is not listed, whatever its `AGENTS.md`
+says. As soon as its project is known, the orchestrator
 files its seat with `ak orch project <checkout>` by checkout name or path. Names match in any
 case; an exact match wins, otherwise a name matching several checkouts is refused and lists
 the matches. Each launched run then files the seat under the checkout most of its runs belong
@@ -62,11 +59,11 @@ to a checkout sits under `no project`, and the next draw files it once a run cou
 no run row, ever: `ak run status` is where runs are looked up, and the line a
 seat's row opens, its tmux bar's second line, is where its tasks show, as squares.
 
-The question is answered once, on the top line -- `your projects · nothing
-needs you`, `· 1 needs you`, `· 3 need you` -- and on no other line. A project
-heading is the checkout's basename in the accent style and nothing more, but
-for a project naming its switches: `ACME · 2 hidden features` (off for
-everyone; no count when none), a row the highlight lands on, drawn `› ACME`.
+No line counts who needs the owner: each needing row says it, and those projects come
+first. A project heading is the checkout's basename in bold and nothing more,
+but for a project naming its switches: how many are hidden, dim at the right,
+`23 hidden features` (off for everyone; no count when none), a row the
+highlight lands on, drawn `› ACME`.
 Enter or a click on it opens `agentkit · ACME`, every feature once with a
 `you` and an `everyone` column, `●` on and `○` (dim) off, `—` under `you` where
 the project does not let you switch it, and one on for everyone on for you too.
@@ -409,9 +406,10 @@ and a few rows under it, or too narrow for a name beside each cell's words, fold
 many lines as the width takes (`Claude I 17% · ChatGPT 74% · Grok —`); one too
 short for that drops the frame and the blank lines too (compact), and only one
 with no room for a seat under its heading even then gives up the lines the
-highlighted row opens, then cuts the readings, ending in `· …`. On a terminal the page up is the one the highlight is on and the key
-line says which (`←  1 / 2  →`); in a pipe the heading does (`your projects
-2/3`), the page never the part that is cut, and `j` and `k` turn the pages.
+highlighted row opens, then cuts the readings, ending in `· …`. On a terminal the
+page up is the one the highlight is on and the key line says which (`←  1 / 2  →`),
+an arrow amber where a seat that needs the owner is that way; in a pipe it says
+`2 / 3`, the page never the part that is cut, and `j` and `k` turn the pages.
 
 ## Subscriptions
 
