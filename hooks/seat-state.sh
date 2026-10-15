@@ -69,12 +69,6 @@ seat_state() {
       --hook "$PPID" <<<"$payload" || true
   fi
   [[ $event != SessionStart ]] || return 0
-  # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
-  # and its prompt the owner's answer.
-  if [[ $event = UserPromptSubmit || $event = Stop ]] &&
-    "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1; then
-    return 0
-  fi
   ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
   # A Stop that hands over the background work in flight -- Claude Code's -- is written down by
   # hooks/orchestrator-stop.sh, which runs beside this and is the one that knows whether the
@@ -266,9 +260,15 @@ main() {
   umask 077
   local payload=$1 jq event
   jq=$(command -v jq) || return 0
+  event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
+  # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
+  # its prompt the owner's answer, and its end the seat's idleness and next turn's context.
+  if [[ $event = UserPromptSubmit || $event = Stop ]] &&
+    "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1; then
+    return 0
+  fi
   seat_state "$payload" "$jq"
   # the compaction stamp belongs to the end of a turn; an event that is not one leaves it alone
-  event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
   [[ $event = Stop ]] || return 0
   idle_compact "$payload" "$jq"
 }
