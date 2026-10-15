@@ -179,7 +179,10 @@ class PlanBar(Sandbox):
                     free = menu.v5o_column_widths([info, asks], width)["free"]
                     self.assertEqual((len(bar), len(ask)), (2, 2) if free < 10 else (1, 1))
                     self.assertIn("1 of 9", terminal.plain("".join(bar)))
-                    self.assertIn("Merge #75 first?", terminal.plain(" ".join(ask)))
+                    # a row asking draws its line too, and its question opens under it, never
+                    # beside it
+                    self.assertIn("1 of 9", terminal.plain("".join(ask)))
+                    self.assertNotIn("Merge", terminal.plain(" ".join(ask)))
 
     def test_a_row_s_head_never_runs_past_the_screen(self):
         # the widest number, name, model and state at once: the name and the model share what

@@ -258,7 +258,7 @@ class Tallies(Sandbox):
                                                              "time": NOW - 300}):
             screen, _ = self.draw(100, 30)
         self.assertIn("Should the dashboard filter by workspace", screen)
-        self.assertIn("by default when there are more than twenty items", screen)
+        self.assertRegex(screen, r"by default when there are more\s+than twenty items")
         self.assertNotIn("1 running", screen)
         self.assertTrue(all(terminal.cells(line) <= 100 for line in screen.splitlines()))
 

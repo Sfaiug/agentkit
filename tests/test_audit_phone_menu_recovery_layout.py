@@ -282,8 +282,8 @@ class Pages(Sandbox):
                         heading = next(line for line in lines if "your projects" in line)
                         self.assertIn(f" {page + 1}/{pages}", heading)
                 self.assertEqual(seen, list(range(1, 13)))
-        # a screen that holds every seat keeps the whole block, on one page
-        lines, drawn = self.draw(seats, 100, 30)
+        # a screen that holds every seat and what each asks keeps the whole block, on one page
+        lines, drawn = self.draw(seats, 100, 45)
         self.assertEqual(drawn, (0, 1))
         self.assertIn("usage left", "\n".join(lines))
         # the popup over a seat, one seat listed: the usage keeps every reading, the frame

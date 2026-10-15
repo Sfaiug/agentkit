@@ -13,12 +13,12 @@ your projects · 2 need you
 
 agentkit
   3  herdr-quiet  fable  ! needs you
-    session closed: press 3 to reopen
+     session closed: press 3 to reopen
   4  herdr-long   fable  ● working
 
 no project
   5  scribe       fable  ! needs you
-    session closed: press 5 to reopen
+     session closed: press 5 to reopen
 
 atoll
   1  atoll-job    fable  ● working

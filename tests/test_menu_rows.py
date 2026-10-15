@@ -132,12 +132,14 @@ class MenuRows(Sandbox):
         notify.record("ask-seat", "needs", "Merge the MOV helper before or after?")
         gone = self.seat("gone-seat", "atoll", **{"exited": True})
         screen, _ = self.draw(100, 30)
-        ask = next(line for line in screen.splitlines() if "ask-seat" in line)
-        self.assertIn("! needs you", ask)
-        self.assertIn("Merge the MOV helper before or after?", ask)
+        lines = screen.splitlines()
+        # a row is its word; what it asks opens under it, as every row asking does from a pipe
+        at = next(n for n, line in enumerate(lines) if "ask-seat" in line)
+        self.assertTrue(lines[at].endswith("! needs you"), lines[at])
+        self.assertEqual(lines[at + 1].strip(), "Merge the MOV helper before or after?")
         number = next(i for i, s in enumerate(self.seats, 1) if s["name"] == "gone-seat")
-        row = next(line for line in screen.splitlines() if "gone-seat" in line)
-        self.assertIn(f"session closed: press {number} to reopen", row)
+        at = next(n for n, line in enumerate(lines) if "gone-seat" in line)
+        self.assertEqual(lines[at + 1].strip(), f"session closed: press {number} to reopen")
         self.assertNotIn("press r", screen)
 
     def test_reason_column_working(self):
@@ -168,10 +170,11 @@ class MenuRows(Sandbox):
         self.seat("done-seat", "atoll")
         notify.record("done-seat", "done", "hero swapped and published\n\nSecond line here")
         screen, _ = self.draw(100, 30)
-        row = next(line for line in screen.splitlines() if "done-seat" in line)
-        self.assertIn("✓ done", row)
-        self.assertIn("hero swapped and published", row)
-        self.assertNotIn("Second line", row)
+        lines = screen.splitlines()
+        at = next(n for n, line in enumerate(lines) if "done-seat" in line)
+        self.assertTrue(lines[at].endswith("✓ done"), lines[at])
+        self.assertEqual(lines[at + 1].strip(), "hero swapped and published")
+        self.assertNotIn("Second line", screen)
 
     def test_key_line_has_exactly_five_keys(self):
         self.seat("only-seat", "atoll", live="working")

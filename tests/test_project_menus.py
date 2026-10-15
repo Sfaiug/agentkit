@@ -179,8 +179,8 @@ class Projects(Sandbox):
         # The usage block gives way first, and every seat keeps its row.
         self.assertNotIn("usage left", folded)
         self.assertNotIn("↳", folded)
-        self.assertIn("atoll-fix", folded)
-        self.assertEqual(pages, (0, 1))
+        self.assertIn("atoll-plan", folded)
+        self.assertEqual(pages[0], 0)
         collapsed, pages = self.draw(40, 12)
         # Short phones page the seats; headers stay.
         self.assertNotIn("↳", collapsed)

@@ -77,17 +77,17 @@ unchanged and shaking (Motion). Its `list` runs in a thread with a 20 s timeout,
 and every ten seconds while the screen is open, so neither screen waits on it.
 Needing projects sort first, which is what carries the eye down to one. Under
 a heading seats sort needs you, then working, then done, then idle, then by name, and
-numbers stay global by seat name. The seat row's last column is the reason for
-`needs you` and `done` -- `session closed: press 2 to reopen`, the question
-the seat asked, `stopped with work open: <line>`, the done summary's first line
--- an idle seat's is empty but for a closed one's way back in, `session closed: press 2
-to reopen` -- and for
-`working` its progress line (see Rows are tables) from the session's plan,
+numbers stay global by seat name. A seat's row is one line, and its last column
+is its progress line (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
-from (the newest wins), else from its unfinished jobs' tasks, else empty --
-except for a run recorded in the line to land: its seat shows `waiting · 3rd in line to land on main`.
-Never `N running`, and never when the work will finish: the bar and its count
-are a seat's progress. No row ever names a run: a seat's live runs are named on one line only,
+from (the newest wins), else from its unfinished jobs' tasks, in its word's
+colour while it is not at rest, else empty -- except for a run recorded in the
+line to land: its seat shows `waiting · 3rd in line to land on main`. What the
+reason says -- the question the seat asked, `stopped with work open: <line>`,
+the done summary, an idle seat's way back in, `session closed: press 2 to
+reopen` -- opens under the row (Rows are tables), never beside it. Never `N
+running`, and never when the work will finish: the line and its count are a
+seat's progress. No row ever names a run: a seat's live runs are named on one line only,
 its live line -- task id, step, the model doing it -- and an ended run is its orchestrator's
 business.
 
@@ -348,10 +348,9 @@ Fixed columns with two-space gutters, sized once per draw from the rows on
 screen: number, name, orchestrator, state (glyph and word in the state's
 colour), and one last column. Those before the last always fit the screen: the
 name and the orchestrator share what the number and the state leave, the longer
-giving way first, then the state. The last column takes all the remaining width;
-it wraps at words onto as many indented lines as it takes, so a question is read whole on
-ak's own screen before its seat is opened, whatever harness that seat runs. A row with fewer
-than ten cells left puts it on the indented lines alone, so no line runs past the screen.
+giving way first, then the state. The last column, the progress line, takes all
+the remaining width; a row with fewer than ten cells left puts it on the indented
+line under the row, so no line runs past the screen.
 Columns use gutters, never ` · `. Never cut inside a
 glyph or a colour sequence. No rendered line keeps trailing space: cell pads
 land outside the colour escapes and every row is rstripped, so the snapshots
@@ -371,11 +370,15 @@ colour throughout, narrowing to 24 and then 12 where line one is short of room, 
 its other seats fold or anything is cut. No screen says when a seat's work will finish:
 its progress is its line and its count.
 
-The highlighted seat opens its live line under its row, indented under the
-name and lit as the row is: its tmux bar's second line at the row's
-width, the first of its versions that fits. No other row grows: while a seat on
-screen has a live line, every page keeps a line for it, so no page overflows or
-turns as the highlight moves. The orchestrator column is the model in its
+The row the owner points at, with the pointer or ↑/↓, opens its lines under
+itself, indented under the name and lit as the row is (`menu.detail`): the
+question for `needs you` and what got done for `done`, wrapped whole at words, so
+a question is read whole on ak's own screen before its seat is opened, whatever
+harness it runs; a working seat's live line, its tmux bar's second line at the
+row's width, the first of its versions that fits. No other row grows: every page
+keeps as many lines as the most any seat on screen opens, up to half the screen, a longer question cut to them with `…`, so no page overflows or turns as
+the highlight moves. From a pipe there is no highlight, so every row asking or
+done opens its lines. The orchestrator column is the model in its
 company's colour, as on the seat bar, mirrored on a light background as the
 usage rows are.
 
