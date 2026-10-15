@@ -460,7 +460,7 @@ def answered(session, at):
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
     """
     with session_lock(session) as session:
-        history.intent_began(session, at)   # the first prompt into a seat with no intent open
+        history.prompted(session, at)   # whatever it answers: the seat's intents are read from it
         ask_kept(session, ended=True)
         previous = last(session)
         if previous and previous.get("watcher") is True:
@@ -1495,8 +1495,6 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     extra["time"] = time.time() if at is None else at
     record(name, kind, text, **extra)
     history.noticed(name, extra["time"], "alert" if extra["watcher"] else kind)
-    if kind == "done":
-        history.intent_done(name, extra["time"])
     return previous
 
 

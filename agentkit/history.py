@@ -100,30 +100,40 @@ CREATE TABLE IF NOT EXISTS reviews (
 # One row per word a seat's notice said to the owner, dated at the notice (`at`): a question
 # the seat asked (`needs`), an alert of ak's own (`alert`: a login gone, a stall) or a done;
 # when its card first reached the owner (`paged_at`) and, for a question, when their prompt
-# answered it (`answered_at`).  What the board's owner's-time row reads.
+# answered it (`answered_at`).  What the board's owner's-time row reads.  Here and in `prompts`
+# a seat is the moment it was created (`_owner_write`), never its name.
 NOTICES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS notices (
-    session TEXT,
+    seat REAL,
     at REAL,
     kind TEXT,
     paged_at REAL,
     answered_at REAL,
-    PRIMARY KEY (session, at)
+    PRIMARY KEY (seat, at)
+)
+"""
+
+# One row per prompt of the owner's into a seat, at its moment.
+PROMPTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS prompts (
+    seat REAL,
+    at REAL,
+    PRIMARY KEY (seat, at)
 )
 """
 
 # One row per intent: from the owner's first prompt into a seat with none open (`began_at`)
-# to the seat's done (`done_at`).  What the board's intent-to-live row reads, with the runs'
-# `live_at`.
-INTENTS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS intents (
-    session TEXT,
-    began_at REAL,
-    done_at REAL,
-    PRIMARY KEY (session, began_at)
-)
+# to the seat's done (`done_at`, NULL while open).  Each prompt belongs to the seat's first done
+# at or after it, so the moments alone decide, never the order the hooks wrote them in.  What
+# the board's intent-to-live row reads, with the runs' `live_at`.
+INTENTS_VIEW = """
+CREATE VIEW IF NOT EXISTS intents AS
+SELECT seat, MIN(at) AS began_at, done_at FROM (
+    SELECT seat, at, (SELECT MIN(done.at) FROM notices AS done WHERE done.seat = prompts.seat
+                      AND done.kind = 'done' AND done.at >= prompts.at) AS done_at
+    FROM prompts)
+GROUP BY seat, done_at
 """
-
 
 def path():
     """The history database follows the configured HOME, including test homes."""
@@ -142,7 +152,8 @@ def _connect(*, readonly=False):
     connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(NOTICES_SCHEMA)
-    connection.execute(INTENTS_SCHEMA)
+    connection.execute(PROMPTS_SCHEMA)
+    connection.execute(INTENTS_VIEW)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -344,42 +355,40 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
         (review_id, harness, model, blocking, followup, note, run_id)), log)
 
 
+def _owner_write(session, statement, log, **values):
+    """Write one of the owner's moments for that session's seat (`:seat`): the moment the seat
+    was created, which a rename carries along and a name opened again never shares.  A name no
+    seat record holds is no seat's."""
+    seat = (config.session_records().get(session) or {}).get("created")
+    if seat is not None:
+        _write(lambda connection: connection.execute(statement, {"seat": seat, **values}), log)
+
+
 def noticed(session, at, kind, *, log=None):
     """A notice's word said to the owner, dated at the notice; said again at that moment,
     nothing changes."""
-    _write(lambda connection: connection.execute(
-        "INSERT INTO notices (session, at, kind) VALUES (?,?,?) "
-        "ON CONFLICT(session, at) DO NOTHING", (session, at, kind)), log)
+    _owner_write(session, "INSERT INTO notices (seat, at, kind) VALUES (:seat, :at, :kind) "
+                 "ON CONFLICT(seat, at) DO NOTHING", log, at=at, kind=kind)
 
 
 def paged(session, kind, at, *, log=None):
     """The card of the session's latest notice of that kind reached the owner (a `needs` card
     carries an alert too); the first page is the one kept."""
-    kinds = ("needs", "alert") if kind == "needs" else (kind,)
-    _write(lambda connection: connection.execute(
-        "UPDATE notices SET paged_at=? WHERE session=? AND paged_at IS NULL AND at = "
-        "(SELECT MAX(at) FROM notices WHERE session=? AND at <= ? AND kind IN ("
-        + ",".join("?" * len(kinds)) + "))", (at, session, session, at, *kinds)), log)
+    _owner_write(session, "UPDATE notices SET paged_at=:at WHERE seat=:seat AND paged_at IS NULL "
+                 "AND at = (SELECT MAX(at) FROM notices WHERE seat=:seat AND at <= :at AND "
+                 "(kind=:kind OR (:kind='needs' AND kind='alert')))", log, at=at, kind=kind)
 
 
 def answered(session, at, *, log=None):
     """The owner's prompt answered every question the seat still had open."""
-    _write(lambda connection: connection.execute(
-        "UPDATE notices SET answered_at=? WHERE session=? AND kind='needs' "
-        "AND answered_at IS NULL AND at <= ?", (at, session, at)), log)
+    _owner_write(session, "UPDATE notices SET answered_at=:at WHERE seat=:seat AND kind='needs' "
+                 "AND answered_at IS NULL AND at <= :at", log, at=at)
 
 
-def intent_began(session, at, *, log=None):
-    """The owner's prompt into a seat with no intent open begins one."""
-    _write(lambda connection: connection.execute(
-        "INSERT INTO intents (session, began_at) SELECT ?, ? WHERE NOT EXISTS "
-        "(SELECT 1 FROM intents WHERE session=? AND done_at IS NULL)", (session, at, session)), log)
-
-
-def intent_done(session, at, *, log=None):
-    """The seat's done ends its open intent."""
-    _write(lambda connection: connection.execute(
-        "UPDATE intents SET done_at=? WHERE session=? AND done_at IS NULL", (at, session)), log)
+def prompted(session, at, *, log=None):
+    """The owner's prompt into the seat, at its moment: what its `intents` are read from."""
+    _owner_write(session, "INSERT INTO prompts (seat, at) VALUES (:seat, :at) "
+                 "ON CONFLICT(seat, at) DO NOTHING", log, at=at)
 
 
 def review_counts(harness, model):

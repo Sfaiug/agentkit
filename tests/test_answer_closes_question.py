@@ -3,8 +3,10 @@
 Offline: real hook input, fake tmux and card delivery, and a temporary HOME.
 """
 
+from contextlib import closing
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -12,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, notify, orch, watch
+from agentkit import config, history, notify, orch, watch
 
 SEAT = "fix-api"
 QUESTION = "Which schema should acme use?"
@@ -191,6 +193,21 @@ class AnswerClosesQuestion(Sandbox):
         self.assert_open()
         self.prompt()                   # the owner's own words still answer it
         self.assert_answered()
+
+    def test_a_hand_back_with_no_question_standing_is_no_prompt_of_the_owner_s(self):
+        """review 908: with no notice yet, or the latest one retired, a hand-back's prompt is
+        still the seat's own news, which no intent of the owner's begins at."""
+        config.update_session(SEAT, created=100)     # the seat the owner's history is about
+        self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)
+        self.hook("Stop")
+        self.notice()
+        notify.clear(SEAT)
+        self.assertTrue(self.handback())
+        self.prompt(prompt=HANDBACK)
+        turn = self.prompt()                          # the owner's own words
+        with closing(sqlite3.connect(history.path())) as db:
+            self.assertEqual(db.execute("SELECT seat, at FROM prompts").fetchall(), [(100, turn)])
 
     def test_a_turn_a_hand_back_opened_ends_on_the_standing_question(self):
         """review 20261007-0336: the seat's question to the owner still stands, unanswered, so

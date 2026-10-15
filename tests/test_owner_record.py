@@ -2,7 +2,8 @@
 row per word a seat's notice said to them (a question the seat asked, an alert of ak's own, a
 done), dated at the notice, with when its card first reached them and when their prompt
 answered it; `intents`, from the owner's first prompt into a seat with none open to the
-seat's done.
+seat's done, read from the moments alone.  A seat is the moment it was created, which a rename
+carries and a name opened again never shares.
 
 Offline: a sandbox HOME, the webhook post faked, no seat.
 """
@@ -14,12 +15,21 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import history, notify
+from agentkit import config, history, notify
 
 SEAT = "fix-api"
+BORN = 1.0      # the moment the seat was created: who the rows are about
 
 
 class OwnerRecord(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.open_seat(SEAT, BORN)
+
+    def open_seat(self, name, created):
+        config.save_session(self.cfg, name, "opus", ["astra"],
+                            {"cwd": str(self.root), "created": created})
+
     def rows(self, table):
         with closing(sqlite3.connect(history.path())) as db:
             return db.execute(f"SELECT * FROM {table} ORDER BY 2").fetchall()
@@ -37,8 +47,8 @@ class OwnerRecord(Sandbox):
     def test_a_question_an_alert_and_a_done_are_rows_dated_at_their_notices(self):
         self.said("needs", "Which schema?", 100.0)
         self.said("needs", "And the port?", 160.0)          # asked beside the standing one
-        self.assertEqual(self.rows("notices"), [(SEAT, 100.0, "needs", None, None),
-                                                (SEAT, 160.0, "needs", None, None)])
+        self.assertEqual(self.rows("notices"), [(BORN, 100.0, "needs", None, None),
+                                                (BORN, 160.0, "needs", None, None)])
         notify.answered(SEAT, 200.0)                       # the owner's one prompt answers both
         self.assertEqual([row[4] for row in self.rows("notices")], [200.0, 200.0])
         self.said("done", "shipped", 300.0)
@@ -66,29 +76,59 @@ class OwnerRecord(Sandbox):
                 self.assertEqual(notify._attempt(event), 0)
 
         attempt(self.event("needs", 150.0, "e1"), delivered, 170.0)
-        self.assertEqual(self.rows("notices"), [(SEAT, 100.0, "needs", 170.0, None)])
+        self.assertEqual(self.rows("notices"), [(BORN, 100.0, "needs", 170.0, None)])
         # a done card pages the done row, and a card that stays pending pages nothing
         self.said("done", "shipped", 300.0)
         self.said("needs", "Next?", 330.0)
         attempt(self.event("done", 310.0, "e2"), delivered, 320.0)
         attempt(self.event("needs", 335.0, "e3"), pending, 340.0)
-        self.assertEqual(self.rows("notices"), [(SEAT, 100.0, "needs", 170.0, None),
-                                                (SEAT, 300.0, "done", 320.0, None),
-                                                (SEAT, 330.0, "needs", None, None)])
+        self.assertEqual(self.rows("notices"), [(BORN, 100.0, "needs", 170.0, None),
+                                                (BORN, 300.0, "done", 320.0, None),
+                                                (BORN, 330.0, "needs", None, None)])
 
     def test_the_owner_s_prompt_begins_an_intent_and_the_seat_s_done_ends_it(self):
         notify.answered(SEAT, 50.0)          # the first message of a job: no question standing
         notify.answered(SEAT, 60.0)          # the same job
-        self.assertEqual(self.rows("intents"), [(SEAT, 50.0, None)])
+        self.assertEqual(self.rows("intents"), [(BORN, 50.0, None)])
         self.said("done", "shipped", 300.0)
-        self.assertEqual(self.rows("intents"), [(SEAT, 50.0, 300.0)])
+        self.assertEqual(self.rows("intents"), [(BORN, 50.0, 300.0)])
         self.said("needs", "Next?", 310.0)
         notify.answered(SEAT, 400.0)         # answers the question and begins the next intent
-        self.assertEqual(self.rows("intents"), [(SEAT, 50.0, 300.0), (SEAT, 400.0, None)])
+        self.assertEqual(self.rows("intents"), [(BORN, 50.0, 300.0), (BORN, 400.0, None)])
         self.assertEqual(self.rows("notices")[-1][4], 400.0)
         self.said("done", "again", 500.0)
         self.said("done", "once more", 600.0)   # no intent open: nothing to end
-        self.assertEqual(self.rows("intents"), [(SEAT, 50.0, 300.0), (SEAT, 400.0, 500.0)])
+        self.assertEqual(self.rows("intents"), [(BORN, 50.0, 300.0), (BORN, 400.0, 500.0)])
+
+    def test_a_prompt_heard_late_or_out_of_order_keeps_its_own_moment(self):
+        """review 908: the prompt's look waits for the notice lock, so a done said after the
+        prompt can be written first, and two looks can finish in either order."""
+        self.said("done", "shipped", 300.0)
+        notify.answered(SEAT, 290.0)         # its look heard after the done it led to
+        notify.answered(SEAT, 320.0)
+        notify.answered(SEAT, 310.0)         # the first prompt after the done, heard second
+        self.assertEqual(self.rows("intents"), [(BORN, 290.0, 300.0), (BORN, 310.0, None)])
+
+    def test_a_renamed_seat_keeps_its_rows_and_a_name_used_again_starts_its_own(self):
+        """review 908: a name is a seat's label, renamed at will and free again once the
+        seat is stopped; neither carries one seat's question or intent into another's."""
+        notify.answered(SEAT, 50.0)
+        self.said("needs", "Which schema?", 100.0)
+        config.rename_session(SEAT, "acme-api")
+        notify.answered("acme-api", 200.0)
+        with notify.session_lock("acme-api") as name:
+            notify._said(name, "done", "shipped", at=300.0)
+        self.assertEqual(self.rows("intents"), [(BORN, 50.0, 300.0)])
+        self.assertEqual(self.rows("notices"), [(BORN, 100.0, "needs", None, 200.0),
+                                                (BORN, 300.0, "done", None, None)])
+        notify.answered("acme-api", 350.0)   # the seat is stopped mid-intent ...
+        config.session_path("acme-api").unlink()
+        config.session_path(SEAT).unlink()
+        self.open_seat(SEAT, 2.0)            # ... and its first name opens another
+        notify.answered(SEAT, 400.0)
+        self.said("done", "shipped", 500.0)
+        self.assertEqual(self.rows("intents"), [(BORN, 50.0, 300.0), (BORN, 350.0, None),
+                                                (2.0, 400.0, 500.0)])
 
 
 if __name__ == "__main__":
