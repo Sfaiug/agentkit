@@ -332,16 +332,16 @@ def review_counts(harness, model):
 
 
 def parks(since, until):
-    """How many runs the park stopped in the inclusive range, by the moment each was stopped
-    (`parked_at`, which `leases.park` stamps); None where the database cannot answer.  Stopped
-    rows, which `REAL_WORK` leaves out of every other count: a park is a stop."""
+    """The moments the park stopped runs in the inclusive range (`parked_at`, which
+    `leases.park` stamps); None where the database cannot answer.  Stopped rows, which
+    `REAL_WORK` leaves out of every other count: a park is a stop."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                return connection.execute(
-                    "SELECT COUNT(*) FROM runs WHERE parked_at >= ? AND parked_at <= ?",
-                    (since, until)).fetchone()[0]
+                return [row[0] for row in connection.execute(
+                    "SELECT parked_at FROM runs WHERE parked_at >= ? AND parked_at <= ?",
+                    (since, until))]
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

@@ -8,7 +8,7 @@ import subprocess
 import time
 from statistics import median
 
-from . import config, gitcall, history, record, terminal
+from . import config, gitcall, history, record, terminal, transitions
 
 # The parts of a merged change's hours, each second of its runs' phase rows in the first that
 # holds it: a model turn, else ak's own work (a check, or a merge step, which runs from the run's
@@ -282,20 +282,34 @@ def compute(now=None):
         """The week's merged runs by who built the change: a seat, whose change comes as a
         pull request's review (`change` names the PR, its own or another's), or a worker, a
         task or fix run; each with the share of its merged runs that merged in round 1, None
-        with none merged.  None with no run ended."""
+        with none merged.  A run neither can be told of (`by_seat`) counts in neither.  None
+        with no run ended."""
         if not ended:
             return None
+        merged = [(by_seat(row), row) for row in ended if delivered(row)]
         stats = {}
-        for kind, rows in (("seat", [row for row in ended if by_seat(row)]),
-                           ("worker", [row for row in ended if not by_seat(row)])):
-            merged = [row for row in rows if delivered(row)]
-            stats[f"{kind}_merged"] = len(merged)
-            stats[f"{kind}_first_round"] = (sum(row["rounds_used"] == 1 for row in merged)
-                                            / len(merged) if merged else None)
+        for kind, seat in (("seat", True), ("worker", False)):
+            rounds = [row["rounds_used"] for by, row in merged if by is seat]
+            stats[f"{kind}_merged"] = len(rounds)
+            stats[f"{kind}_first_round"] = rounds.count(1) / len(rounds) if rounds else None
         return stats
 
     def by_seat(row):
-        return bool(PULL_REQUEST.fullmatch(row.get("change") or ""))
+        """Whether a seat built that run's change: its row names a pull request, or, on a row
+        from before changes were recorded, its record does (`transitions.change_name`); None
+        where neither is left to say."""
+        change = row.get("change")
+        if change is None:
+            saved = record.read_state(config.RUNS / row["run_id"])
+            if saved is None:
+                return None
+            change = transitions.change_name(saved)
+        return bool(PULL_REQUEST.fullmatch(change or ""))
+
+    def in_week(at, end):
+        """Whether that moment falls in the week ending at `end`: the boundary between the two
+        weeks is the last 7 days', as is `now`."""
+        return end - week <= at and (at <= end if end == now else at < end)
 
     common = git("rev-parse", "--git-common-dir")
     own_names = {config.REPO.name}
@@ -304,11 +318,11 @@ def compute(now=None):
     rows = [row for row in history.ended_runs(now - 2 * week, now)
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
 
+    held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     board, waits, merged_changes, escapes_seen = {"products": [], "ak": []}, [], [], []
     built, parks = [], []
     for end in (now, now - week):
-        finished = [row for row in rows if end - week <= row["finished_at"] and
-                    (row["finished_at"] <= end if end == now else row["finished_at"] < end)]
+        finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
         ended = [row for row in finished if row["final_state"] != "not_needed"]
         total_tokens = sum((row.get(role + "_tokens") or 0)
@@ -326,8 +340,7 @@ def compute(now=None):
         merged_changes.append(per_change(ended))
         escapes_seen.append(escapes(ended))
         built.append(who_built(ended))
-        held = history.parks(end - week, end)       # stopped rows: not among `ended`
-        parks.append(None if held is None else {"parked": held})
+        parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:

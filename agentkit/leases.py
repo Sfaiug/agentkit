@@ -112,8 +112,9 @@ def before_review(state):
     pull request's review builds nothing to set aside, a job's task is its job's to
     settle, as `transitions.parkable_conflict` leaves it, and a red target's repair and a suite's split
     are waited on: stopped, either would hold its line (`handback.repair_open`) or its suite
-    (`handback.open_followup`) for good."""
-    if state.get("review_pr") and not state.get("own_pr"):
+    (`handback.open_followup`) for good.  A run parked already is not: a second scan that
+    saw it live would move its wait and the moment of its stop (`parked_at`)."""
+    if (state.get("review_pr") and not state.get("own_pr")) or parked(state):
         return False
     return (not any(state.get(key) for key in ("job_id", "repair", "split_suite", "round_summaries"))
             and state.get("step") in (None, "executor", "done-when"))
