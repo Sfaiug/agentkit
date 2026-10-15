@@ -56,7 +56,20 @@ AUTH="${XDG_CONFIG_HOME:-$HOME/.config}/muse/auth.json"
 home() {
   [ -n "$ACCOUNT" ] || return 0
   mkdir -p -- "$XDG_CONFIG_HOME/muse" || return 1
-  local entry link
+  local entry link settings="$XDG_CONFIG_HOME/muse/settings.json" usual="$USUAL/muse/settings.json" merged
+  local -a files=()
+  # Muse 1.4.7 writes settings.json through a link and keeps it (skills enable/disable, /theme).
+  # Import this login's settings once, with the usual login winning even within an object.
+  if [ ! -L "$settings" ] || [ ! "$settings" -ef "$usual" ]; then
+    [ ! -e "$settings" ] || files+=("$settings")
+    [ ! -e "$usual" ] || files+=("$usual")
+    merged=$(jq -s 'reduce .[] as $s ({"schema_version": 1}; . * $s)' "${files[@]}" </dev/null) || return 1
+    mkdir -p -- "$USUAL/muse" || return 1
+    if [ ! -e "$usual" ] || ! jq -e --argjson merged "$merged" '. == $merged' "$usual" >/dev/null; then
+      printf '%s\n' "$merged" >"$usual" || return 1
+    fi
+    ln -sfn -- "$usual" "$settings" || return 1
+  fi
   for entry in "$USUAL"/* "$USUAL"/.[!.]*; do
     link=$XDG_CONFIG_HOME/${entry##*/}
     [ "${entry##*/}" = muse ] || [ ! -e "$entry" ] || [ -e "$link" ] || [ -L "$link" ] ||
