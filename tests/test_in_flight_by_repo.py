@@ -4,7 +4,7 @@ A seat filed under another project that has a going run on this checkout is list
 what that run changes and its plan lines naming this checkout, never its other lines; a run of a
 seat filed here that works on another checkout changes nothing here; a going run launched from
 no seat is listed by its id; and the checkout's open pull requests that no going run reviews or
-delivers are listed with their files, every page of both.
+delivers are listed with their files, every page of both, and how many GitHub does not list.
 Offline: invented checkouts, seat records, plans and runs under a temporary HOME, gh faked.
 """
 
@@ -44,7 +44,7 @@ class InFlightByRepo(Sandbox):
 
     def github(self, cwd, *args, **_kw):
         """gh api --paginate's pages: the open pull requests 100 at a time, each naming its first
-        100 files, and a pull request's own files endpoint 100 at a time."""
+        100 files, and a pull request's own files endpoint 100 at a time, 3,000 at most."""
         def pages(items):
             return [items[at:at + 100] for at in range(0, max(len(items), 1), 100)]
         if "graphql" in args:
@@ -54,7 +54,7 @@ class InFlightByRepo(Sandbox):
                 for pr in page]}}}} for page in pages(self.prs)], ""
         number = int(args[-1].split("/pulls/")[1].split("/")[0])
         files = next(pr["files"] for pr in self.prs if pr["number"] == number)
-        return [[{"filename": path} for path in page] for page in pages(files)], ""
+        return [[{"filename": path} for path in page] for page in pages(files[:3000])], ""
 
     def pr(self, number, title, *files):
         return {"number": number, "title": title, "url": URL.format(number), "files": list(files)}
@@ -113,8 +113,17 @@ class InFlightByRepo(Sandbox):
         self.prs = [self.pr(1, "Wide", *files),
                     *(self.pr(n, f"pr {n}", "a.py") for n in range(2, 102))]
         found = orch.open_prs(self.acme)
-        self.assertEqual([number for number, _, _ in found], list(range(1, 102)))
-        self.assertEqual(found[0][2], files)
+        self.assertEqual([number for number, *_ in found], list(range(1, 102)))
+        self.assertEqual(found[0][2:], (files, 0))
+
+    def test_files_github_does_not_list_are_counted(self):
+        files = [f"f{n:04}.py" for n in range(3001)]
+        self.prs = [self.pr(1, "Large move", *files)]
+        self.assertEqual(orch.open_prs(self.acme), [(1, "Large move", files[:3000], 1)])
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(orch.main(["project", "acme"]), 0)
+        self.assertTrue(" ".join(line.strip() for line in out.getvalue().splitlines()).endswith(
+            "f2999.py, 1 more GitHub does not list"))
 
 
 if __name__ == "__main__":

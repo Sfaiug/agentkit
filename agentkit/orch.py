@@ -3428,9 +3428,11 @@ def cmd_project(argv):
         if files:
             for part in terminal.wrap(f"changing: {', '.join(sorted(files))}", room):
                 print(f"    {part}")
-    for number, title, files in prs:
+    for number, title, files, unlisted in prs:
         for part in terminal.wrap(f"pull request #{number}, in no run: {title}", room + 2):
             print(f"  {part}")
+        if unlisted:
+            files = [*files, f"{unlisted} more GitHub does not list"]
         if files:
             for part in terminal.wrap(f"changing: {', '.join(files)}", room):
                 print(f"    {part}")
@@ -3492,12 +3494,13 @@ OPEN_PRS_QUERY = (
 
 
 def open_prs(target):
-    """[(number, title, changed files)] of the checkout's open pull requests no going run is
-    reviewing or delivering -- a seat's PR waiting between runs, anybody's PR -- or [] where gh
-    cannot list them all.
+    """[(number, title, changed files, how many more it changes)] of the checkout's open pull
+    requests no going run is reviewing or delivering -- a seat's PR waiting between runs,
+    anybody's PR -- or [] where gh cannot list them all.
 
     Every page of them; a pull request changing more files than its first page names reads
-    the rest from its own files endpoint."""
+    the rest from its own files endpoint, which GitHub stops at 3,000: the count says what
+    it left out."""
     from . import watch  # here, not at the top: watch imports this module
     taken = {state.get(key) for _, state in going_here(target) for key in ("review_pr", "pr")}
     pages, _ = watch.gh_json(target, "api", "graphql", "--paginate", "-F", "owner={owner}",
@@ -3513,7 +3516,8 @@ def open_prs(target):
                     every, _ = watch.pages(target, f"repos/{{owner}}/{{repo}}/pulls/{pr['number']}"
                                                    "/files?per_page=100")
                     files = [each["filename"] for each in every]
-                found.append((pr["number"], pr["title"], sorted(files)))
+                found.append((pr["number"], pr["title"], sorted(files),
+                              pr["changedFiles"] - len(files)))
     except (KeyError, TypeError):
         return []
     return found
