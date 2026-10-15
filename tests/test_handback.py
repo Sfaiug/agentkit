@@ -603,6 +603,13 @@ class HandBack(Sandbox):
                 patch.object(watch, "seat_model", return_value=("grokbuild", "acme")):
             alone = made(700) + " and fix the login"
             self.assertEqual(watch.composer_holds(SEAT, self.live(), alone, self.cfg), "line")
+        # an owner's `> ` heading the first row Antigravity's read shows is theirs, not a prompt
+        pane = (REPO / "tests/fixtures/antigravity-tall-line-pane.txt").read_text()
+        tail = watch.pane_tail(pane)
+        pane = pane.replace(tail, tail.replace("20261006", "> 20261006", 1))
+        with patch.object(watch, "pane_text", return_value=pane), \
+                patch.object(watch, "seat_model", return_value=("antigravity", "acme")):
+            self.assertEqual(watch.composer_holds(SEAT, self.live(), made(700), self.cfg), "other")
 
     def test_a_fail_at_the_last_round_hands_back_and_sends_no_card(self):
         directory = self.failed()
