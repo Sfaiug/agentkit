@@ -407,8 +407,20 @@ coding task as the site counts it; the release's cost file is part of the answer
 read off the bracket in its name (`Claude Opus 5.5 (max)`; `Acme Pro (High) (0813)` is `Acme Pro (0813)` at high;
 `(Non-reasoning)` is `none`, a bracket naming no effort leaves the row at none). A board that cannot answer keeps its last
 rows with the error beside them and, like one that answered, is not asked again before the day is up. Callers at once
-share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it. The text form is one
-line per board, how many rows and when, and its note. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
+
+The matrix (`rows`) is one row per model and effort the installed harnesses offer (every `config.manifests` name
+`config.harness_present` says is here, their `config.catalog`, and every configured model): an effort a board lists
+for the model, among those the harness offers, or one the config runs it at in any role (`config.role_effort`), so a
+board naming no effort counts for every effort of its model, and a model no board lists at any effort is one row at
+none. A board's model is found by its letters and digits (`normal`: `claude-opus-5-5` is `Claude Opus 5.5 (max)` at
+max), else by the board's name the id extends with a version only (`muse-wonder-full` for `muse-wonder-full-1.0`;
+`found`), else, on a board where neither finds it, by `benchmark` on the config entry; at the row's effort, else the
+board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it, every matched
+board's numbers and which board model each came from. The table puts the fullest rows first: model, harness, id and
+effort, the boards that have it, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a
+successful coding task); under it, one line per board with how many rows, when and its note, and the rows no board has.
+`--json` is the rows and the boards' notes. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history
 

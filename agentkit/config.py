@@ -259,6 +259,20 @@ def harness_binary(name):
     return ""
 
 
+def harness_present(harness):
+    """Whether that harness is present to run a turn: its adapter here and its program found,
+    the one its `[update] version` runs, else the adapter's own name, as `orch.agent_programs`
+    reads them.  The one answer for a pick, a seat's move, the config screen and `ak models`."""
+    try:
+        adapter(harness)
+    except Error:
+        return False
+    block = manifest(harness).get("update")
+    version = block.get("version") if isinstance(block, dict) else None
+    named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
+    return bool(harness_binary(version[0] if named else harness))
+
+
 def seatless_env():
     """child_env() without the seat's name: nothing below the loop speaks for a seat.
 

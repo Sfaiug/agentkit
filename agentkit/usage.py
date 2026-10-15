@@ -858,18 +858,12 @@ def _asked(cfg, entry):
 def harness_unready(harness, accounts=(None,)):
     """Why this harness cannot run a turn here, or None when nothing says it cannot.
 
-    Not installed is its adapter missing, or its program nowhere to be found: the one its
-    `[update] version` runs, else the adapter's own name, as `orch.agent_programs` reads them.
-    Not logged in is its own `auth` verb saying no for every one of `accounts`, the usual
-    login for None: a turn runs on any of them.  No answer withholds nothing.
+    Not installed is `config.harness_present` saying no: its adapter missing, or its program
+    nowhere to be found.  Not logged in is its own `auth` verb saying no for every one of
+    `accounts`, the usual login for None: a turn runs on any of them.  No answer withholds
+    nothing.
     """
-    try:
-        config.adapter(harness)
-    except config.Error:
-        return f"{harness} is not installed"
-    version = harness_plugin(harness).update["version"]
-    named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
-    if not config.harness_binary(version[0] if named else harness):
+    if not config.harness_present(harness):
         return f"{harness} is not installed"
     if all((worker.auth_ok(harness) if account is None
             else worker.auth_ok(harness, account=account))[0] is False for account in accounts):

@@ -3733,13 +3733,7 @@ def _switch_plan(cfg, name, model, providers):
         harness = config.model(cfg, model)["harness"]
     except config.Error as exc:
         return str(exc), None
-    try:
-        config.adapter(harness)
-    except config.Error:
-        return f"{model}: {harness} is not installed", None
-    version = harness_plugin(harness).update["version"]
-    named = isinstance(version, list) and version and isinstance(version[0], str) and version[0]
-    if not config.harness_binary(version[0] if named else harness):
+    if not config.harness_present(harness):
         return f"{model}: {harness} is not installed", None
     try:
         old_provider = config.model(cfg, record["orchestrator"])["provider"]

@@ -115,7 +115,8 @@
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
 - `matrix.py`: the public boards' model rows (Artificial Analysis, Arena Agent, LiveBench), each
-  asked once a day into `state/matrix.json`; `ak models`. Offers `collect`. For bin/ak.
+  asked once a day into `state/matrix.json`, and the matrix: a row per model and effort the
+  installed harnesses offer, matched to the boards; `ak models`. Offers `collect`, `rows`. For bin/ak.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.

@@ -1,4 +1,4 @@
-"""The public boards ak reads models' numbers from, each asked once a day into `state/matrix.json`.
+"""Every model and effort the installed harnesses offer, with the public boards' numbers for each.
 
 Three boards export their numbers.  Artificial Analysis, with the key the owner puts under
 `secrets/artificialanalysis_key` (free at artificialanalysis.ai/login): per model and effort,
@@ -12,8 +12,16 @@ last said, its error beside it, and waits for the day like one that answered.  C
 share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
 A board's row is one model at one effort (`Acme 5 (max)` is Acme 5 at max), or at none where the
 board names no effort, with every number the board gives as `<board>.<field>`, a table's fields
-under the table's name (`aa.evaluations.artificial_analysis_coding_index`).  Attribution:
-artificialanalysis.ai, arena.ai, livebench.ai.
+under the table's name (`aa.evaluations.artificial_analysis_coding_index`).
+
+A row of the matrix is one model at one effort: an effort a board lists for it or the config
+runs it at in any role, so a board naming no effort counts for every effort of its model, and a
+model no board lists at any effort is one row at none.  A board's model is matched by name,
+letters and digits alone (`acme-5` is `Acme 5 (max)` at max), else by the board's name the id
+extends with a version (`acme-pro` for `acme-pro-1.0`); `benchmark` on a config entry names the
+board's model on a board where neither fits.  A board's row at another effort never stands in.
+ak's own run numbers never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai,
+arena.ai, livebench.ai.
 """
 
 import csv
@@ -25,7 +33,7 @@ import sys
 import time
 import urllib.request
 
-from . import command_help, config
+from . import command_help, config, terminal
 
 FRESH_FOR = 86400        # a board is asked at most once a day: none moves faster than that
 TIMEOUT = 30             # seconds one request may take
@@ -36,10 +44,12 @@ ARENA_URL = ("https://datasets-server.huggingface.co/rows?dataset=lmarena-ai/lea
 ARENA_CONFIGS = ("agent", "agent_steerability")
 LIVEBENCH = "https://livebench.ai/"
 BOARDS = ("artificialanalysis.ai", "arena.ai", "livebench.ai")
+SPEED = "aa.performance.median_output_tokens_per_second"
 COST = "livebench.cost_coding"           # dollars per successful coding task
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own
 EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none"}
+HEADERS = ("model", "harness", "id", "boards", "tok/s", "$/task")
 
 
 def fetch_bytes(url, headers=None):
@@ -193,7 +203,88 @@ def collect(*, refresh=False, now=None):
     return cache
 
 
-def render(boards):
+def normal(text):
+    """A model's name as every board and config spells it alike: its letters and digits."""
+    return re.sub(r"[^a-z0-9]", "", text.rsplit("/", 1)[-1].lower())
+
+
+def found(index, model, benchmark=None):
+    """A board's rows for one model: under its exact name, else under a board's name naming no
+    version of its own that `model` extends with one (`Acme Pro` for `acme-pro-1.0`, never
+    `Acme 5` for `acme-5-5`), else under `benchmark`, the config entry's name for it on a board
+    where neither fits; none where the board has nothing for it."""
+    wanted = normal(model)
+    if wanted in index:
+        return index[wanted]
+    stems = [stem for stem in index if stem and not stem[-1].isdigit()
+             and wanted.startswith(stem) and wanted[len(stem):].isdigit()]
+    if stems:
+        return index[max(stems, key=len)]
+    return index.get(normal(benchmark), []) if benchmark else []
+
+
+def matching(index, model, effort, benchmark=None):
+    """The board's row for that model at that effort, else its row naming no effort, else None:
+    a row at another effort never stands in."""
+    hits = found(index, model, benchmark)
+    return next((row for row in hits if row["effort"] == effort),
+                next((row for row in hits if row["effort"] is None), None))
+
+
+def rows(cfg, boards):
+    """One row per model and effort the installed harnesses offer, with the config name that
+    runs it, every board's numbers it matches and which board model each came from."""
+    indexes = {}
+    for board, held in boards.items():
+        for row in held.get("rows") or []:
+            indexes.setdefault(board, {}).setdefault(normal(row["model"]), []).append(row)
+    names = {}        # (harness, model, effort) -> the config name some role runs it at
+    for name in config.offered(cfg):
+        entry = cfg["models"][name]
+        for role in config.ROLE_EFFORTS:
+            names[(entry["harness"], entry["model"], config.role_effort(entry, role))] = name
+    table = []
+    for harness in sorted({name for name, _ in config.manifests()}):
+        if not config.harness_present(harness):
+            continue
+        listed = {item["id"]: item["efforts"] for item in config.catalog(harness)}
+        for (h, model, effort), name in names.items():
+            if h == harness:
+                listed.setdefault(model, [])
+        for model, offered in listed.items():
+            own = [name for (h, m, _), name in names.items() if (h, m) == (harness, model)]
+            benchmark = next((cfg["models"][name]["benchmark"] for name in own
+                              if cfg["models"][name].get("benchmark")), None)
+            # the efforts worth a row: the boards' for this model, among those the harness
+            # offers, and the config's
+            efforts = {row["effort"] for index in indexes.values()
+                       for row in found(index, model, benchmark)
+                       if row["effort"] and (not offered or row["effort"] in offered)}
+            efforts |= {effort for (h, m, effort) in names if (h, m) == (harness, model)}
+            for effort in sorted(efforts, key=lambda word: -EFFORT_ORDER.index(word)
+                                 if word in EFFORT_ORDER else 1) or [None]:
+                row = {"harness": harness, "model": model, "effort": effort,
+                       "name": names.get((harness, model, effort)), "values": {}, "matched": {}}
+                for board, index in indexes.items():
+                    hit = matching(index, model, effort, benchmark)
+                    if hit is not None:
+                        row["values"].update(hit["values"])
+                        row["matched"][board] = hit["model"] + (f" ({hit['effort']})"
+                                                               if hit["effort"] else "")
+                table.append(row)
+    return table
+
+
+def row_label(row):
+    """`acme` for a configured row, else `acme-5-5`, and `@ max` where an effort is."""
+    return (row["name"] or row["model"]) + (f" @ {row['effort']}" if row["effort"] else "")
+
+
+def _num(value, places=0):
+    return "-" if value is None else f"{value:.{places}f}"
+
+
+def boards_lines(boards):
     """One line per board: how many rows it gave and when, and its error where it has one."""
     lines = []
     for board in BOARDS:
@@ -203,7 +294,31 @@ def render(boards):
                 f"{time.strftime('%d %b %H:%M', time.localtime(when))}" if when
                 else f"{board}: no rows yet")
         lines.append(line + (f" · note: {held['error']}" if held.get("error") else ""))
-    return "\n".join(lines)
+    return lines
+
+
+def render(table, boards):
+    """The rows as a table, the fullest first, then what each board said and when."""
+    table = sorted(table, key=lambda row: (-len(row["values"]), row["harness"], row["model"]))
+    lines_of = [HEADERS] + [
+        (row["name"] or "-", row["harness"],
+         row["model"] + (f" @ {row['effort']}" if row["effort"] else ""),
+         ", ".join(board.split(".")[0] + (f" ({hit.rsplit('(', 1)[1]}" if "(" in hit else "")
+                   for board, hit in row["matched"].items()) or "-",
+         _num(row["values"].get(SPEED)), _num(row["values"].get(COST), 2))
+        for row in table]
+    width = terminal.width()
+    widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(HEADERS))]
+    lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(line, widths)).rstrip()
+             for line in lines_of]
+    lines[0] = terminal.styled(lines[0], "dim")
+    lines += boards_lines(boards)
+    unmatched = [row_label(row) for row in table if not row["values"]]
+    if unmatched:
+        lines.append(f"no board row: {', '.join(unmatched)}")
+    return "\n".join(part for line in lines for part in
+                     ([line] if terminal.cells(terminal.plain(line)) <= width else
+                      terminal.wrap(line, width)))
 
 
 def main(argv):
@@ -212,10 +327,14 @@ def main(argv):
     flags = set(argv)
     if flags - {"--json", "--refresh"}:
         raise config.Error(f"usage: ak models [--json] [--refresh]  (got {argv!r})")
+    cfg = config.load()
     boards = collect(refresh="--refresh" in flags)
+    table = rows(cfg, boards)
     if "--json" in flags:
-        json.dump(boards, sys.stdout, indent=2)
+        json.dump({"rows": table, "boards": {board: {k: v for k, v in held.items() if k != "rows"}
+                                             for board, held in boards.items()}},
+                  sys.stdout, indent=2)
         print()
     else:
-        print(render(boards))
+        print(render(table, boards))
     return 0
