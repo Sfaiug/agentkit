@@ -15,6 +15,11 @@ HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND
 # Each entry is (usage, description, example). Model selections remain in config.toml;
 # MODEL in usage/examples stands for one of that file's keys.
 COMMANDS = {
+    "models": ("usage: ak models [--json] [--refresh]",
+               "Read the public boards' numbers per model and effort: Artificial Analysis (key in\n"
+               "~/.agentkit/secrets/artificialanalysis_key, free), Arena Agent and LiveBench, each asked\n"
+               "once a day; --refresh asks now, --json prints the cache.",
+               "ak models"),
     "usage": ("usage: ak usage [--json]", "Show provider usage and worker pick order.",
               "ak usage --json"),
     "worker": (WORKER_USAGE, "Run one headless model turn from a task or prompt file.",
@@ -195,7 +200,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
-ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "browser", "fetch")
+ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch")
 INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
 
 PURPOSES = {
@@ -206,6 +211,7 @@ PURPOSES = {
     "hand-in": "hand in review evidence or close a worker turn",
     "attach": "the menu",
     "usage": "show provider usage and worker pick order",
+    "models": "read the public boards' numbers per model and effort",
     "browser": "inspect the shared browser, sign in, register MCP tools, or install the stack",
     "update": "upgrade harnesses and verify with acceptance gates",
     "watch": "check PRs and stalled sessions",

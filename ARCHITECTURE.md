@@ -113,6 +113,8 @@
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
+- `matrix.py`: the public boards' model rows (Artificial Analysis, Arena Agent, LiveBench), each
+  asked once a day into `state/matrix.json`; `ak models`. Offers `collect`. For bin/ak.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
