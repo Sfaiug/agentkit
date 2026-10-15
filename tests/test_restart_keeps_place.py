@@ -22,8 +22,10 @@ NEWER = "20260101-1100-newer"
 
 class RestartKeepsPlace(LiveRuns):
     def restarted(self):
-        """The younger run, parked on the older and started again once the older landed."""
+        """The younger run, queued at 950 and admitted at 1000, parked on the older and started
+        again once the older landed."""
         self.collide()
+        record.save_state(config.RUNS / YOUNGER, {**self.state(YOUNGER), "queued_at": 950})
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
         leases.scan(self.repo, now=2000)
         holder = config.RUNS / OLDER
@@ -60,9 +62,9 @@ class RestartKeepsPlace(LiveRuns):
         self.assertEqual(self.state(name)["state"], "running")
 
     def test_the_slot_queue_admits_the_restart_from_its_first_place(self):
-        restart = {"run_id": "b-restart", "queued_at": 3000, "started_at": 3000,
-                   "first_started_at": 1000}
-        queued_meanwhile = {"run_id": "a-meanwhile", "queued_at": 1500, "started_at": 1500}
+        restart = record.read_state(self.restarted())
+        # queued while the first attempt waited for its slot, so behind it then
+        queued_meanwhile = {"run_id": "a-meanwhile", "queued_at": 975, "started_at": 975}
         self.assertLess(gate.slot_order(restart), gate.slot_order(queued_meanwhile))
 
 

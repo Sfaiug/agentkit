@@ -430,7 +430,8 @@ def restart(log=print, now=None):
                 run.launch_for_seat(
                     directory, state,
                     {"restarted": {"run": run_dir.name, "why": why}, "repo": state.get("repo"),
-                     "first_started_at": transitions.first_started(state), **carried},
+                     "first_started_at": transitions.first_started(state),
+                     "first_queued_at": transitions.first_queued(state), **carried},
                     opts={**{key: value for key, value in (state.get("launch_opts") or {}).items()
                              if key != "--first"},
                           **({"--review-pr": review} if review else {}),
