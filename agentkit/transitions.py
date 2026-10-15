@@ -1185,29 +1185,30 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
     its pull request, whatever the spelling of its URL.  The run itself (`exclude`) counts
     for nothing.  Read-only.
     """
+    counted = [rounds for rounds in map(rounds_spent, runs_on(pr=pr, change=change, exclude=exclude))
+               if rounds]
+    return sum(counted), len(counted)
+
+
+def runs_on(*, pr=None, change=None, exclude=None):
+    """The records of the runs on that pull request, whatever the spelling of its URL, or on
+    that change (`change_of`), but the run `exclude` names."""
     wanted = pr_key(pr)
-    spent = runs = 0
     for run_dir in run_record.run_dirs():
         if exclude is not None and run_dir.name == Path(exclude).name:
             continue
         state = run_record.read_state(run_dir)
-        if not state:
-            continue
-        on_pr = wanted is not None and wanted in (pr_key(state.get("pr")), pr_key(state.get("review_pr")))
-        on_change = change is not None and change_of(state) == change
-        rounds = rounds_spent(state)
-        if (on_pr or on_change) and rounds:
-            spent += rounds
-            runs += 1
-    return spent, runs
+        if state and ((wanted is not None
+                       and wanted in (pr_key(state.get("pr")), pr_key(state.get("review_pr"))))
+                      or (change is not None and change_of(state) == change)):
+            yield state
 
 
-def change_reviewed(change):
-    """Whether a review of that change handed in its verdict (`round_summaries`) on any run of
-    it (`change_of`): a round under way holds its place in the budget (`rounds_spent`), but no
-    reviewer has judged the change yet."""
-    return any(state and change_of(state) == change and state.get("round_summaries")
-               for state in map(run_record.read_state, run_record.run_dirs()))
+def change_reviewed(*, pr=None, change=None):
+    """Whether a review of that pull request or change handed in its verdict
+    (`round_summaries`) on any run of it (`runs_on`): a round under way holds its place in the
+    budget (`rounds_spent`), but no reviewer has judged the change yet."""
+    return any(state.get("round_summaries") for state in runs_on(pr=pr, change=change))
 
 
 def round_budget(asked, *, pr=None, change=None, exclude=None, what, own=0):

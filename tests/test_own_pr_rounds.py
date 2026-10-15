@@ -395,6 +395,15 @@ class OwnPrRounds(OwnPr):
         self.hand_push(1)                               # the fix left 5000 added lines
         self.assertEqual(self.review(["PASS"])["verdict"], "PASS")
 
+    def test_a_round_under_way_elsewhere_is_no_review_of_the_pr(self):
+        earlier = config.RUNS / "own-pr-earlier"        # holds round 1, with no verdict yet
+        earlier.mkdir()
+        record.save_state(earlier, {"run_id": earlier.name, "state": "running", "review_pr": URL, "pr": URL,
+                                    "step": "executor", "step_round": 1, "round_summaries": []})
+        self.hand_push(1)                               # 5000 added lines of fence.txt
+        state = self.review(["PASS"])
+        self.assertEqual((state["state"], self.prompts), ("blocked", []))
+
     def test_a_seat_renamed_mid_review_keeps_its_name_through_a_blocked_ending(self):
         def blocked(lp, *_a, **_kw):
             with record.record(lp.run_dir) as current:      # the seat is renamed during the review

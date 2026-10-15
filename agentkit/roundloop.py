@@ -1589,7 +1589,7 @@ def first_review_ceiling(lp):
     one launched `from:` its branch, handed in a verdict, a later one reviews whatever the fix
     left.  A scratch run has no diff to count."""
     if (lp.scratch or lp.state.get("review_pr")
-            or transitions.change_reviewed(transitions.change_of(lp.state))):
+            or transitions.change_reviewed(change=transitions.change_of(lp.state))):
         return
     gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     lines = transitions.diff_lines(lp.wt, lp.base_sha, "HEAD", added_only=True)
