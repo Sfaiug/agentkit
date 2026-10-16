@@ -36,7 +36,7 @@ import tempfile
 import time
 from datetime import datetime
 
-from . import command_help, config, host, retention, worker
+from . import command_help, config, host, orch, retention, worker
 from .harness import load as harness_plugin
 
 VERSION = re.compile(r"\d+\.\d+\.\d+[^\s()]*")
@@ -67,6 +67,7 @@ HARNESS_GATES = "harness-gates"  # under config.STATE: one failure episode per h
 # This script is the only writer of both files; the tick only creates the directory and reads it.
 LIVE_RUN = r'''import os, signal, subprocess, sys, time
 check, repo, commit, cap, grace = sys.argv[1:]
+os.chdir(check)
 holder = subprocess.Popen(["sleep", "99999999"], process_group=0)
 with open("output.tmp", "w") as out:
     script = subprocess.Popen(["sh", "-c", 'git -C "$0" worktree add --quiet --detach "$1" "$2" '
@@ -166,7 +167,7 @@ def version(harness):
     return harness_plugin(harness["name"]).identity(identity, harness["version"])
 
 
-def step(cmd, fh, env=None, timeout=STEP_CAP):
+def step(cmd, fh, env=None, timeout=STEP_CAP, *, target_slice=None):
     """Run one command into the log; True when it exited 0.
 
     Its stdin is /dev/null: an update runs unattended, and a gate started from a terminal
@@ -175,10 +176,17 @@ def step(cmd, fh, env=None, timeout=STEP_CAP):
     cmd = [config.harness_binary(cmd[0]) or cmd[0], *cmd[1:]]
     fh.write(f"\n$ {shlex.join(cmd)}\n")
     fh.flush()
+    environment = {**config.child_env(), **PINS, **(env or {})}
+    unit = f"agentkit-update-{time.time_ns()}" if target_slice and orch.user_manager() else None
+    command = cmd
+    if unit:
+        command, environment = orch.detached_in_slice(
+            cmd, unit, environment, target_slice=target_slice, wait=True,
+            properties=("-p", f"WorkingDirectory={Path.cwd()}"))
     try:
-        with subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
+        with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
                               start_new_session=True,
-                              env={**config.child_env(), **PINS, **(env or {})}) as proc:
+                              env=environment) as proc:
             try:
                 code = proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
@@ -197,6 +205,9 @@ def step(cmd, fh, env=None, timeout=STEP_CAP):
     except OSError as exc:
         fh.write(f"[{exc}]\n")
         code = "could not start"
+    finally:
+        if unit:
+            orch.stop_scope(f"{unit}.service", log=say)
     fh.write(f"[exit {code}]\n")
     fh.flush()
     if code != 0:
@@ -796,12 +807,12 @@ def live_tick(log, now, fetched):
     log(f"checking agentkit at {tip[:12]} with tests/live.sh before it goes live")
     check = config.STATE / LIVE / f"{tip}-{int(now)}"
     check.mkdir(parents=True)
-    subprocess.Popen([sys.executable, "-c", LIVE_RUN, str(check), str(agentkit_dir()), tip,
-                      str(int(now) + SMOKE_CAP), str(worker.MARK_KILL_GRACE)],
-                     cwd=check, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True,
-                     env={**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",
-                          worker.RUN_MARKER: str(check)})
+    orch.start_in_slice(
+        [sys.executable, "-c", LIVE_RUN, str(check), str(agentkit_dir()), tip,
+         str(int(now) + SMOKE_CAP), str(worker.MARK_KILL_GRACE)],
+        f"agentkit-live-{check.name}",
+        {**config.child_env(), **PINS, "AGENTKIT_ACCEPTANCE_REQUIRED": "1",
+         worker.RUN_MARKER: str(check)}, os.devnull, log, target_slice=orch.slice_name())
 
 
 def _live_excerpt(said):
@@ -1235,7 +1246,7 @@ def upgrade(plan, before):
             say(f"update: running {live.name}")
             gate = "live"
             passed = step(["bash", str(live)], fh, {"AGENTKIT_ACCEPTANCE_REQUIRED": "1"},
-                          timeout=SMOKE_CAP)
+                          timeout=SMOKE_CAP, target_slice=orch.slice_name())
         if passed:
             fresh_ok, fresh_why = fresh_gate(fh, say)
             if fresh_ok or fresh_why.startswith("skipped:"):

@@ -514,7 +514,7 @@ def in_slice(argv, unit, socket=None, env=None, target_slice=None, properties=()
 
 
 def detached_in_slice(argv, unit, env, output=None, socket=None, forking=False,
-                      target_slice=None, properties=()):
+                      target_slice=None, properties=(), wait=False):
     """(argv, env) for work the manager starts itself inside the slice.
 
     A service rather than a scope, because a scope moves the caller's own process into the
@@ -522,6 +522,7 @@ def detached_in_slice(argv, unit, env, output=None, socket=None, forking=False,
     where cron puts a tick.  The manager starts a service itself, inside the slice, so it
     starts with the manager's environment and the manager's stdio instead of this process's:
     both are handed over by name.  `--collect` leaves nothing behind if it fails.
+    `wait` forwards stdio, keeps the client until the work ends and returns its exit status.
 
     A unit's command line is not a shell's: systemd reads a dollar there as the start of a
     variable and `$$` as one plain dollar, so every dollar in it is doubled and the command
@@ -533,6 +534,7 @@ def detached_in_slice(argv, unit, env, output=None, socket=None, forking=False,
         return argv, env
     return (["systemd-run", "--user", f"--slice={target_slice}", "--quiet", "--collect",
              f"--unit={unit}",
+             *(["--wait", "--pipe"] if wait else []),
              *([f"--property=StandardOutput=append:{output}"] if output else []),
              *(["--property=Type=forking"] if forking else []),
              *properties,

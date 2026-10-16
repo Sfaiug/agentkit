@@ -371,7 +371,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         (self.bin / ".muse-release-info.json").write_text('{"version":"1.0.0-R1"}\n')
         real_step = update.step
         real_version = update.version
-        def step(cmd, fh, env=None, timeout=None):
+        def step(cmd, fh, env=None, timeout=None, **_kw):
             if cmd[0] == "bash":
                 self.assertEqual(env["AGENTKIT_ACCEPTANCE_REQUIRED"], "1")
                 return real_step(["/bin/bash", "-c", self.common + 'skip "3a codex: spent"; finish'], fh, env)
