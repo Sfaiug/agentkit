@@ -490,13 +490,12 @@ CHECKED_ENV = "AGENTKIT_CLAUDE_CHECKED"   # the launch has read Claude's setting
 
 def _settings(account):
     """(paths, what each holds) of the configuration a seat on that login is opened with: the
-    owner's settings and the login's global config, with a named login's own settings.  A file
-    not there holds nothing; one that is not a JSON object is a ValueError."""
+    owner's settings, which every login reads (a named one's links to them: adapters/claude.sh's
+    `share`), and the login's global config.  A file not there holds nothing; one that is not a
+    JSON object is a ValueError."""
     home = Path.home()
-    directory = home / f".claude-{account}"
-    paths = ((home / ".claude/settings.json", directory / ".claude.json",
-              directory / "settings.json") if account else
-             (home / ".claude/settings.json", home / ".claude.json"))
+    paths = (home / ".claude/settings.json",
+             home / f".claude-{account}/.claude.json" if account else home / ".claude.json")
     values = []
     for path in paths:
         try:
@@ -523,10 +522,11 @@ def checked(account):
 def account_config(check=False):
     """Keep the owner's configuration beside an alternate login's own credentials.
 
-    Claude's config override moves both its user settings and its global .claude.json.
-    Validate before respawning the pane; on either login, answer the first-run questions
-    (`answered`) in the launch's actual cwd.  What every seat runs with comes on its command
-    line (adapters/claude.sh's PINS), so the usual login's settings are never rewritten here.
+    Claude's config override moves both its user settings and its global .claude.json; the
+    adapter links the settings to the usual login's (`share`).  Validate before respawning the
+    pane; on either login, answer the first-run questions (`answered`) in the launch's actual
+    cwd.  What every seat runs with comes on its command line (adapters/claude.sh's PINS), so
+    no login's settings are rewritten here.
     """
     account = os.environ.get("AGENTKIT_ACCOUNT")
     paths, values = _settings(account)
@@ -546,19 +546,13 @@ def account_config(check=False):
         usual = {}
     if not isinstance(usual, dict):
         usual = {}
-    for path, data in zip(paths[1:], values[1:]):
-        if path.name == ".claude.json":
-            # A notice answered once is answered everywhere: only `true` flags travel,
-            # so the named login keeps its own account, ids, caches and projects.
-            for key, value in usual.items():
-                if value is True:
-                    data[key] = True
-            answered(data)
-        else:
-            data.update(values[0])
-            # Hooks belong to the current installation, not every past checkout.
-            data["hooks"] = values[0].get("hooks", {})
-        _write(path, data)
+    # A notice answered once is answered everywhere: only `true` flags travel,
+    # so the named login keeps its own account, ids, caches and projects.
+    for key, value in usual.items():
+        if value is True:
+            values[1][key] = True
+    answered(values[1])
+    _write(paths[1], values[1])
     for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
         source, target = home / ".claude" / name, directory / name
         if source.exists() and not target.exists() and not target.is_symlink():

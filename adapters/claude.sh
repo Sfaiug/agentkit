@@ -97,19 +97,40 @@ renew() {
   ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
 }
 
+# An account's conversations and user settings are the usual login's, linked into its config
+# directory: a conversation begun on one account is resumed on the next, and a setting changed in
+# any session on any login is every seat's and worker's, which no launch puts back (Claude Code
+# 2.1.292 writes its user settings through the link and keeps it).  The first link carries over
+# the settings only the account's own file held, the usual login's winning, one launch at a time:
+# two first launches writing the usual file at once could each drop what the other carried over.
+share() {
+  [ -n "$ACCOUNT" ] || return 0
+  local own="$CLAUDE_CONFIG_DIR/settings.json" usual="$HOME/.claude/settings.json"
+  mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" "$TMPD" || return 1
+  [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
+    ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || return 1
+  [ "$(readlink -- "$own")" != "$usual" ] || return 0
+  ( python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9 || exit 1
+    [ "$(readlink -- "$own")" != "$usual" ] || exit 0
+    if [ -e "$own" ]; then
+      both=("$own")
+      [ ! -e "$usual" ] || both+=("$usual")
+      merged=$(jq -se 'if all(type == "object") then add // {} else error("not a JSON object") end' \
+               "${both[@]}") || exit 1
+      [ -e "$usual" ] && jq -e --argjson merged "$merged" '. == $merged' "$usual" >/dev/null ||
+        printf '%s\n' "$merged" >"$usual" || exit 1
+    fi
+    ln -sf -- "$usual" "$own.$$" && mv -f -- "$own.$$" "$own"
+  ) 9>>"$TMPD/claude-settings.lock"
+}
+
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "claude.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
   model=$1 effort=$2 ws=$3 pf=$4 out=$5 sid=${6:-}
   mkdir -p -- "$out" || exit 2
   cd -- "$ws" || { echo "claude.sh: no such workspace: $ws" >&2; exit 2; }
-  if [ -n "$ACCOUNT" ]; then
-    # Claude Code keeps conversations under its config directory's projects/: an account's is
-    # the usual one, so a conversation begun on one account is resumed on the next
-    mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
-    [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
-      ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
-  fi
+  share || exit 2
   # The long-lived worker token, where there is one: a headless turn authenticates with it and
   # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
@@ -128,12 +149,8 @@ run)
 interactive)
   [ $# -ge 2 ] || { echo "claude.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
   # The printed command runs later, outside this adapter's environment. Carry the login
-  # into it, sharing the same transcripts as worker turns on these accounts do.
-  if [ -n "$ACCOUNT" ]; then
-    mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
-    [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
-      ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
-  fi
+  # into it, sharing the same transcripts and settings as worker turns on these accounts do.
+  share || exit 2
   # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of
   # filling its context; %q so a checkout path with a space still parses as one word
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
