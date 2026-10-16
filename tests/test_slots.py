@@ -27,12 +27,18 @@ class Slots(unittest.TestCase):
         self.owner = patch.object(record, "process_owner", return_value={"pid": 1})
         self.owner.start()
         self.addCleanup(self.owner.stop)
-        self.counts = patch.object(gate, "slot_counts", return_value=(0, 0))
+        self.counts = patch.object(gate, "slot_counts", return_value=(0, 0, []))
         self.counts.start()
         self.addCleanup(self.counts.stop)
         self.held = patch.object(gate, "frozen_runs", return_value=0)
         self.held.start()
         self.addCleanup(self.held.stop)
+        # claim_slot leaves the queue it decided beside the runs
+        temp = tempfile.TemporaryDirectory(prefix=".ak-test-slots-", dir=REPO)
+        self.addCleanup(temp.cleanup)
+        runs = patch.object(config, "RUNS", Path(temp.name))
+        runs.start()
+        self.addCleanup(runs.stop)
 
     def claim(self, readings, state=None):
         state = {"run_id": "r", "run_depth": 0, **(state or {})}
@@ -68,7 +74,7 @@ class Slots(unittest.TestCase):
 
     def test_fifo_waiter_cannot_overtake(self):
         state = {"run_id": "behind", "run_depth": 0}
-        with patch.object(gate, "slot_counts", return_value=(0, 1)), \
+        with patch.object(gate, "slot_counts", return_value=(0, 1, [])), \
                 patch.object(host, "host_readings", side_effect=AssertionError("must not read")):
             self.assertFalse(gate.claim_slot(state, 1))
         self.assertEqual(state["slot_wait_kind"], "count")
@@ -163,7 +169,7 @@ class Slots(unittest.TestCase):
             runs.mkdir()
             with patch.object(config, "RUNS", runs), patch.object(config, "HOME", root), \
                     patch.object(gate, "SLOT_POLL", .001), \
-                    patch.object(gate, "slot_counts", return_value=(0, 0)), \
+                    patch.object(gate, "slot_counts", return_value=(0, 0, [])), \
                     patch.object(host, "host_readings",
                                  side_effect=[{**HEALTHY, "free_mb": 1024}, HEALTHY, HEALTHY]), \
                     patch.object(run, "redress_seat"), patch.object(handback, "redress_seat"):

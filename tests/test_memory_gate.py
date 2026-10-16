@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, host, run  # noqa: E402
+from agentkit import config, gate, host, run  # noqa: E402
 from agentkit import record
 
 
@@ -117,7 +117,8 @@ class MemoryGate(unittest.TestCase):
         state = {"run_id": "r", "run_depth": 0}
         with patch.dict(os.environ, {"AK_MAX_RUNS": "1", "AK_MIN_FREE_MB": "3072",
                                      "AK_MAX_LOAD": "8"}), \
-                patch.object(gate, "slot_counts", return_value=(0, 0)), \
+                patch.object(gate, "slot_counts", return_value=(0, 0, [])), \
+                patch.object(config, "RUNS", root.parent), \
                 patch.object(gate, "frozen_runs", return_value=0), \
                 patch.object(record, "process_owner", return_value={"pid": 1}), \
                 patch.object(host, "host_readings", return_value=readings):

@@ -122,18 +122,47 @@ def host_status_line():
 
 
 def slot_counts(state):
-    """Live slot owners, and top-level receipts ahead of this one (including dead waiters)."""
-    running, ahead = 0, 0
+    """Live slot owners, top-level receipts ahead of this one (including dead waiters), and
+    the other waiters' run ids in queue order."""
+    running, waiting = 0, []
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
         if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
             continue
         if other.get("state") == "running" and run_record.process_active(other):
             running += 1
-        elif (other.get("state") == "queued" and other.get("slot_waiting") and
-              slot_order(other) < slot_order(state)):
-            ahead += 1
-    return running, ahead
+        elif other.get("state") == "queued" and other.get("slot_waiting"):
+            waiting.append(slot_order(other))
+    waiting.sort()
+    mine = slot_order(state)
+    return running, sum(order < mine for order in waiting), [order[-1] for order in waiting]
+
+
+def _save_queue(running, queue):
+    """Under slot_lock: the queue as this poll decided it, for the waiters behind its first."""
+    path = config.RUNS / ".slots.queue"
+    temp = path.with_name(".slots.queue.tmp")
+    temp.write_text(json.dumps({"at": time.time(), "running": running, "queue": queue}))
+    temp.replace(path)
+
+
+def slot_queue():
+    """(when, live slot owners, waiting run ids first in line first) as the last poll left them."""
+    try:
+        saved = json.loads((config.RUNS / ".slots.queue").read_text())
+        return float(saved["at"]), int(saved["running"]), [str(run_id) for run_id in saved["queue"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0.0, 0, []
+
+
+def behind_first(run_id):
+    """Whether the queue still has this run waiting behind its first, who alone can be admitted.
+
+    Such a run skips its poll: it reads no record and takes no lock. A queue no poll rewrote
+    for two polls -- its first stopped or died -- is counted again by whoever polls next.
+    """
+    at, _, queue = slot_queue()
+    return 0 <= time.time() - at < 2 * SLOT_POLL and run_id in queue[1:]
 
 
 def frozen_runs(state):
@@ -166,8 +195,15 @@ def slot_line(running, ahead, limit, first=False):
 
 
 def slot_note(state):
-    return state.get("slot_wait_reason") or slot_line(
-        *slot_counts(state), config.max_runs(), not slot_order(state)[0])
+    # A run behind the first polls nothing that refreshes its own reason: its place is the queue's.
+    _, running, queue = slot_queue()
+    if state.get("run_id") in queue[1:]:
+        counts = running, queue.index(state["run_id"])
+    elif state.get("slot_wait_reason"):
+        return state["slot_wait_reason"]
+    else:
+        counts = slot_counts(state)[:2]
+    return slot_line(*counts, config.max_runs(), not slot_order(state)[0])
 
 
 def _slice_cpu_reason(readings):
@@ -210,7 +246,7 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
 
 def claim_slot(state, limit, readings=None):
     """Called under slot_lock: count, FIFO and two steady host polls decide admission."""
-    running, ahead = slot_counts(state)
+    running, ahead, others = slot_counts(state)
     # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
     ungated = os.environ.get("AK_MAX_RUNS") == "0"
     if state.get("run_depth", 0) or ungated:
@@ -218,6 +254,7 @@ def claim_slot(state, limit, readings=None):
                      **run_record.process_owner())
         state.pop("resume_from", None)
         return True
+    _save_queue(running, others[:ahead] + [state.get("run_id")] + others[ahead:])
     is_first = not slot_order(state)[0]
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
@@ -269,6 +306,7 @@ def claim_slot(state, limit, readings=None):
                 f"waiting for steady readings · {host._g(free)} G free, "
                 f"ak cpu pressure {_pct(pressure)}")
         return False
+    _save_queue(running + 1, others)
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **run_record.process_owner())
     for key in ("resume_from", "slot_healthy_polls", "reservation_pending",
@@ -303,9 +341,17 @@ def wait_for_slot(run_dir):
     """Reserve a slot in run.json before work starts; no process-local semaphore can do this."""
     announced = False
     first_poll = True
+    behind = False
     wait_kind = None
     counted = None
     while True:
+        if not first_poll:
+            counted = counted or (time.time(), time.monotonic())
+            time.sleep(SLOT_POLL)
+            counted = count_wait(run_dir.name, "slot", counted)
+            if behind_first(run_dir.name):
+                behind = True
+                continue
         limit = config.max_runs()
         with slot_lock(), run_record.recovery_lock(run_dir):
             state = run_record.read_state(run_dir) or {}
@@ -322,6 +368,10 @@ def wait_for_slot(run_dir):
                 run_record.save_state(run_dir, state)
             if state.get("state") != "queued" or state.get("pid") != os.getpid():
                 raise config.Error(f"{run_dir.name}: another process owns this launch")
+            if behind:
+                # The polls it skipped were count waits, and steadiness starts over after one.
+                state.update(slot_wait_kind="count", slot_healthy_polls=0)
+                behind = False
             first_poll = False
             if claim_slot(state, limit):
                 run_record.save_state(run_dir, state)
@@ -333,9 +383,6 @@ def wait_for_slot(run_dir):
             print(slot_note(state), flush=True)
             handback.redress_seat(state.get("launched_session"))
             announced = True
-        counted = counted or (time.time(), time.monotonic())
-        time.sleep(SLOT_POLL)
-        counted = count_wait(run_dir.name, "slot", counted)
     if counted:
         count_wait(run_dir.name, "slot", counted)
     if state.get("slot_waited"):

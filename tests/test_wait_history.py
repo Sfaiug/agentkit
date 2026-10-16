@@ -396,7 +396,7 @@ class WaitHistory(unittest.TestCase):
                 if running:
                     self.assertEqual(stop.cmd_stop([run_id, "--keep"]), 0)
 
-            with patch.object(gate, "slot_counts", return_value=(running, 0)), \
+            with patch.object(gate, "slot_counts", return_value=(running, 0, [])), \
                     patch.object(time, "sleep", side_effect=sleep):
                 if run_id == "fix-db":
                     with self.assertRaises(SystemExit):
@@ -424,7 +424,7 @@ class WaitHistory(unittest.TestCase):
                 (time, "time", {"side_effect": lambda: self.clock[0]}),
                 (time, "monotonic", {"side_effect": lambda: self.clock[0]}),
                 (gate, "SLOT_POLL", {"new": 600}),
-                (gate, "slot_counts", {"return_value": (1, 0)}),
+                (gate, "slot_counts", {"return_value": (1, 0, [])}),
                 (gate, "slot_note", {"return_value": "waiting for a slot"}),
                 (run, "redress_seat", {})):
             self.stack.enter_context(patch.object(module, name, **options))

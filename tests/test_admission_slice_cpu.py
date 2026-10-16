@@ -38,10 +38,11 @@ class AdmissionSliceCpu(unittest.TestCase):
         # no config.toml here, so max_load is unpinned unless the test writes one
         self.stack.enter_context(patch.object(config, "HOME", self.root))
         self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
+        config.RUNS.mkdir()
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1",
                                                          "AK_MIN_FREE_MB": "3072"}))
         os.environ.pop("AK_MAX_LOAD", None)
-        self.stack.enter_context(patch.object(gate, "slot_counts", return_value=(0, 0)))
+        self.stack.enter_context(patch.object(gate, "slot_counts", return_value=(0, 0, [])))
         self.stack.enter_context(patch.object(gate, "frozen_runs", return_value=0))
         self.stack.enter_context(patch.object(record, "process_owner",
                                               return_value={"pid": 1}))
