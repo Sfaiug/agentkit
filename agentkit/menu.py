@@ -1826,7 +1826,7 @@ class _RunRecords:
                 changed.append((run_dir.name, json.dumps([key, state])))
             fresh[run_dir.name] = key, state
             if not state.get("unattended") and not smoke_run(state, resolved):
-                found.append((run_dir, copy.deepcopy(state)))
+                found.append((run_dir, state))
         removed = self.known.keys() - fresh.keys()
         self.known = fresh
         if self.db is not None and (changed or removed):
@@ -1847,7 +1847,7 @@ def run_records():
     Only a changed run.json is opened again, with its stat taken before the read so a racing
     write can cause another read, never hide one. SQLite commits only changed rows and keeps
     other processes' reads whole. Cache failures leave the run files authoritative. Returned
-    records are copies: a caller changing one cannot change a later call's answer.
+    records are shared read-only snapshots, replaced only when their run.json changes.
 
     Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
     Paths are resolved on every pass: a symlink can move without a run.json changing. Bad run
