@@ -1565,10 +1565,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in out))
                      + "\033[J" + moved)
     sys.stdout.flush()
+    # each page's first seat or heading drawn on no page before it, so the highlight resting
+    # there has that page up: a heading over its project's next page, or a tall seat's rest, is not
+    turns, before = [], set()
+    for lines in pages:
+        turns.append(next((name for _, name in lines
+                           if isinstance(name, (str, Path)) and name not in before), None))
+        before.update(name for _, name in lines)
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
-                 ask=top + at + 1 if at else None, spots=spots,
-                 turns=[next((name for _, name in lines if isinstance(name, (str, Path))), None)
-                        for lines in pages])
+                 ask=top + at + 1 if at else None, spots=spots, turns=turns)
     return page, (len(pages) if ordered else 1)
 
 
@@ -3788,10 +3793,10 @@ def page_mark(keys, page, pages, width):
 
 def turned(turns, page, cursor, step):
     """Where ← (`step` -1) or → (1) takes the highlight from `page`: to the first thing it can
-    rest on (`turns`, each page's) of the nearest page that way holding one other than `cursor`,
-    passing a page with none -- only a heading, or the rest of a tall seat; else nowhere."""
+    rest on (`turns`, each page's) of the nearest page that way holding one, passing a page
+    with none -- only a heading, or the rest of a tall seat; else it stays on `cursor`."""
     ahead = range(page + step, len(turns) if step > 0 else -1, step)
-    return next((turns[n] for n in ahead if turns[n] not in (None, cursor)), cursor)
+    return next((turns[n] for n in ahead if turns[n] is not None), cursor)
 
 
 def pressed(key, drawn, found):

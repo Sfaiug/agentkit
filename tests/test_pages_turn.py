@@ -101,9 +101,23 @@ class KeyLine(Sandbox):
     def test_a_page_with_nothing_to_rest_on_is_passed(self):
         self.assertEqual(menu.turned(["a", None, "c"], 0, "a", 1), "c")
         self.assertEqual(menu.turned(["a", None, "c"], 2, "c", -1), "a")
-        self.assertEqual(menu.turned(["a", "a", "b"], 0, "a", 1), "b")     # a tall seat's rest
         self.assertEqual(menu.turned(["a", None], 0, "a", 1), "a")          # nowhere to go
         self.assertEqual(menu.turned(["a", "b"], 0, "a", -1), "a")
+
+    def test_a_heading_over_each_of_its_projects_pages_turns_to_every_one(self):
+        # a project naming its feature switches heads each of its pages with a row of its own,
+        # which the highlight rests on only on the first
+        groups = menu.v5o_groups(self.cfg, self.seats, look=False)
+        groups[0][0]["switches"] = []
+        with patch.object(menu, "v5o_groups", return_value=groups):
+            lines, drawn = self.screen(60, 14, cursor=groups[0][0]["checkout"])
+            pages = len(drawn["turns"])
+            self.assertGreater(pages, 2)
+            for step, number in [(1, n) for n in range(2, pages + 1)] + [
+                    (-1, n) for n in range(pages - 1, 0, -1)]:
+                cursor = menu.turned(drawn["turns"], number - 1 - step, drawn["cursor"], step)
+                lines, drawn = self.screen(60, 14, cursor=cursor)
+                self.assertEqual(page_of(lines), f"{number} / {pages}")
 
 
 if __name__ == "__main__":
