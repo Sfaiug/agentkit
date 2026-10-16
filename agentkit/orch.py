@@ -1475,7 +1475,7 @@ def ghost(name, record):
     return {"name": name, "path": record.get("cwd", ""),
             "created": record.get("created") or record.get("seen") or int(time.time()),
             "attached": False, "exited": False, "legacy": False, "resumable": True,
-            "closed": watch.seat_read(name).get("stopped_at") or None}
+            "closed": watch.seat_stopped_at(name)}
 
 
 def listing(reconcile=True):
@@ -2721,7 +2721,13 @@ def unread_question(name):
 
 
 def sweep(log):
-    """Retire old detached dead seats and stale records; preserve active job evidence."""
+    """Retire old detached dead seats and stale records; preserve active job evidence.
+
+    A record's week runs from the seat's last sighting in tmux, or from the owner's stop where
+    there was one (`watch.seat_stopped_at`): a seat long gone from tmux that the owner stops
+    today keeps its row and its number the whole week.
+    """
+    from . import watch   # here, not at the top: watch imports this module
     found = {s["name"]: s for s in sessions()}
     protected = set()
     for directory in run_record.run_dirs():
@@ -2734,7 +2740,8 @@ def sweep(log):
     now = time.time()
     for name, record in records().items():
         seat = found.get(name)
-        since = record.get("exited_since") if seat else record.get("seen")
+        since = (record.get("exited_since") if seat
+                 else watch.seat_stopped_at(name) or record.get("seen"))
         if (name in protected or unread_question(name)
                 or not retention.expired(since, now, config.SESSION_STALE)):
             continue
@@ -3329,15 +3336,15 @@ def cmd_stop(argv):
     closed as `Answered`, the tabs the seat or its runs opened close, and the tmux session
     goes -- under the seat's own typing lock, so a line being typed into it finishes first.
     Its record and state files stay, the stop mark in the seat file, so its row keeps its
-    number, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number reopens
-    the conversation where it stopped, and a
+    number a week, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number
+    reopens the conversation where it stopped, and a
     hand-back for a run of its waits for that (`watch.seat_closed_by_owner`).  The run
     directories stay, their results collected by age; a card Discord would not take the edit
     for stays, for the tick to close; browser tabs with no recorded opener are left to the
     idle rule.
 
     A stop on a seat already stopped -- `Stop` on its row again, `ak orch stop` again -- is the
-    other half, `forget_seat`, and so is the sweep of a record a week gone from tmux.  A
+    other half, `forget_seat`, and so is the sweep a week after the stop.  A
     record is enough on its own to stop, whether or not tmux still has the session; a session
     with no record -- made by hand, or from before agentkit kept records -- has nothing to
     keep and no number to reopen it, so its one stop is the whole stop.
