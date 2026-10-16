@@ -735,15 +735,19 @@ class Phone(Sandbox):
         phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
         # the session is gone, so the attach is over: the menu is back, no box, the stopped seat
-        # still on its row for its number to reopen it, and `x` on it again takes it off at once
-        screen = phone.until("your projects", "1  new-2", "2  phone-audit", "x remove",
-                             absent=["│"], prompt="esc leave")
+        # off its project and on the past screen with its number, where `x` takes it off at once
+        screen = phone.until("your projects", "2  phone-audit", "p past", absent=["│", "new-2"],
+                             prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertFalse(self.has_seat("new-2"))
+        self.assertEqual(self.marked(screen), 2)
+        phone.press("p")
+        screen = phone.until("past sessions", "1  new-2", "x remove", prompt="esc back")
+        self.fits(screen, width, height)
         self.assertEqual(self.marked(screen), 1)
         phone.press("x")
-        screen = phone.until("your projects", "1  phone-audit", "esc leave", absent=["new-2"],
-                             prompt="esc leave")
+        screen = phone.until("your projects", "1  phone-audit", "esc leave",
+                             absent=["new-2", "p past"], prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertNotIn("2  phone-audit", "\n".join(screen))
         phone.settled()
@@ -850,11 +854,14 @@ class Phone(Sandbox):
         else:
             self.assertIn(f"Stop {LONG_NAME} and everything it runs?", screen)
         self.stop_answered(phone)
-        # stopped, the seat keeps its row and the highlight; x on it again removes it
-        screen = phone.until("your projects", "x remove", prompt="esc leave")
-        self.assertEqual(self.marked(screen), 12)
+        # stopped, the seat is on the past screen with its number, and x there removes it
+        screen = phone.until("your projects", "p past", absent=[LONG_NAME[:20]],
+                             prompt="esc leave")
+        phone.press("p")
+        screen = phone.until("past sessions", f"12  {LONG_NAME[:10]}", prompt="esc back")
+        self.fits(screen, width, height)
         phone.press("x")
-        screen = phone.until("your projects", "11 need you", absent=[LONG_NAME[:20]],
+        screen = phone.until("your projects", "11 need you", absent=[LONG_NAME[:20], "p past"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertIn("11 need you", "\n".join(screen))

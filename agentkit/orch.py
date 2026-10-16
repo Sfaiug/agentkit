@@ -1484,8 +1484,8 @@ def listing(reconcile=True):
     A seat whose tmux instance is gone is not a seat that never was -- the orchestrator's
     conversation is still in its harness's own store, and the record here says which one -- so
     it keeps its row, and its number opens the conversation where it stopped.  A seat the owner
-    stopped keeps its row whether or not its harness can resume it (`cmd_stop`): the row is
-    what `x` removes it by, and what keeps its name taken.
+    stopped is offered whether or not its harness can resume it (`cmd_stop`), its row on the
+    menu's past screen: that is what `x` removes it by, and what keeps its name taken.
     A record whose harness keeps its row without owning anything -- `[conversation]
     always_offered`, because there ownership is evidence and not a field -- keeps it with that
     harness's own fresh-start explanation.
