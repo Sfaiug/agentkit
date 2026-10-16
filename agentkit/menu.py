@@ -214,6 +214,7 @@ class Live:
         self.met = set()                 # the listed seats a pass of this menu's has looked at
         self.asked, self.looking = threading.Event(), False   # a read asked for, and a look
         self.last = None                 # where each read leaves the seats and their groups
+        self.read_from = None            # the seats and runs it read them from, a pass's too
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
 
@@ -268,32 +269,34 @@ class Live:
             pass    # an adapter that cannot answer leaves the cache as it was; the row says why
         self._wake()
 
-    def look(self, found):
+    def look(self, found, records):
         """Look at every seat again, off the read, and wait for none of it.
 
         The looks are `v5o_groups`' own -- each seat captured, decided, and written to its record
         and its bar -- in a thread of their own, so a seat whose capture hangs holds up no read
         and no draw: the read is the records as they stand, and a look landing has them read
-        again (`ask`) for its words to be drawn.  One pass at a time; one still going is not
-        doubled, and a menu that has left starts none: whether this one started is the answer.
+        again (`ask`) for its words to be drawn.  They decide on `records`, the runs the read
+        that started them read, so a pass reads nothing of its own.  One pass at a time; one
+        still going is not doubled, and a menu that has left starts none: whether this one
+        started is the answer.
         """
         if not self.done.is_set() and self.passing.acquire(blocking=False):
-            self.looker = threading.Thread(target=self._look, args=(found,), daemon=True)
+            self.looker = threading.Thread(target=self._look, args=(found, records), daemon=True)
             self.looker.start()
             return True
         return False
 
-    def _look(self, found):
+    def _look(self, found, records):
         try:
-            v5o_groups(self.cfg, found)
+            v5o_groups(self.cfg, found, records)
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             pass    # a seat that cannot be looked at keeps what its record says
         finally:
             # Over before the next is decided, not when its thread ends: a seat listed while this
-            # one was going gets its own pass here, with nothing read for it (`away`).
+            # one was going gets its own pass here, on what the read listing it read (`away`).
             self.passing.release()
         with self.reading:
-            self.meet(self.last[0])
+            self.meet()
         self.ask()
 
     def tidy(self, work):
@@ -330,16 +333,19 @@ class Live:
         """
         with self.reading:
             found = orch.listing()
-            records = run_records()       # one pass over run.json a read, filing and drawing
+            records = run_records()       # one pass over run.json a read: filing, looking, drawing
             orch.file_projectless(found, [state for _, state in records])
-            self.meet(found, look)
+            self.read_from = found, records
+            self.meet(look)
             self.last[:] = found, v5o_groups(self.cfg, found, records, look=False)
 
-    def meet(self, found, look=False):
-        """Start a pass over `found` with `look`, or for a seat in it no pass has looked at."""
+    def meet(self, look=False):
+        """Start a pass over what the last read read with `look`, or for a seat it listed that no
+        pass has looked at."""
+        found, records = self.read_from
         listed = {seat["name"] for seat in found}
         self.met &= listed            # one that went and came back is new
-        if (look or listed - self.met) and self.look(found):
+        if (look or listed - self.met) and self.look(found, records):
             self.met = listed
 
     def ask(self, look=False):
@@ -376,8 +382,8 @@ class Live:
         """The owner is going into a seat, or to the screen that opens one: nothing draws a read
         until the menu is back, so the watcher makes none, nor a `stat`, until `watch` again.  A
         read going ends first, so none lands while away or over the read back.  A seat listed
-        while a pass was going still gets its own once that one ends (`_look`): opened, it gets
-        no other look while its owner is in it (`read`)."""
+        while a pass was going still gets its own once that one ends, on what was read with it
+        (`_look`): opened, it gets no other look while its owner is in it (`read`)."""
         with self.reading:
             self.watching.clear()
 

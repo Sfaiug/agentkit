@@ -6,8 +6,8 @@ all the while they waited in `orch.attach`, for a screen nobody saw until the ow
 (`p`), into a fake attach that moves a run every watcher period; the listing, the runs and the
 draw are fakes counting what is read, and a look (`Live.look`) is taken as started and never
 runs.  A seat still owed its first look when the owner leaves gets it from the pass that ends,
-with nothing read, and a read going as the owner leaves lands before the seat opens.  Offline,
-in `Sandbox`'s temporary HOME: no tmux, no seat, no probe.
+on the runs read with it and nothing read again, and a read going as the owner leaves lands
+before the seat opens.  Offline, in `Sandbox`'s temporary HOME: no tmux, no seat, no probe.
 """
 
 from contextlib import redirect_stdout
@@ -89,17 +89,22 @@ class MenuIdleWhileAttached(Sandbox):
 
     def test_a_seat_owed_its_first_look_gets_it_and_then_nothing_is_read(self):
         """Listed while a pass was going, as the owner leaves for a seat: the pass that ends
-        starts its own from the listing in hand, and the watcher reads nothing."""
-        found, listings, looked, release = [{"name": "acme-docs"}], [], [], threading.Event()
+        starts its own from the listing and the runs in hand, and nothing reads either."""
+        found, listings, runs, looked = [{"name": "acme-docs"}], [], [], []
+        release = threading.Event()
         self.addCleanup(release.set)
 
         def listing(**_kw):
             listings.append(len(found))
             return list(found)
 
-        def groups(_cfg, seats, *_args, look=True, **_kw):
-            if look:
-                looked.append([seat["name"] for seat in seats])
+        def run_records():
+            runs.append(len(found))
+            return [(None, {"read": len(runs)})]     # which read a pass looks from
+
+        def groups(_cfg, seats, records=None, *_args, look=True, **_kw):
+            if look:                            # without `records` the real one reads them
+                looked.append(([seat["name"] for seat in seats], records))
                 if len(looked) == 1:
                     release.wait(30)            # the first pass is going while the seat comes
             return [], [], 0, {}
@@ -114,7 +119,7 @@ class MenuIdleWhileAttached(Sandbox):
         self.addCleanup(live.close)
         with patch.object(menu, "STIR", STIR), \
                 patch.object(orch, "listing", side_effect=listing), \
-                patch.object(menu, "run_records", return_value=[]), \
+                patch.object(menu, "run_records", side_effect=run_records), \
                 patch.object(orch, "file_projectless"), \
                 patch.object(menu, "v5o_groups", side_effect=groups):
             live.watch([[], None])
@@ -126,10 +131,12 @@ class MenuIdleWhileAttached(Sandbox):
             until("the seat's own pass", lambda: len(looked) == 2)
             live.looker.join(30)
             moved()
-            self.assertEqual(looked, [["acme-docs"], ["acme-docs", SEAT]])
-            self.assertEqual(listings, [1, 2], "read while the owner was in the seat")
+            self.assertEqual(looked, [(["acme-docs"], [(None, {"read": 1})]),
+                                      (["acme-docs", SEAT], [(None, {"read": 2})])])
+            self.assertEqual((listings, runs), ([1, 2], [1, 2]),
+                             "read while the owner was in the seat")
             live.watch(live.last)
-            self.assertEqual(listings, [1, 2, 2])
+            self.assertEqual((listings, runs), ([1, 2, 2], [1, 2, 2]))
             live.close()
 
     def test_a_read_going_as_the_owner_leaves_lands_before_the_seat_opens(self):
