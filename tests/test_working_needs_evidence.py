@@ -103,7 +103,7 @@ class SeatNeverSaysWorking(Sandbox):
         self.assertNotIn("waiting for you", (REPO / "agentkit/terminal.py").read_text())
 
     def test_v5n_draft_row_shows_text(self):
-        # The draft is no state: it is why this seat needs him, in the row's last column.
+        # The draft is no state: the seat rests, and the row's last column says it.
         seat = {"name": "seat", "created": 100}
         live = {"state": "draft", "since": NOW - 90,
                 "began": NOW - 90, "authority": "screen",
@@ -116,7 +116,7 @@ class SeatNeverSaysWorking(Sandbox):
                 patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \
                 patch.object(watch, "load_state", return_value={"stalls": {}}):
             row = menu.row(self.cfg, 1, seat)
-        self.assertEqual(row[3], "needs you")
+        self.assertEqual(row[3], "idle")
         self.assertIn(DRAFT, row[4])
         self.assertEqual(row[5], orch.age(NOW - 90))
 

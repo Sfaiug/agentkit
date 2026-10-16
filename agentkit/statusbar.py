@@ -352,7 +352,8 @@ def redress(session, answer, cfg=None, records=None):
         progress = menu.seat_progress(name)
         # each in its own cells and never more (`narrow`), so line one picks by the width it set
         lasts = [menu.last_column(word, answer.get("reason"), *progress, runs, cells,
-                                  narrow=True, tmux=True) for cells in BARS]
+                                  narrow=True, tmux=True, unsent=answer.get("unsent"))
+                 for cells in BARS]
         _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,
                live(runs, cfg, time.time()) if runs else ())
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the draw or the tick beneath it
