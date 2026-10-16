@@ -55,13 +55,16 @@ class CardCarriesItsText(unittest.TestCase):
 
     def test_a_link_in_the_lead_does_not_unfold(self):
         payload = notify.card_payload("needs", "acme-api", "Can you approve https://acme.example/pr/7? It waits.")
-        self.assertIn("<https://acme.example/pr/7?>", payload["content"])
-        payload = notify.card_payload("needs", "acme-api", "Approve https://acme.example/build?ref=main for release?")
-        self.assertEqual(payload["content"],
-                         "Approve <https://acme.example/build?ref=main> for release? · acme-api <@42>")
-        notify.asks_first("Approve https://acme.example/build?ref=main for release?")
+        self.assertIn("<https://acme.example/pr/7>?", payload["content"])
+        for query in ("ref=main", "$filter=active", "%72ef=main"):
+            with self.subTest(query=query):
+                asked = f"Approve https://acme.example/build?{query} for release?"
+                notify.asks_first(asked)
+                self.assertEqual(notify.card_payload("needs", "acme-api", asked)["content"],
+                                 f"Approve <https://acme.example/build?{query}> for release? · acme-api <@42>")
         with self.assertRaises(config.Error):
             notify.asks_first("See https://acme.example/build?ref=main")
+        notify.asks_first("Ship?yes/no")
 
     def test_what_discord_would_refuse_is_cut_to_what_it_takes(self):
         payload = notify.card_payload("done", "acme-api", "x" * 5000)

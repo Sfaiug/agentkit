@@ -229,14 +229,20 @@ def _read(paths):
     return files
 
 
+# A link runs to the space or ">" after it, short of a "?" that ends a question there: a "?"
+# inside it starts its query.
+LINK = r"https?://[^\s>]*?(?=\??(?:[\s>]|$))"
+
+
 def lead(kind, text):
-    """The sentence a page leads with, and a row: a question up to its "?", across the lines it
-    wraps onto -- a "?" a word goes on from is a link's query, not the end -- else the first
-    sentence -- up to the first ".", "!" or "?" a space or the line's end follows -- of the first
-    line that says anything."""
-    asked = re.match(r".*?\?(?!\w)", " ".join(str(text).split())) if kind == "needs" else None
-    if asked:
-        return asked.group()
+    """The sentence a page leads with, and a row: a question up to its first "?" outside a link,
+    across the lines it wraps onto, else the first sentence -- up to the first ".", "!" or "?" a
+    space or the line's end follows -- of the first line that says anything."""
+    if kind == "needs":
+        flat = " ".join(str(text).split())
+        end = re.sub(LINK, lambda link: " " * len(link.group()), flat).find("?")
+        if end >= 0:
+            return flat[:end + 1]
     first = next((line.strip() for line in str(text).splitlines() if line.strip()), "")
     end = re.search(r"[.!?](?=\s|$)", first)
     return first[:end.end()] if end else first
@@ -248,7 +254,7 @@ def card_payload(kind, session, text):
     ping; the embed under it holds the whole text, and an edit to `Answered` or `Done` keeps it."""
     user_id = _secret(USER_ID_ENV, "discord_user_id")
     # a link in the content would unfold into a preview under the card
-    head = re.sub(r"(?<!<)(https?://\S+)", r"<\1>", lead(kind, text))
+    head = re.sub(r"(?<!<)" + LINK, r"<\g<0>>", lead(kind, text))
     content = f"{head} \u00b7 {subject(session, text)}"
     if len(content) > CONTENT_CAP:
         content = content[:CONTENT_CAP - 1] + "\u2026"
