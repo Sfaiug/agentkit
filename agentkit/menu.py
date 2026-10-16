@@ -367,8 +367,9 @@ class Live:
     def away(self):
         """The owner is going into a seat, or to the screen that opens one: nothing draws a read
         until the menu is back, so the watcher makes none, nor a `stat`, until `watch` again --
-        once every seat it listed has met a pass (`read`): opening one keeps every other look
-        away, and a seat listed while a pass was going is read on until its own pass starts."""
+        once every seat it listed has met a pass: a seat listed while a pass was going is read on
+        for until its own starts, since one opened gets no other look while its owner is in it
+        (`read`)."""
         self.watching.clear()
 
     def recorded(self):
