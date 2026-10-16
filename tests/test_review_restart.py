@@ -41,7 +41,12 @@ class ReviewRestart(LiveRuns):
         self.parked_review()
         config.save_session(config.load(), "seat-b", "astra", ["opus", "astra"])   # switched since
         launched = []
-        with patch.object(run, "pr_view", return_value=INFO), \
+        # the launch's size check reads the PR's checkout (`test_own_pr_size_before_slot`)
+        with patch.object(run, "checkout_for", return_value=self.repo), \
+                patch.object(run, "fetch", return_value=(0, "")), \
+                patch.object(run, "git", return_value=""), \
+                patch.object(run, "own_pr_first_review", return_value=None), \
+                patch.object(run, "pr_view", return_value=INFO), \
                 patch.object(run, "viewer_login", return_value=None), \
                 patch.object(run, "spawn_bg", side_effect=lambda d, argv: launched.append((d, argv))):
             leases.restart(log=self.logs.append, now=3000)
