@@ -3,7 +3,7 @@
 A seat filed under another project that has a going run on this checkout is listed with what
 that run changes and its plan lines written on this checkout, never its other lines; a run of a
 seat filed here that works on another checkout changes nothing here; a going run launched from
-no seat is listed by its id.
+no seat is listed by its id, with no seat's plan.
 Offline: invented checkouts, seat records, plans and runs under a temporary HOME.
 """
 
@@ -70,6 +70,13 @@ class InFlightByRepo(Sandbox):
             "  run r1",
             "    changing: app.py",
         ])
+
+    def test_a_run_of_no_seat_never_shows_the_plan_of_a_seat_named_like_it(self):
+        config.save_session(self.cfg, "run-r1", "fable", ["opus"],
+                            {"cwd": str(config.CODE), "repo": str(self.bramble)})
+        config.plan_path("run-r1").write_text(self.line("seat only", self.acme))
+        self.add_run("r1", None, self.acme, "app.py")
+        self.assertEqual(orch.in_flight("fix-api", self.acme), [("run r1", [], {"app.py"})])
 
 
 if __name__ == "__main__":
