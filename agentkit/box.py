@@ -3,6 +3,9 @@
 Offline worker fixtures may patch command to yield (argv, env, {}), keeping
 their process audit active outside the turn. The real walls are exercised by
 tests/test_worker_box.py.
+
+A change here is tried twice before it is pushed: inside one of ak's own boxes, as the lander
+runs every test, and on a host with a route out, where the offline suite never goes.
 """
 
 import json

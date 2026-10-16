@@ -3,6 +3,11 @@
 `Sandbox` gives each test its own HOME with ak's state directories, a fixed clock for the menu
 (`time.time()` reads 10000), no real seats and fake host readings; `menu_input` scripts the
 menu's reads.  Tests import it as `from fixtures.sandbox import Sandbox`.
+
+A hook run as a subprocess stamps the real clock into `$HOME/.agentkit/state`: copy its record
+across and compare against its own stamps.  A test asserting a glyph the menu draws (│ ▶ ✓)
+pins `LANG` and `LC_ALL` to `C.UTF-8`: under LANG=C the menu draws ASCII, and the landing suite
+runs in the caller's locale.
 """
 
 from contextlib import ExitStack, contextmanager

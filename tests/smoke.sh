@@ -338,7 +338,8 @@ for provider in config.load()["providers"]:
 PY
 }
 smoke_home() {
-  # Borrow credential files, never directories: hooks, settings, trust and caches are local.
+  # Borrow credential files by link, never a copy and never a directory: hooks, settings,
+  # trust and caches are local.
   local path source target caller_config caller_data caller_claude caller_codex caller_grok
   local caller_opencode caller_gh caller_account
   SMOKE_CALLER_HOME=$HOME

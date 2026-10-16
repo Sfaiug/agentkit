@@ -780,6 +780,8 @@ def seat_runs(name, records=None):
 
     `records` are the draw's own `run_records`, read here when they are not handed in.  The
     menu row and the seat's own status bar both read this, as they read `seat_progress`.
+    Whatever it shows is in run.json once a step publishes (round directories come later), and
+    an open menu sees only the files `Live.watch` watches: a fact derived from anything else lags.
     """
     runs = []
     for run_dir, state in run_records() if records is None else records:

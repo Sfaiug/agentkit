@@ -1550,6 +1550,11 @@ def _screen_rows(tail):
 def screen_state(harness, tail):
     """(state, rule id, evidence line) of the first adapter rule that matches, else (None, "", "").
 
+    A fix here adds no fallback for a shape it did not set out to read and reads only the rows
+    the code it replaces read: every such fallback, and every reach further up the pane, misread
+    another real screen.  It is proven on a pane captured from a real, renamed seat, not only a
+    hand-drawn fixture.
+
     Rules are read in file order and the first match wins, which is why every manifest puts its
     dialog rules before its working rules, its draft rule before its prompt rule, and its
     at-the-prompt rule last: a TUI still draws the composer it drew when the turn ended while
@@ -2099,7 +2104,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     Every screen reads this and says one of those four words: the menu row, the project
     heading, the top line, `ak orch list`, `ak orch why`, the seat's own status bar and its
     window title.  It works until it is done or it is blocked on him, or he closed it and
-    it sits idle; nothing else exists.
+    it sits idle; nothing else exists.  It decides from recorded notices, runs and the
+    screen, never from when the seat's turn began, and a new fact gets a field of its own
+    (`stopped_at` means closed).
 
     Top wins, and the ladder is the whole of it:
 
@@ -2244,7 +2251,10 @@ def hook_look(launched, answered_at=None, said=""):
     through the same check before answering a question; waiting for its notice lock happens
     here, off the harness's path.  A prompt `said` that is a line ak typed into the seat since
     the question -- a hand-back, a wait notice -- is the seat's own news, never the owner's
-    answer: the harness's hook reports it as it reports the owner's words.
+    answer: the harness's hook reports it as it reports the owner's words.  The window starts
+    at the question on purpose: ak types only at a quiet prompt, so its line is heard before
+    the seat can ask, and every other way of matching typing receipts to prompts met a new
+    order of hooks or clocks in review.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -2926,6 +2936,10 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
                  veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
                  ready=lambda name: True):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
+
+    Delivery is at least once: no mark, receipt or transcript read closes every crash window
+    between the Enter and the queue rewrite, so nothing that types through this promises
+    exactly once.
 
     Text, a KEY_GAP pause, then Enter; within SENT_WAIT the typed text has to be gone
     from the bottom region and the whole composer. A working seat can still hold unsent
@@ -6644,6 +6658,9 @@ def local_passes(state, dry_run, log):
     Each is (what its WARN line says when it raises, the pass, whether a dry run runs it too).
     A dry run runs only the passes it can tell `dry_run`, and reads usage off the cache as it
     stands: reading that file probes nothing, and a dry run changes nothing.
+
+    Each pass re-derives placement or state from what it finds: a finding remembered from one
+    tick to the next loses its race.
     """
     from . import job as jobs, leases, retire
     providers = {}
