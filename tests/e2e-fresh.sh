@@ -805,10 +805,13 @@ send \x1b
 EXP
   drive menu3 xterm-256color ak
   D3=$?
-  as 'ak orch list' >"$WORK/orch-after.txt" 2>&1
+  # A stopped seat stays listed, `idle`; only a seat whose process is gone reads closed by
+  # the owner, so one Stop left running fails here whatever its word.
+  as 'ak orch why atoll' >"$WORK/orch-after.txt" 2>&1
   must "x and Stop did not stop the seat" test "$D3" = 0
-  must "the seat is still running" bash -c "! grep -q '^atoll ' '$WORK/orch-after.txt'"
-  verdict "d2 menu: x, Stop stops the session" "atoll stopped, ak orch list is empty again"
+  must "atoll does not read closed by the owner" \
+    grep -q '^  reason: *session closed by the owner' "$WORK/orch-after.txt"
+  verdict "d2 menu: x, Stop stops the session" "atoll stopped, it reads closed by the owner"
   [ "$D3" = 0 ] || { sed 's/^/      /' "$WORK/menu3.log" | tail -4; tail -c 400 "$WORK/pty/menu3.txt" | sed 's/^/      | /'; }
 fi
 
