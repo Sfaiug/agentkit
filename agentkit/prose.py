@@ -62,10 +62,13 @@ def start(launched, turn, said):
 def catch(launched, turn, said):
     """One chosen worker reads the message; only its verbatim question becomes a normal needs."""
     try:
-        if not eligible(launched, turn):
+        name = eligible(launched, turn)
+        if not name:
             return
         cfg = config.load()
-        order = staffing.ready_order(cfg, staffing.collect_usage(cfg), quiet=True)
+        selection = config.load_session(cfg, name)
+        order = staffing.ready_order(cfg, staffing.collect_usage(cfg), selection["workers"],
+                                     quiet=True)
         if not order:
             raise config.Error("no worker is available")
         model = order[0]

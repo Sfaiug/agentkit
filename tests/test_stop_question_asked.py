@@ -1,4 +1,4 @@
-"""Only a question prompt or a needs notice makes an orchestrator's question visible.
+"""A question prompt or a needs notice controls whether the native Stop stands.
 
 The hooks run against invented transcripts and records in a temporary HOME. No real seat,
 process, harness or notification is touched.

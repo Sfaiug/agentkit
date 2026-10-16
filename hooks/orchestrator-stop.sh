@@ -180,6 +180,7 @@ def questioned(payload, unanswered=True):
 
     Input in the owner's words, as their harness tells them from its bookkeeping
     (`harness.prompt`), ends the scan: what was asked before it is answered or set aside.
+    With `unanswered=False`, answered prompts count too: this turn already asked its owner.
     """
     answered, accepted = set(), set()
     for entry in transcript(payload):

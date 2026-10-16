@@ -29,6 +29,8 @@ def turn(cfg, model, body, workspace, out_dir, **kw):
     while (root / "hold").exists():
         time.sleep(.01)
     result = json.loads((root / "answer").read_text())
+    if result.get("raises"):
+        raise RuntimeError("model unavailable")
     return result.get("code", 0), result["text"], "", result.get("killed", False), False
 worker.turn = turn
 def transition(name, **_kw):
@@ -128,6 +130,29 @@ class ProseQuestionCaught(stops.StopHook):
         self.assertEqual(self.stop(SAID, env={"AK_RUN_ROLE": "worker"}), "")
         self.assertFalse((self.home / "calls").exists())
 
+    def test_payload_message_is_read_whole_without_an_argument_size_limit(self):
+        said = "Context. " * 20000 + "\n" + QUESTION
+        self.assertEqual(self.stop(None, lastAssistantMessage=said), "")
+        self.wait_for("finished")
+        self.assertEqual(self.needs()["text"], QUESTION)
+        self.assertIn(said, json.loads((self.home / "calls").read_text())["body"])
+
+    def test_kept_question_makes_no_call(self):
+        path = self.state / f"seat-{stops.SEAT}.json"
+        path.write_text(json.dumps({"unasked": {"text": QUESTION}}))
+        self.assertEqual(self.stop(SAID), "")
+        self.assertFalse(json.loads((self.state / f"stop-{stops.SEAT}.json").read_text()).get("prose"))
+
+    def test_question_recorded_during_model_call_is_kept(self):
+        (self.home / "hold").touch()
+        self.assertEqual(self.stop(SAID), "")
+        self.wait_for("calls")
+        self.notified("needs", self.turn + 1)
+        (self.home / "hold").unlink()
+        self.wait_for("finished")
+        self.assertEqual(self.needs()["text"], "something")
+        self.assertFalse((self.home / "sent").exists())
+
     def test_hook_returns_while_model_is_waiting_and_new_turn_discards_result(self):
         (self.home / "hold").touch()
         self.assertEqual(self.stop(SAID), "")
@@ -138,7 +163,7 @@ class ProseQuestionCaught(stops.StopHook):
         self.assertIsNone(self.needs())
 
     def test_failed_unavailable_and_malformed_calls_log_once_and_record_nothing(self):
-        for result in ({"code": 1}, {"killed": True}, {"text": "not JSON"},
+        for result in ({"code": 1}, {"killed": True}, {"text": "not JSON"}, {"raises": True},
                        {"question": "An invented question?"}, {"unavailable": True}):
             with self.subTest(result=result):
                 self.latch(self.turn)
@@ -150,7 +175,7 @@ class ProseQuestionCaught(stops.StopHook):
                 self.assertEqual(self.stop(SAID), "")
                 self.wait_for("finished")
                 self.assertIsNone(self.needs())
-        self.assertEqual(len((self.state / f"log-{stops.SEAT}.txt").read_text().splitlines()), 5)
+        self.assertEqual(len((self.state / f"log-{stops.SEAT}.txt").read_text().splitlines()), 6)
 
 
 def load_tests(loader, tests, pattern):
