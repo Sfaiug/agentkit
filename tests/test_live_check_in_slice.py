@@ -24,6 +24,7 @@ TIP = "a" * 40
 SYSTEMD = '''#!{python}
 import json, os, sys
 args = sys.argv[1:]
+scoped = "--scope" in args
 with open(os.environ["AK_LIVE_UNITS"], "a") as out:
     out.write(json.dumps([os.path.basename(sys.argv[0]), *args]) + "\\n")
 if os.path.basename(sys.argv[0]) == "systemctl":
@@ -49,7 +50,8 @@ while args and args[0].startswith("-"):
         with open(arg.split("append:", 1)[1], "a") as out:
             os.dup2(out.fileno(), 1)
             os.dup2(out.fileno(), 2)
-args = [arg.replace("$$", "$") for arg in args]
+if not scoped:
+    args = [arg.replace("$$", "$") for arg in args]
 os.execvpe(args[0], args, env)
 '''
 GIT = '''#!{python}
@@ -171,12 +173,19 @@ class LiveCheckInSlice(Sandbox):
         self.assertIsNone(self.upgrade()["slice"])
         self.assertEqual(self.commands(), [])
 
+    def test_harness_check_from_user_manager_uses_a_scope(self):
+        with patch.object(orch, "can_scope", return_value=True), \
+                patch.object(orch, "scope_ends", return_value=""):
+            self.assertEqual(self.upgrade(code=7)["slice"], orch.slice_name())
+        start, stop = self.commands()
+        self.assertIn("--scope", start)
+        self.assertTrue(stop[-1].endswith(".scope"))
+
     def test_harness_check_starts_plainly_when_placement_is_refused(self):
         with patch.dict(os.environ, {"AK_LIVE_REFUSE": "1", "AK_LIVE_STOP_CODE": "5"}):
             self.assertIsNone(self.upgrade()["slice"])
-        start, stop = self.commands()
+        start, = self.commands()
         self.assertIn("--wait", start)
-        self.assertEqual(stop[:3], ["systemctl", "--user", "stop"])
 
     def test_harness_check_starts_plainly_when_launcher_is_missing(self):
         def spawn(argv, **kwargs):
@@ -188,18 +197,32 @@ class LiveCheckInSlice(Sandbox):
             self.assertIsNone(self.upgrade()["slice"])
 
     def test_a_timed_out_harness_check_stops_its_service(self):
-        proc = Mock(returncode=0)
-        proc.wait.side_effect = subprocess.TimeoutExpired("fixture", 1)
-        proc.__enter__ = Mock(return_value=proc)
-        proc.__exit__ = Mock(return_value=False)
+        proc = Mock(pid=4242, returncode=None)
+        proc.poll.return_value = None
+        proc.wait.side_effect = [subprocess.TimeoutExpired("fixture", 1), 0]
         with (config.TMP / "timeout.log").open("w") as out, \
                 patch.object(subprocess, "Popen", return_value=proc), \
-                patch.object(orch, "stop_placed") as stop, \
+                patch.object(orch, "marked_pid", return_value=4242), \
+                patch.object(orch.os, "killpg") as kill, \
+                patch.object(orch, "stop_scope") as stop, \
                 redirect_stdout(io.StringIO()):
             self.assertFalse(update.step(["bash", str(self.live)], out,
                                          target_slice=orch.slice_name()))
+        kill.assert_called_once()
         stop.assert_called_once()
-        self.assertEqual(stop.call_args.args[1:], (False, None))
+        self.assertTrue(stop.call_args.args[0].endswith(".service"))
+
+    def test_foreground_work_respects_an_unresolved_launch_claim(self):
+        unit = "agentkit-update-held"
+        claim = config.TMP / f"{unit}.placed"
+        claim.write_text(f"{unit}.service")
+        with (config.TMP / "claim.log").open("w") as out, \
+                patch.object(orch, "unit_loaded", return_value=True):
+            with self.assertRaises(OSError):
+                orch.call_in_slice([sys.executable, "-c", ""], unit, config.child_env(), out,
+                                   target_slice=orch.slice_name())
+        self.assertEqual(self.children, [])
+        self.assertTrue(claim.exists())
 
 
 if __name__ == "__main__":

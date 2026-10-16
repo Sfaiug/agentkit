@@ -581,11 +581,10 @@ def stop_placed(unit, scoped, proc):
     that will not run, one that does not answer in time -- leaves the placement in doubt, and
     a launch in doubt is never started a second time.
     """
-    if proc is not None:         # a waited service's client has already been reaped
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (OSError, TypeError):
-            pass                # already gone, or never a group of its own
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (OSError, TypeError):
+        pass                    # already gone, or never a group of its own
     if scoped:
         return True
     try:
@@ -640,7 +639,14 @@ def next_scope_unit(unit):
 
 def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=None,
                    properties=(), nice=False, placement=None, ends=True):
-    """Start detached work inside the slice, appending its output to `output`; its pid.
+    """Start detached work inside the slice, appending its output to `output`; its pid."""
+    return _start_in_slice(argv, unit, env, output, log, target_slice,
+                           properties, nice, placement, ends)[0]
+
+
+def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), nice=False,
+                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None):
+    """The placement shared by detached and foreground work; (pid, client, placed unit).
 
     A scope where this process may be moved with its child; a service, which the manager
     starts inside the slice itself, where it may not -- cron's cgroup is the system's, and
@@ -682,10 +688,13 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
                 placement["scope_reason"] = reason
 
     def spawn(command, environment, lower_nice=False):
-        with open(output, "a") as out:      # the child keeps a descriptor of its own
+        with ExitStack() as stack:
+            out = stdout if stdout is not None else stack.enter_context(open(output, "a"))
             kwargs = {"stdout": out, "stderr": subprocess.STDOUT,
                       "stdin": subprocess.DEVNULL, "start_new_session": True,
                       "env": environment}
+            if cwd is not None:
+                kwargs["cwd"] = cwd
             if lower_nice:
                 kwargs["preexec_fn"] = lambda: os.nice(10)
             return subprocess.Popen(command, **kwargs)
@@ -707,7 +716,8 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     if not user_manager():
         reason = "no user systemd manager"
         set_scope("none", reason)
-        return spawn(argv, env, lower_nice=nice).pid
+        proc = spawn(argv, env, lower_nice=nice)
+        return proc.pid, proc, None
     config.TMP.mkdir(parents=True, exist_ok=True)
     marker.unlink(missing_ok=True)
     scoped = can_scope()
@@ -716,12 +726,13 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     witness = ["sh", "-c", f"{scope_ends(unit)} {WITNESS}" if ends and scoped else WITNESS,
                str(marker),
                *( (["nice", "-n", "10"] if nice and scoped else []) ), *argv]
-    service_properties = (*properties, *( ("-p", "Nice=10") if nice else () ))
+    service_properties = (*properties, *( ("-p", "Nice=10") if nice else () ),
+                          *( ("-p", f"WorkingDirectory={cwd}") if cwd is not None else () ))
     placed, placed_env = (in_slice(witness, unit, env=env, target_slice=target_slice,
                                    properties=properties) if scoped
-                          else detached_in_slice(witness, unit, env, output,
+                          else detached_in_slice(witness, unit, env, None if wait else output,
                                                  target_slice=target_slice,
-                                                 properties=service_properties))
+                                                 properties=service_properties, wait=wait))
     # written before the launch, so that a start this process does not live to finish is
     # still an attempt the next one knows to ask the manager about
     claim.write_text(f"{unit}.{'scope' if scoped else 'service'}")
@@ -731,7 +742,7 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     except OSError as exc:
         proc, note = None, str(exc)
     if proc is not None:
-        if scoped:
+        if scoped or wait:
             # the client waits on the manager before the work can exist, so a client that is
             # merely still there says nothing yet: only the mark says the work is running,
             # and a client gone without one says it never will
@@ -752,7 +763,7 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
         if pid:
             claim.unlink(missing_ok=True)      # placed and running: the unit is the work's
             set_scope(unit)
-            return pid
+            return pid, proc, f"{unit}.{'scope' if scoped else 'service'}"
         if waiting and not stop_placed(unit, scoped, proc):
             # it never said it was running, it was never refused, and it could not be ended
             # either: the manager may yet bring it up, and the plain start below would be
@@ -763,7 +774,34 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     reason = f"systemd-run failed ({note})"
     set_scope("none", reason)
     log(f"WARN {unit} did not go into {target_slice} ({note}); started plainly")
-    return spawn(argv, env, lower_nice=nice).pid
+    proc = spawn(argv, env, lower_nice=nice)
+    return proc.pid, proc, None
+
+
+def call_in_slice(argv, unit, env, output, timeout=None, log=lambda _: None,
+                  target_slice=None, cwd=None):
+    """Run foreground work with the shared placement and plain fallback; its exit status.
+
+    `output` is the caller's open log: the client shares its descriptor, so a service's
+    output advances the same offset the caller writes at. Cleanup ends a client still ours
+    and asks the manager to stop placed work, on a timeout or interruption too.
+    """
+    _, proc, placed = _start_in_slice(
+        argv, unit, env, None, log, target_slice, stdout=output, wait=True,
+        cwd=Path.cwd() if cwd is None else cwd)
+    try:
+        return proc.wait(timeout=timeout)
+    finally:
+        try:
+            if proc.returncode is None and proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+        finally:
+            if placed:
+                stop_scope(placed, log=log)
 
 
 def scope_self(unit, target_slice, properties=(), placement=None):

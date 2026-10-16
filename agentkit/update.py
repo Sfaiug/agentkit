@@ -177,44 +177,31 @@ def step(cmd, fh, env=None, timeout=STEP_CAP, *, target_slice=None):
     fh.write(f"\n$ {shlex.join(cmd)}\n")
     fh.flush()
     environment = {**config.child_env(), **PINS, **(env or {})}
-    unit = f"agentkit-update-{time.time_ns()}" if target_slice and orch.user_manager() else None
-    command = cmd
-    if unit:
-        marker = config.TMP / f"{unit}.launched"
-        command, environment = orch.detached_in_slice(
-            ["sh", "-c", orch.WITNESS, str(marker), *cmd], unit, environment,
-            target_slice=target_slice, wait=True,
-            properties=("-p", f"WorkingDirectory={Path.cwd()}"))
     try:
-        with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
-                              start_new_session=True,
-                              env=environment) as proc:
-            try:
-                code = proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                fh.write(f"[timed out after {timeout}s]\n")
-                code = "timeout"
-            finally:
-                # A timed-out installer can leave a subshell of its own writing.
-                # Signal only while the child is still ours: wait()/poll() may already have
-                # reaped an exited launcher, after which its PID/PGID could be reused.
-                if proc.returncode is None and proc.poll() is None:
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    proc.wait()
+        if target_slice:
+            code = orch.call_in_slice(cmd, f"agentkit-update-{time.time_ns()}", environment,
+                                      fh, timeout=timeout, log=say, target_slice=target_slice)
+        else:
+            with subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
+                                  start_new_session=True, env=environment) as proc:
+                try:
+                    code = proc.wait(timeout=timeout)
+                finally:
+                    # A timed-out installer can leave a subshell of its own writing.
+                    # Signal only while the child is still ours: wait()/poll() may already have
+                    # reaped an exited launcher, after which its PID/PGID could be reused.
+                    if proc.returncode is None and proc.poll() is None:
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        proc.wait()
+    except subprocess.TimeoutExpired:
+        fh.write(f"[timed out after {timeout}s]\n")
+        code = "timeout"
     except OSError as exc:
         fh.write(f"[{exc}]\n")
         code = "could not start"
-    finally:
-        if unit:
-            stopped = orch.stop_placed(unit, False, None)
-            started = orch.marked_pid(marker) is not None
-    if unit and not started and stopped and code != "timeout":
-        # The client failed before the work started; its status is no verdict on the gate.
-        say(f"WARN {unit} did not go into {target_slice}; started plainly")
-        return step(cmd, fh, env, timeout)
     fh.write(f"[exit {code}]\n")
     fh.flush()
     if code != 0:
