@@ -1,11 +1,13 @@
 """Guard imports must not change the environment of a seat's commands or their Python children.
 
 Offline: every real command is a Python stand-in importing a sibling in a temporary HOME.
+The python3 on PATH refuses -P, as a project's pre-3.11 interpreter would.
 """
 
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -23,6 +25,12 @@ class ShimEnvironment(unittest.TestCase):
             shims, real = root / "bin", root / "real"
             shims.mkdir()
             real.mkdir()
+            old = root / "old"
+            old.mkdir()
+            python = old / "python3"
+            python.write_text('#!/bin/sh\n[ "$1" = -P ] && exit 2\n'
+                              f'exec {shlex.quote(sys.executable)} "$@"\n')
+            python.chmod(0o755)
             (real / "sibling.py").write_text("VALUE = 7\n")
             script = (f"#!{sys.executable}\nimport json, os\nfrom sibling import VALUE\n"
                       f"print(json.dumps([VALUE, [os.environ.get(k) for k in {KEYS!r}]]))\n")
@@ -41,7 +49,8 @@ class ShimEnvironment(unittest.TestCase):
                 (broken / f"tools/{name}-shim").symlink_to("shim")
             env = {k: v for k, v in os.environ.items() if k not in KEYS}
             env.update(HOME=tmp, AGENTKIT_SESSION="acme", AK_RUN_ROLE="",
-                       PATH=os.pathsep.join([str(shims), str(real), os.environ.get("PATH", "")]))
+                       PATH=os.pathsep.join([str(shims), str(old), str(real),
+                                             os.environ.get("PATH", "")]))
             for checkout in (REPO, broken):
                 for name in TOOLS:
                     link = shims / name
