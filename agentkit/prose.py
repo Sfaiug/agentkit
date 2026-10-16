@@ -16,7 +16,8 @@ def eligible(launched, turn):
     latch = json.loads(config.seat_file("stop", launched).read_text())
     notice = notify.last(name, include_seen=True) or {}
     if (latch.get("turn") != turn or not config.session_path(name).exists()
-            or watch.seat_read(name).get("unasked") or watch.owner_question(notify.last(name))
+            or any(q.get("ended", turn) >= turn for q in watch.questions_kept(
+                watch.seat_read(name).get("unasked")))
             or (notice.get("kind") == "needs" and notice.get("time", 0) >= turn)):
         return None
     return name
@@ -93,15 +94,11 @@ def catch(launched, turn, said):
             return
         if not isinstance(question, str) or not question.strip() or question not in said:
             raise config.Error("worker did not return a verbatim question")
-        # The owner may have answered, another question arrived, or the seat changed while
-        # the model read. Check again under the notice's own lock before recording anything.
-        with notify.session_lock(launched) as name:
-            if not eligible(launched, turn):
-                return
-            notify._said(name, "needs", question)
-            watch.seat_write(name, wait=None)
-        notify.transition(name)
-        watch.start_look(launched)
+        # The owner may have answered or another question arrived while the model read.
+        name = eligible(launched, turn)
+        if name:
+            notify.shaped("needs", question, session=name, event_id=f"prose:{turn}")
+            watch.start_look(launched)
     except Exception as exc:
         # This optional reader never changes whether the harness can end its turn.
         failed(launched, exc)

@@ -18,6 +18,8 @@ import tempfile
 import time
 import tomllib
 import unittest
+
+from fixtures import hooks
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
@@ -728,7 +730,7 @@ class ScreenRules(GrokSandbox):
                             ("grok-hook-stop.json", "at_prompt")):
             with self.subTest(name=name):
                 fact = json.loads((FIX / name).read_text())
-                proc = subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")],
+                proc = hooks.run(["bash", str(REPO / "hooks/seat-state.sh")],
                                       input=json.dumps(fact), capture_output=True, text=True,
                                       env=self.env)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -739,7 +741,7 @@ class ScreenRules(GrokSandbox):
         # the camelCase kind a Notification carries, onto no fact: over the Stop it adds nothing
         (self.state / "hook-atoll.json").unlink()
         idle = json.loads((FIX / "grok-hook-notification.json").read_text())
-        proc = subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")],
+        proc = hooks.run(["bash", str(REPO / "hooks/seat-state.sh")],
                               input=json.dumps(idle), capture_output=True, text=True,
                               env=self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -797,7 +799,7 @@ class StopHook(GrokSandbox):
         (self.state / "plan-atoll.md").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")     # the seat owes work
         fact = json.loads((FIX / "grok-hook-stop.json").read_text())
         fact["lastAssistantMessage"] = message
-        proc = subprocess.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
+        proc = hooks.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
                               input=json.dumps(fact), capture_output=True, text=True,
                               env=self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)

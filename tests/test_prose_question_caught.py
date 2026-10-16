@@ -18,6 +18,7 @@ from pathlib import Path
 from agentkit import config, notify, prose, staffing, usage, watch, worker
 root = Path(os.environ["HOME"])
 watch.start_look = lambda *_a, **_kw: None
+watch.session_state = lambda *_a, **_kw: {"word": "needs you", "since": time.time()}
 staffing.collect_usage = lambda *_a, **_kw: {}
 staffing.ready_order = lambda *_a, **_kw: json.loads((root / "order").read_text())
 usage.account = lambda *_a, **_kw: (None, None)
@@ -63,6 +64,9 @@ class ProseQuestionCaught(stops.StopHook):
         (self.home / "answer").write_text(json.dumps(
             {"text": json.dumps({"question": question}) if text is None else text, **fields}))
 
+    def stop(self, *args, **kwargs):
+        return super().stop(*args, read_prose=True, **kwargs)
+
     def wait_for(self, name):
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -103,6 +107,19 @@ class ProseQuestionCaught(stops.StopHook):
         self.assertFalse((self.home / "sent").exists())
         self.assertEqual(self.stop("The parser is fixed."), "")
         self.assertEqual(len((self.home / "calls").read_text().splitlines()), 1)
+
+    def test_new_question_is_asked_beside_an_earlier_turns_unanswered_question(self):
+        self.notified("needs", self.turn - 600)
+        self.assertEqual(self.stop(SAID), "")
+        self.wait_for("finished")
+        self.assertEqual(self.needs()["questions"], ["something", QUESTION])
+        self.assertIn(QUESTION, json.loads((self.home / "sent").read_text())["text"])
+        self.assertEqual(len((self.home / "calls").read_text().splitlines()), 1)
+
+    def test_unrelated_hook_tests_start_no_reader(self):
+        self.assertEqual(super().stop(SAID), "")
+        self.assertFalse(json.loads((self.state / f"stop-{stops.SEAT}.json").read_text()).get("prose"))
+        self.assertFalse((self.home / "calls").exists())
 
     def test_recorded_question_and_held_or_background_stops_make_no_call(self):
         self.notified("needs", self.turn + 1)

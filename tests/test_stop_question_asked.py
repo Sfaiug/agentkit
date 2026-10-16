@@ -7,10 +7,11 @@ process, harness or notification is touched.
 import json
 import os
 from pathlib import Path
-import subprocess
 import tempfile
 import time
 import unittest
+
+from fixtures import hooks
 
 REPO = Path(__file__).resolve().parents[1]
 HOOK = REPO / "hooks/orchestrator-stop.sh"
@@ -40,7 +41,7 @@ class StopQuestionAsked(unittest.TestCase):
                  {"type": "assistant", "message": {"role": "assistant", "content": [
                      {"type": "text", "text": said}]}}]
         self.transcript.write_text("".join(json.dumps(line) + "\n" for line in lines))
-        done = subprocess.run(["bash", str(HOOK)], input=json.dumps({
+        done = hooks.run(["bash", str(HOOK)], input=json.dumps({
             "hook_event_name": "Stop", "transcript_path": str(self.transcript),
             "last_assistant_message": said, **payload}), text=True, capture_output=True,
             env=self.env)
