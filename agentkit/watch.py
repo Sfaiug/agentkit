@@ -1755,7 +1755,7 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
             "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None,
             # the owner stopped its last turn, as recorded or by a hook event its manifest marks
             # `interrupt`: until their next prompt the seat rests
-            "interrupted": stopped or event in _marked_events(harness, "interrupt")}
+            "interrupted": stopped or event in marked_events(harness, "interrupt")}
 
 
 def seat_read(name):
@@ -1918,7 +1918,7 @@ def _composer_open(harness, found):
     """Is that seat's turn over with its composer open: no turn in flight, or a Stop on
     background work, which its manifest marks and whose composer takes a line at once."""
     return (not _turn_in_flight(harness, found)[0]
-            or found.get("hooked_event") in _marked_events(harness, "background"))
+            or found.get("hooked_event") in marked_events(harness, "background"))
 
 
 def keeps_back(name):
@@ -2028,7 +2028,7 @@ def ask_kept_back(name, harness, found, held=False):
         pass
 
 
-def _marked_events(harness, mark):
+def marked_events(harness, mark):
     """Hook events the manifest marks with `mark` (a background wait, an interrupt), as
     `hook_state` names them, or ().  No names live here."""
     try:
@@ -3402,7 +3402,7 @@ def takes_line(session, cfg=None, pane=None):
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
-    return found.get("hooked_event") in _marked_events(harness, "background")
+    return found.get("hooked_event") in marked_events(harness, "background")
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,

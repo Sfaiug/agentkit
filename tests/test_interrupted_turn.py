@@ -141,23 +141,30 @@ class InterruptedTurn(Sandbox):
         self.assertEqual(self.looked()[0], "needs you")
 
     def test_a_turn_stopped_by_a_harness_hook_of_its_own_rests_too(self):
-        """review of #998 round 1: Codex and Muse send `Interrupt`, which no record needs to say;
-        a turn their Stop ended still owes its plan's line."""
+        """review of #998 rounds 1 and 2: Codex and Muse send `Interrupt`, which no record needs
+        to say, and Muse has no prompt hook: an Esc after an earlier Stop is news all the same."""
         config.plan_path(SEAT).write_text(OWED)
-        for name, fixture in (("codex", "codex-prompt-pane.txt"),
-                              ("muse", "muse-question-escaped-pane.txt")):
+        (self.root / ".agentkit").mkdir()
+        (self.root / ".agentkit/state").symlink_to(config.STATE)
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "AGENTKIT_SESSION": SEAT,
+               "AK_RUN_ROLE": "orchestrator", "IDLE_COMPACT_STATE": ""}
+        for name, model, fixture in (("codex", "astra", "codex-prompt-pane.txt"),
+                                     ("muse", "spark", "muse-question-escaped-pane.txt")):
             with self.subTest(harness=name):
-                pane = watch.pane_tail((FIX / fixture).read_text(encoding="utf-8"))
+                config.save_session(self.cfg, SEAT, model, ["astra"], {"cwd": str(self.root)})
+                pane = (FIX / fixture).read_text(encoding="utf-8")
 
                 def word(event):
-                    live = watch.classify(name, pane, {"event": event, "at": 9990}, None, {},
-                                          10000)
+                    subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")], text=True,
+                                   input=json.dumps({"hook_event_name": event}), env=env,
+                                   timeout=20, check=True)
+                    live = watch.live_state({"name": SEAT}, name, pane=pane, cfg=self.cfg)
                     return watch.session_state(
                         SEAT, 10000, session={"name": SEAT, "attached": True}, cfg=self.cfg,
                         records=[], live=live, harness=name, auth_out={}, gh_out={},
                         token_out={}, previous={})["word"]
-                self.assertEqual(word("Interrupt"), "idle")
                 self.assertEqual(word("Stop"), "needs you")
+                self.assertEqual(word("Interrupt"), "idle")
 
     def test_a_turn_interrupted_in_a_tool_call_is_at_its_prompt_too(self):
         fact = self.prompt("Run the acme tests.")
