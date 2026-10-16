@@ -93,7 +93,7 @@ class TransientBackoffClock(unittest.TestCase):
         self.clock_script()  # refuse the unmodified check before it can sleep for six minutes
         helpers = SMOKE[SMOKE.index("newrepo() {"):SMOKE.index('\necho "workdir: $WORK"')]
         launch = SMOKE[SMOKE.index("# --- fakes for checks 9 and 10:"):
-                       SMOKE.index("# Checks 1 to 5,")]
+                       SMOKE.index("# --- 1: usage")]
         checks = SMOKE[SMOKE.index("# --- 9: transient worker failures"):
                        SMOKE.index("# --- 10:")]
         script = ('set -uo pipefail\n. "$REPO/tests/acceptance.sh"\n' + helpers + "\n"

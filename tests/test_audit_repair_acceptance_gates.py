@@ -250,7 +250,7 @@ skip_unavailable() { return 1; }
         snapshot = {"providers": {p: {"exhausted_until": 9999999999}
                     for p in config.load()["providers"]}}
         (self.root / 'spent.json').write_text(json.dumps(snapshot))
-        browser = between(SMOKE, '# 31d/31e: real calls', '\nfi\n\n# --- 32:')
+        browser = between(SMOKE, '# --- 31d:', '\n# --- 32:')
         prerequisite = between(SMOKE, '# --- 4d:', '\nfi\n\n# --- 5:').rsplit('\nfi', 1)[0] + '\nfi\n'
         result = self.shell('ak() { cat "$WORK/spent.json"; }\n' + loop
                             + 'spent_until() { echo "provider tomorrow"; }\n' + skipped

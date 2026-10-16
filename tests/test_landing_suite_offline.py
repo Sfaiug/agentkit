@@ -1,12 +1,11 @@
 """The landing suite reaches nothing outside the host; tests/live.sh runs the checks that need it.
 
-Neither suite runs here.  smoke.sh is read, its live blocks found as tests/every_file.py finds
-them; tests/live.sh and the AGENTS.md `tests:` line run against stand-in suites, and the
+Neither suite runs here.  smoke.sh is read, each mode's checks chosen as tests/suite_shares.py
+chooses them; tests/live.sh and the AGENTS.md `tests:` line run against stand-in suites, and the
 namespace they ask for against a stand-in `unshare`, `ip` and `setpriv`.
 """
 
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -16,25 +15,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-import every_file
+import suite_shares
 from agentkit import gitcall, run
 
 SMOKE = (REPO / "tests/smoke.sh").read_text()
-# Real models, GitHub, Discord, live meters, the shared browser and user systemd.
-OUTSIDE = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
-           "6f", "6g", "31a", "31d", "31e"}
-# a check's verdict, or the labels a helper or a loop gives it: `ok "4b ...`, `skip_spent 4/4b`
-VERDICT = re.compile(r'\b(?:ok|no|skip)\s+"(\d+[a-z]?)[\s:]')
-LABELS = re.compile(r'\b(?:skip_checks|skip_unavailable|skip_spent|skip_refused|CHECKS=)\s*"?'
-                    r'(\d+[a-z]?(?:/\d+[a-z]?)*)[\s":;]')
-
-
-def checks():
-    """(line number, label) of every check smoke.sh names a verdict for."""
-    for number, line in enumerate(SMOKE.splitlines()):
-        for label in VERDICT.findall(line) + [one for group in LABELS.findall(line)
-                                              for one in group.split("/")]:
-            yield number, label
 
 
 def tool(directory, name, body):
@@ -56,42 +40,6 @@ class LandingSuiteOffline(unittest.TestCase):
     def ran(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
-    def test_outside_checks_run_only_in_the_live_mode_and_every_other_in_both(self):
-        live = every_file.live_blocks(SMOKE)
-        found = {}
-        for number, label in checks():
-            found.setdefault(label, set()).add(number in live)
-        self.assertEqual(OUTSIDE - set(found), set(), "an outside check is gone from smoke.sh")
-        self.assertEqual({label for label, where in found.items() if True in where}, OUTSIDE)
-        self.assertEqual({label for label, where in found.items() if False in where} & OUTSIDE,
-                         set())
-        # nothing else reads the mode, so every check outside the live blocks runs in both
-        modal = [line for line in SMOKE.splitlines()
-                 if "AGENTKIT_SMOKE_LIVE" in line and not line.lstrip().startswith("#")]
-        self.assertEqual(set(modal), {every_file.LIVE})
-
-    def test_a_live_block_runs_nothing_outside_the_live_mode(self):
-        lines = SMOKE.splitlines()
-        live = sorted(every_file.live_blocks(SMOKE))
-        blocks = [[live[0]]]
-        for number in live[1:]:
-            if number == blocks[-1][-1] + 1:
-                blocks[-1].append(number)
-            else:
-                blocks.append([number])
-        self.assertEqual(len(blocks), 6)
-        stub = 'ok() { echo "ran: $*"; }; no() { ok "$@"; }; skip() { ok "$@"; }\n'
-        for block in blocks:
-            text = "\n".join(lines[block[0]:block[-1] + 1])
-            for mode in ("", "0"):
-                with self.subTest(line=block[0] + 1, mode=mode):
-                    env = {k: v for k, v in os.environ.items() if k != "AGENTKIT_SMOKE_LIVE"}
-                    if mode:
-                        env["AGENTKIT_SMOKE_LIVE"] = mode
-                    proc = subprocess.run(["bash", "-c", "set -uo pipefail\n" + stub + text],
-                                          env=env, capture_output=True, text=True, timeout=30)
-                    self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "", ""))
-
     def test_real_memory_cap_probe_is_selected_only_in_live_mode(self):
         import test_memory_cap
         method = "check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure"
@@ -102,7 +50,9 @@ class LandingSuiteOffline(unittest.TestCase):
         calls = [number for number, line in enumerate(SMOKE.splitlines())
                  if '"$REPO/tests/test_memory_cap.py"' in line]
         self.assertEqual(len(calls), 1)
-        self.assertIn(calls[0], every_file.live_blocks(SMOKE))
+        call = SMOKE.splitlines()[calls[0]]
+        self.assertIn(call, suite_shares.smoke_source(SMOKE, REPO, (1, 1), live=True))
+        self.assertNotIn(call, suite_shares.smoke_source(SMOKE, REPO, (1, 1)))
         self.assertIn(f"MemoryCap.{method}", SMOKE)
 
     def test_live_sh_starts_the_live_mode_and_keeps_its_verdict(self):

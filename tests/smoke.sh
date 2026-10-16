@@ -2,11 +2,11 @@
 # agentkit acceptance gate. Exits 0 only if every check passes.
 # The checks drive the loop offline through fake adapters and reach nothing outside the host;
 # check 9's fake runs advance a test clock through the unchanged transient backoff.
-# The live mode, AGENTKIT_SMOKE_LIVE=1 (tests/live.sh),
-# adds real (tiny) model calls on every harness this host has installed with its login --
-# minus any spent model, which check 3 skips by name; one harness with its login is all that
-# mode needs -- plus one full `ak run`, which merges its own PR into a private repository
-# under the caller's own account.
+# The live mode, AGENTKIT_SMOKE_LIVE=1 (tests/live.sh), runs instead only the checks that need
+# the outside world, tests/suite_shares.py's LIVE_CHECKS: real (tiny) model calls on every
+# harness this host has installed with its login -- minus any spent model, which check 3 skips
+# by name; one harness with its login is all that mode needs -- plus one full `ak run`, which
+# merges its own PR into a private repository under the caller's own account.
 # Self-contained: every `ak` here is this checkout's bin/ak (PATH is prefixed with it, so a
 # worktree tests itself), and install.sh is exercised against a throwaway HOME under $WORK, which
 # it treats as a sandbox: no packages, no logins, no crontab.  Every tmux server it touches is
@@ -18,7 +18,8 @@
 # Where the match may come before the end, the output is captured first and grep reads a string.
 set -uo pipefail
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-if [ $# = 0 ] && [ -n "${AK_SHARD:-}" ]; then
+# A mode runs only its own checks, and a piece of it only its share: suite_shares.py chooses.
+if [ $# = 0 ]; then
   SMOKE_BODY=$(python3 "$REPO/tests/suite_shares.py" "$REPO/tests/smoke.sh") || exit $?
   eval "$SMOKE_BODY"
   exit $?
@@ -1724,13 +1725,6 @@ PY_RETRY_CLOCK
 retrylaunch retry-exec flaky pass '["opus", "astra"]'
 retrylaunch retry-review work dead    # reviewer never comes back -> fall back to another provider
 
-# Checks 1 to 5, and 6, 6b, 6d, 6f, 6g, 31a, 31d and 31e need the outside world: real models,
-# GitHub, Discord, live meters, the shared browser and user systemd. They run only in the
-# live mode, which tests/live.sh starts before a host takes new code and when a harness
-# upgrades; the landing suite reaches nothing beyond loopback. Offline twins run in both modes: 19 the delivery
-# path, 41 and 8a-8f the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
-# --- shared live guard -----------------------------------------------------
-if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 1: usage --------------------------------------------------------------
 model_unavailable() {   # missing binary/login, or nothing; a broken saved login exits 1
   PYTHONPATH="$REPO" python3 - "$@" <<'PYTHON'
@@ -2136,8 +2130,6 @@ else
   no "5 ak notify --check exited $NRC with no webhook configured; expected 2"
   sed 's/^/      /' "$WORK/notify.log" | head -3
 fi
-# --- shared live guard -----------------------------------------------------
-fi
 
 # --- 5b: --check exit codes, offline -----------------------------------------
 # 2 means "nothing configured" and nothing else, so the orchestrator can tell an unset webhook
@@ -2201,8 +2193,6 @@ else
   sed 's/^/      /' "$NGH/guard.log" "$WORK/guard-nosink.log" | head -8
 fi
 
-# --- shared live guard -----------------------------------------------------
-if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6: orch selection -----------------------------------------------------
 # The pick stands on check 1's meters; when the provider throttled those probes the pick
 # has nothing to stand on either.  One retry a minute later, then the same skip the gate
@@ -2295,8 +2285,6 @@ grep -q 'muse --yolo --provider meta --model muse-spark' "$WORK/orch-spark.log" 
 grep -q 'idle-compact.py -- claude ' "$WORK/orch-fable.log" || ORCH2=1
 [ "$ORCH2" = 0 ] && ok "6b ak orch: astra prints a codex command with its model, spark a muse one, fable a claude one" \
                  || no "6b ak orch per-harness command: $(tail -1 "$WORK/orch-astra.log")"
-# --- shared live guard -----------------------------------------------------
-fi
 
 # --- 6c: each seat applies its own models, a dry run records none (offline) --
 # A fresh HOME and a current empty-meter cache ensure selection and usage never probe a provider.
@@ -2368,8 +2356,6 @@ else
   no "6c session picker"; sed 's/^/      /' "$WORK/session-pick.log" | head -8
 fi
 
-# --- shared live guard -----------------------------------------------------
-if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6d: a named seat, really started --------------------------------------
 # Not a dry run: `ak orch <name>` creates the tmux session, the harness's own TUI paints in it,
 # `ak orch list` shows it and `ak orch stop` takes it down. The poll accepts directory trust
@@ -2441,8 +2427,6 @@ else
   tm kill-session -t =smoke-astra 2>/dev/null
 fi
 fi
-# --- shared live guard -----------------------------------------------------
-fi
 
 # --- 6e: a subscription Codex is given no model of ours (offline) ----------
 if codex_model_flag_check >"$WORK/codex-mflag.log" 2>&1; then
@@ -2451,8 +2435,6 @@ else
   no "6e codex adapter -m rule"; sed 's/^/      /' "$WORK/codex-mflag.log"
 fi
 
-# --- shared live guard -----------------------------------------------------
-if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
 # --- 6f: a seat's pane runs inside agentkit's own slice --------------------
 # tmux 3.4 and newer leave every pane in a scope under the slice its server was started in, so
 # a seat started here has to come up under this suite's own `agentkit-test.slice` -- a corner
@@ -2559,9 +2541,6 @@ PYRUNSCOPE
     fi ;;
   *) skip "6g the run scope: a user systemd manager is not on this host, so detached runs start plainly" ;;
 esac
-
-# --- shared live guard -----------------------------------------------------
-fi
 
 # --- 7: syntax + install into a throwaway HOME ------------------------------
 SYN=0
@@ -4920,14 +4899,7 @@ kill "$HOOKPID" 2>/dev/null
                   tail -3 "$WORK/orphan-dead.log" | sed 's/^/      /'
                   cut -c1-200 "$WORK/hook-posts.txt" | sed 's/^/      /'; }
 
-# --- 31: the shared browser and the desktop ---------------------------------
-# 31b and 31c are offline and run on every machine; the rest run in the live mode alone.  31a
-# reads the host's own browser stack.  31d and 31e make real model calls through the
-# MCP servers `ak browser mcp-register` wrote, so they only run where the shared Chromium is
-# actually listening on 9222 -- the server. On a Mac they are skipped, not failed. Where the
-# browser answers but its shared MCP server does not, they fail without installing anything:
-# the suite never touches the machine-wide service itself.
-if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
+# --- 31a: the shared browser and the desktop, on the host's own stack -------
 BST=0
 ak browser status >"$WORK/browser-status.txt" 2>&1 || BST=$?
 BSO=$(cat "$WORK/browser-status.txt")
@@ -4941,9 +4913,9 @@ else
   no "31a ak browser status exited $BST"
   sed 's/^/      /' "$WORK/browser-status.txt" | head -8
 fi
-fi
 
-# 31b: mcp-register writes both servers into a claude and a codex config that already hold
+# --- 31b: the browser and desktop MCP servers, registered offline -----------
+# mcp-register writes both servers into a claude and a codex config that already hold
 # somebody else's keys, twice, without a second copy of either and without losing a comment.
 MR=0
 BH="$WORK/home-browser"; mkdir -p -- "$BH/.codex"
@@ -5003,7 +4975,8 @@ PY
 [ "$MR" = 0 ] && ok "31b ak browser mcp-register: browser+desktop into claude user scope and one codex block, idempotent, foreign keys and comments intact" \
               || no "31b ak browser mcp-register in $BH"
 
-# 31c: the desktop server speaks MCP on stdio -- initialize, then the nine actions.
+# --- 31c: the desktop server speaks MCP on stdio (offline) -----------------
+# initialize, then the nine actions.
 printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
@@ -5026,8 +4999,11 @@ else
   no "31c tools/desktop-mcp.py over stdio: $(head -c 200 "$WORK/desktop-err.log")"
 fi
 
-if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then
-# 31d/31e: real calls, only where the shared browser is up.
+# --- 31d: claude, and codex for 31e, reach the shared browser over MCP -----
+# 31d and 31e make real model calls through the MCP servers `ak browser mcp-register` wrote, so
+# they only run where the shared Chromium is actually listening on 9222 -- the server. On a Mac
+# they are skipped, not failed. Where the browser answers but its shared MCP server does not,
+# they fail without installing anything: the suite never touches the machine-wide service itself.
 if python3 -c "
 import sys, urllib.request
 try:
@@ -5089,7 +5065,6 @@ except Exception:
   fi
 else
   skip_checks 31d/31e "the shared browser is not on this host: nothing listens on 127.0.0.1:9222"
-fi
 fi
 
 # --- 32: a notification resolves only after an interactive open and fresh progress (offline) ---
@@ -5889,6 +5864,6 @@ else
 fi
 
 # --- shared result ---------------------------------------------
-echo "coverage: offline fixtures, plus the live mode's harness/GitHub/browser checks labeled above"
+echo "coverage: the checks labeled above: offline fixtures at landing, harness/GitHub/browser checks in the live mode"
 echo "NOT EXERCISED: clean-host installation or interactive logins (separate certification)"
 finish

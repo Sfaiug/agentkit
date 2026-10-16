@@ -37,7 +37,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
 from agentkit import guard, host, orch
-from suite_shares import shard, shares
+from suite_shares import HEADERS, LIVE_CHECKS, shard, shares
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
                     # bigger hosts fit more files, busier or smaller hosts fit fewer
@@ -99,37 +99,18 @@ def cases_run(output):
         r"^Ran (\d+) tests? in [^\n]+$|^TESTS_RUN=(\d+)$", output, re.MULTILINE))
 
 
-LIVE = 'if [ "${AGENTKIT_SMOKE_LIVE:-0}" = 1 ]; then'
-
-
-def live_blocks(smoke):
-    """The line numbers of smoke.sh's live blocks: each from its LIVE guard to the `fi` bash
-    closes it with, the first unindented one after which what lies between parses whole."""
-    lines, inside = smoke.splitlines(), set()
-    for start, line in enumerate(lines):
-        if line != LIVE:
-            continue
-        for end in range(start + 1, len(lines)):
-            if lines[end] == "fi":
-                parsed = subprocess.run(["bash", "-n"], input="\n".join(lines[start + 1:end]),
-                                        capture_output=True, text=True)
-                if parsed.returncode == 0 and not parsed.stderr:
-                    inside.update(range(start, end + 1))
-                    break
-        else:
-            raise ValueError(f"tests/smoke.sh:{start + 1}: a live guard nothing closes")
-    return inside
-
-
-def smoke_runs(smoke, offline, live=False):
+def smoke_runs(smoke, offline):
     """The test modules `bash tests/smoke.sh` runs in its plain mode or, `offline`, in the one
-    AGENTKIT_SMOKE_OFFLINE=1 selects: every one it names outside a comment and outside the
-    blocks that mode skips.  Both skip the argument blocks above the offline block; the plain
-    mode skips the offline block, and the offline mode exits at its end.  The live blocks run
-    only in the `live` mode, AGENTKIT_SMOKE_LIVE=1, which tests/live.sh starts."""
-    names, block, below, skipped = set(), None, False, set() if live else live_blocks(smoke)
-    for number, line in enumerate(smoke.splitlines()):
-        if number in skipped:
+    AGENTKIT_SMOKE_OFFLINE=1 selects: every one it names outside a comment, a live check and
+    the blocks that mode skips.  Both skip the argument blocks above the offline block; the
+    plain mode skips the offline block, and the offline mode exits at its end.  The live checks
+    (LIVE_CHECKS) run only in the live mode, AGENTKIT_SMOKE_LIVE=1, which tests/live.sh starts."""
+    names, block, below, live = set(), None, False, False
+    for line in smoke.splitlines():
+        header = HEADERS.match(line + "\n")
+        if header:
+            live = header[1] in LIVE_CHECKS
+        if live:
             continue
         opens = block is None and not below and line.startswith("if ") and line.endswith("then")
         if opens and "AGENTKIT_SMOKE_OFFLINE" in line:
@@ -228,8 +209,7 @@ def main(root, others=None):
     tests = root / "tests"
     # smoke.sh runs in the mode this caller's environment gives it
     skip = smoke_runs((tests / "smoke.sh").read_text(),
-                      os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1",
-                      os.environ.get("AGENTKIT_SMOKE_LIVE", "0") == "1")
+                      os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1")
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     # Exclude everything smoke runs before dividing the rest, regardless of its piece.
     owners = shares({path: path.stat().st_size for path in todo}, total)
