@@ -1865,11 +1865,6 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
         return {"state": "at_prompt", "since": None, "began": None, "hooked": None,
                 "hooked_at": None, "hooked_event": None, "authority": "", "rule": "none",
                 "evidence": str(exc)[:160]}
-    # The stall the tick would type this seat back past, read off this same capture, so a turn
-    # since answers it as soon as the screen does; a capture that failed says nothing of it.
-    found["stall"] = (previous.get("stall") if not pane.strip() else
-                      stall_mark(harness, pane, name, lambda _: None)
-                      if found["state"] == "at_prompt" else None)
     fields = dict(found, **stop_marks(harness, pane, found, previous, at))
     if any(previous.get(key) != value for key, value in fields.items()):
         seat_write(name, **fields)
@@ -1878,7 +1873,7 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
 
 def observed(name, harness, pane, previous, at):
     """`classify` of that pane with the seat's hook facts and an interruption its harness
-    recorded, writing nothing."""
+    recorded, and the stall the tick would type it back past (`stall`), writing nothing."""
     fact = hook_facts(name)
     # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
     # whose hook lands while the record is read is a newer turn, which the record may not
@@ -1891,15 +1886,22 @@ def observed(name, harness, pane, previous, at):
             ended = max(at, _stamp(fact.get("at")) or at)
     if ended is not None and hook_facts(name) != fact:
         ended = None
-    return classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
-                    interrupted=ended)
+    found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
+                     interrupted=ended)
+    # read off this same capture, so a turn since answers it as soon as the screen does; a
+    # capture that failed says nothing of it
+    found["stall"] = (previous.get("stall") if not pane.strip() else
+                      stall_mark(harness, pane, name, lambda _: None)
+                      if found["state"] == "at_prompt" else None)
+    return found
 
 
 def word_from(found):
     """What of an observation a seat's word is decided from and kept beside it: its state and
-    rule, and the words of a question or a draft, which the owner reads -- never a spinner's
-    own line, which a harness redraws with its timer."""
-    said = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
+    rule, and the words the owner reads in its reason, a question's, a draft's or the error a
+    retry is typed past -- never a spinner's own line, which a harness redraws with its timer."""
+    said = (found.get("evidence") if found.get("state") in ("asking", "draft")
+            else found.get("stall")) or ""
     return [found.get("state"), found.get("rule"), said]
 
 
@@ -2526,12 +2528,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if waiting:
         return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
                 "resumes_at": waiting["until"]}
-    # 3c. ... or its turn stopped on an error the tick types it back past (`health`): it moves
-    # on without the owner until the tick gives up and tells them (`told`), so it is working.
+    # 3c. ... or its turn stopped on an error the tick types it back past (`health`, or
+    # `seat_account` for a bare rate limit): it moves on without the owner until the tick gives
+    # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.
     # The error is its own look's (`stall`), so a turn since -- the retry's or the owner's --
     # answers it as soon as the screen does.
-    if (found.get("stall") and not gone and not seat_closed_by_owner(name)
-            and not (stalls.get(name) or {}).get("told")):
+    if (found.get("stall") and not gone and not session.get("legacy")
+            and not seat_closed_by_owner(name) and not (stalls.get(name) or {}).get("told")
+            and not (seat_read(name).get("usage_refusal") or {}).get("told")):
         return {"word": "working", "reason": f"retrying: {found['stall']}",
                 "since": found.get("began")}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, handed to

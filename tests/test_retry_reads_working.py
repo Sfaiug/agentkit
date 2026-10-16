@@ -3,8 +3,8 @@
 The owner's rule (14 Oct 2026): a retry reads `working`.  The error is read by the seat's own
 look, on the capture it already took, so the word follows the screen: a retry that ended on the
 error again still reads `retrying`, one that worked reads as its turn ended, and a capture that
-failed changes nothing.  An error that may be a login is never typed past, and once the tick
-gives up and tells the owner, the seat needs them.  Offline: a temporary HOME, captured panes,
+failed changes nothing.  An error that may be a login is never typed past, nor is a legacy seat,
+and once the tick gives up and tells the owner, the seat needs them.  Offline: a temporary HOME, captured panes,
 no tmux.
 """
 
@@ -24,9 +24,9 @@ RETRYING = ("working", "retrying: API Error")
 
 
 class RetryReadsWorking(Sandbox):
-    def word(self, pane):
+    def word(self, pane, **seat):
         """The seat's word once its look has seen that capture."""
-        seat = {"name": SEAT}
+        seat = {"name": SEAT, **seat}
         found = watch.live_state(seat, harness="claude", pane=pane, now=10000)
         answer = watch.session_state(SEAT, now=10000, session=seat, records=[], live=found,
                                      harness="claude", auth_out={}, gh_out={}, token_out=None,
@@ -52,6 +52,15 @@ class RetryReadsWorking(Sandbox):
         state["stalls"][SEAT] = {"signature": "API Error", "since": 6000, "told": 9900}
         watch.save_state(state)
         self.assertEqual(self.word(STALL), ("needs you", told))
+
+    def test_once_it_gives_up_on_a_bare_rate_limit_it_needs_them_too(self):
+        told = "acme-api (claude) is stuck with no progress for an hour"
+        notify.record(SEAT, "needs", told, time=9900, watcher=True)
+        watch.seat_write(SEAT, usage_refusal={"line": "API Error: 429", "at": 6000, "told": 9900})
+        self.assertEqual(self.word(STALL), ("needs you", told))
+
+    def test_a_legacy_seat_the_tick_never_types_into_is_no_retry(self):
+        self.assertEqual(self.word(STALL, legacy=True), ("idle", ""))
 
 
 if __name__ == "__main__":
