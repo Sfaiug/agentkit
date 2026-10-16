@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -188,8 +189,19 @@ def tmp_listdir(path):
         os.close(fd)
 
 
+def tmp_changed(info):
+    """When that entry last changed.
+
+    A file or link counts its inode change too: a restored mtime (tar) backdates it.  A
+    directory counts its modification alone: systemd-tmpfiles-clean puts every directory's
+    times back after its daily pass, moving its change time, while an entry added, removed
+    or renamed inside moves its modification time anyway.
+    """
+    return info.st_mtime if stat.S_ISDIR(info.st_mode) else max(info.st_mtime, info.st_ctime)
+
+
 def tmp_tree_newest(path):
-    """The newest modification/change time, or None when it is not ours alone to take.
+    """The newest change of any entry, or None when it is not ours alone to take.
 
     Ours alone is every entry owned by this user, no link at the top, and no
     socket, fifo or device inside: links inside are unlinked, never traversed,
@@ -199,8 +211,7 @@ def tmp_tree_newest(path):
     if not retention.safe(path):
         return None
     try:
-        info = path.lstat()
-        newest = max(info.st_mtime, info.st_ctime)
+        newest = tmp_changed(path.lstat())
     except OSError:
         return None
     if not path.is_dir():
@@ -220,12 +231,11 @@ def tmp_tree_newest(path):
                 return None
             if info.st_uid != os.getuid():
                 return None
+            newest = max(newest, tmp_changed(info))
             if child.is_symlink():
-                newest = max(newest, info.st_mtime, info.st_ctime)
                 continue
             if not retention.safe(child):
                 return None
-            newest = max(newest, info.st_mtime, info.st_ctime)
             if child.is_dir():
                 stack.append(child)
     return newest
