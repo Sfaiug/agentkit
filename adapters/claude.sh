@@ -99,8 +99,13 @@ renew() {
 
 # An account's conversations and user settings are the usual login's, linked into its config
 # directory: a conversation begun on one account is resumed on the next, and a setting changed in
-# any session on any login is every seat's and worker's (the settings: `share` in
-# agentkit/harness/claude.py).  Once linked, a launch starts no Python for them.
+# any session on any login is every seat's and worker's, which no launch puts back (Claude Code
+# 2.1.292 saves its user settings through the link and keeps it).  The first link carries over
+# what only the account's own file held, the usual login's values winning.  Claude Code saves with
+# no lock, renaming a new file over the old, so that is read and written in one process with no
+# other program run in between, and only when there is something to carry, with the stricter of
+# the two files' modes: either may hold a secret under `env`.  First links take turns; once
+# linked, a launch starts no Python for it.
 share() {
   [ -n "$ACCOUNT" ] || return 0
   mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || return 1
@@ -108,7 +113,46 @@ share() {
     ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || return 1
   [ "$(readlink -- "$CLAUDE_CONFIG_DIR/settings.json")" != "$HOME/.claude/settings.json" ] ||
     return 0
-  python3 "$(dirname -- "${BASH_SOURCE[0]}")/../agentkit/harness/claude.py" --share
+  python3 -P - "$HOME/.claude/settings.json" "$CLAUDE_CONFIG_DIR/settings.json" <<'SHAREPY'
+import fcntl, json, os, sys, tempfile
+from pathlib import Path
+
+usual, own = Path(sys.argv[1]), Path(sys.argv[2])
+
+
+def read(path):
+    try:
+        value = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError) as exc:
+        sys.exit(f"Claude's settings cannot be shared: {path}: {exc}")
+    if not isinstance(value, dict):
+        sys.exit(f"Claude's settings cannot be shared: {path} is not a JSON object")
+    return value
+
+
+lock = os.open(usual.parent, os.O_RDONLY)
+fcntl.flock(lock, fcntl.LOCK_EX)
+if own.is_symlink() and os.readlink(own) == str(usual):
+    sys.exit(0)
+shared, mine = read(usual), read(own)
+merged = {**mine, **shared}
+if merged != shared:
+    target = usual.resolve()
+    fd, name = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(merged) + "\n")
+        if target.exists():
+            os.chmod(name, target.stat().st_mode & own.stat().st_mode & 0o777)
+        os.replace(name, target)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+link = own.with_name(f"{own.name}.{os.getpid()}.link")
+link.unlink(missing_ok=True)
+link.symlink_to(usual)
+os.replace(link, own)
+SHAREPY
 }
 
 case "$cmd" in

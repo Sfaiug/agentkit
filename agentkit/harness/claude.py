@@ -5,7 +5,6 @@ An alternate login also needs the seat's trust and hooks in its own config direc
 
 from pathlib import Path
 import codecs
-import fcntl
 import json
 import math
 import os
@@ -416,20 +415,20 @@ def opened(cwd, conversation):
     return transcript_path(record, conversation).exists()
 
 
-def _write(path, data, mode=0o777):
+def _write(path, data):
     """Replace a config file from a temp file no other launch shares.
 
     Seats open side by side, so a fixed temp name collides: one launch renames
     it away while another is still writing.  A replace inherits the temp file's
-    mode rather than the old one's, so an existing file keeps the mode it had,
-    narrowed by `mode`, and a new one stays as mkstemp made it, 0600.
+    mode rather than the old one's, so an existing file keeps the mode it had
+    and a new one stays as mkstemp made it, 0600.
     """
     fd, name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as handle:
             handle.write(json.dumps(data) + "\n")
         if path.exists():
-            os.chmod(name, path.stat().st_mode & mode & 0o777)
+            os.chmod(name, path.stat().st_mode & 0o777)
         os.replace(name, path)
     except BaseException:
         Path(name).unlink(missing_ok=True)
@@ -489,55 +488,23 @@ def answered(data):
 CHECKED_ENV = "AGENTKIT_CLAUDE_CHECKED"   # the launch has read Claude's settings: adapters/claude.sh
 
 
-def _read(path):
-    """What a config file holds: nothing when it is not there; a ValueError when it is not a
-    JSON object."""
-    try:
-        value = json.loads(path.read_text()) if path.exists() else {}
-    except ValueError as exc:
-        raise ValueError(f"{path} is not JSON: {exc}") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} is not a JSON object")
-    return value
-
-
 def _settings(account):
     """(paths, what each holds) of the configuration a seat on that login is opened with: the
-    owner's settings, which every login reads (`share`), and the login's global config."""
+    owner's settings, which every login reads (a named one's links to them: adapters/claude.sh's
+    `share`), and the login's global config.  A file not there holds nothing; one that is not a
+    JSON object is a ValueError."""
     home = Path.home()
     paths = (home / ".claude/settings.json",
              home / f".claude-{account}/.claude.json" if account else home / ".claude.json")
-    return paths, [_read(path) for path in paths]
-
-
-def share(directory):
-    """Link a named login's user settings to the usual login's, so every login reads one file.
-
-    Claude Code 2.1.292 saves its user settings through the link and keeps it (checked with
-    `claude plugin install --scope user`), so a change made in any session on any login is every
-    seat's and worker's, and no launch puts it back.  The first link carries over what only that
-    login's own file held, the usual login's values winning.  Claude Code saves with no lock, by
-    renaming a new file over the old, so that one write reads and replaces within this process,
-    with no other program run in between, and only when there is something to carry; the file
-    keeps the stricter of the two modes, as either may hold a secret under `env`.  First links
-    take turns on the usual login's directory.
-    """
-    usual, own = Path.home() / ".claude/settings.json", Path(directory) / "settings.json"
-    lock = os.open(usual.parent, os.O_RDONLY)
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if own.is_symlink() and os.readlink(own) == str(usual):
-            return
-        shared, mine = _read(usual), _read(own)
-        merged = {**mine, **shared}
-        if merged != shared:
-            _write(usual.resolve(), merged, own.stat().st_mode)
-        link = own.with_name(f"{own.name}.{os.getpid()}.link")
-        link.unlink(missing_ok=True)
-        link.symlink_to(usual)
-        os.replace(link, own)
-    finally:
-        os.close(lock)
+    values = []
+    for path in paths:
+        try:
+            values.append(json.loads(path.read_text()) if path.exists() else {})
+        except ValueError as exc:
+            raise ValueError(f"{path} is not JSON: {exc}") from exc
+        if not isinstance(values[-1], dict):
+            raise ValueError(f"{path} is not a JSON object")
+    return paths, values
 
 
 def checked(account):
@@ -649,12 +616,6 @@ if __name__ == "__main__":
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
         from agentkit.harness.claude import capture
         capture(os.environ["AGENTKIT_SESSION"], json.load(sys.stdin), int(sys.argv[2]))
-        sys.exit(0)
-    if sys.argv[1:] == ["--share"]:
-        try:
-            share(os.environ["CLAUDE_CONFIG_DIR"])
-        except (OSError, ValueError) as exc:
-            sys.exit(f"Claude's settings cannot be shared: {exc}")
         sys.exit(0)
     checking = sys.argv[1:] == ["--check"]
     account_config(check=checking)
