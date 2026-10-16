@@ -226,6 +226,9 @@ class V5s(Sandbox):
         self.assertIn("could not: no saved conversation to reopen", found["reason"])
         notify.transition(SEAT, now=10061, seat=self.rows[0])
         self.assertEqual(posts, [f"Needs you · {SEAT}"])
+        # a seat the owner closed since is their choice, no failure: its run going speaks again
+        orch.mark_owner_closed(SEAT)
+        self.assertEqual(watch.session_state(SEAT, session=self.rows[0])["word"], "working")
 
     # (e) a seat stopped on purpose is not reopened by either path
 
