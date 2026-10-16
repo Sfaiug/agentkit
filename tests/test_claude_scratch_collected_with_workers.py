@@ -1,8 +1,8 @@
 """A gone Claude session's scratch goes a day after it ended, while headless workers run.
 
 Offline: /tmp, /proc and HOME are fixture-owned and the clock is injected.  A seat is named
-by its pid record, a headless turn by the event stream ak launched it writing to, and a
-client neither names keeps only its own working directory's project.
+by its pid record, a headless turn by its stdout, the event stream ak launched it writing to,
+and a client neither names keeps only its own working directory's project.
 """
 
 import json
@@ -73,8 +73,8 @@ class ScratchWithWorkers(Sandbox):
         self.process(["claude", "-p", "--model", "opus", "--output-format", "stream-json"],
                      self.worker_cwd, opened=[out / "prompt.md", events, out / "stderr.log"])
 
-    def scratch(self, cwd, session):
-        path = self.tmp / f"claude-{os.getuid()}" / claude.project(cwd) / session
+    def scratch(self, cwd, session, folder=None):
+        path = self.tmp / f"claude-{os.getuid()}" / (folder or claude.project(cwd)) / session
         path.mkdir(parents=True)
         (path / "tasks").mkdir()
         (path / "tasks" / "b1.output").write_text("temp\n")
@@ -111,6 +111,33 @@ class ScratchWithWorkers(Sandbox):
         self.assertEqual(self.collect(), {str(elsewhere)})
         self.assertFalse(elsewhere.exists())
         self.assertTrue(own.is_dir())
+
+    def test_a_stream_a_client_only_reads_names_nothing(self):
+        own = self.scratch(self.worker_cwd, "sess-resumed")
+        elsewhere = self.scratch(self.seat_cwd, "sess-ended")
+        earlier = self.root / "earlier-turn" / "events.jsonl"
+        earlier.parent.mkdir()
+        earlier.write_text(json.dumps({"type": "system", "session_id": "sess-ended"}) + "\n")
+        self.process(["claude", "-p"], self.worker_cwd,
+                     opened=[self.root / "prompt.md", self.root / "turn.log",
+                             self.root / "stderr.log", earlier])
+        self.now += DAY + 3600
+        self.assertEqual(self.collect(), {str(elsewhere)})
+        self.assertTrue(own.is_dir())
+
+    def test_an_unnamed_client_keeps_its_project_as_claude_names_it(self):
+        # Claude Code counts UTF-16 units and ends a long name with a hash of its own.
+        rocket = self.root / "acme-\U0001f680"
+        deep = self.root / "-".join(["fix-api"] * 30)
+        kept = [self.scratch(rocket, "sess-resumed", claude.project(self.root) + "-acme---"),
+                self.scratch(deep, "sess-resumed", claude.project(deep)[:200] + "-1x2y3z")]
+        gone = self.scratch(self.seat_cwd, "sess-ended")
+        for cwd in (rocket, deep):
+            cwd.mkdir()
+            self.process(["claude"], cwd)
+        self.now += DAY + 3600
+        self.assertEqual(self.collect(), {str(gone)})
+        self.assertTrue(all(path.is_dir() for path in kept))
 
     def test_a_directory_change_time_alone_keeps_nothing(self):
         live_seat = self.scratch(self.seat_cwd, "sess-seat")

@@ -28,6 +28,7 @@ def collect(processes):
             args = [os.fsdecode(arg) for arg in (proc / "cmdline").read_bytes().split(b"\0")
                     if arg]
             paths = set(arg for arg in args if arg.startswith("/"))
+            links = {}
             # Iterate while the descriptor is open: our own fd inventory includes it.
             with os.scandir(proc / "fd") as handles:
                 for link in chain([proc / "cwd"], (proc / "fd" / entry.name for entry in handles)):
@@ -37,13 +38,13 @@ def collect(processes):
                         if link == proc / "cwd":
                             raise
                         continue                # this descriptor has already closed
-                    if link == proc / "cwd":
-                        cwd = target.removesuffix(" (deleted)")
+                    links[link.name] = target.removesuffix(" (deleted)")
                     if target.startswith("/"):
-                        paths.update((target, target.removesuffix(" (deleted)")))
+                        paths.update((target, links[link.name]))
             if (proc / "stat").read_text().rsplit(")", 1)[1].split()[19] != start:
                 raise ValueError("pid was reused during the scan")
-            rows[int(proc.name)] = {"uid": uid, "start": start, "args": args, "cwd": cwd,
+            rows[int(proc.name)] = {"uid": uid, "start": start, "args": args,
+                                    "cwd": links["cwd"], "stdout": links.get("1"),
                                     "paths": sorted(paths)}
         except (OSError, ValueError, IndexError, StopIteration):
             try:

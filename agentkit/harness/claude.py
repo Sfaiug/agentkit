@@ -14,6 +14,7 @@ import tempfile
 
 SOURCE = "claude-hook"
 TMP_CLAUDE_AGE = 86400          # a gone session's scratch folder goes after a day
+PROJECT_CUT = 200               # Claude Code ends a project name past this with a hash of its own
 
 
 # What Claude Code writes as the conversation's last message when the owner interrupts a turn
@@ -22,8 +23,12 @@ INTERRUPTS = ("[Request interrupted by user]", "[Request interrupted by user for
 
 
 def project(cwd):
-    """The folder Claude Code files a working directory's conversations and scratch under."""
-    return re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+    """The folder Claude Code files a working directory's conversations and scratch under.
+
+    Its JavaScript replaces each UTF-16 unit that is not an ASCII letter or digit, so a
+    character beyond the BMP leaves two hyphens.
+    """
+    return re.sub(r"[^A-Za-z0-9]", lambda m: "--" if ord(m[0]) > 0xFFFF else "-", str(cwd))
 
 
 def transcript_path(record, conversation):
@@ -204,9 +209,10 @@ def tmp_claude_live(table):
 
     A client is named by its pid record: Claude updates it after /clear, and procStart must
     match too, so a reused pid or a stale record in another account cannot stand in for the
-    live client.  A headless turn writes none; it is named by the event stream ak launched it
-    writing to.  A client neither names, or a process of an unknown program, keeps its
-    working directory's project, the only one its scratch can be under.
+    live client.  A headless turn writes none; it is named by its stdout, the event stream ak
+    launched it writing to.  A client neither names, or a process of an unknown program, keeps
+    its working directory's project, the only one its scratch can be under, compared up to
+    where Claude Code cuts a long name.
     """
     from .. import retention, worker
     if table is None:
@@ -219,8 +225,9 @@ def tmp_claude_live(table):
         for pid, row in table.items():
             if row["uid"] != os.getuid() or (row["args"] and not is_process(row["args"])):
                 continue
-            found = {worker.recovered_session(Path(path).parent) for path in row["paths"]
-                     if Path(path).name == "events.jsonl"}
+            stream = row.get("stdout")
+            found = ({worker.recovered_session(Path(stream).parent)}
+                     if stream and Path(stream).name == "events.jsonl" else set())
             for root in roots:
                 record = retention.read_json(root / "sessions" / f"{pid}.json") or {}
                 if record.get("pid") == pid and str(record.get("procStart")) == row["start"]:
@@ -230,7 +237,7 @@ def tmp_claude_live(table):
             if found:
                 sessions |= found
             else:
-                projects.add(project(row["cwd"]))
+                projects.add(project(row["cwd"])[:PROJECT_CUT])
         return sessions, projects
     except (OSError, ValueError, TypeError, AttributeError):
         return None
@@ -243,7 +250,7 @@ def tmp_claude_session_stale(path, now, paths, live):
     """
     from .. import gc, retention
     if (retention.busy(path, paths) or live is None or path.name in live[0]
-            or path.parent.name in live[1]):
+            or path.parent.name[:PROJECT_CUT] in live[1]):
         return None
     newest = gc.tmp_tree_newest(path)
     if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
@@ -264,8 +271,8 @@ def tmp_top_stale(path, now, paths, live):
             return None
         sessions, projects = live
         try:
-            if any(folder in projects or any((path / folder / session).is_dir()
-                                             for session in sessions)
+            if any(folder[:PROJECT_CUT] in projects
+                   or any((path / folder / session).is_dir() for session in sessions)
                    for folder in gc.tmp_listdir(path)):
                 return None
         except OSError:
