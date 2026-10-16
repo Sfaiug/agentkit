@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import pwd
 import re
+import resource
 import select
 import shlex
 import shutil
@@ -598,16 +599,13 @@ def _supervise(report, argv, drain=False):
                 pass
         except ChildProcessError:
             pass
-    left, ticks = [], 0
+    left = []
     for entry in Path("/proc").iterdir():
-        if not entry.name.isdigit():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
             continue
         try:
-            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
-            # Each process's own CPU and what it reaped: the box's whole spend, a server the
-            # command left running included, which no rusage counts until it is reaped.
-            ticks += sum(map(int, fields[11:15]))
-            if fields[0] in ("Z", "X") or int(entry.name) == os.getpid():
+            state = (entry / "stat").read_text().rsplit(")", 1)[1].split()[0]
+            if state in ("Z", "X"):
                 continue
             command = (entry / "cmdline").read_bytes().decode(errors="replace").replace("\0", " ").strip()
         except FileNotFoundError:
@@ -615,8 +613,18 @@ def _supervise(report, argv, drain=False):
         except OSError:
             command = "command unavailable"
         left.append([int(entry.name), command])
+    if os.getpid() == 1:
+        # What PID 1's exit would end ends now and is reaped here, so every process's CPU,
+        # a server's the command left running included, is in PID 1's children's, final.
+        try:
+            os.kill(-1, signal.SIGKILL)
+            while True:
+                os.waitpid(-1, 0)
+        except (ProcessLookupError, ChildProcessError):
+            pass
+    spent = resource.getrusage(resource.RUSAGE_CHILDREN)
     Path(report).write_text(json.dumps({"returncode": code, "processes": left,
-                                        "cpu_seconds": ticks / os.sysconf("SC_CLK_TCK")}))
+                                        "cpu_seconds": spent.ru_utime + spent.ru_stime}))
     return 128 - code if code < 0 else code
 
 
