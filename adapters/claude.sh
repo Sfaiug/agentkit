@@ -99,29 +99,16 @@ renew() {
 
 # An account's conversations and user settings are the usual login's, linked into its config
 # directory: a conversation begun on one account is resumed on the next, and a setting changed in
-# any session on any login is every seat's and worker's, which no launch puts back (Claude Code
-# 2.1.292 writes its user settings through the link and keeps it).  The first link carries over
-# the settings only the account's own file held, the usual login's winning, one launch at a time:
-# two first launches writing the usual file at once could each drop what the other carried over.
+# any session on any login is every seat's and worker's (the settings: `share` in
+# agentkit/harness/claude.py).  Once linked, a launch starts no Python for them.
 share() {
   [ -n "$ACCOUNT" ] || return 0
-  local own="$CLAUDE_CONFIG_DIR/settings.json" usual="$HOME/.claude/settings.json"
-  mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" "$TMPD" || return 1
+  mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || return 1
   [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
     ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || return 1
-  [ "$(readlink -- "$own")" != "$usual" ] || return 0
-  ( python3 -c 'import fcntl, signal; signal.alarm(30); fcntl.flock(0, fcntl.LOCK_EX)' <&9 || exit 1
-    [ "$(readlink -- "$own")" != "$usual" ] || exit 0
-    if [ -e "$own" ]; then
-      both=("$own")
-      [ ! -e "$usual" ] || both+=("$usual")
-      merged=$(jq -se 'if all(type == "object") then add // {} else error("not a JSON object") end' \
-               "${both[@]}") || exit 1
-      [ -e "$usual" ] && jq -e --argjson merged "$merged" '. == $merged' "$usual" >/dev/null ||
-        printf '%s\n' "$merged" >"$usual" || exit 1
-    fi
-    ln -sf -- "$usual" "$own.$$" && mv -f -- "$own.$$" "$own"
-  ) 9>>"$TMPD/claude-settings.lock"
+  [ "$(readlink -- "$CLAUDE_CONFIG_DIR/settings.json")" != "$HOME/.claude/settings.json" ] ||
+    return 0
+  python3 "$(dirname -- "${BASH_SOURCE[0]}")/../agentkit/harness/claude.py" --share
 }
 
 case "$cmd" in

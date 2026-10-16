@@ -2,18 +2,22 @@
 
 Every login reads the usual login's user settings: the adapter links a named one's
 `settings.json` to `~/.claude/settings.json` for a seat's launch and a worker's turn alike, and
-nothing a launch runs writes it or replaces the link (Claude Code 2.1.292 writes its user
-settings through the link and keeps it: checked with `claude plugin install --scope user`).
-The first link carries over what only the named login's own file held; the usual login's values
-win.  Offline: a temporary HOME, the real adapter, a seat's real launch line up to its TUI, and a
-fake Claude Code that reads its login's settings and saves a change through the same path.
+nothing a launch runs writes it again or replaces the link (Claude Code 2.1.292 saves its user
+settings through the link and keeps it: checked with `claude plugin install --scope user`).  The
+first link carries over what only the named login's own file held, the usual login's values
+winning, reading and writing in one process: a session saving while the adapter runs any other
+command keeps its save.  Offline: a temporary HOME, the real adapter, a seat's real launch line up
+to its TUI, and a fake Claude Code that reads its login's settings and saves a change through the
+same path.
 """
 
 import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 from threading import Thread
 import unittest
@@ -126,6 +130,60 @@ class OneSettings(unittest.TestCase):
         self.assertEqual(json.loads(self.usual.read_text()), {"theme": "light"})
         self.assert_linked("quay")
 
+    def test_what_is_carried_over_keeps_the_stricter_mode(self):
+        self.own.parent.mkdir()
+        mask = os.umask(0o022)
+        self.addCleanup(os.umask, mask)
+        for usual in (None, 0o644):
+            with self.subTest(usual=usual):
+                self.usual.unlink(missing_ok=True)
+                self.own.unlink(missing_ok=True)
+                if usual:
+                    self.usual.write_text(json.dumps({"model": "usual"}))
+                    self.usual.chmod(usual)
+                self.own.write_text(json.dumps({"env": {"ACME_TOKEN": "invented"}}))
+                self.own.chmod(0o600)
+                self.assertEqual(self.worker("quay")["env"], {"ACME_TOKEN": "invented"})
+                self.assertEqual(self.usual.stat().st_mode & 0o777, 0o600)
+                self.assert_linked("quay")
+
+    def test_a_save_made_while_the_adapter_runs_any_command_survives(self):
+        # After each command the adapter runs, a session on that login saves a setting of its own
+        # as Claude Code does, a new file renamed over the old: every one is in the file after.
+        wrappers = self.root / "wrappers"
+        wrappers.mkdir()
+        for command in ("readlink", "mkdir", "dirname", "ln", "mv", "jq"):
+            (wrappers / command).write_text(f"""#!{sys.executable}
+import json, os, subprocess, sys
+from pathlib import Path
+done = subprocess.run([{shutil.which(command)!r}, *sys.argv[1:]])
+log = Path(os.environ["HOME"]) / "saves"
+key = f"{command}-{{len(log.read_text().split()) if log.exists() else 0}}"
+path = Path(os.environ["AK_TEST_SAVED_PATH"]).resolve()
+temp = path.with_name(key + ".tmp")
+temp.write_text(json.dumps({{**json.loads(path.read_text()), key: True}}))
+os.replace(temp, path)
+with log.open("a") as handle:
+    handle.write(key + "\\n")
+sys.exit(done.returncode)
+""")
+            (wrappers / command).chmod(0o755)
+        self.env["PATH"] = f"{wrappers}{os.pathsep}{self.env['PATH']}"
+        self.own.parent.mkdir()
+        for login in ("usual", "quay"):
+            with self.subTest(login=login):
+                self.own.unlink(missing_ok=True)
+                (self.root / "saves").unlink(missing_ok=True)
+                self.usual.write_text(json.dumps({"theme": "dark"}))
+                self.own.write_text(json.dumps({"model": "quay"}))
+                self.env["AK_TEST_SAVED_PATH"] = str(self.usual if login == "usual" else self.own)
+                self.worker("quay")
+                saves = (self.root / "saves").read_text().split()
+                self.assertTrue(saves)
+                shared = json.loads(self.usual.read_text())
+                self.assertEqual([key for key in saves if key not in shared], [])
+                self.assert_linked("quay")
+
     def test_first_launches_side_by_side_each_keep_what_was_carried_over(self):
         self.usual.write_text(json.dumps({"model": "usual"}))
         self.own.parent.mkdir()
@@ -154,7 +212,6 @@ class OneSettings(unittest.TestCase):
                     self.assertFalse(self.own.is_symlink())
                     self.assertEqual(self.own.read_text(), bad)
                     self.assertEqual(self.usual.read_text(), '{"model": "usual"}')
-
 
 if __name__ == "__main__":
     unittest.main()
