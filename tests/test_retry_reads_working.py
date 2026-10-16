@@ -35,6 +35,14 @@ class RetryReadsWorking(Sandbox):
         self.assertEqual((found["word"], found["reason"]),
                          ("working", "retrying: Usage limit · waiting until 2026-10-15 20:00"))
 
+    def test_once_the_tick_types_it_back_its_turn_says_until_the_error_is_seen_again(self):
+        typed = {"signature": "API Error", "since": 9400, "changed_at": 9400, "nudged_at": 9600}
+        again = self.decide({SEAT: dict(typed, changed_at=9800)})
+        self.assertEqual((again["word"], again["reason"]), ("working", "retrying: API Error"))
+        notify.record(SEAT, "done", "Shipped the parser", time=9700)
+        found = self.decide({SEAT: typed})
+        self.assertEqual((found["word"], found["reason"]), ("done", "Shipped the parser"))
+
     def test_once_the_tick_gives_up_and_asks_the_owner_it_needs_them(self):
         told = "acme-api is stalled on API Error for an hour and typing has not moved it"
         notify.record(SEAT, "needs", told, time=9900, watcher=True)

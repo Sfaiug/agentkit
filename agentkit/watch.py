@@ -2067,7 +2067,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * its subscription ran out and ak resumes it when the usage comes back, so the seat is
       working, its reason saying until when (`resumes_at`);
     * its turn stopped on an error the tick is typing it back past (`stalls`), so the seat is
-      working, `retrying: <error>`, until the tick gives up and asks the owner;
+      working, `retrying: <error>`, until the tick types it back -- the turn that starts, and
+      what it ends on, say the rest until the tick sees the error again -- or gives up and
+      asks the owner;
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in;
@@ -2393,10 +2395,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # 3c. ... or its turn stopped on an error and the tick is typing it back into motion
     # (`health`'s stall entry, not yet given up on and told to the owner): it moves on
     # without them, so it is working, the reason saying on what -- and when, for a usage window the
-    # tick waits out.  A login is no such stall: rung 1 has it.
+    # tick waits out.  A login is no such stall: rung 1 has it.  Once the tick has typed it back,
+    # the error is behind the turn that started, until the tick sees the screen change to it
+    # again: a retry that worked is over at its own Stop, not at the tick's next pass.
     stall = (stalls or {}).get(name) if not gone and not seat_closed_by_owner(name) else None
     if (isinstance(stall, dict) and stall.get("signature") and not stall.get("told")
-            and stall.get("kind") not in ("auth", "quiet")):
+            and stall.get("kind") not in ("auth", "quiet")
+            and (stall.get("nudged_at") or 0) <= (stall.get("changed_at") or 0)):
         reason = f"retrying: {stall['signature']}"
         if stall.get("status"):
             reason += f" · {stall['status']}"
