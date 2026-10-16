@@ -51,6 +51,17 @@ class HistoryTests(unittest.TestCase):
         row = history.get("r1")
         self.assertEqual((row["live_at"], row["finished_at"], row["final_state"]), (30, 20, "pass"))
 
+    def test_a_row_from_before_breaks_were_recorded_keeps_them_unknown_through_a_resume(self):
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute(history.SCHEMA)
+            db.execute("INSERT INTO runs (run_id, final_state, started_at, finished_at) "
+                       "VALUES (?,?,?,?)", ("r1", "exhausted", 1, 2))
+        history.start_run("r1", started_at=3)
+        history.finish_run("r1", final_state="pass", finished_at=4)
+        row = history.get("r1")
+        # its landing failures were never counted: NULL, never the 0 and '' of an unbroken row
+        self.assertEqual((row["landing_breaks"], row["broke_after_merge"]), (None, None))
+
     def test_step_seconds_are_summed(self):
         history.start_run("r1", started_at=10)
         history.add_seconds("r1", "executor", 2)
@@ -160,7 +171,7 @@ class HistoryTests(unittest.TestCase):
         history.start_run("merged", repo="ATOLL", started_at=0)
         history.add_seconds("merged", "merge", 10)
         history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
-        # an ended row was followed for breaks: none is 0 and '', never the NULL of an older row
+        # a row started since breaks are recorded was followed for them: none is 0 and ''
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (0, ""))
         history.add_landing_break("merged")

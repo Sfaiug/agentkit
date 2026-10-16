@@ -213,7 +213,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     goes, and every later write finds no row to change.  The orchestrator is the launching
     seat's at the first write, whatever that seat runs by a resume.  `change` names the
     change the run belongs to (its PR, or the run it continues), which the scoreboard groups
-    runs by.
+    runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
+    yet 0 and '', where a row from before they were recorded keeps NULL: unknown, not unbroken.
     """
     if sandbox(repo):
         def forget(connection):
@@ -226,7 +227,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change)
+              change, 0, "")
 
     def insert(connection):
         connection.execute(
@@ -234,8 +235,9 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "started_at, finished_at, executor_seconds, done_when_seconds, reviewer_seconds, "
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
-            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
+            "landing_breaks, broke_after_merge) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -514,11 +516,6 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
         connection.execute(
             "UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "
             "ELSE MAX(0, ?-started_at) END WHERE run_id=?", (finished_at, run_id))
-        # an ended row says it was followed for breaks: none yet is 0 and '', where a row from
-        # before they were recorded keeps NULL, unknown rather than unbroken
-        connection.execute(
-            "UPDATE runs SET landing_breaks=COALESCE(landing_breaks,0), "
-            "broke_after_merge=COALESCE(broke_after_merge,'') WHERE run_id=?", (run_id,))
 
     _write(publish, log)
 
