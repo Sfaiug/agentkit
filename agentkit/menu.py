@@ -206,6 +206,7 @@ class Live:
         os.set_blocking(self.reader, False)
         os.set_blocking(self.writer, False)
         self.watcher, self.done = None, threading.Event()
+        self.watching = threading.Event()  # clear until `watch`, and while the owner is away
         self.seen = None                 # the records the last read was read from, as they stood
         self.looker = None               # the thread of the last pass looking at every seat
         self.passing = threading.Lock()  # held while a pass is going
@@ -225,7 +226,8 @@ class Live:
         file is worse than a draw nobody asked for.
         """
         self.done.set()
-        self.asked.set()                 # the watcher out of its wait, to see it is done
+        self.asked.set()                 # the watcher out of its waits, to see it is done
+        self.watching.set()
         with self.lock:
             for fd in (self.reader, self.writer):
                 if fd is not None:
@@ -315,7 +317,8 @@ class Live:
 
         The one place the main screen reads them, and never between a key and its frame: a draw
         is whatever the last read left, so a key that moves the highlight costs a draw and
-        nothing more, and one back from another screen shows the list at once.  With `look`
+        nothing more, and one back from another screen shows the list at once; back from a seat,
+        or the screen that opens one, it is read first (`away`).  With `look`
         every seat is looked at as well, behind it (`look`); and without, when one is listed
         that no pass of this menu's has looked at yet: a seat started elsewhere while the menu
         is open is drawn on what there is (`seat_row_state`), a word its bar has never been
@@ -350,11 +353,21 @@ class Live:
         replaces the file -- and nothing here captures a pane.  A read on news starts a look
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
+        Called again back from a seat (`away`), it is that first read again, and the same thread
+        watching after it.
         """
         self.last, self.seen = last, self.recorded()
+        self.asked.clear()               # what was asked while the owner was away, this answers
         self.read(look=True)
-        self.watcher = threading.Thread(target=self._watch, daemon=True)
-        self.watcher.start()
+        if self.watcher is None:
+            self.watcher = threading.Thread(target=self._watch, daemon=True)
+            self.watcher.start()
+        self.watching.set()
+
+    def away(self):
+        """The owner is going into a seat, or to the screen that opens one: nothing draws a read
+        until the menu is back, so the watcher makes none, nor a `stat`, until `watch` again."""
+        self.watching.clear()
 
     def recorded(self):
         """usage.json, the runs' moved mark and every seat record: each one's name, inode and
@@ -375,6 +388,7 @@ class Live:
     def _watch(self):
         while True:
             self.asked.wait(STIR)
+            self.watching.wait()
             if self.done.is_set():
                 return
             now = self.recorded()
@@ -3774,7 +3788,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     does.  Nothing is read between a key and its frame: the seats, their runs and their rows
     are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
     that did more than move the highlight, and within STIR of a record changing -- and every
-    draw is what the last read left, drawn again when the next one lands.  The clock and those
+    draw is what the last read left, drawn again when the next one lands.  While the owner is in
+    a seat it opened, or on the screen that opens one, nothing is read at all, and back it reads
+    once, at once, before it draws, as when it opened (`Live.away`).  The clock and those
     keys have every seat looked at again as well, in a thread of its own (`Live.look`), so no
     seat's capture holds up a read or a draw: the first draw is the records as they stand, and
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
@@ -3821,9 +3837,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
-        live.watch(last)                  # read once before the first draw, looked at behind it
         while True:
-            if look:
+            if not live.watching.is_set():
+                live.watch(last)          # read once before the draw, looked at behind it: the
+                                          # first, and back from a seat (`Live.away`)
+            elif look:
                 live.ask(look=True)       # read and looked at again, off the draw
             messages = orch.job_notices() + live.heard()
             if updates:
@@ -3951,12 +3969,14 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 keyboard.give()           # whatever the key opens has the terminal as it was
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
+                    live.away()
                     open_session(cfg, found[int(key) - 1], dry_run)
                     if overlay:
                         return 0
                 else:
                     pause(f"no session {key}")
             elif key == "n":
+                live.away()
                 try:
                     if new_session(cfg, dry_run, keyboard) and overlay:
                         return 0
@@ -3972,6 +3992,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 cfg = live.cfg = show_config(dry_run, keyboard,
                                              seat if isinstance(seat, str) else None) or cfg
             elif key == "p" and past:
+                live.away()
                 show_past(cfg, found, dry_run, keyboard)    # read with the keys, too
             elif key in ("j", "k") and pages > 1:
                 page = (page + (1 if key == "j" else -1)) % pages
