@@ -8,9 +8,9 @@ import tempfile
 REPO = Path(__file__).resolve().parents[2]
 
 
-def run(*args, env=None, read_prose=False, **kwargs):
-    if read_prose:
-        return subprocess.run(*args, env=env, **kwargs)
+def run(command, *, env=None, read_prose=False, **kwargs):
+    if read_prose or Path(command[-1]).name != "orchestrator-stop.sh":
+        return subprocess.run(command, env=env, **kwargs)
     environment = dict(os.environ if env is None else env)
     with tempfile.TemporaryDirectory(prefix=".ak-test-hook-", dir=REPO) as tmp:
         # Some hook tests already inject host readings and concurrent writes at startup.
@@ -22,4 +22,4 @@ def run(*args, env=None, read_prose=False, **kwargs):
             startup + "from agentkit import prose\nprose.start = lambda *_a, **_kw: None\n")
         environment["PYTHONPATH"] = os.pathsep.join(
             [tmp, str(REPO), environment.get("PYTHONPATH", "")])
-        return subprocess.run(*args, env=environment, **kwargs)
+        return subprocess.run(command, env=environment, **kwargs)
