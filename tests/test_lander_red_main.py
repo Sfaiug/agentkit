@@ -229,7 +229,7 @@ class RedMain(unittest.TestCase):
         self.assertEqual(len(self.checks), checks + 1)
         self.assertIn("true", self.checks[-1][0])
 
-    def test_a_repair_the_target_leaves_red_counts_no_landing_break(self):
+    def test_a_repair_counts_a_failed_required_check_but_not_the_targets_red(self):
         self.red_line()
         self.exhaust()
         repair = self.prepared[0][0]
@@ -250,6 +250,13 @@ class RedMain(unittest.TestCase):
         # the lander never probed the red target for it: its red says nothing of its review
         self.assertEqual(lp.state["landing_reds"], 1)
         self.assertEqual(history.get(repair.name)["landing_breaks"], 0)
+        log = repair / "pr-checks.log"
+        log.write_text("required checks failed: unit\n")
+        lp.state["waiting_on"] = {"line": self.turn.name,
+                                  "fix": {"line": "required checks failed: unit", "log": str(log)}}
+        with patch.object(roundloop, "integrate", return_value=False):
+            deliver.land_from_line(lp, "origin/main", lambda: True)
+        self.assertEqual(history.get(repair.name)["landing_breaks"], 1)
 
     def test_a_green_bare_target_wakes_only_the_members_that_fail(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})

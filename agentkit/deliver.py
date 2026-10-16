@@ -1118,10 +1118,10 @@ def suite_red(state, failure):
     """Whether a landing failure is the change's own tests going red: a suite piece red on its
     tree after the target alone passed, or a required check failed.  A conflict with the
     target, a head moved past its review, a red target or the rules' size is no such failure:
-    nothing there says the review let a defect through.  Nor is anything a target's repair
+    nothing there says the review let a defect through.  Nor is a piece a target's repair
     fails: it lands on the red target, which the lander never probes for it."""
-    return not state.get("repair") and (
-        "piece" in failure or failure.get("line", "").startswith("required checks failed:"))
+    return (("piece" in failure and not state.get("repair"))
+            or failure.get("line", "").startswith("required checks failed:"))
 
 
 def fail_pr_landing(lp, failure, landing=True):
