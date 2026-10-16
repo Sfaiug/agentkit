@@ -5,7 +5,7 @@ A row is a model at an effort a board lists or the config runs it at in any role
 no effort counts for every effort of its model; a row at another effort never stands in; a
 board's model is matched by its letters and digits, else by the board's name the id extends with
 a version, else, on a board where neither finds it, by `benchmark` on the config entry; the table
-puts the fullest rows first and names the rows no board has.
+scores each row per role (tests/test_model_scores.py) and names the rows no board has.
 
 Offline: the boards' answers are handed in as bytes (tests/test_model_matrix.py's), the harness
 manifests, catalogs and the installed harnesses are faked, and a throwaway HOME holds the cache
@@ -116,17 +116,18 @@ class ModelRows(Sandbox):
         self.assertIsNone(matrix.matching({"claudesonnet5": index["claudesonnet5"]},
                                           "claude-sonnet-5-5", "max"))
 
-    def test_the_table_puts_the_fullest_rows_first_and_names_the_rest(self):
+    def test_the_table_scores_the_rows_the_boards_make_and_names_the_rest(self):
         held = matrix.collect(now=10000)
         with patch.object(matrix.time, "time", return_value=10000):
-            lines = [terminal.plain(line)
-                     for line in matrix.render(matrix.rows(self.cfg, held), held).splitlines()]
+            lines = [terminal.plain(line) for line in
+                     matrix.render(matrix.scored(matrix.rows(self.cfg, held)), held).splitlines()]
         text = "\n".join(lines)
-        self.assertEqual(lines[0].split(), ["model", "harness", "id", "boards", "tok/s", "$/task"])
+        self.assertEqual(lines[0].split()[:3], ["model", "harness", "id"])
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
-        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +artificialanalysis \(max\), "
-                                   r"arena \(max\), livebench +95 +4\.05$")
-        self.assertRegex(text, r"\nopus +claude +claude-opus-5-5 @ xhigh +artificialanalysis \(xhigh\), livebench +- +4\.05\n")
+        # the configured xhigh row inherits LiveBench's numbers, which name no effort
+        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +100 of 1 +95 +4\.05$")
+        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +100 of 1 +100 of 3 +100 of 1 +- +4\.05$")
+        self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +81 of 1 +97 of 1 +- +- +-\n")
         self.assertRegex(text, r"no board row: .*claude-opus-4-7")
         self.assertIn("arena.ai: 2 rows as of", text)
         out = io.StringIO()
@@ -135,16 +136,17 @@ class ModelRows(Sandbox):
         data = json.loads(out.getvalue())
         self.assertEqual(sorted(data), ["boards", "rows"])
         self.assertNotIn("rows", data["boards"]["arena.ai"])
-        self.assertIn("claude-opus-5-5 @ max", [matrix.row_label(row) for row in data["rows"]])
+        rows = {matrix.row_label(row): row for row in data["rows"]}
+        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 1})
 
-    def test_the_boards_column_shows_the_board_row_s_effort_never_a_bracket_of_its_name(self):
+    def test_a_board_row_s_effort_is_kept_apart_from_a_bracket_of_its_name(self):
         # a bracket naming no effort stays on the board's name: `Acme Pro (0813)` is at none
         held = {"livebench.ai": {"rows": [{"model": "Acme Pro (0813)", "effort": None,
                                            "values": {"livebench.coding": 1.0}}]}}
         self.cfg["models"]["opus"]["benchmark"] = "Acme Pro (0813)"
         table = [row for row in matrix.rows(self.cfg, held) if row["name"] == "opus"]
-        self.assertRegex(matrix.render(table, held).splitlines()[1],
-                         r"^opus +claude +claude-opus-5-5 @ xhigh +livebench +- +-$")
+        self.assertEqual(table[0]["matched"],
+                         {"livebench.ai": {"model": "Acme Pro (0813)", "effort": None}})
 
 
 if __name__ == "__main__":
