@@ -119,13 +119,13 @@ key uses.
 
 import colorsys
 import copy
-import fcntl
 import json
 import os
 import re
 import select
 import shlex
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -164,7 +164,9 @@ UNREAD = ((re.compile(r"already reset"), "window reset"),
           (re.compile(r"returned no meters"), "no reading yet"))
 USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
          "(the menu; `ak attach` is the same)")
-RUN_RECORDS = "run-records.jsonl"   # under STATE: what `run_records` read, one line per run.json
+RUN_RECORDS = "run-records.db"   # under STATE: one independently replaceable row per run.json
+_RUN_RECORDS = None
+_RUN_RECORDS_LOCK = threading.Lock()
 
 
 def read(prompt, default=None):
@@ -1785,62 +1787,79 @@ def smoke_run(state, resolved=None):
     return False
 
 
-def run_records():
-    """Every run's record, read once: the rows' tallies are drawn from one pass.
-
-    Runs whose task or repo lives under ~/.agentkit/tmp/smoke-* are left out here, so a seat's
-    tally never counts the toolkit testing itself.  So is a run marked `unattended`: a worker
-    or a done-when command below another run started it, so it belongs to no seat and to no
-    terminal, and there is nobody to offer it to.  A run launched by hand belongs to no seat
-    either but does belong to the terminal it was started from.  Read-only: a bad record is
-    skipped, never repaired.
-
-    A run.json is parsed only when it changed: each pass keeps what it read in RUN_RECORDS, one
-    line per run under the stat it was read at (inode, mtime_ns, size), and a line whose stat no
-    longer matches is read again.  The stat comes before the read, so a line holds that file's
-    record or a newer one, never an older.  Passes racing to write the file cost the next one a
-    re-read, nothing more.  Which runs are left out is decided on every pass: a smoke run's
-    paths can come to resolve elsewhere with no record written.
-    """
-    cache = config.STATE / RUN_RECORDS
-    try:
-        lines = cache.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        lines = []
-    known = {}
-    for line in lines:
+class _RunRecords:
+    def __init__(self, root):
+        self.root, self.known, self.db = root, {}, None
         try:
-            name, *key, state = json.loads(line)
-            known[name] = key, state, line
-        except (ValueError, TypeError, RecursionError):
-            continue
-    found, fresh, resolved = [], [], {}
-    for run_dir in record.run_dirs():
-        try:
-            info = (run_dir / "run.json").stat()
-        except OSError:
-            continue
-        key = [info.st_ino, info.st_mtime_ns, info.st_size]
-        if run_dir.name in known and known[run_dir.name][0] == key:
-            state, line = known[run_dir.name][1:]
-        else:
-            state = record.read_state(run_dir)
-            if state is None:
+            self.db = sqlite3.connect(config.STATE / RUN_RECORDS, timeout=0,
+                                      check_same_thread=False)
+            self.db.execute("CREATE TABLE IF NOT EXISTS records (name TEXT PRIMARY KEY, value TEXT)")
+            for name, value in self.db.execute("SELECT name, value FROM records"):
+                try:
+                    key, state = json.loads(value)
+                    if isinstance(key, list) and isinstance(state, dict):
+                        self.known[name] = key, state
+                except (ValueError, TypeError, RecursionError):
+                    continue
+        except sqlite3.Error:
+            self.close()       # the run files remain authoritative, even with no writable cache
+
+    def close(self):
+        if self.db is not None:
+            self.db.close()
+            self.db = None
+
+    def read(self):
+        found, fresh, changed, resolved = [], {}, [], {}
+        for run_dir in record.run_dirs():
+            try:
+                info = (run_dir / "run.json").stat()
+            except OSError:
                 continue
-            line = json.dumps([run_dir.name, *key, state])
-        fresh.append(line)
-        if not state.get("unattended") and not smoke_run(state, resolved):
-            found.append((run_dir, state))
-    if fresh != lines:
-        try:
-            with open(cache.with_suffix(".lock"), "w") as held:
-                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)   # or the pass holding it writes
-                temp = cache.with_suffix(".tmp")
-                temp.write_text("".join(f"{line}\n" for line in fresh), encoding="utf-8")
-                temp.replace(cache)
-        except OSError:
-            pass
-    return found
+            key = [info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size]
+            if run_dir.name in self.known and self.known[run_dir.name][0] == key:
+                state = self.known[run_dir.name][1]
+            else:
+                state = record.read_state(run_dir)
+                if state is None:
+                    continue
+                changed.append((run_dir.name, json.dumps([key, state])))
+            fresh[run_dir.name] = key, state
+            if not state.get("unattended") and not smoke_run(state, resolved):
+                found.append((run_dir, copy.deepcopy(state)))
+        removed = self.known.keys() - fresh.keys()
+        self.known = fresh
+        if self.db is not None and (changed or removed):
+            try:
+                with self.db:
+                    self.db.executemany("INSERT OR REPLACE INTO records VALUES (?, ?)", changed)
+                    self.db.executemany("DELETE FROM records WHERE name = ?",
+                                        ((name,) for name in removed))
+            except sqlite3.Error:
+                pass           # another process can fill the cache; this one keeps its reads
+        return found
+
+
+def run_records():
+    """Every run's record, loading the shared cache only once per process.
+
+    Only a changed run.json is opened again, with its stat taken before the read so a racing
+    write can cause another read, never hide one. SQLite commits only changed rows and keeps
+    other processes' reads whole. Cache failures leave the run files authoritative. Returned
+    records are copies: a caller changing one cannot change a later call's answer.
+
+    Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
+    Paths are resolved on every pass: a symlink can move without a run.json changing. Bad run
+    files are skipped, never repaired.
+    """
+    global _RUN_RECORDS
+    with _RUN_RECORDS_LOCK:
+        root = config.RUNS, config.STATE, os.getpid()
+        if _RUN_RECORDS is None or _RUN_RECORDS.root != root:
+            if _RUN_RECORDS is not None:
+                _RUN_RECORDS.close()
+            _RUN_RECORDS = _RunRecords(root)
+        return _RUN_RECORDS.read()
 
 
 def unread(prov, weekly, readable, now):
