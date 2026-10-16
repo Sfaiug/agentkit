@@ -356,23 +356,26 @@ def render(table, boards):
          _num(row["values"].get(SPEED)), _num(row["values"].get(COST), 2))
         for row in table]
     width = terminal.width()
+
+    def fit(line):
+        return ([line] if terminal.cells(terminal.plain(line)) <= width else
+                terminal.wrap(line, width))
     widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(HEADERS))]
     lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
              for line in lines_of]
     lines[0] = terminal.styled(lines[0], "dim")
-    lines.append(terminal.styled(
-        "a score is the mean share of the best row over the measures the boards give that row, "
-        "`97 of 3`; a board naming no effort counts for every effort of its model", "dim"))
-    for role, columns in ROLES.items():
-        lines.append(terminal.styled(f"{role}, {len(columns)} measures: " + ", ".join(
-            f"{column} ({why})" for column, why in columns), "dim"))
+    notes = ["a score is the mean share of the best row over the measures the boards give that "
+             "row, `97 of 3`; a board naming no effort counts for every effort of its model",
+             *(f"{role}, {len(columns)} measures: "
+               + ", ".join(f"{column} ({why})" for column, why in columns)
+               for role, columns in ROLES.items())]
+    # wrapped before styling: wrap returns plain text, which would print the notes undimmed
+    lines += [terminal.styled(part, "dim") for note in notes for part in fit(note)]
     lines += boards_lines(boards)
     unmatched = [row_label(row) for row in table if not row["values"]]
     if unmatched:
         lines.append(f"no board row: {', '.join(unmatched)}")
-    return "\n".join(part for line in lines for part in
-                     ([line] if terminal.cells(terminal.plain(line)) <= width else
-                      terminal.wrap(line, width)))
+    return "\n".join(part for line in lines for part in fit(line))
 
 
 def main(argv):

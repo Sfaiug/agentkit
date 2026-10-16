@@ -2,7 +2,7 @@
 the rows (100 for the best; zero or below is 0 and still counts); a role's score is the mean of
 the role's measures the row has, said with how many it rests on (`97 of 3`); a row with none of
 a role's measures has no score for it.  The table lists the best rows first with `orch`, `exec`
-and `review` per row and says what each role is scored on.  Rows are made by hand here;
+and `review` per row and says, dim, what each role is scored on.  Rows are made by hand here;
 tests/test_model_rows.py scores the rows the boards' answers make."""
 
 from pathlib import Path
@@ -69,6 +69,12 @@ class ModelScores(unittest.TestCase):
         self.assertIn("execute, 4 measures: aa.evaluations.artificial_analysis_coding_index "
                       "(coding across evaluations)", text)
         self.assertIn("no board row: acme-old", text)
+        # the notes stay dim on every line they wrap onto
+        with patch.object(terminal, "width", return_value=100), \
+                patch.object(terminal, "colour_depth", return_value=256):
+            notes = matrix.render(table, {}).splitlines()[5:-1 - len(matrix.BOARDS)]
+        self.assertGreater(len(notes), 1 + len(matrix.ROLES))
+        self.assertEqual([line for line in notes if not line.startswith("\x1b[")], [])
 
 
 if __name__ == "__main__":
