@@ -3508,20 +3508,25 @@ def in_flight(name, repo):
     filed = {seat for seat, record in config.session_records().items()
              if checkout_of(record.get("repo")) == target}
     seats = {seat: ([], set()) for seat in filed if seat != name}
+    rows = []
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
         seat = transitions.launched_session(state)
         if (seat != name and not menu.smoke_run(state) and transitions.going(state)
                 and checkout_of(state.get("repo")) == target):
-            seats.setdefault(seat or f"run {directory.name}", ([], set()))[1].update(
-                changed_files(state, directory))
+            files = changed_files(state, directory)
+            if seat:
+                seats.setdefault(seat, ([], set()))[1].update(files)
+            elif files:
+                rows.append((f"run {directory.name}", [], set(files)))
     for seat, (lines, _) in seats.items():
         for line in watch.plan_text(seat).splitlines():
             found, written = PLAN_OPEN.match(line), plan.LINE.match(line.strip())
             if found and (seat in filed or written and checkout_of(
                     plan.place(seat, written["project"])) == target):
                 lines.append(found.group(1).strip())
-    return [(seat, lines, files) for seat, (lines, files) in sorted(seats.items()) if lines or files]
+    rows.extend((seat, lines, files) for seat, (lines, files) in seats.items() if lines or files)
+    return sorted(rows)
 
 
 def changed_files(state, directory):

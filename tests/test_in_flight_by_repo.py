@@ -71,6 +71,17 @@ class InFlightByRepo(Sandbox):
             "    changing: app.py",
         ])
 
+    def test_anonymous_run_keeps_a_similarly_named_seats_plan_separate(self):
+        config.save_session(self.cfg, "run-r1", "fable", ["opus"],
+                            {"cwd": str(config.CODE), "repo": str(self.acme)})
+        line = self.line("seat only", self.acme)
+        config.plan_path("run-r1").write_text(line)
+        self.add_run("r1", None, self.acme, "app.py")
+        self.assertEqual(orch.in_flight("fix-api", self.acme), [
+            ("run r1", [], {"app.py"}),
+            ("run-r1", [line[6:].strip()], set()),
+        ])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
