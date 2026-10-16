@@ -130,9 +130,9 @@ run)
   exit $rc ;;
 interactive)
   [ $# -ge 2 ] || { echo "grokbuild.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
-  # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of
-  # filling its context, on the `[compact]` table of adapters/grokbuild.toml.  Headless
-  # `ak worker` runs are not wrapped: they are not seats.
+  # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
+  # screen comes to rest, starts moving or grok exits.  Headless `ak worker` runs are not
+  # wrapped: they are not seats.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   # An account's seat runs on its own home, so agentkit's hooks go there too: the TUI reads
   # them from the home it runs on

@@ -6,11 +6,7 @@
 # and the classifier reads adapters/<harness>.toml to say what that event means. A notice with
 # no state leaves that fact alone, so it cannot erase a turn or restore one over a Stop. A prompt
 # also starts a turn, and ~/.agentkit/state/stop-<seat>.json is where that moment is kept, for
-# hooks/orchestrator-stop.sh to judge the turn's end against.  On a turn's end it also stamps
-# the time, the context size and the processes it ran under into the file
-# tools/idle-compact.py polls, which is the half of the idle auto-compact that lives outside the
-# wrapper; that last part is what lets the wrapper tell the seat's own harness from any other one
-# the owner started inside it, which would otherwise inherit $IDLE_COMPACT_STATE and overwrite it.
+# hooks/orchestrator-stop.sh to judge the turn's end against.
 #
 # Every event it hears also has the seat looked at again at once (`watch.hook_look`), so
 # the seat's record and its status bar say what the event means now rather than at the next
@@ -165,104 +161,18 @@ config.record_hook_fact(row, fact, kept)
   fi
 }
 
-# The process that ran this hook, and the ones above it, newest first.  The wrapper looks for
-# its own forkpty child in this list rather than trusting $PPID alone, because the harness is
-# never the hook's own parent: Claude Code 2.1.263 runs a hook as `sh -c bash <script>`, and the
-# `codex` on PATH is a node shim that spawns the native binary underneath it.
-ancestry() {
-  local p=$1 n=0
-  while [[ -n $p && $p -gt 1 && $n -lt 8 ]]; do
-    printf '%s\n' "$p"
-    if [[ -r /proc/$p/status ]]; then
-      p=$(/bin/sed -n 's/^PPid:[[:space:]]*//p' "/proc/$p/status" 2>/dev/null)
-    else
-      p=$(/bin/ps -o ppid= -p "$p" 2>/dev/null | /usr/bin/tr -d ' ')
-    fi
-    n=$((n + 1))
-  done
-}
-
-# The context the next turn would start on, from whichever of the three shapes a harness
-# writes: Claude Code's assistant `usage`, Codex's `token_count` event in the rollout its Stop
-# hook names, and Grok's `_meta.totalTokens` in the update stream its Stop hook names -- the
-# turn's own total, input with output, a conservative stand-in for the context the next turn
-# starts on.  Per line, so one truncated line costs that line and not the answer; widening
-# windows, so a tool-heavy turn with no usage near the end is still found without reading the
-# whole file.
-context_tokens() {
-  local transcript=$1 jq=$2 window tokens
-  for window in 400 4000 20000; do
-    tokens=$(
-      /usr/bin/tail -n "$window" -- "$transcript" 2>/dev/null |
-        "$jq" -Rrn '
-          [ inputs
-            | fromjson?
-            | if (.type == "assistant" and (.message.usage? != null))
-              then ((.message.usage.input_tokens // 0)
-                    + (.message.usage.cache_read_input_tokens // 0)
-                    + (.message.usage.cache_creation_input_tokens // 0))
-              elif ((.payload? | objects | .type) == "token_count"
-                    and (.payload.info.last_token_usage? != null))
-              then (.payload.info.last_token_usage.total_tokens // 0)
-              elif ((.params? | objects | ._meta?.totalTokens?) != null)
-              then (.params._meta.totalTokens // 0)
-              else empty end
-            | select(. > 0)
-          ] | last // empty
-        ' 2>/dev/null
-    ) || tokens=''
-    if [[ $tokens =~ ^[0-9]+$ ]]; then printf '%s\n' "$tokens"; return 0; fi
-  done
-  return 1
-}
-
-idle_compact() {
-  local payload=$1 jq=$2 transcript session_id tokens ts tmp pids
-  [[ -n ${IDLE_COMPACT_STATE:-} ]] || return 0
-  transcript=$("$jq" -r '.transcript_path // empty' <<<"$payload" 2>/dev/null) || transcript=''
-  session_id=$("$jq" -r '.session_id // empty' <<<"$payload" 2>/dev/null) || session_id=''
-
-  # a harness whose session lives behind its own API rather than in a transcript file hands
-  # the size over outright; anything else shaped is read from the transcript below
-  tokens=$("$jq" -r '.context_tokens // empty' <<<"$payload" 2>/dev/null) || tokens=''
-  # a size nobody could read is not a size of zero, and zero would switch compaction off: with
-  # nothing to say, this says nothing and the last good stamp stands
-  if [[ ! $tokens =~ ^[1-9][0-9]*$ ]]; then
-    [[ -n $transcript && -r $transcript ]] || return 0
-    tokens=$(context_tokens "$transcript" "$jq") || return 0
-  fi
-
-  pids=$(ancestry "$PPID" | "$jq" -Rn '[inputs | tonumber?]' 2>/dev/null) || pids=''
-  [[ -n $pids ]] || pids="[$PPID]"   # --argjson refuses an empty one, and the record with it
-  ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
-  tmp="${IDLE_COMPACT_STATE}.tmp.$$"
-  /bin/mkdir -p -- "$(/usr/bin/dirname -- "$IDLE_COMPACT_STATE")" || return 0
-  "$jq" -n \
-    --argjson ts "$ts" \
-    --argjson context_tokens "$tokens" \
-    --arg session_id "$session_id" \
-    --argjson pid "$PPID" \
-    --argjson pids "$pids" \
-    '{ts: $ts, context_tokens: $context_tokens, session_id: $session_id, pid: $pid, pids: $pids}' \
-    >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-  /bin/mv -f -- "$tmp" "$IDLE_COMPACT_STATE" || /bin/rm -f -- "$tmp"
-}
-
 main() {
   umask 077
   local payload=$1 jq event
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
   # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
-  # its prompt the owner's answer, and its end the seat's idleness and next turn's context.
+  # its prompt the owner's answer, and its end the seat's idleness.
   if [[ $event = UserPromptSubmit || $event = Stop ]] &&
     "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1; then
     return 0
   fi
   seat_state "$payload" "$jq"
-  # the compaction stamp belongs to the end of a turn; an event that is not one leaves it alone
-  [[ $event = Stop ]] || return 0
-  idle_compact "$payload" "$jq"
 }
 
 # A seat's prompt carries where its current rulebook is, as the context its harness adds to

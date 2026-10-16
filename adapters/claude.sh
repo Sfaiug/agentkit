@@ -126,8 +126,9 @@ interactive)
     [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
       ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
   fi
-  # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of
-  # filling its context; %q so a checkout path with a space still parses as one word
+  # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
+  # screen comes to rest, starts moving or claude exits; %q so a checkout path with a space
+  # still parses as one word
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   # Claude's settings are read before the pane is respawned for them.  A launch has read them
   # in its own process (the plugin's `checked`) and says so; run on its own, this reads them.
@@ -333,10 +334,9 @@ hooks)
   # SessionStart follows /clear's new conversation. The other events say a turn began, a turn
   # ended, a prompt is waiting, a dialog went up or was answered, a /compact began or ended --
   # all to the one hook script, which writes the fact down and decides nothing.  Stop also
-  # carries the idle auto-compact stamp, so a seat left open all day compacts itself instead of
-  # filling its context, and the one hook that does decide something: a turn that ended with
-  # neither a question, nor a done, nor a run to wait on is sent back to work.  Merged into
-  # settings.json, never rewritten.
+  # carries the one hook that does decide something: a turn that ended with neither a question,
+  # nor a done, nor a run to wait on is sent back to work.  Merged into settings.json, never
+  # rewritten.
   command -v python3 >/dev/null || { echo "claude.sh hooks: python3 is required" >&2; exit 2; }
   mkdir -p -- "$HOME/.claude" || exit 2
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)

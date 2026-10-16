@@ -146,11 +146,9 @@ interactive)
   # a seat being resumed: the TUI takes `resume <session-uuid>`, with the root options on
   # either side of it
   resume=""; [ -n "${3:-}" ] && resume=$(printf 'resume %q ' "$3")
-  # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of filling
-  # its context, on the `[compact]` table of adapters/muse.toml.  `env` and the muse launcher
-  # both exec in place, so the process it forked is the one Muse records as having opened the
-  # session -- which is how it finds this seat's own context size and no neighbour's.  Headless
-  # `ak worker` runs are not wrapped: they are not seats.
+  # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
+  # screen comes to rest, starts moving or muse exits.  Headless `ak worker` runs are not
+  # wrapped: they are not seats.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   # The orchestrator rulebook this launch is handed.  `muse --help` (1.3.0) lists no instructions
   # or system-prompt option, so the rules would have had to be typed in as the TUI's opening

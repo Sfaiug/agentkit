@@ -218,25 +218,6 @@ signatures = [
   "unexpected status 401 Unauthorized: Invalid API key",
 ]
 
-# How a Codex seat compacts itself; the format is the `[compact]` table in docs/guide.md.
-# Verified against Codex 0.153.4: `/compact` -- "summarize conversation to prevent hitting the
-# context limit" -- is in its slash-command list, and hooks/seat-state.sh, which its seats run on
-# Stop through tools/codex-seat.py, gets a `transcript_path` pointing at the rollout file under
-# the seat's own sessions.  That file's last `event_msg` of type `token_count` carries
-# `info.last_token_usage.total_tokens` (15,217 on the launch that was read) beside
-# `info.model_context_window` (258,400): the input and output of the turn that just ended, which
-# is what the next one starts on.
-# The text and the return are separate keys: a TUI opens its slash-command chooser on the `/`
-# and a return that arrives in the same read is absorbed by it, leaving the command sitting
-# unsent in the composer -- seen on Codex 0.153.4 and Muse Code 1.2.1, and the pause between
-# them is tools/idle-compact.py's KEY_GAP.
-[compact]
-command = ["/compact", "\r"]
-signal = "hook"
-context = "codex-rollout"
-idle = 30
-stash = "none"
-
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 # The same words its status line shows beside the model name; see [screen] composer above.
 [effort]

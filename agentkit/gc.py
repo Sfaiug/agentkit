@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 
-from . import config, gitcall, handback, host, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
+from . import config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -105,29 +105,6 @@ def stale_seat_files(now):
             found.append({"action": "remove", "kind": "seat-file", "path": str(path),
                           "why": f"seat {name} is gone"})
     return found
-
-
-def compact_pid(path):
-    """The wrapper's pid an `idle-compact/[<seat>-]<pid>.json` stamp is named for."""
-    return path.name.rpartition(".")[0].rpartition("-")[2]
-
-
-def compact_stamp_stale(path, now):
-    """`idle-compact/[<seat>-]<pid>.json` of a wrapper that is gone, a day after its last write.
-
-    tools/idle-compact.py removes its own on the way out; one killed outright cannot.
-    """
-    pid, ext = compact_pid(path), path.name.rpartition(".")[2]
-    return (ext == "json" and pid.isdigit() and not host.alive(int(pid)) and retention.safe(path)
-            and path.is_file()
-            and retention.expired(path.lstat().st_mtime, now, retention.EPHEMERAL_AGE))
-
-
-def stale_compact_stamps(now):
-    return [{"action": "remove", "kind": "compact-stamp", "path": str(path),
-             "why": f"its wrapper, pid {compact_pid(path)}, is gone"}
-            for path in retention.children(config.STATE / "idle-compact")
-            if compact_stamp_stale(path, now)]
 
 
 def tmp_protected(name):
@@ -686,7 +663,6 @@ def gc_candidates(now=None):
     yield from retention.ephemeral_plan(now, pressure, paths)
     yield from stale_worktrees(now, paths)
     yield from stale_seat_files(now)
-    yield from stale_compact_stamps(now)
     yield from retention.harness_plan()
     yield from stale_tmp_entries(now)
     yield from stale_repo_tmp_entries(now)
@@ -758,9 +734,8 @@ def gc(report, automatic=False):
                 try:
                     # the planner's own proof once more, now: a seat launched under the name,
                     # a wrapper or a run back in the checkout since, and it all stays
-                    if item["kind"] in ("seat-file", "compact-stamp"):
-                        if not (seat_file_stale if item["kind"] == "seat-file"
-                                else compact_stamp_stale)(path, time.time()):
+                    if item["kind"] == "seat-file":
+                        if not seat_file_stale(path, time.time()):
                             continue
                         retention.remove(path)
                         done = True

@@ -2,7 +2,6 @@
 import errno
 import os
 import select
-import time
 
 # A ceiling on queued bytes per direction, not a throughput limit. A slow reader
 # backs up its writer; readiness lets a faster one use the next chunk immediately.
@@ -10,9 +9,9 @@ BUFFER_LIMIT = 64 * 1024
 
 
 class Relay:
-    def __init__(self, master, stdin, stdout, output, alive=lambda: True):
+    def __init__(self, master, stdin, stdout, output):
         self.master, self.stdin, self.stdout = master, stdin, stdout
-        self.output, self.alive = output, alive
+        self.output = output
         self.input_open = self.master_open = self.writable = True
         self.to_child, self.to_owner = bytearray(), bytearray()
         # stdin and stdout may share an open file description. Save all three
@@ -32,18 +31,6 @@ class Relay:
     @property
     def active(self):
         return self.master_open or bool(self.to_owner)
-
-    def caught_up(self, *, output=True):
-        """Input has reached the child; optionally require a current screen too.
-
-        A caller with authoritative lifecycle hooks need not wait for repaints,
-        but a caller deciding from screen bytes must observe pending output first.
-        """
-        reads = [self.stdin] if self.input_open else []
-        if output:
-            reads.append(self.master)
-        return (self.master_open and not self.to_child and (not output or not self.to_owner)
-                and not select.select(reads, [], [], 0)[0])
 
     def poll(self, timeout, *, input=True):
         """Move ready bytes in both directions; return whether anything moved.
@@ -112,30 +99,6 @@ class Relay:
                 del pending[:count]
                 moved = True
         return moved
-
-    def send(self, groups, gap):
-        """Type key groups in order while continuing to drain terminal output.
-
-        Owner input waits in its terminal during the sequence, as it does while
-        a user types a command. Each gap starts after the preceding keys reached
-        the child, not when they were queued behind a slow reader.
-        """
-        for index, keys in enumerate(groups):
-            if index:
-                until = time.monotonic() + gap
-                while time.monotonic() < until:
-                    if not self.alive() or not self.master_open:
-                        return False
-                    self.poll(until - time.monotonic(), input=False)
-            view = memoryview(keys)
-            while view or self.to_child:
-                if not self.alive() or not self.writable:
-                    return False
-                count = min(len(view), BUFFER_LIMIT - len(self.to_child))
-                self.to_child.extend(view[:count])
-                view = view[count:]
-                self.poll(gap, input=False)
-        return True
 
     def finish(self):
         """Drain the exited child's available output, including queued bytes.

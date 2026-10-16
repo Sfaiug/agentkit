@@ -60,8 +60,8 @@ MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its p
 MARKER = "agentkit review of"
 RETRY_BACKOFF = (600, 1800, 3600)  # after that, hourly; a head is never abandoned
 KEY_GAP = 0.5           # text and Enter go separately: a return in the same read as the text
-                        # is absorbed by the TUI, leaving the line unsent; equal to KEY_GAP in
-                        # tools/idle-compact.py, measured on Codex 0.153.4 and Muse 1.2.1
+                        # is absorbed by the TUI, leaving the line unsent; measured on Codex
+                        # 0.153.4 and Muse 1.2.1, 0.10 s still lost it and 0.15 s did not
 SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
@@ -2918,12 +2918,11 @@ def _send_enter(session, log):
     return True
 
 
-def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None):
+def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
     """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
-    A pty sender supplies `send(text)`; both transports share the same typing receipt.
     None means unread input deferred this line before any receipt or key was written.
     """
     if pane_unread(session):
@@ -2941,8 +2940,8 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
         # A restart between text and Enter must still know whose line is in the composer.
         fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
         fh.flush()
-        rc, out = (send(text) if send else orch.tmux_out(
-            "send-keys", "-t", f"={name}:", "-l", text, socket=orch.seat_socket(session)))
+        rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "-l", text,
+                                socket=orch.seat_socket(session))
         if rc != 0:
             fh.truncate(before)
             log(f"WARN could not type into the {name} seat: {out[-200:]}")

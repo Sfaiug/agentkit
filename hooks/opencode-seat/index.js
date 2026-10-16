@@ -13,8 +13,7 @@
 // What it reports, translated to the one protocol hooks/seat-state.sh speaks for every
 // harness (adapters/opencode.toml maps the names to states):
 //   session.inbox.enqueued where the item is a user message -> UserPromptSubmit, with its text
-//   session.execution.{succeeded,failed,interrupted}        -> Stop, with the session id and
-//     the context total the last step reported, for the idle-compact stamp
+//   session.execution.{succeeded,failed,interrupted}        -> Stop, with the session id
 //   permission.asked                                         -> PermissionRequest, with the
 //     action as the kind (a seat opened with --auto is never asked, but the fact is wired
 //     for one opened without it)
@@ -35,20 +34,6 @@ import { fileURLToPath } from "node:url";
 const SEAT_STATE = fileURLToPath(new URL("../seat-state.sh", import.meta.url));
 // This launch's receipt, or none where the seat was not opened by agentkit.
 const RECEIPT = process.env.AGENTKIT_OPENCODE_RECEIPT || "";
-
-function number(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
-}
-
-function stepTotal(tokens) {
-  if (tokens === null || typeof tokens !== "object") return null;
-  const cache = tokens.cache !== null && typeof tokens.cache === "object" ? tokens.cache : {};
-  // Session totals count output and reasoning apart (a turn's output never includes its
-  // reasoning), so both are summed: with input and the cache, that is what the next turn
-  // starts on.  See the `run` usage note in adapters/opencode.sh.
-  return (number(tokens.input) + number(tokens.output) + number(tokens.reasoning)
-    + number(cache.read) + number(cache.write));
-}
 
 function send(payload) {
   // Synchronously: an end-of-turn fact handed to a background child races the server's own
@@ -166,8 +151,8 @@ async function own(ctx, sessionID) {
 }
 
 // The fact one OpenCode event becomes, or null when the event is not one of the three
-// the seat reports. `lastStep` remembers a step's context total until the turn ends.
-export function seatFact(event, lastStep) {
+// the seat reports.
+export function seatFact(event) {
   if (event === null || typeof event !== "object") return null;
   const data = event.data;
   if (data === null || typeof data !== "object") return null;
@@ -178,23 +163,11 @@ export function seatFact(event, lastStep) {
     && typeof data.item.payload.text === "string") {
     return { hook_event_name: "UserPromptSubmit", message: data.item.payload.text };
   }
-  if (event.type === "session.step.ended" && typeof data.sessionID === "string") {
-    const total = stepTotal(data.tokens);
-    if (total !== null && lastStep) lastStep.set(data.sessionID, total);
-    return null;
-  }
   if ((event.type === "session.execution.succeeded"
     || event.type === "session.execution.failed"
     || event.type === "session.execution.interrupted")
     && typeof data.sessionID === "string") {
-    // A turn that never finished a step reports no size: the stamp is skipped the
-    // way an unreadable transcript is, and the last good one stands.
-    const stop = { hook_event_name: "Stop", session_id: data.sessionID };
-    if (lastStep && lastStep.has(data.sessionID)) {
-      stop.context_tokens = lastStep.get(data.sessionID);
-      lastStep.delete(data.sessionID);
-    }
-    return stop;
+    return { hook_event_name: "Stop", session_id: data.sessionID };
   }
   if (event.type === "permission.asked" && typeof data.action === "string") {
     const resources = Array.isArray(data.resources)
@@ -210,7 +183,6 @@ export default {
   async setup(ctx) {
     console.log("[agentkit.seat] reporting seat-state facts to hooks/seat-state.sh");
     const controller = new AbortController();
-    const lastStep = new Map(); // session id -> context total of its latest finished step
     const syncTitle = titleSync(ctx);
     const timer = setInterval(syncTitle, 1000);
     timer.unref();
@@ -238,7 +210,7 @@ export default {
             // Generated and owner titles use this same event in 2.0.14. Both give way
             // to ak's name; neither is evidence that the owner renamed the seat.
             if (event.type === "session.renamed") void syncTitle(true);
-            const fact = seatFact(event, lastStep);
+            const fact = seatFact(event);
             if (fact) send(fact);
           } catch {
             // One fact that cannot be shaped costs that fact, never the subscription.

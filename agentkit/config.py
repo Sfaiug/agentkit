@@ -219,15 +219,12 @@ def child_env():
 
     AGENTKIT_RUN_DIR marks the `ak run --bg` child.  Left in place it reaches every model
     call and done-when command, where a nested `ak run` adopts this run's directory,
-    worktree and task file instead of making its own.  IDLE_COMPACT_STATE marks the
-    seat's idle-compact state file; left in place a spawned worker's Stop hook would
-    overwrite the seat's file with the worker's own context numbers.  A harness's own
-    seat variables and AK_RUN_SCOPE go the same way and for the same reason: they are the
-    launch's, not its children's -- see `seat_env_names`.  So does AGENTKIT_ACCOUNT: it names
-    the login one adapter call is for, and a turn on one account starts nothing that should
-    run on it unasked.
+    worktree and task file instead of making its own.  A harness's own seat variables and
+    AK_RUN_SCOPE go the same way and for the same reason: they are the launch's, not its
+    children's -- see `seat_env_names`.  So does AGENTKIT_ACCOUNT: it names the login one
+    adapter call is for, and a turn on one account starts nothing that should run on it unasked.
     """
-    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", "IDLE_COMPACT_STATE", ACCOUNT_ENV, *seat_env_names()}
+    dropped = {RUN_DIR_ENV, "AK_RUN_SCOPE", ACCOUNT_ENV, *seat_env_names()}
     return {k: v for k, v in os.environ.items() if k not in dropped}
 
 
@@ -772,7 +769,6 @@ SEAT_FILES = {
     "card": "json",      # its notification transition latch
     "seat": "json",      # its last classified live state and since when
     "hook": "json",      # what its harness's own lifecycle hooks say it is doing
-    "compact": "json",   # tools/idle-compact.py compacted it
     "plan": "md",        # its plan, which the menu row reads its bar from
     "stop": "json",      # this turn's start, for the stop hook's rule
     "title": "json",     # the title last read from its conversation
@@ -1412,11 +1408,6 @@ def record_hook_fact(name, fact, keep=lambda standing: False):
                 or keep(standing)):
             return
         _write_json(path, fact, prepare=False)
-
-
-def compact_path(name):
-    """Where tools/idle-compact.py writes down that it compacted that seat."""
-    return seat_file("compact", name)
 
 
 def plan_path(name):

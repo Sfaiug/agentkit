@@ -334,8 +334,8 @@ sys.exit(p.returncode)
                                  "source": source, "harness": into}) + "\n")
 
     def test_output_after_a_line_ak_typed_since_the_open_answers_nothing(self):
-        """A hand-back, a told line or an idle `/compact` starts a turn of the seat's own: its
-        output after the open is no answer, and only the owner's own prompt then is."""
+        """A hand-back or a told line starts a turn of the seat's own: its output after the
+        open is no answer, and only the owner's own prompt then is."""
         self.cli("needs", "Merge PR #7? yes/no")
         self.open_and_progress(between=lambda: self.typed("ak"))
         self.assertEqual(notify.last("seat")["text"], "Merge PR #7? yes/no")
@@ -344,8 +344,8 @@ sys.exit(p.returncode)
         self.assertIsNone(notify.last("seat"))
 
     def test_output_after_the_owners_relayed_words_or_lines_from_before_the_open_answers(self):
-        """review 20261006-1740: a seat with no hooks gets an idle `/compact` while its question
-        waits; the owner opens it later and answers, and that output is the only answer there."""
+        """review 20261006-1740: a seat with no hooks gets a hand-back while its question waits;
+        the owner opens it later and answers, and that output is the only answer there."""
         self.cli("needs", "Merge PR #7? yes/no")
         self.typed("ak")                           # before the open: history
         self.open_and_progress(between=lambda: self.typed("owner"))   # relayed unchanged
@@ -353,7 +353,7 @@ sys.exit(p.returncode)
 
     def test_output_after_a_line_typed_where_no_prompt_hook_reports_still_answers(self):
         """review 20261006-1740 round 2: Muse runs no hooks, so nothing reports the owner's
-        prompt; an idle `/compact` typed after the open leaves the output as its only answer."""
+        prompt; a hand-back typed after the open leaves the output as its only answer."""
         self.assertIsNone(notify.harness.load("muse").prompt_hook)
         self.cli("needs", "Merge PR #7? yes/no")
         self.open_and_progress(between=lambda: self.typed("ak", into="muse"))

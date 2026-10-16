@@ -144,16 +144,14 @@ class UnreadPane(Seats):
                         watch.stop_nudge(self.seat, harness, self.pane, None, [], False, lambda _: None)
                 self.assertEqual([args[-1] for args in self.keys], ["continue", "Enter"])
 
-    def test_notices_nudges_and_pty_senders_share_the_line_guard(self):
+    def test_notices_and_nudges_share_the_line_guard(self):
         self.put(b"unread")
-        sent, typed = Mock(return_value=(0, "")), Mock()
+        typed = Mock()
         for legacy in (False, True):
             self.seat["legacy"] = legacy
             self.assertFalse(watch.type_at_prompt(self.seat, "Run finished.", lambda _: None))
             self.assertIsNone(watch.type_into(self.seat, "continue", lambda _: None))
-            self.assertIsNone(watch._send_line(self.seat, "/compact", lambda _: None,
-                                              typed, send=sent))
-        sent.assert_not_called()
+            self.assertIsNone(watch._send_line(self.seat, "Run finished.", lambda _: None, typed))
         typed.assert_not_called()
         self.assertEqual(self.keys, [])
         self.assertEqual(self.receipts(), [])
