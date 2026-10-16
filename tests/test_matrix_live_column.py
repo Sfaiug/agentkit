@@ -3,11 +3,13 @@ their count, and they never rank.
 
 Per model: of the runs it executed, the share merged in round 1; of the runs it reviewed, in
 whichever round, the share it let through in round 1; of the pull requests its seat wrote, the
-share merged in round 1; each with how many runs.  A run that ended without a verdict of the
-work (stopped, not needed, errored) counts for nothing; a merge is what the scoreboard tells one
-by (the row's size, else its record), so a run passed without merging is none; a review counts
-by the harness and model id that ran it, and one from before its round was recorded counts for
-nothing; a pull request another seat wrote is nobody's own, whichever seat launched the review.
+share merged in round 1; each with how many runs.  A merge is what the scoreboard tells one by
+(the row's size, else its record), so a run passed without merging is none, and a run that
+ended without a verdict of the work (stopped, not needed, errored) merged nothing; a review
+counts by the harness and model id that ran it once finished, whatever became of its run since
+(one still going, or errored after), a stopped run's never, and one from before its round was
+recorded counts for nothing; a pull request another seat wrote is nobody's own, whichever seat
+launched the review.
 
 Offline: the history and run records written under a throwaway HOME, the boards and catalogs
 faked (tests/test_model_rows.py).
@@ -65,15 +67,21 @@ class LiveColumn(Sandbox):
         run("f1", [("astra", 1, "PASS")], executor=None)
         for state in ("stopped", "not_needed", "error"):
             run(state, [("astra", 1, "PASS")], state=state, changed_lines=1)
+        history.start_run("going", repo="acme", executor="opus", started_at=next(clock))   # still going
+        entry = self.cfg["models"]["astra"]
+        history.record_review("going", "going/review-0", harness=entry["harness"], model=entry["model"],
+                              blocking=1, followup=0, note=0, round=1, verdict="FAIL")
 
     def test_each_model_s_own_numbers_per_role_with_their_count(self):
         own = matrix.live(self.cfg, now=10000)
         self.assertEqual(own["opus"], {"orchestrate": None,
                                        "execute": {"runs": 5, "round_1": 40},
                                        "review": {"runs": 3, "round_1": 67}})
+        # astra reviewed the judged runs, the run that errored after its pass, the one found not
+        # needed and the one still going, never the stopped one or the one without a round
         self.assertEqual(own["astra"], {"orchestrate": None,
                                         "execute": {"runs": 2, "round_1": 50},
-                                        "review": {"runs": 7, "round_1": 43}})
+                                        "review": {"runs": 10, "round_1": 50}})
         self.assertEqual(own["fable"], {"orchestrate": {"runs": 3, "round_1": 33},
                                         "execute": None, "review": None})
         self.assertIn("gemini", own)       # every configured model, with nothing where it ran nothing

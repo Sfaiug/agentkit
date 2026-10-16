@@ -390,12 +390,11 @@ def review_counts(harness, model):
 
 
 def reviewed_runs(harness, model):
-    """Of the runs that ended with a verdict of the work (`record.JUDGED`) the identity
-    reviewed, in whichever round: how many, and how many it let through in round 1 (a round-1
-    review of its ended PASS).  A review from before its round was recorded counts for
-    nothing."""
+    """Of the runs the identity finished a review of, in whichever round and whatever became of
+    the run since (its decision stood once given; a stopped run's never counts, `REAL_WORK`):
+    how many, and how many it let through in round 1 (a round-1 review of its ended PASS).  A
+    review from before its round was recorded counts for nothing."""
     _ensure_migrated()
-    judged = ", ".join("?" * len(record.JUDGED))
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -404,9 +403,8 @@ def reviewed_runs(harness, model):
                     "SELECT COUNT(DISTINCT run_id), "
                     "COUNT(DISTINCT CASE WHEN reviews.round=1 AND reviews.verdict='PASS' "
                     "THEN run_id END) FROM reviews JOIN runs USING (run_id) "
-                    f"WHERE harness=? AND model=? AND reviews.round IS NOT NULL "
-                    f"AND final_state IN ({judged}) AND {REAL_WORK}",
-                    (harness, model, *record.JUDGED)).fetchone()
+                    f"WHERE harness=? AND model=? AND reviews.round IS NOT NULL AND {REAL_WORK}",
+                    (harness, model)).fetchone()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

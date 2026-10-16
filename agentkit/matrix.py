@@ -370,12 +370,13 @@ LIVE_HEADERS = ("model", "orch", "exec", "review")
 
 
 def live(cfg, now=None):
-    """ak's own numbers per configured model and role, which never rank, off the history's runs
+    """ak's own numbers per configured model and role, which never rank.  Off the history's runs
     that ended with a verdict of the work (`record.JUDGED`): of the runs it executed, how many
-    and the share merged in round 1 (`history.merged`); of the runs it reviewed, by its harness
-    and model id, how many and the share it let through in round 1 (`history.reviewed_runs`);
-    of the pull requests its seat wrote (the row's `own_orchestrator`), how many and the share
-    merged in round 1.  {name: {role: {"runs", "round_1"} or None}}."""
+    and the share merged in round 1 (`history.merged`); of the pull requests its seat wrote
+    (the row's `own_orchestrator`), how many and the share merged in round 1.  Of the runs it
+    finished a review of, by its harness and model id, whatever became of them since, how many
+    and the share it let through in round 1 (`history.reviewed_runs`).  {name: {role: {"runs",
+    "round_1"} or None}}."""
     from . import history     # here, not at the top: the boards and the table need no database
     now = time.time() if now is None else now
     rows = [row for row in history.ended_runs(0, now) if row.get("final_state") in record.JUDGED]
