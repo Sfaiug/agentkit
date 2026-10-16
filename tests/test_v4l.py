@@ -65,9 +65,10 @@ class Babysitter(unittest.TestCase):
 
     def test_each_seats_clock_starts_when_its_pane_is_captured(self):
         self.seats = [{"name": "first"}, {"name": "second"}]
+        slow = [300]   # its first capture is the slow one; the stall's own read after it is not
         def capture(session):
             if session["name"] == "second":
-                self.now += 300
+                self.now += slow.pop() if slow else 0
             return self.tail
         with patch.object(watch, "pane_text", side_effect=capture):
             self.tick()

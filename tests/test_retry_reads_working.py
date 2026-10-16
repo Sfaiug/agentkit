@@ -3,22 +3,30 @@
 The owner's matrix (14 Oct 2026): a retry reads `working`.  A harness that ends a turn on an
 API error leaves the seat at its prompt, and the tick (`health`) types it back into motion
 after three minutes, every three minutes, for an hour; only then does it give up and ask the
-owner.  Until then the seat moves on without them: `working`, `retrying: <error>`.  Offline: a
-temporary HOME, no tmux.
+owner.  Until then the seat moves on without them: `working`, `retrying: <error>`, for as long
+as it is still stopped on an error, which a turn since -- the tick's retry or the owner's -- may
+have ended before the tick's next pass.  Offline: a temporary HOME, captured panes, no tmux.
 """
 
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
 from agentkit import notify, watch  # noqa: E402
 
 SEAT = "acme-api"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 class RetryReadsWorking(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.pane = (FIXTURES / "claude-stall-pane.txt").read_text()
+        self.stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda _: self.pane))
+
     def decide(self, stalls):
         return watch.session_state(SEAT, now=10000, session={"name": SEAT}, records=[],
                                    live={"state": "at_prompt", "began": 9000},
@@ -35,10 +43,14 @@ class RetryReadsWorking(Sandbox):
         self.assertEqual((found["word"], found["reason"]),
                          ("working", "retrying: Usage limit · waiting until 2026-10-15 20:00"))
 
-    def test_once_the_tick_types_it_back_its_turn_says_until_the_error_is_seen_again(self):
-        typed = {"signature": "API Error", "since": 9400, "changed_at": 9400, "nudged_at": 9600}
-        again = self.decide({SEAT: dict(typed, changed_at=9800)})
-        self.assertEqual((again["word"], again["reason"]), ("working", "retrying: API Error"))
+    def test_a_turn_since_the_tick_last_looked_reads_as_it_ended(self):
+        typed = {"signature": "API Error", "since": 9400, "nudged_at": 9600}
+        # the tick's retry ended on the error again: it retries again, so the seat still works
+        self.pane = self.pane.replace("Say OK", "continue")
+        found = self.decide({SEAT: typed})
+        self.assertEqual((found["word"], found["reason"]), ("working", "retrying: API Error"))
+        # ... or it worked, and the seat said it was done before the tick's next pass
+        self.pane = (FIXTURES / "claude-prompt-pane.txt").read_text()
         notify.record(SEAT, "done", "Shipped the parser", time=9700)
         found = self.decide({SEAT: typed})
         self.assertEqual((found["word"], found["reason"]), ("done", "Shipped the parser"))
