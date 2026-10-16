@@ -4911,7 +4911,7 @@ HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK
 [ "$(cat "$WORK/orphan-needs.err")" = 'terminal notice: Needs you · Merge PR #9 by bob? yes/no: Merge PR #9 by bob? yes/no' ] || FB=1
 jq -e '.embeds[0].title == "Needs you · Merge PR #9 by bob? yes/no"' "$WORK/orphan-needs.json" \
   >/dev/null 2>&1 || FB=1
-FBLONG="a summary with no seat behind it, longer by some way than any title a phone shows whole"
+FBLONG="A summary with no seat behind it. It is longer by some way than any title a phone shows whole"
 HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK="$HOOKURL" \
   ak notify done "$FBLONG" --dry-run >"$WORK/orphan-done.json" 2>"$WORK/orphan-done.err" || FB=1
 [ "$(cat "$WORK/orphan-done.err")" = "terminal notice: Done · ${FBLONG:0:60}: $FBLONG" ] || FB=1
