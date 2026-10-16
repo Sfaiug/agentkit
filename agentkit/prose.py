@@ -43,7 +43,7 @@ def start(launched, turn, said):
         if data.get("prose"):
             return
         data["prose"] = True
-        tmp = latch.with_suffix(f".tmp.{os.getpid()}")
+        tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
         tmp.write_text(json.dumps(data) + "\n")
         tmp.replace(latch)
         with tempfile.TemporaryFile(mode="w+") as source:

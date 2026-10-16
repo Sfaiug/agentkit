@@ -38,7 +38,7 @@ Mistakes earlier work here made that no check catches and no one area of the cod
 - Commands call `bin/ak`, never bare `ak`. A changed signature: update every mock and fake of it in tests/; a fake takes `**_kw` for what it ignores.
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
-- Decide from exit codes and files; a model reads prose only to catch owner questions.
+- Decide from exit codes and files, except a model reading a turn's prose for owner questions.
 - Never re-create another system's semantics for an input nobody uses (Linux's path walk inside Git trees, for a linked AGENTS.md): every review round found one more difference. Refuse the input plainly instead.
 - A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title. A test never asserts a wall-clock duration (under 100 ms, say): host load breaks it at landing. Inject the clock and assert what it read: `tests/fixtures/sandbox.py` and `tests/fixtures/clock.py` say how.
 - When review keeps finding races or recovery paths, delete state or simplify the design.
