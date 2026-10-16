@@ -1,6 +1,6 @@
 """The first review's size limit ak enforces is the one every builder is told up front.
 
-The orchestrator's rulebook, the executor's rules and the task template each carry
+The orchestrator's rulebook, the executor's and fixer's rules and the task template each carry
 `task.MAX_PR_LINES`: a builder that learns the limit only when ak refuses its change has
 already built past it.
 """
@@ -21,8 +21,12 @@ class SizeLimitTold(unittest.TestCase):
                 self.assertIn(f"at most {task.MAX_PR_LINES} added lines with its tests",
                               (REPO / name).read_text())
 
-    def test_the_executor_is_told_the_limit(self):
-        self.assertIn(f"more than {task.MAX_PR_LINES} added lines", worker.PREAMBLES["executor"])
+    def test_the_executor_and_the_fixer_are_told_the_limit(self):
+        # a fixer can start in a fresh conversation before the first review, never having read
+        # the executor's rules
+        for role in ("executor", "fixer"):
+            with self.subTest(role=role):
+                self.assertIn(f"more than {task.MAX_PR_LINES} added lines", worker.PREAMBLES[role])
 
 
 if __name__ == "__main__":

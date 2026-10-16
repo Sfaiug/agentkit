@@ -283,7 +283,7 @@ PREAMBLES = {
         f"{GATE}\n{ONE_PASS}"),
     "fixer": (
         "You are the executor, continuing.\n"
-        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself
