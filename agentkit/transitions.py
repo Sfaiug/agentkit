@@ -178,9 +178,10 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
     """Added plus deleted text lines, excluding files Git marks linguist-generated; with
     `added_only`, the added lines alone, what a reviewer reads: nothing deleted counts.
 
-    Every file reads its attributes at the base, so a change cannot leave its own lines out
-    by marking them generated: a path is marked by a change of its own that lands first.
-    NUL records preserve unusual filenames and rename pairs.
+    The diff runs from where `head` left `base`, the target it lands on, and every file reads
+    its attributes at `base`, so a change cannot leave its own lines out by marking them
+    generated: a path is marked by a change of its own that lands first.  NUL records
+    preserve unusual filenames and rename pairs.
     """
     total = 0
     for selector in ("d", *(() if added_only else ("D",))):
@@ -245,7 +246,7 @@ def carried_lines(repo, base, head="HEAD"):
 def reviewed_lines(repo, base, head="HEAD"):
     """(the lines a diff adds that a reviewer reads, each as its text with whitespace collapsed,
     counted; how many added lines it carries, `carried_lines`): every added line, generated
-    files aside as the base marks them, as `diff_lines` counts them, less the carried ones, so what two pull requests
+    files aside, as `diff_lines` counts them, less the carried ones, so what two pull requests
     share and each one's size are read off the same lines."""
     # a submodule reads as its commit line: diff_lines never counts its insides
     diff = gitcall.git(repo, *gitcall.patch_args("diff", f"{base}...{head}"), check=False)
@@ -392,7 +393,8 @@ def history_finish(state, log=None):
             review = state.get("review") or {}
             head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
-                size = diff_lines(repo, state["base_sha"], head)
+                # generated files as its target marks them, as its first review counted
+                size = diff_lines(repo, state.get("target_sha") or state["base_sha"], head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
     # the AGENTS.md its workers were handed, measured as the ceiling measures it
