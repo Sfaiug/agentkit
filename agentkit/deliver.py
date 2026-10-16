@@ -733,6 +733,22 @@ def do_merge(lp, url, upstream):
                 failed=True)
 
 
+# a landing's failures, each counted apart and each bounded by CONFLICT_ROUNDS: a conflict with
+# the target is the world moving, so it never spends the budget of the work's own red checks
+LANDING_COUNTS = ("landing_reds", "landing_conflicts")
+
+
+def landing_count(failure):
+    """The count a landing failure spends: `landing_conflicts` for the lander's conflict with
+    the target's tip, `landing_reds` for a red check or anything else."""
+    return "landing_conflicts" if failure.get("conflict") else "landing_reds"
+
+
+def forget_landing_counts(state):
+    for key in LANDING_COUNTS:
+        state.pop(key, None)
+
+
 def join_line(lp, upstream, deliver):
     """Leave a passed run's place on disk; a fresh process consumes the lander's verdict."""
     if (lp.state.get("waiting_on") or {}).get("line"):
@@ -809,7 +825,7 @@ def land_from_line(lp, upstream, deliver):
                 if gitcall.git_out(lp.wt, "diff", "--quiet", tip, "HEAD")[0] == 0:
                     lp.state.update(on_target=True)
                     lp.state.pop("waiting_on", None)
-                    lp.state.pop("landing_reds", None)
+                    forget_landing_counts(lp.state)
                     return roundloop.note(lp, f"its work is already on {upstream.removeprefix('origin/')}")
                 if saved.get("skipped") and not text_only_pr(lp.wt, tip, "HEAD"):
                     # work not on the target yet: the target may have carried the wording onto
@@ -831,7 +847,7 @@ def land_from_line(lp, upstream, deliver):
                 if "fix" not in lp.state.get("waiting_on", {}):
                     if result:
                         lp.state.pop("waiting_on", None)
-                        lp.state.pop("landing_reds", None)
+                        forget_landing_counts(lp.state)
                         lp.write()
                     return result
         finally:
@@ -844,15 +860,17 @@ def land_from_line(lp, upstream, deliver):
     if lp.state.get("review_pr"):
         # a head the seat pushed past its review is new work, reviewed as a round: no landing red
         return fail_pr_landing(lp, failure, landing=not failure.get("moved"))
+    count = landing_count(failure)
     if not wait.get("fixing"):
-        lp.state["landing_reds"] = lp.state.get("landing_reds", 0) + 1
+        lp.state[count] = lp.state.get(count, 0) + 1
         lp.state["waiting_on"] = {**wait, "fixing": True}
         lp.write()
-    if lp.state["landing_reds"] > roundloop.CONFLICT_ROUNDS:
+    if lp.state[count] > roundloop.CONFLICT_ROUNDS:
         lp.state.pop("waiting_on", None)
-        # The count bounds one landing; a person who resumes the ended run starts a new one.
-        lp.state.pop("landing_reds", None)
-        return roundloop.note(lp, f"landing failed four times: {failure['line']}; see {failure['log']}",
+        # The counts bound one landing; a person who resumes the ended run starts a new one.
+        forget_landing_counts(lp.state)
+        how = "conflicted with the target" if count == "landing_conflicts" else "failed"
+        return roundloop.note(lp, f"landing {how} four times: {failure['line']}; see {failure['log']}",
                     failed=True)
     if not roundloop.integrate(lp, upstream):
         if lp.state.get("merge_failed"):
@@ -1115,18 +1133,20 @@ def fail_pr_landing(lp, failure, landing=True):
     lp.state.pop("waiting_on", None)
     lp.state.pop("own_pr_round_pending", None)
     lp.state.pop("landing_fix", None)
-    reds = lp.state.get("landing_reds", 0)
+    count = landing_count(failure)
+    reds = lp.state.get(count, 0)
     if landing:
-        reds = lp.state["landing_reds"] = reds + 1
+        reds = lp.state[count] = reds + 1
     if lp.state.get("own_pr") and (reds <= roundloop.CONFLICT_ROUNDS if landing else lp.rnd < lp.rounds):
         lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
         if landing:
             lp.state["landing_fix"] = True
     else:
         if landing:
-            lp.state["merge_note"] = f"landing failed {reds} times: {failure['line']}"
-        # the count bounds one landing; a person who resumes the ended run starts a new one
-        lp.state.pop("landing_reds", None)
+            how = "conflicted with the target" if count == "landing_conflicts" else "failed"
+            lp.state["merge_note"] = f"landing {how} {reds} times: {failure['line']}"
+        # the counts bound one landing; a person who resumes the ended run starts a new one
+        forget_landing_counts(lp.state)
         lp.state.update(state="fail", finished_at=time.time())
     lp.write()
     return False
