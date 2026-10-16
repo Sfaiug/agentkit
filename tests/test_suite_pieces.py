@@ -146,14 +146,16 @@ class SuitePieces(unittest.TestCase):
 
     def test_a_check_at_the_top_cpu_weight_counts_lower_weighted_use_as_its_own(self):
         # The line's checker outweighs every run: the CPU builds use now is its for the taking.
-        busy = {**ROOM, "slice_cpu_used": 3.5, "slice_memory_high_mb": 4100}
-        for kept, count in ((None, 1), (0.7, 4)):
-            with self.subTest(kept=kept), patch.dict(os.environ, {
-                    "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}), \
-                    patch.object(host, "kept_cpu", return_value=kept):
-                ok, text = self.check()
-                self.assertTrue(ok, text)
-                self.assertEqual(text.count("--- AK_SHARD="), count)
+        for quota in (4, None):
+            busy = {**ROOM, "slice_cpu_quota": quota, "slice_cpu_used": 3.5,
+                    "load": 3.5, "outside_cpu_used": 0, "slice_memory_high_mb": 4100}
+            for kept, count in ((None, 1), (0.7, 4)):
+                with self.subTest(quota=quota, kept=kept), patch.dict(os.environ, {
+                        "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}), \
+                        patch.object(host, "kept_cpu", return_value=kept):
+                    ok, text = self.check()
+                    self.assertTrue(ok, text)
+                    self.assertEqual(text.count("--- AK_SHARD="), count)
 
     def cgroups(self, busy, outside=0.0):
         """ak's slice, its runs slice and the run groups `busy` maps to (weight, cores used),

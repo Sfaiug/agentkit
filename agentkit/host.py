@@ -524,7 +524,7 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     except Exception:
         cpu_quota = None
     cpu_used = outside = None
-    if cpu_quota is not None:
+    if slice_dir is not None:
         # The host's use beyond the slice -- ak's own menus, tick and live checks among it --
         # read in the slice's sample window, so a burst between two readings is in both or none.
         whole = cgroup_path("", cgroup_root)

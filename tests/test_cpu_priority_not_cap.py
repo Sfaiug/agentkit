@@ -14,6 +14,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gate, host, status
+import test_suite_pieces as suites
 import test_user_unit_ceiling as fixture
 
 READ_HOST = host.host_readings
@@ -111,6 +112,26 @@ class CpuPriority(unittest.TestCase):
                         self.assertEqual(status.cmd_status([]), 0)
                     self.assertIn(f"host: {cpus} cpus", output.getvalue())
                     self.assertIn(f"heavy suites: {expected} at once (derived)", output.getvalue())
+
+    def test_uncapped_landing_can_take_lower_weighted_build_cpu(self):
+        pieces = suites.SuitePieces()
+        self.addCleanup(pieces.doCleanups)
+        pieces.setUp()
+        whole, _ = pieces.cgroups({"lander-widget.scope": (host.CPU_WEIGHT_MAX, 0.0),
+                                    "agentkit-run-build.scope": (40, 3.3)})
+        (whole / "cpu.max").write_text("max 100000\n")
+        proc = pieces.root / "proc"
+        proc.mkdir()
+        (proc / "meminfo").write_text("MemAvailable: 33554432 kB\nMemTotal: 33554432 kB\n")
+        (proc / "loadavg").write_text("3.3 3.3 3.3\n")
+        context = {"repo": str(pieces.root), "run_id": "widget", "landing": True, "since": 1}
+        with patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": ""}), \
+                patch.object(host, "host_readings", READ_HOST), \
+                patch.object(host, "PROC", proc), \
+                patch.object(host, "cpu_count", return_value=4), \
+                gate.gate_turn(None, pieces.root / "gate.log", None, suites.SUITE,
+                               pieces.root, context=context):
+            self.assertEqual(len(gate._GATE_HELD.hold.slots), int(4 / gate.HEAVY_CPUS))
 
 
 if __name__ == "__main__":
