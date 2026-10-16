@@ -472,11 +472,18 @@ def answered(session, at):
         previous["answered_at"] = at
         if not resolved(previous):
             return
-        history.owner_time("answered", at, at - previous["time"])
+        waited(previous, at)
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     from . import watch    # here, not at the top: watch imports this module
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
+
+
+def waited(notice, at):
+    """Each question that notice asks the owner is answered at `at`: one wait apiece, from when
+    it was last asked (`_said` dates them)."""
+    for asked in (notice.get("asked_at") or {}).values():
+        history.owner_time("answered", at, at - asked)
 
 
 def job_done(notice):
@@ -563,6 +570,7 @@ def progress(session, capture, seat_harness):
             extra["open_needs"] = []
         record(session, previous["kind"], previous["text"], **extra)
         if resolved(extra):
+            waited(extra, extra["last_progress_at"])
             close_needs(previous, "Answered")
             return True
 
@@ -1468,19 +1476,22 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     if kind == "needs":
         standing = (questions(previous) if watch.owner_question(previous)
                     and not resolved(previous) else [])
+        if standing and at is not None:
+            at = max(at, previous["time"])
         asked, seen = list(standing), {" ".join(q.split()).casefold() for q in standing}
+        dated = dict(previous.get("asked_at") or {}) if standing else {}
         for question in [text] if isinstance(text, str) else text:
             words = " ".join(question.split()).casefold()
             if words not in seen:
                 seen.add(words)
                 asked.append(question)
+            dated[words] = time.time() if at is None else at
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
-        if standing and at is not None:
-            at = max(at, previous["time"])
         if not extra["watcher"]:
             fresh = len(asked) - len(standing)
+            extra["asked_at"] = dated
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
     if earlier:
         # The answer ends its card's episode at the next tick; the newer notice carries it

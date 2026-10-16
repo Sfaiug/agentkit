@@ -1,8 +1,10 @@
 """The scoreboard shows the owner's time each week: the questions seats asked them, the cards
 sent to them, and the median hours a question answered that week had waited since it was last
 asked.  notify writes each moment as it decides it -- a question new to a notice, a card
-delivered, the owner's answer to a standing question -- as a row naming no seat.  A new
-install, with no database, shows `not recorded`.
+delivered, each standing question answered, by the owner's prompt or, where no prompt hook
+reports one, by output after an open -- as a row naming no seat.  A moment on the boundary
+between the weeks counts in the last 7 days only.  A new install, with no database, shows
+`not recorded`.
 
 Offline: a sandbox HOME with its own history database, the webhook post faked, git answering
 nothing.
@@ -59,11 +61,22 @@ class OwnerRow(Sandbox):
         self.said("needs", "gh login expired", 180.0, event_id="auth:gh")    # ak's own alert
         self.attempt("delivered", 190.0)
         self.attempt("pending", 195.0)                    # a card not delivered sent nothing
-        self.assertEqual(self.moments(), {"asked": 2, "paged": 1, "waits": []})
-        notify.answered(SEAT, 350.0)      # the owner's one prompt answers the notice, last asked at 170
+        asked = [(100.0, "asked", None), (160.0, "asked", None), (190.0, "paged", None)]
+        self.assertCountEqual(self.moments(), asked)
+        # the owner's one prompt answers both, each from when it was last asked
+        notify.answered(SEAT, 350.0)
         notify.answered(SEAT, 400.0)      # nothing stands: no answer
         self.said("done", "shipped", 500.0)
-        self.assertEqual(self.moments(), {"asked": 2, "paged": 1, "waits": [180 / HOUR]})
+        self.assertCountEqual(self.moments(), [*asked, (350.0, "answered", 180.0),
+                                               (350.0, "answered", 190.0)])
+
+    def test_output_after_an_open_answers_where_no_prompt_hook_reports(self):
+        self.said("needs", "Which schema?", 100.0)
+        with patch.object(notify.time, "time", return_value=150.0):
+            notify.opened(SEAT, lambda: "Reading the parser")
+        with patch.object(notify.time, "time", return_value=200.0):
+            self.assertTrue(notify.progress(SEAT, lambda: "Shipping the parser", "muse"))
+        self.assertCountEqual(self.moments(), [(100.0, "asked", None), (200.0, "answered", 100.0)])
 
     def test_questions_cards_and_waits_count_in_the_week_each_happened(self):
         for at, kind, waited in ((NOW - 10 * HOUR, "asked", None), (NOW - 9 * HOUR, "paged", None),
@@ -81,6 +94,12 @@ class OwnerRow(Sandbox):
         self.assertIn("2 questions asked, 3 cards sent, median 1.5 hours waiting for an answer", row)
         self.assertIn("1 questions asked, 1 cards sent", row)
         self.assertNotIn("1 questions asked, 1 cards sent, median", row)
+
+    def test_a_moment_on_the_boundary_counts_in_the_last_7_days(self):
+        for kind, waited in (("asked", None), ("paged", None), ("answered", HOUR)):
+            history.owner_time(kind, NOW - WEEK, waited)
+        self.assertEqual(scoreboard.compute(NOW)["owner"], [{"asked": 1, "paged": 1, "hours": 1.0},
+                                                            {"asked": 0, "paged": 0, "hours": None}])
 
     def test_a_new_install_shows_not_recorded(self):
         self.assertFalse(history.path().exists())

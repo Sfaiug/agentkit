@@ -324,6 +324,7 @@ def compute(now=None):
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
 
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
+    moments = history.owner(now - 2 * week, now)
     board, waits, merged_changes, escapes_seen = {"products": [], "ak": []}, [], [], []
     built, parks, sunk, owner = [], [], [], []
     for end in (now, now - week):
@@ -351,10 +352,12 @@ def compute(now=None):
                      for role in ("executor", "reviewer"))
         sunk.append({"share": wasted / total_tokens, "tokens": wasted} if total_tokens else None)
         # the owner's time: what the seats asked them, what reached them, how long they were waited on
-        asked = history.owner(end - week, end)
-        owner.append(None if asked is None else {
-            "asked": asked["asked"], "paged": asked["paged"],
-            "hours": median(asked["waits"]) if asked["waits"] else None})
+        kinds = [(kind, waited) for at, kind, waited in moments or () if in_week(at, end)]
+        answers = [waited / 3600 for kind, waited in kinds if kind == "answered"]
+        owner.append(None if moments is None else {
+            "asked": sum(kind == "asked" for kind, _ in kinds),
+            "paged": sum(kind == "paged" for kind, _ in kinds),
+            "hours": median(answers) if answers else None})
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:

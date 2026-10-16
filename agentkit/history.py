@@ -375,21 +375,18 @@ def owner_time(kind, at, waited=None, *, log=None):
 
 
 def owner(since, until):
-    """The owner's time in the inclusive range: the questions asked, the cards sent and the
-    hours each question answered then had waited; None where the database cannot answer."""
+    """The moments of the owner's time in the inclusive range, `(at, kind, waited)` as
+    `owner_time` wrote them; None where the database cannot answer."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                rows = connection.execute("SELECT kind, waited FROM owner WHERE at >= ? AND at <= ?",
+                return connection.execute("SELECT at, kind, waited FROM owner WHERE at >= ? AND at <= ?",
                                           (since, until)).fetchall()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
-    return {"asked": sum(kind == "asked" for kind, _ in rows),
-            "paged": sum(kind == "paged" for kind, _ in rows),
-            "waits": [waited / 3600 for kind, waited in rows if kind == "answered"]}
 
 
 def open_step(run_id, step, at=None, *, log=None):
