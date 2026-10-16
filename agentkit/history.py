@@ -222,13 +222,21 @@ def update_run(run_id, *, log=None, **fields):
     _write(lambda connection: _update(connection, run_id, fields), log)
 
 
+def first_review(run_id, lines, *, log=None):
+    """Record the lines a change's first review reads, once: a review resumed before its verdict,
+    the work grown or the target moved meanwhile, keeps the size first read."""
+    _write(lambda connection: connection.execute(
+        "UPDATE runs SET first_review_lines=COALESCE(first_review_lines,?) WHERE run_id=?",
+        (lines, run_id)), log)
+
+
 def _update(connection, run_id, fields):
     allowed = {"repo", "executor", "reviewer", "rounds_used", "final_state", "verdict",
                "started_at", "finished_at", "executor_seconds", "done_when_seconds",
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha", "parked_at", "first_review_lines"}
+               "rules_bytes", "merge_sha", "parked_at"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return

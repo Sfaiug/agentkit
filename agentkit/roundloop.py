@@ -1600,7 +1600,7 @@ def first_review_ceiling(lp):
                                            lines, carried)
     if why:
         raise turns.Blocked(why, f"## Blocked\n\n{why}")
-    history.update_run(lp.state.get("run_id"), first_review_lines=lines - carried, log=lp.log)
+    history.first_review(lp.state.get("run_id"), lines - carried, log=lp.log)
 
 
 def fix_after_failed_review(lp, upstream, how):

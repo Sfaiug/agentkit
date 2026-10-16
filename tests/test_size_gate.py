@@ -151,6 +151,38 @@ class SizeGate(Sandbox):
         # the first review read 400 lines; a later review of the change is no first review
         self.assertEqual(read, [taskfile.MAX_PR_LINES, None])
 
+    def test_a_first_review_resumed_before_its_verdict_keeps_the_size_it_first_read(self):
+        self.enterContext(patch.dict(os.environ, {"AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
+                                                  "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
+                                                  "AK_MAX_RUNS": "0"}))
+        directory = config.RUNS / "20261015-0930-interrupted"
+        directory.mkdir(parents=True)
+        state = {"run_id": directory.name, "title": "Fix the API", "state": "running",
+                 "repo": str(self.repo), "worktree": str(self.repo), "base": "main",
+                 "base_sha": self.base, "branch": "fix-api", "executor": "opus",
+                 "reviewer": "astra", "rounds": 3, "round_summaries": []}
+        record.save_state(directory, state)
+        history.start_run(directory.name, repo=str(self.repo))
+        lp = run.Loop(config.load(), directory, state, {}, lambda _s: None, self.repo,
+                      "# Fix the API", ["true"], "Do the task.", [])
+
+        def interrupted(lp, summary, *_a, **_k):
+            lp.state["review_pending"] = {"round": lp.rnd, "summary": summary}
+            lp.save()
+            raise turns.Exhausted("stopped before a verdict")
+
+        with patch.object(roundloop, "execute", return_value="built"), \
+                patch.object(run, "pickup_new_code", return_value=None), \
+                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")):
+            with patch.object(roundloop, "review", side_effect=interrupted), \
+                    self.assertRaises(turns.Exhausted):
+                run.rounds(lp)
+            # the work grows while the review waits
+            self.write({"extra.py": "extra = 1\n"}, "More work")
+            with patch.object(roundloop, "review", return_value="PASS"):
+                roundloop.resume_review(lp)
+        self.assertEqual(history.get(directory.name)["first_review_lines"], 2)
+
     def test_the_lines_a_first_review_reads_leave_out_generated_files_and_deletions(self):
         self.assertEqual(run.diff_lines(self.repo, self.base, self.head, added_only=True), 2)
         self.assertEqual(run.diff_lines(self.repo, self.base, self.head), 8)     # the recorded size: old.py's four too
