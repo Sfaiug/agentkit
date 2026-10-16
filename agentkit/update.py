@@ -56,6 +56,7 @@ MOVING = "agentkit-update.lock"  # under config.TMP: held by each move of ~/agen
 SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
+HARNESS_GATES = "harness-gates"  # under config.STATE: one failure episode per harness
 # A check of agentkit's tests/live.sh, detached: a throwaway worktree of exactly the commit,
 # the script in it, then the output and the exit code, each written whole.  Both run in the
 # process group of a holder, a `sleep` this runner starts first and reaps last, after every
@@ -844,12 +845,6 @@ def live_hand_back(commit, check, code, log, hand=True):
     composer's mark while its Enter has not landed, so it is entered and never typed twice,
     and `told` once it has.
     """
-    from . import deliver, watch  # here, not at the top: both import this module
-
-    def keep(**change):
-        record.update(change)
-        _put(check / "handed", json.dumps(record))
-
     record = _handed(check)
     if record is None:
         output = check / "output"
@@ -863,17 +858,54 @@ def live_hand_back(commit, check, code, log, hand=True):
         log(f"WARN agentkit stays as it is: tests/live.sh failed at {commit[:12]}:")
         for line in lines:
             log(f"  {line}")
-        record = {}
-        keep(line=f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
-                  f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main.",
-             typed=None, told=False)
-    if record["told"] or not hand:
-        return
+        record = dict(line=f"tests/live.sh failed on agentkit's main at {commit[:12]}, so this host "
+                           f"stays on the agentkit it runs: {' / '.join(lines)}. Fix main.",
+                      typed=None, told=False)
+        _put(check / "handed", json.dumps(record))
+    if hand and _gate_hand_back(check, record, log):
+        log(f"handed agentkit's failed tests/live.sh at {commit[:12]} back to fix")
+
+
+def _gate_hand_back(check, record, log):
+    """Deliver a gate's saved line with the same composer receipt across ticks."""
+    from . import deliver, watch  # here, not at the top: both import this module
+
+    def keep(**change):
+        record.update(change)
+        _put(check / "handed", json.dumps(record))
+
+    if record["told"]:
+        return False
     key = deliver.remote_key(_git("remote", "get-url", "origin")[1])
     if watch.after_merge_deliver(None, {}, key, record["line"], log, typed=record["typed"],
                                  receipt=lambda mark: keep(typed=mark)):
         keep(told=True)
-        log(f"handed agentkit's failed tests/live.sh at {commit[:12]} back to fix")
+        return True
+    return False
+
+
+def harness_gate_result(plan, passed, gate, log_path):
+    """A gate pass clears each harness's episode; its second red keeps one hand-back.
+
+    The upgrade lock also protects these records while the tick delivers them.
+    Installer failures never reach here: only an actual gate outcome counts.
+    """
+    for harness in plan:
+        check = config.STATE / HARNESS_GATES / harness["name"]
+        if passed:
+            (check / "handed").unlink(missing_ok=True)
+            continue
+        record = _handed(check) or {"reds": 0}
+        if record["reds"] >= 2:
+            continue
+        record["reds"] += 1
+        if record["reds"] == 2:
+            lines = _live_excerpt(log_path.read_text(errors="replace"))
+            record.update(line=f"The {harness['name']} harness upgrade failed its gate twice in "
+                               f"a row ({gate}): {' / '.join(lines)}. Log: {log_path}. "
+                               "Fix the harness upgrade gate.", typed=None, told=False)
+        check.mkdir(parents=True, exist_ok=True)
+        _put(check / "handed", json.dumps(record))
 
 
 def latest(harness):
@@ -966,7 +998,8 @@ def keep_current(log, now=None):
     host has is asked its `[update] latest` at most once an hour; one behind it is upgraded by
     `background`, one at a time.  A failed gate has put the harness back and said so; that
     release is started again once `RETRY_AFTER` has passed since its last start, and a newer
-    one at once.  One that passed is current, so it is never started again.
+    one at once. Its second red gate is handed back once until its gates pass, retrying
+    delivery on later ticks while no seat can receive it.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
@@ -982,8 +1015,15 @@ def keep_current(log, now=None):
             else f"the background upgrade of {name}:")
         for line in lines:
             log(f"  {line}")
-    if upgrading():
+    held = one_at_a_time()
+    if held is None:
         return
+    with held:
+        for check in sorted((config.STATE / HARNESS_GATES).glob("*")):
+            episode = _handed(check)
+            if episode and episode["reds"] >= 2:
+                if _gate_hand_back(check, episode, log):
+                    log(f"handed {check.name}'s failed harness upgrade gate back to fix")
     now = time.time() if now is None else now
     record = config.STATE / "harness-latest.json"
     try:
@@ -1211,12 +1251,14 @@ def upgrade(plan, before):
                 report(landed, sys.stdout)
                 if snapshot:
                     snapshot.discard()
+                harness_gate_result(plan, True, gate, log_path)
                 return 0
             gate = f"the fresh-install gate ({fresh_why})"
         landed = revert(plan, before, after, fh, say, snapshot, attempted)
     print(f"update: {gate} FAILED after {', '.join(changed) if changed else 'no change'} "
           f"-- see {log_path}", file=sys.stderr)
     report(landed, sys.stderr)
+    harness_gate_result(plan, False, gate, log_path)
     return 1
 
 
