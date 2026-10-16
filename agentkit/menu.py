@@ -1987,13 +1987,14 @@ def usage_rows(cfg):
 
 
 def usage_tip(cfg, number, now=None):
-    """What the key line says of usage row `number`, from 1, while the pointer is on it -- why
-    it has no week to draw, where it has none -- and the share of its week that would be left
-    had it been spent as fast as time passes, from the meter's window and reset, or None where
-    there is no such week: `Acme II · 68% left · resets Thu
-    20:00 (in 2 d 6 h) · lasts at this pace`, more left than that share lasting the week; a
-    spent meter has nothing left to pace, and its credits, where it has any, stand in its 0%'s
-    place as on the row (`Acme II · 62,469 credits left · resets …`)."""
+    """Usage row `number`, from 1, in one sentence -- why it has no week to draw, where it has
+    none -- and the share of its week that would be left had it been spent as fast as time
+    passes, from the meter's window and reset, or None where there is no such week: `Acme II ·
+    68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`, more left than that share
+    lasting the week; a spent meter has nothing left to pace, and its credits, where it has
+    any, stand in its 0%'s place as on the row (`Acme II · 62,469 credits left · resets …`).
+    The sentence is what `↻ spend a reset` says once it spent one (config_spend_reset); draw
+    stands its tick in a pointed row's bar at the share."""
     now = time.time() if now is None else now
     rows = usage_rows(cfg)
     if not 0 < number <= len(rows):
