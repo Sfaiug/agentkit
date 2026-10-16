@@ -16,7 +16,8 @@ this host has are upgraded, and by `ak update` none while a session is working; 
 upgrades one that is behind its latest release in the background, sessions or not (see
 `keep_current`), and no two upgrades ever run at once.  Agentkit itself moves after the
 harnesses either way, and the three-minute tick moves it on its own, in both cases only to a
-commit whose `tests/live.sh` passed where it has one (`live_target`).
+commit whose `tests/live.sh` passed where it has one (`live_target`), and never while a harness
+upgrade runs: its gates test one agentkit commit from start to end.
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -51,6 +52,7 @@ ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release
 RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause: try it daily
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
+MOVING = "agentkit-update.lock"  # under config.TMP: held by each move of ~/agentkit
 SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
@@ -519,7 +521,7 @@ def update_agentkit(progress=None, pull=True):
     fast-forwards to exactly it, already fetched.
     """
     config.ensure_dirs()
-    with (config.TMP / "agentkit-update.lock").open("a") as lock:
+    with (config.TMP / MOVING).open("a") as lock:
         # one at a time, the tick's retry included: otherwise an install.sh that passes clears
         # the pending mark of another still running, which then fails with nothing to retry it
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -528,6 +530,11 @@ def update_agentkit(progress=None, pull=True):
         if why:
             say(f"update: agentkit: left as it is: {directory} is {why}")
             return 1
+        if upgrading():
+            # asked under this lock, which `upgrade` waits for before it begins, so its gates
+            # test one commit from start to end; the next tick after it moves this one (go_live)
+            say("update: agentkit: moves once the harness upgrade running now ends")
+            return 0
         install = [str(directory / "install.sh")]
         merge = ["git", "-C", str(directory), "merge", "--ff-only"]   # to a commit known later
         steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], merge]
@@ -634,12 +641,15 @@ def go_live(log, now=None):
     target = live_target() if fetched else ""
     # exit 1 is the target ahead of HEAD; anything else, a failed fetch above all, is not
     moved = bool(target) and _git("merge-base", "--is-ancestor", target, "HEAD")[0] == 1
-    if not (moved or (config.STATE / "agentkit-install-pending").exists()):
+    pending = config.STATE / "agentkit-install-pending"
+    if not (moved or pending.exists()):
         return
     head = target if moved else _git("rev-parse", "HEAD")[1]
     failed, lines = update_once("watch", pull=moved and target)
     if not failed:
-        log(f"agentkit is live at {head[:12]}")
+        # one a harness upgrade held back moved nothing: a tick after that upgrade says this
+        if not pending.exists() and _git("rev-parse", "HEAD")[1] == head:
+            log(f"agentkit is live at {head[:12]}")
     elif lines:
         log(f"WARN agentkit did not go live at {head[:12]}:")
         for line in lines:
@@ -900,6 +910,14 @@ def one_at_a_time():
     return lock
 
 
+def upgrading():
+    """Whether an upgrade holds `one_at_a_time`'s lock now; asking holds it for an instant."""
+    held = one_at_a_time()
+    if held:
+        held.close()
+    return held is None
+
+
 def said_path():
     """What the last background upgrade said: its writer is `background`, its reader the tick."""
     return config.STATE / "harness-update-said.json"
@@ -964,10 +982,8 @@ def keep_current(log, now=None):
             else f"the background upgrade of {name}:")
         for line in lines:
             log(f"  {line}")
-    held = one_at_a_time()
-    if held is None:
+    if upgrading():
         return
-    held.close()
     now = time.time() if now is None else now
     record = config.STATE / "harness-latest.json"
     try:
@@ -1087,6 +1103,10 @@ def upgrade(plan, before):
     The one path `ak update` and the tick's background upgrade both take, so the snapshot,
     the gates and the revert are as strong whichever of them starts it.
     """
+    # a move of ~/agentkit under way ends before anything here reads it; any later one waits
+    # for this upgrade to end (update_agentkit)
+    with (config.TMP / MOVING).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
     smoke, live = config.REPO / "tests" / "smoke.sh", config.REPO / "tests" / "live.sh"
     output = tempfile.NamedTemporaryFile(mode="w", prefix=f"update-{datetime.now():%Y%m%d-%H%M%S}-",
                                          suffix=".log", dir=config.TMP, delete=False)
