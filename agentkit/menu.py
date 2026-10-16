@@ -3841,10 +3841,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
-        while True:
-            if not live.watching.is_set():
-                live.watch(last)          # read once before the draw, looked at behind it: the
-                                          # first, and back from a seat (`Live.away`)
+        back = True                       # read before the draw: the first, and one back from
+        while True:                       # a seat (`Live.away`)
+            if back:
+                live.watch(last)          # read once, now, looked at behind it
+                back = False
             elif look:
                 live.ask(look=True)       # read and looked at again, off the draw
             messages = orch.job_notices() + live.heard()
@@ -3971,16 +3972,17 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 continue
             if key not in ("c", "n", "p", "r"):
                 keyboard.give()           # whatever the key opens has the terminal as it was
+            if key.isdigit() or key in ("n", "p"):
+                back = True               # each can hand the owner a seat, where nothing is read
+                live.away()
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
-                    live.away()
                     open_session(cfg, found[int(key) - 1], dry_run)
                     if overlay:
                         return 0
                 else:
                     pause(f"no session {key}")
             elif key == "n":
-                live.away()
                 try:
                     if new_session(cfg, dry_run, keyboard) and overlay:
                         return 0
@@ -3996,7 +3998,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 cfg = live.cfg = show_config(dry_run, keyboard,
                                              seat if isinstance(seat, str) else None) or cfg
             elif key == "p" and past:
-                live.away()
                 show_past(cfg, found, dry_run, keyboard)    # read with the keys, too
             elif key in ("j", "k") and pages > 1:
                 page = (page + (1 if key == "j" else -1)) % pages
