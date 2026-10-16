@@ -803,9 +803,9 @@ class SessionState(unittest.TestCase):
         self.now += 1
         notify.answered("seat", self.now)
         self.tick()
-        # the question is answered, and the row says what the seat is now: his again,
-        # at its prompt with nothing to say why
-        self.assertEqual(menu.state(self.seat), "needs you")
+        # the question is answered, and the row says what the seat is now: at its prompt with
+        # nothing running, asked or owed, at rest
+        self.assertEqual(menu.state(self.seat), "idle")
         facts = notify.last("seat", include_seen=True)
         self.assertLessEqual(facts["time"], facts["opened_at"])
         self.assertLess(facts["opened_at"], facts["answered_at"])
@@ -816,7 +816,7 @@ class SessionState(unittest.TestCase):
         for attached in (True, False, True):
             self.seat["attached"] = attached
             self.tick()
-            self.assertEqual(menu.state(self.seat), "needs you")
+            self.assertEqual(menu.state(self.seat), "idle")
         self.assertEqual(self.saved(), before)
 
     def test_c_list_render_capture_and_watch_never_acknowledge(self):
@@ -1009,8 +1009,9 @@ class SessionState(unittest.TestCase):
         self.assertTrue(notify.last("seat")["watcher"])
         self.edits.reset_mock()    # the alert ended the answered question's card
         watch.forget("seat", acknowledge=False, notice=text)
-        # the alert is retracted; nobody has opened this seat, so its own screen speaks for it
-        self.assertEqual(menu.state(self.seat), "needs you")
+        # the alert is retracted; nobody has opened this seat, so its own screen speaks for it:
+        # a prompt with nothing asked, at rest
+        self.assertEqual(menu.state(self.seat), "idle")
         self.edits.assert_called_once()
         for kind in ("needs", "done"):
             self.now += 1
@@ -1142,7 +1143,7 @@ class SessionState(unittest.TestCase):
             before = self.saved()
             notify._remember_retry(event, "seat")
             self.assertEqual(self.saved(), before)
-            self.assertEqual(menu.state(self.seat), "needs you")
+            self.assertEqual(menu.state(self.seat), "idle")     # answered, so at rest
         self.assertEqual(notify.last("seat", include_seen=True)["open_needs"], [])
 
 
