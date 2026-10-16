@@ -100,19 +100,29 @@ renew() {
   ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
 }
 
+# An account's login reads the usual one's conversations and settings through links: Claude Code
+# keeps conversations under its config directory's projects/, so one begun on an account is
+# resumed on the next, and a change made in any session on any login -- a seat's /config, a
+# model asked to set one -- is every Claude session's, since every login reads one settings.json
+# (Claude Code 2.1.292 saves through the link and keeps it).  A login whose settings already are
+# the usual file, through whatever links, keeps them.  Otherwise its own file is replaced, and
+# what only it held goes with it: carrying that over means rewriting the shared file, and a
+# session saving it in that instant loses its save, as Claude Code takes no lock.
+share() {
+  local usual="$HOME/.claude/settings.json" own="$CLAUDE_CONFIG_DIR/settings.json"
+  mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
+  [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
+    ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
+  [ "$own" -ef "$usual" ] || { ln -sf -- "$usual" "$own.$$" && mv -f -- "$own.$$" "$own"; } || exit 2
+}
+
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "claude.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
   model=$1 effort=$2 ws=$3 pf=$4 out=$5 sid=${6:-}
   mkdir -p -- "$out" || exit 2
   cd -- "$ws" || { echo "claude.sh: no such workspace: $ws" >&2; exit 2; }
-  if [ -n "$ACCOUNT" ]; then
-    # Claude Code keeps conversations under its config directory's projects/: an account's is
-    # the usual one, so a conversation begun on one account is resumed on the next
-    mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
-    [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
-      ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
-  fi
+  [ -z "$ACCOUNT" ] || share
   # The long-lived worker token, where there is one: a headless turn authenticates with it and
   # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
@@ -131,12 +141,8 @@ run)
 interactive)
   [ $# -ge 2 ] || { echo "claude.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
   # The printed command runs later, outside this adapter's environment. Carry the login
-  # into it, sharing the same transcripts as worker turns on these accounts do.
-  if [ -n "$ACCOUNT" ]; then
-    mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
-    [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
-      ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
-  fi
+  # into it, sharing the same transcripts and settings as worker turns on these accounts do.
+  [ -z "$ACCOUNT" ] || share
   # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
   # screen comes to rest, starts moving or claude exits; %q so a checkout path with a space
   # still parses as one word
