@@ -3431,26 +3431,36 @@ PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
 
 
 def in_flight(name, repo):
-    """What the other seats filed under the same checkout have in flight, so two sessions
-    never build the same thing unaware: [(seat, open plan lines, changed files)] by name.
+    """What the other seats have in flight on that checkout, so two sessions never build the
+    same thing unaware: [(seat, open plan lines, changed files)] by name.
 
-    A seat's open lines are its plan's unticked ones; its files are what its going runs
-    change against their base, committed or not, or a queued run's task `files:`.  A seat
-    with neither is left out.
+    A seat counts when it is filed under the checkout or has a going run on it, whatever it is
+    filed under.  Its open lines are its plan's unticked ones, of a seat filed elsewhere only
+    those written on this checkout; its files are what its going runs on the checkout change
+    against their base, committed or not, or a queued run's task `files:`.  A seat with
+    neither is left out.  A going run launched from no seat counts as `run <id>`.
     """
     from . import menu, watch  # here, not at the top: menu imports this module
     target = checkout_of(repo)
-    seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
-             if seat != name and target and checkout_of(record.get("repo")) == target}
-    for seat, (lines, _) in seats.items():
-        plan = watch.plan_text(seat)
-        lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
+    if not target:
+        return []
+    filed = {seat for seat, record in config.session_records().items()
+             if checkout_of(record.get("repo")) == target}
+    seats = {seat: ([], set()) for seat in filed if seat != name}
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
         seat = transitions.launched_session(state)
-        if seat in seats and not menu.smoke_run(state) and transitions.going(state):
-            seats[seat][1].update(changed_files(state, directory))
-    return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
+        if (seat != name and not menu.smoke_run(state) and transitions.going(state)
+                and checkout_of(state.get("repo")) == target):
+            seats.setdefault(seat or f"run {directory.name}", ([], set()))[1].update(
+                changed_files(state, directory))
+    for seat, (lines, _) in seats.items():
+        for line in watch.plan_text(seat).splitlines():
+            found, written = PLAN_OPEN.match(line), plan.LINE.match(line.strip())
+            if found and (seat in filed or written and checkout_of(
+                    plan.place(seat, written["project"])) == target):
+                lines.append(found.group(1).strip())
+    return [(seat, lines, files) for seat, (lines, files) in sorted(seats.items()) if lines or files]
 
 
 def changed_files(state, directory):
