@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_own_pr_line as line
-from agentkit import deliver, hand_in, land, record, roundloop, run, turns, watch, worker
+from agentkit import deliver, hand_in, history, land, record, roundloop, run, turns, watch, worker
 from fixtures.hand_in import submitting
 
 
@@ -140,6 +140,8 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.assertIn("Re-review after the landing fix", self.reviews[-1])
         self.assertIn("Landing failed", self.reviews[-1])
         self.assertEqual(len(self.checks), checks, "the re-review ran a suite")
+        # its suite went red after review passed it: one break at landing, on its row
+        self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
         land.check_line(self.turn)
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
@@ -175,6 +177,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertIn("required checks failed: fence", self.reviews[-1])
+        self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
         land.check_line(self.turn)
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
@@ -207,6 +210,8 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(len(state["round_summaries"]), 1)
+        # a rebase the target conflicts with says nothing about what review let through
+        self.assertFalse(history.get(directory.name)["landing_breaks"])
         land.check_line(self.turn)
         state = self.review(directory, url)
         self.assertTrue(state["merged"])

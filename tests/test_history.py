@@ -160,6 +160,14 @@ class HistoryTests(unittest.TestCase):
         history.start_run("merged", repo="ATOLL", started_at=0)
         history.add_seconds("merged", "merge", 10)
         history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
+        # an ended row was followed for breaks: none is 0 and '', never the NULL of an older row
+        self.assertEqual((history.get("merged")["landing_breaks"],
+                          history.get("merged")["broke_after_merge"]), (0, ""))
+        history.add_landing_break("merged")
+        history.update_run("merged", broke_after_merge="health")
+        history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
+        self.assertEqual((history.get("merged")["landing_breaks"],
+                          history.get("merged")["broke_after_merge"]), (1, "health"))
         lp = run.Loop({}, run_dir, state, {}, lambda _: None, run_dir, "", [], "", [])
         lp.step("merge")
         state["finished_at"] = state["step_at"] + 200

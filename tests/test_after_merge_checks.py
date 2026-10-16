@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, run, watch
+from agentkit import config, history, orch, run, watch
 from agentkit import record
 
 PR = "https://github.com/acme/widget/pull/7"
@@ -131,11 +131,14 @@ class AfterMerge(unittest.TestCase):
     def test_failed_check_hands_back_to_its_seat(self):
         sha = "a" * 40
         self.merged("run-old", sha)
+        history.start_run("run-old", started_at=NOW - 660)
         self.set_checks({sha: [completed(CHECK, "failure")]})
         self.rows = [self.live(SEAT)]
         self.follow()
         self.assertEqual(self.typed, [(SEAT, (
             f"{CHECK} failed on main after this merge: {URL}. Fix the target."))])
+        # what got past review and landing is on the change's row once it is told
+        self.assertEqual(history.get("run-old")["broke_after_merge"], "checks")
 
     def test_no_health_with_unreachable_checkout_preserves_green_and_later_break(self):
         checkout = self.root / "widget"

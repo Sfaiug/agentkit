@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, deliver, gate, gc, gitcall, handback, land, notify, record, roundloop, run, transitions, turns, usage, watch, worker
+from agentkit import config, deliver, gate, gc, gitcall, handback, history, land, notify, record, roundloop, run, transitions, turns, usage, watch, worker
 from fixtures.hand_in import submitting
 from test_merge_step import conflict, make_loop, make_repos, resolve
 from fixtures.sandbox import Sandbox
@@ -152,6 +152,7 @@ class LanderWakes(Sandbox):
         self.lp.state.update(state="waiting", merge_method=method,
                              waiting_on={"line": self.turn.name, "joined": 10})
         self.lp.save()
+        history.start_run(self.directory.name, started_at=1)
         self.history = copy.deepcopy(self.lp.state["round_summaries"])
         land.check_line(self.turn)
         self.wake.assert_called_once()
@@ -281,6 +282,8 @@ class LanderWakes(Sandbox):
         self.assertNotIn("land", state["waiting_on"])
         self.assertEqual(self.events, [("final-fixer", 3), ("reviewer", "round-3")])
         self.assertEqual(state["landing_reds"], 1)
+        # its own suite went red after review passed it: one break at landing, on its row
+        self.assertEqual(history.get(self.directory.name)["landing_breaks"], 1)
         self.assertEqual([directory.name for directory, _ in land.line(self.turn)], ["run", "other"])
         self.assertEqual(record.read_state(other), original)
         self.assert_rounds(state)
@@ -306,6 +309,7 @@ class LanderWakes(Sandbox):
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["pr"], URL)
         self.assertEqual(state["landing_reds"], 1)
+        self.assertEqual(history.get(self.directory.name)["landing_breaks"], 1)
         self.assertIn("required checks failed: unit", (self.directory / "pr-checks.log").read_text())
         self.assertEqual(self.events, [("final-fixer", 3), ("reviewer", "round-3")])
         self.assertEqual(self.merges, [])
@@ -381,6 +385,8 @@ class LanderWakes(Sandbox):
         how = "merge" if method == "merge" else "rebase"
         self.assertEqual(self.events, [(f"{how}-fixer", 3), ("reviewer", "round-3")])
         self.assert_rounds(state)
+        # a conflict with the target says nothing about what review let through
+        self.assertFalse(history.get(self.directory.name)["landing_breaks"])
         self.assertFalse(roundloop.in_progress(self.wt, how))
         self.assertTrue(roundloop.integrated(self.wt, "origin/main"))
 

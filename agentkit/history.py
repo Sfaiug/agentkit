@@ -68,7 +68,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
-              ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"))
+              ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
+              ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -269,7 +270,7 @@ def _update(connection, run_id, fields):
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha", "parked_at"}
+               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -288,6 +289,13 @@ def add_seconds(run_id, step, seconds, *, log=None):
     _write(lambda connection: connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
         (max(0.0, seconds), run_id)), log)
+
+
+def add_landing_break(run_id, *, log=None):
+    """One more time a change review passed failed its tests at landing (`deliver.suite_red`)."""
+    _write(lambda connection: connection.execute(
+        "UPDATE runs SET landing_breaks=COALESCE(landing_breaks,0)+1 WHERE run_id=?",
+        (run_id,)), log)
 
 
 def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
@@ -506,6 +514,11 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
         connection.execute(
             "UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "
             "ELSE MAX(0, ?-started_at) END WHERE run_id=?", (finished_at, run_id))
+        # an ended row says it was followed for breaks: none yet is 0 and '', where a row from
+        # before they were recorded keeps NULL, unknown rather than unbroken
+        connection.execute(
+            "UPDATE runs SET landing_breaks=COALESCE(landing_breaks,0), "
+            "broke_after_merge=COALESCE(broke_after_merge,'') WHERE run_id=?", (run_id,))
 
     _write(publish, log)
 
