@@ -16,6 +16,10 @@ and the orchestrator's process too. A bare `ak` is the menu on the server, on a 
 --client` recorded) and as the phone key's forced command `ak attach`. A tmux session there that agentkit did not start
 and that runs no interactive agent in its panes, such as a watcher loop, is not a session: no row, no card, no count.
 Ak workers (`AK_RUN_ROLE=worker`) and their descendants do not count; any old card closes on the next tick.
+Each `new-session` a seat runs through its tmux shim carries that seat's name in its session
+environment (`AK_TMUX_OWNER`). On ak's own server, the tick closes these auxiliary sessions once
+every pane has been dead for a day, after saving their last screens in an exclusively created
+file under `~/.agentkit/tmp/`. Untagged sessions, live panes and seats are excluded from this pass.
 
 New seats and respawned panes receive the caller's `HOME`, harness state-root overrides declared by adapter manifests, notification sink and sink log, webhook override and owner mention. The session's environment is refreshed too, so its menu and future panes use the same state and delivery. A failed respawn keeps the old harness's environment for its menu and future panes. Absent overrides are removed: a sandbox probe keeps its state and delivery destination, and a normal seat clears an inherited test sink.
 

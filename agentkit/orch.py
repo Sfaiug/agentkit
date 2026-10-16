@@ -2780,6 +2780,63 @@ def unread_question(name):
     return not isinstance(notice, dict) or (notice.get("kind") == "needs" and not notice.get("seen"))
 
 
+def sweep_finished(found, log):
+    """Save and close a seat's auxiliary sessions after every pane has been dead for a day."""
+    rc, out = tmux_out("list-panes", "-a", "-F",
+                       f"#{{session_id}}\t#{{session_name}}\t#{{{guard.TMUX_OWNER}}}\t"
+                       f"#{{{MARK}}}\t#{{pane_id}}\t#{{pane_dead}}\t#{{pane_dead_time}}\t.")
+    if rc:
+        return
+    grouped = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 8 or not re.fullmatch(r"\$[0-9]+", parts[0]):
+            return                      # an incomplete snapshot cannot prove all panes dead
+        grouped.setdefault(parts[0], []).append(parts[1:-1])
+    cutoff = time.time() - 86400
+    for sid, panes in grouped.items():
+        name, owner, mark = panes[0][:3]
+        if not owner or mark == "1" or name in found or guard.seat(name):
+            continue
+        if any(not re.fullmatch(r"%[0-9]+", p[3]) or p[4] != "1"
+               or not p[5].isdigit() or not 0 < int(p[5]) <= cutoff for p in panes):
+            continue
+        try:
+            config.TMP.mkdir(parents=True, exist_ok=True)
+            # Hold the directory itself: neither an existing file nor a linked tmp directory
+            # can redirect the screen save, even if its pathname changes while we capture.
+            directory = os.open(config.TMP, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                filename = f"tmux-{uuid.uuid4().hex}.txt"
+                fd = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory)
+                with os.fdopen(fd, "w", encoding="utf-8") as screen:
+                    screen.write(f"{name} (started by {owner})\n")
+                    for pane in panes:
+                        screen.write(f"{pane[3]}\n")
+                        screen.flush()
+                        captured = subprocess.run(tmux_argv(socket_name(), "capture-pane", "-p",
+                                                           "-t", pane[3]), stdout=screen,
+                                                  stderr=subprocess.PIPE, env=tmux_env(), timeout=5)
+                        if captured.returncode:
+                            raise OSError(f"could not capture {pane[3]}")
+            finally:
+                os.close(directory)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            log(f"WARN could not save the finished session {name}: {exc}")
+            continue
+        # Recheck every window and pane inside tmux's kill command: a pane respawned, added
+        # or moved during capture must survive, as must a session renamed into a seat.
+        snapshot = name + "/" + "".join(f"{p[3]}/{p[4]}/{p[5]};" for p in panes)
+        snapshot = snapshot.replace("#", "##").replace(",", "#,").replace("}", "#}")
+        condition = (f"#{{&&:#{{!=:#{{{guard.TMUX_OWNER}}},}},"
+                     f"#{{&&:#{{!=:#{{{MARK}}},1}},"
+                     f"#{{==:#{{session_name}}/#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
+                     f"{snapshot}}}}}}}")
+        if not guard.seat(name):
+            tmux_out("if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")
+
+
 def sweep(log):
     """Retire old detached dead seats and stale records; preserve active job evidence.
 
@@ -2789,6 +2846,7 @@ def sweep(log):
     """
     from . import watch   # here, not at the top: watch imports this module
     found = {s["name"]: s for s in sessions()}
+    sweep_finished(found, log)
     protected = set()
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory)

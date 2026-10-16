@@ -30,12 +30,18 @@ if [ -z "$real" ]; then
     exit 127
 fi
 # A seat's own call only: a worker (AK_RUN_ROLE=worker) and whatever runs seatless pass.  The guard
-# comes from this shim's own checkout, never the one the seat stands in (PYTHONSAFEPATH), and only
-# its refusal (`guard.REFUSED`, 3) stops the call: a guard that fails or will not import stops none.
+# comes from this shim's own checkout, never the one the seat stands in (PYTHONSAFEPATH). It
+# hands the call to the real binary, so it can also tag a new tmux session before it starts.
 if [ -n "$AGENTKIT_SESSION" ] && [ "$AK_RUN_ROLE" != worker ]; then
     shim=$(readlink "$0") || shim=$0
     PYTHONSAFEPATH=1 PYTHONPATH="${shim%/tools/*}${PYTHONPATH:+:$PYTHONPATH}" \
-        python3 -m agentkit.guard "$name" "$real" "$@"
-    [ $? = 3 ] && exit 1
+        exec python3 -c '
+import os, sys
+try:
+    from agentkit.guard import main
+except Exception:
+    os.execv(sys.argv[2], sys.argv[2:])
+sys.exit(main(sys.argv[1:]))
+' "$name" "$real" "$@"
 fi
 exec "$real" "$@"

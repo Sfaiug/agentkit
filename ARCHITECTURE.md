@@ -90,6 +90,7 @@
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
   launch and resume, the picker, foreground and detached systemd placement. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
+  Its sweep saves and closes tagged auxiliary sessions whose panes have been dead for a day.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`, which
   loads `state/run-records.db` once per process and reads and writes only changed runs, and
@@ -186,7 +187,7 @@
   two rebuild config.py's seat file names, and seat-state.sh its rename chain.
 - `tools/`: `shim`, the one sh body of every PATH shim -- the real binary is the first on PATH after
   the shim's own; a worker's or seatless call runs it at once (git is hot: no Python start), a
-  seat's own asks `python3 -m agentkit.guard`, and only its refusal code stops the call -- with
+  seat's own asks `agentkit.guard`, which refuses or execs it (tagging tmux new-session) -- with
   `tmux-shim` (refuses ending or typing into another seat), `gh-shim` (refuses a seat's `gh pr
   merge`), `git-shim` (refuses a `git worktree add` into ~/code) and `scp-shim`/`rsync-shim`/
   `sftp-shim` (refuse a transfer to the live server) links to it, each linked as
