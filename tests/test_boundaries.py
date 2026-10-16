@@ -241,19 +241,17 @@ class Boundaries(unittest.TestCase):
     def test_no_max_rises_above_origin_main(self):
         source = where_change_left_main(self, "tests/test_boundaries.py")
         # Literal parsing keeps target code from running during the comparison.
-        rules = next(node.value for node in ast.parse(source).body
-                     if isinstance(node, ast.Assign)
-                     and any(isinstance(target, ast.Name) and target.id == "RULES"
-                             for target in node.targets))
-        maxima = {rule["name"]: rule["max"] for rule in ast.literal_eval(rules)}
-        for rule in RULES:
-            if rule["name"] in maxima:
-                with self.subTest(rule["name"]):
+        found = {target.id: ast.literal_eval(node.value) for node in ast.parse(source).body
+                 if isinstance(node, ast.Assign) for target in node.targets
+                 if isinstance(target, ast.Name) and target.id in ("RULES", "WORDS")}
+        maxima = {rule["name"]: rule["max"] for rule in found["RULES"]} | found.get("WORDS", {})
+        for name, most in ({rule["name"]: rule["max"] for rule in RULES} | WORDS).items():
+            if name in maxima:
+                with self.subTest(name):
                     self.assertLessEqual(
-                        rule["max"], maxima[rule["name"]],
-                        f"{rule['name']}: max {rule['max']} exceeds the max "
-                        f"{maxima[rule['name']]} where this change left origin/main; a max only "
-                        "goes down")
+                        most, maxima[name],
+                        f"{name}: max {most} exceeds the max {maxima[name]} where this change "
+                        "left origin/main; a max only goes down")
 
     def test_no_count_rises_above_its_max(self):
         for rule in RULES:
@@ -267,21 +265,6 @@ class Boundaries(unittest.TestCase):
                 if len(found) < rule["max"]:
                     print(f"{rule['name']}: {len(found)} lines, under max {rule['max']}: "
                           f"lower its max in tests/test_boundaries.py to {len(found)}")
-
-    def test_no_word_max_rises_above_origin_main(self):
-        source = where_change_left_main(self, "tests/test_boundaries.py")
-        words = next((node.value for node in ast.parse(source).body
-                      if isinstance(node, ast.Assign)
-                      and any(isinstance(target, ast.Name) and target.id == "WORDS"
-                              for target in node.targets)), None)
-        maxima = ast.literal_eval(words) if words is not None else {}
-        for path, most in WORDS.items():
-            if path in maxima:
-                with self.subTest(path):
-                    self.assertLessEqual(
-                        most, maxima[path],
-                        f"{path}: max {most} words exceeds the max {maxima[path]} where this "
-                        "change left origin/main; a max only goes down")
 
     def test_no_file_grows_past_its_word_max(self):
         for path, most in WORDS.items():
