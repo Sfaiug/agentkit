@@ -4,13 +4,15 @@ Menus left open on seats kept reading every seat and every run within `STIR` of 
 all the while they waited in `orch.attach`, for a screen nobody saw until the owner came back.
 `menu.loop` in-process opens a seat by its number, as a new one (`n`) and from the past screen
 (`p`), into a fake attach that moves a run every watcher period; the listing, the runs and the
-draw are fakes counting what is read.  No look is started (`Live.look`): it reads on a thread of
-its own.  Offline, in `Sandbox`'s temporary HOME: no tmux, no seat, no probe.
+draw are fakes counting what is read, and a look (`Live.look`) is taken as started and never
+runs.  A seat still owed its first look when the owner leaves is read on for until its pass
+starts, and no further.  Offline, in `Sandbox`'s temporary HOME: no tmux, no seat, no probe.
 """
 
 from contextlib import redirect_stdout
 import io
 import sys
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -59,7 +61,7 @@ class MenuIdleWhileAttached(Sandbox):
                 patch.object(menu, "run_records", side_effect=run_records), \
                 patch.object(orch, "file_projectless"), \
                 patch.object(menu, "v5o_groups", return_value=([], [], 0, {})), \
-                patch.object(menu.Live, "look", return_value=False), \
+                patch.object(menu.Live, "look", return_value=True), \
                 patch.object(menu, "draw", side_effect=draw), \
                 patch.object(menu, "moving", side_effect=lambda *_a, **_kw: next(keys)), \
                 patch.object(menu, "new_session", side_effect=opens), \
@@ -78,6 +80,57 @@ class MenuIdleWhileAttached(Sandbox):
                 self.assertEqual(attached, [(0, 0)], "read while the owner was in the seat")
                 self.assertEqual(draws, [(1, 1), (2, 2)],
                                  "not one read between the seat and the draw back")
+
+    def test_a_seat_owed_its_first_look_gets_it_and_then_nothing_is_read(self):
+        """Listed while a pass was going, as the owner leaves for a seat: the pass that ends
+        asks the read that starts its own, and after that the watcher reads nothing."""
+        found, listings, looked, release = [{"name": "acme-docs"}], [], [], threading.Event()
+        self.addCleanup(release.set)
+
+        def listing(**_kw):
+            listings.append(len(found))
+            return list(found)
+
+        def groups(_cfg, seats, *_args, look=True, **_kw):
+            if look:
+                looked.append([seat["name"] for seat in seats])
+                if len(looked) == 1:
+                    release.wait(30)            # the first pass is going while the seat comes
+            return [], [], 0, {}
+
+        def until(what, done):
+            deadline = time.monotonic() + 30
+            while not done():
+                self.assertLess(time.monotonic(), deadline, what)
+                time.sleep(STIR / 4)
+
+        def moved():
+            for _ in range(PERIODS):
+                time.sleep(2 * STIR)
+                config.runs_moved_path().touch()
+            time.sleep(2 * STIR)
+
+        live = menu.Live(self.cfg)
+        self.addCleanup(live.close)
+        with patch.object(menu, "STIR", STIR), \
+                patch.object(orch, "listing", side_effect=listing), \
+                patch.object(menu, "run_records", return_value=[]), \
+                patch.object(orch, "file_projectless"), \
+                patch.object(menu, "v5o_groups", side_effect=groups):
+            live.watch([[], None])
+            found.append({"name": SEAT})
+            config.runs_moved_path().touch()
+            until("the read finding the seat", lambda: len(listings) == 2)
+            live.away()
+            release.set()
+            until("the seat's own pass", lambda: len(looked) == 2)
+            live.looker.join(30)
+            moved()
+            self.assertEqual(looked, [["acme-docs"], ["acme-docs", SEAT]])
+            self.assertEqual(listings, [1, 2, 2], "read after the seat's pass had started")
+            live.watch(live.last)
+            self.assertEqual(listings, [1, 2, 2, 2])
+            live.close()
 
 
 if __name__ == "__main__":

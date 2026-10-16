@@ -366,7 +366,9 @@ class Live:
 
     def away(self):
         """The owner is going into a seat, or to the screen that opens one: nothing draws a read
-        until the menu is back, so the watcher makes none, nor a `stat`, until `watch` again."""
+        until the menu is back, so the watcher makes none, nor a `stat`, until `watch` again --
+        once every seat it listed has met a pass (`read`): opening one keeps every other look
+        away, and a seat listed while a pass was going is read on until its own pass starts."""
         self.watching.clear()
 
     def recorded(self):
@@ -388,7 +390,8 @@ class Live:
     def _watch(self):
         while True:
             self.asked.wait(STIR)
-            self.watching.wait()
+            if not {seat["name"] for seat in self.last[0]} - self.met:
+                self.watching.wait()     # away, it reads on only for a look a seat still owes
             if self.done.is_set():
                 return
             now = self.recorded()
@@ -3789,8 +3792,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
     that did more than move the highlight, and within STIR of a record changing -- and every
     draw is what the last read left, drawn again when the next one lands.  While the owner is in
-    a seat it opened, or on the screen that opens one, nothing is read at all, and back it reads
-    once, at once, before it draws, as when it opened (`Live.away`).  The clock and those
+    a seat it opened, or on the screen that opens one, nothing is read once every seat listed
+    has had its first look, and back it reads once, at once, before it draws, as when it opened
+    (`Live.away`).  The clock and those
     keys have every seat looked at again as well, in a thread of its own (`Live.look`), so no
     seat's capture holds up a read or a draw: the first draw is the records as they stand, and
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
