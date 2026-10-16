@@ -591,16 +591,50 @@ def one_command(check):
     return check
 
 
+# a check's text as bash reads it: outside double quotes, and inside them
+BARE = re.compile(r"'[^']*'?|\\.?|\$\{HOME\}|\$HOME(?!\w)|.", re.S)
+QUOTED = re.compile(r'\\[$"\\]|\$\{HOME\}|\$HOME(?!\w)|\$\(|.', re.S)
+
+
+def words(check, home):
+    """The words bash makes of `check`, as far as they name a path: quotes removed, and
+    `$HOME`, `${HOME}` and a `~` that starts a word or follows its `=` or a `:` read as `home`
+    where bash expands them; a `$(...)` splits into words of its own, inside quotes too."""
+    found, word, at, quoted = [], "", 0, [False]    # quoted[-1]: inside double quotes
+    while at < len(check):
+        token = (QUOTED if quoted[-1] else BARE).match(check, at)[0]
+        at += len(token)
+        if token in ("$HOME", "${HOME}"):
+            word += home
+        elif token == '"' and quoted[-1]:
+            quoted.pop()
+        elif token == '"':
+            quoted.append(True)
+        elif token == "$(" or not quoted[-1] and (token.isspace() or token in ";&|<>()"):
+            found.append(word)
+            word = ""
+            if token in ("$(", "("):
+                quoted.append(False)
+            elif token == ")" and len(quoted) > 1:
+                quoted.pop()
+        elif token[0] == "'" and not quoted[-1]:
+            word += token.strip("'")
+        elif token[0] == "\\" and len(token) == 2:
+            word += token[1]
+        elif token == "~" and not quoted[-1] and (not word or word[-1] in "=:"):
+            word += home
+        else:
+            word += token
+    return [*found, word]
+
+
 def in_checkout(check, repo):
-    """Refuse a check that names the project's checkout `repo` -- its path, or that path
-    under `~`, `$HOME` or `${HOME}`, quoted or not.  A check runs in a clean checkout of the
-    default branch (`default_branch`); one that goes into the project's checkout tests what is
-    checked out there instead, so it can fail after the work landed or pass before it."""
+    """Refuse a check with a word that names the project's checkout `repo` -- its path, or that
+    path under `~`, `$HOME` or `${HOME}`, quoted or not: the path starts the word or follows an
+    `=` or `:` in it, and ends it or goes on with `/` or `:`.  A check runs in a clean checkout
+    of the default branch (`default_branch`); one that goes into the project's checkout tests
+    what is checked out there instead, so it can fail after the work landed or pass before it."""
     home = Path.home()
-    text = re.sub(r"[\"']", "", check)
-    text = re.sub(r"\$\{HOME\}|\$HOME(?!\w)", lambda _m: str(home), text)
-    # a `~` bash expands: a word's first character, before a `/` or the word's end
-    text = re.sub(r"(?<![^\s=:(;&|])~(?=/|$|[\s;&|)])", lambda _m: str(home), text)
     real = Path(repo).resolve()
     paths = {str(repo), str(real)}
     try:
@@ -609,7 +643,8 @@ def in_checkout(check, repo):
         shown = f"~/{inside}"
     except ValueError:
         shown = str(real)
-    if any(re.search(r"(?<![\w.~-])" + re.escape(path) + r"(?![\w.-])", text) for path in paths):
+    if any(re.search(r"(?<![^=:])" + re.escape(path) + r"(?![^/:])", word)
+           for word in words(check, str(home)) for path in paths):
         raise config.Error(f"this check names {shown}, the project's checkout, but a check runs "
                            "in a clean checkout of its default branch: name paths relative to "
                            "the repository, as in `python3 tests/test_x.py`")

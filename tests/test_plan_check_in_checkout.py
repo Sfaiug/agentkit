@@ -4,8 +4,8 @@ A check runs in a clean checkout of the project's default branch (`plan.default_
 one that goes into the checkout itself -- `cd ~/code/acme && ...` -- tests whatever is checked
 out there: it can fail after the work landed, until that checkout moves, or pass before
 it.  The checkout's path is refused however the check spells it: absolute, under `~`, `$HOME`
-or `${HOME}`, quoted or not; a path beside it is not the checkout.  Offline: a throwaway HOME,
-a local origin and checkout.
+or `${HOME}`, quoted or not; a path beside it (`acme-old`, `acme backup`, `acme~`) is not the
+checkout.  Offline: a throwaway HOME, a local origin and checkout.
 """
 
 import os
@@ -61,15 +61,26 @@ class CheckInCheckout(Sandbox):
                       'cd "$HOME"/code/acme; python3 tests/test_x.py',
                       "python3 ~/code/acme/tests/test_x.py",
                       f"git -C '{self.repo}' log -1",
+                      'test "$(cat <~/code/acme/result)" = ready',
                       "cd ~/code/acme"):
             with self.subTest(check=check):
                 self.refused(lambda: plan.add(SEAT, "the parser parses", check))
 
     def test_add_takes_a_relative_check_or_a_path_beside_the_checkout(self):
         for check in ("python3 tests/test_x.py", "cd ~/code/acme-old && python3 tests/test_x.py",
-                      "test -d ~/code/acme.bak"):
+                      "test -d ~/code/acme.bak", 'test -f "$HOME/code/acme backup/x"',
+                      "test -d ~/code/acme+tools", "test -d ~/code/acme~"):
             with self.subTest(check=check):
                 self.assertIn(f"check: `{check}`", plan.add(SEAT, "the parser parses", check))
+
+    def test_a_quote_in_the_checkout_s_name_is_part_of_its_path(self):
+        repo = self.repo.rename(self.repo.with_name("acme's"))
+        for check in (f'cd "{repo}" && test -f x', 'cd "$HOME/code/acme\'s" && test -f x',
+                      'cd "${HOME}/code/acme\'s" && test -f x'):
+            with self.subTest(check=check):
+                with self.assertRaises(config.Error) as raised:
+                    plan.add(SEAT, "the parser parses", check, repo=repo)
+                self.assertIn("this check names ~/code/acme's,", str(raised.exception))
 
     def test_check_refuses_the_checkout_in_place_of_a_line_s_check(self):
         plan.add(SEAT, "the parser parses", "python3 tests/test_x.py")
