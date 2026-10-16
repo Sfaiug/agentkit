@@ -119,6 +119,7 @@ class OwnPrReview(unittest.TestCase):
         self.change(taskfile.MAX_PR_LINES)          # the ceiling itself, generated files aside
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
+        firsts = []
         for background in (False, True):
             with self.subTest(background=background):
                 state, reviewer, usage, _ = self.review(background=background)
@@ -129,6 +130,9 @@ class OwnPrReview(unittest.TestCase):
                 self.assertEqual(usage.call_count, 2 if background else 1)
                 run.history_finish(state)
                 self.assertEqual(history.get(state["run_id"])["changed_lines"], taskfile.MAX_PR_LINES)
+                firsts.append(history.get(state["run_id"])["first_review_lines"])
+        # the first review records what it read; the second run reviews a PR already reviewed
+        self.assertEqual(firsts, [taskfile.MAX_PR_LINES, None])
 
     def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
         here = plan.named(self.repo)
