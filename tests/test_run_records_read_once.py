@@ -172,11 +172,23 @@ class RunRecords(Sandbox):
                 pipe.close()
             self.assertEqual([process.exitcode for process, _ in workers], [0, 0])
 
-    def test_results_stay_independent_and_additions_removals_and_bad_records_match_disk(self):
+    def test_unchanged_records_are_reused_and_updates_replace_only_the_changed_snapshot(self):
+        live = self.runs(80)
+        first = dict(menu.run_records())
+        for _ in range(12):
+            for directory, state in menu.run_records():
+                self.assertIs(state, first[directory])
+        write(live, state="pass", detail={"steps": ["landed"]})
+        current = dict(menu.run_records())
+        self.assertEqual(current, dict(full()))
+        self.assertIsNot(current[live], first[live])
+        self.assertEqual(first[live]["state"], "running")
+        self.assertEqual(first[live]["detail"]["steps"], ["finished"])
+        for directory in first.keys() - {live}:
+            self.assertIs(current[directory], first[directory])
+
+    def test_additions_removals_and_bad_records_match_disk(self):
         live = self.runs(3)
-        found = dict(menu.run_records())
-        found[live]["state"] = "stopped"
-        found[live]["detail"]["steps"].append("changed by caller")
         self.assertEqual(menu.run_records(), full())
         write(config.RUNS / "new", unattended=True)
         (config.RUNS / "finished-0000" / "run.json").unlink()
