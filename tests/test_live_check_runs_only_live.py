@@ -54,6 +54,9 @@ class LiveCheckRunsOnlyLive(unittest.TestCase):
         # check 0 is the tmux guard every mode and piece runs before anything else
         self.assertEqual(live & landing, {"0"})
         self.assertEqual(live | landing, labels(SMOKE))
+        # no check reads the mode itself, so none hides a live branch inside a landing check
+        self.assertEqual([line for line in SMOKE.splitlines() if "AGENTKIT_SMOKE_LIVE" in line
+                          and not line.lstrip().startswith("#")], [])
 
     def test_the_entry_runs_its_modes_checks_alone(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-live-only-", dir=REPO)
