@@ -84,9 +84,11 @@ class ModelRows(Sandbox):
         # the boards' efforts count only among those the harness offers: Astra's xhigh does
         self.assertIn("astra @ xhigh", rows)
         self.assertEqual(rows["astra @ xhigh"]["values"]["arena.agent"], 0.137)
-        # an effort one role runs it at is a row too, and Arena's xhigh row never stands in
-        self.assertEqual((rows["astra @ medium"]["name"], rows["astra @ medium"]["matched"]),
-                         ("astra", {"livebench.ai": {"model": "gpt-6-astra", "effort": None}}))
+        # an effort one role runs it at is a row too, saying which, and Arena's xhigh row never
+        # stands in
+        self.assertEqual((rows["astra @ medium"]["name"], rows["astra @ medium"]["roles"], rows["astra @ medium"]["matched"]),
+                         ("astra", ["execute"], {"livebench.ai": {"model": "gpt-6-astra", "effort": None}}))
+        self.assertEqual((rows["astra @ xhigh"]["roles"], both["roles"]), (["orchestrate", "review"], []))
         # a board's `(Non-reasoning)` is ak's `none`, an effort Haiku offers
         self.assertEqual(rows["claude-haiku-4-5 @ none"]["matched"],
                          {"artificialanalysis.ai": {"model": "Claude Haiku 4.5", "effort": "none"}})
@@ -134,7 +136,7 @@ class ModelRows(Sandbox):
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)
         data = json.loads(out.getvalue())
-        self.assertEqual(sorted(data), ["boards", "rows"])
+        self.assertEqual(sorted(data), ["boards", "recommended", "rows"])
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         rows = {matrix.row_label(row): row for row in data["rows"]}
         self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 1})
