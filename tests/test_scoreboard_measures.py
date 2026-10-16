@@ -29,6 +29,7 @@ NOW = 1_800_000_000
 PINNED = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    # `intent`, `owner`, `built`, `parks` and `sunk`: the owner's yes, 14 Oct 2026.
     ("intent", "intent", ("measured", "hours")),
     ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
