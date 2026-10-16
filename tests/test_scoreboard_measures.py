@@ -79,7 +79,8 @@ class Measures(unittest.TestCase):
         with patch.object(scoreboard.history, "ended_runs", return_value=rows), \
                 patch.object(scoreboard.history, "parks", return_value=[NOW - 60]), \
                 patch.object(scoreboard.history, "owner",
-                             return_value={"asked": 1, "paged": 1, "waits": [.5]}), \
+                             return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
+                                           (NOW - 60, "answered", 30)]), \
                 patch.object(scoreboard, "_git", lambda *args, **kw: b"x\n"):
             board = scoreboard.compute(NOW)
         self.assertEqual({key: list(cells[0]) for key, cells in board.items()},
