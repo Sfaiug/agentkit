@@ -1,6 +1,6 @@
-"""`x` acts on the highlighted seat, a done one closes with that one key and a stopped one is
-taken off the list with it; a press begun on one screen is no click on the next; a seat stopped
-twice leaves no rulebook, no idle-compact stamp and no open card.
+"""`x` acts on the highlighted seat, and a done one closes with that one key; a press begun on
+one screen is no click on the next; a seat stopped twice leaves no rulebook, no idle-compact
+stamp and no open card.
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
@@ -273,23 +273,6 @@ class CloseAndInfo(unittest.TestCase):
         lines = menu.frame(lambda lines: "alpha" in menu.highlighted(lines))
         self.assertIn("   x stop   ", lines[-1])
         menu.leave()
-
-    def test_x_on_a_stopped_seat_removes_it_without_a_question(self):
-        menu = Menu(self, {"alpha": "working", "omega": "stopped"})
-        lines = menu.frame()
-        self.assertIn("alpha", menu.highlighted(lines))     # idle sorts last
-        self.assertRegex(lines[-1], r"   x stop   ")
-        menu.send(b"j")
-        lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
-        self.assertRegex(lines[-1], r"   x remove   ")
-        mark = menu.mark()
-        menu.send(b"x")
-        menu.saw("<stopped omega>", after=mark)
-        lines = menu.frame(lambda lines: not any("omega" in line for line in lines), after=mark)
-        self.assertIn("alpha", menu.highlighted(lines))
-        menu.leave()
-        self.assertNotIn("everything it runs", menu.text())
-        self.assertEqual(menu.text().count("<stopped"), 1)
 
     def test_the_popup_closes_its_own_done_seat_and_asks_under_its_own_row(self):
         menu = Menu(self, {"alpha": "working", "omega": "done"}, own="omega")
