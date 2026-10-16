@@ -195,11 +195,13 @@ class Wait(Sandbox):
                                        "Decide the next step."])
         self.assertEqual(self.tick(), [])
         self.assertEqual(self.decide(), ("needs you", "stopped with work open: the parser parses"))
+        self.gh = {"state": "OPEN", "number": 12, "mergeCommit": None}
         self.wait(PR)
         self.gh = {"state": "CLOSED", "number": 12, "mergeCommit": None}
         self.assertEqual(self.tick(), ["PR #12 closed without merging; your wait is over. "
                                        "Decide the next step."])
         # GitHub not answering leaves the wait as it is, and says so in the log
+        self.gh = {"state": "OPEN", "number": 12, "mergeCommit": None}
         self.wait(PR)
         self.gh = None
         self.assertEqual(self.tick(), [])
@@ -341,8 +343,9 @@ class Wait(Sandbox):
         self.assertIsNone(watch.waiting_on(SEAT))   # ... yet its wait is over, as its ladder reads
         self.assertTrue(watch.seat_read(SEAT)["wait"]["over"])
         self.seats[SEAT]["exited"] = False
-        self.receipt("20260101-1100-stalled", OTHER, state="stalled")
+        self.receipt("20260101-1100-stalled", OTHER)
         self.wait("20260101-1100-stalled")
+        self.receipt("20260101-1100-stalled", OTHER, state="stalled")
         self.assertEqual(self.tick(), ["run 20260101-1100-stalled stalled: resume it with ak run "
                                        "resume 20260101-1100-stalled; your wait is over. Decide the next step."])
 
