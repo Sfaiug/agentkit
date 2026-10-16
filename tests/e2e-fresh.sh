@@ -50,7 +50,11 @@ caller_opencode=${OPENCODE_CONFIG:-${OPENCODE_CONFIG_DIR:-$caller_config/opencod
 
 TS=$(date +%Y%m%d-%H%M%S)
 MARKER="e2e-$TS.txt"                 # the file the real task adds to the private target
-WORK=$(mktemp -d /tmp/ak-e2e-XXXXXX) || exit 2
+# Not under /tmp: every worker box gets an empty /tmp of its own, and step f's executor and
+# reviewer run the adapters of the agentkit copy in this HOME.  A gate killed outright (update's
+# time cap does) cannot remove it on the way out; registered, ak's retention takes it a day later.
+mkdir -p -- "$INVHOME/.agentkit/tmp" && WORK=$(mktemp -d "$INVHOME/.agentkit/tmp/e2e-XXXXXX") || exit 2
+PYTHONPATH="$REPO" python3 -m agentkit.retention begin "$WORK" smoke "$$" || :
 UH="$WORK/home"
 mkdir -p -- "$UH"
 SMOKE_REPO=""
