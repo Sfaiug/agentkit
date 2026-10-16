@@ -126,17 +126,19 @@ class ScratchWithWorkers(Sandbox):
         self.assertTrue(own.is_dir())
 
     def test_an_unnamed_client_keeps_its_project_as_claude_names_it(self):
-        # Claude Code counts UTF-16 units and ends a long name with a hash of its own.
-        rocket = self.root / "acme-\U0001f680"
-        deep = self.root / "-".join(["fix-api"] * 30)
+        # Claude Code counts UTF-16 units and ends a long name with a hash of the whole path,
+        # so a sibling under the same long parent is another project.
+        rocket, shared = self.root / "acme-\U0001f680", "/work/" + "/".join(["acme" * 12] * 4)
+        start = shared.replace("/", "-")[:200]
         kept = [self.scratch(rocket, "sess-resumed", claude.project(self.root) + "-acme---"),
-                self.scratch(deep, "sess-resumed", claude.project(deep)[:200] + "-1x2y3z")]
-        gone = self.scratch(self.seat_cwd, "sess-ended")
-        for cwd in (rocket, deep):
-            cwd.mkdir()
-            self.process(["claude"], cwd)
+                self.scratch(None, "sess-resumed", start + "-vqsc51")]
+        gone = {self.scratch(self.seat_cwd, "sess-ended"),
+                self.scratch(None, "sess-ended", start + "-kz5527")}
+        rocket.mkdir()
+        self.process(["claude"], rocket)
+        self.process(["claude"], shared + "/active")
         self.now += DAY + 3600
-        self.assertEqual(self.collect(), {str(gone)})
+        self.assertEqual(self.collect(), set(map(str, gone)))
         self.assertTrue(all(path.is_dir() for path in kept))
 
     def test_a_directory_change_time_alone_keeps_nothing(self):

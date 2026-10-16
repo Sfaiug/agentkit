@@ -14,7 +14,7 @@ import tempfile
 
 SOURCE = "claude-hook"
 TMP_CLAUDE_AGE = 86400          # a gone session's scratch folder goes after a day
-PROJECT_CUT = 200               # Claude Code ends a project name past this with a hash of its own
+PROJECT_CUT = 200               # Claude Code ends a project name past this with a hash of the path
 
 
 # What Claude Code writes as the conversation's last message when the owner interrupts a turn
@@ -26,9 +26,24 @@ def project(cwd):
     """The folder Claude Code files a working directory's conversations and scratch under.
 
     Its JavaScript replaces each UTF-16 unit that is not an ASCII letter or digit, so a
-    character beyond the BMP leaves two hyphens.
+    character beyond the BMP leaves two hyphens.  A longer name keeps its start and ends with
+    the path's 31-times string hash, as a signed 32-bit number's magnitude in base 36, so two
+    long paths sharing that start stay apart.
     """
-    return re.sub(r"[^A-Za-z0-9]", lambda m: "--" if ord(m[0]) > 0xFFFF else "-", str(cwd))
+    text = str(cwd)
+    name = re.sub(r"[^A-Za-z0-9]", lambda m: "--" if ord(m[0]) > 0xFFFF else "-", text)
+    if len(name) <= PROJECT_CUT:
+        return name
+    units = text.encode("utf-16-be", "surrogatepass")
+    value = 0
+    for at in range(0, len(units), 2):
+        value = (value * 31 + int.from_bytes(units[at:at + 2], "big")) & 0xFFFFFFFF
+    value = abs(value - (value >> 31 << 32))
+    digits = ""
+    while value or not digits:
+        value, digit = divmod(value, 36)
+        digits = "0123456789abcdefghijklmnopqrstuvwxyz"[digit] + digits
+    return f"{name[:PROJECT_CUT]}-{digits}"
 
 
 def transcript_path(record, conversation):
@@ -211,8 +226,7 @@ def tmp_claude_live(table):
     match too, so a reused pid or a stale record in another account cannot stand in for the
     live client.  A headless turn writes none; it is named by its stdout, the event stream ak
     launched it writing to.  A client neither names, or a process of an unknown program, keeps
-    its working directory's project, the only one its scratch can be under, compared up to
-    where Claude Code cuts a long name.
+    its working directory's project, the only one its scratch can be under.
     """
     from .. import retention, worker
     if table is None:
@@ -237,7 +251,7 @@ def tmp_claude_live(table):
             if found:
                 sessions |= found
             else:
-                projects.add(project(row["cwd"])[:PROJECT_CUT])
+                projects.add(project(row["cwd"]))
         return sessions, projects
     except (OSError, ValueError, TypeError, AttributeError):
         return None
@@ -250,7 +264,7 @@ def tmp_claude_session_stale(path, now, paths, live):
     """
     from .. import gc, retention
     if (retention.busy(path, paths) or live is None or path.name in live[0]
-            or path.parent.name[:PROJECT_CUT] in live[1]):
+            or path.parent.name in live[1]):
         return None
     newest = gc.tmp_tree_newest(path)
     if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
@@ -271,7 +285,7 @@ def tmp_top_stale(path, now, paths, live):
             return None
         sessions, projects = live
         try:
-            if any(folder[:PROJECT_CUT] in projects
+            if any(folder in projects
                    or any((path / folder / session).is_dir() for session in sessions)
                    for folder in gc.tmp_listdir(path)):
                 return None
