@@ -5864,6 +5864,6 @@ else
 fi
 
 # --- shared result ---------------------------------------------
-echo "coverage: offline fixtures, plus the live mode's harness/GitHub/browser checks labeled above"
+echo "coverage: the checks labeled above: offline fixtures at landing, harness/GitHub/browser checks in the live mode"
 echo "NOT EXERCISED: clean-host installation or interactive logins (separate certification)"
 finish
