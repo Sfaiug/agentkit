@@ -6345,9 +6345,10 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     tries again, and with the composer's mark kept across retries, so a line whose Enter
     did not land is entered and never typed a second time.  True when the line was told.
     """
-    line = handback.seat_notice(line, {}, run_dir,
-                              f"run {run_dir.name}: a check failed after its merge.",
-                              "Fix the target.")
+    if run_dir is not None:
+        line = handback.seat_notice(line, {}, run_dir,
+                                  f"run {run_dir.name}: a check failed after its merge.",
+                                  "Fix the target.")
     try:
         session = transitions.launched_session(run_state)
     except config.Error:
