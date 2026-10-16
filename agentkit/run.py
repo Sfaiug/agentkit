@@ -1148,6 +1148,17 @@ def preflight(run_dir, opts, log):
             why = own_pr_budget(url, run_dir)[1]
             if why:
                 raise config.Error(why)
+            # ... and a PR too large for its first review is refused here too, before the run
+            # waits for a slot, so its seat hears `split it` at once
+            checkout = checkout_for(f"{owner}/{name}", log)
+            head = info["headRefOid"]
+            fetch(checkout, "origin", f"pull/{number}/head", info["baseRefName"], check=True)
+            target_sha = git(checkout, "rev-parse", f"origin/{info['baseRefName']}^{{commit}}")
+            base_sha = git(checkout, "merge-base", target_sha, head)
+            why = (own_pr_first_review(checkout, url, number, base_sha, target_sha, head, run_dir)
+                   or (0, None))[1]
+            if why:
+                raise config.Error(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
         if is_own:
             method, action = ("squash",
@@ -2052,6 +2063,22 @@ def pr_context(state, body):
             f"based on origin/{state['target']})\n\n{body}")
 
 
+def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
+    """(the lines a seat's own PR's first review reads, the sentence refusing that review or
+    None), or None where no first review is ahead: a PR of wording alone, or one a review
+    already judged in this run or any, whose later rounds review whatever the fix left.  The
+    first review takes at most `task.MAX_PR_LINES` added lines, the ones moved unchanged aside
+    and the files the target's tip marks generated, as the change will land on it, and a PR
+    that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
+    rounds (`replacement_refusal`)."""
+    if text_only_pr(repo, base_sha, head) or change_reviewed(pr=url):
+        return None
+    lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
+    return lines - carried, (first_review_refusal(f"PR #{number}", lines, carried)
+                             or replacement_refusal(repo, target_sha, head, number, lines - carried,
+                                                    exclude=run_dir))
+
+
 def pr_review_blocked(lp, exc):
     """A PR review's blocked ending, from a round, its fixer turn or the size gate before any
     reviewer is picked: no reviewer's harness can run, the task cannot be done as written, or
@@ -2373,21 +2400,16 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
     text_only = is_own and text_only_pr(repo, base_sha, head)
-    if is_own and not text_only and not change_reviewed(pr=url):
-        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once, the
-        # lines it moves unchanged aside: past it, the run ends blocked with the reason before
-        # any reviewer is picked, and the PR is split; a later round reviews whatever the fix left
-        # ... and a pull request that re-adds most of a budget-failed one's lines, no real split
-        # of it, inherits that one's rounds (`replacement_refusal`); the files the target's tip
-        # marks generated are left out, as the change will land on it
-        lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
-        why = (first_review_refusal(f"PR #{number}", lines, carried)
-               or replacement_refusal(repo, target_sha, head, number, lines - carried, exclude=run_dir))
+    first = is_own and own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir)
+    if first:
+        # preflight refuses it before the run waits for a slot; here again on the head checked
+        # out, which may have moved since, as on a resume or a restart
+        read, why = first
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
         # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
-        history.first_review(state.get("run_id"), lines - carried, log=log)
+        history.first_review(state.get("run_id"), read, log=log)
     if text_only:
         # The seat's own wording needs no reviewer: it joins the line like a passed review,
         # where the repository's suite and CI still check it.
