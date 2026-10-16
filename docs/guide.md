@@ -237,7 +237,7 @@ death resumes at once, a second within ten minutes waits ten, a third within an 
 once. A job whose launcher dies is relaunched by the next tick in its launch directory, so its waiting tasks start in
 order, while that directory is there, its seat's session exists and you did not close it, its launcher was alive (its heartbeat) under 24 hours ago, no unfinished task whose run stopped short of its ending was handed back, carded or
 acknowledged, none was stopped, and this is not a third death within an hour; otherwise `ak run status` names `ak run
-resume <job>` under it. A run with no output for 20 minutes has its step stopped and the loop carries on; a second
+resume <job>` and `ak run stop <job>` under it. A run with no output for 20 minutes has its step stopped and the loop carries on; a second
 silence resumes the loop with each role re-picked from its own group and execution on another provider, trying reviewers from providers that refused nothing first and refused reviewers only as fallback; later picks use normal order. A third parks
 it `stalled` for `ak run resume <id>`. Quota `exhausted`, including task and PR reviews and delivery retries, resumes when its window refills, a reviewer-transport one as
 below; other `exhausted` runs wait for `ak run resume <id>`; an expired login parks `waiting_login` until the harness's
@@ -251,7 +251,9 @@ once, or ends the run, a PR review included, `blocked` on that line. A refusal t
 `ak run resume <id> [--rounds N] [--bg]` resumes the worktree, the worker sessions and the options a run left; it
 refuses `blocked` and `stopped`, and needs the worktree, which lives seven days. `ak run merge <id>` retries the
 delivery of a PASS whose push or merge did not finish. `ak run stop <id> [--keep]` is the one deliberate end: `stopped`
-is final, and `--keep` holds the branch for a task with `from: <branch>`. After a reboot the first tick or menu brings
+is final, and `--keep` holds the branch for a task with `from: <branch>`. Given a job's id, it stops the job's launcher
+and each of its runs still going, records every unfinished task `stopped` and ends the job, which is then collected like
+any finished one; a resume of it begun before the stop stands down. After a reboot the first tick or menu brings
 back Claude and Codex seats with proven conversations, once per boot, but none you closed; the tick tells one that died
 mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it.
 

@@ -1190,10 +1190,13 @@ class HandBack(Sandbox):
                              round_summaries=[{}, {}, {}], worktree=str(self.root),
                              findings="VERDICT: PASS\n\n## Findings\n- none\n")
         task = {"name": "b.md", "state": "running", "run_id": checked.name}
+        # a job of its own: the one above is finished, and a finished receipt stays finished
+        job_dir = config.JOBS / "j2"
+        job_dir.mkdir()
         with patch.object(run, "cmd_resume", side_effect=AssertionError("given more rounds")), \
                 patch.object(jobs, "job_start_task",
                              side_effect=config.Error("fixture stop")) as start:
-            jobs.job_ladder(self.cfg, job_dir, {**job, "tasks": [task]}, task, checked,
+            jobs.job_ladder(self.cfg, job_dir, {**job, "job_id": "j2", "tasks": [task]}, task, checked,
                            record.read_state(checked), 1, self.logs.append, threading.Lock())
         start.assert_called_once()
         self.assertTrue(task["rerun_attempted"])

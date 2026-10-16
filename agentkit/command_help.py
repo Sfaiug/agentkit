@@ -97,7 +97,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                   "Retry delivery of a finished PASS; reverify if integration changes its commit.",
                   "ak run merge RUN_ID"),
     "run stop": ("usage: ak run stop ID [--keep]",
-                 "Stop a run deliberately; --keep keeps its worktree and branch for a from: relaunch.",
+                 "Stop a run or a whole job deliberately; --keep keeps its worktree and branch for a from: relaunch.",
                  "ak run stop RUN_ID"),
     "run clean": ("usage: ak run clean ID", "Remove a run's worktree.", "ak run clean RUN_ID"),
     "run gc": ("usage: ak run gc [--dry-run]",

@@ -73,10 +73,19 @@ def job_fingerprint(job_dir):
 
 
 def save_job(job_dir, job):
+    """Write the receipt, unless a stop landed first: `record.save_state`'s guard, for a job.
+
+    A finished receipt is never written back to unfinished, so a launcher or a resume holding
+    a copy from before `ak run stop <job>` raises `StopRequested` instead of replacing it.
+    The check and the write hold the lock the stop marks under.
+    """
     path = Path(job_dir) / "job.json"
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(job, indent=2, ensure_ascii=False))
-    tmp.replace(path)
+    with record.recovery_lock(job_dir):
+        if not job.get("finished_at") and (read_job(job_dir) or {}).get("finished_at"):
+            raise record.StopRequested(f"{Path(job_dir).name} was stopped")
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(job, indent=2, ensure_ascii=False))
+        tmp.replace(path)
 
 
 def job_logger(job_dir):
@@ -1188,7 +1197,8 @@ def job_gone_line(job_dir, job):
     admission = job_admission(job_dir, job)
     if admission:
         return f"  launcher gone; the next tick relaunches it · {admission}"
-    return f"  launcher gone; ak run resume {job_dir.name} to continue"
+    return (f"  launcher gone; ak run resume {job_dir.name} to continue, "
+            f"ak run stop {job_dir.name} to end it")
 
 
 def run_job_loop(cfg, job_dir, job):
@@ -1554,5 +1564,12 @@ def cmd_job_resume(argv):
         if task["state"] in (*JOB_TERMINAL, "running", "waiting"):
             continue
         task["state"] = "queued"
-    save_job(job_dir, job)
-    return run_job_loop(cfg, job_dir, job)
+    # A stop since the read above is final (`save_job`): the stopper printed its line, and this
+    # resume names it and stands down, whether it lands before this save or before the loop
+    # takes the receipt over -- as a run stopped during its preflight does.
+    try:
+        save_job(job_dir, job)
+        return run_job_loop(cfg, job_dir, job)
+    except record.StopRequested as exc:
+        print(f"{exc}; nothing to resume")
+        return 1
