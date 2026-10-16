@@ -178,6 +178,12 @@ one command in the same front matter, `features: <command>`: `<command> list` pr
 
 ## The states and the cards
 
+Where its harness's prompt hook carries context, your prompt arrives with every question
+the seat still has open to you, word for word and with when each was last asked, as the
+questions it may answer. This comes from its notify record even after compaction, alongside
+any rulebook news. A hand-back or wait's end ak typed carries no questions; your own words
+relayed by ak do.
+
 A session is `● working`, `! needs you` or `✓ done`, and nothing else exists. One function, `watch.session_state`,
 decides which, and every screen reads that answer: the menu row, the project heading, the top line, `ak orch list`, `ak
 orch why`, the status bar and the window title. A seat's own hook event (a turn begun or ended, a question asked or answered, a `/compact` begun or ended; never Claude's own compaction, which also runs at a quiet prompt with no turn around it) decides it again at once, in the background, and so does its screen coming to rest, starting to move or its harness exiting, which `tools/idle-compact.py`, the wrapper every seat's harness runs under, sees: it reads the seat's pane against its manifest's rules then, and looks at the seat again where its word was last decided from another reading (another state, or another question or draft), so a question answered, an Esc or an error that ended a turn reaches the word as soon as the screen shows it, on every harness. So does a run it launched entering a step or a round or ending, and an open menu draws again, as recorded, within two seconds of any seat's record changing or any seat's run moving, whatever tmux holds; while you are in a seat it opened it reads nothing but for the first look a seat it lists was still owed, and it reads once as you come back, before it draws. A seat started again forgets what the harness before it last reported, so one that went mid-turn or with a question up does not read `working` or `needs you` until its first Stop. A run carries on if tmux does not answer within a second; the next tick or step redraws the bar. Its ladder, top first: a login this harness needs has expired (its own,

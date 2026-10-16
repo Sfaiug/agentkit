@@ -532,6 +532,31 @@ def typed_since(session, since):
             and not isinstance(sent.get("at"), bool) and sent["at"] >= since]
 
 
+def ak_prompt(session, said, since):
+    """The prompt is a line ak typed since the question, rather than the owner's answer."""
+    return (isinstance(since, (int, float)) and bool(said)
+            and any(sent.get("text") == said for sent in typed_since(session, since)))
+
+
+def answer_context(session, said):
+    """The open questions this prompt may answer, read before its background look answers them.
+
+    Read without the notice lock: a sender holds it while typing a prompt and waiting for
+    this hook. Each question keeps its own last-asked date, or an older notice's timestamp.
+    """
+    from . import watch
+    notice = last(session)
+    if not watch.owner_question(notice) or ak_prompt(session, said, notice.get("time")):
+        return ""
+    dated = notice.get("asked_at") or {}
+    context = []
+    for question in questions(notice):
+        asked = dated.get(" ".join(question.split()).casefold(), notice["time"])
+        stamp = datetime.fromtimestamp(asked, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        context.append(f"Asked {stamp}:\n{question}")
+    return "Questions you asked the owner that this prompt may answer:\n\n" + "\n\n".join(context)
+
+
 def progress(session, capture, seat_harness):
     """Persist new output after an open; Discord and the row use the same resolved fact.
 
