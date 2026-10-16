@@ -599,6 +599,15 @@ def ended_runs(since, until):
         return []
 
 
+def recent_peak_rss_mb():
+    """Median measured peak of real runs finished in the last seven days, or None."""
+    now = time.time()
+    peaks = [peak for row in ended_runs(now - 7 * 86400, now)
+             if isinstance(peak := row.get("peak_rss_mb"), (int, float))
+             and math.isfinite(peak) and peak > 0]
+    return median(peaks) if peaks else None
+
+
 def event_tokens(path):
     """Prefer the harness's final usage over the messages it already includes."""
     def count(value):

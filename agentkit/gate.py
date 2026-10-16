@@ -233,8 +233,21 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
             return (f"waiting for the host to calm · load {_load(load)} + {frozen} "
                     f"frozen {noun}, limit {_load(maximum)}", "load")
         return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
+    pressure = host._reading(readings, "slice_memory_pressure")
+    if pressure is not None and pressure > 0:
+        return f"waiting for ak's memory · pressure {pressure:g}%", "unit memory"
     unit = host._unit_memory(readings)
-    if unit and unit[0] > unit[1] * .75:
+    used = host._reading(readings, "slice_memory_used_mb")
+    high = host._reading(readings, "slice_memory_high_mb")
+    if used is not None and high is not None and high >= 0:
+        unit = (used, high)
+    peak = history.recent_peak_rss_mb() if unit else None
+    if unit and peak is not None:
+        room = unit[1] - unit[0]
+        if room < peak:
+            return (f"waiting for the unit's memory · {host._g(room)} G left, "
+                    f"a run needs {host._g(peak)} G", "unit memory")
+    elif unit and unit[0] > unit[1] * .75:
         raw = unit[2] if len(unit) > 2 else None
         if raw is not None:
             return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G "

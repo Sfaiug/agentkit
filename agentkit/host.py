@@ -272,7 +272,7 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
 
 
 def _pressure_avg10(text):
-    """The `some avg10` percentage in a cpu.pressure body, or None when it says none."""
+    """The `some avg10` percentage in a pressure body, or None when it says none."""
     for line in text.splitlines():
         if line.startswith("some "):
             for part in line.split():
@@ -284,15 +284,12 @@ def _pressure_avg10(text):
     return None
 
 
-def _slice_cpu_pressure(slice_dir):
-    """The cgroup's CPU pressure, or None where nothing answers.
-
-    The `some avg10` counter measures processes waiting on CPU.
-    """
+def _slice_pressure(slice_dir, resource):
+    """The cgroup's `some avg10` stalls for a resource, or None where nothing answers."""
     if slice_dir is None:
         return None
     try:
-        return _pressure_avg10((slice_dir / "cpu.pressure").read_text())
+        return _pressure_avg10((slice_dir / f"{resource}.pressure").read_text())
     except OSError:
         return None
 
@@ -511,7 +508,8 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
                 "load": load, "cpus": cpu_count(), "unit_limits": limits,
                 "unit_memory_max_headroom_mb": min((cap - used for used, cap, _, _ in caps),
                                                    default=None),
-                "slice_cpu_pressure": _slice_cpu_pressure(slice_dir),
+                "slice_cpu_pressure": _slice_pressure(slice_dir, "cpu"),
+                "slice_memory_pressure": _slice_pressure(slice_dir, "memory"),
                 "slice_cpu_stat": _slice_cpu_stat(slice_dir)}
     if limits and isinstance(limits[0], (tuple, list)) and len(limits[0]) >= 4:
         used, high, raw, name = limits[0][:4]
