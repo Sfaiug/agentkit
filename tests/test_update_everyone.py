@@ -91,7 +91,7 @@ class Everyone(unittest.TestCase):
         # may classify it -- the smoke line must not read as a failed fresh run.
         gates = [["bash", str(config.REPO / "tests" / name)] for name in ("smoke.sh", "live.sh")]
 
-        def run(cmd, fh, env=None, timeout=None):
+        def run(cmd, fh, env=None, timeout=None, **_kw):
             fh.write(f"\n$ {' '.join(cmd)}\n")
             if cmd in gates:
                 fh.write("1 passed, 0 failed, 0 skipped\n"

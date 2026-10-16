@@ -123,7 +123,7 @@ printf '%s' "$v" >"$HOME/codex.version"
         self.enterContext(patch.object(update, "fresh_unavailable", lambda: ""))
         gates = []
         real_step = update.step
-        def step(cmd, fh, env=None, timeout=update.STEP_CAP):
+        def step(cmd, fh, env=None, timeout=update.STEP_CAP, **_kw):
             if cmd[0] == "bash":
                 # tests/live.sh, which this checkout has, runs once tests/smoke.sh passed
                 gate = {str(REPO / "tests/smoke.sh"): "smoke", str(REPO / "tests/live.sh"): "live"}
@@ -390,7 +390,7 @@ fi
 ''')
         before = contents([root / "bin/muse", *install.iterdir()])
         fixture_step = update.step
-        def timed_step(cmd, fh, env=None, timeout=update.STEP_CAP):
+        def timed_step(cmd, fh, env=None, timeout=update.STEP_CAP, **_kw):
             return fixture_step(cmd, fh, env, .4 if cmd == muse()["upgrade"] else timeout)
         self.enterContext(patch.object(update, "step", timed_step))
         try:
