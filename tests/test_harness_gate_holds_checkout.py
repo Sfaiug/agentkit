@@ -105,7 +105,7 @@ class HarnessGateHoldsCheckout(unittest.TestCase):
         self.gates = []               # each smoke gate: HEAD and installs at its start and end
         stack.enter_context(patch.object(update, "step", side_effect=self.gate))
 
-    def gate(self, cmd, fh, env=None, timeout=update.STEP_CAP):
+    def gate(self, cmd, fh, env=None, timeout=update.STEP_CAP, **_kw):
         if not cmd[-1].endswith("smoke.sh"):
             return STEP(cmd, fh, env, timeout)
         began = (self.head(), self.installs())
