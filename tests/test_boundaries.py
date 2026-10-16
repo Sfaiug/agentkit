@@ -7,6 +7,7 @@ still finds something once they are taken out of it.
 A count above `max` fails with every path:line; a count below it passes and says which `max`
 to lower.  Any task may lower a `max` in the area it touches, and no task raises one.
 Existing maxima cannot exceed origin/main's; an unreadable target skips that comparison.
+The files every model ak runs is handed whole have a word `max` that only goes down the same way.
 Offline: `git grep` over the tracked files of this checkout.
 """
 
@@ -201,6 +202,12 @@ RULES = [
      "max": 0},
 ]
 
+# Every model ak runs is handed these whole, so each word costs every task some of its attention
+# (the owner's yes, 15 Oct 2026, set at their size of 16 Oct).  A line added makes room: a rule
+# turned into a check, what one area needs moved to a comment at that code, or what is stale
+# deleted.  No task raises a max; the owner raises one by merging that change by hand.
+WORDS = {"AGENTS.md": 3417, "orchestrator.md": 2262}
+
 
 def outside(rule):
     """Each `path:line: text` matching the rule outside its home."""
@@ -234,19 +241,17 @@ class Boundaries(unittest.TestCase):
     def test_no_max_rises_above_origin_main(self):
         source = where_change_left_main(self, "tests/test_boundaries.py")
         # Literal parsing keeps target code from running during the comparison.
-        rules = next(node.value for node in ast.parse(source).body
-                     if isinstance(node, ast.Assign)
-                     and any(isinstance(target, ast.Name) and target.id == "RULES"
-                             for target in node.targets))
-        maxima = {rule["name"]: rule["max"] for rule in ast.literal_eval(rules)}
-        for rule in RULES:
-            if rule["name"] in maxima:
-                with self.subTest(rule["name"]):
+        found = {target.id: ast.literal_eval(node.value) for node in ast.parse(source).body
+                 if isinstance(node, ast.Assign) for target in node.targets
+                 if isinstance(target, ast.Name) and target.id in ("RULES", "WORDS")}
+        maxima = {rule["name"]: rule["max"] for rule in found["RULES"]} | found.get("WORDS", {})
+        for name, most in ({rule["name"]: rule["max"] for rule in RULES} | WORDS).items():
+            if name in maxima:
+                with self.subTest(name):
                     self.assertLessEqual(
-                        rule["max"], maxima[rule["name"]],
-                        f"{rule['name']}: max {rule['max']} exceeds the max "
-                        f"{maxima[rule['name']]} where this change left origin/main; a max only "
-                        "goes down")
+                        most, maxima[name],
+                        f"{name}: max {most} exceeds the max {maxima[name]} where this change "
+                        "left origin/main; a max only goes down")
 
     def test_no_count_rises_above_its_max(self):
         for rule in RULES:
@@ -260,6 +265,19 @@ class Boundaries(unittest.TestCase):
                 if len(found) < rule["max"]:
                     print(f"{rule['name']}: {len(found)} lines, under max {rule['max']}: "
                           f"lower its max in tests/test_boundaries.py to {len(found)}")
+
+    def test_no_file_grows_past_its_word_max(self):
+        for path, most in WORDS.items():
+            with self.subTest(path):
+                words = len((REPO / path).read_text().split())
+                self.assertLessEqual(
+                    words, most,
+                    f"{path}: {words} words, max {most}; a max only goes down, so make room: "
+                    "turn a rule into a check, move what one area needs to its code, or delete "
+                    "what is stale")
+                if words < most:
+                    print(f"{path}: {words} words, under max {most}: lower its max in "
+                          f"tests/test_boundaries.py to {words}")
 
 
 if __name__ == "__main__":

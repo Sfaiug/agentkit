@@ -1,5 +1,6 @@
 """The vision changes only with the owner's yes: AGENTS.md's `What ak is for` is this text, word for
-word, so a change to it is a visible change to this test (the owner's text of 15 Oct 2026).
+word, so a change to it is a visible change to this test (the owner's text of 15 Oct 2026, its
+last line's word maximum of 16 Oct).
 
 Offline: the checkout's own AGENTS.md.
 """
@@ -25,7 +26,7 @@ VISION = textwrap.dedent("""\
     3. **Models are fuel; ak is the car.** ak stays the same while models and the programs that run them come and go. It runs whichever is best at the time and depends on none. Swapping one changes quality, speed and cost, never whether the intent gets delivered.
     4. **ak enforces; words only explain.** Nothing depends on a model remembering an instruction or judging well on its own. A rule that can be a check, gate or hook is one, and it holds whatever model runs. A rule that lives only in text is unfinished.
 
-    This section changes only with the owner's yes; ak's orchestrators improve the rest on their own.""")
+    This section changes only with the owner's yes. Every other line has one home, and ak's instruction files a word maximum that only goes down; ak's orchestrators improve the rest on their own.""")
 
 
 class Vision(unittest.TestCase):
