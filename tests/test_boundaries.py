@@ -200,6 +200,12 @@ RULES = [
      "pattern": r"\"systemd-run\"|StartTransientUnit",
      "home": ("agentkit/orch.py",),
      "max": 0},
+    # Foreground and detached callers share the receipt and plain fallback in orch.py.
+    {"name": "slice placement protocol",
+     "flags": (),
+     "pattern": r"\b(WITNESS|marked_pid|stop_placed)\b",
+     "home": ("agentkit/orch.py",),
+     "max": 0},
 ]
 
 # Every model ak runs is handed these whole, so each word costs every task some of its attention
