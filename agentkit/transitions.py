@@ -202,6 +202,12 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
     return total
 
 
+def size_base(state):
+    """What a run's size is counted against (`diff_lines`): the target's tip it recorded, whose
+    attributes say which files are generated, else its base, for a run that recorded none."""
+    return state.get("target_sha") or state.get("base_sha")
+
+
 def _generated(repo, source, names):
     """Which of `names` Git marks linguist-generated in `source`'s tree."""
     if not names:
@@ -310,9 +316,9 @@ REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this 
 
 def budget_failed_reviews(repo, exclude=None):
     """The pull requests of that repository whose review spent the budget, counted
-    across their runs (`rounds_spent_elsewhere`), none of which merged, as (url, base, head) of
-    each run of them that ended `fail` within `REPLACED_WITHIN`: what a replacement inherits
-    rounds from.  The run itself (`exclude`) counts for nothing."""
+    across their runs (`rounds_spent_elsewhere`), none of which merged, as (url, `size_base`,
+    head) of each run of them that ended `fail` within `REPLACED_WITHIN`: what a replacement
+    inherits rounds from.  The run itself (`exclude`) counts for nothing."""
     found, merged = [], set()
     for run_dir in run_record.run_dirs():
         if exclude is not None and run_dir.name == Path(exclude).name:
@@ -324,9 +330,9 @@ def budget_failed_reviews(repo, exclude=None):
             # a task run keeps its pull request in `pr`, a review in `review_pr`
             merged |= {pr_key(state.get("pr")), pr_key(state.get("review_pr"))}
         elif (state.get("review_pr") and state.get("state") == "fail"
-                and same_repo(state.get("repo"), repo) and state.get("base_sha") and state.get("head_sha")
+                and same_repo(state.get("repo"), repo) and size_base(state) and state.get("head_sha")
                 and time.time() - (state.get("finished_at") or 0) <= REPLACED_WITHIN):
-            found.append((state["review_pr"], state["base_sha"], state["head_sha"]))
+            found.append((state["review_pr"], size_base(state), state["head_sha"]))
     return [(url, base, head) for url, base, head in found if pr_key(url) not in merged
             and rounds_spent_elsewhere(pr=url, exclude=exclude)[0] >= taskfile.TASK_MAX_ROUNDS]
 
@@ -387,14 +393,13 @@ def history_finish(state, log=None):
     except (OSError, TypeError):
         present = False
     repo = wt if present else state.get("repo")
-    size = None
-    if state.get("merged") and state.get("base_sha"):
+    size, against = None, size_base(state)
+    if state.get("merged") and against:
         try:
             review = state.get("review") or {}
             head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
-                # generated files as its target marks them, as its first review counted
-                size = diff_lines(repo, state.get("target_sha") or state["base_sha"], head)
+                size = diff_lines(repo, against, head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
     # the AGENTS.md its workers were handed, measured as the ceiling measures it
