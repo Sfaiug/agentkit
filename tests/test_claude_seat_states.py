@@ -100,6 +100,17 @@ class Heard(Sandbox):
         self.assertEqual(self.hook("PreCompact", trigger="auto", custom_instructions=None), turn)
         self.assertEqual(self.hook("PostCompact", trigger="auto", compact_summary="..."), turn)
 
+    def test_claude_compacting_an_idle_seat_leaves_it_at_its_prompt(self):
+        # 2.1.292 also compacts a quiet seat itself ("Compacted while idle"), with no turn and no
+        # Stop after it: 13 seats read a turn running for up to 22h and were never handed results
+        self.hook("UserPromptSubmit", prompt="Say OK.")
+        ended = self.hook("Stop", last_assistant_message="OK")
+        self.assertEqual(self.hook("PreCompact", trigger="auto", custom_instructions=None), ended)
+        self.assertEqual(self.hook("PostCompact", trigger="auto", compact_summary="..."), ended)
+        # a fact that compaction wrote before this was heard says nothing either
+        self.assertIsNone(watch.hook_state("claude", {**ended, "event": "PreCompact",
+                                                      "kind": "auto"})[0])
+
     def test_an_event_heard_before_the_fact_standing_was_written_writes_nothing(self):
         # a compaction's end, unwaited, finishing after the prompt queued behind it (real clock)
         later = {"session": SEAT, "event": "UserPromptSubmit", "kind": "", "text": "",
