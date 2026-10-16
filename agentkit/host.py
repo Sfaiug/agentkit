@@ -193,6 +193,15 @@ def _unit_memory(readings):
     return None
 
 
+def _slice_or_unit_memory(readings):
+    """(used, high, raw, name) for the slice, else the nearest limited unit."""
+    used = _reading(readings, "slice_memory_used_mb")
+    high = _reading(readings, "slice_memory_high_mb")
+    if used is not None and high is not None and high >= 0:
+        return (used, high, None, None)
+    return _unit_memory(readings)
+
+
 def _read_number(path, *, bytes_to_mb=False):
     try:
         value = path.read_text().strip()

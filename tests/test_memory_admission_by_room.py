@@ -83,6 +83,23 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         self.assertFalse(self.claim(state, **readings))
         self.assertTrue(self.claim(state, **readings))
 
+    def test_admission_and_suites_use_the_same_memory_limit(self):
+        self.measured()
+        for overrides, holds, suites in (
+                ({}, False, 5),
+                ({"slice_memory_used_mb": 9 * 1024}, True, 1),
+                ({"slice_memory_used_mb": None}, False, 4),
+                ({"slice_memory_high_mb": None}, False, 4),
+                ({"slice_memory_high_mb": -1}, False, 4),
+                ({"slice_memory_used_mb": 0, "slice_memory_high_mb": 0}, True, 1),
+                ({"slice_memory_high_mb": None, "unit_limits": []}, False, 8)):
+            with self.subTest(overrides=overrides):
+                readings = {**READINGS, "unit_limits": [(0, 2048)], **overrides}
+                reason, _ = gate._wait_reason(readings, 3072, 0)
+                self.assertEqual(reason is not None, holds)
+                self.assertEqual(gate.derived_heavy_limit(readings, running=1,
+                                                          job_mem_mb=PEAK), suites)
+
     def test_pressure_holds_with_room_and_with_or_without_measurements(self):
         for measured in (False, True):
             if measured:
