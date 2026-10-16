@@ -459,7 +459,7 @@ class Rule(unittest.TestCase):
         self.assertEqual(notify.main(["done", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
         payload = self.posts[0]
-        self.assertEqual(payload["content"], "<@42>")
+        self.assertEqual(payload["content"], f"{long_text} · seat <@42>")   # what a push shows
         self.assertEqual(payload["username"], "agentkit")
         embed = payload["embeds"][0]
         self.assertEqual(embed["title"], "Done · seat")
@@ -486,7 +486,8 @@ class Rule(unittest.TestCase):
         self.assertEqual(notify.main(["needs", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
         payload = self.posts[0]
-        self.assertEqual(payload["content"], "<@42>")
+        self.assertEqual(payload["content"],
+                         "Which branch should this land on, and who owns the numbers below? · seat <@42>")
         self.assertEqual(payload["username"], "agentkit")
         embed = payload["embeds"][0]
         self.assertEqual(embed["title"], "Needs you · seat")

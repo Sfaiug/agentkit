@@ -155,8 +155,9 @@ class DesktopAndBoot(Sandbox):
                 self.assertEqual(notify.last("source", include_seen=True)["text"], text)
                 self.transition(answer, now=answer["since"] + 60)
                 self.assertEqual(self.posts[-1], json.dumps({"username": "agentkit",
-                                                             "embeds": [body],
-                                                             "content": "<@42>"}).encode())
+                                                             "content": f"{text} · source <@42>",
+                                                             "allowed_mentions": {"users": ["42"]},
+                                                             "embeds": [body]}).encode())
                 self.assertEqual(self.output(other), f"\033]9;{title} · source: {text}\007".encode())
                 self.assertEqual(self.output(active), b"")
                 self.transition(answer, now=answer["since"] + 120)

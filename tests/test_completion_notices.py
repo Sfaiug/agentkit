@@ -129,7 +129,7 @@ class CompletionNotices(Sandbox):
                     self.declare(summary, name=name)
                 self.assertEqual(len(self.posted(name)), 1)
                 payload = self.posted(name)[0]
-                self.assertEqual(payload['content'], '<@123456789012345678>')
+                self.assertEqual(payload['content'], f'API shipped · {name} <@123456789012345678>')
                 self.assertEqual(set(payload['embeds'][0]), {'title', 'color', 'description', 'timestamp'})
                 self.assertEqual(payload['embeds'][0]['description'], 'API shipped')
                 self.assertEqual(payload['embeds'][0]['color'], notify.COLORS['done'])

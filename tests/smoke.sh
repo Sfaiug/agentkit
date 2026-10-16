@@ -1240,7 +1240,7 @@ class Notifications(test_notify.Notifications):
         self.cli("needs", "Merge PR #7? yes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
         payload = self.requests[0][2]
-        self.assertEqual(payload["content"], "<@123456789012345678>")
+        self.assertEqual(payload["content"], "Merge PR #7? · seat <@123456789012345678>")
         self.assertEqual(payload["embeds"][0]["title"], "Needs you · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0xF5A623)
         before = config.notify_path("seat").read_bytes()
@@ -1272,7 +1272,7 @@ class Notifications(test_notify.Notifications):
         self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
         self.assertEqual(self.requests[-2][2]["embeds"][0]["title"], "Done · seat")
         payload = self.requests[-1][2]
-        self.assertEqual(payload["content"], "<@123456789012345678>")
+        self.assertEqual(payload["content"], "Shipped · seat <@123456789012345678>")
         self.assertEqual(payload["username"], "agentkit")
         self.assertEqual(payload["embeds"][0]["title"], "Done · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0x2ECC71)
@@ -4304,8 +4304,9 @@ grep -qE '^ +[0-9]+  update ' "$WORK/update-notice.log" && UPD=1
 
 # --- 21: the two notification shapes (offline) --------------------------------
 # `--dry-run` prints the payload and posts nothing; without a webhook the real form prints to
-# stderr and records the session's last message, which is what the menu shows. The card is two
-# words and the seat over the whole text, as it was written.
+# stderr and records the session's last message, which is what the menu shows. The card leads
+# with the question or the result and the seat, where a phone's push shows it, the mention last
+# and the only one it may ping; the whole text is the embed under it.
 NSH="$WORK/home-notify-shapes"
 mkdir -p -- "$NSH/.agentkit/state"
 tm kill-session -t =smoke-shape 2>/dev/null
@@ -4323,7 +4324,8 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_DISCORD_USER_ID=424242 AGENTKI
 # The listing's last line says which slice the agents run in; it is not a seat, so it is not
 # counted with them.
 NUM=$(HOME="$NSH" ak orch list 2>/dev/null | sed -e '/^\(no \)\?slice /d' | sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' | awk 'NR>1{print $1}' | sort | grep -n '^smoke-shape$' | cut -d: -f1)
-jq -e '.content == "<@424242>" and .username == "agentkit" and (.embeds | length == 1)
+jq -e '.content == "Merge PR #7 by bob? · smoke-shape <@424242>" and .username == "agentkit"
+  and .allowed_mentions == {"users": ["424242"]} and (.embeds | length == 1)
   and .embeds[0].title == "Needs you · smoke-shape"
   and .embeds[0].color == 16098851
   and .embeds[0].description == "Merge PR #7 by bob? yes/no"
@@ -4340,7 +4342,8 @@ jq -e '.username == "agentkit"
   and .embeds[0].title == "Done · smoke-shape" and .embeds[0].color == 3066993
   and .embeds[0].description == "Parser fixed" and (.embeds[0] | has("fields") | not)
   and (.embeds[0] | has("footer") | not)
-  and (has("content") | not)' "$WORK/done.json" >/dev/null 2>&1 || SHAPE=1
+  and .content == "Parser fixed · smoke-shape" and .allowed_mentions == {"parse": []}' \
+  "$WORK/done.json" >/dev/null 2>&1 || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify done "FAIL: tests red" --dry-run \
   >"$WORK/done-fail.json" 2>"$WORK/done-fail.err" || SHAPE=1
 [ "$(cat "$WORK/done-fail.err")" = 'terminal notice: Done · smoke-shape: FAIL: tests red' ] || SHAPE=1
@@ -4365,7 +4368,7 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/sh
 # the freeform message went with the attachments: needs, done or --check
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify "plain old message" >"$WORK/plain.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
-[ "$SHAPE" = 0 ] && ok "21 ak notify: needs is amber, done is green and red on FAIL, every card two words and the seat over its whole text, --dry-run posts nothing, the record reaches the menu row" \
+[ "$SHAPE" = 0 ] && ok "21 ak notify: needs is amber, done is green and red on FAIL, every card leads with its question or result and the seat, --dry-run posts nothing, the record reaches the menu row" \
                || { no "21 ak notify shapes"; head -c 600 "$WORK/needs.json" | sed 's/^/      /'; sed 's/^/      /' "$WORK/menu-shape.log" | head -5; }
 
 # --- 22: ak orch rename follows the old name (offline, a real tmux seat) ------
