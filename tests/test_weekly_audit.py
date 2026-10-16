@@ -30,12 +30,12 @@ BOARD = {
     "ak": [None, None], "intent": [None, None], "owner": [None, None], "built": [None, None],
     "waits": [None, None], "merged": [None, None],
     "parks": [{"parked": 1}, {"parked": 0}], "sunk": [None, None],
-    "escaped": [{"merged": 6, "escaped": 3, "open": 0, "unknown": 0, "reviewers": {}},
-                {"merged": 5, "escaped": 3, "open": 0, "unknown": 0, "reviewers": {}}],
+    "broke": [{"merged": 6, "after_merge": 3, "landing": 0, "unknown": 0},
+              {"merged": 5, "after_merge": 3, "landing": 0, "unknown": 0}],
     "size": [None, None],
 }
 EMPTY = {key: [None, None] for key in BOARD}
-REWRITTEN = "merged changes with a line rewritten within 7 days"
+BROKE = "merged changes that broke main or live after merge"
 
 
 class Weekly(unittest.TestCase):
@@ -68,11 +68,11 @@ class Weekly(unittest.TestCase):
 
     def test_the_loss_is_the_first_measure_in_the_vision_s_order_that_got_worse(self):
         self.assertEqual(scoreboard.loss(BOARD), ("product runs ended without merging", .3, .2, "%"))
-        worse = {**BOARD, "escaped": [BOARD["escaped"][0], {**BOARD["escaped"][1], "escaped": 2}]}
-        self.assertEqual(scoreboard.loss(worse), (REWRITTEN, .5, .4, "%"))
+        worse = {**BOARD, "broke": [BOARD["broke"][0], {**BOARD["broke"][1], "after_merge": 2}]}
+        self.assertEqual(scoreboard.loss(worse), (BROKE, .5, .4, "%"))
         # nothing worse than the week before: the first measure the board reads at all
         same = {**BOARD, "products": [STATS, STATS], "parks": [{"parked": 0}, {"parked": 0}]}
-        self.assertEqual(scoreboard.loss(same), (REWRITTEN, .5, .6, "%"))
+        self.assertEqual(scoreboard.loss(same), (BROKE, .5, .6, "%"))
         only_size = {**EMPTY, "size": [{"code_lines": 100, "readme_words": 9, "agents_words": 9}, None]}
         self.assertEqual(scoreboard.loss(only_size), ("ak's code lines", 100, None, "n"))
         self.assertIsNone(scoreboard.loss(EMPTY))
