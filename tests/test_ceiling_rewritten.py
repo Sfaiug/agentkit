@@ -15,16 +15,18 @@ from test_slice import Installer
 
 
 class CeilingRewritten(Installer):
-    def test_a_a_second_install_with_more_cores_rewrites_with_the_larger_quota(self):
+    def test_a_a_second_install_with_more_cores_keeps_cpu_uncapped(self):
         home = self.root / "bigger-home"
         home.mkdir()
         limits = home / ".config/systemd/user/agentkit.slice.d/limits.conf"
         first = self.install(home, AK_SLICE_USER_TASKS="8192", AK_SLICE_CPUS="4")
         self.assertEqual(first.returncode, 0, first.stderr)
-        self.assertIn("CPUQuota=300%\n", limits.read_text())
+        self.assertIn("CPUWeight=40\n", limits.read_text())
+        self.assertNotIn("CPUQuota=", limits.read_text())
         second = self.install(home, AK_SLICE_USER_TASKS="8192", AK_SLICE_CPUS="8")
         self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertIn("CPUQuota=700%\n", limits.read_text())
+        self.assertIn("CPUWeight=40\n", limits.read_text())
+        self.assertNotIn("CPUQuota=", limits.read_text())
 
     def test_b_memory_is_written_as_shares(self):
         home = self.root / "shares-home"

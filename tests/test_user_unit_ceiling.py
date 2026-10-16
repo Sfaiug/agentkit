@@ -59,7 +59,7 @@ class UserUnitCeiling(Installer):
     def unit_lines(self, result):
         return [line for line in result.stdout.splitlines() if "user-unit:" in line]
 
-    def test_a_with_sudo_more_cores_get_a_larger_ceiling(self):
+    def test_a_with_sudo_more_cores_keep_cpu_uncapped(self):
         home = self.root / "sudo-home"
         home.mkdir()
         result = self.install(home, AK_SLICE_CPUS="8")
@@ -71,19 +71,21 @@ class UserUnitCeiling(Installer):
         # small machine a per-core count would shrink the slice below what (g3) gives it
         self.assertIn("[Service]\nTasksMax=4%\n", written)
         self.assertIn("MemoryHigh=80%\nMemoryMax=90%\n", written)
-        self.assertIn("CPUQuota=700%\n", written)
+        self.assertIn("CPUWeight=40\n", written)
+        self.assertNotIn("CPUQuota=", written)
         self.assertIn("OOMPolicy=continue\n", written)
         self.assertIn(["systemctl", "daemon-reload"], self.commands("systemctl"))
         # every sudo write stayed under the temporary root
         for argv in self.commands("sudo"):
             if "mkdir" in argv or "tee" in argv:
                 self.assertTrue(any(str(self.root) in arg for arg in argv), argv)
-        # a larger machine raises the same ceiling through the slice's own quota
+        # a larger machine still has every idle core available
         again = self.install(home, AK_SLICE_CPUS="16")
         self.assertEqual(again.returncode, 0, again.stderr)
         rewritten = self.unit_limits().read_text()
         self.assertIn("TasksMax=4%\n", rewritten)
-        self.assertIn("CPUQuota=1500%\n", rewritten)
+        self.assertIn("CPUWeight=40\n", rewritten)
+        self.assertNotIn("CPUQuota=", rewritten)
         self.assertIn("OOMPolicy=continue\n", rewritten)
         # and the unit is written before the slice derives from it
         source = (REPO / "install.sh").read_text()
@@ -102,7 +104,7 @@ class UserUnitCeiling(Installer):
         self.assertFalse(self.systemd.exists())
         self.assertEqual(self.commands("sudo"), [["sudo", "-n", "true"]])
 
-    def test_c_the_handwritten_file_is_taken_over(self):
+    def test_c_the_handwritten_file_is_left_alone(self):
         home = self.root / "takeover-home"
         home.mkdir()
         unit = self.unit_limits()
@@ -110,12 +112,7 @@ class UserUnitCeiling(Installer):
         unit.write_text(HANDWRITTEN)
         result = self.install(home, AK_SLICE_CPUS="8")
         self.assertEqual(result.returncode, 0, result.stderr)
-        rewritten = unit.read_text()
-        self.assertTrue(rewritten.startswith("# Written by agentkit's install.sh"),
-                        rewritten)
-        self.assertIn("TasksMax=4%\n", rewritten)
-        self.assertIn("MemoryHigh=80%\nMemoryMax=90%\n", rewritten)
-        self.assertIn("OOMPolicy=continue\n", rewritten)
+        self.assertEqual(unit.read_text(), HANDWRITTEN)
 
     def test_d_another_dropin_is_left_alone(self):
         home = self.root / "other-dropin-home"

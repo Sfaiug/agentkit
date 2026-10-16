@@ -587,7 +587,8 @@ class Installer(Slice):
         # memory is shares, not mebibytes: 16 GiB of MemTotal on this host, and
         # systemd follows it with no rewrite
         self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)
-        self.assertIn("CPUQuota=300%\n", written)                # four cores, one left over
+        self.assertIn("CPUWeight=40\n", written)
+        self.assertNotIn("CPUQuota=", written)
         seats = (home / ".config/systemd/user/agentkit-seats.slice.d/weights.conf").read_text()
         runs = (home / ".config/systemd/user/agentkit-runs.slice.d/weights.conf").read_text()
         self.assertIn("CPUWeight=100\nIOWeight=100\n", seats)
@@ -598,7 +599,8 @@ class Installer(Slice):
         self.assertEqual(again.returncode, 0, again.stderr)
         rewritten = limits.read_text()
         self.assertIn("TasksMax=3072\n", rewritten)
-        self.assertIn("CPUQuota=700%\n", rewritten)
+        self.assertIn("CPUWeight=40\n", rewritten)
+        self.assertNotIn("CPUQuota=", rewritten)
         # but a file without agentkit's first line is the owner's, left byte-identical
         limits.write_text("[Slice]\nTasksMax=12\n")
         owned = self.install(home, AK_SLICE_USER_TASKS="8192", AK_SLICE_CPUS="4")
@@ -629,7 +631,8 @@ class Installer(Slice):
         self.assertEqual(result.returncode, 0, result.stderr)
         written = limits.read_text()
         self.assertIn("TasksMax=3072\n", written)        # nothing to take a share of
-        self.assertIn("CPUQuota=100%\n", written)        # never less than one core
+        self.assertIn("CPUWeight=40\n", written)
+        self.assertNotIn("CPUQuota=", written)
         # shares, whatever meminfo says: the 16 GiB there is not even read
         self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)
         mac = self.root / "mac-home"
