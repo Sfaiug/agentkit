@@ -145,7 +145,7 @@ class DesktopAndBoot(Sandbox):
                      {"word": "needs you", "since": 10000, "reason": "Which branch?"}),
                     ("done", "Done", "Checks passed", 0x2ECC71,
                      {"word": "done", "since": 10100, "reason": "Checks passed"})):
-                body = {"title": f"{title} · source", "color": color,
+                body = {"title": f"{title} · source", "color": color, "description": text,
                         "timestamp": "2026-09-14T12:00:00+00:00"}
                 if kind == "done":    # a seat's done waits for the answer to its question
                     notify.answered("source", notify.last("source")["time"] + 1)
@@ -155,8 +155,9 @@ class DesktopAndBoot(Sandbox):
                 self.assertEqual(notify.last("source", include_seen=True)["text"], text)
                 self.transition(answer, now=answer["since"] + 60)
                 self.assertEqual(self.posts[-1], json.dumps({"username": "agentkit",
-                                                             "embeds": [body],
-                                                             "content": "<@42>"}).encode())
+                                                             "content": f"{text} · source <@42>",
+                                                             "allowed_mentions": {"users": ["42"]},
+                                                             "embeds": [body]}).encode())
                 self.assertEqual(self.output(other), f"\033]9;{title} · source: {text}\007".encode())
                 self.assertEqual(self.output(active), b"")
                 self.transition(answer, now=answer["since"] + 120)
