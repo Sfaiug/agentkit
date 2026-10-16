@@ -3501,6 +3501,12 @@ PREEXISTING_NOTE = "pre-existing ending; not replayed"
 OWNER_CLOSED_REASON = "session closed by the owner"
 
 
+def seat_stopped_at(name):
+    """When the owner stopped that seat (`orch.cmd_stop`, `orch.mark_owner_closed`), or None:
+    the mark in its state file, which a launch under the name clears again."""
+    return seat_read(name).get("stopped_at") or None
+
+
 def seat_closed(name):
     """Whether that seat stays gone: `ak orch stop` ended it, or nothing of it is left.
 
@@ -3508,7 +3514,7 @@ def seat_closed(name):
     clears it again.  A seat with neither a pane nor a record was stopped, forgotten or never
     agentkit's to open: there is nothing to bring back, and the owner is asked as before.
     """
-    if seat_read(name).get("stopped_at"):
+    if seat_stopped_at(name):
         return True
     return not orch.find(name) and not config.session_records().get(name)
 
