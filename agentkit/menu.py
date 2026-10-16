@@ -1832,7 +1832,8 @@ class _RunRecords:
         if self.db is not None and (changed or removed):
             try:
                 with self.db:
-                    self.db.executemany("INSERT OR REPLACE INTO records VALUES (?, ?)", changed)
+                    self.db.executemany("INSERT INTO records VALUES (?, ?) ON CONFLICT(name) "
+                                        "DO UPDATE SET value = excluded.value", changed)
                     self.db.executemany("DELETE FROM records WHERE name = ?",
                                         ((name,) for name in removed))
             except sqlite3.Error:
