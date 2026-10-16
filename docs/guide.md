@@ -423,8 +423,8 @@ board naming no effort counts for every effort of its model, and a model no boar
 none. A board's model is found by its letters and digits (`normal`: `claude-opus-5-5` is `Claude Opus 5.5 (max)` at
 max), else by the board's name the id extends with a version only (`muse-wonder-full` for `muse-wonder-full-1.0`;
 `found`), else, on a board where neither finds it, by `benchmark` on the config entry; at the row's effort, else the
-board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it, every matched
-board's numbers and which board model and effort each came from.
+board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it and the
+roles it runs it in (`roles`), every matched board's numbers and which board model and effort each came from.
 
 Every row is scored per role (`scored`). A column is the row's share of the best value in that column among the rows
 (100 for the best; 0 at zero or below, still counted: Arena's net improvement can be negative); a role's score is the
@@ -437,12 +437,13 @@ intelligence and coding indexes and LiveBench's reasoning suite (Artificial Anal
 never one benchmark's score, which is Pro only). One row is recommended per role (`recommended`), among the rows with
 a score for it: the row resting on the most of the role's measures, then the highest score (exact; the table rounds
 it), then the faster (`tok/s`), then the cheaper (`$/task`), an unknown speed or cost after every measured one, then
-the row the config runs, then the higher effort (`effort_rank`), so a row the boards cannot tell from the one you run
-never recommends a change. The table lists the best rows first: model, harness, id and effort, `orch`, `exec` and
-`review` as `97 of 3`, `tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a
-successful coding task); under it the recommendation per role, or that no board has a row ak can run, what each role is
-scored on, one line per board with how many rows, when and its note, and the rows no board has. `--json` is the scored
-rows, the recommendation and the boards' notes. ak's own run numbers never rank
+the row the config runs in the role, then the higher effort (`effort_rank`), then the first by harness and model name,
+so a row the boards cannot tell from the one you run never recommends a change and the table and `--json` name the same
+row. The table lists the best rows first: model, harness, id and effort, `orch`, `exec` and `review` as `97 of 3`,
+`tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a successful coding task); under
+it the recommendation per role, or that no board has a row ak can run, what each role is scored on, one line per board
+with how many rows, when and its note, and the rows no board has. `--json` is the scored rows, the recommendation and
+the boards' notes. ak's own run numbers never rank
 (AGENTS.md, Owner rules). Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history

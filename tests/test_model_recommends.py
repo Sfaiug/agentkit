@@ -1,9 +1,10 @@
 """`ak models` recommends one row per role: among the rows with a score for the role, the row
 resting on the most of the role's measures, then the highest score (exact, not as the table
 rounds it), then the faster, then the cheaper (an unknown speed or cost after every measured
-one), then the row the config runs, then the higher effort; a role no row has a measure of gets
-none.  The table says the recommendation under the rows, `--json` carries it, and a table with
-no scored row says so."""
+one), then the row the config runs in the role, then the higher effort, then the first by harness
+and model name, so the pick is the same however the table is ordered; a role no row has a
+measure of gets none.  The table says the recommendation under the rows, `--json` carries it,
+and a table with no scored row says so."""
 
 from contextlib import redirect_stdout
 import io
@@ -20,9 +21,10 @@ from agentkit import config, matrix, terminal
 CODING = "aa.evaluations.artificial_analysis_coding_index"
 
 
-def row(name, model, effort, **values):
+def row(name, model, effort, roles=matrix.ROLES, **values):
+    """A configured row runs in every role unless `roles` says which."""
     return {"harness": "acme", "model": model, "effort": effort, "name": name, "matched": {},
-            "values": values}
+            "roles": list(roles) if name else [], "values": values}
 
 
 def pick(role, *rows):
@@ -46,10 +48,20 @@ class ModelRecommends(unittest.TestCase):
         self.assertEqual(pick("execute", full, cheap, {**cheap, "effort": "medium", "values": {**cheap["values"], matrix.COST: 2.0}}),
                          "acme-pro @ low")
         self.assertEqual(pick("execute", {**full, "values": {CODING: 50, "livebench.coding": 90}}, cheap), "acme-pro @ low")
-        # nothing tells them apart: the row the config runs, else the higher effort
-        self.assertEqual(pick("execute", full, {**full, "effort": "low", "name": "pro"}), "pro @ low")
+        # nothing tells them apart: the row the config runs in the role, else the higher effort
+        self.assertEqual(pick("execute", full, row("pro", "acme-pro", "low", ["execute"], **full["values"])), "pro @ low")
+        self.assertEqual(pick("execute", full, row("pro", "acme-pro", "low", ["review"], **full["values"])), "acme-pro @ max")
         self.assertEqual(pick("execute", {**full, "effort": "low"}, full), "acme-pro @ max")
         self.assertEqual(pick("execute", {**full, "effort": None}, {**full, "effort": "low"}), "acme-pro @ low")
+        # a board naming no effort leaves every effort of the model alike: each role keeps the
+        # effort the config runs it at
+        alike = {"livebench.coding": 80, "livebench.long_horizon": 70, "livebench.reasoning": 60}
+        runs = [row("pro", "acme-pro", effort, [role], **alike) for role, effort in
+                (("orchestrate", "high"), ("execute", "low"), ("review", "medium"))]
+        self.assertEqual([pick(role, *runs) for role in matrix.ROLES], ["pro @ high", "pro @ low", "pro @ medium"])
+        # alike in all of it: the first by harness and model name, whatever order the table is in
+        twins = [row("z", "acme-z", "high", **{CODING: 50}), row("a", "acme-a", "high", **{CODING: 50})]
+        self.assertEqual((pick("execute", *twins), pick("execute", *reversed(twins))), ("a @ high", "a @ high"))
         # a role no row has a measure of has no recommendation; no row, none at all
         self.assertEqual(list(matrix.recommended(matrix.scored([full, high]))), ["execute", "review"])
         self.assertEqual(matrix.recommended([]), {})
@@ -62,7 +74,9 @@ class ModelRecommends(unittest.TestCase):
             none = terminal.plain(matrix.render(matrix.scored([row(None, "acme-old", None)]), {}))
         self.assertIn("recommended: orchestrate pro @ high (100 of 1) · execute acme-mini (100 of 1) · "
                       "review acme-mini (100 of 2)", " ".join(text.split()))
-        self.assertIn("recommended is the row with the most of the role's measures", " ".join(text.split()))
+        self.assertIn("recommended is the row with the most of the role's measures, then the highest score, then "
+                      "the faster, then the cheaper, then the one the config runs in the role, then the higher "
+                      "effort, then the first by name", " ".join(text.split()))
         self.assertIn("no recommendation yet: no board has a row ak can run", none)
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value={}), \

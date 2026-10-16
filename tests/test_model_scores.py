@@ -21,7 +21,7 @@ INTELLIGENCE = "aa.evaluations.artificial_analysis_intelligence_index"
 
 def row(name, model, effort, **values):
     return {"harness": "acme", "model": model, "effort": effort, "name": name, "matched": {},
-            "values": values}
+            "roles": list(matrix.ROLES) if name else [], "values": values}
 
 
 class ModelScores(unittest.TestCase):
