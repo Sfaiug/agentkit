@@ -133,6 +133,11 @@ exit "$result"
                 self.typed(text, at=at)
                 self.assertIn(QUESTION, self.hook())
 
+    def test_a_hook_newline_keeps_ak_typing_out_of_both_answer_paths(self):
+        self.ask()
+        self.typed("Use v2.")
+        self.assertEqual(self.hook(prompt="Use v2.\n\n"), "")
+
     def test_no_open_question_carries_nothing(self):
         self.assertEqual(self.hook(), "")
         for kind, extra in (("done", {}), ("needs", {"answered_at": ASKED + 1}),

@@ -47,7 +47,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, sys.st
 }
 
 seat_state() {
-  local payload=$1 jq=$2 owner=$3 seat event kind text ts dir tmp row next hop write
+  local payload=$1 jq=$2 owner=$3 said=$4 seat event kind text ts dir tmp row next hop write
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -145,8 +145,7 @@ config.record_hook_fact(row, fact, kept)
   # The owner's prompt answers an older question, once the background look checks its pane.
   # The launch name still resolves after a rename; main leaves harness bookkeeping alone.
   if [[ $owner = true ]]; then
-    look "$seat" "$ts" "$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
-                                       | first // ""' <<<"$payload" 2>/dev/null)"
+    look "$seat" "$ts" "$said"
   else
     look "$seat"
   fi
@@ -154,7 +153,7 @@ config.record_hook_fact(row, fact, kept)
 
 main() {
   umask 077
-  local payload=$1 jq event owner=true
+  local payload=$1 jq event owner=true said=''
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
   # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
@@ -174,12 +173,14 @@ main() {
   fi
   # Capture the questions before seat_state starts the look that marks them answered.
   if [[ $event = UserPromptSubmit ]]; then
-    news "$payload" "$owner"
+    said=$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
+                     | first // ""' <<<"$payload" 2>/dev/null) || said=''
+    news "$payload" "$owner" "$said"
   fi
-  seat_state "$payload" "$jq" "$owner" >/dev/null 2>&1
+  seat_state "$payload" "$jq" "$owner" "$said" >/dev/null 2>&1
   # SessionStart first captures the conversation its harness vouches for.
   if [[ $event = SessionStart ]]; then
-    news "$payload" "$owner"
+    news "$payload" "$owner" "$said"
   fi
 }
 
@@ -188,33 +189,29 @@ main() {
 # event print nothing. A compaction (a `SessionStart` from `compact`) leaves the conversation
 # holding its launch's rulebook again, which its next prompt is then told about.
 news() {
-  local payload=$1 owner=$2 jq event
+  local payload=$1 owner=$2 said=$3 jq event
   [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || return 0
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload")
   [[ $event = UserPromptSubmit || $event = SessionStart ]] || return 0
-  /usr/bin/env python3 -c '
+  # JSON contains no literal NUL; both it and a long answer travel on stdin, never argv.
+  printf '%s\0%s' "$payload" "$said" | /usr/bin/env python3 -c '
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
-from agentkit import config, notify, orch
-payload = json.loads(sys.stdin.read())
+from agentkit import orch
+payload, said = sys.stdin.read().split("\0", 1)
+payload = json.loads(payload)
 if payload.get("hook_event_name") == "SessionStart":
     if payload.get("source") == "compact":
         orch.rulebook_compacted(sys.argv[2], payload.get("session_id"))
     sys.exit(0)
-news = orch.rulebook_news(sys.argv[2], payload.get("session_id"))
-name = config.resolve_session(sys.argv[2])
-record = config.session_records().get(name) or {}
-if (sys.argv[3] == "true" and orch.seat_plugin(record).prompt_context
-        and orch.owns(record, payload.get("session_id"))):
-    said = next((payload[key] for key in ("prompt", "message")
-                 if isinstance(payload.get(key), str)), "")
-    news = "\n\n".join(filter(None, (news, notify.answer_context(name, said))))
+news = orch.prompt_news(sys.argv[2], payload.get("session_id"),
+                        said if sys.argv[3] == "true" else None)
 if news:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                              "additionalContext": news}}))
-' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" "$owner" <<<"$payload"
+' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" "$owner"
 }
 
 payload=$(/bin/cat 2>/dev/null) || payload=''
