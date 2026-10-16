@@ -4,8 +4,8 @@ A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by pref
 list the loop settles: the repository's suite line, however the task names it, runs once at
 landing and never counts; a `# once` line counts where the run has no landing), and a change,
 a seat's own pull request or a task's, gets its first review only up to 400 added lines
-(`task.MAX_PR_LINES`), generated files aside
-and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
+(`task.PR_LINES_UNMEASURED`, the ceiling with no history; tests/test_pr_lines_ceiling.py moves
+it), generated files aside and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
 finds moved unchanged from lines the diff deletes.  tests/test_own_pr_rounds.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
 generated file.
@@ -118,12 +118,12 @@ class SizeGate(Sandbox):
                     return review.call_count, str(blocked), blocked.section
             return review.call_count, None, None
 
-        self.assertEqual(rounds(loop("20261015-0900-at-the-ceiling"), taskfile.MAX_PR_LINES - 2),
+        self.assertEqual(rounds(loop("20261015-0900-at-the-ceiling"), taskfile.PR_LINES_UNMEASURED - 2),
                          (1, None, None))
         self.git("reset", "-q", "--hard", self.head)
-        reviewed, why, section = rounds(loop("20261015-0910-past-it"), taskfile.MAX_PR_LINES - 1)
+        reviewed, why, section = rounds(loop("20261015-0910-past-it"), taskfile.PR_LINES_UNMEASURED - 1)
         refused = ("The change on fix-api adds 401 lines (generated files aside; deletions never "
-                   "count): a first review takes at most 400; split it")
+                   "count): a first review takes at most 400 this week; split it")
         self.assertEqual((reviewed, why, section), (0, refused, f"## Blocked\n\n{refused}"))
         self.assertIsNone(history.get("20261015-0910-past-it")["first_review_lines"])
         # the work is committed on the branch the blocked run keeps, for the pieces
@@ -135,11 +135,11 @@ class SizeGate(Sandbox):
         earlier.mkdir(parents=True)
         record.save_state(earlier, {"run_id": earlier.name, "state": "running", "change": "the-change",
                                     "step_round": 1, "round_summaries": []})
-        self.assertEqual(rounds(loop("20261015-0915-beside-it", "the-change"), taskfile.MAX_PR_LINES - 1)[:2],
+        self.assertEqual(rounds(loop("20261015-0915-beside-it", "the-change"), taskfile.PR_LINES_UNMEASURED - 1)[:2],
                          (0, refused))
         # ... nor is a first review resumed on the saved work
         self.git("reset", "-q", "--hard", self.head)
-        (self.repo / "new.py").write_text("".join(f"n{k} = {k}\n" for k in range(taskfile.MAX_PR_LINES - 1)))
+        (self.repo / "new.py").write_text("".join(f"n{k} = {k}\n" for k in range(taskfile.PR_LINES_UNMEASURED - 1)))
         self.assertEqual(rounds(loop("20261015-0918-resumed", review_pending={"round": 1, "summary": "built"}),
                                 0)[:2], (0, refused))
         # a change a run launched `from:` its branch already had reviewed is past its first review
@@ -147,9 +147,9 @@ class SizeGate(Sandbox):
         record.save_state(earlier, {"run_id": earlier.name, "state": "fail", "change": "the-change",
                                     "round_summaries": [{"round": 1, "verdict": "FAIL"}]})
         self.assertEqual(rounds(loop("20261015-0920-from-its-branch", "the-change"),
-                                taskfile.MAX_PR_LINES), (1, None, None))
+                                taskfile.PR_LINES_UNMEASURED), (1, None, None))
         # the first review read 400 lines; a later review of the change is no first review
-        self.assertEqual(read, [taskfile.MAX_PR_LINES, None])
+        self.assertEqual(read, [taskfile.PR_LINES_UNMEASURED, None])
 
     def test_the_lines_a_first_review_reads_leave_out_generated_files_and_deletions(self):
         self.assertEqual(run.diff_lines(self.repo, self.base, self.head, added_only=True), 2)
@@ -159,10 +159,10 @@ class SizeGate(Sandbox):
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 0)
         self.assertEqual(run.diff_lines(self.repo, self.base, head), 6)
-        self.assertIsNone(run.first_review_refusal("PR #7", taskfile.MAX_PR_LINES))
-        self.assertEqual(run.first_review_refusal("PR #7", taskfile.MAX_PR_LINES + 1),
+        self.assertIsNone(run.first_review_refusal("PR #7", taskfile.PR_LINES_UNMEASURED))
+        self.assertEqual(run.first_review_refusal("PR #7", taskfile.PR_LINES_UNMEASURED + 1),
                          "PR #7 adds 401 lines (generated files aside; deletions never count): "
-                         "a first review takes at most 400; split it")
+                         "a first review takes at most 400 this week; split it")
 
     def test_lines_moved_unchanged_from_what_the_diff_deletes_never_count(self):
         self.git("checkout", "-q", self.base)
@@ -204,7 +204,7 @@ class SizeGate(Sandbox):
         self.assertEqual(run.first_review_refusal("PR #7", 1000, 599),
                          "PR #7 adds 1000 lines, 599 of them moved unchanged from lines it deletes "
                          "(generated files aside; deletions never count): a first review takes at "
-                         "most 400; split it")
+                         "most 400 this week; split it")
         self.assertIsNone(run.first_review_refusal("PR #7", 1000, 600))
 
     def test_a_module_replaced_by_fresh_code_moves_nothing(self):

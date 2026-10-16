@@ -67,7 +67,8 @@
 - `gc.py`: plans/schedules cleanup of seats, stamps, temps, worktrees, runs and jobs.
   Harness `tmp_rule` owns temps and live sessions; retention deletes.
   `cmd_gc` for bin/ak, run, menu, watch and retention.
-- `task.py`: front matter, done-when groups, size counts and round refusals; for
+- `task.py`: front matter, done-when groups, size counts, the week's line ceiling
+  (`pr_lines_ceiling`, off `history.first_reviews`) and round refusals; for
   run and job.
 - `job.py`: task files as jobs: `job.json` (capped `owner_words` since the seat's last
   launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.

@@ -2367,7 +2367,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
 
     text_only = is_own and text_only_pr(repo, base_sha, head)
     if is_own and not text_only and not change_reviewed(pr=url):
-        # the PR's first review, in this run or any, takes at most MAX_PR_LINES at once, the
+        # the PR's first review, in this run or any, takes at most `pr_lines_ceiling` at once, the
         # lines it moves unchanged aside: past it, the run ends blocked with the reason before
         # any reviewer is picked, and the PR is split; a later round reviews whatever the fix left
         # ... and a pull request that re-adds most of a budget-failed one's lines, no real split

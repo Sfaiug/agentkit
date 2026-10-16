@@ -1,24 +1,40 @@
 """The task file: front matter, title, done-when commands and size."""
 
+import math
 import os
 import re
 import subprocess
+from datetime import datetime, timedelta, timezone
 
-from . import config
+from . import config, history
 
 # Retired keys stay readable so older run copies still parse: `after:` is refused at launch
 # (`launch_refusal`), the time keys draw a warning.
 TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "repo",
              "rounds", "stall_minutes", "target", "turn_hours")
 TASK_MAX_ROUNDS = 3      # the round budget, not a default: past it, split or re-scope
-# Ceilings on what one review takes at once, from round-1 passes by the size first reviewed
-# (15 Oct 2026: 78-89% at 50 added lines or fewer, 34-59% at 201-400, 18-20% at 401-1,000):
-# a task has at most this many per-round checks, one behaviour a reviewer holds in one read,
-# and a change's first review, a seat's own pull request's or a task's, this many added lines,
-# generated files aside, nothing deleted counted and the blocks it moves unchanged from lines
-# it deletes left out (`transitions.carried_lines`).  Past either, split it.
+# Ceilings on what one review takes at once: a task has at most this many per-round checks,
+# one behaviour a reviewer holds in one read, and a change's first review, a seat's own pull
+# request's or a task's, at most `pr_lines_ceiling()` added lines, generated files aside,
+# nothing deleted counted and the blocks it moves unchanged from lines it deletes left out
+# (`transitions.carried_lines`).  Past either, split it.
 MAX_CHECKS = 3
-MAX_PR_LINES = 400
+# The line ceiling is read each week off how often changes of each size, as their first review
+# read them, ended merged (the owner's yes, 16 Oct 2026).  Round-1 passes fall smoothly with
+# size and a split costs more review in all, so only ending merged less often than small
+# changes justifies a ceiling.  Sizes go in bands of BAND lines; the changes up to BAND lines
+# are the measure.  A band holding MEASURED ended changes counts; one that merges less often
+# than the small ones, by a one-sided test at 95% (Z), sets the ceiling at its bottom, and
+# otherwise the ceiling is the top of the first band not yet measured, the one being tried, and
+# never under PR_LINES_UNMEASURED, the ceiling before any band is measured.  The weeks read are
+# the WEEKS before this one: the ceiling holds for a week, climbs at most a band a week while
+# larger changes merge as often, falls as soon as a band merges less often, and sizes from
+# older reviews, judged by other review rules, age out.
+BAND = 100
+MEASURED = 20
+Z = 1.645
+WEEKS = 4
+PR_LINES_UNMEASURED = 400
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)
 FENCE = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.S)
 ONCE_MARKER = re.compile(r"#\s*once\s*$")
@@ -145,6 +161,34 @@ def task_words(body):
 def task_size(body, cmds):
     """(words outside the checks block, numbered goal points, checks) for one task."""
     return task_words(body), task_points(body), len(cmds)
+
+
+def pr_lines_ceiling(now=None):
+    """The most added lines a change's first review takes this week (see `BAND`)."""
+    now = datetime.now(timezone.utc) if now is None else datetime.fromtimestamp(now, timezone.utc)
+    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0,
+                                                           microsecond=0)
+    until = monday.timestamp()
+    bands = {}
+    for lines, merged in history.first_reviews(until - WEEKS * 7 * 86400, until - 1e-6):
+        band = bands.setdefault(max(lines - 1, 0) // BAND, [0, 0])
+        band[0] += 1
+        band[1] += bool(merged)
+    small = bands.get(0, [0, 0])
+    if small[0] < MEASURED:
+        return PR_LINES_UNMEASURED
+
+    def worse(count, merged):
+        pooled = (merged + small[1]) / (count + small[0])
+        spread = math.sqrt(pooled * (1 - pooled) * (1 / count + 1 / small[0]))
+        return spread > 0 and (small[1] / small[0] - merged / count) / spread > Z
+
+    measured = {band: worse(*seen) for band, seen in bands.items() if band and seen[0] >= MEASURED}
+    tried = 1
+    while measured.get(tried) is False:
+        tried += 1
+    return min([max(PR_LINES_UNMEASURED, (tried + 1) * BAND)]
+               + [band * BAND for band, below in measured.items() if below])
 
 
 def launch_refusal(meta, cmds):

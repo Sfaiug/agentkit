@@ -542,6 +542,38 @@ def rules_size(repo):
     return row[0] if row else None
 
 
+def first_reviews(since, until):
+    """(the lines its first review read, whether it merged) for each change whose newest run to
+    end pass, fail or blocked ended in the inclusive range: a change's runs share `change` (a
+    row without one is its own), it merged when any of them did, and a change with a run still
+    going, none with a first review's size or none ended that way is left out."""
+    _ensure_migrated()
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                rows = connection.execute(
+                    "SELECT COALESCE(change, run_id), first_review_lines, final_state, finished_at, "
+                    "merge_sha IS NOT NULL OR changed_lines IS NOT NULL FROM runs "
+                    "WHERE NOT suite_run(run_id, repo)").fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+    changes = {}
+    for change, *row in rows:
+        changes.setdefault(change, []).append(row)
+    found = []
+    for runs in changes.values():
+        ended = [finished for _, state, finished, _ in runs if state in ("pass", "fail", "blocked")]
+        lines = next((lines for lines, *_ in runs if lines is not None), None)
+        if (any(finished is None for *_, finished, _ in runs) or lines is None or not ended
+                or not since <= max(ended) <= until):
+            continue
+        found.append((lines, any(merged for *_, merged in runs)))
+    return found
+
+
 def ended_runs(since, until):
     """Real runs with a finish date in the inclusive range, read as plain mappings."""
     try:

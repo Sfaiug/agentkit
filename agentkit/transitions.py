@@ -221,14 +221,15 @@ MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as g
 
 def first_review_refusal(what, lines, carried=0):
     """One sentence when `what` (a pull request, a task's change) adds more lines than a first
-    review takes at once (`task.MAX_PR_LINES`), else None: `lines` as `diff_lines` counts the
+    review takes at once (`task.pr_lines_ceiling`), else None: `lines` as `diff_lines` counts the
     added ones, less `carried`, the ones `carried_lines` found moved unchanged from lines the
     diff deletes -- what a reviewer reads; nothing deleted counts."""
-    if lines - carried <= taskfile.MAX_PR_LINES:
+    ceiling = taskfile.pr_lines_ceiling()
+    if lines - carried <= ceiling:
         return None
     moved = f", {carried} of them moved unchanged from lines it deletes" if carried else ""
     return (f"{what} adds {lines} lines{moved} (generated files aside; deletions never "
-            f"count): a first review takes at most {taskfile.MAX_PR_LINES}; split it")
+            f"count): a first review takes at most {ceiling} this week; split it")
 
 
 def carried_lines(repo, base, head="HEAD"):
