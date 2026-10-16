@@ -581,10 +581,11 @@ def stop_placed(unit, scoped, proc):
     that will not run, one that does not answer in time -- leaves the placement in doubt, and
     a launch in doubt is never started a second time.
     """
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (OSError, TypeError):
-        pass                    # already gone, or never a group of its own
+    if proc is not None:         # a waited service's client has already been reaped
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (OSError, TypeError):
+            pass                # already gone, or never a group of its own
     if scoped:
         return True
     try:

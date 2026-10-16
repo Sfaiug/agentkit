@@ -28,6 +28,9 @@ with open(os.environ["AK_LIVE_UNITS"], "a") as out:
     out.write(json.dumps([os.path.basename(sys.argv[0]), *args]) + "\\n")
 if os.path.basename(sys.argv[0]) == "systemctl":
     sys.exit(0)
+if os.environ.get("AK_LIVE_REFUSE") and ("--wait" in args or "--pipe" in args):
+    sys.stderr.write("Failed to connect to user scope bus via local transport: No such file or directory\\n")
+    sys.exit(1)
 env = dict(os.environ)
 while args and args[0].startswith("-"):
     arg = args.pop(0)
@@ -149,8 +152,8 @@ class LiveCheckInSlice(Sandbox):
             self.assertEqual(update.upgrade([harness], {"acme": "1.0.0"}), bool(code))
         self.assertEqual(revert.called, bool(code))
         log, = config.TMP.glob("update-*.log")
-        result = next(json.loads(line) for line in log.read_text().splitlines()
-                      if line.startswith('{"slice":'))
+        result, = [json.loads(line) for line in log.read_text().splitlines()
+                   if line.startswith('{"slice":')]
         self.assertEqual((result["required"], result["pin"]), ("1", "1"))
         self.assertEqual(result["cwd"], str(Path.cwd()))
         return result
@@ -168,6 +171,22 @@ class LiveCheckInSlice(Sandbox):
         self.assertIsNone(self.upgrade()["slice"])
         self.assertEqual(self.commands(), [])
 
+    def test_harness_check_starts_plainly_when_placement_is_refused(self):
+        with patch.dict(os.environ, {"AK_LIVE_REFUSE": "1"}):
+            self.assertIsNone(self.upgrade()["slice"])
+        start, stop = self.commands()
+        self.assertIn("--wait", start)
+        self.assertEqual(stop[:3], ["systemctl", "--user", "stop"])
+
+    def test_harness_check_starts_plainly_when_launcher_is_missing(self):
+        def spawn(argv, **kwargs):
+            if argv[0] == "systemd-run":
+                raise FileNotFoundError("fixture: systemd-run disappeared")
+            return self.spawn(argv, **kwargs)
+
+        with patch.object(subprocess, "Popen", side_effect=spawn):
+            self.assertIsNone(self.upgrade()["slice"])
+
     def test_a_timed_out_harness_check_stops_its_service(self):
         proc = Mock(returncode=0)
         proc.wait.side_effect = subprocess.TimeoutExpired("fixture", 1)
@@ -175,12 +194,12 @@ class LiveCheckInSlice(Sandbox):
         proc.__exit__ = Mock(return_value=False)
         with (config.TMP / "timeout.log").open("w") as out, \
                 patch.object(subprocess, "Popen", return_value=proc), \
-                patch.object(orch, "stop_scope") as stop, \
+                patch.object(orch, "stop_placed") as stop, \
                 redirect_stdout(io.StringIO()):
             self.assertFalse(update.step(["bash", str(self.live)], out,
                                          target_slice=orch.slice_name()))
         stop.assert_called_once()
-        self.assertTrue(stop.call_args.args[0].endswith(".service"))
+        self.assertEqual(stop.call_args.args[1:], (False, None))
 
 
 if __name__ == "__main__":

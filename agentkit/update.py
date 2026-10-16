@@ -180,8 +180,10 @@ def step(cmd, fh, env=None, timeout=STEP_CAP, *, target_slice=None):
     unit = f"agentkit-update-{time.time_ns()}" if target_slice and orch.user_manager() else None
     command = cmd
     if unit:
+        marker = config.TMP / f"{unit}.launched"
         command, environment = orch.detached_in_slice(
-            cmd, unit, environment, target_slice=target_slice, wait=True,
+            ["sh", "-c", orch.WITNESS, str(marker), *cmd], unit, environment,
+            target_slice=target_slice, wait=True,
             properties=("-p", f"WorkingDirectory={Path.cwd()}"))
     try:
         with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
@@ -207,7 +209,12 @@ def step(cmd, fh, env=None, timeout=STEP_CAP, *, target_slice=None):
         code = "could not start"
     finally:
         if unit:
-            orch.stop_scope(f"{unit}.service", log=say)
+            stopped = orch.stop_placed(unit, False, None)
+            started = orch.marked_pid(marker) is not None
+    if unit and not started and stopped and code != "timeout":
+        # The client failed before the work started; its status is no verdict on the gate.
+        say(f"WARN {unit} did not go into {target_slice}; started plainly")
+        return step(cmd, fh, env, timeout)
     fh.write(f"[exit {code}]\n")
     fh.flush()
     if code != 0:
