@@ -1422,7 +1422,8 @@ def _read(prompt):
     return None if answer is None else answer.strip()
 
 
-def ask(question, default, choices, read=None, *, zero=None, allow=None, suffix=""):
+def ask(question, default, choices, read=None, *, zero=None, allow=None, suffix="",
+        numbers=None):
     """One shape-(a) question: its default in brackets, its choices dim above it.
 
     The choices read `<number> <name>` joined by ` · `, wrapped where the screen
@@ -1434,7 +1435,9 @@ def ask(question, default, choices, read=None, *, zero=None, allow=None, suffix=
     else is one dim `not a choice: ...` line and the question again with its
     choices.
 
-    Three opt-ins extend it without changing the screens that pass none of them:
+    Four opt-ins extend it without changing the screens that pass none of them:
+    `numbers` gives the choices their numbers in place of their positions (a seat
+    keeps the number of the screen that listed it);
     `zero` names an optional choice numbered `0` instead of its position;
     `allow` is asked about an answer that matches no number or name and may
     return a parsed value (the Workers question accepts a list this way).
@@ -1445,7 +1448,8 @@ def ask(question, default, choices, read=None, *, zero=None, allow=None, suffix=
         read = _read
     prompt = f"{question} [{default}]{suffix}: "
     room = width()
-    items = [f"{number} {choice}" for number, choice in enumerate(choices, 1)]
+    numbers = list(range(1, len(choices) + 1) if numbers is None else numbers)
+    items = [f"{number} {choice}" for number, choice in zip(numbers, choices)]
     if zero is not None:
         items.append(f"0 {zero}")
     joined, line = [], ""
@@ -1480,8 +1484,8 @@ def ask(question, default, choices, read=None, *, zero=None, allow=None, suffix=
             continue    # neither Esc nor a key: ask again, with no word of error
         if zero is not None and answer == "0":
             return zero
-        if answer.isdigit() and 1 <= int(answer) <= len(choices):
-            return choices[int(answer) - 1]
+        if answer.isdigit() and int(answer) in numbers:
+            return choices[numbers.index(int(answer))]
         if answer in choices:
             return answer
         names = list(choices) + ([zero] if zero is not None else [])

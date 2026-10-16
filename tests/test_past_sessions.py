@@ -1,7 +1,8 @@
 """A seat the owner stopped has no row under its project: it keeps its number on the past
 screen, `p`, offered on the key line while there is one, where Enter reopens it where it stopped
 and `x` removes it at once, the rest staying up; from a pipe a number reopens, `x` asks which to
-remove, and `x` on the main screen never offers a stopped seat.
+remove by the numbers on the screen, and `x` on the main screen never offers a stopped seat and
+asks by the main screen's numbers.
 
 The keyboard tests run `menu.loop` in a child on a pty of its own, the way
 tests/test_close_and_info.py does (its `Menu`), with the listing, each seat's word, the opening
@@ -101,7 +102,8 @@ class Lines(unittest.TestCase):
         self.stopped = self.stack.enter_context(patch.object(orch, "cmd_stop"))
 
     def test_a_number_reopens_a_stopped_seat_and_x_asks_which_to_remove(self):
-        with patch.object(menu, "read", side_effect=["x", "zeta", "2"]):
+        # `x` asks by the numbers on the screen: 3 is zeta here, as it is on the main screen
+        with patch.object(menu, "read", side_effect=["x", "3", "2"]):
             menu.show_past(CFG, [ALPHA, OMEGA, ZETA])
         self.closed.assert_called_once_with("zeta", False)
         self.opened.assert_called_once_with(CFG, OMEGA, False)
@@ -111,6 +113,7 @@ class Lines(unittest.TestCase):
         self.assertRegex(screens[0], r"\n  3  zeta +stopped 5m ago +starts fresh\n")
         self.assertNotIn("alpha", screens[0])
         self.assertIn("x remove   esc back", screens[0])
+        self.assertIn("2 omega · 3 zeta", screens[0])
         self.assertNotIn("zeta", screens[1])
 
     def test_a_number_that_is_no_past_seat_is_said_and_an_empty_line_goes_back(self):
@@ -120,11 +123,13 @@ class Lines(unittest.TestCase):
         self.opened.assert_not_called()
         self.closed.assert_not_called()
 
-    def test_x_on_the_main_screen_never_offers_a_stopped_seat(self):
-        with patch.object(menu, "read", side_effect=[""]):
-            menu.stop_session([ALPHA, OMEGA], False)
-        self.assertIn("1 alpha", self.out.getvalue())
+    def test_x_on_the_main_screen_never_offers_a_stopped_seat_and_keeps_its_numbers(self):
+        # omega, stopped, has no row on the main screen, and alpha is 2 there as it is here
+        with patch.object(menu, "read", side_effect=["2", "n"]) as read:
+            menu.stop_session([OMEGA, ALPHA], False)
+        self.assertIn("2 alpha", self.out.getvalue())
         self.assertNotIn("omega", self.out.getvalue())
+        self.assertEqual(read.call_args_list[-1].args[0], menu.stop_question("alpha"))
         with patch.object(menu, "read", side_effect=["1", "y"]):
             menu.stop_session([OMEGA], False)
         self.paused.assert_called_once_with("no session to stop")

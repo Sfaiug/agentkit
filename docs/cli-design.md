@@ -168,12 +168,12 @@ seat's tmux bar reads `Ctrl-b m  x close` at the right end of its second line.
 A stopped seat has no row under its project: it keeps its number on the past
 screen, `p`, which the key line offers as `p past` while there is one. The
 screen is `past sessions` over one row a stopped seat -- number, name,
-project, `stopped 2h ago`, and `starts fresh` where its harness cannot resume
-it -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`: Enter or a
+project, `stopped 2h ago`, and its harness's word where it cannot resume the
+conversation -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`: Enter or a
 click reopens the highlighted seat where it stopped, as its number does from
 the main screen, and the menu is back; `x` removes it at once, the rest
 staying up; Esc goes back. From a pipe a number reopens, `x` asks which to
-remove, and an empty line goes back. The sweep removes a stopped seat on its
+remove by the same numbers, and an empty line goes back. The sweep removes a stopped seat on its
 own a week after the stop.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the

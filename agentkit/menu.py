@@ -1248,7 +1248,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if cursor not in order:
         cursor = next((name for name in order if isinstance(name, str)),
                       order[0] if order else None)      # a seat before any heading
-    if any(session.get("closed") for session in found):
+    if past_offered(found):
         keys = keys.replace("c config", "p past   c config", 1)
     if owned and words.get(own or cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
@@ -1602,24 +1602,26 @@ def stop_session(found, dry_run):
     """`x` read a line at a time -- a pipe, a file: which seat, then one question, and nothing else.
 
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
-    picked by number or by name among the ones not stopped already -- a stopped one is removed on
-    the past screen (`show_past`), never asked about here; Esc and an empty Enter go back
+    picked by the number the main screen gives it or by name, among the ones not stopped already
+    -- a stopped one keeps its number for the past screen (`show_past`), where it is removed,
+    and is never asked about here; Esc and an empty Enter go back
     to the menu, as does anything but `y` to the one question, which says, as the
     keyboard's card does, that the past screen reopens the seat. Its runs stop
     first, the same way `ak run stop` stops one, so none is left to read as an
     accident afterwards. `ak orch stop` then removes the checkouts and the tabs, and
     keeps the seat.
     """
-    found = [session for session in found if not session.get("closed")]
-    if not found:
+    offered = {number: session for number, session in enumerate(found, 1)
+               if not session.get("closed")}
+    if not offered:
         pause("no session to stop")
         return
     terminal.frame("stop")
-    choice = terminal.ask("Stop", found[0]["name"],
-                          [session["name"] for session in found], read=read)
+    names = [session["name"] for session in offered.values()]
+    choice = terminal.ask("Stop", names[0], names, read=read, numbers=list(offered))
     if not choice:
         return
-    session = next(session for session in found if session["name"] == choice)
+    session = next(session for session in offered.values() if session["name"] == choice)
     if dry_run:
         stop_session_runs(session["name"], dry_run=True)
         print(f"would stop {session['name']}")
@@ -3627,6 +3629,12 @@ def show_features(checkout, dry_run=False):
                          features_flip(checkout, feature, column))
 
 
+def past_offered(found):
+    """Whether the past screen has a row, so `p` is a key and the key line offers it: a seat
+    the owner stopped is among `found` (`closed`, `orch.ghost`)."""
+    return any(session.get("closed") for session in found)
+
+
 def past_body(past, at=None):
     """The past screen's lines, one a stopped seat -- its number, name, project, how long ago
     it was stopped and, where its harness starts it fresh, that -- and where each is,
@@ -3661,7 +3669,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
     click reopens one where it stopped (`open_session`, what its number does on the main screen)
     and the menu is back; `x` removes the highlighted one at once (`close_seat`, the second
     stop), the rest staying up; Esc goes back.  From a pipe a number reopens, `x` asks which to
-    remove, and an empty line goes back.  A dry run draws it once.
+    remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
     """
     here, top = None, 0
     while True:
@@ -3685,7 +3693,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                     return
                 pause(f"no past session {line}", keys)
             elif line.lower() == "x":
-                choice = terminal.ask("Remove", names[0], names, read=read)
+                choice = terminal.ask("Remove", names[0], names, read=read,
+                                      numbers=[number for number, _ in past])
                 if choice:
                     close_seat(choice, dry_run)
                     found = [session for session in found if session["name"] != choice]
@@ -3791,11 +3800,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     before it does it -- but `c`, `n` and `x`'s question, which are read with the keys on
     the screen the menu has: `x` on a done seat closes it at once and on any other asks `Keep`
     or `Stop` under its row, Enter or a click answering and Esc keeping it; `p` opens the past
-    screen (`show_past`) on the same keys.  Esc, and a click
+    screen (`show_past`) on the same keys, and is a key only while the key line offers it
+    (`past_offered`).  Esc, and a click
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
-    actions = ("n", "x", "c") if overlay else ("n", "x", "c", "p")
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
@@ -3831,6 +3840,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 os.execve(sys.executable, [sys.executable, *sys.argv],
                           {**os.environ, "AK_MENU_CURSOR": str(cursor or "")})
             found, groups = last          # after any notice: what changed under it is drawn as is
+            past = not overlay and past_offered(found)
+            actions = ("n", "x", "c", "p") if past else ("n", "x", "c")
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else f"{move_keys()}   {keys}"
@@ -3956,7 +3967,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 # read with the keys, too; the looks and probes go on with what it saved
                 cfg = live.cfg = show_config(dry_run, keyboard,
                                              seat if isinstance(seat, str) else None) or cfg
-            elif key == "p" and not overlay:
+            elif key == "p" and past:
                 show_past(cfg, found, dry_run, keyboard)    # read with the keys, too
             elif key in ("j", "k") and pages > 1:
                 page = (page + (1 if key == "j" else -1)) % pages
