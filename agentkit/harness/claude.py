@@ -21,12 +21,16 @@ TMP_CLAUDE_AGE = 86400          # a gone session's scratch folder goes after a d
 INTERRUPTS = ("[Request interrupted by user]", "[Request interrupted by user for tool use]")
 
 
+def project(cwd):
+    """The folder Claude Code files a working directory's conversations and scratch under."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+
+
 def transcript_path(record, conversation):
     account = record.get("account")
     directory = Path.home() / (f".claude-{account}" if account and account != "default"
                                else ".claude")
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(record["cwd"]))
-    return directory / "projects" / slug / f"{conversation}.jsonl"
+    return directory / "projects" / project(record["cwd"]) / f"{conversation}.jsonl"
 
 
 def transcript(record, cwd, conversation):
@@ -195,38 +199,39 @@ def is_process(words):
             or program.endswith("/@anthropic-ai/claude-code/cli.js"))
 
 
-def tmp_claude_sessions(table):
-    """Current conversations of live clients, or None for an unidentified client.
+def tmp_claude_live(table):
+    """What live clients may still use, as (sessions, projects), or None without an inventory.
 
-    Claude updates its pid record after /clear. Match procStart too, so a reused
-    pid or a stale record in another account cannot stand in for the live client.
+    A client is named by its pid record: Claude updates it after /clear, and procStart must
+    match too, so a reused pid or a stale record in another account cannot stand in for the
+    live client.  A headless turn writes none; it is named by the event stream ak launched it
+    writing to.  A client neither names, or a process of an unknown program, keeps its
+    working directory's project, the only one its scratch can be under.
     """
-    from .. import retention
+    from .. import retention, worker
     if table is None:
         return None
     try:
         roots = [path for path in Path.home().glob(".claude*") if path.is_dir()]
         if os.environ.get("CLAUDE_CONFIG_DIR"):
             roots.append(Path(os.environ["CLAUDE_CONFIG_DIR"]))
-        live = set()
+        sessions, projects = set(), set()
         for pid, row in table.items():
-            if row["uid"] != os.getuid():
+            if row["uid"] != os.getuid() or (row["args"] and not is_process(row["args"])):
                 continue
-            if not row["args"]:
-                return None
-            if not is_process(row["args"]):
-                continue
-            found = set()
+            found = {worker.recovered_session(Path(path).parent) for path in row["paths"]
+                     if Path(path).name == "events.jsonl"}
             for root in roots:
                 record = retention.read_json(root / "sessions" / f"{pid}.json") or {}
-                session = record.get("sessionId")
-                if (record.get("pid") == pid and str(record.get("procStart")) == row["start"]
-                        and isinstance(session, str) and re.fullmatch(r"[A-Za-z0-9_-]+", session)):
-                    found.add(session)
-            if not found:
-                return None
-            live.update(found)
-        return live
+                if record.get("pid") == pid and str(record.get("procStart")) == row["start"]:
+                    found.add(record.get("sessionId"))
+            found = {session for session in found
+                     if isinstance(session, str) and re.fullmatch(r"[A-Za-z0-9_-]+", session)}
+            if found:
+                sessions |= found
+            else:
+                projects.add(project(row["cwd"]))
+        return sessions, projects
     except (OSError, ValueError, TypeError, AttributeError):
         return None
 
@@ -237,7 +242,8 @@ def tmp_claude_session_stale(path, now, paths, live):
     Its session is gone, untouched for a day, and held by nobody.
     """
     from .. import gc, retention
-    if retention.busy(path, paths) or live is None or path.name in live:
+    if (retention.busy(path, paths) or live is None or path.name in live[0]
+            or path.parent.name in live[1]):
         return None
     newest = gc.tmp_tree_newest(path)
     if newest is None or not retention.expired(newest, now, TMP_CLAUDE_AGE):
@@ -256,9 +262,11 @@ def tmp_top_stale(path, now, paths, live):
     if name.startswith("claude-") and name[7:].isdigit():
         if live is None:
             return None
+        sessions, projects = live
         try:
-            if live and any((path / project / session).is_dir()
-                            for project in gc.tmp_listdir(path) for session in live):
+            if any(folder in projects or any((path / folder / session).is_dir()
+                                             for session in sessions)
+                   for folder in gc.tmp_listdir(path)):
                 return None
         except OSError:
             return None
@@ -301,7 +309,7 @@ def tmp_session_entries(path, now, paths, live):
 
 def tmp_rule(table):
     """Protect live clients in scratch trees and collect gone sessions within our own."""
-    live = tmp_claude_sessions(table)
+    live = tmp_claude_live(table)
 
     def rule(path, now, paths, *, top):
         if top:

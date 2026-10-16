@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
 from agentkit import config, gc, orch, proc_snapshot, retention, run
+from agentkit.harness import claude
 
 DAY = 86400
 HIDDEN_INSPECT = gc.tmp_hidden_processes
@@ -91,8 +92,8 @@ class GcTmp(Sandbox):
         self.touch(path / "inner")
         return self.touch(path)
 
-    def scratch(self, name="sess-gone"):
-        path = self.tmp / f"claude-{os.getuid()}" / "acme" / name
+    def scratch(self, name="sess-gone", project="acme"):
+        path = self.tmp / f"claude-{os.getuid()}" / project / name
         path.mkdir(parents=True)
         (path / "scratch").write_text("temp\n")
         for item in (path / "scratch", path, path.parent, path.parents[1]):
@@ -223,8 +224,9 @@ class GcTmp(Sandbox):
         self.now += 3 * DAY
         self.assertEqual(set(self.planned()), {str(running.parents[1])})
 
-    def test_unidentified_client_keeps_all_scratch_only(self):
-        scratch, ordinary = self.scratch(), self.entry("ordinary")
+    def test_unidentified_client_keeps_only_its_own_project_scratch(self):
+        other, ordinary = self.scratch(), self.entry("ordinary")
+        own = self.scratch("sess-own", project=claude.project(self.root))
         proc = self.process(args=["claude"])
         self.now += 3 * DAY
         for extra in (None, {"pid": int(proc.name) + 1}, {"procStart": "old-start"},
@@ -232,11 +234,12 @@ class GcTmp(Sandbox):
             with self.subTest(extra=extra):
                 if extra is not None:
                     self.session_record(proc, "sess-other", **extra)
-                self.assertEqual(set(self.planned()), {str(ordinary)})
-        # A missing client record does not make ordinary temporary files permanent.
+                self.assertEqual(set(self.planned()), {str(ordinary), str(other)})
+        # A missing client record makes neither ordinary files nor other projects permanent.
         gc.gc(lambda _: None)
         self.assertFalse(ordinary.exists())
-        self.assertTrue(scratch.is_dir())
+        self.assertFalse(other.exists())
+        self.assertTrue(own.is_dir())
 
     def test_kernel_hidden_foreign_and_exiting_processes_do_not_block_collection(self):
         old, held = self.entry("old"), self.entry("held")
@@ -299,8 +302,9 @@ class GcTmp(Sandbox):
         with patch.object(retention, "process_dirs", side_effect=PermissionError):
             self.assertEqual(self.planned(), {})
 
-    def test_empty_userspace_argv_still_protects_handles_and_unidentified_scratch(self):
-        old, held, scratch = self.entry("old"), self.entry("held"), self.scratch()
+    def test_empty_userspace_argv_still_protects_handles_and_its_project_scratch(self):
+        old, held = self.entry("old"), self.entry("held")
+        scratch = self.scratch(project=claude.project(self.root))
         self.process(args=[], opened=[held / "inner"])
         self.now += 3 * DAY
         self.assertEqual(set(self.planned()), {str(old)})

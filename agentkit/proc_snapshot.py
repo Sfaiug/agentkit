@@ -37,11 +37,13 @@ def collect(processes):
                         if link == proc / "cwd":
                             raise
                         continue                # this descriptor has already closed
+                    if link == proc / "cwd":
+                        cwd = target.removesuffix(" (deleted)")
                     if target.startswith("/"):
                         paths.update((target, target.removesuffix(" (deleted)")))
             if (proc / "stat").read_text().rsplit(")", 1)[1].split()[19] != start:
                 raise ValueError("pid was reused during the scan")
-            rows[int(proc.name)] = {"uid": uid, "start": start, "args": args,
+            rows[int(proc.name)] = {"uid": uid, "start": start, "args": args, "cwd": cwd,
                                     "paths": sorted(paths)}
         except (OSError, ValueError, IndexError, StopIteration):
             try:
