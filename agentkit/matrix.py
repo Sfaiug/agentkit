@@ -370,28 +370,32 @@ LIVE_HEADERS = ("model", "orch", "exec", "review")
 
 
 def live(cfg, now=None):
-    """ak's own numbers per configured model and role, which never rank: of the runs it ended
-    as executor, as reviewer, or as the orchestrator of a seat's own pull request, how many and
-    the share merged in round 1 (let through in round 1, for a reviewer).  {name: {role:
-    {"runs", "round_1"} or None}}."""
+    """ak's own numbers per configured model and role, which never rank, off the history's runs
+    that ended with a verdict of the work (`record.JUDGED`): of the runs it executed, how many
+    and the share merged in round 1 (`history.merged`); of the runs it reviewed, by its harness
+    and model id, how many and the share it let through in round 1 (`history.reviewed_runs`);
+    of the pull requests its seat wrote (the row's `own_orchestrator`), how many and the share
+    merged in round 1.  {name: {role: {"runs", "round_1"} or None}}."""
     from . import history     # here, not at the top: the boards and the table need no database
     now = time.time() if now is None else now
     rows = [row for row in history.ended_runs(0, now) if row.get("final_state") in record.JUDGED]
-    mine = {"orchestrate": lambda row, name: row.get("executor") is None
-            and row.get("orchestrator") == name,
-            "execute": lambda row, name: row.get("executor") == name,
-            "review": lambda row, name: row.get("reviewer") == name}
+    first = {row["run_id"] for row in rows
+             if (row.get("rounds_used") or 0) <= 1 and history.merged(row)}
     found = {}
     for name in config.offered(cfg):
-        found[name] = {}
-        for role in ROLES:
-            ended = [row for row in rows if mine[role](row, name)]
-            first = [row for row in ended
-                     if row["final_state"] == "pass" and (row.get("rounds_used") or 0) <= 1]
-            found[name][role] = ({"runs": len(ended),
-                                  "round_1": round(100 * len(first) / len(ended))}
-                                 if ended else None)
+        counts = {}
+        for role, column in (("orchestrate", "own_orchestrator"), ("execute", "executor")):
+            mine = [row["run_id"] for row in rows if row.get(column) == name]
+            counts[role] = (len(mine), sum(run_id in first for run_id in mine))
+        entry = cfg["models"][name]
+        counts["review"] = history.reviewed_runs(entry["harness"], entry["model"])
+        found[name] = {role: share(*counts[role]) for role in ROLES}
     return found
+
+
+def share(runs, in_round_1):
+    """`{"runs", "round_1"}`: how many runs, and the share of them in round 1; None with none."""
+    return {"runs": runs, "round_1": round(100 * in_round_1 / runs)} if runs else None
 
 
 def live_cell(found):

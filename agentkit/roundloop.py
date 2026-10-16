@@ -1405,7 +1405,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
                           blocking=len(own.findings), followup=len(own.preexisting),
-                          note=len(own.notes), log=lp.log)
+                          note=len(own.notes), round=lp.rnd, verdict=verdict, log=lp.log)
     return verdict
 
 

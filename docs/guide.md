@@ -491,17 +491,21 @@ own numbers (`live`) and the boards' notes.
 
 ak's own numbers (`live`) stand under the scores, per configured model and role, and never rank (AGENTS.md, Owner
 rules): over the history's runs that ended with a verdict of the work (`pass`, `fail`, `blocked`; a stopped, not needed or
-errored run counts for nothing), of the runs it executed, the share merged in round 1; of those it reviewed, the share it
-let through in round 1; of the seat's own pull requests it orchestrated, the share merged in round 1; each as `55% of 320`,
-`-` where it ran none. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+errored run counts for nothing), of the runs it executed, the share merged in round 1 (a merge as the scoreboard tells one:
+the row's size, else its record; a run passed without merging is none); of the runs it reviewed in any round, by its harness
+and model id, the share whose round 1 it ended PASS (a review from before its round was recorded counts for nothing); of
+the pull requests its seat wrote (the writer the run's row keeps, never the seat that launched a review of another's), the
+share merged in round 1; each as `55% of 320`, `-` where it ran none. Attribution: artificialanalysis.ai, arena.ai,
+livebench.ai.
 
 ## The history
 
-Every run is recorded in `~/.agentkit/history.db`: repository, models and the launching seat's orchestrator, rounds,
-verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, slot, login and retry waits
+Every run is recorded in `~/.agentkit/history.db`: repository, models and the launching seat's orchestrator, the model
+whose seat wrote the pull request it reviewed, rounds, verdict, timestamps, active seconds per step (checkpointed every 30 s; parks, slot, login and retry waits
 are no step's), the seconds it waited for a slot and for a heavy-suite turn of its own, counted by the waiting process as it polls (one that dies loses at most a poll), the seconds its landing checks waited for a heavy-suite turn, counted the same way by the lander, and the seconds it held a place in its repository's landing line, from the record write that gives it one to the write that ends it -- landing, leaving, a stop, a wake to fix; recovery that keeps the place keeps it counting, and a slot admission while it holds one counts as both
 (summed across resumes; a row from before they were kept reads as not recorded, never zero), one row per phase of the run -- each step a process ran, ended at its last checkpoint while it runs, and each wait, whole -- in order, tokens where the harness reports them (else unknown), peak process-tree memory, session, and the task's
-words, goal points, checks and files changed, and the change it belongs to: the PR it reviews as `owner/repo#n`, however its URL was spelled, else the change of the run a `from:` launch continues, else its own. Merged runs also keep additions plus deletions, excluding files marked
+words, goal points, checks and files changed, and the change it belongs to: the PR it reviews as `owner/repo#n`, however its URL was spelled, else the change of the run a `from:` launch continues, else its own; and each finished review, by the harness and model id
+that ran it, with its weighed counts, its round and the round's verdict. Merged runs also keep additions plus deletions, excluding files marked
 `linguist-generated` in `.gitattributes`. Smoke and e2e runs are never recorded; an older agentkit's rows are read
 as written, never rewritten. Statistics skip
 stopped runs and suite runs, by name or run record. History is best effort.
