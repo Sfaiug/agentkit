@@ -2378,6 +2378,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
+        # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
+        history.update_run(state.get("run_id"), first_review_lines=lines - carried, log=log)
     if text_only:
         # The seat's own wording needs no reviewer: it joins the line like a passed review,
         # where the repository's suite and CI still check it.
