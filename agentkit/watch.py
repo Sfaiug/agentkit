@@ -2096,15 +2096,17 @@ def plan_progress(name):
     return (done, total)
 
 
-def unsent(harness, found, session):
+def unsent(name, harness, found, session):
     """`unsent: <text>` for typed text nobody sent at a quiet prompt once nobody is in the seat
     to see it, else "".  Text in the composer never changes the word (owner, 14 Oct 2026): it
     is a reason, so the seat the owner left reads what its runs and its turn say and still shows
     what they never sent.  Three seats once read `working` over their own unsent text for
     nineteen hours while they believed each had their message.  While a client is attached it
-    is their typing; a Stop on background work is a quiet prompt, its composer open."""
+    is their typing; a Stop on background work is a quiet prompt, its composer open, and so is
+    a turn refused for usage, whose hooks never saw it end (`usage_wait`)."""
     if (not harness or any(session.get(key) for key in orch.CLOSED) or session.get("attached")
-            or found.get("state") != "draft" or not _composer_open(harness, found)):
+            or found.get("state") != "draft"
+            or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
         return ""
     text = " ".join(str(found.get("evidence") or "").split())
     return f"unsent: {text}" if text else ""
@@ -2169,7 +2171,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     always was, and no word of the seat's to every screen.
 
     Typed text nobody sent is never a word: once no client is attached, whatever the ladder
-    says gets `unsent: <text>` in its reason (`unsent`).
+    says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
+    fact a row's last column reads it from (`menu.last_column`).
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2198,9 +2201,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out, jobs,
                             menu_mod, run_mod, terminal_mod)
-    draft = unsent(harness, live, session)
+    draft = unsent(name, harness, live, session)
     if draft:
         answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
+        answer["unsent"] = draft
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2247,7 +2251,8 @@ def announce_state(session, cfg=None, look=False, **facts):
                 or previous.get("word_since") != answer["since"]
                 or previous.get("word_from") != decided):
             seat_write(name, word=answer["word"], reason=answer["reason"],
-                       word_since=answer["since"], word_from=decided)
+                       unsent=answer.get("unsent", ""), word_since=answer["since"],
+                       word_from=decided)
         statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
         if previous.get("word") != answer["word"]:
             statusbar.retell(session)

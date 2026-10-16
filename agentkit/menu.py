@@ -635,7 +635,7 @@ def seat_row_state(cfg, session, look=True, **facts):
     recorded = watch.seat_read(session["name"])
     if recorded.get("word"):
         return {"word": recorded["word"], "reason": recorded.get("reason"),
-                "since": recorded.get("word_since")}
+                "unsent": recorded.get("unsent"), "since": recorded.get("word_since")}
     return seat_state(cfg, session, **facts)
 
 
@@ -965,14 +965,11 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     bar = (done, total) if total > 0 else None
     word = found["word"]
     reason = found["reason"] or ""
-    # what the owner typed and never sent ends any reason (`watch.unsent`), and a working row
-    # says it
-    draft = reason[reason.find("unsent: "):] if "unsent: " in reason else ""
-    sentence = draft if word == "working" and not reason.startswith("waiting · ") else reason
+    sentence = "" if word == "working" and not reason.startswith("waiting · ") else reason
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "tone": model_colour(cfg, orchestrator) if selection else "dim",
-            "sentence": sentence, "bar": bar,
+            "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
             "runs": seat_runs(name, records) if word == "working" else [],
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
@@ -1065,20 +1062,25 @@ def _styled_cell(plain_text, width, kind=None, right=False):
     return space + styled if right else styled + space
 
 
-def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=False):
+def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=False,
+                unsent=""):
     """The one last column of a seat's row, and of its status bar.
 
     For `needs you` and `done` the reason from the state function; for `working` its place
-    in the landing line, else the tasks bar (`terminal.plan_bar`) in `room` cells when
-    `seat_progress` finds a plan or an unfinished job, each of `runs` (`seat_runs`) part of a
-    slot by its step, red on its last round; else empty -- never `N running`.  The bar keeps 8
-    cells at least, which a row too short for them draws under itself; where `room` is all there
-    is -- a `narrow` screen's line, each width of a seat's bar -- it takes that room and never
-    more.  `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two can never disagree.
-    Never two state words on one row.
+    in the landing line, else what the owner left unsent (`unsent`, the state function's own
+    field: a run's title in the reason can say anything), else the tasks bar
+    (`terminal.plan_bar`) in `room` cells when `seat_progress` finds a plan or an unfinished
+    job, each of `runs` (`seat_runs`) part of a slot by its step, red on its last round; else
+    empty -- never `N running`.  The bar keeps 8 cells at least, which a row too short for them
+    draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
+    a seat's bar -- it takes that room and never more.  `tmux` draws it for a seat's bar.  The
+    row and the bar read this one function, so the two can never disagree.  Never two state
+    words on one row.
     """
     if not tasks_bar(word, reason):
         return terminal.plain(reason or "")
+    if unsent:
+        return terminal.plain(unsent)
     fills = [(FILLS[run["step"]], bool(run["rounds"]) and run["round"] >= run["rounds"])
              for run in runs if run["step"] in FILLS]
     return terminal.plan_bar(done, total, fills, room, 0 if narrow else 8, word, tmux)
@@ -1086,8 +1088,8 @@ def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=F
 
 def tasks_bar(word, reason):
     """Is a seat's last column its tasks bar (`last_column`), not a sentence?  A working seat's
-    is, but while it waits in the landing line or holds what the owner left unsent, which its reason
-    says."""
+    is, but while it waits in the landing line or shows what the owner left unsent, which the
+    column then starts with."""
     return word == "working" and not (reason or "").startswith(("waiting · ", "unsent: "))
 
 
@@ -1096,7 +1098,7 @@ def _last_text(info, room, narrow=False):
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
     return last_column(info.get("word"), info.get("sentence"), done, total, info.get("runs", ()),
-                       room, narrow)
+                       room, narrow, unsent=info.get("unsent"))
 
 
 def live_line(cfg, info, room, now=None):
@@ -1214,7 +1216,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
             blocks.append([head + "  " + last])
             continue
         cont_room = max(1, room - 4)
-        bar = tasks_bar(info.get("word"), info.get("sentence"))
+        bar = tasks_bar(info.get("word"), last)
         if bar or free < sent_room:
             # a tasks bar too long for the column is never wrapped, which drops its colours, and
             # a row without ten cells left starts nothing: either goes under its row, the bar

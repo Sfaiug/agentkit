@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, menu, notify, orch, run, terminal, watch, worker
+from agentkit import config, menu, notify, orch, run, statusbar, terminal, watch, worker
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -128,16 +128,25 @@ class UnsentDraft(Sandbox):
             watch.look_at(self.seat, cfg=self.cfg)
             notify.transition(SEAT, now=NOW + later, seat=self.seat)
 
-    def row(self, width):
-        """The seat's row on the menu, drawn at that many columns."""
+    def row(self, width, look=True):
+        """The seat's row on the menu, drawn at that many columns: off a fresh look, or without
+        `look` off the word as recorded."""
         with patch.object(menu.time, "time", return_value=NOW), \
                 patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=40), \
                 redirect_stdout(io.StringIO()) as out:
-            menu.draw(self.cfg, [self.seat])
+            menu.draw(self.cfg, [self.seat], look=look)
         lines = [terminal.ANSI.sub("", line) for line in out.getvalue().splitlines()]
         first = next(n for n, line in enumerate(lines) if re.match(rf"\s*1\s+{SEAT}\b", line))
         return lines[first:first + 2]
+
+    def bar(self):
+        """Line one and line two of the seat's own bar, as tmux draws them, off a fresh look."""
+        with patch.object(statusbar, "_tell") as tell:
+            watch.announce_state(self.seat, cfg=self.cfg, look=True)
+        options = {key: value for call in tell.call_args_list if len(call.args) > 1
+                   for _, key, value in call.args[1]}
+        return re.sub(r"#\[[^\]]*\]", "", options[statusbar.TOP] + options[statusbar.WHY])
 
     def test_a_draft_at_a_quiet_prompt_with_two_going_runs_keeps_their_word_and_says_unsent(self):
         self.going()
@@ -148,6 +157,9 @@ class UnsentDraft(Sandbox):
             with self.subTest(width=width):
                 self.assertIn("● working", " ".join(self.row(width)))
         self.assertIn(f"unsent: {TEXT}", " ".join(self.row(170)))
+        self.assertIn(f"unsent: {TEXT}", " ".join(self.row(170, look=False)))
+        # ... and so does its own bar, which reads the same last column
+        self.assertIn(f"unsent: {TEXT}", self.bar())
         # the same seat with its text sent is its runs' again
         self.pane = PROMPT
         self.assertEqual(self.decide(), ("working", RUNS))
@@ -218,6 +230,17 @@ class UnsentDraft(Sandbox):
         # a suggestion the harness drew in faint text is nobody's draft either
         self.pane = capture("claude-suggestion-pane.txt")
         self.assertEqual(self.decide(), ("working", RUNS))
+
+    def test_e2_a_run_titled_with_the_words_is_no_draft(self):
+        # the reason names the run's title, which can say anything: the row keeps its plan
+        self.receipt("20260101-0900-schema", title="Explain unsent: drafts")
+        self.fact("Stop")
+        self.pane = PROMPT
+        config.plan_path(SEAT).write_text("- [ ] Explain composer drafts\n")
+        for shown in (" ".join(self.row(170)), self.bar()):
+            with self.subTest(shown=shown):
+                self.assertNotIn("unsent: drafts", shown)
+                self.assertIn("0/1", shown)
 
     def test_f_a_seat_nobody_is_in_is_never_read_by_its_last_draft(self):
         # The draft is written down in the seat's record; once nobody is in the seat that
