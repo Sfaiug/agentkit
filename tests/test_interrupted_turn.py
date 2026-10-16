@@ -7,18 +7,20 @@ the prompt, its attachments, `last-prompt`, then nothing) and runs no hook, but 
 back in the composer word for word: that is the owner's draft again.  Once they edit or
 empty it, the seat reads `working` until their next prompt: only the prompt put back whole
 tells an Esc from a turn still thinking while the owner types.  hooks/seat-state.sh runs as
-the harness runs it; the records follow the shape of real ones, with invented names.
+the harness runs it; the records follow the shape of real ones, with invented names.  Codex and
+Muse report an Esc by a hook of their own, which their manifests mark `interrupt`.
 """
 
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
 import subprocess
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, harness, orch, watch
+from agentkit import config, harness, notify, orch, watch
 from agentkit.harness import claude
 
 SEAT = "fix-api"
@@ -31,6 +33,7 @@ DRAFT = (FIX / "claude-multiline-draft-pane.txt").read_text(encoding="utf-8")  #
 # a real 2.1.292 capture of a renamed seat: Esc before any answer put the prompt back
 CANCELLED = (FIX / "claude-cancelled-before-any-answer-pane.txt").read_text(encoding="utf-8")
 INTERRUPT, TOOL_INTERRUPT = claude.INTERRUPTS
+OWED = "- [ ] the acme tests pass · check: `false` · acme · written 2026-10-14 09:00\n"
 
 
 class InterruptedTurn(Sandbox):
@@ -68,12 +71,13 @@ class InterruptedTurn(Sandbox):
         """The hook's record where this sandbox's watch reads it."""
         config.hook_facts_path(SEAT).write_text(json.dumps(fact))
 
-    def looked(self, pane=INTERRUPTED):
+    def looked(self, pane=INTERRUPTED, records=()):
         with patch.object(watch, "pane_text", return_value=pane):
             free = watch.at_prompt({"name": SEAT}, cfg=self.cfg)
         live = watch.live_state({"name": SEAT}, "claude", pane=pane, cfg=self.cfg)
         word = watch.session_state(SEAT, 10000, session={"name": SEAT, "attached": False},
-                                   cfg=self.cfg, records=[], live=live, harness="claude",
+                                   cfg=self.cfg, records=list(records), live=live,
+                                   harness="claude",
                                    auth_out={}, gh_out={}, token_out={}, previous={})["word"]
         return word, free
 
@@ -112,6 +116,55 @@ class InterruptedTurn(Sandbox):
         self.said("user", fact["at"] + 3, INTERRUPT)
         self.assertEqual(self.looked(), ("idle", True))
         self.assertEqual(self.handed_back(), ["The acme tests passed.", "Enter"])
+
+    def test_a_turn_the_owner_stopped_rests_whatever_its_plan_still_owes(self):
+        """The owner's rule (14 Oct 2026): Esc reads idle.  The owner is in the seat and stopped
+        it, so the line its plan owes is no `needs you`; their next prompt runs again."""
+        config.plan_path(SEAT).write_text(OWED)
+        fact = self.prompt("Run the acme tests.")
+        self.said("user", fact["at"] + 3, INTERRUPT)
+        self.assertEqual(self.looked(), ("idle", True))
+        self.prompt("Now the lint too.")
+        self.assertEqual(self.looked(NEXT_TURN)[0], "working")
+
+    def test_esc_waives_only_the_plan_not_a_kept_question_or_a_failed_done(self):
+        """review of #998 round 1: those are the owner's whoever ended the turn."""
+        config.plan_path(SEAT).write_text(OWED)
+        fact = self.prompt("Run the acme tests.")
+        self.said("user", fact["at"] + 3, INTERRUPT)
+        notify.record(SEAT, "done", "all shipped", time=fact["at"] - 10, seen=True)
+        failed = {"run_id": "r1", "launched_session": SEAT, "handed_back": True, "state": "fail",
+                  "verdict": "FAIL", "started_at": fact["at"] - 20, "finished_at": fact["at"]}
+        self.assertEqual(self.looked(records=[(Path("r1"), failed)])[0], "needs you")
+        self.assertEqual(self.looked()[0], "idle")
+        watch.keep(SEAT, "Which schema?")
+        self.assertEqual(self.looked()[0], "needs you")
+
+    def test_a_turn_stopped_by_a_harness_hook_of_its_own_rests_too(self):
+        """review of #998 rounds 1 and 2: Codex and Muse send `Interrupt`, which no record needs
+        to say, and Muse has no prompt hook: an Esc after an earlier Stop is news all the same."""
+        config.plan_path(SEAT).write_text(OWED)
+        (self.root / ".agentkit").mkdir()
+        (self.root / ".agentkit/state").symlink_to(config.STATE)
+        env = {"PATH": os.environ["PATH"], "HOME": str(self.root), "AGENTKIT_SESSION": SEAT,
+               "AK_RUN_ROLE": "orchestrator", "IDLE_COMPACT_STATE": ""}
+        for name, model, fixture in (("codex", "astra", "codex-prompt-pane.txt"),
+                                     ("muse", "spark", "muse-question-escaped-pane.txt")):
+            with self.subTest(harness=name):
+                config.save_session(self.cfg, SEAT, model, ["astra"], {"cwd": str(self.root)})
+                pane = (FIX / fixture).read_text(encoding="utf-8")
+
+                def word(event):
+                    subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")], text=True,
+                                   input=json.dumps({"hook_event_name": event}), env=env,
+                                   timeout=20, check=True)
+                    live = watch.live_state({"name": SEAT}, name, pane=pane, cfg=self.cfg)
+                    return watch.session_state(
+                        SEAT, 10000, session={"name": SEAT, "attached": True}, cfg=self.cfg,
+                        records=[], live=live, harness=name, auth_out={}, gh_out={},
+                        token_out={}, previous={})["word"]
+                self.assertEqual(word("Stop"), "needs you")
+                self.assertEqual(word("Interrupt"), "idle")
 
     def test_a_turn_interrupted_in_a_tool_call_is_at_its_prompt_too(self):
         fact = self.prompt("Run the acme tests.")

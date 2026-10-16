@@ -114,15 +114,18 @@ def kept(standing):
   # Only events that could be passive ask the classifier, before that writer's turn, which then
   # judges with it; prompt and Stop do not.  A notice the seat's own manifest gives no state
   # writes nothing, and nor does one meaning what the fact standing means -- a permission notice
-  # six seconds after the PermissionRequest that wrote its question down.  Where nothing can
+  # six seconds after the PermissionRequest that wrote its question down.  An event it marks
+  # `interrupt` always writes: the owner stopped a turn a harness with no prompt hook began
+  # under an earlier Stop's at_prompt, which that Stop does not say.  Where nothing can
   # say -- no record names the harness, or the asking fails -- the event is written all the same.
   /usr/bin/env python3 -c "$write"'
 if event not in ("UserPromptSubmit", "Stop"):
     from agentkit import watch
     harness = watch.seat_model(config.load(), row)[0]
-    state = watch.hook_state(harness, fact)[0]
+    state, said = watch.hook_state(harness, fact)[:2]
     def passive(standing):
-        return bool(harness) and state in (None, watch.hook_state(harness, standing)[0])
+        return (bool(harness) and said not in watch.marked_events(harness, "interrupt")
+                and state in (None, watch.hook_state(harness, standing)[0]))
 config.record_hook_fact(row, fact, kept)
 ' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$text" "$ts" ||
     /usr/bin/env python3 -c "$write"'

@@ -1722,7 +1722,8 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
     # Esc ends a turn with no Stop, a question's turn too: the dialog goes with it.
-    if hooked in ("working", "asking") and interrupted is not None and interrupted >= when:
+    stopped = hooked in ("working", "asking") and interrupted is not None and interrupted >= when
+    if stopped:
         hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
@@ -1751,7 +1752,10 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
             # `session_state` reads it for the one thing the manifest reserves to hooks,
             # and which event said it, so a Stop on background work is not a turn in flight
             # for his own unsent text
-            "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None}
+            "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None,
+            # the owner stopped its last turn, as recorded or by a hook event its manifest marks
+            # `interrupt`: until their next prompt the seat rests
+            "interrupted": stopped or event in marked_events(harness, "interrupt")}
 
 
 def seat_read(name):
@@ -1914,7 +1918,7 @@ def _composer_open(harness, found):
     """Is that seat's turn over with its composer open: no turn in flight, or a Stop on
     background work, which its manifest marks and whose composer takes a line at once."""
     return (not _turn_in_flight(harness, found)[0]
-            or found.get("hooked_event") in _background_stops(harness))
+            or found.get("hooked_event") in marked_events(harness, "background"))
 
 
 def keeps_back(name):
@@ -2024,25 +2028,26 @@ def ask_kept_back(name, harness, found, held=False):
         pass
 
 
-def _background_stops(harness):
-    """Hook events the manifest marks as background waits, or ().  No names live here."""
+def marked_events(harness, mark):
+    """Hook events the manifest marks with `mark` (a background wait, an interrupt), as
+    `hook_state` names them, or ().  No names live here."""
     try:
         events = (config.manifest(harness).get("hooks") or {}).get("event") or ()
     except config.Error:
         return ()
-    stops = []
+    marked = []
     for entry in events:
-        if not isinstance(entry, dict) or not entry.get("background"):
+        if not isinstance(entry, dict) or not entry.get(mark):
             continue
         name = entry.get("name")
         if not isinstance(name, str):
             continue
         kinds = entry.get("kinds")
         if isinstance(kinds, list):
-            stops.extend(f"{name}/{kind}" for kind in kinds if isinstance(kind, str))
+            marked.extend(f"{name}/{kind}" for kind in kinds if isinstance(kind, str))
         else:
-            stops.append(name)
-    return tuple(stops)
+            marked.append(name)
+    return tuple(marked)
 
 
 def look_at(session, cfg=None, pane=None, now=None):
@@ -2316,17 +2321,18 @@ def start_look(launched):
         return None
 
 
-def still_owed(name, mine, index):
+def still_owed(name, mine, index, stopped):
     """Why a seat with nothing running and nothing asked on its screen or in its notices is
     still the owner's, or None where it rests.  Work its plan owes is a turn the stop hook let
     stand on its third stop, or one a harness it cannot send back left: the stop hook's own test
-    says which (`stop.owed_line`), so this word and the turn's end never disagree; so does a
+    says which (`stop.owed_line`), so this word and the turn's end never disagree -- except after
+    a turn the owner `stopped`: they are in the seat and know (owner, 14 Oct 2026).  So does a
     question it kept back for its turn's end.  A done it said that a run of its own then
     failed stays theirs after the card pass marks that done seen.  Any other ending of its runs
     is typed into the seat at its next quiet prompt, so it is the seat's to act on, not theirs.
     `mine` is the seat's own (run_dir, state) pairs, `index` their supersession index."""
     from . import stop as stop_mod    # stop imports this module
-    line = stop_mod.owed_line(name)
+    line = None if stopped else stop_mod.owed_line(name)
     if line is not None or seat_read(name).get("unasked"):
         return f"stopped with work open: {line}" if line else "stopped with work open"
     declared = notify.last(name, include_seen=True)
@@ -2582,8 +2588,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if asked:
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # Nothing running, asked or owed: the seat rests and nothing on it is the owner's to do -- a
-    # new seat, a conversation that ended, a plan it finished.
-    owed = still_owed(name, mine, index)
+    # new seat, a conversation that ended, a plan it finished, a turn the owner stopped.
+    owed = still_owed(name, mine, index, found.get("interrupted"))
     if owed is None:
         return {"word": "idle", "reason": "", "since": found.get("began")}
     return {"word": "needs you", "since": found.get("began"), "reason": owed}
@@ -3396,7 +3402,7 @@ def takes_line(session, cfg=None, pane=None):
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
-    return found.get("hooked_event") in _background_stops(harness)
+    return found.get("hooked_event") in marked_events(harness, "background")
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,

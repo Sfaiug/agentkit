@@ -80,10 +80,12 @@ name = "PostToolBatch"
 state = "working"
 kinds = ["request_user_input"]
 
-# an Esc fires this and no Stop: the turn is over, and a question it had up is down with it
+# an Esc fires this and no Stop: the turn is over, and a question it had up is down with it;
+# the owner stopped it, so the seat rests whatever its plan still owes
 [[hooks.event]]
 name = "Interrupt"
 state = "at_prompt"
+interrupt = true
 
 # The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- needs a
 # blocking end-of-turn hook to enforce itself, and Muse has none.  `nudge` asks the `ak watch`
