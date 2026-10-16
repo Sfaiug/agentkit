@@ -53,6 +53,15 @@ class Loss(unittest.TestCase):
                   "size": [{"code_lines": 110, "readme_words": 9, "agents_words": 9},
                            {"code_lines": 100, "readme_words": 9, "agents_words": 9}]}
         self.assertEqual(scoreboard.loss(bigger), ("ak's code lines", 110, 100, "n"))
+        # the owner's time is the first cost, ahead of tokens; tokens that bought no merge ahead
+        # of the park
+        asked = {**bigger, "owner": [{"asked": 3, "paged": 1, "hours": 9.0}, {"asked": 2, "paged": 1, "hours": 1.0}]}
+        self.assertEqual(scoreboard.loss(asked), ("questions asked of the owner", 3, 2, "n"))
+        paged = {**bigger, "owner": [{"asked": 2, "paged": 4, "hours": None}, {"asked": 2, "paged": 1, "hours": None}]}
+        self.assertEqual(scoreboard.loss(paged), ("cards sent to the owner", 4, 1, "n"))
+        sunk = {**bigger, "sunk": [{"share": .4, "tokens": 9}, {"share": .1, "tokens": 9}],
+                "parks": [{"parked": 3}, {"parked": 0}]}
+        self.assertEqual(scoreboard.loss(sunk), ("tokens spent on runs that never merged", .4, .1, "%"))
 
     def test_nothing_worse_names_the_first_measure_the_board_reads_at_all(self):
         same = {**BOARD, "products": [STATS, STATS]}
