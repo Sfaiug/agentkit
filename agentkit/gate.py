@@ -379,7 +379,7 @@ def wait_for_slot(run_dir):
                 raise config.Error(f"{run_dir.name}: another process owns this launch")
             if behind:
                 # The polls it skipped were count waits, and steadiness starts over after one.
-                state.update(slot_wait_kind="count", slot_healthy_polls=0)
+                state.update(slot_waited=True, slot_wait_kind="count", slot_healthy_polls=0)
                 behind = False
             first_poll = False
             if claim_slot(state, limit):

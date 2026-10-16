@@ -108,6 +108,7 @@ instead of CPU pressure, each run the host has frozen counting 1 while held; a
 worker's own test runs share the parent's slot, and a third level is refused. Only the run first in line reads the run
 records and takes the queue's lock when it polls: each run behind it reads its place from the queue that poll leaves in
 `~/.agentkit/runs/.slots.queue`, and a queue no poll has rewritten for two polls is counted again by whoever polls next.
+Skipping these polls still counts as waiting for the log receipt written at admission.
 Past its own memory cap, the 40% of the
 slice ceiling, 4 GB where there is no ceiling, unless `run_memory_max_mb` sets it, a run loses only the process that grew:
 its command exits 137, the log says `memory cap N GB hit`, and the run goes on as after any failed command or killed worker.
