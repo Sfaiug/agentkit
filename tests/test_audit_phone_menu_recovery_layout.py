@@ -31,7 +31,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, orch, run, statusbar, terminal
+from agentkit import config, menu, notify, orch, run, statusbar, terminal
 from agentkit import record as run_record
 from fixtures.sandbox import menu_input
 
@@ -39,6 +39,9 @@ REAL_TMUX = shutil.which("tmux")
 SOCKET = "agentkit-test"
 LONG_NAME = "zz-very-long-session-name-for-a-narrow-p"    # NAME_CAP characters; sorts last
 STAND_IN = "stand-in harness: no model call"
+# What each seat here asks the owner: a seat with nothing asked rests, `idle`, with no reason
+# under its word, and these pages are laid out for rows that carry one.
+ASKED = "waiting for you"
 # How long a wait for a real tmux screen may last: a guard against a hang, never a claim
 # about speed.  A wait ends the moment its screen is there; at 30 s a loaded landing host
 # missed it three times in two days and sent a passed change back each time.
@@ -229,9 +232,11 @@ class Picker(Sandbox):
 
 class Pages(Sandbox):
     def seats(self, count):
-        return [{"name": f"seat-{n:02d}" if n < count else LONG_NAME, "created": time.time() - 5,
-                 "attached": False, "exited": False, "legacy": False, "resumable": False}
-                for n in range(1, count + 1)]
+        names = [f"seat-{n:02d}" if n < count else LONG_NAME for n in range(1, count + 1)]
+        for name in names:
+            notify.record(name, "needs", ASKED)
+        return [{"name": name, "created": time.time() - 5, "attached": False, "exited": False,
+                 "legacy": False, "resumable": False} for name in names]
 
     def draw(self, seats, width, height, page=0, keys=menu.KEYS):
         with patch.object(terminal, "width", return_value=width), \
@@ -538,11 +543,13 @@ class Phone(Sandbox):
                             env={**self.env, "TMUX_TMPDIR": str(directory)}, capture_output=True)
 
     def seat(self, name, orchestrator="astra"):
-        """A seat on the seats server the way `ak orch` starts one, holding a stand-in."""
+        """A seat on the seats server the way `ak orch` starts one, holding a stand-in that asks
+        the owner something."""
         config.save_session(self.cfg, name, orchestrator, ["opus"],
                             {"cwd": str(self.home), "created": time.time()})
         orch.start(name, self.home, ["sh", "-c", f"echo {shlex.quote(STAND_IN)}; exec sleep 600"],
                    orchestrator)
+        notify.record(name, "needs", ASKED)
 
     def has_seat(self, name):
         return subprocess.run(["tmux", "-L", SOCKET, "has-session", "-t", f"={name}"], env=self.env,
@@ -744,6 +751,7 @@ class Phone(Sandbox):
         # page, the reason beside the word; a phone puts each reason on its own line,
         # so the same twelve page. The capped name is cut, never wrapped. The highlight stays
         # on phone-audit, now eleventh, and the page up is the one it is on.
+        notify.record("phone-audit", "needs", ASKED)
         for n in range(2, 12):
             self.seat(f"audit-seat-{n:02d}")
         self.seat(LONG_NAME)

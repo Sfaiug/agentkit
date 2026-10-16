@@ -57,8 +57,8 @@ class StopHookLooks(live.LiveStatus):
         published("working")
         # The stop hook judges the Stop and writes it down; nothing else happens after it.
         run("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": []})
-        published("needs you")
-        self.assertEqual(watch.seat_read("herdr")["word"], "needs you")
+        published("idle")
+        self.assertEqual(watch.seat_read("herdr")["word"], "idle")
 
 
 def load_tests(loader, tests, pattern):
