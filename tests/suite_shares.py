@@ -1,4 +1,5 @@
-"""Divide the declared suite without changing its checks or keeping shared timing state."""
+"""Choose the declared suite's checks for its mode and divide them, without changing a check
+or keeping shared timing state."""
 
 import os
 from pathlib import Path
@@ -32,12 +33,18 @@ HEADERS = re.compile(r"^# --- (?:(\w+):)?[^\n]*\n", re.MULTILINE)
 # These blocks read fixtures, shell variables or functions made by an earlier block.
 DEPENDENCIES = (
     ("retry_start", "9"),
-    ("1", "2", "3", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "31"),
+    ("1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "31d"),
     ("6f", "6g"), ("7", "7b"), ("12", "12b"), ("16", "33"),
     ("20", "20b", "20c", "20d", "20e", "20f", "20g", "35"),
     ("21", "22"), ("23", "23b"), ("25", "25b"),
 )
-LIVE_CHECKS = {"1", "2", "3", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "6f", "6g"}
+# The checks that need the outside world: real models, GitHub, Discord, live meters, the shared
+# browser and user systemd.  The live mode (tests/live.sh) runs them and nothing else, before a
+# host takes new code and when a harness upgrades; the landing suite runs every other check and
+# reaches nothing beyond loopback.  Their offline twins run at landing: 19 the delivery path, 41
+# and 8a-8f the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
+LIVE_CHECKS = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "6f", "6g",
+               "31a", "31d"}
 
 
 def smoke_blocks(source):
@@ -53,9 +60,9 @@ def smoke_blocks(source):
 def smoke_owners(blocks, root, total, live=False, offline=False):
     groups = {name: group[0] for group in DEPENDENCIES for name in group}
     costs = {}
-    for name, body in blocks:
-        if name is None:
-            continue
+    mine = [(name, body) for name, body in blocks
+            if name is not None and (name in LIVE_CHECKS) == live]
+    for name, body in mine:
         # Source size estimates the work for new checks too; named test files contribute
         # their size, rather than counting a ten-case file like a hundred-case file.
         # Integer units keep independent processes identical even at equal loads.
@@ -64,20 +71,20 @@ def smoke_owners(blocks, root, total, live=False, offline=False):
             path = root / "tests" / (test + ".py")
             if path.is_file():
                 cost += len(path.read_text().splitlines()) * 3
-        if name.startswith("offline_") != offline or name in LIVE_CHECKS and not live:
+        if name.startswith("offline_") != offline:
             cost = 0
         group = groups.get(name, name)
         costs[group] = costs.get(group, 0) + cost
     owners = shares(costs, total)
-    return {name: owners[groups.get(name, name)] for name, _ in blocks if name is not None}
+    return {name: owners[groups.get(name, name)] for name, _ in mine}
 
 
 def smoke_source(source, root, piece, live=False, offline=False):
     blocks = smoke_blocks(source)
     number, total = piece
     owners = smoke_owners(blocks, root, total, live, offline)
-    # A colon leaves an enclosing live/offline guard valid when this piece owns none of it.
-    return "".join(body if name is None or owners[name] == number else ":\n"
+    # A colon leaves an enclosing offline guard valid when this piece owns none of it.
+    return "".join(body if name is None or owners.get(name) == number else ":\n"
                    for name, body in blocks)
 
 

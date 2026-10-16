@@ -41,23 +41,25 @@ class SuiteShares(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "AK_SHARD"):
                 suite.shard(value)
         self.assertEqual(suite.smoke_source(SMOKE, REPO, (1, 1)),
-                         SMOKE[SMOKE.index(suite.SETUP):])
+                         "".join(":\n" if name in suite.LIVE_CHECKS else body
+                                 for name, body in BLOCKS))
 
     def test_every_real_block_has_exactly_one_owner_and_keeps_its_body(self):
         names = [name for name, _ in BLOCKS if name is not None]
         self.assertEqual(len(names), len(set(names)), "duplicate smoke check header")
         for total in (1, 2, 3, 7, len(names) + 1):
-            owners = suite.smoke_owners(BLOCKS, REPO, total)
             seen = []
-            for number in range(1, total + 1):
-                chosen = suite.smoke_source(SMOKE, REPO, (number, total))
-                for name, body in BLOCKS:
-                    if name is None or owners[name] == number:
-                        self.assertIn(body, chosen)
-                        if name is not None:
-                            seen.append(name)
-                    else:
-                        self.assertNotIn(body, chosen)
+            for live in (False, True):
+                owners = suite.smoke_owners(BLOCKS, REPO, total, live)
+                for number in range(1, total + 1):
+                    chosen = suite.smoke_source(SMOKE, REPO, (number, total), live)
+                    for name, body in BLOCKS:
+                        if name is None or owners.get(name) == number:
+                            self.assertIn(body, chosen)
+                            if name is not None:
+                                seen.append(name)
+                        else:
+                            self.assertNotIn(body, chosen)
             self.assertCountEqual(seen, names)
 
     def test_dependent_checks_and_background_launches_stay_together(self):
@@ -65,7 +67,7 @@ class SuiteShares(unittest.TestCase):
             for live, offline in ((False, False), (True, False), (False, True)):
                 owners = suite.smoke_owners(BLOCKS, REPO, total, live, offline)
                 for group in suite.DEPENDENCIES:
-                    self.assertEqual(len({owners[name] for name in group}), 1, group)
+                    self.assertEqual(len({owners.get(name) for name in group}), 1, group)
                 for number in range(1, total + 1):
                     chosen = suite.smoke_source(SMOKE, REPO, (number, total), live, offline)
                     proc = subprocess.run(["bash", "-n"], input=chosen,
@@ -191,7 +193,7 @@ print("TESTS_RUN=1")
             (self.root / "tests" / f"test_acme_{n:02d}.py").write_text(body + "# padding\n" * n)
         (self.root / "tests/test_smoked.py").write_text('raise SystemExit("ran twice")\n')
         (self.root / "tests/smoke.sh").write_text(
-            '# --- 1: already covered in a different piece\n'
+            '# --- acme: already covered in a different piece\n'
             'python3 "$REPO/tests/test_smoked.py"\n')
 
     def run_files(self, value):
