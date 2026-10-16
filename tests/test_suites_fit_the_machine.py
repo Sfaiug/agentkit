@@ -103,9 +103,11 @@ class SuitesFitTheMachine(unittest.TestCase):
         self.assertEqual(gate.derived_heavy_limit(readings, running=0), int(3 / gate.HEAVY_CPUS))
 
     def test_finished_pieces_leave_their_cost_behind(self):
-        # Each piece runs two burners, one in the background, as the line's checker runs it:
-        # no run record, so no run cgroup, only the boxes' own reports.
-        suite = f"{BURN} & {BURN}; wait # AK_SHARD"
+        # Each piece burns once itself and once in a server it leaves running, as the line's
+        # checker runs it: no run record, so no run cgroup, only the boxes' own reports.
+        burnt = "burnt-${AK_SHARD%/*}"
+        suite = (f"({BURN}; touch {burnt}; sleep 60) >/dev/null 2>&1 & {BURN}; "
+                 f"until [ -e {burnt} ]; do sleep 0.1; done # AK_SHARD")
         repo = self.checkout("acme")
         reported, real = [], box.cpu_seconds
         def cpu_seconds(out_dir):

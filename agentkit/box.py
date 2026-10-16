@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 import pwd
 import re
-import resource
 import select
 import shlex
 import shutil
@@ -599,13 +598,16 @@ def _supervise(report, argv, drain=False):
                 pass
         except ChildProcessError:
             pass
-    left = []
+    left, ticks = [], 0
     for entry in Path("/proc").iterdir():
-        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+        if not entry.name.isdigit():
             continue
         try:
-            state = (entry / "stat").read_text().rsplit(")", 1)[1].split()[0]
-            if state in ("Z", "X"):
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            # Each process's own CPU and what it reaped: the box's whole spend, a server the
+            # command left running included, which no rusage counts until it is reaped.
+            ticks += sum(map(int, fields[11:15]))
+            if fields[0] in ("Z", "X") or int(entry.name) == os.getpid():
                 continue
             command = (entry / "cmdline").read_bytes().decode(errors="replace").replace("\0", " ").strip()
         except FileNotFoundError:
@@ -613,10 +615,8 @@ def _supervise(report, argv, drain=False):
         except OSError:
             command = "command unavailable"
         left.append([int(entry.name), command])
-    # PID 1 reaped every process the box ended, so their CPU is its children's.
-    spent = resource.getrusage(resource.RUSAGE_CHILDREN)
     Path(report).write_text(json.dumps({"returncode": code, "processes": left,
-                                        "cpu_seconds": spent.ru_utime + spent.ru_stime}))
+                                        "cpu_seconds": ticks / os.sysconf("SC_CLK_TCK")}))
     return 128 - code if code < 0 else code
 
 
