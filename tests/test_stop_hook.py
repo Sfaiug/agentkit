@@ -133,7 +133,7 @@ class StopHook(unittest.TestCase):
                        "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
         environment.update(env or {})
         done = subprocess.run(["bash", str(hook)], input=json.dumps(payload), text=True,
-                              capture_output=True, env=environment)
+                              capture_output=True, env=environment, timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
 

@@ -24,29 +24,30 @@ This section changes only with the owner's yes. Every other line has one home, a
 - The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). Either failure fails it. `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python that 3.11's grammar refuses, f-strings aside: a newer `python3` accepts f-strings 3.11 rejects (`f"{data["key"]}"`), so `python3.11 -m py_compile` what you touch that holds one. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
 - Checks needing more than loopback (`LIVE_CHECKS` in `tests/suite_shares.py`: real models, GitHub, Discord, live meters, shared browser, user systemd) run only in smoke.sh's live mode via `tests/live.sh`, which runs nothing else, before a host takes new code and when a harness upgrades.
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
-- Docs ride the change: `docs/guide.md` says what the code now does. `README.md` stays the front door: what ak is, the install line and how to start, nothing more.
+- `docs/guide.md` follows code changes. `README.md` holds only what ak is, installation and starting.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.
 
 ## Lessons
 
 Mistakes earlier work here made that no check catches and no one area of the code holds. One that becomes a check, or a comment at the code it is about, leaves this list.
 
-- Never start the landing suite (`tests/landing.py`, its `tests/smoke.sh` or `tests/every_file.py`): it runs every test at landing, so when you change a sentence, rule, order or name, grep tests/ and fix each test pinning it.
+- Never start the landing suite (`tests/landing.py`, `tests/smoke.sh`, `tests/every_file.py`). When wording changes, grep tests/ and fix assertions pinning it.
 - Comments say why. Listing screens go through `agentkit/terminal.py` (`docs/cli-design.md`).
 - Each run has a memory cap (exit 137). Commit before a test sweep; run only the files your change touches, three at most at once; background one only under `timeout -k 30 20m`, read before your turn ends.
 - Tests never touch real processes, units, seats, transcripts or state: fake process tables and tmux, injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`), a temporary HOME. A test calling `run.review`, `run.execute` or a sweep in-process clears `AGENTKIT_RUN`, `AK_PARENT_RUN`, `AK_RUN_LOG` and sets `AK_RUN_DEPTH=0`, `AK_MAX_RUNS=0`, or a refusal SIGTERMs your own run.
 - Commands call `bin/ak`, never bare `ak`. A changed signature: update every mock and fake of it in tests/; a fake takes `**_kw` for what it ignores.
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
-- Decide from exit codes and files, never another program's output text, which catches proofs and verdicts it shouldn't.
+- Decide from exit codes and files; a model reads prose only to catch owner questions.
 - Never re-create another system's semantics for an input nobody uses (Linux's path walk inside Git trees, for a linked AGENTS.md): every review round found one more difference. Refuse the input plainly instead.
 - A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title. A test never asserts a wall-clock duration (under 100 ms, say): host load breaks it at landing. Inject the clock and assert what it read: `tests/fixtures/sandbox.py` and `tests/fixtures/clock.py` say how.
-- When each review round finds one more state, race or recovery path, stop patching paths: delete the state or change the design so fewer paths must be right.
+- When review keeps finding races or recovery paths, delete state or simplify the design.
 - A task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"; "the internet answers", not "as the host does"): a reviewer measures every word, and each wider one costs findings.
 - A module removed from agentkit ends every run still on the old install at its next lazy import of it (`ImportError`, seen when `tell.py` went): keep the module whole until no run of the old install is left, then delete it.
 
 ## Owner rules
 
+- A question to the owner left only in a turn's prose is caught at the turn's end by a model and recorded as the seat's question. Reason: about 4% of turn ends asked the owner in prose and nobody was told. [16 Oct 2026]
 - Terminal input and output keep moving when both fill at once, for every model and harness, in the shared transport (`tests/test_seat_transport.py`). [8 Oct 2026]
 - A Muse seat keeps its own question tool: its question pages the owner and the seat waits for the answer, until a Muse version lets a hook catch that tool, as Codex's does. Reason: Muse 1.4.7 runs the tool past every PreToolUse hook, and the only way to remove it is a launch allowlist of every tool, which stops a seat from opening once Muse renames one and drops its todos and skills. [13 Oct 2026]
 - Codex pairing is optional and requested when the owner wants app access; opening or resuming a seat sends no setup alert. Optional access does not need the owner or block terminal work. [7 Oct 2026]

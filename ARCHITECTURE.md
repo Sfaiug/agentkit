@@ -127,6 +127,9 @@
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
+- `prose.py`: detached last-message reader after a real Stop without a question; picks a
+  worker, records its verbatim owner question through notify, or writes one seat-log line
+  on failure. For the orchestrator stop hook.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
 - `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs`, `parks` (the `parked_at` `leases.park` stamps) and `owner` for the scoreboard; the owner's moments, one row each naming no seat (`owner_time`, which notify writes).

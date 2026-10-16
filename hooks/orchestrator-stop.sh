@@ -17,9 +17,10 @@
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
-# then costs the user nothing but one turn.  A question mark in prose ends nothing: only the
-# question prompt or `ak notify needs` alerts the owner, and reading prose is not this hook's
-# to do.
+# then costs the user nothing but one turn. A question mark in prose changes no stop decision.
+# Once a turn really ends, without a recorded question, a detached model reads its last message
+# and records any still-open owner question as `needs`. The harness never waits for that reader;
+# held stops, background work and workers start none.
 #
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
@@ -69,6 +70,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.handback import handback_reason
+from agentkit.prose import start as read_prose
 from agentkit.stop import recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, start_look, turn_ended
 
@@ -173,7 +175,7 @@ def last_message(payload):
     return None
 
 
-def questioned(payload):
+def questioned(payload, unanswered=True):
     """Only an unanswered question still needs the owner; its result ends that wait.
 
     Input in the owner's words, as their harness tells them from its bookkeeping
@@ -201,7 +203,8 @@ def questioned(payload):
                 pass
         if entry.get("type") == "assistant" and isinstance(content, list) and any(
                 isinstance(part, dict) and part.get("type") == "tool_use"
-                and part.get("name") == "AskUserQuestion" and part.get("id") not in answered
+                and part.get("name") == "AskUserQuestion"
+                and (not unanswered or part.get("id") not in answered)
                 for part in content):
             return True
         name = item.get("name")
@@ -211,7 +214,7 @@ def questioned(payload):
         if (item.get("type") == "function_call" and tool in ("request_user_input",
                                                              "request_user_input_async")
                 and (item.get("call_id") in accepted if tool.endswith("_async")
-                     else item.get("call_id") not in answered)):
+                     else not unanswered or item.get("call_id") not in answered)):
             return True
     return False
 
@@ -335,6 +338,7 @@ def written(launched, kind):
 def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
+    turn = moment(read(config.seat_file("stop", launched)).get("turn"))
     back = held(launched, payload)
     if not back:
         # the stop stands: the turn a kept question was asked in has ended, and that is on
@@ -346,6 +350,8 @@ def main():
         start_look(launched)
     if back:
         print(json.dumps({"decision": "block", "reason": back}))
+    elif not background(payload) and not questioned(payload, unanswered=False):
+        read_prose(launched, turn, last_message(payload))
 
 
 main()
