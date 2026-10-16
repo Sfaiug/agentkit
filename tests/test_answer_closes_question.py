@@ -159,7 +159,8 @@ class AnswerClosesQuestion(Sandbox):
         harness, live = watch.look_at(self.seat, cfg=self.cfg)
         answer = watch.session_state(name, session=self.seat, cfg=self.cfg,
                                      harness=harness, live=live)
-        self.assertEqual((answer["word"], answer["reason"]), ("needs you", "waiting for you"))
+        self.assertEqual((answer["word"], answer["reason"]),
+                         ("needs you", "stopped with work open: the parser parses"))
         self.assertEqual(notify.transition(name, answer=answer, seat=self.seat), 0)
         self.assertEqual(self.edits, [("1", "Answered")])
         # The answer ended its episode: the seat waiting now is one of its own, not carded yet.

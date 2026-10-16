@@ -175,7 +175,7 @@ class Wait(Sandbox):
         self.assertTrue(wait["told"])
         self.assertEqual(self.tick(), [])       # once
         self.assertIsNone(watch.waiting_on(SEAT))
-        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertEqual(self.decide(), ("needs you", "stopped with work open: the parser parses"))
         self.assertIsNone(notify.last(SEAT, include_seen=True))   # told, not notified
         # a run that is gone altogether is over too
         self.receipt("20260101-0800-gone", OTHER)
@@ -194,7 +194,7 @@ class Wait(Sandbox):
         self.assertEqual(self.tick(), ["PR #12 merged as abcdef123456; your wait is over. "
                                        "Decide the next step."])
         self.assertEqual(self.tick(), [])
-        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertEqual(self.decide(), ("needs you", "stopped with work open: the parser parses"))
         self.wait(PR)
         self.gh = {"state": "CLOSED", "number": 12, "mergeCommit": None}
         self.assertEqual(self.tick(), ["PR #12 closed without merging; your wait is over. "
@@ -309,7 +309,7 @@ class Wait(Sandbox):
         self.assertEqual(self.tick(), [ENDED])
         self.receipt(THEIRS, OTHER)             # the same run going again changes nothing
         self.assertIsNone(watch.waiting_on(SEAT))
-        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertEqual(self.decide(), ("needs you", "stopped with work open: the parser parses"))
         self.assertEqual(self.tick(), [])
         self.wait(THEIRS)                        # a new wait, told in its turn
         self.assertEqual(self.decide(), ("working", f"waiting on {THEIRS}"))
@@ -325,7 +325,7 @@ class Wait(Sandbox):
             with self.subTest(old=old):
                 watch.seat_write(SEAT, wait=old)
                 self.assertIsNone(watch.waiting_on(SEAT))
-                self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+                self.assertEqual(self.decide(), ("needs you", "stopped with work open: the parser parses"))
                 self.assertIn('"block"', self.hook())
                 self.assertEqual(self.tick(), [])
                 self.assertEqual(self.tick(), [])
@@ -373,7 +373,7 @@ class Wait(Sandbox):
             self.assertEqual(self.tick(), [f"your wait on {PR} cannot be read (error connecting to "
                                            "api.github.com check your internet connection or "
                                            "https://githubstatus.com); your wait is over. Decide the next step."])
-        self.assertEqual(self.decide(), ("needs you", "waiting for you"))
+        self.assertEqual(self.decide(), ("needs you", "stopped with work open: the parser parses"))
         # a logged-out gh is the owner's to fix: the wait holds, and the seat is held up by gh
         # like one with a push to make (rung 1b), however many ticks it takes
         self.gh = {"state": "OPEN", "number": 12, "mergeCommit": None}

@@ -170,7 +170,7 @@ exec "$REAL_PYTHON" "$@"
             after = self.hook("Notification", notification_type=PASSIVE[0],
                               env={**self.env, config.ADAPTER_DIR_ENV: str(adapters)})
             self.assertNotEqual(after, before)
-            self.assertEqual(self.looked(), ("needs you", True))
+            self.assertEqual(self.looked(), ("idle", True))
 
     def test_a_paused_notice_never_lands_over_a_new_stop_or_prompt(self):
         bindir = self.root / "bin"

@@ -36,8 +36,8 @@ class Projects(Sandbox):
                                         "began": seat.get("since", NOW - 600),
                                         "since": seat.get("since", NOW - 600)}))
         self.notices = {}
-        self.stack.enter_context(patch.object(menu.notify, "last",
-                                              side_effect=self.notices.get))
+        self.stack.enter_context(patch.object(
+            menu.notify, "last", side_effect=lambda session, **_kw: self.notices.get(session)))
         # Two checkouts, one directory that is none, and one checkout nobody sits in.
         for name in ("atoll", "agentkit", "unstaffed"):
             (config.CODE / name / ".git").mkdir(parents=True)
@@ -187,13 +187,13 @@ class Projects(Sandbox):
             return [line for line in screen.splitlines() if count.search(line)]
 
         screen = self.draw(100, 30)
-        self.assertEqual(counted(screen), ["your projects · 3 need you"])
+        self.assertEqual(counted(screen), ["your projects · 2 need you"])
         # No heading ever says it, however many of its seats need him.
         for line in self.headings(screen):
             self.assertNotIn("needs you", line)
             self.assertNotIn("need you", line)
         # A seat's own state word is its state, said once on each needing row.
-        self.assertEqual(screen.count("! needs you"), 3)
+        self.assertEqual(screen.count("! needs you"), 2)
         # One needing seat, and none at all: still once, still the top line.
         self.seats = self.seats[:1]
         self.assertEqual(counted(self.draw(100, 30)), ["your projects · 1 needs you"])

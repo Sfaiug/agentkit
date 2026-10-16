@@ -435,7 +435,7 @@ class Parked(unittest.TestCase):
                                           "hooked_at": self.now - 20}, None),
                         ("done", "Shipped it", {},
                          {"kind": "done", "text": "Shipped it", "time": self.now}),
-                        ("needs you", "waiting for you", {}, None)):
+                        ("idle", "", {}, None)):
                     with self.subTest(reason=reason, indexed=index is not None, word=word), \
                             patch.object(watch.notify, "last", return_value=notice):
                         found = watch.session_state(
@@ -743,7 +743,7 @@ class Parked(unittest.TestCase):
                 for word, live, notice in (
                         ("working", {"hooked": "working", "hooked_at": self.now - 20}, None),
                         ("done", {}, {"kind": "done", "text": "Shipped it", "time": self.now}),
-                        ("needs you", {}, None)):
+                        ("idle", {}, None)):
                     with self.subTest(extra=extra, indexed=index is not None, word=word), \
                             patch.object(watch.notify, "last", return_value=notice), \
                             patch.object(watch, "seat_read", return_value=live), \

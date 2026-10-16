@@ -41,11 +41,21 @@ def owed(name):
     """Whether the seat owes work: a line in its plan it owes (`plan.owed`, as a done reads
     it), or a plan nothing can read, which proves nothing done.  Read without the plan's lock:
     a harness hook never waits on it, and every plan write is a whole-file replace."""
+    return owed_line(name) is not None
+
+
+def owed_line(name):
+    """The first line the seat owes, in its plan's own words; "" for a plan nothing can read,
+    which proves nothing done either; None where it owes nothing."""
     from . import plan
     try:
-        return any(plan.owed(name, line) for line in plan.lines(name))
+        for line in plan.lines(name):
+            if plan.owed(name, line):
+                found = plan.LINE.match(line.strip())
+                return found["what"] if found else line.strip().partition("] ")[2]
     except config.Error:
-        return True
+        return ""
+    return None
 
 
 def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,

@@ -224,14 +224,14 @@ class Rendering(Sandbox):
             self.assertTrue(all(terminal.cells(line) <= width for line in terminal.seats(rows, width)))
 
     def test_waiting_and_legacy_details_do_not_invent_states(self):
-        # A seat the watchdog is waiting out is still one of the three words, and its
+        # A seat the watchdog is waiting out is still one of the four words, and its
         # row's last column is the reason for that word -- never a state of its own.
         with patch.object(menu.notify, "last", return_value=None), \
                 patch("agentkit.watch.load_state", return_value={"stalls": {
                     "legacy-seat": {"status": "waiting until 2026-09-10 14:00"}}}):
             row = menu.row(self.cfg, 1, {"name": "legacy-seat", "legacy": True, "created": 100})
         self.assertIn(row[3], terminal.STATES)
-        self.assertEqual(row[4], "waiting for you")
+        self.assertEqual(row[3:5], ["idle", ""])
 
     def test_job_feedback_shortens_home_before_truncating_the_log_name(self):
         notice = f"update: FAILED ({self.root}/.agentkit/tmp/update-20260910-140200.log)"

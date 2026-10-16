@@ -78,16 +78,15 @@ class SeatStates(unittest.TestCase):
             self.assertEqual(orch.attach("seat", wait=True), 0)
 
     # --- (a) ---------------------------------------------------------------
-    def test_a_turn_ended_reads_needs_you(self):
+    def test_a_turn_ended_with_nothing_owed_reads_idle(self):
         ended = time.time() - 3 * 3600
         self.fact("Stop", at=ended)
-        self.assertEqual(menu.status(self.seat), ("needs you", ended))
-        self.assertEqual(menu.row(self.cfg, 1, self.seat)[3:],
-                         ["needs you", "waiting for you", "3h"])
-        self.assertEqual(orch.state_word(self.seat, self.cfg), "needs you")
+        self.assertEqual(menu.status(self.seat), ("idle", ended))
+        self.assertEqual(menu.row(self.cfg, 1, self.seat)[3:], ["idle", "", "3h"])
+        self.assertEqual(orch.state_word(self.seat, self.cfg), "idle")
         self.open_seat()                      # the same open v4x records, and nothing else
         word, since = menu.status(self.seat)
-        self.assertEqual(word, "needs you")
+        self.assertEqual(word, "idle")
         self.assertGreaterEqual(since, ended)
         self.assertEqual(watch.seat_read("seat")["authority"], "hook")
 
@@ -135,7 +134,7 @@ class SeatStates(unittest.TestCase):
     # --- (d) ---------------------------------------------------------------
     def test_d_notified_and_unnotified_seats_never_borrow_each_other_s_word(self):
         self.fact("Stop", at=time.time() - 600)
-        self.assertEqual(menu.state(self.seat), "needs you")
+        self.assertEqual(menu.state(self.seat), "idle")
         self.assertIsNone(notify.last("seat"))          # and nothing here ever posts one
         with redirect_stdout(io.StringIO()):
             self.assertEqual(notify.shaped("needs", "May I merge?", session="seat"), 0)
@@ -157,14 +156,14 @@ class SeatStates(unittest.TestCase):
                 patch.object(notify, "progress", return_value=None):
             watch.health(self.cfg, {"stalls": {}}, False, lambda _: None)
         self.assertEqual(menu.status(self.seat), first)
-        self.assertEqual(self.options["set-titles-string"], "seat · needs you")
+        self.assertEqual(self.options["set-titles-string"], "seat · idle")
 
     def test_e2_a_live_state_is_never_a_reason_to_type_into_a_seat(self):
         """Classifying is looking. Only a harness's own stall signature moves the babysitter."""
         with patch.object(watch, "seat_model", lambda *_: ("claude", "anthropic")), \
                 patch.object(notify, "progress", return_value=None), \
                 patch.object(watch, "type_into", return_value=True) as typed:
-            for kind, word in (("prompt", "needs you"), ("dialog", "needs you"),
+            for kind, word in (("prompt", "idle"), ("dialog", "needs you"),
                                ("working", "working")):
                 with self.subTest(kind=kind):
                     self.pane = self.fixture("claude", kind)
@@ -211,7 +210,7 @@ class SeatStates(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(orch.cmd_list(["--why"]), 0)
         text = out.getvalue()
-        self.assertIn("needs you", text)
+        self.assertIn("idle", text)
         self.assertIn("authority: hook", text)
         self.assertIn("rule: Stop", text)
         self.assertIn("evidence:", text)

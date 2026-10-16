@@ -219,9 +219,9 @@ class Tallies(Sandbox):
         # No age on any row: the last column, not a clock, says what the seat is doing.
         self.assertNotRegex(screen, r"(?m)\d+[smhd]\s*$")
         # The count is said once, on the top line.
-        self.assertIn("your projects · 3 need you", screen)
+        self.assertIn("your projects · 1 needs you", screen)
         # ... and each needing row says the word too, in the state column
-        self.assertEqual(screen.count("needs you"), 3)
+        self.assertEqual(screen.count("needs you"), 2)
         with patch.object(terminal, "colour_depth", return_value=24):
             coloured, _ = self.draw(100, 30)
         self.assertIn(terminal.styled("atoll", "accent"), coloured)
@@ -272,12 +272,12 @@ class Tallies(Sandbox):
         self.assertRegex(lines[-1], r"^(slice \S+ ·|no slice )")
         self.assertRegex(lines[0], r"^name\s+project\s+state\s+tally\s+orchestrator\s+workers\s+age$")
         for name, expected in (("herdr", r"agentkit\s+● working\s+1 running · 1 merged\s+fable\s+opus\s+5d"),
-                               ("atoll-fix", r"! needs you\s+0 running · 3 merged\s+fable\s+opus\s+5d"),
+                               ("atoll-fix", r"○ idle\s+0 running · 3 merged\s+fable\s+opus\s+5d"),
                                ("atoll-proxy", r"! needs you\s+0 running · 1 needs you\s+fable\s+opus\s+"),
-                               ("scribe", r"no project\s+! needs you\s+no runs yet\s+fable\s+opus\s+")):
+                               ("scribe", r"no project\s+○ idle\s+no runs yet\s+fable\s+opus\s+")):
             line = next(line for line in lines if line.startswith(name + " "))
             self.assertRegex(line, expected)
-        self.assertRegex(lines[1], r"^atoll-fix\s+atoll\s+! needs you\s+0 running")
+        self.assertRegex(lines[1], r"^atoll-fix\s+atoll\s+○ idle\s+0 running")
 
     def test_v5g_h_three_hundred_records_draw_in_under_a_second_reading_each_once(self):
         for n in range(300):

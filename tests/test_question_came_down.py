@@ -97,7 +97,7 @@ class QuestionCameDown(Sandbox):
                   message="Claude needs your permission")
         fact = self.hook("Notification", notification_type="idle_prompt",
                          message="Claude is waiting for your input")
-        self.assertEqual(self.looked(PROMPT, fact), ("needs you", True))
+        self.assertEqual(self.looked(PROMPT, fact), ("idle", True))
 
 
 if __name__ == "__main__":

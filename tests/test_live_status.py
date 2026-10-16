@@ -200,7 +200,7 @@ class LiveStatus(unittest.TestCase):
         env["FAKE_TMUX_SLOW"] = "0"
         stop({"hook_event_name": "Stop", "background_tasks": []})
         hook({"hook_event_name": "Stop", "background_tasks": []})
-        published("needs you")
+        published("idle")
         hook({"hook_event_name": "UserPromptSubmit", "prompt": "go"})
         published("working")
         # ... or this one first: the seat is as it was until that one's word lands, then it moves
@@ -208,10 +208,10 @@ class LiveStatus(unittest.TestCase):
         time.sleep(1)
         self.assertEqual(dict(sets())["set-titles-string"], "herdr · working")
         stop({"hook_event_name": "Stop", "background_tasks": []})
-        options = published("needs you")
+        options = published("idle")
         self.assertEqual(drawn(options[statusbar.TOP]),
-                         " ▐! needs you▌  herdr  opus orchestrates")
-        self.assertEqual(watch.seat_read("herdr")["word"], "needs you")
+                         " ▐○ idle▌  herdr  opus orchestrates")
+        self.assertEqual(watch.seat_read("herdr")["word"], "idle")
 
     def test_a_hook_outside_the_seat_s_own_pane_moves_no_bar(self):
         # a harness under some other tmux, or a sandbox that borrowed a seat's name, is not
@@ -281,7 +281,7 @@ class LiveStatus(unittest.TestCase):
         # the flip's own look captured the one pane; the draws the news asked for, none
         self.assertEqual(captures, [captures[0], captures[0] + 1, captures[0] + 1])
         rows = [[line for line in screen.splitlines() if " herdr " in line] for screen in screens]
-        self.assertIn("! needs you", rows[0][0])
+        self.assertIn("○ idle", rows[0][0])
         self.assertIn("● working", rows[1][0])          # the recorded word
         self.assertIn("● working", rows[2][0])
 
@@ -364,9 +364,9 @@ class LiveStatus(unittest.TestCase):
             release.set()
             older.join(5)
             newer.join(5)
-        self.assertEqual(watch.seat_read("herdr")["word"], "needs you")
-        self.assertIn("! needs you", self.options[statusbar.TOP])
-        self.assertEqual(self.options["set-titles-string"], "herdr · needs you")
+        self.assertEqual(watch.seat_read("herdr")["word"], "idle")
+        self.assertIn("○ idle", self.options[statusbar.TOP])
+        self.assertEqual(self.options["set-titles-string"], "herdr · idle")
 
     def test_the_tick_s_older_look_never_lands_after_the_hook_s(self):
         # the tick reads the seat mid-turn; the turn ends and the seat's own hook publishes that
@@ -398,8 +398,8 @@ class LiveStatus(unittest.TestCase):
             release.set()
             tick.join(10)
             hook.join(10)
-        self.assertEqual(watch.seat_read("herdr")["word"], "needs you")
-        self.assertEqual(self.options["set-titles-string"], "herdr · needs you")
+        self.assertEqual(watch.seat_read("herdr")["word"], "idle")
+        self.assertEqual(self.options["set-titles-string"], "herdr · idle")
 
     def test_a_capture_that_hangs_holds_up_no_draw(self):
         # a second seat whose screen takes its time: the menu still draws at once, and draws
@@ -448,7 +448,7 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual([ready for ready, _ in woke], [True])
         self.assertLess(woke[0][1], 2.0)
         rows = [[line for line in screen.splitlines() if " herdr " in line] for screen in screens]
-        self.assertIn("! needs you", rows[0][0])
+        self.assertIn("○ idle", rows[0][0])
         self.assertIn("● working", rows[1][0])
 
     def test_the_menu_s_looks_use_the_config_the_c_screen_saved(self):
@@ -516,8 +516,8 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(watch.hook_look("herdr")["word"], "working")
         hook("orchestrator-stop.sh", {"hook_event_name": "Stop", "background_tasks": []})
         self.assertEqual(watch.hook_facts("tern")["event"], "Stop")
-        self.assertEqual(watch.hook_look("herdr")["word"], "needs you")
-        self.assertIn("! needs you▌  tern  opus orchestrates", drawn(self.options[statusbar.TOP]))
+        self.assertEqual(watch.hook_look("herdr")["word"], "idle")
+        self.assertIn("○ idle▌  tern  opus orchestrates", drawn(self.options[statusbar.TOP]))
 
     def test_the_row_and_the_bar_say_the_same_after_a_flip(self):
         self.plan(4, 8)

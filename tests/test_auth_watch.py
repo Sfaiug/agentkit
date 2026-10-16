@@ -110,7 +110,8 @@ class AuthWatch(unittest.TestCase):
         stale = copy.deepcopy(self.data)
         self.pane += "\nReading the next file"
         self.tick(1)
-        self.assertEqual(menu.state(self.seats[0]), "needs you")
+        # the login came back and nothing else is asked or owed: the seat rests
+        self.assertEqual(menu.state(self.seats[0]), "idle")
         self.assertIsNone(notify.last("auth-seat"))
         watch.save_state(stale)
         self.assertNotIn("auth-seat", watch.load_state()["stalls"])
@@ -285,7 +286,7 @@ class AuthWatch(unittest.TestCase):
                     self.meters.assert_not_called()
                     self.pane += "\nReading the next file"
                     self.tick(1)
-                    self.assertEqual(menu.state(self.seats[0]), "needs you")
+                    self.assertEqual(menu.state(self.seats[0]), "idle")
 
     def test_claude_login_instruction_inside_reworded_output_alerts_immediately(self):
         self.pane = self.fixture("claude").replace(

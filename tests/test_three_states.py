@@ -233,8 +233,10 @@ class ThreeStates(Sandbox):
                     record.save_state(old, {**record.read_state(old),
                                          "recovery_acknowledged_at": NOW})
                 self.receipt(name, **extra)
-                # the seat is still in its chair: the ending was handed back to it
-                self.assertEqual(self.decide()["reason"], "waiting for you")
+                # the seat is still in its chair: the ending was handed back to it, and the
+                # reason is its own plan, never the run
+                self.assertEqual((self.decide()["word"], self.decide()["reason"]),
+                                 ("needs you", "stopped with work open: the parser parses"))
                 found = self.decide(gone=True)
                 self.assertEqual(found["word"], "needs you")
                 self.assertRegex(found["reason"], r"^session closed: press \d+ to reopen$")
@@ -279,10 +281,18 @@ class ThreeStates(Sandbox):
                      started_at=NOW - 60, title="The next one")
         self.assertEqual(self.decide()["word"], "working")
 
-    def test_g_at_its_prompt_with_nothing_running_is_needs_you(self):
-        # Nothing recorded at all: it is his, and the reason says only that.
-        self.assertEqual(self.decide(), {"word": "needs you", "reason": "waiting for you",
+    def test_g_at_its_prompt_with_nothing_running_is_idle_or_owed_work(self):
+        # A line of its plan still owed, and nothing on it running: it stopped with its work
+        # open, which is the owner's.
+        self.assertEqual(self.decide(), {"word": "needs you",
+                                         "reason": "stopped with work open: the parser parses",
                                          "since": self.decide()["since"]})
+        # Nothing owed: it rests.
+        plan = config.plan_path("atoll")
+        kept = plan.read_text()
+        plan.unlink()
+        self.assertEqual((self.decide()["word"], self.decide()["reason"]), ("idle", ""))
+        plan.write_text(kept)
         # A question it asked with `ak notify needs` is the reason.
         notify.record("atoll", "needs", "Which of the two schemas should it read?")
         found = self.decide()

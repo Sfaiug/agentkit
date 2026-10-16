@@ -9,7 +9,7 @@ agentkit                           14:02
   Grok     —  no reading yet
   ChatGPT  ████████░░░░   69% left
 
-your projects · 3 need you
+your projects · 1 needs you
 
 ATOLL
   2  atoll-plan  fable  ! needs you
@@ -17,11 +17,9 @@ ATOLL
   1  atoll-fix   fable  ● working
 
 agentkit
-  3  menu        fable  ! needs you
-    waiting for you
+  3  menu        fable  ○ idle
 
 newsletter-tool
-  4  rent        fable  ! needs you
-    waiting for you
+  4  rent        fable  ○ idle
 
   n new   x stop   c config   esc leave

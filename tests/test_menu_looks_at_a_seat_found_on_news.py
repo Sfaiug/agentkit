@@ -83,7 +83,7 @@ class MenuLooksAtASeatFoundOnNews(Sandbox):
         self.assertEqual(len(seen), 2, "the seat was never attached")
         looker, published = seen
         self.assertIsNot(looker, holder["first"], "the read that found the seat began no look")
-        self.assertIn(published, ("working", "needs you", "done"))
+        self.assertIn(published, ("working", "needs you", "done", "idle"))
 
     def seat(self, name, **facts):
         config.save_session(self.cfg, name, "astra", ["opus"],

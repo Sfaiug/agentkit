@@ -77,9 +77,10 @@ class Projects(Sandbox):
             self.assertIn("\nATOLL\n", screen)
             self.assertIn("\nagentkit\n", screen)
             self.assertNotIn("seats", screen)
-            self.assertIn("your projects · 3 need you", screen)
-            # ... and each of those three rows says the word once, in its state column
-            self.assertEqual(screen.count("needs you"), 3)
+            self.assertIn("your projects · 1 needs you", screen)
+            # ... and the one row says the word once, in its state column; the seats that rest
+            # read idle
+            self.assertEqual(screen.count("needs you"), 2)
             # A run makes no project: not a scratch one, and not `not-a-checkout`.
             self.assertNotIn("scratch ·", screen)
             self.assertNotIn("not-a-checkout", screen)
@@ -133,7 +134,7 @@ class Projects(Sandbox):
     def test_b_rollups_reuse_row_precedence_across_seats(self):
         groups = {project["name"]: project for project in menu.projects(self.cfg, self.seats)}
         self.assertEqual(groups["ATOLL"]["word"], "needs you")
-        self.assertEqual(groups["agentkit"]["word"], "needs you")
+        self.assertEqual(groups["agentkit"]["word"], "idle")   # its one seat rests
         self.assertNotIn("scratch", groups)
         self.assertEqual(menu.rollup(["working", "done"]), "working")
         self.assertEqual(menu.rollup(["done", "done"]), "done")

@@ -79,7 +79,8 @@ Needing projects sort first, which is what carries the eye down to one. Under
 a heading seats sort needs you, then working, then done, then idle, then by name, and
 numbers stay global by seat name. The seat row's last column is the reason for
 `needs you` and `done` -- `session closed: press 2 to reopen`, the question
-the seat asked, `waiting for you`, the done summary's first line -- and for
+the seat asked, `stopped with work open: <line>`, the done summary's first line
+-- an idle seat's is empty -- and for
 `working` the tasks bar (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, else empty --

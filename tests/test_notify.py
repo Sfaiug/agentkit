@@ -223,9 +223,9 @@ class Notifications(unittest.TestCase):
         # The menu's actual attach path calls seen_by_user after a successful client switch;
         # the question is answered by the output that follows it, not by the open.
         self.open_and_progress()
-        # The question is answered, so the row is back to a seat at its prompt: his again,
-        # with nothing to say about it.
-        self.assertEqual(menu.state({"name": "seat"}), "needs you")
+        # The question is answered, so the row is back to a seat at its prompt with nothing
+        # asked or owed: at rest.
+        self.assertEqual(menu.state({"name": "seat"}), "idle")
         self.assertIsNone(notify.last("seat"))
         self.assertEqual([r[1] for r in self.requests[1:]],
                          ["/hook/messages/1?thread_id=42"])

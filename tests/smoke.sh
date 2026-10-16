@@ -803,9 +803,9 @@ class SessionState(unittest.TestCase):
         self.now += 1
         notify.answered("seat", self.now)
         self.tick()
-        # the question is answered, and the row says what the seat is now: his again,
-        # at its prompt with nothing to say why
-        self.assertEqual(menu.state(self.seat), "needs you")
+        # the question is answered, and the row says what the seat is now: at its prompt with
+        # nothing running, asked or owed, at rest
+        self.assertEqual(menu.state(self.seat), "idle")
         facts = notify.last("seat", include_seen=True)
         self.assertLessEqual(facts["time"], facts["opened_at"])
         self.assertLess(facts["opened_at"], facts["answered_at"])
@@ -816,7 +816,7 @@ class SessionState(unittest.TestCase):
         for attached in (True, False, True):
             self.seat["attached"] = attached
             self.tick()
-            self.assertEqual(menu.state(self.seat), "needs you")
+            self.assertEqual(menu.state(self.seat), "idle")
         self.assertEqual(self.saved(), before)
 
     def test_c_list_render_capture_and_watch_never_acknowledge(self):
@@ -1009,8 +1009,9 @@ class SessionState(unittest.TestCase):
         self.assertTrue(notify.last("seat")["watcher"])
         self.edits.reset_mock()    # the alert ended the answered question's card
         watch.forget("seat", acknowledge=False, notice=text)
-        # the alert is retracted; nobody has opened this seat, so its own screen speaks for it
-        self.assertEqual(menu.state(self.seat), "needs you")
+        # the alert is retracted; nobody has opened this seat, so its own screen speaks for it:
+        # a prompt with nothing asked, at rest
+        self.assertEqual(menu.state(self.seat), "idle")
         self.edits.assert_called_once()
         for kind in ("needs", "done"):
             self.now += 1
@@ -1142,7 +1143,7 @@ class SessionState(unittest.TestCase):
             before = self.saved()
             notify._remember_retry(event, "seat")
             self.assertEqual(self.saved(), before)
-            self.assertEqual(menu.state(self.seat), "needs you")
+            self.assertEqual(menu.state(self.seat), "idle")     # answered, so at rest
         self.assertEqual(notify.last("seat", include_seen=True)["open_needs"], [])
 
 
@@ -1252,7 +1253,7 @@ class Notifications(test_notify.Notifications):
         self.assertEqual(len(self.requests), 1)   # one card per episode, whatever it asks
         self.assertEqual(menu.state({"name": "seat"}), "needs you")
         self.open_and_progress()
-        self.assertEqual(menu.state({"name": "seat"}), "needs you")
+        self.assertEqual(menu.state({"name": "seat"}), "idle")     # answered, so at rest
         self.assertIsNone(notify.last("seat"))
         self.assertEqual([r[1] for r in self.requests[1:]],
                          ["/hook/messages/1?thread_id=42"])
@@ -3915,9 +3916,10 @@ done
 # the popup drew this server's two seats, in order, under the overlay's own key line
 grep -q 'n start a session   c models   x stop this session   esc leave' "$WORK/overlay-popup.txt" &&
   grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
-NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
-grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
-grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
+# two seats holding a sleep, with nothing asked or owed: at rest
+IDLE_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
+grep -q "1  $OV1  fable  $IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q "2  $OV2  astra  $IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q 'p preview' "$WORK/overlay-popup.txt" && OVERLAY=1   # not offered over a running session
 # 2 switches this client to that seat, and the popup comes down behind it. switch-client, the
 # popup closing and the seat drawing its own bar are three redraws, in that order and none of
@@ -5541,7 +5543,7 @@ else
 fi
 # --- 42: seat states ------------------------------------------------------
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
-  ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
+  ok "42 seat states: a session is working, needs you, done or idle -- (a) a turn-ended hook fact with nothing owed reads 'idle', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
   no "42 seat states"; tail -30 "$WORK/seat-state.log"
 fi
@@ -5669,7 +5671,7 @@ record = config.save_session(cfg, "echo-seat", "echo", cfg["defaults"]["workers"
 seat = {"name": "echo-seat", "path": record["cwd"], "created": record["created"],
         "attached": False, "exited": False, "legacy": False, "resumable": False, "repo": None}
 bad = []
-for kind, state, word, rule in (("idle", "at_prompt", "needs you", "prompt.composer"),
+for kind, state, word, rule in (("idle", "at_prompt", "idle", "prompt.composer"),
                                 ("working", "working", "working", "working.interrupt"),
                                 ("asking", "asking", "needs you", "asking.chooser")):
     with patch.object(watch, "pane_text", return_value=PANES[kind]), \
@@ -5769,7 +5771,7 @@ record = config.save_session(cfg, "smoke-grok", "grok", cfg["defaults"]["workers
 seat = {"name": "smoke-grok", "path": record["cwd"], "created": record["created"],
         "attached": False, "exited": False, "legacy": False, "resumable": False, "repo": None}
 bad = []
-for kind, state, word, rule in (("idle", "at_prompt", "needs you", "prompt.composer"),
+for kind, state, word, rule in (("idle", "at_prompt", "idle", "prompt.composer"),
                                 ("working", "working", "working", "working.turn"),
                                 ("asking", "asking", "needs you", "asking.trust")):
     with patch.object(watch, "pane_text", return_value=PANES[kind]), \
