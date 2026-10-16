@@ -58,6 +58,8 @@ class RetryReadsWorking(Sandbox):
         notify.record(SEAT, "needs", told, time=9900, watcher=True)
         watch.seat_write(SEAT, usage_refusal={"line": "API Error: 429", "at": 6000, "told": 9900})
         self.assertEqual(self.word(STALL), ("needs you", told))
+        watch.forget(SEAT, acknowledge=False, opening=True)    # the owner takes it over
+        self.assertEqual(self.word(STALL), RETRYING)
 
     def test_a_legacy_seat_the_tick_never_types_into_is_no_retry(self):
         self.assertEqual(self.word(STALL, legacy=True), ("idle", ""))

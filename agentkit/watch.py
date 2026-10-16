@@ -1055,6 +1055,9 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
                 notice = last["text"]    # the user is taking over the watcher's recovery
             if not opening or not last or last.get("watcher") is True:
                 state["stalls"].pop(name, None)
+                # ... and seat_account's give-up on a bare rate limit, kept in the seat's record
+                if (seat_read(name).get("usage_refusal") or {}).get("told"):
+                    seat_write(name, usage_refusal=None)
             if notice is not None:
                 notify.clear(name, notice=notice)
             elif acknowledge:
