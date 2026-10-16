@@ -246,7 +246,7 @@ class DesktopAndBoot(Sandbox):
         with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
             notify.main(["needs", "Question?", "--session", "source", "--dry-run"])
         self.assertEqual(json.loads(out.getvalue())["embeds"][0]["title"], "Needs you · source")
-        self.assertNotIn("description", json.loads(out.getvalue())["embeds"][0])
+        self.assertEqual(json.loads(out.getvalue())["embeds"][0]["description"], "Question?")
         self.assertIn("terminal notice: Needs you · source: Question?", err.getvalue())
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.output(other), b"")

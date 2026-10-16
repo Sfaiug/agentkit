@@ -1239,7 +1239,7 @@ class Notifications(test_notify.Notifications):
         self.cli("needs", "Merge PR #7? yes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
         payload = self.requests[0][2]
-        self.assertEqual(payload["content"], "<@123456789012345678>")
+        self.assertEqual(payload["content"], "Merge PR #7? · seat <@123456789012345678>")
         self.assertEqual(payload["embeds"][0]["title"], "Needs you · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0xF5A623)
         before = config.notify_path("seat").read_bytes()
@@ -4900,7 +4900,7 @@ grep -qE '^\[[0-9:]*\] the orchestrator session orch-x this run was launched fro
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1
 jq -e '.username == "agentkit"
   and .embeds[0].title == "Needs you · orch-x" and .embeds[0].color == 16098851
-  and (.embeds[0] | has("description") | not)
+  and (.embeds[0].description | startswith("Its orchestrator session orch-x is gone."))
   and ((.embeds[0].fields // []) | length == 0)' "$WORK/hook-posts.txt" >/dev/null 2>&1 || FB=1
 jq -e '.session == "orch-x" and .kind == "needs" and (.text | startswith("Its orchestrator session orch-x is gone."))' \
   "$FBH/.agentkit/state/notify-orch-x.json" >/dev/null 2>&1 || FB=1

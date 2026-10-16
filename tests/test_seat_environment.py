@@ -27,7 +27,7 @@ from agentkit import config, notify
 notify.record(os.environ[config.SESSION_ENV], "done", "Probe complete")
 print(json.dumps({"home": str(config.HOME), "destination": notify.webhook(),
                   "sink_log": os.environ.get(notify.SINK_LOG_ENV, ""),
-                  "mention": notify.mention(),
+                  "mention": notify._secret(notify.USER_ID_ENV, "discord_user_id"),
                   "state_roots": {key: os.environ.get(key) for key in sys.argv[2:]},
                   "session": config.current_session(),
                   "socket": os.environ.get("AGENTKIT_TMUX_SOCKET")}))

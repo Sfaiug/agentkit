@@ -204,10 +204,12 @@ class Notifications(unittest.TestCase):
         self.assertEqual(notify.last("seat")["text"], "API shipped")
 
     def test_lifecycle_and_approved_payload(self):
-        self.cli("needs", "Merge PR #7? yes/no")
+        self.cli("needs", "Merge PR #7?\nyes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
         payload = self.requests[0][2]
         self.assertEqual(payload["content"], "Merge PR #7? · seat <@123456789012345678>")
+        # as it was asked, not as the seat's row shows it
+        self.assertEqual(payload["embeds"][0]["description"], "Merge PR #7?\nyes/no")
         self.assertEqual(payload["embeds"][0]["title"], "Needs you · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0xF5A623)
         before = config.notify_path("seat").read_bytes()

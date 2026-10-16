@@ -229,21 +229,15 @@ def _read(paths):
     return files
 
 
-def mention():
-    """The `<@id>` that makes Discord push-notify the user, or "" when no id is configured."""
-    user_id = _secret(USER_ID_ENV, "discord_user_id")
-    return f"<@{user_id}>" if user_id else ""
-
-
 def lead(kind, text):
-    """The sentence a page leads with, and a row: a question up to its "?", else the first
+    """The sentence a page leads with, and a row: a question up to its "?", across the lines it
+    wraps onto -- a "?" a word goes on from is a link's query, not the end -- else the first
     sentence -- up to the first ".", "!" or "?" a space or the line's end follows -- of the first
     line that says anything."""
+    asked = re.match(r".*?\?(?!\w)", " ".join(str(text).split())) if kind == "needs" else None
+    if asked:
+        return asked.group()
     first = next((line.strip() for line in str(text).splitlines() if line.strip()), "")
-    if kind == "needs":
-        asked, mark, _ = first.partition("?")
-        if mark:
-            return asked + mark
     end = re.search(r"[.!?](?=\s|$)", first)
     return first[:end.end()] if end else first
 
@@ -995,7 +989,10 @@ def _remember_card(event, previous=None):
 def _send_card(session, kind, card, answer):
     """Queue once under the session lock; the outbox owns any further attempts."""
     previous = last(session, include_seen=True)
-    text = previous["text"] if kind == "done" and previous else answer["reason"]
+    text = answer["reason"]
+    # The seat's word shows its notice on one line; the card carries the notice as written.
+    if previous and (kind == "done" or " ".join(str(previous["text"]).split()) == text):
+        text = previous["text"]
     payload = card_payload(kind, session, text)
     key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
     with outbox_lock():
@@ -1359,8 +1356,8 @@ def _completion(session):
 
 def asks_first(text):
     """Refuse a question whose "?" is not within its first ASK_CAP characters."""
-    asked, mark, _ = " ".join(text.split()).partition("?")
-    if not mark or len(asked) >= ASK_CAP:
+    asked = lead("needs", text)
+    if not asked.endswith("?") or len(asked) > ASK_CAP:
         raise config.Error(f'put the question first, its "?" within {ASK_CAP} characters: '
                            "the status bar and the menu show a question's start; context "
                            "goes after it")

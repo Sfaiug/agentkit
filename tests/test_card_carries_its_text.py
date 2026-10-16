@@ -28,6 +28,8 @@ class CardCarriesItsText(unittest.TestCase):
         self.assertEqual(notify.lead("needs", "Fix landed. Should it ship today? It is Friday."),
                          "Fix landed. Should it ship today?")
         self.assertEqual(notify.lead("needs", "\n  Which branch?\nmain is frozen"), "Which branch?")
+        self.assertEqual(notify.lead("needs", "Which branch\nshould I use? Main is frozen."),
+                         "Which branch should I use?")
 
     def test_a_result_leads_with_its_first_sentence(self):
         self.assertEqual(notify.lead("done", "All four gaps are live. 1) The waitlist form."),
@@ -54,6 +56,12 @@ class CardCarriesItsText(unittest.TestCase):
     def test_a_link_in_the_lead_does_not_unfold(self):
         payload = notify.card_payload("needs", "acme-api", "Can you approve https://acme.example/pr/7? It waits.")
         self.assertIn("<https://acme.example/pr/7?>", payload["content"])
+        payload = notify.card_payload("needs", "acme-api", "Approve https://acme.example/build?ref=main for release?")
+        self.assertEqual(payload["content"],
+                         "Approve <https://acme.example/build?ref=main> for release? · acme-api <@42>")
+        notify.asks_first("Approve https://acme.example/build?ref=main for release?")
+        with self.assertRaises(config.Error):
+            notify.asks_first("See https://acme.example/build?ref=main")
 
     def test_what_discord_would_refuse_is_cut_to_what_it_takes(self):
         payload = notify.card_payload("done", "acme-api", "x" * 5000)
