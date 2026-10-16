@@ -90,10 +90,12 @@ name = "PostToolUse"
 state = "working"
 
 # `/compact` runs between turns; its kind is the payload's `trigger`.  Compaction Claude starts
-# itself (`auto`) runs inside a turn, whose Stop ends it.
+# itself (`auto`) says nothing: inside a turn its Stop ends it, and at a quiet prompt (2.1.292,
+# "Compacted while idle") no Stop follows, so a `working` it wrote would stand for good.
 [[hooks.event]]
 name = "PreCompact"
 state = "working"
+kinds = ["manual"]
 
 [[hooks.event]]
 name = "PostCompact"
