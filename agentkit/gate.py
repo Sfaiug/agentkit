@@ -700,11 +700,12 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     whichever fits fewer.  Headroom already excludes running suites, so add
     them once; a saturated slice starts one only when none run.  Both come
     off the slice's own cgroup -- its CPU room and the slice's memory headroom --
-    which a shell beside the slice reads like a worker inside it; where
+    which a shell beside the slice reads like a worker inside it; the host's CPU
+    use outside the slice takes from the cores the slice may use.  Where
     no slice answers, the host's idle cores and free memory stand in.  An
     unreadable gate fails open to the other resource, and to one suite where
-    neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
-    other than a heavy suite. With `unit`, pieces also fit the caller's soft
+    neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, such as a suite
+    piece's as measured (`suite_cost`). With `unit`, pieces also fit the caller's soft
     limit and the remaining room under every enclosing hard memory cap.
     """
     if running is None:
@@ -712,11 +713,14 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if readings is None:
         readings = host.host_readings(slice_dir=orch.slice_cgroup)
     cpu_quota = host._reading(readings, "slice_cpu_quota")
+    cpus = host._reading(readings, "cpus", "nproc")
     if cpu_quota is not None:
+        outside = host._reading(readings, "outside_cpu_used")
+        if outside is not None and cpus is not None:
+            cpu_quota = min(cpu_quota, cpus - outside)
         used = host._reading(readings, "slice_cpu_used")
         cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
-        cpus = host._reading(readings, "cpus", "nproc")
         load = host._reading(readings, "load", "load1", "load_1m")
         if cpus is not None and load is not None:
             cpu_free = cpus - load
@@ -1005,20 +1009,19 @@ def names_shard(command):
 
 
 def suite_cost(command, cwd, run_dir):
-    """A repository and suite's measured scheduling cost, or the initial estimate."""
+    """A repository and suite's measured scheduling cost, each part the initial estimate
+    until a finished suite measured it."""
     state = run_record.read_state(run_dir) or {} if run_dir else {}
     repo = Path(state.get("repo") or gitcall.main_checkout(cwd)).resolve()
     key = hashlib.sha256(f"{repo}\n{command}".encode()).hexdigest()
     path = config.STATE / f"suite-{key}.json"
-    try:
-        cost = read_suite_cost(path)
-        cpu, mem = cost["cpus"], cost["mem_mb"]
-        if all(type(value) in (int, float) and math.isfinite(value) and value > 0
-               for value in (cpu, mem)):
-            return path, max(HEAVY_CPUS, cpu), max(HEAVY_MEM_MB, mem)
-    except (OSError, ValueError, TypeError, KeyError):
-        pass
-    return path, HEAVY_CPUS, HEAVY_MEM_MB
+    cost = read_suite_cost(path)
+    def measured(name, estimate):
+        value = cost.get(name)
+        if type(value) in (int, float) and math.isfinite(value) and value > 0:
+            return max(estimate, value)
+        return estimate
+    return path, measured("cpus", HEAVY_CPUS), measured("mem_mb", HEAVY_MEM_MB)
 
 
 def read_suite_cost(path):
@@ -1083,7 +1086,8 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time works everywhere; only this run's cgroup can attribute CPU and memory."""
+    """Wall time and each box's CPU work everywhere, a line's checker included; only this
+    run's cgroup can attribute memory."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
@@ -1091,7 +1095,7 @@ class _SuiteMeasure:
         relative = host.process_cgroup() if state.get("scope") else None
         self.group = (host.cgroup_path(relative) if relative and
                       Path(relative).name in turns._scope_units(state["scope"]) else None)
-        self.cpu = host._slice_cpu_stat(self.group) or {}
+        self.cpu = []     # each box's CPU seconds (`worker.boxed`)
         reading = host._scope_readings(self.group) if self.group is not None else None
         self.baseline = reading[1] if reading else None
         self.peak = self.baseline
@@ -1106,15 +1110,14 @@ class _SuiteMeasure:
                     self.peak = max(self.peak, reading[1])
 
     def save(self, path, pieces):
-        cpu = (host._slice_cpu_stat(self.group) or {}).get("usage_usec")
-        first = self.cpu.get("usage_usec")
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
         cost = {"wall_seconds": elapsed, "run_id": self.run_id}
-        if cpu is not None and first is not None and self.baseline is not None:
-            cost.update(cpus=max(HEAVY_CPUS, (cpu - first) / (elapsed * 1e6 * pieces)),
-                        mem_mb=max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces)))
+        if len(self.cpu) == pieces:
+            cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * pieces))
+        if self.baseline is not None:
+            cost["mem_mb"] = max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces))
         try:
             with watch.state_lock():
                 previous = read_suite_cost(path)
@@ -1169,8 +1172,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if measured:
                 measured.sample()
             return aborting() if aborting else False
-        result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd),
-                              activity=activity, output=output, env=env, abort=abort, **kwargs)
+        result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
+                              output=output, env=env, abort=abort,
+                              cpu=measured.cpu if measured else None, **kwargs)
         if measured and not result[2] and result[0] != SUITE_BUSY:
             measured.save(path, 1)
         return result
@@ -1244,7 +1248,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         ["bash", "-c", command], left,
                         cwd=str(cwd), activity=Path(piece.name),
                         output=stream, env={**env, "AK_SHARD": shard}, abort=abort,
-                        on_timeout=stopped, **kwargs)
+                        on_timeout=stopped, cpu=measure.cpu, **kwargs)
                 finally:
                     stream.finish()
                 return code, piece, killed

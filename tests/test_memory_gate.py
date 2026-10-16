@@ -184,7 +184,7 @@ class MemoryGate(unittest.TestCase):
                 (cgroup / "cpu.stat").write_text("usage_usec 1000000\n")
             with patch.object(run.time, "sleep", side_effect=fake_sleep), \
                     patch.object(run.time, "monotonic", side_effect=[100.0, 101.0]):
-                self.assertAlmostEqual(host._slice_cpu_used(cgroup, delay=0.1), 1.0)
+                self.assertAlmostEqual(host._cpu_rates([cgroup], delay=0.1)[cgroup], 1.0)
 
 
 if __name__ == "__main__":
