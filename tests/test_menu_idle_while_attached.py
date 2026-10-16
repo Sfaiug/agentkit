@@ -5,8 +5,9 @@ all the while they waited in `orch.attach`, for a screen nobody saw until the ow
 `menu.loop` in-process opens a seat by its number, as a new one (`n`) and from the past screen
 (`p`), into a fake attach that moves a run every watcher period; the listing, the runs and the
 draw are fakes counting what is read, and a look (`Live.look`) is taken as started and never
-runs.  A seat still owed its first look when the owner leaves is read on for until its pass
-starts, and no further.  Offline, in `Sandbox`'s temporary HOME: no tmux, no seat, no probe.
+runs.  A seat still owed its first look when the owner leaves gets it from the pass that ends,
+with nothing read, and a read going as the owner leaves lands before the seat opens.  Offline,
+in `Sandbox`'s temporary HOME: no tmux, no seat, no probe.
 """
 
 from contextlib import redirect_stdout
@@ -23,6 +24,14 @@ from agentkit import config, menu, orch
 SEAT = "fix-api"
 STIR = 0.02       # the watcher's period, short, so the attach outlasts several
 PERIODS = 5
+
+
+def moved():
+    """Several watcher periods, a run moving in each: news to a menu that reads."""
+    for _ in range(PERIODS):
+        time.sleep(2 * STIR)
+        config.runs_moved_path().touch()
+    time.sleep(2 * STIR)
 
 
 class MenuIdleWhileAttached(Sandbox):
@@ -48,10 +57,7 @@ class MenuIdleWhileAttached(Sandbox):
 
         def attach(_name, **_kw):
             before = len(listings), len(runs)
-            for _ in range(PERIODS):
-                time.sleep(2 * STIR)                    # the watcher round once more at least,
-                config.runs_moved_path().touch()        # and a run moves: news to a reader
-            time.sleep(2 * STIR)
+            moved()
             attached.append((len(listings) - before[0], len(runs) - before[1]))
             return 0
 
@@ -83,7 +89,7 @@ class MenuIdleWhileAttached(Sandbox):
 
     def test_a_seat_owed_its_first_look_gets_it_and_then_nothing_is_read(self):
         """Listed while a pass was going, as the owner leaves for a seat: the pass that ends
-        asks the read that starts its own, and after that the watcher reads nothing."""
+        starts its own from the listing in hand, and the watcher reads nothing."""
         found, listings, looked, release = [{"name": "acme-docs"}], [], [], threading.Event()
         self.addCleanup(release.set)
 
@@ -104,12 +110,6 @@ class MenuIdleWhileAttached(Sandbox):
                 self.assertLess(time.monotonic(), deadline, what)
                 time.sleep(STIR / 4)
 
-        def moved():
-            for _ in range(PERIODS):
-                time.sleep(2 * STIR)
-                config.runs_moved_path().touch()
-            time.sleep(2 * STIR)
-
         live = menu.Live(self.cfg)
         self.addCleanup(live.close)
         with patch.object(menu, "STIR", STIR), \
@@ -127,9 +127,52 @@ class MenuIdleWhileAttached(Sandbox):
             live.looker.join(30)
             moved()
             self.assertEqual(looked, [["acme-docs"], ["acme-docs", SEAT]])
-            self.assertEqual(listings, [1, 2, 2], "read after the seat's pass had started")
+            self.assertEqual(listings, [1, 2], "read while the owner was in the seat")
             live.watch(live.last)
-            self.assertEqual(listings, [1, 2, 2, 2])
+            self.assertEqual(listings, [1, 2, 2])
+            live.close()
+
+    def test_a_read_going_as_the_owner_leaves_lands_before_the_seat_opens(self):
+        """So none lands while the owner is in the seat, nor over the read back from it."""
+        listings, generation = [], [1]
+        blocked, release, left = (threading.Event() for _ in range(3))
+        self.addCleanup(release.set)
+
+        def listing(**_kw):
+            listings.append(generation[0])
+            return [{"name": SEAT}]
+
+        def groups(*_args, **_kw):
+            if threading.current_thread() is live.watcher:
+                blocked.set()
+                release.wait(30)            # the watcher's read, going as the owner leaves
+            return generation[0]
+
+        def leave():
+            live.away()
+            left.set()
+
+        live = menu.Live(self.cfg)
+        self.addCleanup(live.close)
+        with patch.object(menu, "STIR", STIR), \
+                patch.object(orch, "listing", side_effect=listing), \
+                patch.object(menu, "run_records", return_value=[]), \
+                patch.object(orch, "file_projectless"), \
+                patch.object(menu, "v5o_groups", side_effect=groups), \
+                patch.object(menu.Live, "look", return_value=True):
+            live.watch([[], None])
+            live.ask()
+            self.assertTrue(blocked.wait(30), "the watcher never read")
+            leaving = threading.Thread(target=leave)
+            leaving.start()
+            self.assertFalse(left.wait(10 * STIR), "the seat opened with a read going")
+            release.set()
+            leaving.join(30)
+            generation[0] = 2               # what the owner comes back to
+            moved()
+            self.assertEqual(listings, [1, 1], "read while the owner was in the seat")
+            live.watch(live.last)
+            self.assertEqual((listings, live.last[1]), ([1, 1, 2], 2))
             live.close()
 
 
