@@ -148,7 +148,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                     'ak notify done "Parser fixed" --dry-run'),
     "wait": ("usage: ak wait PR_URL|RUN_ID",
              "End this turn waiting on that pull request or run; ak wakes you with one line\n"
-             "when it merges, closes or ends. Never a session.",
+             "when it merges, closes or ends. One already over is refused. Never a session.",
              "ak wait https://github.com/acme/api/pull/12"),
     "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
              "ak plan add \"OUTCOME\" --eye | ak plan tick N | ak plan check N 'COMMAND'",

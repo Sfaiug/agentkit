@@ -2720,7 +2720,9 @@ def wait_main(argv):
     The seat is the one `ak notify` speaks for, and the wait is written to its own record and
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
-    or closes or the run ends, and tells the seat so (`wait_over`).
+    or closes or the run ends, and tells the seat so (`wait_over`).  One already over is
+    refused with its fact (`wait_fact`): the tick would end it at once and wake the seat for
+    nothing.
     """
     if command_help.show("wait", argv):
         return 0
@@ -2733,10 +2735,6 @@ def wait_main(argv):
     on = argv[0].strip()
     pull = transitions.PR_PARTS.match(on)      # the one pattern of a GitHub pull request URL
     if pull:
-        data, why = gh_json(config.RUNS, "pr", "view", on, "--json", "state")
-        if not isinstance(data, dict):
-            print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
-            return 1
         kind, shown = "pr", f"PR #{pull.group(3)}"
     elif on and on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
         kind, shown = "run", f"run {on}"
@@ -2745,7 +2743,15 @@ def wait_main(argv):
               "pull request or a run, never on a session (ak run status lists runs)",
               file=sys.stderr)
         return 1
-    if not seat_write(seat, wait={"on": on, "kind": kind, "at": time.time()}):
+    wait = {"on": on, "kind": kind, "at": time.time()}
+    over, why = wait_fact(wait)
+    if over is None:
+        print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)
+        return 1
+    if over:
+        print(f"ak wait: {why}; nothing is left to wait on", file=sys.stderr)
+        return 1
+    if not seat_write(seat, wait=wait):
         return 1
     print(f"{seat}: waiting on {shown}")
     return 0
