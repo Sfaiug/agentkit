@@ -550,6 +550,7 @@ def add(name, what, check=None, repo=None, proven=None, deferred=False):
     found = base = None
     if check is not None:
         check = one_command(check)
+        in_checkout(check, repo)
         if proven:
             found, base = root(repo, proven), proven[:12]
             if not found:
@@ -590,6 +591,30 @@ def one_command(check):
     return check
 
 
+def in_checkout(check, repo):
+    """Refuse a check that names the project's checkout `repo` -- its path, or that path
+    under `~`, `$HOME` or `${HOME}`, quoted or not.  A check runs in a clean checkout of the
+    default branch (`default_branch`); one that goes into the project's checkout tests what is
+    checked out there instead, so it can fail after the work landed or pass before it."""
+    home = Path.home()
+    text = re.sub(r"[\"']", "", check)
+    text = re.sub(r"\$\{HOME\}|\$HOME(?!\w)", lambda _m: str(home), text)
+    # a `~` bash expands: a word's first character, before a `/` or the word's end
+    text = re.sub(r"(?<![^\s=:(;&|])~(?=/|$|[\s;&|)])", lambda _m: str(home), text)
+    real = Path(repo).resolve()
+    paths = {str(repo), str(real)}
+    try:
+        inside = real.relative_to(home.resolve())
+        paths.add(str(home / inside))
+        shown = f"~/{inside}"
+    except ValueError:
+        shown = str(real)
+    if any(re.search(r"(?<![\w.~-])" + re.escape(path) + r"(?![\w.-])", text) for path in paths):
+        raise config.Error(f"this check names {shown}, the project's checkout, but a check runs "
+                           "in a clean checkout of its default branch: name paths relative to "
+                           "the repository, as in `python3 tests/test_x.py`")
+
+
 def numbered(text, number):
     """Where plan line `number`, as `ak plan` lists them, is in the plan's `text`."""
     listed = [at for at, line in enumerate(text) if line.lstrip().startswith("- [")]
@@ -612,8 +637,10 @@ def recheck(name, number, check):
     found = LINE.match(line)
     if not (found and found["check"]):
         raise config.Error("only a check line takes another check")
+    repo = place(name, found["project"])
+    if repo:
+        in_checkout(check, repo)
     if found["base"]:
-        repo = place(name, found["project"])
         if not repo:
             raise config.Error(f"this host has no checkout of {found['project']}")
         if not fails_on_main(repo, check, found["base"])[0]:
