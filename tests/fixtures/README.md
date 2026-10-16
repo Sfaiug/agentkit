@@ -371,9 +371,8 @@ Read out of the installed executables on 2026-09-13, not assumed:
   `OPENCODE_CONFIG_CONTENT`, so nothing is written into the user's own config. It translates
   three of the stream's own events to the one protocol `hooks/seat-state.sh` speaks:
   `session.inbox.enqueued` (a user message) arrives as `UserPromptSubmit` with its text,
-  `session.execution.{succeeded,failed,interrupted}` as `Stop` with the session id and the
-  last step's token total for the idle-compact stamp, and `permission.asked` as
-  `PermissionRequest` with the action as its kind. The mapping was verified end to end: a
+  `session.execution.{succeeded,failed,interrupted}` as `Stop` with the session id, and
+  `permission.asked` as `PermissionRequest` with the action as its kind. The mapping was verified end to end: a
   headless turn with the plugin loaded wrote a `UserPromptSubmit` fact with the prompt's text
   and a `Stop` fact when the answer ended.
 

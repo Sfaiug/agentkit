@@ -172,24 +172,6 @@ signatures = [
   "Invalid API Key",
 ]
 
-# How an OpenCode seat compacts itself; the format is the `[compact]` table in docs/guide.md.
-# Verified against OpenCode 2.0.14: `/compact` -- "Compact session" -- is in its slash-command
-# list.  The end of a turn is the seat plugin's Stop fact, and the context size rides that
-# same fact: the plugin tallies the last step's input, output, reasoning and cache tokens and
-# hands the total to hooks/seat-state.sh as `.context_tokens`, which stamps it for the
-# wrapper.  There is no transcript file to read it from afterwards -- the session lives in
-# OpenCode's sqlite store -- so the stamp is the only place it is kept.
-# The text and the return are separate keys: the TUI opens its slash-command chooser on the `/`
-# and a return that arrives in the same read is absorbed by it, leaving the command sitting
-# unsent in the composer -- seen on Codex 0.153.4 and Muse Code 1.2.1, and the pause between
-# them is tools/idle-compact.py's KEY_GAP.
-[compact]
-command = ["/compact", "\r"]
-signal = "hook"
-context = "opencode-plugin"
-idle = 30
-stash = "none"
-
 # The models this harness runs when `opencode models` cannot say: the MiMo models opencode
 # 2.0.14 listed for the shipped `mimo` provider.  That listing names no labels and no efforts,
 # so it takes both from here for the ids this table knows.  MiMo's one reasoning control is

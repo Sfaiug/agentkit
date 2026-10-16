@@ -23,7 +23,7 @@ from agentkit import browser, config, orch, statusbar, watch
 
 SEAT = "acme"
 NOW = 2_000_000                     # the stop; the seat was last in tmux eight days before
-KINDS = ("plan", "hook", "notify", "compact")
+KINDS = ("plan", "hook", "notify")
 
 
 class StoppedSeatCollected(Sandbox):

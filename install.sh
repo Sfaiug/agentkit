@@ -119,6 +119,11 @@ fi
 for d in "${dirs[@]}"; do
   mkdir -p -- "$d"; chmod 700 "$d"
 done
+# A seat started before ak stopped compacting seats runs a wrapper that types `/compact` into
+# a Claude, Codex, Grok Build or OpenCode seat once the turn-end stamp it polls here is old
+# enough.  Nothing writes one any more, and every update takes away the ones left, an idle
+# seat's too.  The directory stays: an old Muse seat's wrapper still logs into it.
+rm -f -- "$AK/state/idle-compact/"*.json
 # The config lives here, never in the checkout: the shipped default is copied once, when there
 # is no config yet, and no later install ever writes over what the owner has edited since.
 if [ ! -e "$AK/config.toml" ]; then

@@ -168,10 +168,9 @@ interactive)
   [ "${4:-}" = new ] && {
     echo "opencode.sh interactive: the TUI cannot be given a session id" >&2; exit 3; }
   resume=""; [ -n "${3:-}" ] && resume=$(printf -- '--session %q ' "$3")
-  # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of
-  # filling its context, on the `[compact]` table of adapters/opencode.toml.  `env` execs in
-  # place, so the process it forked is the one whose hooks stamp the seat's own context size
-  # and no neighbour's.  Headless `ak worker` runs are not wrapped: they are not seats.
+  # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
+  # screen comes to rest, starts moving or opencode exits.  Headless `ak worker` runs are not
+  # wrapped: they are not seats.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   # The orchestrator rulebook this launch is handed.  OpenCode 2.0.13 takes no --model, --agent
   # or instructions flag on its TUI: new sessions open on the build agent and the last-used

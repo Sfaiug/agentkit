@@ -90,8 +90,8 @@ class Cleanup(Sandbox):
     def test_stop_removes_runs_worktrees_state_files_and_tabs(self):
         self.seat("atoll")
         for leaf in ("plan-atoll.md", "card-atoll.json", "hook-atoll.json", "notify-atoll.json",
-                     "compact-atoll.json", "stop-atoll.json", "session-atoll.json",
-                     "rulebook-atoll.md", "seat-atoll.lock", "notify-atoll.lock"):
+                     "stop-atoll.json", "session-atoll.json", "rulebook-atoll.md",
+                     "seat-atoll.lock", "notify-atoll.lock"):
             path = config.STATE / leaf
             if not path.exists():
                 path.write_text("{}\n" if leaf.endswith(".json") else "plan\n")
@@ -124,8 +124,7 @@ class Cleanup(Sandbox):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)      # stopped again: the seat goes
         for leaf in ("plan-atoll.md", "card-atoll.json", "hook-atoll.json", "notify-atoll.json",
-                     "compact-atoll.json", "stop-atoll.json", "session-atoll.json",
-                     "rulebook-atoll.md"):
+                     "stop-atoll.json", "session-atoll.json", "rulebook-atoll.md"):
             self.assertFalse((config.STATE / leaf).exists(), leaf)
         self.assertTrue((config.STATE / "plan-other.md").is_file())
         # Waiting writers and a reopened name must keep using the same lock inodes;
@@ -348,16 +347,14 @@ class Cleanup(Sandbox):
         self.seat("atoll.v2")          # a name may hold a dot; the extension is the last one
         gone = [left(name, 2 * DAY) for name in (
             "rulebook-old-seat.md", "seat-old-seat.json", "seat-old-seat.lock",
-            "notify-old-seat.lock", "compact-old-seat.json", "plan-old-seat.md",
-            "notify-host.json", "seat-old.v1.json")]
-        stamp = left("idle-compact/99999999.json", 2 * DAY)
+            "notify-old-seat.lock", "plan-old-seat.md", "notify-host.json",
+            "seat-old.v1.json")]
         kept = [left(name, 2 * DAY) for name in (
             "plan-living.md", "hook-living.json", "seat-held.json", "browser-tabs.json",
             "openai-reset.json", "usage-meta-probe.json", "codex-launch-abc.json",
-            f"idle-compact/{os.getpid()}.json", "idle-compact/log",
             "rulebook-atoll.v2.md", "seat-atoll.v2.json")]
         kept.append(self.aged(config.session_path("atoll.v2"), 2 * DAY))
-        kept += [left("seat-young.json", 3600), left("idle-compact/99999998.json", 3600)]
+        kept.append(left("seat-young.json", 3600))
         # a gone seat that still owns a running run keeps the mark its hand-back reads
         self.receipt("held-run", state="running", owner="held")
         dry = self.gc_out("--dry-run")
@@ -366,10 +363,8 @@ class Cleanup(Sandbox):
         self.assertIn("gc: would remove seat-file "
                       f"{config.STATE / 'rulebook-old-seat.md'}: seat old-seat is gone", dry)
         self.assertIn(f"{config.STATE / 'seat-old.v1.json'}: seat old.v1 is gone", dry)
-        self.assertIn(f"gc: would remove compact-stamp {stamp}: its wrapper, pid 99999999, "
-                      "is gone", dry)
         removed = set(gc.gc(lambda _message: None))
-        self.assertEqual(removed, {str(path) for path in gone + [stamp]})
+        self.assertEqual(removed, {str(path) for path in gone})
         for path in kept:
             self.assertTrue(path.exists(), path)
         self.assertEqual(gc.gc(lambda _message: None), [])

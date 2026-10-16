@@ -134,8 +134,7 @@ class PlanLines(Sandbox):
             plan.main(["add", "quoted", "--check", "test `true`"])
 
     def test_the_check_runs_without_the_seats_variables(self):
-        names = {config.SESSION_ENV, "AK_PARENT_RUN", "IDLE_COMPACT_STATE",
-                 *config.seat_env_names()}
+        names = {config.SESSION_ENV, "AK_PARENT_RUN", *config.seat_env_names()}
         with patch.dict(os.environ, {name: "fix-api" for name in names}):
             for name in sorted(names):
                 with self.subTest(name=name):

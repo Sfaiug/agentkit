@@ -118,7 +118,6 @@ INTERPRETERS = (
      ("--require", "--import", "--loader", "--experimental-loader", "--conditions",
       "--input-type", "--title", "--inspect-port", "--env-file"), "ep", ("--eval", "--print")),
 )
-_VERSIONS = {}             # installed harness builds, asked for once and only to name a refusal
 _MANAGER = {}              # whether this host has a user systemd manager, asked once
 _OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
 _OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
@@ -1314,7 +1313,7 @@ def agentless(socket, names):
 def bind_pane(session):
     """Give an older Claude launch its pane once, from its own interactive command.
 
-    The client is the pane's process or the immediate child of our compact wrapper.
+    The client is the pane's process or the immediate child of our seat wrapper.
     Searching deeper would let a shell's or another client's nested Claude claim it.
     """
     from .harness import claude
@@ -2594,8 +2593,8 @@ def rulebook_compacted(session, conversation):
     """A compaction keeps the launch's rulebook, which is in the system prompt, and drops what
     the conversation read since, so it holds its launch's again: its next prompt tells it what
     changed since then (`rulebook_news`), never a change it was told from rules it read since.
-    Without the seat's lock, which the typing of that `/compact` may hold: an `ak orch rules`
-    landing between the read and the write only means it is told once more."""
+    Without the seat's lock: an `ak orch rules` landing between the read and the write only
+    means it is told once more."""
     current = config.resolve_session(session)
     if owns(config.session_records().get(current) or {}, conversation):
         config.update_session(current, rulebook_read=None, rulebook_told=None)
@@ -2864,8 +2863,8 @@ def job_notices():
 def rename(old, new, log=print, *, auto=False):
     """Give a running seat a new name, and move everything that carries it.
 
-    tmux, the record, and every state file -- notify, seat, hook, compact, plan, card and
-    stop -- all move, and every run the seat launched answers to the new name in its
+    tmux, the record, and every state file -- notify, seat, hook, plan, card and stop --
+    all move, and every run the seat launched answers to the new name in its
     record; a pointer stays behind at the old name, because the orchestrator inside was
     started with the old name in its environment and hands it to every `ak` it runs --
     see config.resolve_session.  The bar is rewritten at once, so it never shows the old
@@ -3013,50 +3012,6 @@ def state_word(session, cfg=None):
     return watch.announce_state(session, cfg=cfg, look=True)["word"]
 
 
-def harness_version(harness):
-    """The installed build of that harness, for a line that has to name what cannot compact."""
-    if harness not in _VERSIONS:
-        try:
-            entry = next((h for h in update.harnesses() if h["name"] == harness), None)
-            _VERSIONS[harness] = (update.version(entry) if entry else "") or "(version unknown)"
-        except config.Error:
-            # a config.toml or an adapter toml nobody can read names no build either
-            _VERSIONS[harness] = "(version unknown)"
-    return _VERSIONS[harness]
-
-
-def compacts(session, cfg):
-    """Whether this seat compacts itself, how, and when it last did.
-
-    Auto-compaction is the seat's and never a worker's, and tools/idle-compact.py performs it the
-    same way whatever the harness; the `[compact]` table of adapters/<harness>.toml says what
-    that harness can do.  One that has no compact command, or reports no context size, is named
-    with its installed build rather than guessed at.
-    """
-    record = config.session_records().get(session["name"], {})
-    try:
-        harness = config.model(cfg, record.get("orchestrator"))["harness"]
-    except config.Error:
-        return "unknown: this seat names no harness to read a [compact] table from"
-    table = config.manifest(harness).get("compact")
-    table = table if isinstance(table, dict) else {}
-    if not table.get("command") or table.get("command") == "none":
-        return f"no: {harness} {harness_version(harness)} has no compact command"
-    if not table.get("context") or table.get("context") == "none":
-        return f"no: {harness} {harness_version(harness)} does not report context size"
-    answer = f"yes ({harness}, {table.get('signal') or 'screen'})"
-    try:
-        stamp = json.loads(config.compact_path(session["name"]).read_text())
-        when = float(stamp["last_compact_at"])
-        # a record left by an earlier seat of this name compacted that one, not this one
-        created = session.get("created")
-        if not isinstance(created, (int, float)) or when >= created:
-            return f"{answer}, compacted {age(when)} ago"
-    except (config.Error, OSError, ValueError, TypeError, KeyError):
-        pass
-    return answer
-
-
 def explain(session, cfg):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
@@ -3070,7 +3025,6 @@ def explain(session, cfg):
     lines.append(f"  reason:    {found['reason'] or '-'}")
     if any(session.get(key) for key in CLOSED):
         lines.append("  authority: -     the process is gone; nothing here read its screen")
-        lines.append(f"  compacts:  {compacts(session, cfg)}")
         return lines
     live = watch.seat_read(session["name"])
     since = found.get("since")
@@ -3080,7 +3034,6 @@ def explain(session, cfg):
                  f"  rule: {live.get('rule') or '-'}")
     lines.append(f"  evidence:  {live.get('evidence') or 'nothing on the screen said otherwise'}")
     lines.append(f"  since:     {when}")
-    lines.append(f"  compacts:  {compacts(session, cfg)}")
     return lines
 
 
@@ -3299,10 +3252,8 @@ def mark_owner_closed(name):
 
 
 def session_owned_files(name):
-    """Every `<kind>-<name>.*` file this seat owns, for a known per-seat kind, and the
-    `idle-compact/<name>-<pid>.json` stamps its harness wrappers left -- under its name, or
-    under an old one a rename left leading to it, since a rename moves neither its rulebook
-    nor a stamp a running wrapper still writes to.
+    """Every `<kind>-<name>.*` file this seat owns, for a known per-seat kind -- under its name,
+    or under an old one a rename left leading to it, since a rename does not move its rulebook.
 
     The kind is the first component and the name the rest, so stopping `fix`
     takes `hook-fix.json` but leaves `session-atoll-fix.json`, `browser-tabs.json`
@@ -3318,12 +3269,6 @@ def session_owned_files(name):
     for path in config.STATE.iterdir():
         owner = config.seat_file_owner(path)
         if owner and owner[1] in names and path.is_file() and not path.is_symlink():
-            found.append(path)
-    stamps = config.STATE / "idle-compact"
-    for path in stamps.iterdir() if stamps.is_dir() else ():
-        seat, dash, pid = path.name.removesuffix(".json").rpartition("-")
-        if (path.name.endswith(".json") and dash and seat in names and pid.isdigit()
-                and path.is_file() and not path.is_symlink()):
             found.append(path)
     return found
 

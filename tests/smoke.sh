@@ -2597,9 +2597,8 @@ jq -e '.permissions.defaultMode == "bypassPermissions" and .skipDangerousModePer
        and .env.DISABLE_AUTOUPDATER == "1"' \
   "$FAKE/.claude/settings.json" >/dev/null 2>&1 || YOLO=1
 # The hooks are the adapter's, wired by `adapters/claude.sh hooks` from install.sh: a turn
-# began, a turn ended, a prompt is waiting.  Stop is still the half of the idle auto-compact
-# that lives outside the wrapper.  Both installs ran, so exactly one entry on each event also
-# proves a re-run does not append a second.
+# began, a turn ended, a prompt is waiting.  Both installs ran, so exactly one entry on each
+# event also proves a re-run does not append a second.
 jq -e --arg c "bash $REPO/hooks/seat-state.sh" '.hooks as $h
    | ["UserPromptSubmit", "Stop", "Notification"]
    | map([$h[.][]?.hooks[]? | select(.type == "command" and .command == $c)] | length)

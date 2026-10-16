@@ -26,7 +26,6 @@ This section changes only with the owner's yes. Every other line has one home, a
 - Match the style of the file you are in. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - Docs ride the change: `docs/guide.md` says what the code now does. `README.md` stays the front door: what ak is, the install line and how to start, nothing more.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.
-- Tests driving `menu.loop` mock `menu.wait_key` beside `menu.read`: the real wait selects on stdin, and a stdin that never delivers EOF redraws forever instead of finishing. They leave `menu.Live`'s probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
 
 ## Lessons
 
@@ -77,3 +76,4 @@ Mistakes earlier work here made that no check catches and no one area of the cod
 - `~/code` holds only the owner's checkouts: a seat builds under `~/.agentkit/wt/`, and ak removes a seat's checkout a day after it last changed unless it holds uncommitted work or is a clone. Held by `tests/test_git_shim.py`, `test_gc_sweep.py` and `test_checkout_removal_keeps_work.py`. [5 Oct, 6 Oct]
 - The landing gate and what the scoreboard measures change only with the owner's yes. [2 Oct]
 - Quality, then speed, then cost, in that order, is how ak judges a week, a change and a seat's work: the weekly audit names a quality loss before any gain in speed or cost (`scoreboard.loss`), a week with a quality measure worse is a loss whatever speed did, and nothing ak shows or picks credits speed or cost while the result got worse. [14 Oct]
+- ak compacts no seat itself: each harness's own compaction does (Claude's idle compaction, its minimum set in the login's settings). Reason: Claude Code compacts an idle seat itself, and two compactors on one seat can only clash. [16 Oct 2026]

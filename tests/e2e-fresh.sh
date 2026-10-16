@@ -348,7 +348,7 @@ must "the install did not say it was a sandbox HOME" grep -q "sandbox HOME" "$WO
 # A sandbox HOME installs no cron: prove it said so, and touch the caller's real crontab never.
 must "no sandbox cron skip for the server role" grep -q 'ak watch cron is not installed' "$WORK/install1.log"
 verdict "a  fresh HOME: revision $SOURCE_SHA + install.sh with no tty" \
-  "ak on PATH, yolo defaults, idle-compact hook, harnesses on PATH, cron skipped for sandbox, summary printed"
+  "ak on PATH, yolo defaults, seat hooks, harnesses on PATH, cron skipped for sandbox, summary printed"
 [ "$IRC" = 0 ] || diagnose "$IRC" "$WORK/install1.log" as "clone revision $SOURCE_SHA and bash install.sh"
 
 # ==== b) the second run changes nothing =====================================

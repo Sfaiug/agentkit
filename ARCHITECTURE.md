@@ -136,9 +136,9 @@
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression; a harness config's stale trust and MCP entries, where its plugin
   says they are (`config_entries`). For gc, run, orch, update, notify.
-- `pty_relay.py`: nonblocking terminal transport, bounded queues, ordered injected keys and
-  exit draining. `Relay.poll`, `send`, `finish`, `close` for `tools/idle-compact.py`;
-  owns the two directions without harness or model knowledge.
+- `pty_relay.py`: nonblocking terminal transport, bounded queues and exit draining.
+  `Relay.poll`, `finish`, `close` for `tools/idle-compact.py`; owns the two directions without
+  harness or model knowledge.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen. Used by menu, usage, orch, watch, run, motion.
 - `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
@@ -160,7 +160,7 @@
   answers `run`, `interactive`, `usage`, `install`, `login`, `auth`, `hooks`, `models`
   (codex adds `reset`); `$AGENTKIT_ACCOUNT` picks the login.
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
-  screen rules, stall/quota/auth/resume words, compact, effort, catalog, contract-check model/effort.
+  screen rules, stall/quota/auth/resume words, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
   resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`, `register_mcp`.
   `config_entries`: every plugin's trust and MCP tables. `user_messages`: timed owner input
@@ -188,8 +188,8 @@
   merge`), `git-shim` (refuses a `git worktree add` into ~/code) and `scp-shim`/`rsync-shim`/
   `sftp-shim` (refuse a transfer to the live server) links to it, each linked as
   `<HOME>/bin/<name>` first on a seat's PATH; and, called by adapters:
-  `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it compacts a quiet seat,
-  and looks at the seat again when its screen comes to rest, starts moving or its harness exits),
+  `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it looks at the seat
+  again when its screen comes to rest, starts moving or its harness exits; it types nothing),
   `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.

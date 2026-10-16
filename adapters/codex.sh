@@ -159,11 +159,10 @@ interactive)
   rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "codex.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf -- '--rulebook %q ' "$rb")
-  # idle-compact.py wraps the TUI so a seat left open all day compacts itself instead of filling
-  # its context, on the `[compact]` table of adapters/codex.toml.  It sits outside the seat
-  # wrapper, which gives this launch's hooks and receipt to its own app server. Both the
-  # server and its remote TUI remain children of the process idle-compact.py forked.
-  # Headless `ak worker` runs are not wrapped: they are not seats.
+  # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
+  # screen comes to rest, starts moving or codex exits.  It sits outside the seat wrapper,
+  # which gives this launch's hooks and receipt to its own app server.  Headless `ak worker`
+  # runs are not wrapped: they are not seats.
   # The printed command runs later, outside this adapter's environment: it carries the login.
   if [ -n "$ACCOUNT" ]; then
     printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$CODEX_HOME"

@@ -1,9 +1,9 @@
-"""A run spawns nothing that inherits the launcher's keyboard or the seat's state.
+"""A run spawns nothing that inherits the launcher's keyboard or the launch's own variables.
 
 Done-when commands run with stdin on /dev/null (a foreground `ak run` must never
-hand its tty to a command that asks for input), and config.child_env() drops
-IDLE_COMPACT_STATE (a seat's worker must never overwrite the seat's own
-idle-compact state file).  stdlib only, no harness calls, no tmux.
+hand its tty to a command that asks for input), and config.child_env() drops the
+launch's run directory and scope (a nested run would adopt them).  stdlib only, no
+harness calls, no tmux.
 """
 
 import os
@@ -73,17 +73,10 @@ class RunIsolation(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertIn("rc=1", text)
 
-    def test_done_when_does_not_carry_idle_compact_state(self):
-        with patch.dict(os.environ, {"IDLE_COMPACT_STATE": "/tmp/x.json"}):
-            ok, text = self.done_when('echo "state=${IDLE_COMPACT_STATE-unset}"')
-        self.assertTrue(ok, text)
-        self.assertIn("state=unset", text)
-
-    def test_child_env_drops_idle_compact_state(self):
-        with patch.dict(os.environ, {"IDLE_COMPACT_STATE": "/tmp/x.json", "KEEP_ME": "1",
-                                     config.RUN_DIR_ENV: "/tmp/run", "AK_RUN_SCOPE": "old.scope"}):
+    def test_child_env_drops_the_launchs_run_directory_and_scope(self):
+        with patch.dict(os.environ, {"KEEP_ME": "1", config.RUN_DIR_ENV: "/tmp/run",
+                                     "AK_RUN_SCOPE": "old.scope"}):
             env = config.child_env()
-        self.assertNotIn("IDLE_COMPACT_STATE", env)
         self.assertNotIn(config.RUN_DIR_ENV, env)
         self.assertNotIn("AK_RUN_SCOPE", env)
         self.assertEqual(env.get("KEEP_ME"), "1")

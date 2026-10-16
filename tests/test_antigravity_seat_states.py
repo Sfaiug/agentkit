@@ -6,7 +6,6 @@ idle seat on a model whose label has brackets of its own, one narrower than its 
 one with a command agy moved to the background, its permission and question dialogs, and the
 footer one Ctrl-C draws.  The terms page of a first run keeps that footer and is no prompt.
 """
-import importlib.util
 import os
 from pathlib import Path
 import shlex
@@ -20,9 +19,6 @@ sys.path.insert(0, str(REPO))
 from agentkit import watch  # noqa: E402
 
 FIX = REPO / "tests/fixtures"
-spec = importlib.util.spec_from_file_location("idle_compact", REPO / "tools/idle-compact.py")
-idle_compact = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(idle_compact)
 
 
 def pane(name):
@@ -113,7 +109,7 @@ class AntigravitySeatStates(unittest.TestCase):
                                  ("draft", ("20261006-1534 finished FAIL: a case. run " * 4)[:160]))
                 self.assertIsNone(watch._composer_rows("antigravity", pane(name), exact=True))
 
-    def test_the_seat_runs_under_the_wrapper_which_says_why_it_types_no_compact(self):
+    def test_the_seat_runs_under_the_wrapper(self):
         with tempfile.TemporaryDirectory(prefix=".ak-test-agy-seat-", dir=REPO) as home:
             proc = subprocess.run(
                 [str(REPO / "adapters/antigravity.sh"), "interactive", "gemini-3.8-flash", "low"],
@@ -124,9 +120,6 @@ class AntigravitySeatStates(unittest.TestCase):
         self.assertEqual(words[:5], ["python3", str(REPO / "tools/idle-compact.py"),
                                      "--harness", "antigravity", "--"])
         self.assertIn("agy", words[5:])
-        # agy 1.3.5 has `/compact`, and reports its context size nowhere the wrapper reads
-        self.assertEqual(idle_compact.plan("antigravity"),
-                         (None, "antigravity does not report context size"))
 
 
 if __name__ == "__main__":

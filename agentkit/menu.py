@@ -3803,6 +3803,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     screen (`show_past`) on the same keys, and is a key only while the key line offers it
     (`past_offered`).  Esc, and a click
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
+
+    A test driving this mocks `wait_key` beside `read`: the real wait selects on stdin, and a
+    stdin that never delivers EOF redraws forever instead of finishing.  It leaves `Live`'s
+    probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
