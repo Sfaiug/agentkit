@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, host, run, task, watch, worker
+from agentkit import config, gate, run, task, watch, worker
 from agentkit import record
 import test_suite_pieces as pieces
 from test_red_target import make_loop, make_repos
@@ -40,7 +40,6 @@ class SplitSuiteRun(unittest.TestCase):
         self.stack.enter_context(patch.object(run, "prepare", side_effect=self.prepare))
         self.stack.enter_context(patch.object(run, "spawn_bg", side_effect=self.spawn))
         self.stack.enter_context(patch.object(watch, "seat_closed", return_value=False))
-        self.stack.enter_context(patch.object(host, "_slice_cpu_stat", return_value=None))
         config.save_session(self.cfg, "seat", "opus", ["astra"])
         config.update_session("seat", reviewers=["astra"])
 

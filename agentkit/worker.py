@@ -573,12 +573,16 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     return (TIMEOUT if killed else proc.returncode), out or "", killed
 
 
-def boxed(cmd, limit, *, env, cwd, **kwargs):
-    """The check watchdog and status, with worker walls and throwaway HOME writes."""
+def boxed(cmd, limit, *, env, cwd, cpu=None, **kwargs):
+    """The check watchdog and status, with worker walls and throwaway HOME writes.
+
+    `cpu`, a list, gets the CPU seconds the command's processes spent, where the box says."""
     with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir, \
             box.command(cmd, env, out_dir, cwd=cwd,
                         home_overlay=True, drain=True) as (cmd, env, spawn):
         code, text, killed = limited(cmd, limit, env=env, cwd=cwd, **spawn, **kwargs)
+        if cpu is not None and (spent := box.cpu_seconds(out_dir)) is not None:
+            cpu.append(spent)
         if not killed:
             # Bubblewrap exits 1 when it cannot build the box. Without the supervisor's
             # report that is no exit of the command: it never started, the shell's 126.

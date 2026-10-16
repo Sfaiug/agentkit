@@ -402,13 +402,6 @@ def _cpu_rates(cgroups, delay=0.1):
             for cgroup, value in first.items() if second[cgroup] is not None}
 
 
-def _slice_cpu_used(cgroup, delay=0.1):
-    """The cgroup's current CPU use in cores, or None when it cannot be read."""
-    if cgroup is None:
-        return None
-    return _cpu_rates([cgroup], delay).get(cgroup)
-
-
 CPU_WEIGHT_MAX = 10000   # the kernel's top cpu.weight
 
 
@@ -530,16 +523,25 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
         cpu_quota = _slice_cpu_quota(slice_dir)
     except Exception:
         cpu_quota = None
-    try:
-        cpu_used = _slice_cpu_used(slice_dir) if cpu_quota is not None else None
-    except Exception:
-        cpu_used = None
+    cpu_used = outside = None
+    if cpu_quota is not None:
+        # The host's use beyond the slice -- ak's own menus, tick and live checks among it --
+        # read in the slice's sample window, so a burst between two readings is in both or none.
+        whole = cgroup_path("", cgroup_root)
+        try:
+            rates = _cpu_rates([slice_dir, whole])
+        except Exception:
+            rates = {}
+        cpu_used = rates.get(slice_dir)
+        if cpu_used is not None and whole in rates:
+            outside = max(0.0, rates[whole] - cpu_used)
     try:
         mem = _slice_memory(slice_dir)
     except Exception:
         mem = None
     readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
+    readings["outside_cpu_used"] = outside
     if mem is not None:
         readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = mem
     else:

@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import pwd
 import re
+import resource
 import select
 import shlex
 import shutil
@@ -547,6 +548,11 @@ def leftovers(out_dir):
     return _report(out_dir).get("processes", [])
 
 
+def cpu_seconds(out_dir):
+    """The CPU seconds the box's processes spent, or None where PID 1 reported none."""
+    return _report(out_dir).get("cpu_seconds")
+
+
 def _supervise(report, argv, drain=False):
     try:
         proc = subprocess.Popen(argv, start_new_session=True, **(
@@ -607,7 +613,18 @@ def _supervise(report, argv, drain=False):
         except OSError:
             command = "command unavailable"
         left.append([int(entry.name), command])
-    Path(report).write_text(json.dumps({"returncode": code, "processes": left}))
+    if os.getpid() == 1:
+        # What PID 1's exit would end ends now and is reaped here, so every process's CPU,
+        # a server's the command left running included, is in PID 1's children's, final.
+        try:
+            os.kill(-1, signal.SIGKILL)
+            while True:
+                os.waitpid(-1, 0)
+        except (ProcessLookupError, ChildProcessError):
+            pass
+    spent = resource.getrusage(resource.RUSAGE_CHILDREN)
+    Path(report).write_text(json.dumps({"returncode": code, "processes": left,
+                                        "cpu_seconds": spent.ru_utime + spent.ru_stime}))
     return 128 - code if code < 0 else code
 
 
