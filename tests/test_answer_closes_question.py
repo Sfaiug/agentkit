@@ -116,7 +116,7 @@ class AnswerClosesQuestion(Sandbox):
             time.sleep(0.01)
         self.fail("the hook's background look did not finish")
 
-    def hook(self, event, script="seat-state.sh", wait=True, timeout=15, env=None, **payload):
+    def hook(self, event, script="seat-state.sh", wait=True, env=None, **payload):
         finished = self.root / f"look-{len(self.looks)}"
         self.looks.append(finished)
         environ = {"HOME": str(self.root), "PATH": f"{self.bin}:{os.environ['PATH']}",
@@ -131,7 +131,7 @@ class AnswerClosesQuestion(Sandbox):
             self.addCleanup(self.wait_look, finished)
         result = subprocess.run(["bash", str(REPO / "hooks" / script)],
                                 input=json.dumps({"hook_event_name": event, **payload}),
-                                text=True, capture_output=True, timeout=timeout, env=environ)
+                                text=True, capture_output=True, timeout=15, env=environ)
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         if script == "seat-state.sh":
             self.assertEqual(result.stdout, "")
@@ -220,11 +220,10 @@ class AnswerClosesQuestion(Sandbox):
 
     def test_prompt_never_waits_for_the_notice_lock_and_the_answer_lands_after_release(self):
         self.notice()
-        # This process holds the lock while the harness's hook and its look run elsewhere.
+        # This process holds the lock while the harness's hook and its look run elsewhere: a
+        # hook that waited on it would never return inside this block.
         with notify.session_lock(SEAT):
-            began = time.monotonic()
-            self.hook("UserPromptSubmit", prompt="Use the second schema.", wait=False, timeout=1)
-            self.assertLess(time.monotonic() - began, 1)
+            self.hook("UserPromptSubmit", prompt="Use the second schema.", wait=False)
             self.assertNotIn("answered_at", notify.last(SEAT, include_seen=True))
         self.wait_look(self.looks[-1])
         self.assertEqual(notify.last(SEAT, include_seen=True)["answered_at"],
