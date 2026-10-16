@@ -27,7 +27,7 @@ args = sys.argv[1:]
 with open(os.environ["AK_LIVE_UNITS"], "a") as out:
     out.write(json.dumps([os.path.basename(sys.argv[0]), *args]) + "\\n")
 if os.path.basename(sys.argv[0]) == "systemctl":
-    sys.exit(0)
+    sys.exit(int(os.environ.get("AK_LIVE_STOP_CODE", "0")))
 if os.environ.get("AK_LIVE_REFUSE") and ("--wait" in args or "--pipe" in args):
     sys.stderr.write("Failed to connect to user scope bus via local transport: No such file or directory\\n")
     sys.exit(1)
@@ -172,7 +172,7 @@ class LiveCheckInSlice(Sandbox):
         self.assertEqual(self.commands(), [])
 
     def test_harness_check_starts_plainly_when_placement_is_refused(self):
-        with patch.dict(os.environ, {"AK_LIVE_REFUSE": "1"}):
+        with patch.dict(os.environ, {"AK_LIVE_REFUSE": "1", "AK_LIVE_STOP_CODE": "5"}):
             self.assertIsNone(self.upgrade()["slice"])
         start, stop = self.commands()
         self.assertIn("--wait", start)
