@@ -4,8 +4,9 @@ A check runs in a clean checkout of the project's default branch (`plan.default_
 one that goes into the checkout itself -- `cd ~/code/acme && ...` -- tests whatever is checked
 out there: it can fail after the work landed, until that checkout moves, or pass before
 it.  The checkout's path is refused however the check spells it: absolute, under `~`, `$HOME`
-or `${HOME}`, quoted or not; a path beside it (`acme-old`, `acme backup`, `acme~`) is not the
-checkout.  Offline: a throwaway HOME, a local origin and checkout.
+or `${HOME}`, quoted or not, inside a quoted script too; a longer name beside it (`acme-old`,
+or one on disk such as `acme backup`) is not the checkout.  Offline: a throwaway HOME, a local
+origin and checkout.
 """
 
 import os
@@ -62,14 +63,19 @@ class CheckInCheckout(Sandbox):
                       "python3 ~/code/acme/tests/test_x.py",
                       f"git -C '{self.repo}' log -1",
                       'test "$(cat <~/code/acme/result)" = ready',
+                      "bash -c 'cd ~/code/acme && python3 tests/test_x.py'",
+                      f"python3 -c 'open(\"{self.repo}/x\")'",
                       "cd ~/code/acme"):
             with self.subTest(check=check):
                 self.refused(lambda: plan.add(SEAT, "the parser parses", check))
 
     def test_add_takes_a_relative_check_or_a_path_beside_the_checkout(self):
+        for beside in ("acme backup", "acme+tools", "acme~", "acme:backup"):
+            (self.repo.parent / beside).mkdir()
         for check in ("python3 tests/test_x.py", "cd ~/code/acme-old && python3 tests/test_x.py",
                       "test -d ~/code/acme.bak", 'test -f "$HOME/code/acme backup/x"',
-                      "test -d ~/code/acme+tools", "test -d ~/code/acme~"):
+                      "test -f ~/code/acme+tools/x", "test -f ~/code/acme~/x",
+                      "test -f ~/code/acme:backup/x"):
             with self.subTest(check=check):
                 self.assertIn(f"check: `{check}`", plan.add(SEAT, "the parser parses", check))
 
