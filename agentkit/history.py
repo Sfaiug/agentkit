@@ -68,7 +68,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
-              ("merge_sha", "TEXT"), ("parked_at", "REAL"))
+              ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -220,6 +220,14 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
 def update_run(run_id, *, log=None, **fields):
     """Update known row fields, silently retaining unknown state keys."""
     _write(lambda connection: _update(connection, run_id, fields), log)
+
+
+def first_review(run_id, lines, *, log=None):
+    """Record the lines a change's first review reads, once: a review resumed before its verdict,
+    the work grown or the target moved meanwhile, keeps the size first read."""
+    _write(lambda connection: connection.execute(
+        "UPDATE runs SET first_review_lines=COALESCE(first_review_lines,?) WHERE run_id=?",
+        (lines, run_id)), log)
 
 
 def _update(connection, run_id, fields):

@@ -1587,18 +1587,20 @@ def first_review_ceiling(lp):
     before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
     Only the change's first review, a resumed one too: once a review of it, in this run or in
     one launched `from:` its branch, handed in a verdict, a later one reviews whatever the fix
-    left.  A scratch run has no diff to count."""
+    left.  A scratch run has no diff to count.  A first review that goes ahead records the lines
+    it reads in the run's history row, whatever the run's ending, so the ceiling can be weighed
+    against how often changes of each size end merged."""
     if (lp.scratch or lp.state.get("review_pr")
             or transitions.change_reviewed(change=transitions.change_of(lp.state))):
         return
     gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     lines = transitions.diff_lines(lp.wt, lp.base_sha, "HEAD", added_only=True)
-    if lines <= taskfile.MAX_PR_LINES:
-        return          # nothing a moved block could bring under the ceiling
+    carried = transitions.carried_lines(lp.wt, lp.base_sha, "HEAD")
     why = transitions.first_review_refusal(f"The change on {lp.state.get('branch') or 'its branch'}",
-                                           lines, transitions.carried_lines(lp.wt, lp.base_sha, "HEAD"))
+                                           lines, carried)
     if why:
         raise turns.Blocked(why, f"## Blocked\n\n{why}")
+    history.first_review(lp.state.get("run_id"), lines - carried, log=lp.log)
 
 
 def fix_after_failed_review(lp, upstream, how):
