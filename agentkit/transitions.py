@@ -178,11 +178,12 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
     """Added plus deleted text lines, excluding files Git marks linguist-generated; with
     `added_only`, the added lines alone, what a reviewer reads: nothing deleted counts.
 
-    Deleted files read their attributes at the base; their directory's attributes may
-    have been deleted too. NUL records preserve unusual filenames and rename pairs.
+    Every file reads its attributes at the base, so a change cannot leave its own lines out
+    by marking them generated: a path is marked by a change of its own that lands first.
+    NUL records preserve unusual filenames and rename pairs.
     """
     total = 0
-    for selector, source in (("d", head), *(() if added_only else (("D", base),))):
+    for selector in ("d", *(() if added_only else ("D",))):
         parts = iter(gitcall.git(repo, "diff", "--numstat", "-z", "--find-renames",
                          f"--diff-filter={selector}", f"{base}...{head}").split("\0"))
         changes = []
@@ -191,11 +192,11 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
                 continue
             added, deleted, name = entry.split("\t", 2)
             if not name:
-                next(parts)  # the old name; surviving files use their new attributes
+                next(parts)  # the old name; a renamed file counts under its new one
                 name = next(parts)
             if added != "-":
                 changes.append((name, int(added) if added_only else int(added) + int(deleted)))
-        generated = _generated(repo, source, [name for name, _ in changes])
+        generated = _generated(repo, base, [name for name, _ in changes])
         total += sum(lines for name, lines in changes if name not in generated)
     return total
 
@@ -244,7 +245,7 @@ def carried_lines(repo, base, head="HEAD"):
 def reviewed_lines(repo, base, head="HEAD"):
     """(the lines a diff adds that a reviewer reads, each as its text with whitespace collapsed,
     counted; how many added lines it carries, `carried_lines`): every added line, generated
-    files aside, as `diff_lines` counts them, less the carried ones, so what two pull requests
+    files aside as the base marks them, as `diff_lines` counts them, less the carried ones, so what two pull requests
     share and each one's size are read off the same lines."""
     # a submodule reads as its commit line: diff_lines never counts its insides
     diff = gitcall.git(repo, *gitcall.patch_args("diff", f"{base}...{head}"), check=False)
@@ -254,7 +255,7 @@ def reviewed_lines(repo, base, head="HEAD"):
             added[new] = [" ".join(line[1:].split()) for line in lines if line[:1] == "+"]
         if old:
             deleted[old] = [" ".join(line[1:].split()) for line in lines if line[:1] == "-"]
-    skip_new = _generated(repo, head, sorted(added))
+    skip_new = _generated(repo, base, sorted(added))
     skip_old = _generated(repo, base, sorted(deleted))
     gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
     # each deleted position is indexed by the run of lines from it that first reaches
