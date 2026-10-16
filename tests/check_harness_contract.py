@@ -125,6 +125,13 @@ def read_text(path):
         return ""
 
 
+def recalled(final, filename):
+    """The reply names the file, bare, in backticks or as a Markdown link's text: a model may
+    write a file it made as a link to it, which names the same file."""
+    name = re.escape(filename)
+    return bool(re.fullmatch(rf"(`?){name}\1|\[{name}\]\([^)]*\)", final.strip()))
+
+
 def check(cfg, root, snapshot, host_home, harness=None):
     directory = Path(os.environ.get(config.ADAPTER_DIR_ENV) or REPO / "adapters").expanduser()
     names = [harness] if harness else sorted(p.stem for p in directory.glob("*.toml"))
@@ -206,7 +213,7 @@ def check(cfg, root, snapshot, host_home, harness=None):
             if refusal:
                 report("SKIP", name, f"resume was refused: {refusal}")
                 skipped += 1
-            elif code or final.strip() != filename:
+            elif code or not recalled(final, filename):
                 report("FAIL", name, f"resume exited {code}; final.md = {final[:120]!r}")
                 failed += 1
             else:
