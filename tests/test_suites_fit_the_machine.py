@@ -80,9 +80,6 @@ class SuitesFitTheMachine(unittest.TestCase):
         root = self.root / "cgroups"
         part = root / "agentkit.slice"
         part.mkdir(parents=True)
-        (part / "cpu.max").write_text("700000 100000\n")
-        for directory in (root, part):
-            (directory / "cpu.stat").write_text("usage_usec 0\n")
         proc = self.root / "proc"
         proc.mkdir()
         (proc / "meminfo").write_text("MemAvailable: 33554432 kB\nMemTotal: 33554432 kB\n")
@@ -92,15 +89,22 @@ class SuitesFitTheMachine(unittest.TestCase):
             # one second of the host using 5 cores, 1 of them the slice's
             (root / "cpu.stat").write_text("usage_usec 5000000\n")
             (part / "cpu.stat").write_text("usage_usec 1000000\n")
-        clock = Clock(sleep)
-        clock.monotonic = iter([100.0, 101.0]).__next__
-        with patch.dict(os.environ, {"AK_HOST_READINGS": ""}), patch.object(host, "time", clock), \
-                patch.object(host, "PROC", proc), patch.object(host, "cpu_count", return_value=8):
-            readings = host.host_readings(cgroup_file=self.root / "no-cgroup", cgroup_root=root,
-                                          slice_dir=part)
-        self.assertAlmostEqual(readings["slice_cpu_used"], 1)
-        self.assertAlmostEqual(readings["outside_cpu_used"], 4)
-        self.assertEqual(gate.derived_heavy_limit(readings, running=0), int(3 / gate.HEAVY_CPUS))
+        for quota in ("700000 100000\n", "max 100000\n"):
+            with self.subTest(quota=quota):
+                (part / "cpu.max").write_text(quota)
+                for directory in (root, part):
+                    (directory / "cpu.stat").write_text("usage_usec 0\n")
+                clock = Clock(sleep)
+                clock.monotonic = iter([100.0, 101.0]).__next__
+                with patch.dict(os.environ, {"AK_HOST_READINGS": ""}), \
+                        patch.object(host, "time", clock), patch.object(host, "PROC", proc), \
+                        patch.object(host, "cpu_count", return_value=8):
+                    readings = host.host_readings(cgroup_file=self.root / "no-cgroup",
+                                                  cgroup_root=root, slice_dir=part)
+                self.assertAlmostEqual(readings["slice_cpu_used"], 1)
+                self.assertAlmostEqual(readings["outside_cpu_used"], 4)
+                self.assertEqual(gate.derived_heavy_limit(readings, running=0),
+                                 int(3 / gate.HEAVY_CPUS))
 
     def test_finished_pieces_leave_their_cost_behind(self):
         # Each piece burns once itself and once in a server it leaves running, as the line's

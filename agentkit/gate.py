@@ -714,11 +714,13 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
         readings = host.host_readings(slice_dir=orch.slice_cgroup)
     cpu_quota = host._reading(readings, "slice_cpu_quota")
     cpus = host._reading(readings, "cpus", "nproc")
-    if cpu_quota is not None:
+    used = host._reading(readings, "slice_cpu_used")
+    if cpu_quota is not None or (cpus is not None and used is not None):
+        if cpu_quota is None:
+            cpu_quota = cpus
         outside = host._reading(readings, "outside_cpu_used")
         if outside is not None and cpus is not None:
             cpu_quota = min(cpu_quota, cpus - outside)
-        used = host._reading(readings, "slice_cpu_used")
         cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
         load = host._reading(readings, "load", "load1", "load_1m")
@@ -810,7 +812,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             readings = host.host_readings(slice_dir=orch.slice_cgroup) if pinned is None else None
             # At the top CPU weight (the line's checker) the use lower-weighted runs hold is its own.
             kept = host.kept_cpu(orch.slice_cgroup()) if pinned is None else None
-            if kept is not None and host._reading(readings, "slice_cpu_quota") is not None:
+            if kept is not None:
                 readings = {**readings, "slice_cpu_used": kept}
             total = max(1, _heavy_max_existing() + 1, len(slots))
             while len(slots) < total:
