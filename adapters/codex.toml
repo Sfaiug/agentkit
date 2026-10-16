@@ -72,9 +72,11 @@ state = "at_prompt"
 
 # A turn the user escapes out of has ended, and 0.153.4 has a turn-scoped hook of its own for
 # it (`interrupt.command.input`, carrying turn_id), so the row does not stay on `working`.
+# `interrupt` marks the owner stopping the turn: the seat rests, whatever its plan still owes.
 [[hooks.event]]
 name = "Interrupt"
 state = "at_prompt"
+interrupt = true
 
 [[hooks.event]]
 name = "PermissionRequest"
