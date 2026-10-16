@@ -485,25 +485,6 @@ def answered(data):
     project["hasTrustDialogAccepted"] = True
 
 
-def _pin(settings):
-    """What every seat runs with, whatever an offer or a hand edit wrote since.
-
-    Bypass permissions, and Claude Code's own messages from other sessions refused:
-    seats never message one another, on any harness or account; a seat waits on a pull
-    request or run through ak (`ak wait`).  A message its safeguards flag switches
-    the conversation to another model by itself instead of pausing the seat on a dialog
-    until the owner answers; an answer there writes this same setting, which an account
-    login's copy of the usual login's settings carried over.  Claude Code reads its user
-    settings again when the file changes, so a seat opened before this launch takes them too.
-    """
-    permissions = settings.setdefault("permissions", {})
-    if not isinstance(permissions, dict):
-        permissions = settings["permissions"] = {}
-    permissions["defaultMode"] = "bypassPermissions"
-    settings["crossSessionInbound"] = "refuse"
-    settings["switchModelsOnFlag"] = True
-
-
 CHECKED_ENV = "AGENTKIT_CLAUDE_CHECKED"   # the launch has read Claude's settings: adapters/claude.sh
 
 
@@ -544,9 +525,8 @@ def account_config(check=False):
 
     Claude's config override moves both its user settings and its global .claude.json.
     Validate before respawning the pane; on either login, answer the first-run questions
-    (`answered`) in the launch's actual cwd.  Every seat runs bypass permissions: an
-    accepted auto-mode offer writes `auto` into the settings, so each launch pins it back,
-    with Claude Code's own messages between sessions refused (`_pin`).
+    (`answered`) in the launch's actual cwd.  What every seat runs with comes on its command
+    line (adapters/claude.sh's PINS), so the usual login's settings are never rewritten here.
     """
     account = os.environ.get("AGENTKIT_ACCOUNT")
     paths, values = _settings(account)
@@ -554,11 +534,8 @@ def account_config(check=False):
         return
     if not account:
         os.environ.pop("CLAUDE_CONFIG_DIR", None)
-        _pin(values[0])
         answered(values[1])
-        paths[0].parent.mkdir(parents=True, exist_ok=True)
-        for path, data in zip(paths, values):
-            _write(path, data)
+        _write(paths[1], values[1])
         return
     home = Path.home()
     directory = home / f".claude-{account}"
@@ -581,7 +558,6 @@ def account_config(check=False):
             data.update(values[0])
             # Hooks belong to the current installation, not every past checkout.
             data["hooks"] = values[0].get("hooks", {})
-            _pin(data)
         _write(path, data)
     for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
         source, target = home / ".claude" / name, directory / name
