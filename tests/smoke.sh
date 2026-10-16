@@ -1253,7 +1253,7 @@ class Notifications(test_notify.Notifications):
         self.assertEqual(len(self.requests), 1)   # one card per episode, whatever it asks
         self.assertEqual(menu.state({"name": "seat"}), "needs you")
         self.open_and_progress()
-        self.assertEqual(menu.state({"name": "seat"}), "needs you")
+        self.assertEqual(menu.state({"name": "seat"}), "idle")     # answered, so at rest
         self.assertIsNone(notify.last("seat"))
         self.assertEqual([r[1] for r in self.requests[1:]],
                          ["/hook/messages/1?thread_id=42"])
@@ -3916,9 +3916,10 @@ done
 # the popup drew this server's two seats, in order, under the overlay's own key line
 grep -q 'n start a session   c models   x stop this session   esc leave' "$WORK/overlay-popup.txt" &&
   grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
-NEEDS_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
-grep -q "1  $OV1  fable  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
-grep -q "2  $OV2  astra  $NEEDS_GLYPH needs you" "$WORK/overlay-popup.txt" || OVERLAY=1
+# two seats holding a sleep, with nothing asked or owed: at rest
+IDLE_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
+grep -q "1  $OV1  fable  $IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -q "2  $OV2  astra  $IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q 'p preview' "$WORK/overlay-popup.txt" && OVERLAY=1   # not offered over a running session
 # 2 switches this client to that seat, and the popup comes down behind it. switch-client, the
 # popup closing and the seat drawing its own bar are three redraws, in that order and none of
@@ -5542,7 +5543,7 @@ else
 fi
 # --- 42: seat states ------------------------------------------------------
 if seat_state_check >"$WORK/seat-state.log" 2>&1; then
-  ok "42 seat states: a session is working, needs you or done -- (a) a turn-ended hook fact reads 'needs you', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
+  ok "42 seat states: a session is working, needs you, done or idle -- (a) a turn-ended hook fact with nothing owed reads 'idle', (b) a newer turn-began fact reads 'working' since it began, (c) every harness's dialog fixture reads the 'asking' fact and a transcript quoting it does not, (d) a notified seat reads 'needs you' with its question for a reason and a newer turn outranks it, (e) two renders and a watch tick agree on the word and the since and no live state is ever a reason to type into a seat, (f) the babysitter reads every stall/quota/auth signature from adapters/*.toml and no harness is named in watch.py, (g) a hook writes nothing for a worker or without a seat, (h) ak orch list --why names the word, the authority, the rule and the evidence, (i) every adapter's hooks verb is idempotent"
 else
   no "42 seat states"; tail -30 "$WORK/seat-state.log"
 fi
@@ -5670,7 +5671,7 @@ record = config.save_session(cfg, "echo-seat", "echo", cfg["defaults"]["workers"
 seat = {"name": "echo-seat", "path": record["cwd"], "created": record["created"],
         "attached": False, "exited": False, "legacy": False, "resumable": False, "repo": None}
 bad = []
-for kind, state, word, rule in (("idle", "at_prompt", "needs you", "prompt.composer"),
+for kind, state, word, rule in (("idle", "at_prompt", "idle", "prompt.composer"),
                                 ("working", "working", "working", "working.interrupt"),
                                 ("asking", "asking", "needs you", "asking.chooser")):
     with patch.object(watch, "pane_text", return_value=PANES[kind]), \
@@ -5770,7 +5771,7 @@ record = config.save_session(cfg, "smoke-grok", "grok", cfg["defaults"]["workers
 seat = {"name": "smoke-grok", "path": record["cwd"], "created": record["created"],
         "attached": False, "exited": False, "legacy": False, "resumable": False, "repo": None}
 bad = []
-for kind, state, word, rule in (("idle", "at_prompt", "needs you", "prompt.composer"),
+for kind, state, word, rule in (("idle", "at_prompt", "idle", "prompt.composer"),
                                 ("working", "working", "working", "working.turn"),
                                 ("asking", "asking", "needs you", "asking.trust")):
     with patch.object(watch, "pane_text", return_value=PANES[kind]), \
