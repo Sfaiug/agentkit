@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, watch, worker
+from agentkit import config, watch, worker
 
 REPLACE = "run claude setup-token and replace ~/.agentkit/secrets/claude_oauth_token"
 
@@ -186,16 +186,6 @@ class TokenExpiry(unittest.TestCase):
             self.assertEqual(asked.call_count, 1)
             watch.poll_worker_token(state, now=start + watch.TOKEN_POLL_EVERY)
             self.assertEqual(asked.call_count, 2)
-
-    def test_the_config_screen_says_the_expiry_date_of_its_provider(self):
-        # the pointer on Claude in Providers says it; its Discord row says nothing about it
-        mtime = self.write_token(300)
-        when = time.strftime("%Y-%m-%d", time.localtime(mtime + 365 * 86400))
-        tips = menu.config_tips(config.load(), watch.worker_token_note())
-        self.assertEqual(tips[menu.PROVIDERS, ("account", "anthropic")],
-                         f"Claude: its worker token expires {when} (in 65 days)")
-        self.assertNotIn("worker token", tips[menu.PROVIDERS, ("account", "openai")])
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

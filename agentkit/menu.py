@@ -79,11 +79,9 @@ landing.
 
 Five keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
 providers, discord, version), and Esc, which leaves, as it goes back from every
-screen and question under it; `q` is no key.  Nothing needs a manual: while the pointer rests
-on a row, a state word, a heading, a usage row or a key-line item, the key line says what it
-is in one sentence (terminal.TIPS), and the keys come back when it leaves; a usage row under
-it sends one light across its bar and marks the share that would be left had it been spent as
-fast as time passes.  A question typed inside the menu is typed on its
+screen and question under it; `q` is no key.  Nothing needs a manual: the pointer lights what
+it rests on and says nothing more of it on the key line.  A question typed inside the menu is
+typed on its
 keys (`terminal.field`), so Esc cancels it at once.  From a pipe an empty line or the end of
 input leaves, or goes back.
 On a terminal one seat row is highlighted as well: ↑/↓, k/j and the wheel move it, Enter or a
@@ -1205,11 +1203,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     is; `cursor`, the one highlighted; `spots`, the seat or heading on each screen row and the
     key line's items (`terminal.under`), the one under the pointer lit; `words`, each seat's
     word.  A seat's state word, any other project's heading and a usage row are cells that only
-    explain (`terminal.Spot`): with the pointer on one of those, a seat or a key-line item, the
-    key line says what it is (terminal.TIPS).  A usage row under it with a bar also has a
-    hairline tick at the share of its week that would be left had it been spent as fast as time
-    passes (`usage_tip`), standing through a glide, and one light crosses that bar as the
-    pointer comes onto it (`motion.glinting`).
+    explain (`terminal.Spot`), and nothing says what any of them is on the key line.  A usage row
+    under the pointer with a bar has a hairline tick at the share of its week that would be left
+    had it been spent as fast as time passes (`usage_tip`), standing through a glide, and one
+    light crosses that bar as the pointer comes onto it (`motion.glinting`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
     `x close` while that seat is done and `x remove` while it is stopped (`closed` on its row,
@@ -1263,24 +1260,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     key_text = keys
     # With the keyboard the highlight turns the pages, so `j` and `k` are not offered then.
     page_keys = "" if owned else "   " + PAGE_KEYS
-    tips = {}
-    if owned and not asked:
-        for info in infos:
-            name, word = info["name"], info["word"]
-            tips[name, None] = terminal.TIPS["session"].format(name=name)
-            tips[name, ("state", word)] = terminal.TIPS[word]
-        for project in ordered:
-            checkout = project["checkout"]
-            if "switches" in project:
-                tips[checkout, None] = terminal.TIPS["switches"].format(name=checkout.name)
-            elif checkout:
-                tips[None, ("project", project["name"])] = terminal.TIPS["project"].format(
-                    name=project["name"])
-        tips.update({(None, ("usage", number)): usage_tip(cfg, number)[0]
-                     for number in range(1, len(usage_rows(cfg)) + 1)})
     # A question under a row is budgeted with the key line, so it never pushes a row off.
-    k_single = terminal.key_height(key_text, tips, width) + len(asked)
-    k_paged = terminal.key_height(key_text + page_keys, tips, width) + len(asked)
+    k_single = len(terminal.key_line(key_text, width)) + len(asked)
+    k_paged = len(terminal.key_line(key_text + page_keys, width)) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -1497,7 +1479,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         # whether the pointer is on it: coming onto it is news, the light's to cross
         moves.append((("under", number), kind == "usage" and spot.cell[1] == number,
                       (row, first), False, shade))
-    out = terminal.lit(out, spots, tips, keys_top + 1)
+    out = terminal.lit(out, spots)
     moved, rising = "", False
     if clock is not None:
         clock.clear()
@@ -2025,7 +2007,8 @@ def usage_tip(cfg, number, now=None):
     except (AttributeError, KeyError, TypeError, ValueError):
         week, why = None, "bad reading"
     if week is None:
-        return terminal.TIPS["unread"].format(name=terminal.plain(label), why=why), None
+        return (f"{terminal.plain(label)}: no week to draw, {why}; the bar comes with the first "
+                "reading of one"), None
     elapsed, at = usage._elapsed(week, now), usage._number(week.get("resets_at"))
     pace = None if elapsed is None else 1 - elapsed / 100
     resets, left = resets_note(week, now), percent_left(week)
@@ -2034,8 +2017,9 @@ def usage_tip(cfg, number, now=None):
         resets += " (in " + (f"{secs // 86400} d {secs % 86400 // 3600} h" if secs >= 86400
                              else f"{secs // 3600} h" if secs >= 3600
                              else f"{max(1, secs // 60)} min") + ")"
-    spent = None if pace is None or not left else terminal.TIPS[
-        "slower" if left > round(100 * pace) else "faster" if left < round(100 * pace) else "even"]
+    spent = None if pace is None or not left else (
+        "lasts at this pace" if left > round(100 * pace)
+        else "runs out early at this pace" if left < round(100 * pace) else "on pace")
     shown = (not left and usage.credits_note(prov)) or f"{left}% left"
     return " · ".join(part for part in (terminal.plain(label), shown, resets, spent)
                       if part), pace
@@ -2621,10 +2605,7 @@ def config_model(cfg, name):
         body, places = model_body(cfg, name, None if terminal.away() else here)
         shown = body + (["", *(terminal.styled("  " + part, "dim") for part in terminal.wrap(
             note, terminal.layout_width() - 2))] if note else [])
-        entry = cfg["models"][name]
-        spots = terminal.frame(title, shown, keys, places=places, tips={
-            ("model id", None): terminal.TIPS["model id"].format(harness=entry.get("harness")),
-            **{(row, None): terminal.TIPS[row].format(name=name) for row in EFFORT_ROWS}})
+        spots = terminal.frame(title, shown, keys, places=places)
         key = terminal.read_key()
         if key is None:
             continue                  # a resize: drawn again at the new size
@@ -2669,18 +2650,18 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
-def matrix_page(body, places, here, top, under, keys, tips=None):
+def matrix_page(body, places, here, top, under, keys):
     """The page of a matrix screen's rows that fits over `under`, lines of its own below the
     rows, and its key line: (top, room), the first line of `body` shown and how many are.  `top`
     stays where it was while `here`'s lines are on the page, else moves the least that brings
     them on, and never past the last page."""
-    room = max(1, terminal.height() - 5 - terminal.key_height(keys, tips) - len(under))
+    room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     return max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room)), room
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None, clock=None, moves=(), tips=None):
+               fetched=None, clock=None, moves=()):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -2691,7 +2672,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and `less` or `more` on another's arrows; `column` is None where no cell was
     clicked; a cell that only explains is none.  The pointer does the same and acts on nothing,
-    the cell it is on lit and the key line saying what `tips` have for it.  `act` is
+    the cell it is on lit.  `act` is
     `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- and the key's name otherwise.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
@@ -2702,11 +2683,10 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     """
     said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
                   for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
-    top, room = matrix_page(body, places, here, top, said, keys, tips)
+    top, room = matrix_page(body, places, here, top, said, keys)
     shown = body[top:top + room]
     spots = terminal.frame(title, shown + said, keys, places={
-        line - top: place for line, place in places.items() if top <= line < top + room},
-        tips=tips)
+        line - top: place for line, place in places.items() if top <= line < top + room})
     if clock is not None:
         sys.stdout.write(clock.drawn(moves, lambda line: 3 + line - top
                                      if top <= line < top + room else None))
@@ -2744,35 +2724,6 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     return act, here, column, top
 
 
-def model_tip(name, entry):
-    """What the key line says of model `name`, its config entry, on any screen listing it."""
-    return terminal.TIPS["model"].format(name=name, model=entry.get("model", "?"),
-                                         harness=entry.get("harness", "?"),
-                                         effort=entry.get("effort", "?"))
-
-
-def config_tips(cfg, token=None):
-    """What the `c` screen's key line says of what the pointer is on (terminal.TIPS), {(row,
-    cell): sentence}: each model's row, its label with it, its marks and its effort, and each
-    provider's name on Providers -- `token`, the worker token's note, said of the provider whose
-    harness it is minted for."""
-    tips, harness = {}, token and token.split()[0]
-    for name in config_models(cfg):
-        entry, row = cfg["models"][name], ("model", name)
-        tips[row, None] = model_tip(name, entry)
-        tips.update({(row, column): terminal.TIPS[head]
-                     for column, head in enumerate(orch.ROLE_HEADS)})
-        tips[row, 3] = terminal.TIPS["effort"].format(name=name)
-    for provider in cfg["providers"]:
-        shown = NAMES.get(provider, provider.title())
-        tips[PROVIDERS, ("account", provider)] = (
-            terminal.TIPS["token"].format(name=shown, note=token.split(" ", 1)[1])
-            if any(entry.get("provider") == provider and entry.get("harness") == harness
-                   for entry in cfg["models"].values())
-            else terminal.TIPS["account"].format(name=shown))
-    return tips
-
-
 @terminal.clicks_its_own
 def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note=""):
     """The `c` screen read with the keys until Esc; the config as it left it.
@@ -2797,9 +2748,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so
-    before the first.  With the pointer on a model, a mark, an effort or a provider's name the
-    key line says what it is (config_tips); the worker token's date is said of its provider's,
-    and from TOKEN_WARN_DAYS out it stands under the rows whatever the pointer is on.
+    before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
     """
     from . import watch   # here, not at the top: the menu draws without the tick
     token = watch.worker_token_note()       # a file's date, read once a visit
@@ -2827,7 +2776,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             note or standing, keys, marks=3,
-                                            clock=clock, moves=moves, tips=config_tips(cfg, token))
+                                            clock=clock, moves=moves)
         column = column if clicked is None else clicked
         if here == PROVIDERS != was and clicked is None:
             # the one cell leads to `+ add`, as the first mark does, and no move onto the row
@@ -3003,7 +2952,7 @@ def config_add(cfg):
         body, places = add_body(picked, choices, None if terminal.away() else at)
         said = ["", *(terminal.styled("  " + part, "dim")
                       for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
-        room = max(1, terminal.height() - 5 - terminal.key_height(keys) - len(said))
+        room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
         drawn = next((line for line, number in places.items() if number == at), len(body) - 1)
         top = max(0, min(max(top, drawn - room + 1), drawn, len(body) - room))
         shown = body[top:top + room]
@@ -3169,11 +3118,7 @@ def config_add_provider(cfg, keyboard):
         terminal.frame("config · add a provider", [""] * (len(labels) + len(more) + len(kept)),
                        keys)
         return 3
-    picked = terminal.choose([*labels, *more, *kept], around=around, tips={
-        **{text: terminal.TIPS["provider"].format(name=text) for text in labels},
-        **{text: terminal.TIPS["subscription"].format(name=text) for text in more},
-        **{text: terminal.TIPS["account"].format(name=NAMES.get(provider, provider.title()))
-           for text, (provider, _) in kept.items()}})
+    picked = terminal.choose([*labels, *more, *kept], around=around)
     if picked is None:
         return ""
     name, after = {**more, **kept}.get(picked) or (labels[picked], None)
@@ -3237,8 +3182,7 @@ def config_remove_provider(cfg):
     def listed():     # the screens the two lists are drawn on, drawn again on a resize
         terminal.frame(title, [""] * len(labels), keys + "   esc back")
         return 3
-    picked = terminal.choose(list(labels), around=listed, tips={
-        text: terminal.TIPS["account"].format(name=text) for text in labels})
+    picked = terminal.choose(list(labels), around=listed)
     if picked is None:
         return ""
     name, account = labels[picked]
@@ -3742,8 +3686,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
     move it and the page up follows it; Enter opens it.  A click on a row opens that seat and
     a click on the key line does what its key does, each once the button is up; the pointer
-    on a row moves the highlight there, and on a key-line item lights it, the key line saying
-    what either means while it rests there (terminal.TIPS, `draw`).  A digit
+    on a row moves the highlight there, and on a key-line item lights it (`draw`).  A digit
     waits half a second for a second one, a resize or not, and a key read while it waits is
     kept for after, with the screen it was read on.  The highlight is the seat's name, so it
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let

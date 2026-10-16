@@ -25,7 +25,6 @@ class IdleWord(unittest.TestCase):
         with patch.object(terminal, "utf8", return_value=False):
             self.assertEqual(terminal.state_text("idle"), "o idle")
         self.assertEqual(terminal.state_colour("idle"), "dim")
-        self.assertIn("idle", terminal.TIPS)
 
     def test_it_sorts_last_and_no_top_line_counts_it(self):
         words = {"acme-a": "idle", "acme-b": "done", "acme-c": "needs you", "acme-d": "working"}
