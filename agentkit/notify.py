@@ -58,6 +58,7 @@ SUBJECT_CAP = 60   # a title the phone shows whole, when the task has to stand i
 # start and cut the rest, so context written before the ask hides it.  One classic terminal line.
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
+DESCRIPTION_CAP = 4096   # of one embed's description: Discord refuses a card past it
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
@@ -1004,7 +1005,10 @@ def _remember_card(event, previous=None):
 def _send_card(session, kind, card, answer):
     """Queue once under the session lock; the outbox owns any further attempts."""
     previous = last(session, include_seen=True)
-    text = previous["text"] if kind == "done" and previous else answer["reason"]
+    text = answer["reason"]
+    # the seat's word shows its notice on one line; the card carries the notice as written
+    if previous and (kind == "done" or " ".join(str(previous["text"]).split()) == text):
+        text = previous["text"]
     payload = {"username": "agentkit", "embeds": [embed(kind, session, text)]}
     who = mention()
     if who:
@@ -1325,16 +1329,16 @@ def subject(session, text):
 
 
 def embed(kind, session, text):
-    """The card Discord hears: two words and the seat, nothing else.
-
-    The title names the seat; the colour says which of the two it is.  No
-    description, no fields, no footer, no PR link, no run id, no key hint: the
-    text `ak notify` was given lives on in the outbox record, the log line, the
-    terminal notice and `--dry-run`, never on Discord.
-    """
+    """The card Discord hears: two words and the seat as its title, the colour saying which of
+    the two it is, and the whole of what was asked or done as it was written.  No fields, no
+    footer, no PR link, no run id, no key hint."""
     color = COLORS["fail" if kind == "done" and text.lstrip().upper().startswith("FAIL")
                    else kind]
+    text = str(text).strip()
+    if len(text) > DESCRIPTION_CAP:
+        text = text[:DESCRIPTION_CAP - 1] + "\u2026"
     return {"title": f"{TITLES[kind]} \u00b7 {subject(session, text)}"[:256], "color": color,
+            **({"description": text} if text else {}),
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 

@@ -91,7 +91,8 @@ class AuthWatch(unittest.TestCase):
         self.assertEqual(len(self.events()), 1)
         embed = self.events()[0]["payload"]["embeds"][0]
         self.assertIn("Needs you", embed["title"])
-        self.assertNotIn("fields", embed)   # the card is two words and the seat
+        self.assertNotIn("fields", embed)
+        self.assertIn("/login", embed["description"])   # the card says what to do
         self.assertEqual(menu.state(self.seats[0]), "needs you")
         self.typed.assert_not_called()
         self.meters.assert_not_called()
