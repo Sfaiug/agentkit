@@ -3333,7 +3333,7 @@ def config_audit(cfg):
     """
     terminal.frame("config · weekly audit", [
         "  " + part for text in (audit_value(cfg), "Executors and reviewers are space-separated; "
-                                 "none: the orchestrator builds alone.")
+                                 "none as the executors: the orchestrator builds alone.")
         for part in terminal.wrap(text, terminal.layout_width() - 2)])
     answers = {}
     for key, prompt in (("on", "On (on/off): "), ("orchestrator", "Orchestrator: "),
@@ -3351,9 +3351,11 @@ def config_audit(cfg):
         table["on"] = answers["on"] == "on"
     if answers["orchestrator"]:
         table["orchestrator"] = answers["orchestrator"]
+    # `none` empties the executors only as the whole answer: anywhere else it is a name, which
+    # config.audit takes when a model has it and refuses when none does
     for role in ("workers", "reviewers"):
         if answers[role]:
-            table[role] = [name for name in answers[role].split() if name != "none"]
+            table[role] = [] if (role, answers[role]) == ("workers", "none") else answers[role].split()
     try:
         config.audit({**cfg, "audit": table})
         config.save({**cfg, "audit": table})
