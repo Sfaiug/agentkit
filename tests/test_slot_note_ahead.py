@@ -2,13 +2,14 @@
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import gate, host  # noqa: E402
+from agentkit import config, gate, host  # noqa: E402
 
 
 class SlotNoteAhead(unittest.TestCase):
@@ -16,11 +17,16 @@ class SlotNoteAhead(unittest.TestCase):
         env = patch.dict(os.environ, {"AK_MAX_RUNS": "4"})
         env.start()
         self.addCleanup(env.stop)
+        temp = tempfile.TemporaryDirectory(prefix=".ak-test-slot-note-", dir=REPO)
+        self.addCleanup(temp.cleanup)
+        runs = patch.object(config, "RUNS", Path(temp.name))
+        runs.start()
+        self.addCleanup(runs.stop)
 
     def lines(self, running, ahead, first=False):
         """(claim_slot's saved line, slot_note's own line) for the same counts."""
         state = {"run_id": "r", "run_depth": 0, "first": first}
-        with patch.object(gate, "slot_counts", return_value=(running, ahead)), \
+        with patch.object(gate, "slot_counts", return_value=(running, ahead, [])), \
                 patch.object(host, "host_readings", side_effect=AssertionError("must not read")):
             self.assertFalse(gate.claim_slot(state, 4))
             return state["slot_wait_reason"], gate.slot_note({"run_id": "r", "first": first})
