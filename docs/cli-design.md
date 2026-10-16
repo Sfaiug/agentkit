@@ -221,8 +221,7 @@ allowance lasts the week at this pace. One glint of light crosses its bar, left 
 right in 400 ms (Motion), and a hairline tick stands in the bar at the share
 that would be left had it been spent as fast as time passes, from the meter's
 window and reset -- cut out of the fill's colour where the fill reaches past
-it, and standing through a glide -- until the pointer leaves; the key line reads
-`Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`.
+it, and standing through a glide -- until the pointer leaves.
 Helpers: `terminal.pointed`, `terminal.lit`, `menu.usage_tip`, `motion.glinting`.
 
 ## Questions
@@ -272,7 +271,9 @@ providers in their colours, then `+ add` and `− remove`, and `↻ spend a rese
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none
 past `− remove`, each a list opening in the frame where it has a choice),
 `Discord` (connected or not)
-and `Version` (the commit and its date; read, with no action). Enter
+and `Version` (the commit and its date; read, with no action). A reset spent, the
+line under the rows says that subscription's week as its usage row reads it:
+`Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`. Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
 `model`, then `effort`, each a list opening under the one chosen above it, a
 chosen one kept as one line; Enter on the effort adds the model and highlights
