@@ -28,7 +28,7 @@ here=$(dirname "$0")
 eval "set -- $2"
 echo "$5" >>"$here/calls"
 case $5 in
-probe) printf 'cpus 3\nload 0\nmemory_mb 1048576\nfree_percent 100\n' ;;
+probe) printf 'cpus 6\nload 0\nmemory_mb 1048576\nfree_percent 100\n' ;;
 prepare) cat >"$here/parcel.tar" ;;
 run) [ -e "$here/code-${11%/*}" ] && exit "$(cat "$here/code-${11%/*}")"
   echo "helper ran ${11}"; AK_SHARD=${11} exec bash -c "${15}" ;;
@@ -171,6 +171,8 @@ class HelperMac(unittest.TestCase):
     def test_probe_leaves_load_half_the_free_memory_battery_and_a_held_mac(self):
         # 10 CPUs less a load of 1; half of 8 GiB free.
         self.assertEqual(helper.room("acme-mac", 1.0, 500), (4, 2, 1024))
+        # a small piece still gets two CPUs: 9 spare make 4 VMs, not 9 of one CPU
+        self.assertEqual(helper.room("acme-mac", 1.0, 100), (4, 2, 1024))
         self.assertIsNone(helper.room("acme-mac", 1.0, 2100))
         (self.root / "other").mkdir(parents=True)
         (self.root / "other" / "held").touch()

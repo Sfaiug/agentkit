@@ -39,8 +39,9 @@ def image():
 def room(alias, piece_cpus, piece_mem_mb):
     """(pieces, CPUs each, MiB each) the Mac fits now, or None: no answer, on battery, another
     suite holds it or no room. Its CPUs less its load; half the memory macOS calls free, so the
-    Mac stays its owner's. A VM gets a whole CPU and twice the piece's measured memory: it also
-    holds its own kernel, page cache and clone."""
+    Mac stays its owner's. A VM gets two CPUs or more, as a one-CPU VM's kernel hands a
+    terminal's bytes over late and the suite's terminal tests read them at once, and twice the
+    piece's measured memory: it also holds its own kernel, page cache and clone."""
     try:
         probe = _remote(alias, "probe", text=True, timeout=30)
         readings = {key: float(value) for key, value in
@@ -49,7 +50,7 @@ def room(alias, piece_cpus, piece_mem_mb):
         free_mb = readings["memory_mb"] * readings["free_percent"] / 200
     except (OSError, subprocess.TimeoutExpired, KeyError, ValueError):
         return None
-    count = min(int(spare // max(piece_cpus, 1)), int(free_mb // (2 * piece_mem_mb)))
+    count = min(int(spare // max(piece_cpus, 2)), int(free_mb // (2 * piece_mem_mb)))
     if probe.returncode or count < 1:
         return None
     return count, int(spare // count), int(free_mb // count)
