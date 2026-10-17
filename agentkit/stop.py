@@ -351,9 +351,9 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
 def stop_job(job_dir, keep, *, why, owner_check=False, only_if=None, say=print):
     """End a whole job: its launcher, then every task left unfinished recorded stopped and the
     job finished, then each run of it still going as `end` ends one, so status reads it ended
-    and gc collects it as any finished job.  `why`, `owner_check` and `only_if` are `end`'s,
-    for the receipt read under the lock: False where `only_if` no longer holds of it, so
-    nothing was stopped.  `say` takes the lines the command prints.
+    and gc collects it as any finished job.  `why` and `owner_check` are `end`'s, the check
+    made of the job's seat as well; `only_if` is judged of the receipt read under the lock, and
+    False says it no longer held, so nothing was stopped.  `say` takes the lines the command prints.
 
     The launcher is ended under the job's lock, which every write of the receipt takes
     (`jobs.save_job`): it holds the receipt in memory and starts any task still queued, so it
