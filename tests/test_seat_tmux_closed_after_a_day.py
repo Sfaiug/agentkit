@@ -59,17 +59,20 @@ class FinishedTmux(unittest.TestCase):
         self.enterContext(patch.object(orch, "sessions", return_value=[]))
         self.enterContext(patch.object(orch, "records", return_value={}))
         self.enterContext(patch.object(orch, "tmux_out", side_effect=self.tmux))
-        self.sessions, self.closed, self.messages = {}, [], []
+        self.sessions, self.owners, self.closed, self.messages = {}, {}, [], []
         self.capture_error, self.after_capture = False, lambda: None
 
     def add(self, sid, name, ages=(25 * 3600,), owner="acme", mark=""):
-        fields = {"session_id": sid, "session_name": name, guard.TMUX_OWNER: owner,
+        # Formats fall back to the server's environment, which holds a tag when a process in a
+        # tagged pane started the server: only the session's own environment tells them apart.
+        fields = {"session_id": sid, "session_name": name, guard.TMUX_OWNER: "acme",
                   orch.MARK: mark}
         windows = [[{"pane_id": f"%{len(self.sessions) * 10 + i}",
                      "pane_dead": "0" if age is None else "1",
                      "pane_dead_time": "" if age is None else str(NOW - age)}]
                    for i, age in enumerate(ages)]
         self.sessions[sid] = fields, windows
+        self.owners[sid] = owner
 
     def tmux(self, *args, **kw):
         self.assertIn(kw.get("socket", orch.socket_name()), (None, "agentkit-test"))
@@ -77,6 +80,10 @@ class FinishedTmux(unittest.TestCase):
             return 0, "\n".join(expand(args[-1], {**fields, **pane}, windows)
                                  for fields, windows in self.sessions.values()
                                  for window in windows for pane in window)
+        if args[:2] == ("show-environment", "-t") and args[3:] == (guard.TMUX_OWNER,):
+            owner = self.owners[args[2]]
+            return (0, f"{guard.TMUX_OWNER}={owner}") if owner else \
+                (1, f"unknown variable: {guard.TMUX_OWNER}")
         if args[0] == "if-shell":
             sid = args[args.index("-t") + 1]
             fields, windows = self.sessions[sid]
