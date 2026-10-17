@@ -1009,11 +1009,11 @@ def suite_env():
     A suite that queues behind a host-wide lock of its own would hold the turn for as long as
     another copy holds that lock; told it holds one, it says busy at once instead, exit
     `SUITE_BUSY`, and `busy_turn` gives the turn back.  Never inherited: a loop started below
-    a suite holds none of that suite's turn.
+    a suite holds none of that suite's turn, nor its share or test lists.
     """
     env = gitcall.run_child_env()
-    env.pop("AK_HEAVY_TURN", None)
-    env.pop("AK_SHARD", None)
+    for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED"):
+        env.pop(key, None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
     return env

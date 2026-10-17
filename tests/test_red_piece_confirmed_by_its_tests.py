@@ -111,6 +111,21 @@ class RedPieceConfirmedByItsTests(unittest.TestCase):
                 stderr=subprocess.STDOUT, only=NAMED, failed=failed)
         self.assertEqual((code, killed, failed), (3, False, sorted(NAMED, reverse=True)))
 
+    def test_a_link_named_as_failed_is_not_followed_out_of_the_box(self):
+        secret, failed, activity = self.root / "acme-token", [], self.root / "check.log"
+        secret.write_text("acme-secret\n")
+        with activity.open("w+b") as output:
+            code, _, killed = worker.boxed(
+                ["bash", "-c", f'ln -s {secret} "$AK_FAILED"; exit 1'], 10,
+                env=dict(os.environ), cwd=self.root, activity=activity, output=output,
+                stderr=subprocess.STDOUT, failed=failed)
+        self.assertEqual((code, killed, failed), (1, False, []))
+
+    def test_an_independent_suite_inherits_no_test_lists(self):
+        with patch.dict(os.environ, {"AK_ONLY": "only-tests", "AK_FAILED": "failed-tests"}):
+            env = gate.suite_env()
+        self.assertEqual({"AK_ONLY", "AK_FAILED"} & set(env), set())
+
 
 if __name__ == "__main__":
     unittest.main()

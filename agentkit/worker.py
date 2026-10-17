@@ -633,7 +633,8 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, **kwargs):
                         kwargs["output"].flush()
                     else:
                         text += message
-        if failed is not None and not killed and named.is_file():
+        # Read outside the box, a link could reach a file the box masked, a credential.
+        if failed is not None and not killed and named.is_file() and not named.is_symlink():
             failed.extend(dict.fromkeys(line.strip() for line in named.read_text(
                 errors="replace").splitlines() if line.strip()))
     return code, text, killed
