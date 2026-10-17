@@ -1055,7 +1055,7 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
                 notice = last["text"]    # the user is taking over the watcher's recovery
             if not opening or not last or last.get("watcher") is True:
                 state["stalls"].pop(name, None)
-                # ... and seat_account's give-up on a bare rate limit, kept in the seat's record
+                # ... and seat_account's give-up on a bare 429, kept in the seat's record
                 if (seat_read(name).get("usage_refusal") or {}).get("told"):
                     seat_write(name, usage_refusal=None)
             if notice is not None:
@@ -2532,7 +2532,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
                 "resumes_at": waiting["until"]}
     # 3c. ... or its turn stopped on an error the tick types it back past (`health`, or
-    # `seat_account` for a bare rate limit): it moves on without the owner until the tick gives
+    # `seat_account` for a bare 429): it moves on without the owner until the tick gives
     # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.
     # The error is its own look's (`stall`), so a turn since -- the retry's or the owner's --
     # answers it as soon as the screen does.
