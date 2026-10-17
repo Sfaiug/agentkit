@@ -2397,8 +2397,8 @@ def model_heading(cfg, provider):
     return terminal.styled(provider_name(cfg, provider), "accent")
 
 
-# the roles `r` takes: each one's group in a seat's record and its name in config.ROLE_EFFORTS
-TAKEN = {"execute": ("workers", "executor"), "review": ("reviewers", "reviewer")}
+# the roles `r` takes, each with its group in a seat's record (its config role: matrix.CONFIG_ROLES)
+TAKEN = {"execute": "workers", "review": "reviewers"}
 
 
 def advice(cfg, held):
@@ -2440,35 +2440,27 @@ def advice_lines(found):
 
 def take_advice(cfg, name, selected, providers, found):
     """`r`: the seat's executors and reviewers become the recommended rows' models, each at
-    the row's effort as its entry's own for that role (`exec_effort`, `review_effort`; unset
-    where it is the entry's effort or the row names none), saved to the config and then to
-    the seat's record at once as a flipped mark is (marks_saved); a config that cannot be
-    saved changes no mark and says why.  The orchestrator is only said, since moving the seat
-    is the owner's (the orchestrator mark asks first).  What to say under the rows, or ""."""
+    the row's effort as its entry's own for that role (`exec_effort`, `review_effort`; a row
+    at the entry's effort or at none leaves it following the effort, _follows), saved to the
+    config (_saved) and then to the seat's record at once as a flipped mark is (marks_saved);
+    a config that cannot be saved changes no mark and says why.  The orchestrator is only
+    said, since moving the seat is the owner's (the orchestrator mark asks first).  What to
+    say under the rows, or ""."""
     taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN}
     if not any(model for model, _ in taken.values()):
         return "nothing to take: the recommended rows are not configured models"
     changed, note = orch.role_groups(cfg, selected, providers, **{
-        TAKEN[role][0]: [model] for role, (model, _) in taken.items() if model})
+        TAKEN[role]: [model] for role, (model, _) in taken.items() if model})
     if note:
         return note
-    before = {model: dict(cfg["models"][model]) for model, _ in taken.values() if model}
+    before = copy.deepcopy(cfg)
     for role, (model, effort) in taken.items():
         if model:
-            key = config.ROLE_EFFORTS[TAKEN[role][1]]
-            if effort and effort != cfg["models"][model]["effort"]:
-                cfg["models"][model][key] = effort
-            else:
-                cfg["models"][model].pop(key, None)
-    if any(cfg["models"][model] != held for model, held in before.items()):
-        try:
-            config.save(cfg)
-        except (config.Error, OSError) as exc:     # as _saved: the file's entries stay
-            for model, held in before.items():
-                cfg["models"][model].clear()
-                cfg["models"][model].update(held)
-            return f"config: {exc}"
-    return marks_saved(name, selected, changed)
+            entry, key = cfg["models"][model], config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
+            entry[key] = effort or entry["effort"]
+            _follows(entry, [key])
+    note = _saved(cfg, cfg, before) if cfg != before else ""
+    return note or marks_saved(name, selected, changed)
 
 
 def marks_saved(name, selected, changed):
