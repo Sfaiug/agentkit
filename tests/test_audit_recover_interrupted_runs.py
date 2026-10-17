@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
-from agentkit import config, gc, gitcall, handback, job as jobs, menu, notify, orch, run, status, terminal, transitions, watch
+from agentkit import config, gate, gc, gitcall, handback, job as jobs, menu, notify, orch, run, status, terminal, transitions, watch
 from agentkit import host, matrix, record as run_record
 
 
@@ -50,6 +50,8 @@ class InterruptedRuns(unittest.TestCase):
                                             "load": 1, "cpus": 8,
                                             "unit_memory_current_mb": 100,
                                             "unit_memory_high_mb": 1000})}))
+        # gate read AK_SLOT_POLL when imported; the variable above reaches only child processes.
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .05))
         # No real tmux server, model harness, GitHub or Discord can be reached. Even this
         # tmux recorder insists on the permitted socket name and a private socket directory.
         self.script(self.bin / "tmux", '''import os, sys
