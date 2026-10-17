@@ -535,6 +535,8 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         land.check_line(self.turn)
         with patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")), \
                 patch.object(run, "fix_own_pr", return_value=False):
+            self.review(directory, url)
+            land.check_line(self.turn)
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         self.assertIn("required checks failed: fence", state["findings"])
@@ -635,6 +637,9 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         failed = (nullcontext() if red_suite else
                   patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")))
         with failed, patch.object(run, "fix_own_pr", return_value=False):
+            if not red_suite:
+                self.review(directory, url)
+                land.check_line(self.turn)
             self.assertEqual(self.review(directory, url)["verdict"], "FAIL")
         self.push_fix(url, rename=True)
         newest, fetch = self.prs[url]["head"], run.fetch

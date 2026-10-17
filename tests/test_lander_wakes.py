@@ -305,6 +305,11 @@ class LanderWakes(Sandbox):
         self.check_result = (False, "required checks failed: unit")
         self.park()
         self.assertEqual(run.cmd_resume([self.directory.name]), 0)
+        # Parked on the fix: its fixer waits for a fix's admission, on the lander's wake.
+        self.assertIn("fix", record.read_state(self.directory)["waiting_on"])
+        self.assertEqual(self.events, [])
+        land.check_line(self.turn)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         state = record.read_state(self.directory)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["pr"], URL)
@@ -328,6 +333,8 @@ class LanderWakes(Sandbox):
         with patch.object(deliver, "checks", side_effect=self.real_checks), \
                 patch.object(deliver, "gh_json", side_effect=lambda *a, **kw: (next(replies), "")):
             self.assertEqual(run.cmd_resume([self.directory.name]), 0)
+        land.check_line(self.turn)
+        self.assertEqual(run.cmd_resume([self.directory.name]), 0)
         self.assertIn(output, self.fixer_inputs[0])
         self.assertIn(output, (self.directory / "pr-checks.log").read_text())
         self.assert_rounds(record.read_state(self.directory))
