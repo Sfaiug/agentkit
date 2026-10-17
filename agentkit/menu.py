@@ -2141,9 +2141,11 @@ def usage_lines(cfg, width, lit=None, rows=None):
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
     drawn; `lit`, from 1, the one the pointer is on, has its label and its meter's filled cells
-    in its provider's (`colour`).  The rest is said under the grid (`usage_detail`).  What
+    in its provider's (`colour`), and one whose login ends soon (`login_notes`) has its meter
+    amber the rest of the time.  The rest is said under the grid (`usage_detail`).  What
     each cell says is whole: the labels give way to the longest, and a width with no room for
     a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`)."""
+    rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
         return []
@@ -2157,34 +2159,55 @@ def usage_lines(cfg, width, lit=None, rows=None):
     # a phone's one column is its width: the meter gives way first, down to four cells
     meter = max(4, min(METER, room - label_room - 13))
     full, empty = ("▰", "▱") if terminal.utf8() else ("#", "-")
+    ending = login_notes(rows)
     lines = []
     for start in range(0, len(found), columns):
         cells = []
         for number, (name, label, left, said) in enumerate(found[start:start + columns],
                                                            start + 1):
             ink = colour(cfg, name) if number == lit else None
+            warn = ending[number - 1] and not ink    # under the pointer its line says when
             shown = terminal.cut(terminal.plain(label), label_room)
             text = ((terminal.styled(shown, ink) if ink else shown)
                     + " " * (label_room - terminal.cells(shown) + 2))
             if not left:     # no meter: `empty until`, or why there is none, or the credits
-                text += terminal.styled(said, "dim") if left is None else said
+                text += (terminal.styled(said, "amber") if warn
+                         else terminal.styled(said, "dim") if left is None else said)
             else:
                 filled = max(1, round(meter * left / 100))
-                text += ((terminal.styled(full * filled, ink) if ink else full * filled)
+                fill = ink or warn and "amber"
+                text += ((terminal.styled(full * filled, fill) if fill else full * filled)
                          + terminal.styled(empty * (meter - filled), "dim") + "  " + said)
             cells.append(text + " " * max(0, room - terminal.cells(text)))
         lines.append(("  " + "  ".join(cells)).rstrip())
     return lines
 
 
+def login_notes(rows, now=None):
+    """What the line under the grid says of each of `rows`' (`usage_rows`') login while it ends
+    within logins.WARN_WITHIN or has ended, `login owner@acme.test ends Mon 26 Oct 04:47 (in 2
+    days)`, its meter amber meanwhile; None for the rest."""
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
+    now = time.time() if now is None else now
+    found = logins.read()
+    notes = []
+    for name, _, _, account in rows:
+        login = found.get(name)
+        login = login.get(account or config.DEFAULT_ACCOUNT) if isinstance(login, dict) else None
+        when = logins.ending(login, now)
+        notes.append(when and " ".join(filter(None, ("login", login.get("email"), when))))
+    return notes
+
+
 def usage_detail(cfg, number, width=None, now=None, rows=None):
     """What the line under the usage grid says of subscription `number`, from 1, while the
     pointer is on it: its label in its provider's colour, then -- each where it applies, joined
-    with ` · ` -- when its week resets, the credits it holds, the resets in hand (`in_hand`),
-    each model's own cap that differs (`scoped_notes`), its 5-hour window (`session_note`), why
-    its last probe failed (`fault`) and how old the reading is (`usage.as_of`); for one with no
-    week to draw, why (`unread`).  In `width` cells the notes give way one by one, the least
-    worth keeping first (`fitting`), and the label too, past the notes; `rows` as `usage_cells`'."""
+    with ` · ` -- a login that ends soon, in amber (`login_notes`), when its week resets, the
+    credits it holds, the resets in hand (`in_hand`), each model's own cap that differs
+    (`scoped_notes`), its 5-hour window (`session_note`), why its last probe failed (`fault`)
+    and how old the reading is (`usage.as_of`); for one with no week to draw, why (`unread`).
+    In `width` cells the notes give way one by one, the least worth keeping first (`fitting`),
+    and the label too, past the notes; `rows` as `usage_cells`'."""
     now = time.time() if now is None else now
     rows = usage_rows(cfg) if rows is None else rows
     if not 0 < number <= len(rows):
@@ -2195,12 +2218,14 @@ def usage_detail(cfg, number, width=None, now=None, rows=None):
         (-1, usage.credits_note(prov)), (0, resets_note(week, now)), (1, in_hand(prov)),
         *((3, note) for note in scoped_notes(cfg, name, readable, week)),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
-    notes = [note for note in notes if note[1]]
+    login = login_notes(rows[number - 1:number], now)[0]
+    notes = [note for note in [(-2, login), *notes] if note[1]]
     room = 10 ** 6 if width is None else width - 4
     label = terminal.cut(label, room)     # a label too long for the line gives way, as in its cell
     room -= terminal.cells(label)
     return (terminal.styled(label, colour(cfg, name)) + "  " + terminal.styled(" · ", "dim")
-            .join(_note_styled(part) for part in fitting(notes, room)))
+            .join(terminal.styled(part, "amber") if part == login else _note_styled(part)
+                  for part in fitting(notes, room)))
 
 
 def run_state_word(state):

@@ -425,15 +425,17 @@ still runs on, which count as usage left. A row
 with no shared week at all -- no reading, or nothing but one model's private cap --
 is `—` and the words that say why, never `—` alone. No cell's words are cut: the names
 give way to the longest. At rest nothing on it has a
-company's colour. The rows run red through violet by the hue of that colour, the
-near-greys last and lightest first: Claude, MiMo, Muse, Gemini, Grok, ChatGPT.
+company's colour; a subscription whose login ends within 7 days, or has ended, has its
+meter (or its words, with none) amber. The rows run red through violet by the hue of that
+colour, the near-greys last and lightest first: Claude, MiMo, Muse, Gemini, Grok, ChatGPT.
 The pointer on one draws its name and meter in its company's own colour --
 Claude `#D97757`, ChatGPT `#FFFFFF`, Muse `#3E9EFB`,
 Grok `#736CD3`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
 `colour = "#RRGGBB"` in config.toml, else the accent; on a light
 background a light grey is drawn as its mirror tone, so ChatGPT's white reads
 black -- and the blank line under the grid says the rest, joined with ` · ` and
-each only when it applies: `resets <weekday> <HH:MM>` in local
+each only when it applies: that login, in amber, `login owner@acme.test ends Mon 26 Oct
+04:47 (in 2 days)` or `ended <when>` (`menu.login_notes`); `resets <weekday> <HH:MM>` in local
 time from that meter (`resets 23 Oct` more than six days out in a window longer
 than a week, such as MiMo's 30-day plan; `resets in 3d` when only a duration is
 known); the credits; `1 reset in hand` (`2 resets in hand`) while the subscription holds
