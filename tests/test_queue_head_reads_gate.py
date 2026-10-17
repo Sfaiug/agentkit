@@ -192,6 +192,8 @@ class QueueHeadReadsGate(unittest.TestCase):
             self.assertFalse(self.admitted("fix-api"))
             self.poll("fix-api")
             self.assertTrue(self.admitted("fix-api"))
+            self.assertRegex((config.RUNS / "fix-api" / "log.txt").read_text(),
+                             r"^waited \d+ min for a slot \(count\)\nlaunch\n$")
 
 
 if __name__ == "__main__":
