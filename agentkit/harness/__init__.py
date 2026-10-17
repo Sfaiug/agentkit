@@ -498,6 +498,11 @@ class Harness:
         """Whether `error` reads anything: a transcript alone may hold no error a reader knows."""
         return self._hook("error") is not None
 
+    @property
+    def keeps_owner_messages(self):
+        """Whether `user_messages` reads anything: one with no reader of its own reads none."""
+        return self._hook("user_messages") is not None
+
     # --- what its own installation and usage call know --------------------
 
     def identity(self, text, argv):

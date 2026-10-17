@@ -402,8 +402,9 @@ def owner(since, until):
 
 
 def intent(conversation, began_at, done_at, runs, *, log=None):
-    """An intent its seat said done to: from the owner's first message for it to the done, with
-    the runs the seat started in between."""
+    """An intent its seat said done to: from the owner's first message for it (None where the
+    seat's harness keeps no messages ak reads) to the done, with the runs the seat started in
+    between."""
     _write(lambda connection: connection.execute(
         "INSERT INTO intents (conversation, began_at, done_at, runs) VALUES (?, ?, ?, ?)",
         (conversation, began_at, done_at, json.dumps(runs))), log)
@@ -419,8 +420,8 @@ def last_done(conversation):
 
 def intents_done(since, until):
     """The intents done in the inclusive range, each with when it began, when it was done, and
-    when the last of its runs went live (None with none); None where the database cannot
-    answer."""
+    when the last of its runs to start went live (None until then, or with none); None where
+    the database cannot answer."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -430,10 +431,10 @@ def intents_done(since, until):
                         "SELECT began_at, done_at, runs FROM intents WHERE done_at >= ? AND done_at <= ? "
                         "ORDER BY done_at", (since, until)).fetchall():
                     runs = json.loads(runs)
-                    live = connection.execute(
-                        f"SELECT MAX(live_at) FROM runs WHERE run_id IN ({', '.join('?' * len(runs))})",
-                        runs).fetchone()[0] if runs else None
-                    done.append({"began_at": began, "done_at": ended, "live_at": live})
+                    last = connection.execute(
+                        f"SELECT live_at FROM runs WHERE run_id IN ({', '.join('?' * len(runs))}) "
+                        "ORDER BY started_at DESC LIMIT 1", runs).fetchone() if runs else None
+                    done.append({"began_at": began, "done_at": ended, "live_at": last and last[0]})
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
