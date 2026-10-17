@@ -267,7 +267,8 @@ class MimoPlan(unittest.TestCase):
             [str(REPO / "adapters/opencode.sh"), "usage"], capture_output=True, text=True,
             timeout=30 - int(env.get("SECONDS", 0)),
             env={"HOME": str(self.root), "PATH": f"{bin_dir}:/usr/bin:/bin",
-                 "OPENCODE_CONFIG_DIR": str(self.root / "opencode"), **env})
+                 "OPENCODE_CONFIG_DIR": str(self.root / "opencode"), "AGENTKIT_PROVIDER": "mimo",
+                 **env})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout), (fake / "asked-bridge").read_text().splitlines()
 

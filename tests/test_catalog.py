@@ -1,7 +1,7 @@
 """Each harness lists the models it can run and the efforts each one takes.
 
 `adapters/<h>.sh models` prints one `id<TAB>label<TAB>efforts` line per model: live where the
-harness lists its own (`opencode models`, `agy models`, `grok models`, `codex debug models`, and
+harness lists its own (`opencode api model.list`, `agy models`, `grok models`, `codex debug models`, and
 Claude's and Muse's in tests/test_live_catalog.py), else the `[catalog]` table of its manifest,
 which is also where a failed or unbounded listing lands.  `none` is
 the one effort of a model that runs at no effort; an empty efforts field, one whose efforts
@@ -17,6 +17,7 @@ or provider is asked anything.
 """
 
 import io
+import json
 import os
 import shlex
 import shutil
@@ -161,23 +162,28 @@ class Catalog(unittest.TestCase):
                          list(self.table("grokbuild")))
 
     def test_opencode_listing_is_parsed_and_cached_a_minute(self):
-        self.stub("opencode", listing=FIXTURES / "opencode-models.txt")
-        # each id the table knows takes its label and efforts, and any other goes unsaid
+        self.stub("opencode", listing=FIXTURES / "opencode-model-list.json")
+        # each id the table knows takes its label and efforts, and any other OpenCode's own
+        # name and variants, `none` for one with no variant
         table = {model["id"]: model for model in config.catalog_table("opencode")}
-        want = [table.get(model) or {"id": model, "label": model, "efforts": []}
-                for model in (FIXTURES / "opencode-models.txt").read_text().split()]
-        self.assertEqual(want[0], {"id": "mimo/mimo-v2.6-flash", "label": "MiMo V2.6 Flash",
-                                   "efforts": ["none", "high"]})
+        listed = json.loads((FIXTURES / "opencode-model-list.json").read_text())["data"]
+        want = [table.get(f"{model['providerID']}/{model['id']}") or {
+            "id": f"{model['providerID']}/{model['id']}", "label": model["name"],
+            "efforts": [variant["id"] for variant in model["variants"]] or ["none"]}
+            for model in listed]
+        self.assertEqual(want[-1], {"id": "mimo/mimo-v2.6-flash", "label": "MiMo V2.6 Flash",
+                                    "efforts": ["none", "high"]})
         self.assertEqual(config.catalog("opencode"), want)
-        self.assertEqual(self.log.read_text(), "models\n", "not --standalone: it lists nothing")
+        self.assertEqual(self.log.read_text(), "api model.list\n",
+                         "not --standalone: it lists nothing")
         # a second ask within the minute is the first answer; past it, the harness is asked again
         now = time.monotonic()
         with patch.object(config.time, "monotonic", return_value=now + 30):
             self.assertEqual(config.catalog("opencode"), want)
-        self.assertEqual(self.log.read_text().count("models"), 1)
+        self.assertEqual(self.log.read_text().count("model.list"), 1)
         with patch.object(config.time, "monotonic", return_value=now + config.CATALOG_TTL + 1):
             self.assertEqual(config.catalog("opencode"), want)
-        self.assertEqual(self.log.read_text().count("models"), 2)
+        self.assertEqual(self.log.read_text().count("model.list"), 2)
 
     def test_agy_folds_each_effort_suffixed_id_into_its_model(self):
         self.stub("agy", listing=FIXTURES / "antigravity-models.txt")
@@ -255,7 +261,7 @@ class Catalog(unittest.TestCase):
         (self.home / ".codex").mkdir()
         (self.home / ".codex/auth.json").write_text('{"auth_mode": "chatgpt"}')
         self.stub("agy", listing=FIXTURES / "antigravity-models.txt")
-        self.stub("opencode", listing=FIXTURES / "opencode-models.txt")
+        self.stub("opencode", listing=FIXTURES / "opencode-model-list.json")
         with patch.object(config, "HOME", self.home), \
                 patch.object(orch, "slice_line", return_value="slice test"), \
                 patch.object(watch, "tick_health", return_value="lock free"), \

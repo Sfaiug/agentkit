@@ -49,11 +49,11 @@ INSTALLER_URL = {
 }
 
 FAKE_BINARY = """#!/usr/bin/env bash
-# fake {name}: answers --version with its planted release, and `auth list` the way the
-# opencode login check asks it.  Anything else is a test bug, said out loud.
+# fake {name}: answers --version with its planted release, and OpenCode's provider list the
+# way the opencode login check asks it.  Anything else is a test bug, said out loud.
 case "$1" in
   --version) echo "{name} version {version}" ;;
-  auth) printf '[{{"id": "mimo"}}]' ;;
+  api) printf '{{"data": [{{"id": "mimo", "activation": "enabled"}}]}}' ;;
   *) echo "fake {name}: unexpected $*" >&2; exit 2 ;;
 esac
 """
