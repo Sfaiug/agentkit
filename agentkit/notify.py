@@ -1535,7 +1535,41 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     record(name, kind, text, **extra)
     for _ in range(fresh):
         history.owner_time("asked", time.time() if at is None else at)
+    if kind == "done":
+        _intent(name, time.time() if at is None else at)
     return previous
+
+
+def _intent(name, done_at):
+    """Record that seat's done with where the owner's intent it ends began: their first message
+    in its conversation since that conversation's previous done (`user_messages` leaves ak's own
+    lines out).  Read here, from facts already decided, never stamped by a prompt's hook: hook
+    order, renames and reused names moved such stamps after they were written.  The start is
+    unknown, and the done still the next one's boundary, with no message of theirs since, where
+    the harness reads no messages or cannot read them now, and for the first done of a
+    conversation begun before dones were kept: its earlier dones were never recorded, and a
+    notice keeps only a seat's latest."""
+    from . import orch
+    record = config.session_records().get(name)
+    if not record:
+        return
+    plugin, cwd = orch.seat_plugin(record), record.get("cwd")
+    try:
+        conversation = plugin.conversation(record, cwd)
+    except (OSError, ValueError):
+        return
+    known = history.last_done(f"{plugin.name}:{conversation}") if conversation else None
+    if known is None:
+        return
+    try:
+        asked = [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)
+                 if message["at"] <= done_at]
+    except (OSError, ValueError):
+        asked = []
+    last, since = known
+    fresh = [at for at in asked if last is None or at > last]
+    unknown = not fresh or (last is None and min(asked) < since)
+    history.done(f"{plugin.name}:{conversation}", done_at, None if unknown else min(fresh))
 
 
 def ask_kept(name, ended=False):

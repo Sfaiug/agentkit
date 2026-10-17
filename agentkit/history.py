@@ -106,6 +106,19 @@ CREATE TABLE IF NOT EXISTS owner (
     waited REAL
 )
 """
+# A seat's done, one row each, keyed by its harness and conversation so a rename or a reused
+# name moves nothing: `began` is the owner's first message there since its previous done, NULL
+# where ak cannot know it.  `kept` holds since when dones are kept: 0 for a history begun with
+# them, else the moment an older one first met them, before which a conversation's dones went
+# unrecorded.
+DONES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS dones (
+    conversation TEXT,
+    at REAL,
+    began REAL
+)
+"""
+KEPT_SCHEMA = "CREATE TABLE IF NOT EXISTS kept (since REAL)"
 
 
 def path():
@@ -121,10 +134,19 @@ def _connect(*, readonly=False):
         return connection
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database, timeout=2)
+    connection.execute(KEPT_SCHEMA)
+    # Read before `runs` is made, in the statement that writes it, so two first connects agree;
+    # committed at once, as the tables below are made outside a transaction.
+    if not connection.execute("SELECT 1 FROM kept").fetchone():
+        connection.execute("INSERT INTO kept (since) SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master "
+                           "WHERE name = 'runs') THEN ? ELSE 0 END WHERE NOT EXISTS (SELECT 1 FROM kept)",
+                           (time.time(),))
+        connection.commit()
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
+    connection.execute(DONES_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -382,6 +404,35 @@ def owner(since, until):
             connection = _connect(readonly=True)
             try:
                 return connection.execute("SELECT at, kind, waited FROM owner WHERE at >= ? AND at <= ?",
+                                          (since, until)).fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+
+
+def last_done(conversation):
+    """`(last, since)`: that conversation's last done, None before its first, and since when
+    dones are kept; None where the database cannot answer."""
+    return _write(lambda connection: connection.execute(
+        "SELECT (SELECT MAX(at) FROM dones WHERE conversation = ?), (SELECT since FROM kept)",
+        (conversation,)).fetchone())
+
+
+def done(conversation, at, began, *, log=None):
+    """A seat's done in that conversation, and the owner's first message since its previous one."""
+    _write(lambda connection: connection.execute(
+        "INSERT INTO dones (conversation, at, began) VALUES (?, ?, ?)", (conversation, at, began)), log)
+
+
+def dones(since, until):
+    """The dones in the inclusive range, `(at, began)` as `done` wrote them; None where the
+    database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute("SELECT at, began FROM dones WHERE at >= ? AND at <= ?",
                                           (since, until)).fetchall()
             finally:
                 connection.close()

@@ -193,7 +193,8 @@ class Scoreboard(unittest.TestCase):
         self.assertFalse(history.path().exists())
         with patch.object(scoreboard.subprocess, "run", side_effect=OSError("git unavailable")):
             board = scoreboard.compute(NOW)
-        self.assertEqual(board, {"products": [None, None], "ak": [None, None], "owner": [None, None],
+        self.assertEqual(board, {"products": [None, None], "ak": [None, None], "intent": [None, None],
+                                 "owner": [None, None],
                                  "built": [None, None], "waits": [None, None], "merged": [None, None],
                                  "parks": [None, None], "sunk": [None, None], "escaped": [None, None],
                                  "size": [None, None]})
@@ -225,6 +226,7 @@ class Scoreboard(unittest.TestCase):
                    {"runs": 1, "merged": 1, "first_round": 1, "unmerged": 0,
                     "hours": None, "tokens": None, "token_share": None}],
             "size": [{"code_lines": 17, "readme_words": 5, "agents_words": 9}, None],
+            "intent": [None, {"measured": 0, "hours": None}],
             "owner": [{"asked": 2, "paged": 3, "hours": 1.25}, {"asked": 0, "paged": 0, "hours": None}],
             "built": [None, None],
             "waits": [{"compute": .25, "merge_hours": 1.5, "lander_hours": .5}, None],
@@ -244,6 +246,7 @@ class Scoreboard(unittest.TestCase):
             "          ended without merging; no merged runs; 60%    ended without merging; merge hours unknown;",
             "          of all recorded tokens                        median tokens per merged run unknown; no",
             "                                                        tokens recorded",
+            "intent    not recorded                                  no intent measured",
             "owner     2 questions asked, 3 cards sent, median 1.2   0 questions asked, 0 cards sent",
             "          hours waiting for an answer",
             "built     no runs ended                                 no runs ended",
