@@ -75,12 +75,18 @@ class PickByRank(Sandbox):
         self.cfg["models"]["astra"]["effort"] = "xhigh"
         matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 1)
         self.assertEqual(matrix.stored()["computed_at"], 10000 + matrix.FRESH_FOR + 1)
-        # and so does a harness installed after it, or missing a moment during an upgrade swap
-        present, opus = config.harness_present.side_effect, self.cfg["models"]["opus"]["harness"]
+        # and so does a harness back from a moment missing in an upgrade swap, even one back
+        # while the catalogs were read
+        present, catalog = config.harness_present.side_effect, config.catalog.side_effect
+        opus = self.cfg["models"]["opus"]["harness"]
         config.harness_present.side_effect = lambda harness: harness != opus and present(harness)
+        def back(harness):
+            config.harness_present.side_effect = present
+            return catalog(harness)
+        config.catalog.side_effect = back
         matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 2)
+        config.catalog.side_effect = catalog
         self.assertIsNone(matrix.rank(self.cfg, "execute")["opus"])
-        config.harness_present.side_effect = present
         matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 3)
         self.assertIsNotNone(matrix.rank(self.cfg, "execute")["opus"])
         # the tick's pass is the same refresh, never on a dry run
