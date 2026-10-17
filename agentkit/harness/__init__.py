@@ -307,16 +307,6 @@ class Harness:
         """
         return bool(self.conversation_facts.get("always_offered"))
 
-    @property
-    def has_hooks(self):
-        """Whether its seats run hooks.
-
-        Every harness takes its hooks once, as its seat starts: from a config file its launch
-        reads (Claude) or from the launch itself (Codex). A seat older than the last install is
-        then missing whatever that install added, and says so; one with no hooks never is.
-        """
-        return bool(config.manifest(self.name).get("hooks"))
-
     # --- the conversation a seat holds ------------------------------------
 
     def seat_auth(self, account):

@@ -3260,10 +3260,6 @@ def list_table(found, cfg, tallies, width, selections=None):
     if not found:
         widths = [terminal.cells(head) for head in LIST_HEADERS]
         return terminal.table_row(LIST_HEADERS, widths, "", ["dim"] * 7), []
-    try:
-        installed_at = float((config.STATE / "installed-at").read_text())
-    except (OSError, ValueError):
-        installed_at = 0
     rows, notes = [], {}
     for s in found:
         if selections is not None and s["name"] in selections:
@@ -3279,16 +3275,8 @@ def list_table(found, cfg, tallies, width, selections=None):
                      selection["orchestrator"] if selection else "?",
                      ",".join(selection["workers"]) if selection else "?",
                      terminal.format_age(time.time() - s["created"])])
-        try:
-            restart = (selection and s["created"] < installed_at and harness_plugin(
-                config.model(cfg, selection["orchestrator"])["harness"]).has_hooks)
-        except config.Error:
-            restart = False     # its model is gone from the config: no harness to ask
-        note = ("  ".join(part for part in ("legacy" if s.get("legacy") else "",
-                                            "restart to pick up updates" if restart else "")
-                           if part))
-        if note:
-            notes[s["name"]] = note
+        if s.get("legacy"):
+            notes[s["name"]] = "legacy"
     texts = [terminal.state_text(row[2]) for row in rows]
     fixed = [0, 1, 3, 4, 6]
     natural = [max([terminal.cells(row[i]) for row in rows] + [terminal.cells(LIST_HEADERS[i])])
