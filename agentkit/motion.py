@@ -170,9 +170,10 @@ def colouring(text, began, colour, into, rest=None, bright=False):
     """`text`, cells drawn in `rest` (None: plain) and in a company's `colour` while the pointer
     is on its subscription, from `began`, when the pointer came onto it (`into`) or left it: the
     colour washes in left to right in WASH seconds, a light riding its edge, or drains right to
-    left in DRAIN; an animation for each cell, and when it is still.  `bright` is the
-    highlighted row's, where every cell is."""
-    took, size = WASH if into else DRAIN, len(text)
+    left in DRAIN; its animation, and when it is still.  The text is written whole from its
+    first cell, so a letter two cells wide keeps both and a combining mark its letter.
+    `bright` is the highlighted row's, where every cell is."""
+    took, size = WASH if into else DRAIN, terminal.cells(text)
     start, end = terminal.faded(rest or "dim", 0 if rest else -1), terminal.faded(colour, 0)
     lift = terminal.faded("dim", -1)
 
@@ -181,16 +182,20 @@ def colouring(text, began, colour, into, rest=None, bright=False):
             f"{round(int(one[i:i + 2], 16) * (1 - amount) + int(other[i:i + 2], 16) * amount):02x}"
             for i in (1, 3, 5))
 
-    def cell(n, char):
-        def at(now):
-            reached = eased((now - began) / took)
-            p = min(1, max(0, (reached if into else 1 - reached) * (size + 2) - n))
-            kind = (rest if p <= 0 else colour if p >= 1 else
-                    mixed(mixed(start, end, p), lift, EDGE * math.sin(math.pi * p)))
-            text = terminal.styled(char, kind) if kind else char
-            return terminal.highlight(text, mark=False) if bright else text
-        return at
-    return [cell(n, char) for n, char in enumerate(text)], began + took
+    def letter(char, p):
+        p = min(1, max(0, p))
+        kind = (rest if p <= 0 else colour if p >= 1 else
+                mixed(mixed(start, end, p), lift, EDGE * math.sin(math.pi * p)))
+        return terminal.styled(char, kind) if kind else char
+
+    def at(now):
+        reached = eased((now - began) / took)
+        front = (reached if into else 1 - reached) * (size + 2)
+        # each letter by the last cell it takes, from 0: a combining mark has its letter's
+        drawn = "".join(letter(char, front + 1 - terminal.cells(text[:n + 1]))
+                        for n, char in enumerate(text))
+        return terminal.highlight(drawn, mark=False) if bright else drawn
+    return at, began + took
 
 
 def fetching(clock, began):

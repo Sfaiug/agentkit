@@ -73,19 +73,42 @@ class Wash(Sandbox):
         self.assertFalse([cell for cell in clock.cells if cell[0] == other])
 
     def test_the_wash_runs_left_to_right_with_a_lit_edge_and_drains_back(self):
-        frames, until = motion.colouring("Claude", 0.0, CLAUDE, True)
+        frame, until = motion.colouring("Claude", 0.0, CLAUDE, True)
         self.assertEqual(until, motion.WASH)
-        self.assertEqual([frame(0.0) for frame in frames], list("Claude"))
-        self.assertEqual([frame(until) for frame in frames],
-                         [terminal.styled(char, CLAUDE) for char in "Claude"])
-        middle = [frame(until / 2) for frame in frames]
-        self.assertEqual(middle[0], terminal.styled("C", CLAUDE))     # in from the left
-        self.assertEqual(middle[-1], "e")                              # not yet at the right
-        frames, until = motion.colouring("opus", 0.0, CLAUDE, False, "dim")
-        self.assertEqual([frame(0.0) for frame in frames],
-                         [terminal.styled(char, CLAUDE) for char in "opus"])
-        self.assertEqual([frame(until) for frame in frames],
-                         [terminal.styled(char, "dim") for char in "opus"])
+        self.assertEqual(frame(0.0), "Claude")
+        self.assertEqual(frame(until), "".join(terminal.styled(char, CLAUDE) for char in "Claude"))
+        middle = frame(until / 2)
+        self.assertTrue(middle.startswith(terminal.styled("C", CLAUDE)))     # in from the left
+        self.assertTrue(middle.endswith("e"))                                 # not yet at the right
+        frame, until = motion.colouring("opus", 0.0, CLAUDE, False, "dim")
+        self.assertEqual(frame(0.0), "".join(terminal.styled(char, CLAUDE) for char in "opus"))
+        self.assertEqual(frame(until), "".join(terminal.styled(char, "dim") for char in "opus"))
+
+    def test_a_wide_label_is_washed_whole_from_its_first_cell(self):
+        self.cfg["providers"]["anthropic"]["name"] = "界A"
+        clock = motion.Clock()
+        self.screen(clock=clock)
+        self.screen((5, 3), clock)
+        frame, until = clock.cells[3, 3]
+        self.assertEqual(terminal.plain(frame(until)), "界A")
+        self.assertNotIn((3, 4), clock.cells)       # nothing written inside the wide letter
+
+    def test_a_wide_name_or_a_model_named_as_its_number_lights_the_model_in_its_column(self):
+        self.cfg["models"]["1"] = dict(self.cfg["models"]["opus"])
+        seat = self.seats[0]
+        seat["name"] = "acme-界"
+        config.save_session(self.cfg, seat["name"], "1", ["opus"],
+                            {"repo": seat["repo"], "cwd": seat["path"]})
+        number, model = self.row(self.screen((5, 3)), seat["name"]).split(seat["name"])
+        self.assertIn(terminal.styled("1", "dim")[:-1], number)
+        self.assertIn(terminal.styled("1", CLAUDE)[:-1], model)
+
+    def test_a_free_slot_on_the_grid_s_last_line_lights_nothing(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
+        line, free = divmod(len(menu.usage_rows(self.cfg)), 3)     # three to a line at 120
+        self.assertTrue(free, "the grid's last line has no free slot")
+        lines = self.screen((3 + free * (menu.COLUMN + 2) + 1, 3 + line))
+        self.assertIn(terminal.styled("opus", "dim")[:-1], self.row(lines, "acme-plan"))
 
 
 if __name__ == "__main__":
