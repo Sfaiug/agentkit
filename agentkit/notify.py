@@ -448,7 +448,7 @@ def resolved(data):
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
 
 
-def answered(session, at):
+def answered(session, at, typed=None):
     """The owner submitted a prompt; only the seat's question already standing is answered.
 
     The hook owns this fact. Keep it on the notice so a later line of ak's own or a rename
@@ -459,10 +459,17 @@ def answered(session, at):
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     A question the seat kept back for its turn's end, that end on record, is the one he read
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
+    `typed` dates a message no prompt hook heard (`answer_typed`): it answers only a question of
+    the seat's own said before it, judged here, where the seat cannot ask another meanwhile.
+    True once a question was answered.
     """
+    from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
         ask_kept(session, ended=True)
         previous = last(session)
+        if typed is not None and not (watch.owner_question(previous)
+                                      and typed > spoken_at(previous)):
+            return
         if previous and previous.get("watcher") is True:
             return
         if not previous or previous["kind"] != "needs":
@@ -476,8 +483,8 @@ def answered(session, at):
         waited(previous, at)
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
-    from . import watch    # here, not at the top: watch imports this module
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
+    return True
 
 
 def spoken_at(notice):
@@ -498,8 +505,8 @@ def answer_typed(log=print):
         if (not watch.owner_question(notice) or not isinstance(notice.get("time"), (int, float))
                 or watch.seat_read(name).get("unasked")):
             continue
-        if any(at > spoken_at(notice) for at in owner_said(name)):
-            answered(name, time.time())
+        typed = max(owner_said(name), default=0)
+        if typed > spoken_at(notice) and answered(name, time.time(), typed=typed):
             log(f"{name}: its question was answered in the turn it was asked in")
 
 

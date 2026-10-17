@@ -118,6 +118,21 @@ class AnswerTypedIntoTurn(Sandbox):
         self.tick_at(1320.0)
         self.assertIsNone(notify.last(SEAT))
 
+    def test_a_question_asked_while_their_messages_are_read_still_stands(self):
+        self.asks_at(1000.0)
+        self.turn_ends_at(1100.0)
+        second = "Ship the parser today? It needs the schema first."
+
+        def read_messages(*args, **kw):
+            with patch.object(notify.time, "time", return_value=1250.0):
+                self.assertEqual(notify.main(["needs", second]), 0)
+            return [{"at": 1200.0, "text": "Use v2."}]
+        self.harness.user_messages = read_messages
+        self.tick_at(1300.0)
+        self.assertIn(second, notify.last(SEAT)["text"])
+        self.assertNotIn("answered_at", notify.last(SEAT))
+        self.assertEqual(self.logs, [])
+
     def test_a_question_still_kept_back_waits_for_the_look_that_asks_it(self):
         self.asks_at(1000.0)
         self.harness.said = [1200.0]
