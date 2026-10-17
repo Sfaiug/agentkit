@@ -2114,22 +2114,25 @@ def usage_summary(cfg, width, most=None):
     else `0%`, as on its row, `0%` once spent until its reset, `—` with no reading -- whole, as
     many to a line as fit, ` · ` between; in `most` lines, the last ending in ` · …` where
     readings are left out."""
-    lines = [[]]
-    for _, label, left, said in usage_cells(cfg):
-        figure = (f"{left}%" if left else said if left == 0 and terminal.cells(said) <= width - 2
-                  else "—" if said[0] == "—" else "0%")
-        # a label too long for the width gives way, never what it has left
-        room = width - 3 - terminal.cells(figure)
-        part = f"{terminal.cut(label, room)} {figure}" if room > 0 else figure
-        if lines[-1] and terminal.cells(" · ".join(lines[-1] + [part])) > width - 2:
-            lines.append([])
-        lines[-1].append(part)
+    def fill(found, room):
+        lines = [[]]
+        for _, label, left, said in found:
+            figure = (f"{left}%" if left else said if left == 0 and terminal.cells(said) <= room
+                      else "—" if said[0] == "—" else "0%")
+            # a label too long for the room gives way, never what it has left
+            spare = room - 1 - terminal.cells(figure)
+            part = f"{terminal.cut(label, spare)} {figure}" if spare > 0 else figure
+            if lines[-1] and terminal.cells(" · ".join(lines[-1] + [part])) > room:
+                lines.append([])
+            lines[-1].append(part)
+        return [line for line in lines if line]
+    found = usage_cells(cfg)
+    lines = fill(found, width - 2)
     if most is not None and len(lines) > most:
-        lines = lines[:most]
-        while lines[-1] and terminal.cells(" · ".join(lines[-1] + ["…"])) > width - 2:
-            lines[-1].pop()
-        lines[-1].append("…")
-    return ["  " + " · ".join(line) for line in lines if line]
+        # the last line keeps room for ` · …`, a label giving way to it as to the width
+        lines = lines[:most - 1]
+        lines.append(fill(found[sum(map(len, lines)):], width - 6)[0] + ["…"])
+    return ["  " + " · ".join(line) for line in lines]
 
 
 def reading(cfg, name, prov, now):
