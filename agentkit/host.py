@@ -44,11 +44,13 @@ def proc_stat(pid, proc_root=PROC):
     """That process's `ProcStat`, or None where its stat cannot be read.
 
     The command name sits in parentheses and may hold spaces or `)`, so the fields are
-    counted after the last `)`.  What None means -- gone, hidden, or not proof of
-    anything -- is the caller's to say.
+    counted after the last `)`.  Linux keeps 15 bytes of a name, which may end inside a
+    UTF-8 character, so the name is never decoded strictly.  What None means -- gone,
+    hidden, or not proof of anything -- is the caller's to say.
     """
     try:
-        fields = (Path(proc_root) / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        fields = ((Path(proc_root) / str(pid) / "stat").read_text(errors="replace")
+                  .rsplit(")", 1)[1].split())
         return ProcStat(fields[0], int(fields[1]), int(fields[19]))
     except (OSError, ValueError, IndexError):
         return None

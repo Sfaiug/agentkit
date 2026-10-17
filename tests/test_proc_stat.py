@@ -35,6 +35,14 @@ class ProcStat(unittest.TestCase):
         self.assertEqual(host.proc_stat(41, self.root), host.ProcStat("R", 7, 12345))
         self.assertFalse(host.proc_stat(41, self.root).exited)
 
+    def test_a_command_name_cut_inside_a_character_keeps_its_fields(self):
+        # Linux keeps 15 bytes of a name: of eight two-byte characters, half the last.
+        line = stat_line(48, "name", "S", 7, 9).encode()
+        line = line.replace(b"name", b"\xc3\xa9" * 7 + b"\xc3")
+        (self.root / "48").mkdir()
+        (self.root / "48" / "stat").write_bytes(line)
+        self.assertEqual(host.proc_stat(48, self.root), host.ProcStat("S", 7, 9))
+
     def test_a_zombie_or_a_dead_task_has_exited(self):
         for pid, state in ((42, "Z"), (43, "X")):
             self.write(pid, "stat", stat_line(pid, "gone", state, 1, 5))
