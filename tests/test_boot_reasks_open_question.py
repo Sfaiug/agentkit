@@ -8,14 +8,15 @@ text is recorded where it would go in; the real boot pass, `continue_turns`,
 
 import json
 import os
+import time
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
 
-NOW = 1_800_000_000
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
+QUESTION = (REPO / "tests/fixtures/claude-question-pane.txt").read_text()
 EMPTY = "❯ \n"
 
 
@@ -24,20 +25,16 @@ class BootReasks(Sandbox):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_RUN_ROLE": "", "AGENTKIT_DISCORD_WEBHOOK": "", "AGENTKIT_DISCORD_USER_ID": ""}))
-        self.live, self.texts, self.keys = [], [], []
+        self.live, self.texts, self.keys, self.meanwhile = [], [], [], []
         self.pane, self.fail_enter = PROMPT, False
         self.stack.enter_context(patch.object(orch, "sessions", lambda: list(self.live)))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
-        self.stack.enter_context(patch.object(orch, "rulebook_prepare"))
+        # what changes once the send has its lock, after every look before it
+        self.stack.enter_context(patch.object(
+            orch, "rulebook_prepare",
+            side_effect=lambda _name: [self.meanwhile.pop(0)() for _ in list(self.meanwhile)]))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               return_value=("claude", "anthropic")))
-        # the look before the send always finds a prompt: what holds a line back is read
-        # under the send's own lock
-        self.stack.enter_context(patch.object(
-            watch, "live_state",
-            side_effect=lambda *a, **k: {"state": "at_prompt", "rule": "prompt.composer",
-                                         "authority": "screen", "evidence": "",
-                                         "began": NOW, "since": NOW}))
         self.stack.enter_context(patch.object(watch, "pane_text",
                                               side_effect=lambda *_a, **_kw: self.pane))
         self.stack.enter_context(patch.object(watch, "_send_line", side_effect=self.send_line))
@@ -61,15 +58,16 @@ class BootReasks(Sandbox):
         self.pane = PROMPT
         return 0, ""
 
-    def fact(self, name, event, kind="", at=NOW - 600):
+    def fact(self, name, event, kind="", at=None):
         config.hook_facts_path(name).write_text(json.dumps(
-            {"session": name, "event": event, "kind": kind, "at": at}))
+            {"session": name, "event": event, "kind": kind,
+             "at": time.time() - 600 if at is None else at}))
 
     def reopened(self, cfg, name, **_kw):
         self.live.append({"name": name, "path": str(self.root), "created": 1,
                           "attached": False, "exited": False, "legacy": False,
                           "resumable": False})
-        self.fact(name, "Notification", "idle_prompt", at=NOW)   # back at its prompt
+        self.fact(name, "Notification", "idle_prompt", at=time.time())   # back at its prompt
         return "resumed"
 
     def seat(self, name, event, kind="", notice=None):
@@ -120,19 +118,26 @@ class BootReasks(Sandbox):
         self.seat("dialog", "PermissionRequest")
         watch.resume_after_boot(self.cfg, log=lambda _line: None)
         marked = watch.seat_read("dialog")["midturn"]["at"]
-        # a turn begun as it was reopened, before its mark; a draft of the owner's; a question
-        # on its screen
-        for event, pane in (("UserPromptSubmit", PROMPT),
-                            ("Notification", PROMPT.replace(EMPTY, "❯ use the staging db\n")),
-                            ("Notification", (REPO / "tests/fixtures/claude-question-pane.txt")
-                             .read_text())):
-            self.fact("dialog", event, "idle_prompt" if event == "Notification" else "",
-                      marked - 1)
+
+        def screen(event, pane):
+            if event:
+                self.fact("dialog", *event, at=marked - 1)
+            else:
+                config.hook_facts_path("dialog").unlink()   # a relaunch forgets its hook's word
             self.pane = pane
+        # a turn begun as it was reopened, before its mark; a draft of the owner's; a question
+        # on its screen; a harness still loading, which nothing reads
+        for event, pane in ((("UserPromptSubmit",), PROMPT),
+                            (("Notification", "idle_prompt"),
+                             PROMPT.replace(EMPTY, "❯ use the staging db\n")),
+                            (("Notification", "idle_prompt"), QUESTION),
+                            (None, "Resuming the conversation…\n")):
+            screen(("Notification", "idle_prompt"), PROMPT)
+            self.meanwhile.append(lambda: screen(event, pane))
             watch.continue_turns(self.cfg, lambda _line: None)
             self.assertEqual((self.texts, self.keys), ([], []))
             self.assertNotIn("tries", watch.seat_read("dialog")["midturn"])
-        self.pane = PROMPT
+        screen(("Notification", "idle_prompt"), PROMPT)
         watch.continue_turns(self.cfg, lambda _line: None)
         self.assertEqual(self.texts, [("dialog", watch.ASKED_LINE)])
         self.assertIsNone(watch.seat_read("dialog")["midturn"])
@@ -148,6 +153,18 @@ class BootReasks(Sandbox):
         self.assertIsNone(watch.seat_read("needs")["midturn"])
         self.tick()
         self.assertEqual(len(self.texts), 1)
+
+    def test_a_newer_mark_saved_while_the_enter_went_is_left_for_its_own_line(self):
+        self.seat("needs", "Stop", notice=("needs", "Which branch should fix-api land on?"))
+        self.fail_enter = True
+        self.boot()
+        self.fail_enter = False
+        newer = {"boot": "after", "at": time.time(), "name": "needs",
+                 "line": "You now run on another model; read your plan and go on."}
+        self.meanwhile.append(lambda: watch.seat_write("needs", midturn=newer))
+        watch.finish_own_lines(self.cfg, lambda _line: None)
+        self.assertEqual(self.keys, ["=needs:", "=needs:"])
+        self.assertEqual(watch.seat_read("needs")["midturn"], newer)
 
 
 if __name__ == "__main__":

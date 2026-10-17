@@ -601,10 +601,7 @@ def continue_turns(cfg, log, accounts=False):
 
                 def stale(held):
                     if line == ASKED_LINE and not quiet:
-                        now = observed(held, harness, pane_text(session), seat_read(held),
-                                       time.time())
-                        quiet.append(now["state"] == "at_prompt"
-                                     and not _turn_in_flight(harness, now)[0])
+                        quiet.append(quiet_prompt(session, held, cfg))
                     return quiet == [False] or taken(held)
                 sent = type_into(session, line, log, stale, asked=True)
                 if sent:
@@ -652,7 +649,7 @@ def finish_own_lines(cfg, log):
                              veto=lambda held: line != marked
                              and owner_question(notify.last(held)),
                              ready=alone) and line == marked):
-                seat_write(name, midturn=None)
+                strike_midturn(name, mark)
             break
 
 
@@ -1872,6 +1869,19 @@ def wait_mark(name, wait, **marks):
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
         return False
+
+
+def strike_midturn(name, mark):
+    """Take that `continue_turns` mark off once its line landed, only while it is still that
+    mark: one saved while the Enter was confirmed -- a model switch's handover -- is a newer
+    line's, so the compare and the write are one stretch under the seat's lock."""
+    try:
+        with seat_lock(name):
+            data = seat_read(name)
+            if data.get("midturn") == mark:
+                _seat_put(name, data, {"midturn": None})
+    except (OSError, config.Error) as exc:
+        print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
 
 
 def live_state(session, harness=None, pane=None, cfg=None, now=None):
@@ -3493,6 +3503,22 @@ def takes_line(session, cfg=None, pane=None):
     return found.get("hooked_event") in marked_events(harness, "background")
 
 
+def quiet_prompt(session, held, cfg=None):
+    """May a new line go into that seat, the one its send lock calls `held`?
+
+    One capture under that lock, right before the first key, says all of it: the seat at its
+    prompt, no question up, and its composer read empty -- never onto the owner's draft, short
+    or wrapped, a dialog, or a screen whose composer cannot be read.
+    """
+    pane = pane_text(session)
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, held)[0]
+    except (config.Error, OSError):
+        return False
+    return bool(harness and takes_line(session, cfg=cfg, pane=pane)
+                and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -3544,16 +3570,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it
         composed.append(True)
-        # one capture under the lock, right before the first key, says all of it: the seat at
-        # its prompt, no question up, and its composer read empty -- never onto the owner's
-        # draft, short or wrapped, a dialog, or a screen whose composer cannot be read
-        pane = pane_text(session)
-        try:
-            harness = seat_model(config.load() if cfg is None else cfg, held)[0]
-        except (config.Error, OSError):
-            return True
-        return not (harness and takes_line(session, cfg=cfg, pane=pane)
-                    and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
+        return not quiet_prompt(session, held, cfg)
 
     return (type_checked(session, text, log, None,
                          guard=lambda: seat_held(session["name"]), veto=veto,
