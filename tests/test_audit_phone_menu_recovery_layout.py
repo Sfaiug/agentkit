@@ -487,8 +487,8 @@ class Terminal:
         self.width, self.height = width, height
         self.tmux("resize-window", "-t", "phone", "-x", str(width), "-y", str(height))
 
-    def redraw(self, *texts, key="Left", prompt="esc leave", tries=5):
-        """`key` (an arrow that moves nothing, by default) for a redraw; again when the pane's
+    def redraw(self, *texts, key="F5", prompt="esc leave", tries=5):
+        """`key` (a key that does nothing, by default) for a redraw; again when the pane's
         pty was still being resized under it.
 
         tmux applies a pane's new size to its pty a moment after `resize-window`, so a key
@@ -622,8 +622,9 @@ class Phone(Sandbox):
         for _ in range(of):
             lines = page(screen)
             seen |= self.numbers(lines)
-            heading = next(line for line in lines if "your projects" in line).strip()
-            self.assertRegex(heading, r"your projects( · .*?)? \d+/\d+$")
+            # with the keyboard the key line starts with the page's place
+            heading = self.place(lines)
+            self.assertRegex(heading, r"^\d+ / \d+$")
             self.assertNotIn("j more", "\n".join(lines))
             if heading not in headings:
                 headings.append(heading)
@@ -634,11 +635,17 @@ class Phone(Sandbox):
         self.assertGreater(len(headings), 1)
         for _ in range(of):
             screen = self.moved(phone, "Up", page(screen))
-            heading = next(line for line in page(screen) if "your projects" in line).strip()
+            heading = self.place(page(screen))
             if heading != headings[-1]:
                 break
         self.assertEqual(heading, headings[-2])
         return headings
+
+    @staticmethod
+    def place(lines):
+        """The page up, `2 / 3`, as the key line's mark says it."""
+        return next((m.group(1) for line in lines
+                     for m in [re.search(r"←\s+(\d+ / \d+)\s+→", line)] if m), "")
 
     def stop_answered(self, phone):
         """`Stop` picked on the question `x` asks under a row: Down onto it, then Enter."""
@@ -759,10 +766,11 @@ class Phone(Sandbox):
         for n in range(2, 12):
             self.seat(f"audit-seat-{n:02d}")
         self.seat(LONG_NAME)
-        phone.keys("Left")                   # an arrow that moves nothing: a draw, and no more
+        phone.keys("F5")                     # a key that does nothing: a draw, and no more
         if narrow:
             screen = phone.until("your projects", "11  phone-au", prompt="esc leave")
-            self.assertRegex(self.whole_page(screen, width, height), r" \d+/\d+$")
+            self.whole_page(screen, width, height)
+            self.assertRegex(self.place(screen), r"^\d+ / \d+$")
         else:
             screen = phone.until("your projects", "12  zz-very-long-session-", prompt="esc leave")
             self.whole_page(screen, width, height)
@@ -801,7 +809,7 @@ class Phone(Sandbox):
         # the popup over a seat holds fewer rows still, and pages them the same way
         phone.press("11")                    # phone-audit, eleventh by name
         phone.until(STAND_IN, "▌  phone-au")
-        screen = phone.menu("your projects", " 1/")
+        screen = phone.menu("your projects", "←  1 / ")
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
         phone.until(STAND_IN, absent=["esc leave"])
@@ -831,7 +839,7 @@ class Phone(Sandbox):
         # the popup over a seat on that short screen fills it, and still pages rows
         phone.press("11")
         phone.until(STAND_IN, "▌  phone-au")
-        screen = phone.menu("1/")
+        screen = phone.menu("←  1 / ")
         self.assertIn("no project", "\n".join(Terminal.inside(screen)))
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
