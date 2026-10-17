@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, handback, job as jobs, record, run
+from agentkit import box, config, gate, handback, job as jobs, record, run
 
 OLD = "aaa1111"
 NEW = "bbb2222"
@@ -120,6 +120,21 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
         self.assertEqual(record.read_state(self.run_dir)["state"], "running")
         self.assertTrue((self.run_dir / "log.txt").read_text().startswith(
             "waited 10 min for a slot (memory)\n"))
+
+    def test_a_launch_stopped_as_it_waits_ends_in_the_new_process(self):
+        task = self.root / "acme.md"
+        task.write_text("# Acme fix\n\nFix the widget.\n\n## Done when\n```bash\ntrue\n```\n")
+        state = record.read_state(self.run_dir)
+        state.update(state="stopped", verdict="STOPPED", slot_waiting=False)
+        record.save_state(self.run_dir, state)
+        with patch.object(box, "check"), patch.object(config, "active_session", return_value=None), \
+                patch.object(config, "load", return_value={"defaults": {"workers": ["opus"]}}), \
+                patch.object(run, "prepare") as prepare:
+            with self.assertRaisesRegex(config.Error, "was stopped before it could start"):
+                run.main([str(task)])
+        prepare.assert_not_called()
+        self.assertEqual([path.name for path in config.RUNS.iterdir() if path.is_dir()],
+                         [self.run_dir.name])
 
     def test_the_slot_s_wait_offers_the_move_after_each_poll(self):
         offered = []

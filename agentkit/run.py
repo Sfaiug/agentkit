@@ -2943,9 +2943,13 @@ def main(argv):
     resumed = os.environ.get(config.RUN_DIR_ENV)
     if resumed and not queued(Path(resumed)):
         receipt = run_record.read_state(Path(resumed)) or {}
+        name = receipt.get("run_id") or Path(resumed).name
         if needs_recovery(receipt):
-            name = receipt.get("run_id") or Path(resumed).name
             raise config.Error(f"this launch was interrupted; ak run resume {name} to recover it")
+        if (receipt.get("state") == "stopped" and receipt.get("pid") == os.getpid()
+                and run_record.process_active(receipt)):
+            # this very process's launch, stopped as it waited: a pickup's exec keeps the pid
+            raise config.Error(f"{name} was stopped before it could start; nothing was launched")
         # a stale variable inherited from some other run: start our own instead of stealing it
         print(f"ak run: ignoring {config.RUN_DIR_ENV}={resumed}: not a queued run",
               file=sys.stderr)
