@@ -11,6 +11,14 @@ it execs the real tmux.
 Each new-session also gets its creator's name in its session environment, for the tick's
 cleanup of finished auxiliary sessions (`orch.sweep_finished`).
 
+What a seat starts in tmux speaks for that seat, as what it runs in its own shell does: tmux starts
+a pane's process in its server's environment, not the caller's, so a `tmux new-session` the seat
+ran would otherwise start an `ak run --review-pr` that knows no seat -- reviewed as someone
+else's PR, merged by no one, its ending told to no one.  Each command that starts a process
+(`STARTS`) gets `-e AGENTKIT_SESSION=<seat>` after its name; a `-e` of the seat's own later in the
+command wins, as tmux takes the last.  Out of reach, by design: `run-shell`, `if-shell`,
+`pipe-pane` and `display-popup`.
+
 Which session a `-t` names is answered by the real tmux, with a read-only command of the SAME
 target type as the one guarded -- `list-windows -t` (a session target) for `kill-session`,
 `list-panes -t` (a window target) for `kill-window`, `display-message -t` (a pane target) for the
@@ -69,14 +77,18 @@ ENDS = ("kill-server", "kill-session", "kill-window", "kill-pane")
 TYPES = ("send-keys", "paste-buffer", "send-prefix", "pipe-pane")
 VALUED = {"send-keys": "cN", "paste-buffer": "bs"}   # options besides -t that take a value
 REQUIRES = {"pipe-pane": "I"}         # pipe-pane types into the pane only with -I (else it reads out)
+STARTS = ("new-session", "new-window", "split-window", "respawn-pane", "respawn-window")
 ALIASES = {"killp": "kill-pane", "killw": "kill-window", "send": "send-keys",
-           "pasteb": "paste-buffer", "pipep": "pipe-pane"}
+           "pasteb": "paste-buffer", "pipep": "pipe-pane", "new": "new-session",
+           "neww": "new-window", "splitw": "split-window", "respawnp": "respawn-pane",
+           "respawnw": "respawn-window"}
 SERVER_VALUED = set("fLScT")                            # tmux server options that take a value
 TMUX_OWNER = "AK_TMUX_OWNER"        # session environment: the seat that created it, not a seat mark
 
 
 def tmux_owned(args):
-    """Tag each new session at creation, including unnamed ones and commands chained with `;`.
+    """Tag each new session at creation, including unnamed ones and commands chained with `;`,
+    and give each command that starts a process (`STARTS`) the seat's name.
 
     `-e` belongs to new-session itself: no later lookup can tag the wrong session, and `-A`
     attaching an existing session leaves its ownership alone.
@@ -84,21 +96,24 @@ def tmux_owned(args):
     _, i = server_opts(args)
     result = args[:i]
     changed = False
+    own = config.current_session()
     for cmd in commands(args[i:]):
         if len(result) > i:
             result.append(";")
-        if cmd[0] == "new" or (cmd[0].startswith("new-s") and "new-session".startswith(cmd[0])):
-            cmd = [cmd[0], "-e", f"{TMUX_OWNER}={config.current_session()}", *cmd[1:]]
+        command = guarded(cmd[0], STARTS)
+        if command == "new-session":
+            cmd = [cmd[0], "-e", f"{TMUX_OWNER}={own}", *cmd[1:]]
+        if command:
+            cmd = [cmd[0], "-e", f"{config.SESSION_ENV}={own}", *cmd[1:]]
             changed = True
         result.extend(cmd)
     return result if changed else args
 
 
-def guarded(name):
+def guarded(name, known=(*ENDS, *TYPES)):
     """The guarded tmux command that word runs: a full name, an alias, or a unique prefix of one
     (tmux takes any unambiguous prefix; an ambiguous one tmux refuses, so it runs nothing)."""
     name = ALIASES.get(name, name)
-    known = (*ENDS, *TYPES)
     if name in known:
         return name
     hits = [k for k in known if name and k.startswith(name)]
@@ -412,16 +427,13 @@ def main(args):
     name, real, *rest = args
     try:
         reason = REFUSALS[name](rest, real) if name in REFUSALS else None
+        run = tmux_owned(rest) if name == "tmux" and not reason else rest
     except Exception:
-        reason = None
+        reason, run = None, rest
     if reason:
         sys.stderr.write(reason + "\n")
         return 1
-    try:
-        rest = tmux_owned(rest) if name == "tmux" else rest
-    except Exception:
-        pass
-    os.execv(real, [real, *rest])
+    os.execv(real, [real, *run])
 
 
 def shim_dir():
