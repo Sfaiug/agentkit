@@ -166,7 +166,8 @@ class SelfReviewLast(unittest.TestCase):
                                            "acme-one", "acme-one"))
         # only a launch with no runnable worker is refused, in one sentence
         providers = usage.Readings(self.meters())
-        providers.harnesses = {"test": "test is not logged in"}
+        providers.harnesses = {usage._asked(self.cfg, self.cfg["models"][name]):
+                               "test is not logged in" for name in ("acme-one", "beta-one")}
         self.assertEqual(
             run.pair_refusal(self.cfg, providers, ["acme-one", "beta-one"]),
             "none of the workers acme-one, beta-one and reviewers acme-one, beta-one "

@@ -145,9 +145,12 @@ class OneProvider(unittest.TestCase):
             self_review=run.same_model(self.cfg, "alpha", "beta")))
 
     def unready(self, **why):
-        """The read a pick starts from, with each named harness's answer beside it."""
+        """The read a pick starts from, with each named harness's answer beside it, for every
+        provider it runs: the `test` harness runs two."""
         self.providers = usage.Readings(self.meters())
-        self.providers.harnesses = why
+        self.providers.harnesses = {usage._asked(self.cfg, entry): why[entry["harness"]]
+                                    for entry in self.cfg["models"].values()
+                                    if entry["harness"] in why}
 
     def test_a_harness_not_installed_or_not_logged_in_is_skipped_with_one_line(self):
         for name in ("gamma", "delta"):
@@ -189,7 +192,7 @@ class OneProvider(unittest.TestCase):
                                       "provider": "c"}
         asked = []
 
-        def auth(harness):
+        def auth(harness, **_kw):
             asked.append(harness)
             return harness != "other", "fixture"
         with patch.object(config, "adapter", return_value=REPO / "adapters/claude.sh"), \

@@ -142,9 +142,9 @@ def _probe(cfg, provider, now, account=None):
     facts = harness_plugin(harness).usage
     said = None      # the adapter's own words for a call that ran; see the `auth` question below
     # one account's meters, the usual login's for none: named to the adapter, whatever a turn
-    # this runs under was named
-    argv = ["env", *(f"{k}={v}" for k, v in config.account_env(account).items()),
-            str(adapter), "usage"]
+    # this runs under was named, with the provider they are of
+    told = {**config.account_env(account), **config.provider_env([provider])}
+    argv = ["env", *(f"{k}={v}" for k, v in told.items()), str(adapter), "usage"]
     try:
         if facts["capture"]:
             # a usage call that runs a model shares the caller's deadline, descendants included
@@ -219,8 +219,7 @@ def _probe(cfg, provider, now, account=None):
         # ever puts `no login` on a row.  Only the adapter's own words are asked about: an
         # adapter that crashed, timed out or printed nothing usable was never reached at all, and
         # a probe the endpoint refused was asked with credentials it never complained about.
-        out["logged_in"] = (worker.auth_ok(harness) if account is None
-                            else worker.auth_ok(harness, account=account))[0]
+        out["logged_in"] = worker.auth_ok(harness, account=account, provider=provider)[0]
     return out
 
 
@@ -848,30 +847,34 @@ def readiness(cfg, providers):
         entry = cfg["models"][name]
         if _asked(cfg, entry) not in read.harnesses:
             read.harnesses[_asked(cfg, entry)] = harness_unready(
-                entry["harness"], accounts=config.accounts(cfg, entry["provider"]) or (None,))
+                entry["harness"], accounts=config.accounts(cfg, entry["provider"]) or (None,),
+                provider=entry["provider"])
     return read
 
 
 def _asked(cfg, entry):
-    """Where `readiness` keeps a model's answer: by its harness, and by its provider too when
-    that lists accounts -- those logins are its own, and another provider's say nothing of it."""
-    if config.accounts(cfg, entry["provider"]):
+    """Where `readiness` keeps a model's answer: by its harness, and by its provider too where
+    the answer can differ by provider -- it lists accounts, or the harness runs several
+    providers' models (OpenCode): those logins are its own, and another's say nothing of it."""
+    if (config.accounts(cfg, entry["provider"])
+            or len(config.harness_providers(cfg, entry["harness"])) > 1):
         return entry["harness"], entry["provider"]
     return entry["harness"]
 
 
-def harness_unready(harness, accounts=(None,)):
+def harness_unready(harness, accounts=(None,), provider=None):
     """Why this harness cannot run a turn here, or None when nothing says it cannot.
 
     Not installed is `config.harness_present` saying no: its adapter missing, or its program
     nowhere to be found.  Not logged in is its own `auth` verb saying no for every one of
-    `accounts`, the usual login for None: a turn runs on any of them.  No answer withholds
-    nothing.
+    `accounts`, the usual login for None: a turn runs on any of them.  `provider` is the
+    provider those logins are of, every one the config runs on that harness for None
+    (worker.auth_ok).  No answer withholds nothing.
     """
     if not config.harness_present(harness):
         return f"{harness} is not installed"
-    if all((worker.auth_ok(harness) if account is None
-            else worker.auth_ok(harness, account=account))[0] is False for account in accounts):
+    if all(worker.auth_ok(harness, account=account, provider=provider)[0] is False
+           for account in accounts):
         return f"{harness} is not logged in"
     return None
 
