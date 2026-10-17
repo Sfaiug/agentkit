@@ -53,8 +53,9 @@ class FailedUnitsForgotten(Sandbox):
             raise failure
         if failure:
             return subprocess.CompletedProcess(command, failure, stdout="", stderr="unavailable")
-        if action == "list-units":
-            self.assertIn("--failed", args)
+        if action == "list-units" and "--failed" not in args:
+            output = ""         # the test-unit sweep's listing: no unit is active
+        elif action == "list-units":
             self.assertIn("--plain", args)
             output = "\n".join(f"{name} loaded failed failed fixture" for name in self.units)
         elif action == "show":

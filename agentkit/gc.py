@@ -28,6 +28,7 @@ TMP_BASE = Path("/tmp")         # seats and hand-run tools leave RAM-disk files 
 VAR_TMP_BASE = Path("/var/tmp")  # a repository's TMPDIR is swept only directly under here
 TMP_AGE = 2 * 86400             # a /tmp entry nothing changed for two days goes
 DISK_LIMIT = 85                 # pressure shortens retention, never below one day
+TEST_UNIT_AGE = 86400           # no suite runs a day: a test-slice unit this old was left
 
 
 def disk_pressure():
@@ -709,6 +710,12 @@ def record_gc(message):
         output.write(line)
 
 
+def systemctl(*args):
+    return subprocess.run(["systemctl", "--user", *args],
+                          stdin=subprocess.DEVNULL, capture_output=True,
+                          encoding="utf-8", errors="replace", env=orch.bus_env(), timeout=5)
+
+
 def forget_failed_units(report):
     """Forget day-old failures only after no unconcluded run can need their OOM evidence."""
     if not orch.user_manager():
@@ -726,11 +733,6 @@ def forget_failed_units(report):
                 return          # an unreadable record may still name the failed scope
         elif state.get("state") not in record.ENDED:
             held.update(turns._scope_units(state.get("scope")))
-
-    def systemctl(*args):
-        return subprocess.run(["systemctl", "--user", *args],
-                              stdin=subprocess.DEVNULL, capture_output=True,
-                              encoding="utf-8", errors="replace", env=orch.bus_env(), timeout=5)
 
     try:
         listed = systemctl("list-units", "--failed", "--no-legend", "--plain", "--no-pager",
@@ -761,6 +763,41 @@ def forget_failed_units(report):
             continue
 
 
+def stop_test_units(report):
+    """Stop every unit in an `agentkit-test…` slice that has been active for a day.
+
+    No suite runs that long, so such a unit outlived the suite that started it, however that
+    suite ended.  Each unit's own age decides, never the slice's: two suites share the slice
+    names.  Slices are not listed, as stopping one stops a neighbour's fresh units with it.
+    """
+    if not orch.user_manager():
+        return
+    try:
+        listed = systemctl("list-units", "--no-legend", "--plain", "--no-pager",
+                           "--type=service,scope", "--state=active")
+        units = [line.split()[0] for line in listed.stdout.splitlines() if line.strip()]
+        if listed.returncode or not units:
+            return
+        shown = systemctl("show", "-p", "Id", "-p", "Slice", "-p",
+                          "ActiveEnterTimestampMonotonic", *units)
+    except (OSError, subprocess.SubprocessError):
+        return
+    if shown.returncode:
+        return
+    for block in shown.stdout.split("\n\n"):
+        fields = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        try:
+            entered = int(fields.get("ActiveEnterTimestampMonotonic", "0")) / 1_000_000
+            if (not fields.get("Slice", "").startswith("agentkit-test")
+                    or not retention.expired(entered, time.monotonic(), TEST_UNIT_AGE)):
+                continue
+            # --no-block: a unit ignoring SIGTERM holds a blocking stop past the timeout.
+            if systemctl("stop", "--no-block", fields["Id"]).returncode == 0:
+                report(f"gc: stopped {fields['Id']}, a test suite's unit a day old")
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            continue
+
+
 def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []
@@ -781,6 +818,7 @@ def gc(report, automatic=False):
                 report("gc: automatic collection started")
                 config._write_json(stamp, {"started_at": time.time()})
                 forget_failed_units(report)
+                stop_test_units(report)
             tmp_inventory = None
             for item in gc_candidates():
                 path = Path(item["path"])
