@@ -342,6 +342,12 @@ cat "$dir/bridge-eval"
         proc = self.adapter("auth")
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(len(proc.stderr.splitlines()), 1)
+        # a key ahead of a part that is not JSON is no login either
+        self.write_config("tp-dummy")
+        with (self.cfgdir / "opencode.json").open("a") as f:
+            f.write("\n{")
+        proc = self.adapter("auth")
+        self.assertEqual(proc.returncode, 1)
         # and the auth store beside the config answers when the config has no key
         proc = self.adapter("auth", env={"STUB_AUTH_LIST": '[{"id": "mimo"}]'})
         self.assertEqual(proc.returncode, 0)

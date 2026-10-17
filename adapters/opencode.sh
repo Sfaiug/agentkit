@@ -60,19 +60,21 @@ CFG="$CFGDIR/opencode.json"
 cmd=${1:-}; shift 2>/dev/null || true
 
 # The first non-blank apiKey configured for provider $1, or for any provider where $1 is
-# empty; nothing when none is.
+# empty, failing when there is none.  The file is read whole first (`-s`), so one that is
+# not JSON fails before any key in it is printed.
 config_key() {
-  jq -r --arg p "${1:-}" '(if $p == "" then . else [.provider[$p]?, .providers[$p]?] end)
-      | .. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0)' \
-      "$CFG" 2>/dev/null | head -1
+  jq -ers --arg p "${1:-}" 'first(.[]
+      | (if $p == "" then . else [.provider[$p]?, .providers[$p]?] end)
+      | .. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0))' \
+      "$CFG" 2>/dev/null
 }
 
-# 0 when config_key finds one, 1 when it does not, 2 when the question cannot be answered
-# for want of jq: a blank file is not a login, and a guess is not an answer.
+# 0 when config_key finds one, non-zero when it does not, 2 when the question cannot be
+# answered for want of jq: a blank file is not a login, and a guess is not an answer.
 have_key() {
   [ -r "$CFG" ] || return 1
   command -v jq >/dev/null || return 2
-  [ -n "$(config_key "${1:-}")" ]
+  config_key "${1:-}" >/dev/null
 }
 
 # 0 when the auth store holds a login for provider $1, or for any provider where $1 is empty:
