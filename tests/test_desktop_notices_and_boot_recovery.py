@@ -145,7 +145,7 @@ class DesktopAndBoot(Sandbox):
                      {"word": "needs you", "since": 10000, "reason": "Which branch?"}),
                     ("done", "Done", "Checks passed", 0x2ECC71,
                      {"word": "done", "since": 10100, "reason": "Checks passed"})):
-                body = {"title": f"{title} · source", "color": color,
+                body = {"title": f"{title} · source", "color": color, "description": text,
                         "timestamp": "2026-09-14T12:00:00+00:00"}
                 if kind == "done":    # a seat's done waits for the answer to its question
                     notify.answered("source", notify.last("source")["time"] + 1)
@@ -246,7 +246,7 @@ class DesktopAndBoot(Sandbox):
         with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
             notify.main(["needs", "Question?", "--session", "source", "--dry-run"])
         self.assertEqual(json.loads(out.getvalue())["embeds"][0]["title"], "Needs you · source")
-        self.assertNotIn("description", json.loads(out.getvalue())["embeds"][0])
+        self.assertEqual(json.loads(out.getvalue())["embeds"][0]["description"], "Question?")
         self.assertIn("terminal notice: Needs you · source: Question?", err.getvalue())
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.output(other), b"")

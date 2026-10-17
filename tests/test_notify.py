@@ -247,8 +247,8 @@ class Notifications(unittest.TestCase):
         self.assertEqual(payload["username"], "agentkit")
         self.assertEqual(payload["embeds"][0]["title"], "Done · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0x2ECC71)
-        self.assertNotIn("fields", payload["embeds"][0])   # the card is two words and the seat
-        self.assertNotIn("description", payload["embeds"][0])
+        self.assertNotIn("fields", payload["embeds"][0])
+        self.assertEqual(payload["embeds"][0]["description"], "Shipped")
         self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
         self.assertEqual(menu.state({"name": "seat"}), "done")
         count = len(self.requests)

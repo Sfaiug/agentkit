@@ -2119,7 +2119,7 @@ def unsent(name, harness, found, session):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None):
+                  previous=None, auth_out=None, gh_out=None, token_out=None, card=False):
     """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those four words: the menu row, the project
@@ -2176,7 +2176,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
 
     Typed text nobody sent is never a word: once no client is attached, whatever the ladder
     says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
-    fact a row's last column reads it from (`menu.last_column`).
+    fact a row's last column reads it from (`menu.last_column`).  Never a `card`'s: what the
+    owner never sent is not Discord's.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2205,7 +2206,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out,
                             menu_mod, run_mod, terminal_mod)
-    draft = unsent(name, harness, live, session)
+    draft = "" if card else unsent(name, harness, live, session)
     if draft:
         answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
         answer["unsent"] = draft
@@ -3791,13 +3792,16 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     types before a screen has stood.  And nothing is typed on this pass's capture alone: the
     seat is read once more first, because a composer the user has begun typing into is theirs
     and a line appended to it would send what they are still writing.
+
+    A turn the owner stopped (`interrupted`) is no stop at all: no hook runs on an Esc, and the
+    seat rests until their next prompt (owner, 14 Oct 2026).
     """
     from . import stop   # here, not at the top: stop also calls the watcher
     if not stop_enforced(harness):
         return
     name = session["name"]
     live = seat_read(name)
-    if live.get("state") != "at_prompt" or records is None:
+    if live.get("state") != "at_prompt" or live.get("interrupted") or records is None:
         return          # a failed pass over run.json is no evidence that nothing is running
     stood = _stamp(live.get("stop_said_at"))
     if stood is None or time.time() - stood < STALL_WAIT:
@@ -6421,6 +6425,15 @@ def after_merge_seat(run_state, repo_key):
     return after_merge_fallback(repo_key)
 
 
+def broke_after_merge(run_id, check, log):
+    """The merged change a break was handed back to broke main's checks or its live health
+    (`check` as `after_merge_health` names a health probe): written on its history row once,
+    as the break is told, so the scoreboard counts what got past review and landing."""
+    from . import history
+    history.update_run(run_id, broke_after_merge="health" if str(check).startswith("health:")
+                       else "checks", log=log)
+
+
 def after_merge_checks(state, dry_run, log, now=None):
     """Follow target checks and health, and hand one break per repository back to fix.
 
@@ -6591,6 +6604,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                     episodes[key] = {"notified": sha, "at": now, "run": run_name,
                                      "check": check, "finished": finished}
                     _save()
+                    broke_after_merge(run_name, check, log)
                     log(f"handed run {run_name} back for {check} on {target} "
                         "after its merge")
                 else:
@@ -6642,6 +6656,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             episodes[key] = {"notified": sha, "at": now, "run": name, "check": check,
                              "finished": finished}
             _save()
+            broke_after_merge(name, check, log)
             log(f"handed run {name} back for {check} on {target} after its merge")
         elif composed:
             log(f"run {name}'s after-merge notice sits in a composer; "

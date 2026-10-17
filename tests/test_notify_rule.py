@@ -293,7 +293,6 @@ class Rule(unittest.TestCase):
                 watch.save_state({"reviewed": {}, "own": {}, "stalls": {}, "seen_at": {}})
                 self.stall_tick(word, pane=pane)
                 self.assertEqual(len(self.posts), expected, self.posts)
-        self.assertNotIn("description", self.posts[0]["embeds"][0])
         self.assertIn("is stuck with no progress for an hour", notify.last("seat")["text"])
 
     # --- (d, e) the needs-you the rule keeps -------------------------------
@@ -303,7 +302,7 @@ class Rule(unittest.TestCase):
                                 auth="Please run /login")
         self.assertEqual(len(self.posts), 1, self.posts)
         self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
-        self.assertNotIn("description", self.posts[0]["embeds"][0])
+        self.assertIn("needs login", self.posts[0]["embeds"][0]["description"])   # what to do
         self.assertIn("needs login", notify.last("seat")["text"])
         self.assertEqual(state["stalls"]["seat"]["kind"], "auth")
 
@@ -453,9 +452,9 @@ class Rule(unittest.TestCase):
                 self.decision(pr_state, decision, seat=self.seat())
             shaped.assert_not_called()
 
-    # --- (rule 10) a card is two words and the seat --------------------------
+    # --- (rule 10) a card is two words and the seat over its whole text -------
 
-    def test_v5d_a_done_card_is_two_words_and_the_seat(self):
+    def test_v5d_a_done_card_carries_its_result(self):
         long_text = "Parser fixed and the PR is up, see run 20260915-0001 and key abc123"
         self.assertEqual(notify.main(["done", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
@@ -464,12 +463,10 @@ class Rule(unittest.TestCase):
         self.assertEqual(payload["username"], "agentkit")
         embed = payload["embeds"][0]
         self.assertEqual(embed["title"], "Done · seat")
-        for absent in ("description", "fields", "footer", "url"):
+        self.assertEqual(embed["description"], long_text)
+        for absent in ("fields", "footer", "url"):
             self.assertNotIn(absent, embed)
             self.assertNotIn(absent, json.dumps(payload))
-        self.assertNotIn(long_text, json.dumps(payload))
-        # the text is kept where it is useful: the outbox record, the log line,
-        # the terminal notice and --dry-run -- never on Discord
         self.assertEqual(notify.last("seat")["text"], long_text)
         event = json.loads(next(notify.outbox().glob("*.json")).read_text())
         self.assertEqual((event["text"], event["message"].split(": ", 1)[1]), (long_text, long_text))
@@ -479,8 +476,13 @@ class Rule(unittest.TestCase):
         self.assertIn(long_text, out.getvalue() + err.getvalue())
         self.assertEqual(len(self.posts), 1)   # a dry run posts nothing
 
-    def test_v5d_a_needs_card_is_two_words_and_the_seat(self):
-        long_text = "Which branch should this land on, and who owns the numbers below?"
+    def test_v5d_a_text_past_what_discord_takes_is_cut_to_it(self):
+        embed = notify.embed("done", "seat", "x" * 5000)
+        self.assertEqual(len(embed["description"]), notify.DESCRIPTION_CAP)
+        self.assertTrue(embed["description"].endswith("\u2026"))
+
+    def test_v5d_a_needs_card_carries_its_question_as_it_was_asked(self):
+        long_text = "Which branch should this land on,\nand who owns the numbers below?"
         self.assertEqual(notify.main(["needs", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
         payload = self.posts[0]
@@ -488,14 +490,27 @@ class Rule(unittest.TestCase):
         self.assertEqual(payload["username"], "agentkit")
         embed = payload["embeds"][0]
         self.assertEqual(embed["title"], "Needs you · seat")
-        for absent in ("description", "fields", "footer", "url"):
+        # as it was asked, not on the one line the seat's word shows it
+        self.assertEqual(embed["description"], long_text)
+        for absent in ("fields", "footer", "url"):
             self.assertNotIn(absent, embed)
-        self.assertNotIn(long_text, json.dumps(payload))
         self.assertEqual(notify.last("seat")["text"], long_text)
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             self.assertEqual(notify.main(["needs", long_text, "--dry-run"]), 0)
-        self.assertIn(long_text, out.getvalue() + err.getvalue())
+        self.assertEqual(json.loads(out.getvalue())["embeds"][0]["description"], long_text)
+
+    def test_v5d_a_needs_card_never_carries_what_the_owner_left_unsent(self):
+        config.save_session(config.load(), "seat", "fable", ["opus"], {})
+        question = "Which branch?\n- staging\n- production"
+        notify.record("seat", "needs", question, time=100)
+        watch.seat_write("seat", state="draft", evidence="Use staging", began=100)
+        seat = {"name": "seat", "attached": False}
+        with patch.object(orch, "listing", return_value=[seat]):
+            self.assertEqual(notify.transition("seat", now=160, seat=seat), 0)
+        self.assertEqual(len(self.posts), 1, self.posts)
+        self.assertEqual(self.posts[0]["embeds"][0]["description"], question)
+        self.assertNotIn("Use staging", json.dumps(self.posts[0]))
 
     def test_v5d_a_done_with_no_runs_going_posts_at_once(self):
         self.assertEqual(notify.main(["done", "Quick answer"]), 0)

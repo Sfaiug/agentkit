@@ -51,7 +51,7 @@ from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scop
     answered, finished_answer, scope_is_real,
     shell_foreground_note, stop_run_tree, tail)
 from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity, commit_leftovers,
-    default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, repo_line, repo_rules, round_commands, run_depth,
+    default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, repo_line, repo_rules, round_commands, run_depth, say,
     slugify, stopped, tool_env, tool_run, with_suite)
 
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
@@ -1915,6 +1915,17 @@ def viewer_login():
     return None
 
 
+def by_viewer(author):
+    """Whether `author` is this host's GitHub login, the account ak posts with; unknown is not."""
+    if not author or author == "?":
+        return False
+    try:
+        viewer = viewer_login()
+    except Exception:  # noqa: BLE001 - an unknown login is nobody's
+        return False
+    return bool(viewer) and author.lower() == viewer.lower()
+
+
 def own_pr_orchestrator(cfg, session_name, author):
     """(is_own, orchestrator) for a --review-pr of `author` launched from `session_name`.
 
@@ -1926,13 +1937,7 @@ def own_pr_orchestrator(cfg, session_name, author):
     own PR with no session record or an unknown orchestrator model keeps its
     classification but cannot be reviewed or merged until the writer is known.
     """
-    if not session_name or not author or author == "?":
-        return False, None
-    try:
-        viewer = viewer_login()
-    except Exception:  # noqa: BLE001 - unknown login is never the seat's own PR
-        return False, None
-    if not viewer or author.lower() != viewer.lower():
+    if not session_name or not by_viewer(author):
         return False, None
     try:
         selection = config.load_session(cfg, session_name, required=False)
@@ -1988,8 +1993,9 @@ def checkout_for(name_with_owner, log):
 def post_review(lp, url, verdict):
     """The findings, as a GitHub review: a comment on PASS, changes requested on FAIL.
 
-    The seat's own PR always comments: GitHub rejects a changes-requested review
-    from the account that authored the PR, which would turn a FAIL into an error.
+    A PR the account ak posts with opened always comments, the seat's own or not: GitHub
+    rejects a changes-requested review from the PR's author, which would turn a FAIL into
+    an error.
     """
     head = lp.state["head_sha"]
     current, why = gh_json(lp.run_dir, "pr", "view", url, "--json", "headRefOid,state")
@@ -2012,7 +2018,8 @@ def post_review(lp, url, verdict):
     path.write_text(github_body(
         f"agentkit review of {head[:12]} by {lp.reviewer} (run {lp.run_dir.name})\n\n"
         + overridden_section(lp.state) + lp.findings.strip() + "\n", lp.run_dir.name))
-    how = "COMMENT" if verdict == "PASS" or lp.state.get("own_pr") else "REQUEST_CHANGES"
+    how = ("COMMENT" if verdict == "PASS" or lp.state.get("own_pr") or by_viewer(lp.state.get("author"))
+           else "REQUEST_CHANGES")
     owner, repo, number = PR_PARTS.match(url).groups()
     rc, out = gitcall.gh(lp.run_dir, "api", f"repos/{owner}/{repo}/pulls/{number}/reviews",
                  "--method", "POST", "-f", f"commit_id={head}", "-f", f"event={how}",
@@ -2782,7 +2789,7 @@ def main(argv):
     if argv[:1] == ["--lander"]:
         if len(argv) != 2 or Path(argv[1]).name != argv[1] or not argv[1].startswith(".merge-"):
             raise config.Error("usage: ak run --lander LINE")
-        landing.check_line(config.RUNS / argv[1], print)
+        landing.check_line(config.RUNS / argv[1], say)
         return 0
     if argv[:1] == ["status"]:
         return status.cmd_status(argv[1:])

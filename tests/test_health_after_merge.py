@@ -254,6 +254,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertNotIn("\nline-1\n", line)
         self.assertEqual(self.state["after_merge"][watch.after_merge_repo(PR)[3]]["notified"], sha)
         self.assertNotIn("health", record.read_state(directory))
+        self.assertEqual(history.get("run-a")["broke_after_merge"], "health")
         self.tick(now=NOW + 2)
         self.tick(now=NOW + 3)
         self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))

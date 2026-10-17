@@ -68,7 +68,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
-              ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"))
+              ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
+              ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -106,6 +107,19 @@ CREATE TABLE IF NOT EXISTS owner (
     waited REAL
 )
 """
+# A seat's done, one row each, keyed by its harness and conversation so a rename or a reused
+# name moves nothing: `began` is the owner's first message there since its previous done, NULL
+# where ak cannot know it.  `kept` holds since when dones are kept: 0 for a history begun with
+# them, else the moment an older one first met them, before which a conversation's dones went
+# unrecorded.
+DONES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS dones (
+    conversation TEXT,
+    at REAL,
+    began REAL
+)
+"""
+KEPT_SCHEMA = "CREATE TABLE IF NOT EXISTS kept (since REAL)"
 
 
 def path():
@@ -121,10 +135,19 @@ def _connect(*, readonly=False):
         return connection
     database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database, timeout=2)
+    connection.execute(KEPT_SCHEMA)
+    # Read before `runs` is made, in the statement that writes it, so two first connects agree;
+    # committed at once, as the tables below are made outside a transaction.
+    if not connection.execute("SELECT 1 FROM kept").fetchone():
+        connection.execute("INSERT INTO kept (since) SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master "
+                           "WHERE name = 'runs') THEN ? ELSE 0 END WHERE NOT EXISTS (SELECT 1 FROM kept)",
+                           (time.time(),))
+        connection.commit()
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
+    connection.execute(DONES_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -190,7 +213,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     goes, and every later write finds no row to change.  The orchestrator is the launching
     seat's at the first write, whatever that seat runs by a resume.  `change` names the
     change the run belongs to (its PR, or the run it continues), which the scoreboard groups
-    runs by.
+    runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
+    yet 0 and '', where a row from before they were recorded keeps NULL: unknown, not unbroken.
     """
     if sandbox(repo):
         def forget(connection):
@@ -203,7 +227,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change)
+              change, 0, "")
 
     def insert(connection):
         connection.execute(
@@ -211,8 +235,9 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "started_at, finished_at, executor_seconds, done_when_seconds, reviewer_seconds, "
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
-            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
+            "landing_breaks, broke_after_merge) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -247,7 +272,7 @@ def _update(connection, run_id, fields):
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha", "parked_at"}
+               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -266,6 +291,13 @@ def add_seconds(run_id, step, seconds, *, log=None):
     _write(lambda connection: connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
         (max(0.0, seconds), run_id)), log)
+
+
+def add_landing_break(run_id, *, log=None):
+    """One more time a change review passed failed its tests at landing (`deliver.suite_red`)."""
+    _write(lambda connection: connection.execute(
+        "UPDATE runs SET landing_breaks=COALESCE(landing_breaks,0)+1 WHERE run_id=?",
+        (run_id,)), log)
 
 
 def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
@@ -382,6 +414,35 @@ def owner(since, until):
             connection = _connect(readonly=True)
             try:
                 return connection.execute("SELECT at, kind, waited FROM owner WHERE at >= ? AND at <= ?",
+                                          (since, until)).fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+
+
+def last_done(conversation):
+    """`(last, since)`: that conversation's last done, None before its first, and since when
+    dones are kept; None where the database cannot answer."""
+    return _write(lambda connection: connection.execute(
+        "SELECT (SELECT MAX(at) FROM dones WHERE conversation = ?), (SELECT since FROM kept)",
+        (conversation,)).fetchone())
+
+
+def done(conversation, at, began, *, log=None):
+    """A seat's done in that conversation, and the owner's first message since its previous one."""
+    _write(lambda connection: connection.execute(
+        "INSERT INTO dones (conversation, at, began) VALUES (?, ?, ?)", (conversation, at, began)), log)
+
+
+def dones(since, until):
+    """The dones in the inclusive range, `(at, began)` as `done` wrote them; None where the
+    database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute("SELECT at, began FROM dones WHERE at >= ? AND at <= ?",
                                           (since, until)).fetchall()
             finally:
                 connection.close()

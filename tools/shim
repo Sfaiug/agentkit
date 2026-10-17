@@ -30,12 +30,19 @@ if [ -z "$real" ]; then
     exit 127
 fi
 # A seat's own call only: a worker (AK_RUN_ROLE=worker) and whatever runs seatless pass.  The guard
-# comes from this shim's own checkout, never the one the seat stands in (PYTHONSAFEPATH), and only
-# its refusal (`guard.REFUSED`, 3) stops the call: a guard that fails or will not import stops none.
+# comes from this shim's own checkout, never the one the seat stands in. Its import path
+# stays in this interpreter: the real binary and the import fallback inherit the caller's env.
 if [ -n "$AGENTKIT_SESSION" ] && [ "$AK_RUN_ROLE" != worker ]; then
     shim=$(readlink "$0") || shim=$0
-    PYTHONSAFEPATH=1 PYTHONPATH="${shim%/tools/*}${PYTHONPATH:+:$PYTHONPATH}" \
-        python3 -m agentkit.guard "$name" "$real" "$@"
-    [ $? = 3 ] && exit 1
+    exec python3 -c '
+import os, sys
+# Remove the implicit cwd from -c without requiring a flag older project Pythons lack.
+sys.path[:] = [sys.argv.pop(1)] + list(filter(None, sys.path))
+try:
+    from agentkit.guard import main
+except Exception:
+    os.execv(sys.argv[2], sys.argv[2:])
+sys.exit(main(sys.argv[1:]))
+' "${shim%/tools/*}" "$name" "$real" "$@"
 fi
 exec "$real" "$@"

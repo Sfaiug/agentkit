@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The rest of the `tests:` suite: every tests/test_*.py smoke.sh does not run.
+"""The rest of the `tests:` suite: every tests/test_*.py neither smoke.sh nor landing.py's
+static checks (STATIC_CHECKS) run.
 
 AGENTS.md runs this beside smoke.sh, so a file no task happened to list cannot go red on main
 unseen.  It is no part of smoke.sh and never touches its lock: it holds no smoke target and
@@ -37,7 +38,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
 from agentkit import guard, host, orch
-from suite_shares import HEADERS, LIVE_CHECKS, shard, shares
+from suite_shares import HEADERS, LIVE_CHECKS, STATIC_CHECKS, shard, shares
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
                     # bigger hosts fit more files, busier or smaller hosts fit fewer
@@ -209,7 +210,7 @@ def main(root, others=None):
     tests = root / "tests"
     # smoke.sh runs in the mode this caller's environment gives it
     skip = smoke_runs((tests / "smoke.sh").read_text(),
-                      os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1")
+                      os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1") | set(STATIC_CHECKS)
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     # Exclude everything smoke runs before dividing the rest, regardless of its piece.
     owners = shares({path: path.stat().st_size for path in todo}, total)

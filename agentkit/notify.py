@@ -58,6 +58,7 @@ SUBJECT_CAP = 60   # a title the phone shows whole, when the task has to stand i
 # start and cut the rest, so context written before the ask hides it.  One classic terminal line.
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
+DESCRIPTION_CAP = 4096   # of one embed's description: Discord refuses a card past it
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
@@ -1004,7 +1005,10 @@ def _remember_card(event, previous=None):
 def _send_card(session, kind, card, answer):
     """Queue once under the session lock; the outbox owns any further attempts."""
     previous = last(session, include_seen=True)
-    text = previous["text"] if kind == "done" and previous else answer["reason"]
+    text = answer["reason"]
+    # the seat's word shows its notice on one line; the card carries the notice as written
+    if previous and (kind == "done" or " ".join(str(previous["text"]).split()) == text):
+        text = previous["text"]
     payload = {"username": "agentkit", "embeds": [embed(kind, session, text)]}
     who = mention()
     if who:
@@ -1210,7 +1214,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 previous = {"word": card["word"], "word_since": card["since"]}
             current = watch.session_state(name, now=time.time() if answer is not None else at,
                                           session=seat, records=records,
-                                          previous=previous)
+                                          previous=previous, card=True)
             # A newer declaration or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.
@@ -1325,16 +1329,16 @@ def subject(session, text):
 
 
 def embed(kind, session, text):
-    """The card Discord hears: two words and the seat, nothing else.
-
-    The title names the seat; the colour says which of the two it is.  No
-    description, no fields, no footer, no PR link, no run id, no key hint: the
-    text `ak notify` was given lives on in the outbox record, the log line, the
-    terminal notice and `--dry-run`, never on Discord.
-    """
+    """The card Discord hears: two words and the seat as its title, the colour saying which of
+    the two it is, and the whole of what was asked or done as it was written.  No fields, no
+    footer, no PR link, no run id, no key hint."""
     color = COLORS["fail" if kind == "done" and text.lstrip().upper().startswith("FAIL")
                    else kind]
+    text = str(text).strip()
+    if len(text) > DESCRIPTION_CAP:
+        text = text[:DESCRIPTION_CAP - 1] + "\u2026"
     return {"title": f"{TITLES[kind]} \u00b7 {subject(session, text)}"[:256], "color": color,
+            **({"description": text} if text else {}),
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
@@ -1535,7 +1539,41 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     record(name, kind, text, **extra)
     for _ in range(fresh):
         history.owner_time("asked", time.time() if at is None else at)
+    if kind == "done":
+        _intent(name, time.time() if at is None else at)
     return previous
+
+
+def _intent(name, done_at):
+    """Record that seat's done with where the owner's intent it ends began: their first message
+    in its conversation since that conversation's previous done (`user_messages` leaves ak's own
+    lines out).  Read here, from facts already decided, never stamped by a prompt's hook: hook
+    order, renames and reused names moved such stamps after they were written.  The start is
+    unknown, and the done still the next one's boundary, with no message of theirs since, where
+    the harness reads no messages or cannot read them now, and for the first done of a
+    conversation begun before dones were kept: its earlier dones were never recorded, and a
+    notice keeps only a seat's latest."""
+    from . import orch
+    record = config.session_records().get(name)
+    if not record:
+        return
+    plugin, cwd = orch.seat_plugin(record), record.get("cwd")
+    try:
+        conversation = plugin.conversation(record, cwd)
+    except (OSError, ValueError):
+        return
+    known = history.last_done(f"{plugin.name}:{conversation}") if conversation else None
+    if known is None:
+        return
+    try:
+        asked = [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)
+                 if message["at"] <= done_at]
+    except (OSError, ValueError):
+        asked = []
+    last, since = known
+    fresh = [at for at in asked if last is None or at > last]
+    unknown = not fresh or (last is None and min(asked) < since)
+    history.done(f"{plugin.name}:{conversation}", done_at, None if unknown else min(fresh))
 
 
 def ask_kept(name, ended=False):

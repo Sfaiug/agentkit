@@ -766,7 +766,7 @@ fi
 
 # ==== g) the two notifications, never posted ================================
 # Here, not later: this runs while the seat from step d is still up, and step d's `x`
-# closes it below. The cards are two words and the seat; the text stays in the preview.
+# closes it below. The cards are two words and the seat over the whole text.
 if doing g; then
   UID_WANT=$(cat "$UH/.agentkit/secrets/discord_user_id" 2>/dev/null)
   as "AGENTKIT_SESSION=${SEAT:-atoll} ak notify needs 'test?' --dry-run" >"$WORK/needs.json" 2>"$WORK/needs.err"
@@ -789,10 +789,10 @@ if doing g; then
     jq -e --arg s "${SEAT:-atoll}" '.embeds[0].title == ("Needs you · " + $s)' "$WORK/needs.json"
   must "the done embed does not name the session" \
     jq -e --arg s "${SEAT:-atoll}" '.embeds[0].title == ("Done · " + $s)' "$WORK/done.json"
-  must "the needs embed is two words and the seat, nothing else" \
-    jq -e '(.embeds[0] | has("description") | not) and (.embeds[0] | has("fields") | not)' "$WORK/needs.json"
+  must "the needs embed is not two words and the seat over the question" \
+    jq -e '.embeds[0].description == "test?" and (.embeds[0] | has("fields") | not)' "$WORK/needs.json"
   verdict "g  ak notify needs/done --dry-run" \
-    "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }two words and the seat, nothing posted"
+    "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }two words and the seat over the text, nothing posted"
 fi
 
 # ==== d, closing: x and Stop stop the seat ==================================

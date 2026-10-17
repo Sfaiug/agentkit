@@ -30,6 +30,7 @@ ANSWERS_FOR = 7 * 86400   # a merged change answers for its lines this long: a l
 MEASURES = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("intent", "intent", ("measured", "hours")),
     ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
@@ -51,6 +52,7 @@ LOSSES = (
     ("product runs merged in round 1", "products", "first_round", False, "%"),
     ("ak's runs ended without merging", "ak", "unmerged", True, "%"),
     ("ak's runs merged in round 1", "ak", "first_round", False, "%"),
+    ("hours from the owner's first message to done", "intent", "hours", True, "h"),
     ("hours to merge a product run", "products", "hours", True, "h"),
     ("hours to merge a run on ak", "ak", "hours", True, "h"),
     ("run time waiting for a slot or a suite turn", "waits", "compute", True, "%"),
@@ -325,8 +327,9 @@ def compute(now=None):
 
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     moments = history.owner(now - 2 * week, now)
+    dones = history.dones(now - 2 * week, now)
     board, waits, merged_changes, escapes_seen = {"products": [], "ak": []}, [], [], []
-    built, parks, sunk, owner = [], [], [], []
+    built, parks, sunk, owner, intent = [], [], [], [], []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
@@ -358,6 +361,10 @@ def compute(now=None):
             "asked": sum(kind == "asked" for kind, _ in kinds),
             "paged": sum(kind == "paged" for kind, _ in kinds),
             "hours": median(answers) if answers else None})
+        # the time the owner feels: from their first message of an intent to the done that ends it
+        took = [(at - began) / 3600 for at, began in dones or () if began is not None and in_week(at, end)]
+        intent.append(None if dones is None else {"measured": len(took),
+                                                  "hours": median(took) if took else None})
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
@@ -396,6 +403,7 @@ def compute(now=None):
 
     before = git("rev-list", "--first-parent", "-1",
                  "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
+    board["intent"] = intent
     board["owner"] = owner
     board["built"] = built
     board["waits"] = waits
@@ -494,6 +502,14 @@ def render(board=None):
         return (f"{stats['share']:.0%} of the week's tokens, {stats['tokens']:,}, went to runs "
                 "that never merged")
 
+    def intent(stats):
+        if stats is None:
+            return "not recorded"
+        if not stats["measured"]:
+            return "no intent measured"
+        return (f"{stats['measured']} intents measured, median {stats['hours']:.1f} hours from the "
+                "owner's first message to done")
+
     def owner(stats):
         if stats is None:
             return "not recorded"
@@ -503,7 +519,7 @@ def render(board=None):
         return text
 
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
-             "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
+             "intent": intent, "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
              "sunk": sunk, "escaped": escapes, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
