@@ -3078,12 +3078,13 @@ def _short_name(cfg, label):
     return name
 
 
-def add_body(picked, choices, at, steps=ADD_STEPS):
+def add_body(picked, choices, at, steps=ADD_STEPS, finding=None):
     """`add a model`'s lines, and the choice each list row is: {line: index}.
 
     Each step chosen so far on a line of its own -- `harness  claude · Claude` -- and under
-    them the step being chosen, its name, then its choices in columns with `at` highlighted:
-    the steps stack up as they are chosen.  On a phone a model's id gives way first, then its
+    them the step being chosen, its name -- and `/` with what is being found in it, while
+    `finding` -- then its choices in columns with `at` highlighted: the steps stack up as they
+    are chosen.  On a phone a model's id gives way first, then its
     label, and its mark keeps up to half the row.
     """
     room = terminal.layout_width()
@@ -3091,7 +3092,7 @@ def add_body(picked, choices, at, steps=ADD_STEPS):
     lines = [f"  {terminal.pad(step, wide)}  "
              + terminal.cut(" · ".join(filter(None, texts[:2])), room - 4 - wide)
              for step, (_, texts) in zip(steps, picked)]
-    lines.append(f"  {steps[len(picked)]}")
+    lines.append(f"  {steps[len(picked)]}" + ("" if finding is None else f"  /{finding}"))
     columns = list(zip(*(texts for _, texts in choices)))
     widths = [max(map(terminal.cells, column)) for column in columns]
     left = room - 4 - 2 * max(0, len(columns) - 1)
@@ -3132,6 +3133,7 @@ def config_add(cfg, keyboard=None, through=None):
     once, and holds no seat's role until it is marked there.
     """
     picked, ats, top, note = [], [0], 0, ""   # (value, texts) of each step chosen; its highlight
+    finding = None                    # typed after `/`: the open list shows only what holds it
     steps = ("provider", *ADD_STEPS[1:]) if through else ADD_STEPS
     title = (f"config · add a provider · {config.provider_hosts().get(through, through)}"
              if through else "config · add a model")
@@ -3156,22 +3158,30 @@ def config_add(cfg, keyboard=None, through=None):
         if pending and not picked:    # just logged in to: on to its models once it has a mode
             found = [number for number, row in enumerate(listed) if row[0] == pending[0]]
             if found and listed[found[0]][2]:
-                ats[-1], pending = found[0], None
+                ats[-1], pending, finding = found[0], None, None
                 picked.append(choices[found[0]])
                 ats.append(0)
                 continue
             note, pending = f"{pending[1]} is not logged in; nothing added", None
+        if finding:
+            choices = [choice for choice in choices
+                       if finding.lower() in " ".join(choice[1]).lower()]
         if not choices and not note:
-            note = (f"the {picked[0][0][0]} catalog names no model" if picked
+            note = (f"nothing here holds {finding}" if finding
+                    else f"the {picked[0][0][0]} catalog names no model" if picked
                     else f"{through} lists no provider" if through
                     else "no provider the config has names a harness")
         adding = len(picked) == len(steps) - 1
         keys = ADD_KEYS["add" if adding else "choose"][0 if terminal.utf8() else 1] + "   esc back"
         at = min(ats[-1], max(0, len(choices) - 1))
-        body, places = add_body(picked, choices, None if terminal.away() else at, steps)
+        body, places = add_body(picked, choices, None if terminal.away() else at, steps,
+                                finding)
         said = ["", *(terminal.styled("  " + part, "dim")
                       for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
         room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
+        if finding is None and len(body) > room:      # a list past the screen: find in it
+            keys = keys.replace("   esc back", "   / find   esc back")
+            room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
         drawn = next((line for line, number in places.items() if number == at), len(body) - 1)
         top = max(0, min(max(top, drawn - room + 1), drawn, len(body) - room))
         shown = body[top:top + room]
@@ -3193,25 +3203,35 @@ def config_add(cfg, keyboard=None, through=None):
                 act = "esc"
         if act == "eof":
             return None
-        if act == "esc":
+        if finding is not None and act in ("esc", "backspace", "char", "space"):
+            # what is typed after `/` finds; Esc lets the whole list back
+            finding = (None if act == "esc" else finding[:-1] if act == "backspace"
+                       else finding + (key.char or " "))
+            ats[-1] = 0
+        elif act == "char" and key.char == "/":
+            finding, ats[-1] = "", 0
+        elif act == "esc":
             if not picked:
                 return None
             picked.pop()
             ats.pop()
+            finding = None
         elif terminal.step(key):
             ats[-1] = min(max(at + terminal.step(key), 0), max(0, len(choices) - 1))
         elif act in ("enter", "space") and choices:
             ats[-1] = at
-            if through and not picked and not listed[at][2]:
-                note = _adapter_verbs(keyboard, through, ("login",), listed[at][1],
-                                      provider=listed[at][0])
+            row = (next(row for row in listed if row[0] == choices[at][0][1])
+                   if through and not picked else None)
+            if row and not row[2]:
+                note = _adapter_verbs(keyboard, through, ("login",), row[1], provider=row[0])
                 if not note:
                     config.forget_catalog(through)       # its models are listed now
-                    listed, pending = None, listed[at]   # asked again, for its mode
+                    listed, pending = None, row          # asked again, for its mode
                 continue
             if not adding:
                 picked.append(choices[at])
                 ats.append(0)
+                finding = None
                 continue
             ((harness, provider), _), (model, _) = picked
             effort, taken = choices[at][0], _runs(cfg, harness, model["id"], choices[at][0])

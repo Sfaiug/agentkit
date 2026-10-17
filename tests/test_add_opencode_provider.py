@@ -1,7 +1,8 @@
 """`+ add` on Providers offers OpenCode, then any provider OpenCode can log in to: the logged-in
 ones first, a picked one with no login logged in on the terminal, then one of its models and an
 effort, added with the provider's table -- the shipped one where the shipped default has it,
-else the mode OpenCode's prices say -- so nothing is typed into ak.
+else the mode OpenCode's prices say, under the name OpenCode gives it -- so nothing is typed
+into ak but what `/` finds in a list.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  OpenCode's adapter
@@ -84,8 +85,11 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(verbs(screen), ["opencode install ", "opencode providers "])
         self.assertEqual(listed(lines), [["Acme Plan", "acme", "logged in"],
                                          ["Zeta Cloud", "zeta"], ["MiMo", "mimo"]])
+        # `/` finds in the list: what is typed after it, in a name or an id
+        lines = screen.press(b"/clo", lambda lines: "  provider  /clo" in lines)
+        self.assertEqual(listed(lines), [["Zeta Cloud", "zeta"]])
         mark = len(screen.text())
-        lines = screen.press(DOWN + ENTER, lambda lines: "  model" in lines and listed(lines))
+        lines = screen.press(ENTER, lambda lines: "  model" in lines and listed(lines))
         # logged in on the terminal given back for it, then asked again for its mode
         self.assertEqual(verbs(screen)[2:], ["opencode login zeta", "opencode providers "])
         said = screen.text()[mark:]
@@ -127,10 +131,14 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(screen.saved()["providers"]["mimo"], SHIPPED["providers"]["mimo"])
         screen.leave()
 
-    def test_esc_on_the_providers_adds_nothing(self):
-        screen = Screen(self, child=CHILD, text=ONE)
+    def test_esc_lets_a_find_go_then_goes_back_with_nothing_added(self):
+        screen = Screen(self, child=CHILD, text=ONE, rows=9)
         before = screen.path.read_bytes()
-        through(screen)
+        # a list longer than the screen says it can be found in
+        self.assertEqual(through(screen)[-1], "  ↑↓ move   ⏎ choose   / find   esc back")
+        lines = screen.press(b"/zz", lambda lines: "nothing here holds zz" in lines[-3])
+        self.assertEqual(listed(lines), [])
+        screen.press(ESC, lambda lines: "  provider" in lines and "/ find" in lines[-1])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
