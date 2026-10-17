@@ -2279,12 +2279,9 @@ def hook_look(launched, answered_at=None, said=""):
     some other tmux, or a test's sandbox with a seat's name in its environment, never paints a
     real seat's bar with facts that are not that seat's. The owner's prompt timestamp travels
     through the same check before answering a question; waiting for its notice lock happens
-    here, off the harness's path.  A prompt `said` that is a line ak typed into the seat since
-    the question -- a hand-back, a wait notice -- is the seat's own news, never the owner's
-    answer: the harness's hook reports it as it reports the owner's words.  The window starts
-    at the question on purpose: ak types only at a quiet prompt, so its line is heard before
-    the seat can ask, and every other way of matching typing receipts to prompts met a new
-    order of hooks or clocks in review.
+    here, off the harness's path.  A prompt `said` that is a line ak typed into the seat is the
+    seat's own news, never the owner's answer (`notify.ak_prompt`): the harness's hook reports
+    it as it reports the owner's words.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -2295,8 +2292,7 @@ def hook_look(launched, answered_at=None, said=""):
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
-    asked = (notify.last(name) or {}).get("time")
-    if answered_at is not None and not notify.ak_prompt(name, said, asked):
+    if answered_at is not None and not notify.ak_prompt(name, said, notify.last(name)):
         notify.answered(name, answered_at)
     return announce_state(session, cfg=config.load(), look=True, number=number)
 

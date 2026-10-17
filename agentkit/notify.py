@@ -538,10 +538,24 @@ def typed_since(session, since):
             and not isinstance(sent.get("at"), bool) and sent["at"] >= since]
 
 
-def ak_prompt(session, said, since):
-    """The prompt is a line ak typed since the question, rather than the owner's answer."""
-    return (isinstance(since, (int, float)) and bool(said)
-            and any(sent.get("text") == said for sent in typed_since(session, since)))
+def ak_prompt(session, said, notice):
+    """The prompt is a line ak typed, rather than the owner's answer to that notice: one typed
+    since its question -- a hand-back, a wait notice -- or the one that put the question to the
+    seat, which carries its words and is typed before the question is recorded
+    (`watch.ask_inbox`); heard before the record, it predates the question and answers nothing
+    anyway (`resolved`).
+
+    The window starts at the question on purpose: ak types only at a quiet prompt, so its line
+    is heard before the seat can ask, and every other way of matching typing receipts to prompts
+    met a new order of hooks or clocks in review.
+    """
+    since = (notice or {}).get("time")
+    if not isinstance(since, (int, float)) or not said:
+        return False
+    # by its key: asked again in other spelling, a question keeps its first words (`_said`)
+    asking = any(question_key(question) in question_key(said) for question in questions(notice))
+    return any(sent.get("text") == said and (asking or sent["at"] >= since)
+               for sent in typed_since(session, 0))
 
 
 def answer_context(session, said):
@@ -552,7 +566,7 @@ def answer_context(session, said):
     """
     from . import watch
     notice = last(session)
-    if not watch.owner_question(notice) or ak_prompt(session, said, notice.get("time")):
+    if not watch.owner_question(notice) or ak_prompt(session, said, notice):
         return ""
     dated = notice.get("asked_at") or {}
     context = []
