@@ -168,6 +168,8 @@ A review FAIL or red landing verdict goes to a fixer turn on the run's own check
 `workspace:` and `continue:` lines. An ending handed back, acknowledged or superseded (by a later merged run of its
 title, or a relaunch `from:` its branch) reads `done`, as does a parked run a later merged run replaced, and a job's tasks read their runs as they are now. `ak run` exits 0 on PASS, 1 on FAIL, `exhausted`, `blocked` or an unfinished merge, 2 on error.
 
+When a PR has just opened, both the launch's own-PR size check and the review fetch retry Git's missing `pull/<n>/head` ref up to three times, waiting on the transient backoff and logging each retry. Other fetch failures keep their existing handling.
+
 A run never waits forever. A check with no output for 20 minutes is killed with everything it spawned and fails the
 round; the whole checks list has a six-hour ceiling. Either stop names the last output and each still-running child with no live child of its own, with its command and elapsed time. A model turn with no harness event for 20 minutes is killed and
 retried on the same conversation. Each `git` and `gh` attempt has 120 seconds with prompts disabled; Git remote calls (`fetch`, `push`, `ls-remote`) and `gh` retry a timeout once after one second, then say the remote did not answer. Other Git calls stop for cleanup; a refused prompt stops at once and says to check `gh auth status` and the remote's credentials.
