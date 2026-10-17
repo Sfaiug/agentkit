@@ -25,6 +25,9 @@ from agentkit import record
 
 PR = "https://github.com/other/theirs/pull/7"
 SHA = "b" * 40
+# a line of a seat's plan it owes: a seat that went on its own is the owner's only while it
+# owes work
+OWED = "- [ ] the parser reads both schemas · check: `false` · acme · written 2026-10-14 09:00\n"
 WEBHOOK = "https://discord.invalid/api/webhooks/owner/secret?thread_id=42"
 SINK = "https://sink.invalid/api/webhooks/suite/token"
 TASK = """---
@@ -322,8 +325,10 @@ class Rule(unittest.TestCase):
         (config.STATE / "installed-at").write_text(f"{now - 60}\n")
         cfg = config.load()
         seats = []
+        # each owes work, so only when it went, and who closed it, decides its card
         for name in ("closed-1", "closed-2", "paused"):
             config.save_session(cfg, name, "fable", ["opus"], {"exited_since": now - 3 * 86400})
+            config.plan_path(name).write_text(OWED)
             seats.append({"name": name, "exited": True, "legacy": False})
         orch.mark_owner_closed("paused")
         notify.record("test", "done", "Shipped", time=now - 86400)
@@ -338,6 +343,7 @@ class Rule(unittest.TestCase):
         # unless the owner closed it himself.
         for name, closed in (("crashed", False), ("stopped", True)):
             config.save_session(cfg, name, "fable", ["opus"], {"exited_since": now})
+            config.plan_path(name).write_text(OWED)
             seats.append({"name": name, "exited": True, "legacy": False})
             if closed:
                 orch.mark_owner_closed(name)

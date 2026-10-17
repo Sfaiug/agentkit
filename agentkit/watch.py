@@ -2149,8 +2149,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       working, its reason saying until when (`resumes_at`);
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
-    * nobody is in the seat any more and its number is the way back in: `idle` where he
-      closed it, `needs you` where it went on its own;
+    * nobody is in the seat any more and its number is the way back in: one the owner closed
+      rests, `idle`, and one gone on its own needs them while it owes work, else what it said
+      last;
     * it said it was done itself, a job never says it for it, nothing on its screen asks him
       and it kept no question back for its turn's end
       -- unless a run of its own still sits parked and undecided, which is him;
@@ -2538,8 +2539,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 "since": min(state["finished_at"] for state in pending)}
     # 4. nobody is in it: its number is the way back into the conversation.  A seat the
     # owner closed is `idle`: he ended it, so nothing in it is his to unblock, and a hand-back
-    # waiting on it waits for him to want it back; one that went on its own is `needs you`,
-    # his to bring back.
+    # waiting on it waits for him to want it back; one that went on its own is the owner's
+    # only while it owes work.
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
     if gone:
@@ -2547,21 +2548,35 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             number = next((n for n, s in enumerate(orch.listing(reconcile=False), 1)
                            if s["name"] == name), None)
         where = "its number" if number is None else number
+        # a harness that cannot prove which conversation this seat owned says so itself,
+        # and that sentence is the rest of the reason -- it is what the number will do
+        restart = session.get("restart")
+        told = " ".join(restart.split()) if isinstance(restart, str) else ""
+
+        def closed(reason):
+            return f"{reason} · {told}" if told else reason
+
+        # One the owner closed rests: they closed it, and nothing in it is asking them anything.
         if seat_closed_by_owner(name):
             waiting = sum(1 for _, st in mine if st.get("handback_pending"))
             reason = f"{OWNER_CLOSED_REASON}: press {where} to reopen"
             if waiting:
                 reason += f" · {waiting} hand-backs waiting"
-            word = "idle"
-        else:
-            reason = f"session closed: press {where} to reopen"
-            word = "needs you"
-        # a harness that cannot prove which conversation this seat owned says so itself,
-        # and that sentence is the rest of the reason -- it is what the number will do
-        restart = session.get("restart")
-        told = " ".join(restart.split()) if isinstance(restart, str) else ""
-        return {"word": word, "since": None,
-                "reason": f"{reason} · {told}" if told else reason}
+            return {"word": "idle", "since": None, "reason": closed(reason)}
+        # One that went on its own is the owner's while it owes work -- a question or a watcher's
+        # alert still standing, what keeps any resting seat theirs (`still_owed`), or a run of its
+        # own going, parked, or ended with nobody yet deciding it (the tally's own `needs
+        # you`): no ending is typed into a seat nobody is in, so nothing moves it until it is
+        # opened.  With nothing owed it says what it said last, done, or rests.
+        reason = closed(f"session closed: press {where} to reopen")
+        if (parked or (last and last["kind"] != "done")
+                or still_owed(name, mine, index, stopped=False) is not None
+                or any(transitions.unfinished(state, index=index)
+                       or menu_mod.v5o_needs_look(state, index=index, now=at)
+                       for _, state in mine)):
+            return {"word": "needs you", "since": None, "reason": reason}
+        if not (last and last["kind"] == "done"):
+            return {"word": "idle", "since": None, "reason": reason}
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
     if last and last["kind"] == "done":

@@ -3976,9 +3976,9 @@ printf 'n\n\n\n\n\n' | akn >"$WORK/name-dup.log" 2>&1 || NAME=1
 NSECOND=$(sed -n 's/^session \(new\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-dup.log")
 [ -n "$NSECOND" ] && [ "$NSECOND" != "$NAUTO" ] || NAME=1
 tm has-session -t "=$NSECOND" 2>/dev/null || NAME=1
-# (c) `true` exited the moment the seat opened, and the seat is still there, saying so
+# (c) `true` exited the moment the seat opened, and the seat is still there, owing nothing: it rests
 akn orch list >"$WORK/name-list.log" 2>&1 || NAME=1
-grep -qE '^my-big-task .* needs you .* opus +' <(sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' "$WORK/name-list.log") || NAME=1
+grep -qE '^my-big-task .* idle .* opus +' <(sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' "$WORK/name-list.log") || NAME=1
 [ "$(tm display-message -p -t '=my-big-task:' '#{?pane_dead,dead,alive}' 2>/dev/null)" = dead ] || NAME=1
 # (d) a seat somebody made by hand is listed too, with no models to its name, for the agent in
 # it: a script named for the harness an adapter launches, where a bare `sleep` would be nobody's
@@ -4147,12 +4147,12 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [ "${RESUMED:-0}" -ge 1 ] || NAME=1
 [ "$(tm display-message -p -t '=resume-seat:' '#{?pane_dead,dead,alive}' 2>/dev/null)" = alive ] || NAME=1
-# (h) tmux loses the session, the record does not: the menu offers it back, and it comes back
-# in the directory it ran in
+# (h) tmux loses the session, the record does not: the menu offers it back, resting since it
+# owes nothing, and it comes back in the directory it ran in
 tm kill-session -t =resume-seat 2>/dev/null
 printf '\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
-RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("needs you"))')
-grep -qE "^ +[0-9]+  resume-seat +opus +$RESUME_GLYPH needs you" "$WORK/name-ghost.log" || NAME=1
+RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
+grep -qE "^ +[0-9]+  resume-seat +opus +$RESUME_GLYPH idle" "$WORK/name-ghost.log" || NAME=1
 grep -q "session closed: press" "$WORK/name-ghost.log" || NAME=1
 akn orch resume-seat >"$WORK/name-reopen.log" 2>&1 || NAME=1
 grep -q "^orch: resuming resume-seat on opus in $NSEAT (conversation $CONV)\$" \

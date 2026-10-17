@@ -15,6 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agentkit import config, notify, orch, watch
 
+# a line of a seat's plan it owes: a seat that went on its own is the owner's only while it
+# owes work
+OWED = "- [ ] the parser reads both schemas · check: `false` · acme · written 2026-10-14 09:00\n"
+
 
 class Cards(unittest.TestCase):
     def setUp(self):
@@ -197,9 +201,11 @@ class Cards(unittest.TestCase):
 
     def test_no_card_for_a_seat_the_owner_closed(self):
         # `x`, `ak orch stop` or a pause script: the seat is gone on purpose, and nobody
-        # in it is asking him anything.  A seat that went on its own is still carded.
+        # in it is asking the owner anything, work owed or not.  A seat that went on its own
+        # owing work is still carded.
         orch.mark_owner_closed("seat")
         for name in ("seat", "crashed"):
+            config.plan_path(name).write_text(OWED)
             gone = {"name": name, "exited": True}
             notify.transition(name, now=time.time(), seat=gone)
             notify.transition(name, now=time.time() + notify.CARD_WAIT, seat=gone)
@@ -327,6 +333,8 @@ class Cards(unittest.TestCase):
             for seat in ({"name": "gone", "exited": True}, {"name": "lost", "resumable": True},
                          {"name": "vanished", "resumable": True},
                          {"name": "dropped", "resumable": True}):
+                # each owes work, so only when it went decides its card
+                config.plan_path(seat["name"]).write_text(OWED)
                 notify.transition(seat["name"], now=now, seat=seat)
                 notify.transition(seat["name"], now=now + notify.CARD_WAIT, seat=seat)
             self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
