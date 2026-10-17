@@ -1255,26 +1255,31 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
 
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
-              on_wait=None, measure=False, shard=None, pieces=None, later=None, **kwargs):
+              on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
+              confirmed=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
     all attempts share the command's ceiling, and live output identifies its piece.
     A red piece that named its failed tests (`AK_FAILED`) retries just those first (`AK_ONLY`).
     With `shard` (`k/N`) one piece runs alone with that share set, as the lander probes the
-    target's tip: on one turn, never split again, measuring nothing, its cost the suite's.
+    target's tip: on one turn, never split again, measuring nothing, its cost the suite's;
+    with `only` too, just those of its tests, as one share.
     `pieces`, a dict, gets each piece's exit as the runner saw it, by share -- None for one
     killed at the limit -- so a caller decides from codes, never from what a piece printed.
     `later`, seconds, is set where the suite's pace stops its pieces sooner (`quiet_window`):
     the silence each piece's later goes have; a piece its first go's silence stopped goes
     again, alone, after its siblings, which run on.
+    `confirmed`, a dict, gets by share the tests a red piece named that failed again alone.
     """
     env = suite_env()
     if shard is not None:
-        output.write(f"--- AK_SHARD={shard} ---\n".encode())
+        label, share = ((shard, shard) if only is None else
+                        (f"{shard}, its failed tests alone", "1/1"))
+        output.write(f"--- AK_SHARD={label} ---\n".encode())
         output.flush()
         return worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
-                            output=output, env={**env, "AK_SHARD": shard}, **kwargs)
+                            output=output, env={**env, "AK_SHARD": share}, only=only, **kwargs)
     if not names_shard(command):
         path = suite_cost(command, cwd, run_dir)[0] if measure else None
         measured = _SuiteMeasure(run_dir) if measure else None
@@ -1446,6 +1451,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                  "its failed tests passed run alone: the failure needs the "
                                  "tests that ran before them")
                         if code:
+                            if confirmed is not None:
+                                confirmed[shard] = only
                             break
                         only = None
                     elif not code:
@@ -1518,7 +1525,8 @@ def _running_commands(pid):
 
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
-                  run_dir=None, heavy=False, marks=None, shard=None, pieces=None):
+                  run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
+                  confirmed=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -1556,7 +1564,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     killed at the limit or never run, and none for those after a kill: what decides a proof,
     never the text, which a command can print anything into.  `pieces`, a dict, gets the same
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
-    every command as that one piece alone, a command like any other, its re-run included.
+    every command as that one piece alone, a command like any other, its re-run included,
+    and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
+    `run_suite` confirms: the tests a red piece named that failed again alone.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -1602,7 +1612,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         on_timeout=stopped, cwd=str(cwd), output=progress,
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                         run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
-                        pieces=None if pieces is None else pieces.setdefault(cmd, {}))
+                        pieces=None if pieces is None else pieces.setdefault(cmd, {}),
+                        only=only,
+                        confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}))
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)

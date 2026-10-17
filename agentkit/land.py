@@ -24,6 +24,7 @@ from . import config, gitcall, prompts, record, transitions, turns
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
+FIX_KEYS = ("line", "log", "piece", "tests")    # what a red stack's evidence answers with
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
@@ -247,27 +248,32 @@ def _scratch(repo, commit, opened):
     return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {commit} failed\n{out}")
 
 
-def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log):
+def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log,
+               tests=None):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
-    alone, for the member in `directory`: True when it passes there, so the red is the
-    member's own.  Red there is the target's: the entry under `tree` counts the probe and holds
-    the line (`paused`) until the retry ladder's next step, and red through the whole ladder
-    starts the target's one repair (`_repair`)."""
-    ok, probe, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log", log,
-                          shard=piece or None)
+    alone, for the member in `directory` -- just its `tests` where the stack's red was those
+    failing again alone, the same tests alone on both trees: True when it passes there, so the
+    red is the member's own.  Red there is the target's: the entry under `tree` counts the
+    probe and holds the line (`paused`) until the retry ladder's next step, and red through the
+    whole ladder starts the target's one repair (`_repair`)."""
+    ok, probe, _, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log",
+                             log, shard=piece or None, only=tests)
     if ok:
-        # the pass is the piece's, named so it covers no stack's own checks
-        note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
+        # the pass is the piece's, or its tests', named so it covers no stack's own checks
+        label = f"AK_SHARD={piece}, its failed tests alone" if tests else f"AK_SHARD={piece}"
+        note(turn, [tree], directory.name, checks=[f"{suite} ({label})" if piece else suite],
              red={tree: None})
         return True
     held = _trees(turn, "red")[1].get(tree) or {}
     probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
-    red = {"probe": {"command": suite, "piece": piece, "check": f"{suite}  # once", "sha": tip,
+    red = {"probe": {"command": suite, "piece": piece, **({"tests": tests} if tests else {}),
+                     "check": f"{suite}  # once", "sha": tip,
                      "text": prompts.red_target_text(suite, upstream, tip, probe, directory,
                                                      piece=piece)},
            "at": time.time(), "probes": probes}
     note(turn, [], directory.name, red={tree: red})
-    what = f"its piece AK_SHARD={piece}" if piece else "its suite"
+    what = (f"the failed tests of its piece AK_SHARD={piece}" if tests else
+            f"its piece AK_SHARD={piece}" if piece else "its suite")
     if probes > len(turns.TRANSIENT_BACKOFF):
         log(f"{upstream} at {tip[:12]} fails {what} alone through the retry ladder: the "
             "target's own red, repaired")
@@ -357,11 +363,12 @@ def check_line(turn, log=lambda _: None):
                     if scratch is None:
                         log(f"WARN {text.splitlines()[-1]}")
                         return
-                    piece = red["probe"].get("piece") or ""
+                    piece, tests = red["probe"].get("piece") or "", red["probe"].get("tests")
                     if not _probe_tip(turn, directory, state, scratch, tip, upstream, target_tree,
-                                      red["probe"]["command"], piece, log):
+                                      red["probe"]["command"], piece, log, tests):
                         return
-                tip_green.add(piece)
+                if not tests:   # green on just its tests says nothing of the rest of the piece
+                    tip_green.add(piece)
                 red = None
             # a PR waits on no repair: its own tree is checked, and lands if it mends the target
             if (red and (passed(turn, target_tree) or {}).get("tested") != target_tree
@@ -475,9 +482,11 @@ def red_piece(cmds, marks, pieces, suite, ok):
     return ""
 
 
-def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None):
+def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
+           only=None):
     """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
-    it); with `shard` every command runs as that one piece alone, on one turn."""
+    it, the tests that piece named that failed again alone or None); with `shard` every
+    command runs as that one piece alone, on one turn, and with `only` just those tests."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -485,13 +494,13 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
                "since": state["waiting_on"]["joined"], "line": state["waiting_on"]["line"]}
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
-    marks, pieces = [], {}
+    marks, pieces, confirmed = [], {}, {}
     with gate.gate_turn(None, log_path, log, sharded, scratch, context=context):
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set(),
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
-            marks=marks, shard=shard, pieces=pieces)
+            marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed)
     if (not clean or gitcall.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
@@ -499,7 +508,8 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    return ok, text, red_piece(cmds, marks, pieces, suite, ok)
+    red = red_piece(cmds, marks, pieces, suite, ok)
+    return ok, text, red, (confirmed.get(suite) or {}).get(red) if red else None
 
 
 def _member_commit(repo, state, head):
@@ -566,9 +576,10 @@ def _landing_checks(directory, state, scratch, tip):
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
     log_path = directory / f"lander-{tree}.log"
-    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
+    ok, text, red, tests = _check(directory, state, scratch, list(checks), log_path, log,
+                                  suite=suite)
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
-                                              "piece": red}}
+                                              "piece": red, **({"tests": tests} if tests else {})}}
 
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
@@ -679,7 +690,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
-                    answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log", "piece")
+                    answers[tree, checks] = {"fix": {key: red[tree][key] for key in FIX_KEYS
                                                      if key in red[tree]}}
             batched = len({(tree, checks) for _, _, _, tree, checks in stacks
                            if (tree, checks) not in answers}) > limit
@@ -694,7 +705,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             if batched:
                 for index, (_, _, _, tree, checks) in enumerate(stacks):
                     if red.get(tree, {}).get("checks") == list(commands(index)):
-                        answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log", "piece")
+                        answers[tree, checks] = {"fix": {key: red[tree][key] for key in FIX_KEYS
                                                          if key in red[tree]}}
                     evidence = green.get(tree)
                     if evidence and checked(evidence, commands(index)):
@@ -744,11 +755,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 return
                             run.git(scratch, "reset", "--hard", tip)
                             run.git(scratch, "clean", "-fdx")
+                            tests = answer["fix"].get("tests")
                             if not _probe_tip(turn, member, saved, scratch, tip, upstream,
-                                              target_tree, suite, piece, log):
+                                              target_tree, suite, piece, log, tests):
                                 target_red = True
                                 return
-                            tip_green.add(piece)
+                            if not tests:
+                                tip_green.add(piece)
                     if member not in verdicts:
                         if "land" in answer:
                             answer = {**answer, "after": {
