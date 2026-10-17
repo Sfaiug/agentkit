@@ -33,6 +33,7 @@ import itertools
 import json
 import math
 import os
+import re
 import secrets
 import stat
 import sys
@@ -59,6 +60,7 @@ SUBJECT_CAP = 60   # a title the phone shows whole, when the task has to stand i
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
 DESCRIPTION_CAP = 4096   # of one embed's description: Discord refuses a card past it
+CONTENT_CAP = 1900       # of a message's 2000, leaving the owner's mention room after it
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
@@ -226,10 +228,26 @@ def _read(paths):
     return files
 
 
-def mention():
-    """The `<@id>` that makes Discord push-notify the user, or "" when no id is configured."""
+def lead(kind, text):
+    """What a page leads with: a question up to its "?", else its first sentence, across the
+    lines it wraps onto.  A mark ends one only where a space or the text's end follows it, so a
+    link's own "?" or "." ends nothing."""
+    flat = " ".join(str(text).split())
+    end = (kind == "needs" and re.search(r"\?(?=\s|$)", flat)) or re.search(r"[.!?](?=\s|$)", flat)
+    return flat[:end.end()] if end else flat
+
+
+def card_payload(kind, session, text):
+    """What a page posts.  A phone's push shows a message's content and not its embed, so the
+    content is the lead and the seat, the owner's mention last and the only one it may ping (a
+    card's own words ping nobody); the embed under it holds the whole text."""
     user_id = _secret(USER_ID_ENV, "discord_user_id")
-    return f"<@{user_id}>" if user_id else ""
+    content = f"{lead(kind, text)} \u00b7 {subject(session, text)}"
+    if len(content) > CONTENT_CAP:
+        content = content[:CONTENT_CAP - 1] + "\u2026"
+    return {"username": "agentkit", "content": content + (f" <@{user_id}>" if user_id else ""),
+            "allowed_mentions": {"users": [user_id]} if user_id else {"parse": []},
+            "embeds": [embed(kind, session, text)]}
 
 
 def webhook_url(url, message_id=None):
@@ -1053,10 +1071,7 @@ def _send_card(session, kind, card, answer):
     # the seat's word shows its notice on one line; the card carries the notice as written
     if previous and (kind == "done" or " ".join(str(previous["text"]).split()) == text):
         text = previous["text"]
-    payload = {"username": "agentkit", "embeds": [embed(kind, session, text)]}
-    who = mention()
-    if who:
-        payload["content"] = who
+    payload = card_payload(kind, session, text)
     key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
     with outbox_lock():
         event = _read_event(key)
@@ -1467,11 +1482,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         raise config.Error("--file was removed: notification cards carry no attachments")
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
-        payload = {"username": "agentkit", "embeds": [embed(kind, name, text)]}
-        who = mention()
-        if who:
-            payload["content"] = who
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(card_payload(kind, name, text), indent=2))
         terminal_notice(name, f"{TITLES[kind]} · {subject(name, text)}: {text}", dry_run=True)
         return 0
     if not name:
