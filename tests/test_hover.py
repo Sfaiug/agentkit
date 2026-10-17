@@ -426,6 +426,16 @@ class Screens(Sandbox):
         self.assertIn("alpha", highlighted(screens[hidden + 1])[0])     # the first click
         self.assertEqual(closed.call_args_list, [call("alpha", False)])    # and the second
 
+    def test_a_click_on_enter_reopen_reopens_the_highlighted_past_session(self):
+        seats = [{"name": "alpha", "repo": None, "closed": 1}]
+        opened = self.stack.enter_context(patch.object(menu, "open_session"))
+
+        def screen():
+            return menu.show_past({}, seats, keyboard=Mock())
+        col, row = at(run(screen, ESC)[1][0], "⏎ reopen")
+        run(screen, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode(), ESC)
+        self.assertEqual(opened.call_args_list, [call({}, seats[0], False)])
+
     def test_a_question_typed_on_a_screen_lights_its_key_line(self):
         def typed():
             terminal.frame("new session", [], "esc back")

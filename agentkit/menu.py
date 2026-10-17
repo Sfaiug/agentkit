@@ -2883,7 +2883,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     the cell it is on lit.  `act` is
     `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
-    key-line item's too (`r recommended`), and any other key's name.
+    key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
@@ -2920,8 +2920,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         if act == "point":
             return None, here, column, top
         if spot.what is None:         # a key-line item does what its key does
-            item = spot.cell or ""
-            return ("back" if item == "esc" else item if len(item) == 1 and item.isalpha()
+            item = {"esc": "back", "⏎": "enter"}.get(spot.cell, spot.cell or "")
+            return (item if item in ("back", "enter") or len(item) == 1 and item.isalpha()
                     else ""), here, None, top
         # a row runs its step; on Providers only a click on one of its two acts does
         act = "enter" if here[0] == "row" and here != PROVIDERS else ""
