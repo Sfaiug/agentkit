@@ -35,7 +35,7 @@ class ReviewWaitsForPullRef(Sandbox):
         self.opts = {"--review-pr": URL, "--review": None}
         info = dict(state="OPEN", title="Mend the fence", author="owner",
                     baseRefName="main", headRefOid="a" * 40, body="Small fix")
-        for name, value in (("pr_view", info), ("pr_writer", (True, "opus")),
+        for name, value in (("pr_view", info), ("pr_writer", (True, "opus", "high")),
                             ("launch_session", "fix-api"), ("own_pr_budget", (3, None)),
                             ("checkout_for", self.repo)):
             self.stack.enter_context(patch.object(run, name, return_value=value))

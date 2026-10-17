@@ -2,14 +2,12 @@
 by it.
 
 The executor's turn records its effort for its role (the entry's `exec_effort`, else its
-`effort`) on the run's record, which the loop's save keeps whatever the config says since, the
-launch receipt the seat's orchestrator's, and each finished review its reviewer's
-(`review_effort`, else `effort`) on its review row; the history keeps them, the first write's
-orchestrator effort as it keeps the orchestrator, unknown included.  `ak models` then shows a
-model's own numbers per effort its runs recorded (`opus @ max`, the strongest first), the bare
-name for runs that recorded none: a pull request its seat wrote counts under the receipt's
-effort only where that seat launched the run, not where a lease restart launched it from the
-seat running another model since.
+`effort`) on the run's record before the worker runs, which the loop's save keeps whatever the
+config says since; the writer of a seat's own pull request is captured with the effort it runs
+at, which a restart carries with it (tests/test_review_restart.py) and the finish writes; and
+each finished review records its reviewer's (`review_effort`, else `effort`) on its review row.
+`ak models` then shows a model's own numbers per effort its runs recorded (`opus @ max`, the
+strongest first), the bare name for runs that recorded none.
 
 Offline: a throwaway HOME holds the history and run records, the config is the sandbox's, the
 boards and catalogs are faked (tests/test_model_rows.py), and the loop's save is driven on a
@@ -28,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, hand_in, history, matrix, run, terminal, transitions, turns
+from agentkit import config, hand_in, history, matrix, record, run, terminal, transitions, turns
 import test_model_rows as rows_test
 
 
@@ -39,32 +37,21 @@ class LiveByEffort(Sandbox):
                               model=entry["model"], blocking=0, followup=0, note=0, round=1,
                               verdict=verdict, effort=effort)
 
-    def test_the_history_keeps_each_role_s_effort_and_the_first_orchestrator_s(self):
-        history.start_run("r1", repo="acme", started_at=1, orchestrator="fable",
-                          orchestrator_effort="high")
+    def test_the_history_keeps_each_role_s_effort(self):
+        history.start_run("r1", repo="acme", started_at=1)
         history.update_run("r1", executor_effort="max")
-        # a resume writes the receipt again: the orchestrator and its effort stay the first's
-        history.start_run("r1", repo="acme", started_at=1, orchestrator="opus",
-                          orchestrator_effort="xhigh")
         self.review("r1", "astra", "low")
         self.review("r1", "astra", None, verdict="FAIL", n=1)     # from before efforts were kept
-        history.finish_run("r1", finished_at=50, final_state="pass", verdict="PASS", rounds_used=1)
+        history.finish_run("r1", finished_at=50, final_state="pass", verdict="PASS", rounds_used=1,
+                           own_orchestrator="fable", own_orchestrator_effort="high")
         row, = history.ended_runs(0, 100)
-        self.assertEqual((row["orchestrator"], row["orchestrator_effort"], row["executor_effort"]),
-                         ("fable", "high", "max"))
+        self.assertEqual((row["executor_effort"], row["own_orchestrator"],
+                          row["own_orchestrator_effort"]), ("max", "fable", "high"))
         astra = self.cfg["models"]["astra"]
         self.assertEqual(history.reviewed_runs(astra["harness"], astra["model"]),
                          {"low": (1, 1), None: (1, 0)})
-        # a run from before efforts were recorded keeps its orchestrator's effort unknown: a
-        # resume from the seat running another model since lends it neither model nor effort
-        history.start_run("r2", repo="acme", started_at=2, orchestrator="fable")
-        history.start_run("r2", repo="acme", started_at=2, orchestrator="opus",
-                          orchestrator_effort="max")
-        history.finish_run("r2", finished_at=60, final_state="pass", verdict="PASS", rounds_used=1)
-        row, = [row for row in history.ended_runs(0, 100) if row["run_id"] == "r2"]
-        self.assertEqual((row["orchestrator"], row["orchestrator_effort"]), ("fable", None))
 
-    def test_the_executor_s_turn_and_the_receipt_record_the_effort_each_role_runs_at(self):
+    def test_the_executor_s_turn_and_the_writer_s_capture_record_the_effort_each_runs_at(self):
         self.cfg["models"]["opus"]["exec_effort"] = "max"
         directory = config.RUNS / "fix-api"
         directory.mkdir()
@@ -78,8 +65,10 @@ class LiveByEffort(Sandbox):
             lp.save()
         self.assertIsNone(updated.call_args.kwargs["executor_effort"])    # no executor ran yet
         self.assertNotIn("reviewer_effort", updated.call_args.kwargs)   # a review's is its row's
+        on_record = []      # the record's executor effort as each worker starts
 
         def turn(_cfg, _model, _body, cwd, out, role, *_args, **_kw):
+            on_record.append(record.read_state(directory).get("executor_effort"))
             out.mkdir(parents=True, exist_ok=True)
             with Path(hand_in.start(out, cwd, role=role)).open("a") as output:
                 output.write(json.dumps({"kind": "done"}) + "\n")
@@ -90,6 +79,7 @@ class LiveByEffort(Sandbox):
                 patch.object(run.history, "update_run") as updated:
             run.execute(lp, "executor", "Build the API.", "executor")
         self.assertEqual(updated.call_args.kwargs["executor_effort"], "max")
+        self.assertEqual(on_record, ["max"])    # before the worker ran: a cut-off turn keeps it
         # a review-only resume saves under the config as it stands since: the executor ran at max
         self.cfg["models"]["opus"]["exec_effort"] = "low"
         with patch.object(run.history, "update_run") as updated:
@@ -103,27 +93,29 @@ class LiveByEffort(Sandbox):
             run.execute(lp, "executor", "Build the API.", "executor")
         self.assertEqual(updated.call_args.kwargs["executor_effort"],
                          self.cfg["models"]["astra"]["effort"])
-        # the receipt: the launching seat's orchestrator at the effort it runs at
-        (config.STATE / "session-seat.json").write_text(json.dumps({"orchestrator": "opus"}))
+        self.assertEqual(on_record[-1], self.cfg["models"]["astra"]["effort"])
+        # the writer of a seat's own pull request is captured with the effort it runs at, and a
+        # writer the record holds keeps the effort captured with it whatever the config says since
         self.cfg["models"]["opus"]["effort"] = "high"
-        with patch.object(run.history, "start_run") as started, \
-                patch.object(config, "load", return_value=self.cfg):
-            run.history_start({"run_id": "own-pr", "repo": "acme", "launched_session": "seat",
-                               "started_at": 1})
-        self.assertEqual((started.call_args.kwargs["orchestrator"],
-                          started.call_args.kwargs["orchestrator_effort"]), ("opus", "high"))
+        with patch.object(run, "own_pr_orchestrator", return_value=(True, "opus")):
+            self.assertEqual(run.pr_writer(self.cfg, {}, "seat", "owner"), (True, "opus", "high"))
+        self.cfg["models"]["opus"]["effort"] = "low"
+        carried = {"own_pr": True, "own_orchestrator": "opus", "own_orchestrator_effort": "high"}
+        self.assertEqual(run.pr_writer(self.cfg, carried, "seat", "owner"), (True, "opus", "high"))
+        # a writer from before its effort was kept stays unknown; another's pull request has none
+        self.assertEqual(run.pr_writer(self.cfg, {"own_pr": True, "own_orchestrator": "opus"},
+                                       "seat", "owner"), (True, "opus", None))
+        self.assertEqual(run.pr_writer(self.cfg, {"own_pr": False}, "seat", "owner"),
+                         (False, None, None))
 
     def test_ak_models_splits_a_model_s_own_numbers_by_the_effort_it_ran_at(self):
         rows_test.prepare(self)
         clock = iter(range(100, 10000))
 
-        def ended(run_id, executor="opus", effort=None, rounds=1, reviews=(), orchestrator="fable",
-                  **fields):
-            """A merged run from `orchestrator`'s seat, executed at `effort`, each review as
-            (reviewer, effort)."""
-            history.start_run(run_id, repo="acme", executor=executor, orchestrator=orchestrator,
-                              orchestrator_effort=fields.pop("orchestrator_effort", None),
-                              started_at=next(clock))
+        def ended(run_id, executor="opus", effort=None, rounds=1, reviews=(), **fields):
+            """A merged run, executed at `effort`, each review as (reviewer, effort); `fields`
+            end it (a seat's own pull request names its writer and the writer's effort)."""
+            history.start_run(run_id, repo="acme", executor=executor, started_at=next(clock))
             history.update_run(run_id, executor_effort=effort)
             for n, (reviewer, at) in enumerate(reviews):
                 self.review(run_id, reviewer, at, n=n)
@@ -135,11 +127,8 @@ class LiveByEffort(Sandbox):
         ended("t3", effort="high")
         ended("t4")                                           # before efforts were recorded
         ended("t5", executor="astra", reviews=[("opus", "max")])
-        ended("p1", executor=None, own_orchestrator="fable", orchestrator_effort="high")
-        # astra's PR, restarted from its seat running opus at low since: the writer's effort is
-        # not the receipt's
-        ended("p2", executor=None, own_orchestrator="astra", orchestrator="opus",
-              orchestrator_effort="low")
+        ended("p1", executor=None, own_orchestrator="fable", own_orchestrator_effort="high")
+        ended("p2", executor=None, own_orchestrator="astra")  # before the writer's effort was kept
         own = matrix.live(self.cfg, now=10000)
         self.assertEqual([label for label in own if label.split(" @ ")[0] == "opus"],
                          ["opus @ max", "opus @ high", "opus"])   # the strongest first, none last
@@ -152,7 +141,6 @@ class LiveByEffort(Sandbox):
         self.assertNotIn("fable", own)
         self.assertEqual(own["astra"], {"orchestrate": {"runs": 1, "round_1": 100},
                                         "execute": {"runs": 1, "round_1": 100}, "review": None})
-        self.assertNotIn("astra @ low", own)
         self.assertEqual(own["gemini"], {"orchestrate": None, "execute": None, "review": None})
         held = matrix.collect(now=10000)
         table = matrix.rows(self.cfg, held, matrix.present())

@@ -1158,10 +1158,11 @@ def preflight(run_dir, opts, log):
         # a config that cannot be read refuses the launch rather than judge the PR external,
         # and a writer already on the record (`leases.restart` carries one) stays there
         # whatever the config says of its model now: only a probed writer is written down
-        is_own, orch = pr_writer(config.load(), state, state.get("launched_session"),
-                                 info["author"])
+        is_own, orch, effort = pr_writer(config.load(), state, state.get("launched_session"),
+                                         info["author"])
         state.setdefault("own_pr", is_own)
         state.setdefault("own_orchestrator", orch if is_own else None)
+        state.setdefault("own_orchestrator_effort", effort if is_own else None)
         run_record.save_state(run_dir, state)
         if is_own and not orch:
             raise config.Error(f"no session record names the writer of this PR; "
@@ -2000,21 +2001,25 @@ def own_pr_orchestrator(cfg, session_name, author):
 
 
 def pr_writer(cfg, state, session_name, author):
-    """(is_own, orchestrator) for the review `state` records: the writer it captured at launch,
-    in preflight or the first attempt, or carried from a stopped run (`leases.restart`), stands
-    -- a session record rewritten since must not replace it, or the reviewer's independence
-    check would judge another model than the one that wrote this -- and a record with none
-    asks the seat (`own_pr_orchestrator`).  A captured model the config no longer names is
-    unknown, as the seat's would be."""
+    """(is_own, orchestrator, effort) for the review `state` records: the writer it captured at
+    launch, in preflight or the first attempt, or carried from a stopped run (`leases.restart`),
+    stands -- a session record rewritten since must not replace it, or the reviewer's
+    independence check would judge another model than the one that wrote this -- and a record
+    with none asks the seat (`own_pr_orchestrator`).  A captured model the config no longer
+    names is unknown, as the seat's would be.  The effort is the writer's as it was captured
+    (the config's for its orchestrator role then; a record from before it was kept has none),
+    never the config's since: `ak models` counts the pull request under it."""
     if "own_pr" not in state:
-        return own_pr_orchestrator(cfg, session_name, author)
+        is_own, orchestrator = own_pr_orchestrator(cfg, session_name, author)
+        return is_own, orchestrator, config.worker_effort(cfg, orchestrator, "orchestrator")
     orchestrator = state.get("own_orchestrator") if state["own_pr"] else None
     if orchestrator:
         try:
             config.model(cfg, orchestrator)
         except (config.Error, OSError, ValueError, KeyError, TypeError):
             orchestrator = None
-    return bool(state["own_pr"]), orchestrator
+    effort = state.get("own_orchestrator_effort") if orchestrator else None
+    return bool(state["own_pr"]), orchestrator, effort
 
 
 def checkout_for(name_with_owner, log):
@@ -2313,7 +2318,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         info = pr_view_past(url, info, prior.get("head_sha"))
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
-    is_own, orchestrator = pr_writer(cfg, prior, session_at_launch, info["author"])
+    is_own, orchestrator, writer_effort = pr_writer(cfg, prior, session_at_launch, info["author"])
     if is_own and not orchestrator:
         raise config.Error("no session record names the writer of this PR; "
                            "review of the seat's own PR needs its orchestrator")
@@ -2364,6 +2369,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                          "launched_session": session_at_launch,
                          "review_pr": url, "head_sha": prior["head_sha"] if advancing else info["headRefOid"],
                          "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
+                         "own_orchestrator_effort": writer_effort if is_own else None,
                          "started_at": prior.get("started_at") or time.time(), "review_posted": False})
     # `own_pr_wait` stays until the new head's checkout is written down below: a fetch that
     # fails or a process that dies before then still lets the next attempt move to that head
@@ -2407,6 +2413,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "launched_session": session_at_launch, "repo": str(repo), "scratch": False,
              "review_pr": url, "pr": url, "head_sha": head, "author": info["author"],
              "own_pr": is_own, "own_orchestrator": orchestrator if is_own else None,
+             "own_orchestrator_effort": writer_effort if is_own else None,
              "base": f"origin/{base}", "target": base, "base_sha": base_sha,
              "target_sha": target_sha, "branch": branch,
              "worktree": str(wt), "executor": prior.get("executor"), "reviewer": None, "rounds": n_rounds,

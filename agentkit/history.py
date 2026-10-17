@@ -71,7 +71,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
-              ("orchestrator_effort", "TEXT"))
+              ("own_orchestrator_effort", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -222,16 +222,14 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, orchestrator_effort=None,
-              change=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, change=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
     goes, and every later write finds no row to change.  The orchestrator is the launching
-    seat's at the first write that names one, whatever that seat runs by a resume, and its
-    effort is that write's (unknown stays unknown: a resume's never stands in for it).
-    `change` names the change the run belongs to (its PR, or the run it continues), which the
-    scoreboard groups runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
+    seat's at the first write, whatever that seat runs by a resume.  `change` names the
+    change the run belongs to (its PR, or the run it continues), which the scoreboard groups
+    runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
     yet 0 and '', where a row from before they were recorded keeps NULL: unknown, not unbroken.
     """
     if sandbox(repo):
@@ -245,7 +243,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "", orchestrator_effort)
+              change, 0, "")
 
     def insert(connection):
         connection.execute(
@@ -254,8 +252,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
-            "landing_breaks, broke_after_merge, orchestrator_effort) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "landing_breaks, broke_after_merge) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -266,8 +264,6 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
             "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
-            "orchestrator_effort=CASE WHEN runs.orchestrator IS NULL THEN excluded.orchestrator_effort "
-            "ELSE runs.orchestrator_effort END, "
             "change=COALESCE(excluded.change,runs.change)", values)
 
     _write(insert, log)
@@ -293,7 +289,7 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort"}
+               "executor_effort", "own_orchestrator_effort"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -557,19 +553,21 @@ def close_step(run_id, at=None, *, keep=False, log=None):
 def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
-               changed_lines=None, rules_bytes=None, own_orchestrator=None, log=None):
+               changed_lines=None, rules_bytes=None, own_orchestrator=None,
+               own_orchestrator_effort=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
-    model whose seat wrote the pull request the run reviewed (`run.pr_writer`), none for
-    another's or a task.
+    model whose seat wrote the pull request the run reviewed and `own_orchestrator_effort` the
+    effort it was captured at (`run.pr_writer`), none for another's or a task.
     """
     finished_at = time.time() if finished_at is None else finished_at
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
-              "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator}
+              "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
+              "own_orchestrator_effort": own_orchestrator_effort}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 

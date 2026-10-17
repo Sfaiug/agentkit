@@ -128,13 +128,12 @@ def history_start(state, log=None):
 
     A test suite's run -- launched under the suites' notify sink, which run.json keeps -- is
     never recorded: every later write finds no row.  The row names the model the launching
-    seat's orchestrator runs and the effort it runs at.
+    seat's orchestrator runs.
     """
     if state.get("notify_sink"):
         return
     session = launched_session(state)
     record = config.session_records().get(session) if session else None
-    orchestrator = record.get("orchestrator") if record else None
     history.start_run(state.get("run_id"), repo=state.get("repo"),
                       executor=state.get("executor"), reviewer=state.get("reviewer"),
                       rounds_used=len(state.get("round_summaries") or []),
@@ -142,18 +141,8 @@ def history_start(state, log=None):
                       session=session, task_words=state.get("task_words"),
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
-                      orchestrator=orchestrator,
-                      orchestrator_effort=orchestrator_effort(orchestrator),
+                      orchestrator=record.get("orchestrator") if record else None,
                       change=change_name(state), log=log)
-
-
-def orchestrator_effort(name):
-    """The effort the seat's orchestrator `name` runs at, off the config as it stands; None
-    where there is none to read, since the receipt never fails a run."""
-    try:
-        return config.worker_effort(config.load(), name, "orchestrator")
-    except config.Error:
-        return None
 
 
 def changed_files(state):
@@ -429,7 +418,8 @@ def history_finish(state, log=None):
                        session=launched_session(state), peak_rss_mb=state.get("peak_rss_mb"),
                        task_files=json.dumps(files) if files is not None else None,
                        changed_lines=size, rules_bytes=rules,
-                       own_orchestrator=state.get("own_orchestrator"), log=log)
+                       own_orchestrator=state.get("own_orchestrator"),
+                       own_orchestrator_effort=state.get("own_orchestrator_effort"), log=log)
 
 
 def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
