@@ -166,6 +166,19 @@ class TokenExpiry(unittest.TestCase):
         self.assertEqual(found["reason"], f"claude worker token expires in 10 days: {REPLACE}")
         self.assertEqual(found["since"], 2000)
 
+    def test_a_draft_keeps_the_new_episodes_beginning(self):
+        # the draft joins the reason, which is no longer the warning alone
+        tokens = {"claude": {"harness": "claude", "expired": True, "remedy": REPLACE,
+                             "at": 2000}}
+        found = watch.session_state(
+            "a", now=3000, session={"name": "a", "attached": False}, records=[],
+            auth_out={}, gh_out={}, harness="claude", token_out=tokens,
+            live={"state": "draft", "evidence": "Fix the login redirect", "began": 1000},
+            previous={"word": "needs you", "word_since": 1000})
+        self.assertEqual(found["reason"], f"claude worker token expired: {REPLACE}"
+                                          " · unsent: Fix the login redirect")
+        self.assertEqual(found["since"], 2000)
+
     # --- the rest of the contract --------------------------------------------
 
     def test_no_token_file_means_no_warning(self):
