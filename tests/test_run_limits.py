@@ -161,11 +161,12 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(gc, "schedule_gc"))
         # the retry backoff is minutes long and has nothing to do with what is under test here.
-        # Only run.py's own waits are faked: with every sleep in the process gone, the waits
-        # that stop a box spin, and a mock keeps a record of each turn of the spin.
+        # Only the run's own waits are faked (run.py's, its turns' and its delivery's): with
+        # every sleep in the process gone, the waits that stop a box spin, and a mock keeps a
+        # record of each turn of the spin.
         self.sleep = MagicMock()
-        self.stack.enter_context(patch.object(run, "time", Clock(self.sleep)))
-        self.stack.enter_context(patch.object(turns, "time", Clock(self.sleep)))
+        for module in (run, turns, deliver):
+            self.stack.enter_context(patch.object(module, "time", Clock(self.sleep)))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
@@ -550,7 +551,8 @@ class Limits(unittest.TestCase):
         self.assertEqual(state["state"], "pass")
         self.assertTrue(state["merge_failed"])
         self.assertIsNone(state["pr"])
-        self.assertIn("origin already has", state["merge_note"])
+        # origin's hook said no, which is no other run taking the branch
+        self.assertIn("to origin failed", state["merge_note"])
         result = (directory / "result.md").read_text()
         self.assertIn(f"retry delivery: ak run merge {directory.name}", result)
         self.assertFalse((self.root / "merged").exists())
