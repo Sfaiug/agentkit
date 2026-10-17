@@ -780,15 +780,14 @@ class Phone(Sandbox):
         # two keeps the one key whole
         phone.press("12")
         # the menu's look at it publishes the words, behind the frame the key was read on
-        if narrow:     # the other seats' count folds, and only then is this seat's name cut
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", "! 11 need you")
+        if narrow:
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME[:7]}…")
         else:
             screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME}")
         top, bar = screen[-2:]
         self.fits(screen, width, height)
         if narrow:
-            self.assertTrue(top.endswith("… ! 11 need you"), top)
-            self.assertIn(LONG_NAME[:5], top)
+            self.assertTrue(top.endswith(f"    {LONG_NAME[:7]}… ! 11 need you"), top)
         else:
             # the word the row shows opens the bar, then the name and the model that orchestrates it
             self.assertIn(f"! needs you    {LONG_NAME}   astra", top)
