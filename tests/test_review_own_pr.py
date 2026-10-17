@@ -318,16 +318,18 @@ class OwnPr(unittest.TestCase):
         run.git(self.repo, "commit", "-qm", "Fixture base")
         base = run.git(self.repo, "rev-parse", "HEAD")
         self.assertFalse(run.text_only_pr(self.repo, base, base))
-        for name in ("README.md", "README.txt", "LICENSE.text", "guide.rst", "en.po", "app.xlf", "NOTICE"):
+        for name in ("README.md", "README.txt", "LICENSE.text", "docs/guide.rst",
+                     "pkg/CHANGELOG.md", "NOTICE"):
+            (self.repo / name).parent.mkdir(exist_ok=True)
             (self.repo / name).write_text("words\n")
         run.git(self.repo, "add", ".")
         run.git(self.repo, "commit", "-qm", "Fixture wording")
         words = run.git(self.repo, "rev-parse", "HEAD")
         self.assertTrue(run.text_only_pr(self.repo, base, words))
-        run.git(self.repo, "mv", "app.py", "code.md")
+        run.git(self.repo, "mv", "app.py", "docs/code.md")
         run.git(self.repo, "commit", "-qm", "Fixture code rename")
         self.assertFalse(run.text_only_pr(self.repo, words, "HEAD"))
-        for name, content in (("requirements.txt", b"a\n"), ("binary.md", b"a\0b")):
+        for name, content in (("requirements.txt", b"a\n"), ("docs/binary.md", b"a\0b")):
             (self.repo / name).write_bytes(content)
             run.git(self.repo, "add", name)
             run.git(self.repo, "commit", "-qm", "Fixture requires review")
@@ -364,13 +366,13 @@ class OwnPr(unittest.TestCase):
         (self.repo / ".gitattributes").write_text("*.md diff\n")
         run.git(self.repo, "add", ".gitattributes")
         run.git(self.repo, "commit", "-qm", "Fixture forces text diffs")
-        (self.repo / "forced.md").write_bytes(b"a\0b\n")
-        run.git(self.repo, "add", "forced.md")
+        (self.repo / "docs/forced.md").write_bytes(b"a\0b\n")
+        run.git(self.repo, "add", "docs/forced.md")
         run.git(self.repo, "commit", "-qm", "Fixture adds binary prose")
         self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
         # a binary file whose name git's text output would turn into a text file's name
-        for binary, lookalike in ((b"binary\r.md", b"binary\n.md"),
-                                  (b"binary-\xff.md", "binary-\ufffd.md".encode())):
+        for binary, lookalike in ((b"docs/binary\r.md", b"docs/binary\n.md"),
+                                  (b"docs/binary-\xff.md", "docs/binary-\ufffd.md".encode())):
             with self.subTest(name=binary):
                 (self.repo / os.fsdecode(lookalike)).write_text("plain words\n")
                 run.git(self.repo, "add", "-A")
