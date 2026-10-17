@@ -483,7 +483,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         # as an ak from before the `passed` record left it
         path = land._trees(self.turn)[0]
         kept = json.loads(path.read_text())
-        del kept["passed"]
+        kept.pop("passed", None)
         path.write_text(json.dumps(kept))
         failures = land._trees(self.turn, "red_stacks")[1]
         ((tree, evidence),) = land._trees(self.turn)[1].items()
