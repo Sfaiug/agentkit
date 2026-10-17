@@ -460,7 +460,7 @@ import subprocess
 import tempfile
 from unittest.mock import patch
 
-from agentkit import config, gc, handback, logins, menu, notify, orch, terminal, usage, watch, record
+from agentkit import config, gc, handback, logins, matrix, menu, notify, orch, terminal, usage, watch, record
 from agentkit.harness import muse_usage
 
 with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
@@ -475,7 +475,8 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     passes = {}
     for module, name in ((watch, "health"), (notify, "retry_pending"), (notify, "tick_cards"),
                          (gc, "schedule_gc"), (orch, "stamp"), (orch, "sweep"),
-                         (watch.browser, "tidy"), (watch, "tell_audit"), (logins, "remind")):
+                         (watch.browser, "tidy"), (watch, "tell_audit"), (logins, "remind"),
+                         (matrix, "refresh")):
         passes[name] = stack.enter_context(patch.object(module, name))
     stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
     stack.enter_context(patch.object(orch, "sessions", return_value=[]))
@@ -700,7 +701,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from agentkit import config, gc, logins, menu, notify, orch, run, terminal, usage, watch, record
+from agentkit import config, gc, logins, matrix, menu, notify, orch, run, terminal, usage, watch, record
 
 
 class SessionState(unittest.TestCase):
@@ -736,7 +737,7 @@ class SessionState(unittest.TestCase):
         self.edits = self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
         for module, name in ((usage, "collect"), (gc, "schedule_gc"), (orch, "stamp"),
                              (orch, "sweep"), (watch.browser, "tidy"), (watch, "tell_audit"),
-                             (logins, "remind")):
+                             (logins, "remind"), (matrix, "refresh")):
             self.stack.enter_context(patch.object(module, name))
         self.stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
