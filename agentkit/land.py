@@ -209,7 +209,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     held = _trees(turn, "red")[1].get(tree) or {}
     probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
     red = {"probe": {"command": suite, "piece": piece, "check": f"{suite}  # once", "sha": tip,
-                     "text": prompts.red_target_text(suite, upstream, tip, probe, piece=piece)},
+                     "text": prompts.red_target_text(suite, upstream, tip, probe, directory,
+                                                     piece=piece)},
            "at": time.time(), "probes": probes}
     note(turn, [], directory.name, red={tree: red})
     what = f"its piece AK_SHARD={piece}" if piece else "its suite"
