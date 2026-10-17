@@ -198,17 +198,17 @@ class ProviderScreen(unittest.TestCase):
         open_providers(screen)
         _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered, ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build",
-                                   "  Google / Antigravity", "  Xiaomi / MiMo through OpenCode",
-                                   "  Claude II"])
+                                   "  Google / Antigravity", "  OpenCode", "  Claude II"])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
-        # with every shipped provider added only another subscription of each is offered
+        # with every shipped provider added, OpenCode -- any provider it logs in to -- and
+        # another subscription of each are offered
         screen = Screen(self, child=CHILD)
         open_providers(screen)
         before = screen.path.read_bytes()
-        _, offered = pick(screen, ENTER, ADD, 6)
-        self.assertEqual(offered, ["› Claude II", "  ChatGPT II", "  Muse II", "  Grok II",
-                                   "  Gemini II", "  MiMo II"])
+        _, offered = pick(screen, ENTER, ADD, 7)
+        self.assertEqual(offered, ["› OpenCode", "  Claude II", "  ChatGPT II", "  Muse II",
+                                   "  Grok II", "  Gemini II", "  MiMo II"])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
@@ -337,7 +337,7 @@ class ProviderScreen(unittest.TestCase):
         lines, offered = pick(screen, ENTER, ADD, 6)
         for line in lines + offered:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(offered[-2], "  Xiaomi / MiMo through OpenCode")
+        self.assertEqual(offered[-2], "  OpenCode")
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
 

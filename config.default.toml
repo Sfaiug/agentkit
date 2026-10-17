@@ -86,6 +86,8 @@ provider = "mimo"
 # colour = "#RRGGBB" on a provider fills its bar in the menu's usage rows until 20% is left,
 # and the rows run red through violet by it.  anthropic, openai, meta, xai, google and mimo ship their companies' own; any
 # other provider without one is drawn in the accent.
+# name = "Z.AI Coding Plan" on a provider is what every screen calls it, else its company's name
+# or its key capitalised; `+ add` writes the one OpenCode gives a provider it adds through it.
 # price = 200 on a provider is what each of its subscriptions costs a month, in whatever you
 # pay in: `ak usage` then says what one million tokens cost at it, off the measured week.
 [providers.anthropic]
