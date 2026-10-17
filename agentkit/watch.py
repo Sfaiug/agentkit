@@ -2566,7 +2566,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         # opened.  With nothing owed it says what it said last, done, or rests.
         reason = closed(f"session closed: press {where} to reopen")
         if (parked or (last and last["kind"] != "done")
-                or still_owed(name, mine, index) is not None
+                or still_owed(name, mine, index, stopped=False) is not None
                 or any(transitions.unfinished(state, index=index)
                        or menu_mod.v5o_needs_look(state, index=index, now=at)
                        for _, state in mine)):
