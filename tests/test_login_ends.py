@@ -143,12 +143,33 @@ class Refresh(unittest.TestCase):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default"]
         self.assertEqual(list(logins.refresh(self.cfg, now=1001)["anthropic"]), ["default"])
 
-    def test_f_a_provider_whose_models_were_removed_keeps_its_logins(self):
+    def test_f_a_provider_whose_models_were_removed_is_asked_through_its_shipped_harness(self):
         logins.refresh(self.cfg, now=1000)
         self.cfg["models"] = {}
+        self.answer("default", {"email": "owner@acme.test", "ends": 90000})
         kept = logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
-        self.assertEqual(kept["anthropic"]["default"]["ends"], 50000)
+        self.assertEqual(kept["anthropic"]["default"]["ends"], 90000)
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
+
+    def test_i_a_forced_ask_asks_that_login_alone(self):
+        logins.refresh(self.cfg, now=1000)
+        logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY, force={("anthropic", "second")})
+        self.assertEqual(self.calls(), ["default", "second", "second"])
+
+    def test_j_a_sign_in_kept_while_the_tick_asked_stands_over_the_tick_s_older_answer(self):
+        ask = logins._ask
+
+        def signed_in_meanwhile(harness, account):
+            answer = ask(harness, account)
+            if account == "default" and not (self.fake / "signed-in").exists():
+                (self.fake / "signed-in").touch()
+                self.answer("default", {"email": "owner@acme.test", "ends": 90000})
+                logins.refresh(self.cfg, now=1001, force={("anthropic", "default")})
+            return answer
+        with patch.object(logins, "_ask", signed_in_meanwhile):
+            kept = logins.refresh(self.cfg, now=1000)
+        self.assertEqual(kept["anthropic"]["default"]["ends"], 90000)
+        self.assertEqual(logins.read()["anthropic"]["default"]["ends"], 90000)
 
     def hang(self):
         """The default account's adapter leaves a reader that this process adopts, orphaned."""
