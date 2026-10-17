@@ -366,16 +366,30 @@ def scan_safely(repo, log=lambda _: None, now=None):
 CARRIED = ("followup", "base_proof")
 
 
-def task_naming(run_dir, directory, repo):
+def task_naming(run_dir, directory, repo, landed=False):
     """The stopped run's task, started again in that directory: its front matter naming `repo`,
     absolute -- started again by the tick, a task naming none, or a relative one, would be
     resolved in the tick's directory -- and the new run where it names the stopped one (a fix
     run's check, the regression script it may write and the run its search leaves out,
-    `handback.start_followups`)."""
+    `handback.start_followups`).  With `landed`, its `from:` branch is on the target already
+    (`landed_with`), so it starts from the target: built on the branch, its change would count
+    the landed lines again, from where the branch left a target it can no longer merge."""
     from . import task
     pairs, body = task.front_matter(run_dir / "task.md")
-    return ("---\n" + "".join(f"{key}: {value}\n" for key, value in pairs if key != "repo")
+    drop = {"repo", *(("from",) if landed else ())}
+    return ("---\n" + "".join(f"{key}: {value}\n" for key, value in pairs if key not in drop)
             + f"repo: {repo}\n---\n" + body.replace(run_dir.name, directory.name))
+
+
+def landed_with(repo, branch, head):
+    """Whether `branch` holds nothing beyond `head`, the landed head of the run a stopped run
+    waited on: its tip, origin's else the local one, is that head or behind it.  A branch
+    neither has, or one moved on since, is not landed."""
+    for ref in (f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"):
+        tip = gitcall.git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
+        if tip:
+            return gitcall.git_out(repo, "merge-base", "--is-ancestor", tip.strip(), head)[0] == 0
+    return False
 
 
 def restart(log=print, now=None):
@@ -402,6 +416,13 @@ def restart(log=print, now=None):
         why = f"{wait['on']} " + ("has landed" if holder and holder.get("merged") else
                                   f"stands still ({holder['state']})" if holder and transitions.going(holder, now=now)
                                   else "is over")
+        try:            # asked before the claim: a git that never answered leaves it for the next tick
+            landed = bool(holder and holder.get("merged") and holder.get("head_sha")
+                          and state.get("from") and state.get("repo") and not state.get("review_pr")
+                          and landed_with(state["repo"], state["from"], holder["head_sha"]))
+        except config.Error as exc:
+            log(f"WARN {run_dir.name} waits a tick to start again: {exc}")
+            continue
         directory = handback.free_run_dir(run_dir.name.split("-", 2)[-1])
         session = transitions.launched_session(state)
         with watch.state_lock():
@@ -419,12 +440,13 @@ def restart(log=print, now=None):
                     kept = f"the review of {review} starts again on the landed base"
                 else:
                     (directory / "task.md").write_text(
-                        task_naming(run_dir, directory, state.get("repo")), encoding="utf-8")
+                        task_naming(run_dir, directory, state.get("repo"), landed), encoding="utf-8")
                     if (run_dir / turns.REGRESSION.parent).is_dir():      # links kept as links
                         shutil.copytree(run_dir / turns.REGRESSION.parent,
                                         directory / turns.REGRESSION.parent, symlinks=True)
                     carried = {key: state[key] for key in CARRIED if key in state}
-                    kept = f"its earlier attempt is kept on branch {state.get('branch')}"
+                    kept = f"its earlier attempt is kept on branch {state.get('branch')}" + (
+                        f"; {state['from']} landed with it, so it starts from the target" if landed else "")
                 (directory / "log.txt").touch()
                 gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; {kept}")
                 run.launch_for_seat(
