@@ -485,7 +485,7 @@ def kill_group(proc, run_id=None):
 
 
 def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=None,
-            abort=None, stop=None, **kwargs):
+            abort=None, stop=None, quiet=None, **kwargs):
     """Run a process group until it exits, goes silent, reaches an optional ceiling, or
     says something that means it will never finish.
 
@@ -508,6 +508,8 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     this is here to stop.  It must be cheap and must not raise.
 
     `stop(process, grace)` can own TERM/KILL cleanup when a wrapper encloses the command.
+    `quiet`, a list, gets the longest the command went without writing to `activity`, in
+    seconds, its start and end included, where the watchdog let it run to its end.
 
     Where the child was given an environment that carries AGENTKIT_RUN, a kill ends every
     process carrying exactly it, however detached -- never only the child's own process
@@ -547,11 +549,12 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
             stop(proc, KILL_GRACE)
 
     def watch_output():
-        last, seen = started, previous
+        last, seen, longest = started, previous, 0
         while not finished.is_set():
             now = time.monotonic()
             current = written()
             if current != seen:
+                longest = max(longest, now - last)
                 last, seen = now, current
             reason = ("abort" if abort is not None and abort() else
                       "ceiling" if limit is not None and now - started >= limit else
@@ -570,6 +573,8 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
             if silence is not None:
                 remaining.append(silence - (now - last))
             finished.wait(min(remaining))
+        if quiet is not None:
+            quiet.append(max(longest, time.monotonic() - last))
 
     monitor = None
     if limit is not None or silence is not None or abort is not None:
