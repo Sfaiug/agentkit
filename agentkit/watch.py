@@ -3776,13 +3776,16 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     types before a screen has stood.  And nothing is typed on this pass's capture alone: the
     seat is read once more first, because a composer the user has begun typing into is theirs
     and a line appended to it would send what they are still writing.
+
+    A turn the owner stopped (`interrupted`) is no stop at all: no hook runs on an Esc, and the
+    seat rests until their next prompt (owner, 14 Oct 2026).
     """
     from . import stop   # here, not at the top: stop also calls the watcher
     if not stop_enforced(harness):
         return
     name = session["name"]
     live = seat_read(name)
-    if live.get("state") != "at_prompt" or records is None:
+    if live.get("state") != "at_prompt" or live.get("interrupted") or records is None:
         return          # a failed pass over run.json is no evidence that nothing is running
     stood = _stamp(live.get("stop_said_at"))
     if stood is None or time.time() - stood < STALL_WAIT:
