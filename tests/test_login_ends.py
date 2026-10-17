@@ -9,6 +9,7 @@ renewal moves) and the account's email; the tick keeps every subscription's answ
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,12 +21,14 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, logins
 
 # A fake adapter: counts its calls in $FAKE/calls and answers for the account it was named,
-# or fails for one named in $FAKE/fail.
+# or fails for one named in $FAKE/fail, or hangs in a reader whose pid is $FAKE/reader for one
+# named in $FAKE/hang.
 FAKE_ADAPTER = r"""#!/usr/bin/env bash
 [ "$1" = login-end ] || exit 2
 account=${AGENTKIT_ACCOUNT:-default}
 echo "$account" >>"$FAKE/calls"
 [ ! -e "$FAKE/fail-$account" ] || exit 1
+[ ! -e "$FAKE/hang-$account" ] || sh -c 'echo $$ >"$FAKE/reader"; exec sleep 30'
 cat "$FAKE/answer-$account"
 """
 
@@ -143,6 +146,21 @@ class Refresh(unittest.TestCase):
         kept = logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
         self.assertEqual(kept["anthropic"]["default"]["ends"], 50000)
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
+
+    @unittest.skipUnless(sys.platform == "linux", "a subreaper sees the reader left behind")
+    def test_g_an_ask_that_hangs_leaves_none_of_its_readers_running(self):
+        import ctypes
+        self.assertEqual(ctypes.CDLL(None).prctl(36, 1, 0, 0, 0), 0)  # PR_SET_CHILD_SUBREAPER
+        (self.fake / "hang-default").touch()
+        with patch.object(logins, "ASK_TIMEOUT", 1):
+            kept = logins.refresh(self.cfg, now=1000)
+        self.assertEqual(kept["anthropic"]["default"], {"checked_at": 1000})
+        reader = int((self.fake / "reader").read_text())
+        alive = os.waitpid(reader, os.WNOHANG)[0] == 0   # orphaned, it is this process's child
+        if alive:
+            os.kill(reader, signal.SIGKILL)
+            os.waitpid(reader, 0)
+        self.assertFalse(alive, "the hung adapter's reader outlived the ask")
 
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch

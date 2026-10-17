@@ -12,6 +12,7 @@ again; whoever saw that happen asks for that one at once with `force`.
 from datetime import date
 import json
 import os
+import signal
 import subprocess
 import time
 
@@ -36,17 +37,24 @@ def read():
     return data if isinstance(data, dict) else {}
 
 
-def _ask(cfg, provider, account):
+def _ask(harness, account):
     """The adapter's {email, ends} for that account's login, or None when it said nothing
-    usable: no model left to name its harness, no such verb, a failure, a timeout, or
-    anything but that object."""
+    usable: no such verb, a failure, a timeout, or anything but that object."""
     try:
-        harness, _ = config.provider_harness(cfg, provider)
-        proc = subprocess.run([str(config.adapter(harness)), "login-end"],
-                              capture_output=True, encoding="utf-8", errors="replace",
+        with subprocess.Popen([str(config.adapter(harness)), "login-end"],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
                               env={**os.environ, **config.account_env(account)},
-                              timeout=ASK_TIMEOUT)
-        data = json.loads(proc.stdout) if proc.returncode == 0 else None
+                              start_new_session=True) as proc:
+            try:
+                out = proc.communicate(timeout=ASK_TIMEOUT)[0]
+            except subprocess.TimeoutExpired:
+                # Its readers (security, jq) die with it rather than pile up a tick at a time;
+                # their output closes once the last of them is gone.
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.communicate(timeout=ASK_TIMEOUT)
+                raise
+        data = json.loads(out) if proc.returncode == 0 else None
     except (config.Error, subprocess.TimeoutExpired, OSError, ValueError):
         return None
     if not isinstance(data, dict):
@@ -70,6 +78,10 @@ def refresh(cfg, now=None, force=()):
     now = time.time() if now is None else now
     old, kept = read(), {}
     for provider in cfg["providers"]:
+        try:
+            harness, _ = config.provider_harness(cfg, provider)
+        except config.Error:
+            harness = None    # no model left to name its harness
         for account in config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]:
             last = (old.get(provider) or {}).get(account)
             last = last if isinstance(last, dict) else {}
@@ -77,7 +89,7 @@ def refresh(cfg, now=None, force=()):
             fresh = (isinstance(checked, (int, float)) and (provider, account) not in force
                      and 0 <= now - checked < ASK_EVERY)
             kept.setdefault(provider, {})[account] = last if fresh else {
-                **last, **(_ask(cfg, provider, account) or {}), "checked_at": now}
+                **last, **(harness and _ask(harness, account) or {}), "checked_at": now}
     if kept != old:
         config._write_json(path(), kept)
     return kept
