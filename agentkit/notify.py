@@ -1214,7 +1214,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 previous = {"word": card["word"], "word_since": card["since"]}
             current = watch.session_state(name, now=time.time() if answer is not None else at,
                                           session=seat, records=records,
-                                          previous=previous)
+                                          previous=previous, card=True)
             # A newer declaration or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.

@@ -2119,7 +2119,7 @@ def unsent(name, harness, found, session):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None):
+                  previous=None, auth_out=None, gh_out=None, token_out=None, card=False):
     """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those four words: the menu row, the project
@@ -2175,8 +2175,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
 
     Typed text nobody sent is never a word: once no client is attached, whatever the ladder
     says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
-    fact a row's last column reads it from (`menu.last_column`).  Never a card's (`jobs`): what
-    the owner never sent is not Discord's.
+    fact a row's last column reads it from (`menu.last_column`).  Never a `card`'s: what the
+    owner never sent is not Discord's.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2205,7 +2205,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out,
                             menu_mod, run_mod, terminal_mod)
-    draft = "" if jobs else unsent(name, harness, live, session)
+    draft = "" if card else unsent(name, harness, live, session)
     if draft:
         answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
         answer["unsent"] = draft
