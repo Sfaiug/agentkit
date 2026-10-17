@@ -2832,11 +2832,13 @@ def sweep_finished(found, log):
             log(f"WARN could not save the finished session {name}: {exc}")
             continue
         # Recheck every window and pane inside tmux's kill command: a pane respawned, added
-        # or moved during capture must survive, as must a session renamed into a seat.
-        snapshot = name + "/" + "".join(f"{p[2]}/{p[3]}/{p[4]};" for p in panes)
+        # or moved during capture must survive, as must a session renamed into a seat or whose
+        # own tag was cleared or changed (#{} reads the session's value while it holds one).
+        snapshot = f"{owner}/{name}/" + "".join(f"{p[2]}/{p[3]}/{p[4]};" for p in panes)
         snapshot = snapshot.replace("#", "##").replace(",", "#,").replace("}", "#}")
         condition = (f"#{{&&:#{{!=:#{{{MARK}}},1}},"
-                     f"#{{==:#{{session_name}}/#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
+                     f"#{{==:#{{{guard.TMUX_OWNER}}}/#{{session_name}}/"
+                     f"#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
                      f"{snapshot}}}}}")
         if not guard.seat(name):
             tmux_out("if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")

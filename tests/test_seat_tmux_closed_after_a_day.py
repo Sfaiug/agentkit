@@ -63,9 +63,9 @@ class FinishedTmux(unittest.TestCase):
         self.capture_error, self.after_capture = False, lambda: None
 
     def add(self, sid, name, ages=(25 * 3600,), owner="acme", mark=""):
-        # Formats fall back to the server's environment, which holds a tag when a process in a
-        # tagged pane started the server: only the session's own environment tells them apart.
-        fields = {"session_id": sid, "session_name": name, guard.TMUX_OWNER: "acme",
+        # A format reads the session's own tag, else the server's environment, which holds one
+        # when a process in a tagged pane started the server: only show-environment tells.
+        fields = {"session_id": sid, "session_name": name, guard.TMUX_OWNER: owner or "acme",
                   orch.MARK: mark}
         windows = [[{"pane_id": f"%{len(self.sessions) * 10 + i}",
                      "pane_dead": "0" if age is None else "1",
@@ -157,7 +157,7 @@ class FinishedTmux(unittest.TestCase):
         self.assertEqual(self.closed, [])
 
     def test_a_session_changed_during_capture_is_kept(self):
-        for change in ("respawned", "marked", "renamed", "new-pane"):
+        for change in ("respawned", "marked", "renamed", "new-pane", "untagged"):
             with self.subTest(change=change):
                 self.sessions.clear()
                 self.add("$1", "old")
@@ -168,6 +168,7 @@ class FinishedTmux(unittest.TestCase):
                     "renamed": lambda: fields.update(session_name="recorded-seat"),
                     "new-pane": lambda: windows[0].append({"pane_id": "%99", "pane_dead": "0",
                                                           "pane_dead_time": ""}),
+                    "untagged": lambda: fields.update({guard.TMUX_OWNER: ""}),
                 }[change]
                 config.session_path("recorded-seat").write_text("{}")
                 self.tick()
