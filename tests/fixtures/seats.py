@@ -13,6 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from agentkit import config, harness, orch, record, watch  # noqa: E402
+from fixtures.clock import Clock  # noqa: E402
 
 SENDER, SEAT = "fix-api", "acme-docs"
 NOW = 1_000_000.0
@@ -53,8 +54,9 @@ class Seats(unittest.TestCase):
         self.empty = "❯ \n"      # the base pane's empty composer row
         stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: self.pane))
         stack.enter_context(patch.object(watch, "KEY_GAP", 0))
-        stack.enter_context(patch.object(watch.time, "sleep"))
-        stack.enter_context(patch.object(watch.time, "time", return_value=NOW))
+        clock = Clock(lambda _seconds: None)
+        clock.time = lambda: NOW
+        stack.enter_context(patch.object(watch, "time", clock))
 
     def tmux(self, *args, **_kw):
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
