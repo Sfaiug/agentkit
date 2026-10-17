@@ -49,6 +49,7 @@ class EndedLoginLeftoversStopped(Sandbox):
         (scope / "cgroup.procs").write_text("".join(f"{pid}\n" for pid in pids))
         (scope / "workload").mkdir()              # a child: the scope's own list leaves it out
         (scope / "workload/cgroup.procs").write_text("".join(f"{pid}\n" for pid in nested))
+        (scope / "threads/cgroup.procs").mkdir(parents=True)   # unreadable, as a threaded child's
 
     def system(self, command, **_kw):
         self.commands.append(command)
