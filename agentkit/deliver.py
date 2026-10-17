@@ -74,11 +74,11 @@ def push(lp):
     # --force-with-lease from the start: a rebased branch is a rewrite, and a resumed or
     # retried run finds its own earlier push already on origin.  Pinned to what was seen, so
     # a fetch in another worktree since cannot move the lease onto another run's commit
-    rc, out = gitcall.git_out(lp.wt, "push", f"--force-with-lease={branch}:{seen}", "-u", "origin", branch)
+    rc, out = git_push(lp, f"--force-with-lease={branch}:{seen}", "-u", "origin", branch)
     if rc != 0:
         # a name this run never pushed, already on origin: another run took it while this one
         # worked, and the lease git refuses to break is the only thing that says so
-        if re.search(r"stale info|rejected", out, re.I):
+        if re.search(r"stale info", out, re.I):
             return roundloop.note(lp, f"origin already has {branch} and this run did not push it; the "
                             f"branch was taken by another run: {out[-400:]}", failed=True)
         return roundloop.note(lp, f"pushing {branch} to origin failed: {out[-400:]}", failed=True)
@@ -86,6 +86,24 @@ def push(lp):
     lp.state["delivery_sha"] = head
     lp.write()
     return True
+
+
+def git_push(lp, *args):
+    """`git push` with `args`, as `gitcall.git_out` answers it, GitHub refusing it for a reason
+    of its own waited out and tried again up to GITHUB_RETRIES times: the same push over the
+    same lease, so a retry can never replace what anyone pushed meanwhile."""
+    for tried in range(1, GITHUB_RETRIES + 1):
+        rc, out = gitcall.git_out(lp.wt, "push", *args)
+        refused = REMOTE_REJECTED.search(out) if rc else None
+        if not refused:
+            return rc, out
+        delay = turns.transient_delay(tried)
+        lp.log(f"WARN GitHub refused the push: {refused[0].strip()}; pushing again over the same "
+               f"lease in {delay}s ({tried}/{GITHUB_RETRIES})")
+        step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
+        time.sleep(delay)
+        history.open_step(lp.state.get("run_id"), step, log=lp.log)
+    return gitcall.git_out(lp.wt, "push", *args)
 
 
 def github_body(text, run_id):
@@ -541,7 +559,11 @@ HEAD_BRANCH_MODIFIED = re.compile(r"Head branch was modified", re.I)
 # may not have gone through, so it is re-checked and retried like the race above
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
-MERGE_RETRIES = 3      # how often any of them is re-fetched, re-checked and tried again
+# GitHub refusing a push for a reason of its own (`! [remote rejected] HEAD -> b (failed)`),
+# which the same push went through a minute later: tried again -- see `git_push`.  The lease's
+# refusal is git's own `! [rejected] ... (stale info)` and ends the run at once
+REMOTE_REJECTED = re.compile(r"^.*\[remote rejected\].*$", re.M)
+GITHUB_RETRIES = 3     # how often any of them is waited out and tried again
 # GitHub refusing a head pushed seconds before, while it has not yet worked out whether it
 # merges: its state is asked again while UNKNOWN, and a PR it then calls CLEAN is tried once
 # more -- see `do_merge`
@@ -606,7 +628,7 @@ def do_merge(lp, url, upstream):
     `Head branch was modified` straight after the delivery's own push, which the re-check
     ends only when the PR head really is another commit.  After `Pull Request is not
     mergeable`, GitHub is asked again while it reports the PR's state UNKNOWN, up to
-    MERGE_RETRIES times, and a PR it then calls CLEAN is tried once more.  Work
+    GITHUB_RETRIES times, and a PR it then calls CLEAN is tried once more.  Work
     that passed review is never thrown away over one lost race or one bad answer.
     """
     method = lp.state["merge_method"]
@@ -635,13 +657,13 @@ def do_merge(lp, url, upstream):
                 cause = "GitHub failed the merge call"
             else:
                 break
-            if raced >= MERGE_RETRIES:
+            if raced >= GITHUB_RETRIES:
                 lost = True
                 break
             raced += 1
             delay = turns.transient_delay(raced)
             lp.log(f"WARN {cause}; re-fetching, re-checking and retrying in {delay}s "
-                   f"({raced}/{MERGE_RETRIES})")
+                   f"({raced}/{GITHUB_RETRIES})")
             step = history.close_step(lp.state.get("run_id"), log=lp.log)   # a wait, not work
             time.sleep(delay)
             history.open_step(lp.state.get("run_id"), step, log=lp.log)
@@ -691,11 +713,11 @@ def do_merge(lp, url, upstream):
             if merged_anyway(lp, url, upstream):
                 return True
             return roundloop.park_waiting(
-                lp, f"gh pr merge --{method} failed after {MERGE_RETRIES} retries: {cause}; "
+                lp, f"gh pr merge --{method} failed after {GITHUB_RETRIES} retries: {cause}; "
                     f"the PR is open at {url}", upstream,
                 gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}", check=False) or None)
         refused = bool(NOT_MERGEABLE.search(out or ""))
-        for polled in range(MERGE_RETRIES + 1):
+        for polled in range(GITHUB_RETRIES + 1):
             if polled:
                 time.sleep(CHECKS_POLL)     # GitHub still working out a head pushed just now
             vrc, why = gitcall.gh(lp.run_dir, "pr", "view", url, "--json", "mergeStateStatus",
@@ -1088,8 +1110,8 @@ def push_pr_branch(lp, remote, lease):
     branch, source = remote.get("ref"), (remote.get("repo") or {}).get("clone_url")
     if not branch or not source:
         raise config.Error("cannot locate the PR branch to push to")
-    rc, out = gitcall.git_out(lp.wt, "push", f"--force-with-lease=refs/heads/{branch}:{lease}",
-                              "--", source, f"HEAD:refs/heads/{branch}")
+    rc, out = git_push(lp, f"--force-with-lease=refs/heads/{branch}:{lease}",
+                       "--", source, f"HEAD:refs/heads/{branch}")
     if rc:
         raise config.Error(f"pushing to the PR branch failed: {out[-400:]}")
 
