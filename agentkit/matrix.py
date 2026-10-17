@@ -10,16 +10,19 @@ what a successful coding task cost.
 `ak models --refresh` asks again before the day is up; a board that cannot answer keeps what it
 last said, its error beside it, and waits for the day like one that answered.  Callers at once
 share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
-A board's row is one model at one effort (`Acme 5 (max)` is Acme 5 at max), or at none where the
-board names no effort, with every number the board gives as `<board>.<field>`, a table's fields
-under the table's name (`aa.evaluations.artificial_analysis_coding_index`).
+A board's row is one model at one effort (`Acme 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default
+Fallback)` is Acme 5 (Default Fallback) at max), or at none where the board names no effort, with
+every number the board gives as `<board>.<field>`, a table's fields under the table's name
+(`aa.evaluations.artificial_analysis_coding_index`).
 
 A row of the matrix is one model at one effort: an effort a board lists for it or the config
 runs it at in any role, so a board naming no effort counts for every effort of its model, and a
 model no board lists at any effort is one row at none.  A board's model is matched by name,
 letters and digits alone (`acme-5` is `Acme 5 (max)` at max), else by the board's name the id
-extends with a version (`acme-pro` for `acme-pro-1.0`); `benchmark` on a config entry names the
-board's model on a board where neither fits.  A board's row at another effort never stands in.
+extends with a version (`acme-pro` for `acme-pro-1.0`), else by the one board name that is the
+id with a qualifier in brackets (`Acme 5 (Default Fallback)`); `benchmark` on a config entry
+names the board's model on a board where none fits.  A board's row at another effort never
+stands in.
 
 Every row is scored per role: a column is the row's share of the best value among the rows
 (100 for the best; zero or below is 0 and still counts: Arena's net improvement can be
@@ -98,14 +101,18 @@ def key():
 
 def split_effort(name):
     """(the model's name without its effort, the effort or None) off a board's model name:
-    `Acme 5 (max)` is Acme 5 at max, `Acme 5 (max) (0813)` is Acme 5 (0813) at max; a bracket
-    naming no effort stays on the name."""
+    `Acme 5 (max)` is Acme 5 at max, `Acme 5 (max) (0813)` is Acme 5 (0813) at max, and a
+    bracket of several words keeps the others (`Acme 5 (Max, Default Fallback)` is Acme 5
+    (Default Fallback) at max); a bracket naming no effort stays on the name."""
     for found in re.finditer(r"\s*\(([^()]*)\)", name):
-        word = found.group(1).strip().lower()
-        word = EFFORT_WORDS.get(word, word)
-        if word in EFFORT_ORDER or word in ("thinking", "reasoning"):   # the latter name none
-            rest = (name[:found.start()] + name[found.end():]).strip()
-            return rest, word if word in EFFORT_ORDER else None
+        parts = [part.strip() for part in found.group(1).split(",")]
+        for part in parts:
+            word = EFFORT_WORDS.get(part.lower(), part.lower())
+            if word in EFFORT_ORDER or word in ("thinking", "reasoning"):   # the latter name none
+                others = [other for other in parts if other != part]
+                kept = f" ({', '.join(others)})" if others else ""
+                rest = (name[:found.start()] + kept + name[found.end():]).strip()
+                return rest, word if word in EFFORT_ORDER else None
     return name, None
 
 
@@ -240,8 +247,10 @@ def normal(text):
 def found(index, model, benchmark=None):
     """A board's rows for one model: under its exact name, else under a board's name naming no
     version of its own that `model` extends with one (`Acme Pro` for `acme-pro-1.0`, never
-    `Acme 5` for `acme-5-5`), else under `benchmark`, the config entry's name for it on a board
-    where neither fits; none where the board has nothing for it."""
+    `Acme 5` for `acme-5-5`), else under the one board name that is `model` with a qualifier in
+    brackets (`Acme 5 (Default Fallback)`; two such names stand for nothing), else under
+    `benchmark`, the config entry's name for it on a board where none fits; none where the board
+    has nothing for it."""
     wanted = normal(model)
     if wanted in index:
         return index[wanted]
@@ -249,6 +258,10 @@ def found(index, model, benchmark=None):
              and wanted.startswith(stem) and wanted[len(stem):].isdigit()]
     if stems:
         return index[max(stems, key=len)]
+    qualified = [stem for stem, hits in index.items()
+                 if normal(re.sub(r"\([^()]*\)", "", hits[0]["model"])) == wanted]
+    if len(qualified) == 1:
+        return index[qualified[0]]
     return index.get(normal(benchmark), []) if benchmark else []
 
 
