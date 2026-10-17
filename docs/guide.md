@@ -506,15 +506,18 @@ it the recommendation per role, or that no board has a row ak can run, what each
 with how many rows, when and its note, and the rows no board has. `--json` is the scored rows, the recommendation, ak's
 own numbers (`live`) and the boards' notes.
 
-ak's own numbers (`live`) stand under the scores, per configured model and role, and never rank (AGENTS.md, Owner
-rules): over the history's runs that ended with a verdict of the work (`pass`, `fail`, `blocked`; a stopped, not needed or
+ak's own numbers (`live`) stand under the scores, per configured model, the effort it ran at and role, and never rank
+(AGENTS.md, Owner rules): over the history's runs that ended with a verdict of the work (`pass`, `fail`, `blocked`; a stopped, not needed or
 errored run counts for nothing), of the runs it executed, the share merged in round 1 (a merge as the scoreboard tells one:
 the row's size, else its record; a run passed without merging is none), and of the pull requests its seat wrote (the writer
 the run's row keeps, never the seat that launched a review of another's), the share merged in round 1; over the runs it
 finished a review of, in any round and whatever became of the run since (its decision stood once given; a stopped run's
 never counts), by its harness and model id, the share whose round 1 it ended PASS (a review from before its round was
-recorded counts for nothing); each as `55% of 320`, `-` where it ran none. Attribution: artificialanalysis.ai, arena.ai,
-livebench.ai.
+recorded counts for nothing); each as `55% of 320`, `-` where it ran none. Every run records the effort each role ran it
+at, the entry's for that role at the time (`executor_effort` at the loop's save, `orchestrator_effort` at the launch
+receipt, the first write's as its orchestrator is, and each review's `effort` on its review row with its round and
+verdict), so a model's numbers are one row per effort (`opus @ max`, the strongest first), and its bare name holds the
+runs from before that was recorded. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history
 
