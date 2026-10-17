@@ -1,6 +1,6 @@
 """A seat's launch names no model, no place in the queue and no second run of a change under way:
-`--exec`, `--review`, `--first` and `--anyway` are refused from a seat, since ak picks the models
-by budget, decides what goes first and refuses the rival itself.  A seat is a recorded session;
+`--exec`, `--review`, `--first` and `--anyway` are refused from a seat, since ak picks the models,
+decides what goes first and refuses the rival itself.  A seat is a recorded session;
 a shell naming none is no seat, and outside a seat the flags stand, as they do in the queued
 child `spawn_bg` starts under the seat's name (a job's rerun on the next executor).
 
@@ -59,7 +59,7 @@ class SeatVerbs(unittest.TestCase):
     def refused(self, *args, named):
         code, err = self.launch(*args)
         self.assertEqual(code, 2, err)
-        self.assertEqual(err, f"ak run: {named}: not a seat's; ak picks the models by budget, "
+        self.assertEqual(err, f"ak run: {named}: not a seat's; ak picks the models, "
                               "decides what goes first and refuses a second run of a change "
                               "under way, so launch without\n")
         self.assertEqual(list(config.RUNS.iterdir()), [])
@@ -80,7 +80,7 @@ class SeatVerbs(unittest.TestCase):
     def test_outside_a_seat_the_flags_stand(self):
         opts, flags = {"--exec": "opus", "--review": None}, {"--anyway": True, "--first": False}
         self.assertEqual(run.seat_refusal(opts, flags),
-                         "--exec, --anyway: not a seat's; ak picks the models by budget, decides what "
+                         "--exec, --anyway: not a seat's; ak picks the models, decides what "
                          "goes first and refuses a second run of a change under way, so launch without")
         for seat in ("", "no-such-seat"):      # no seat, and a shell naming no recorded one
             with self.subTest(seat=seat or "none"), patch.dict(os.environ, {config.SESSION_ENV: seat}):

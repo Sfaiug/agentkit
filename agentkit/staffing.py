@@ -286,13 +286,13 @@ def pair_tier(cfg, executor, reviewer):
 
 
 def best_pair(cfg, executors, reviewers, allow_self=True):
-    """The pair every automatic pick takes: tier first, then executor budget, then reviewer.
+    """The pair every automatic pick takes: tier first, then executor order, then reviewer.
 
-    Both lists are already budget-ordered, so the first pair in tier order wins: a review
-    by another model, whatever its company, beats the executor reviewing itself.  A first
-    pick that stopped at the cheapest executor would keep a self-review while a pair with
-    another reviewer is ready.  None when no pair forms -- or only a self-review when
-    `allow_self` is off, which a flake waits out.
+    Both lists are already in pick order (`usage.pick_order`), so the first pair in tier
+    order wins: a review by another model, whatever its company, beats the executor
+    reviewing itself.  A pick that stopped at the first executor would keep a self-review
+    while a pair with another reviewer is ready.  None when no pair forms -- or only a
+    self-review when `allow_self` is off, which a flake waits out.
     """
     best, key = None, None
     for ei, executor in enumerate(executors or []):
