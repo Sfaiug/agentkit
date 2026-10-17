@@ -2229,10 +2229,6 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out,
                             menu_mod, run_mod, terminal_mod, stalls)
-    draft = "" if card else unsent(name, harness, live, session)
-    if draft:
-        answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
-        answer["unsent"] = draft
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2245,6 +2241,11 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                            else previous.get("word_since", answer["since"]))
     elif previous.get("word") is not None:
         answer["since"] = at
+    # after the age, whose warning check reads the ladder's own reason
+    draft = "" if card else unsent(name, harness, live, session)
+    if draft:
+        answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
+        answer["unsent"] = draft
     return answer
 
 
