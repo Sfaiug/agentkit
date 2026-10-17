@@ -1088,8 +1088,10 @@ def v5o_header(project, term_width):
     room = terminal.layout_width(term_width)
     hidden = sum(1 for row in project.get("switches", ()) if not row.get("everyone"))
     count = f"{hidden} hidden feature{'' if hidden == 1 else 's'}" if hidden else ""
+    if terminal.cells(count) > room - 5:  # mark, name and gap must fit beside the whole count
+        count = ""
     name = terminal.cut(project["name"],
-                        max(1, room - 2 - (terminal.cells(count) + 2 if count else 0)))
+                        room - 2 - (terminal.cells(count) + 2 if count else 0))
     gap = room - 2 - terminal.cells(name) - terminal.cells(count)
     return terminal.styled(name, "bold") + (" " * gap + terminal.styled(count, "dim") if count else "")
 

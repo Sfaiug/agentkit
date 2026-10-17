@@ -62,8 +62,8 @@ seat's row opens, its tmux bar's second line, is where its tasks show, as square
 No line counts who needs the owner: each needing row says it, and those projects come
 first. A project heading is the checkout's basename in bold and nothing more,
 but for a project naming its switches: how many are hidden, dim at the right,
-`23 hidden features` (off for everyone; no count when none), a row the
-highlight lands on, drawn `› ACME`.
+`23 hidden features` (off for everyone; omitted when none or too narrow to fit beside the name),
+a row the highlight lands on, drawn `› ACME`.
 Enter or a click on it opens `agentkit · ACME`, every feature once with a
 `you` and an `everyone` column, `●` on and `○` (dim) off, `—` under `you` where
 the project does not let you switch it, and one on for everyone on for you too.
