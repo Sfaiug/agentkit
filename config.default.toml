@@ -27,8 +27,8 @@ pace_margin = 10          # the one knob: a subscription more than this far ahea
 # Reviewer = the other model ranked first the same way for reviewing, whatever its provider,
 # else the executor's own model, marked self-reviewed. A meter at 100% used
 # removes a worker even without a reset time, and so does a harness that is not
-# installed or not logged in; an unknown budget comes after every known one. The menu's
-# `c` screen changes both defaults.
+# installed or not logged in; an unknown budget comes after every known one of the same
+# matrix rank. The menu's `c` screen changes both defaults.
 # [audit] is the weekly audit's setting, edited on the `c` screen's `Weekly audit` row:
 # on = false switches it off, and orchestrator, workers and reviewers name the models its
 # seat takes, [defaults]'s for whatever the table leaves out. Absent, it is on with [defaults].
