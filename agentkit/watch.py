@@ -1940,13 +1940,14 @@ def keeps_back(name):
 
 def questions_kept(unasked):
     """The questions a seat's record keeps back for their turn's end, in the order kept, each
-    with that end (`ended`) once it is on record.  One the older install kept is one."""
+    with when the seat said it (`at`) and that end (`ended`) once each is on record.  One the
+    older install kept is one."""
     if not isinstance(unasked, dict):
         return []
     listed = unasked.get("questions")
     if not isinstance(listed, list):
         listed = [unasked]
-    return [{"text": q["text"], **({} if _stamp(q.get("ended")) is None else {"ended": q["ended"]})}
+    return [{"text": q["text"], **{key: q[key] for key in ("at", "ended") if _stamp(q.get(key)) is not None}}
             for q in listed if isinstance(q, dict) and isinstance(q.get("text"), str)]
 
 
@@ -1962,7 +1963,7 @@ def keep(name, text):
     try:
         with seat_lock(name):
             data = seat_read(name)
-            kept = [*questions_kept(data.get("unasked")), {"text": text}]
+            kept = [*questions_kept(data.get("unasked")), {"text": text, "at": time.time()}]
             _seat_put(name, data, {"unasked": _kept(kept), "wait": None})
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
@@ -6826,6 +6827,9 @@ def local_passes(state, dry_run, log):
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
+        # What the owner typed into a seat's turn after it asked answers its question before
+        # the cards are read, so no card goes out for a question they answered.
+        ("the typed-answer pass did not run", lambda: notify.answer_typed(log=log), False),
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.
         ("the card transition pass did not run", lambda: notify.tick_cards(log=log), False),
