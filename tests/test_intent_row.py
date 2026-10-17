@@ -3,8 +3,9 @@ to the done that ends it, over the dones of that week whose start ak knows.  A d
 start from the seat's conversation itself (`user_messages`, which leaves ak's own lines out):
 the owner's first message since that conversation's previous done.  A rename keeps the
 conversation; a name opened anew is a conversation of its own.  The start is unknown with no
-message of theirs since, in a harness that reads no messages, and for the first done of a
-conversation begun before an older history first kept dones.  No database: `not recorded`.
+message of theirs since, in a harness that reads no messages or cannot read them at that
+done, and for the first done of a conversation begun before an older history first kept
+dones.  No database: `not recorded`.
 
 Offline: a sandbox HOME with its own history database, a fake seat harness, git answering
 nothing.
@@ -96,6 +97,14 @@ class IntentRow(Sandbox):
             self.assertEqual(scoreboard.compute(NOW)["intent"], [{"measured": 0, "hours": None}] * 2)
             row = [line for line in scoreboard.render() if line.startswith("intent")][0]
         self.assertIn("no intent measured", row)
+
+    def test_a_done_whose_messages_cannot_be_read_has_no_start_and_still_bounds_the_next(self):
+        self.harness.said = [(50.0, "c1")]
+        with patch.object(self.harness, "user_messages", side_effect=OSError("unreadable")):
+            self.done("fix-api", 300.0)
+        self.harness.said += [(400.0, "c1")]
+        self.done("fix-api", 500.0)
+        self.assertEqual(history.dones(0, NOW), [(300.0, None), (500.0, 400.0)])
 
     def test_each_intent_counts_in_the_week_its_done_fell_in(self):
         self.assertEqual(scoreboard.compute(NOW)["intent"], [None, None])   # no database

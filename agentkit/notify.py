@@ -1546,8 +1546,9 @@ def _intent(name, done_at):
     lines out).  Read here, from facts already decided, never stamped by a prompt's hook: hook
     order, renames and reused names moved such stamps after they were written.  The start is
     unknown, and the done still the next one's boundary, with no message of theirs since, where
-    the harness reads no messages, and for the first done of a conversation begun before dones
-    were kept: its earlier dones were never recorded, and a notice keeps only a seat's latest."""
+    the harness reads no messages or cannot read them now, and for the first done of a
+    conversation begun before dones were kept: its earlier dones were never recorded, and a
+    notice keeps only a seat's latest."""
     from . import orch
     record = config.session_records().get(name)
     if not record:
@@ -1555,13 +1556,16 @@ def _intent(name, done_at):
     plugin, cwd = orch.seat_plugin(record), record.get("cwd")
     try:
         conversation = plugin.conversation(record, cwd)
-        known = history.last_done(f"{plugin.name}:{conversation}") if conversation else None
-        if known is None:
-            return
+    except (OSError, ValueError):
+        return
+    known = history.last_done(f"{plugin.name}:{conversation}") if conversation else None
+    if known is None:
+        return
+    try:
         asked = [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)
                  if message["at"] <= done_at]
     except (OSError, ValueError):
-        return
+        asked = []
     last, since = known
     fresh = [at for at in asked if last is None or at > last]
     unknown = not fresh or (last is None and min(asked) < since)
