@@ -119,7 +119,8 @@
   `pick_order`, `mark_exhausted`, `record_pairs`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and Muse call its private helpers.
 - `logins.py`: when each subscription's login ends and whose it is, asked of the adapters'
-  `login-end` hourly by the tick, kept in `logins.json`. `refresh`, `read`.
+  `login-end` hourly by the tick, kept in `logins.json`; one ending within 3 days pages the
+  owner once a local day. `refresh`, `read`, `remind`.
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
@@ -129,7 +130,8 @@
   numbers beside (`live`); `ak models`. Offers `collect`, `rows`, `scored`, `recommended`, `live`.
   For bin/ak.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
-  Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
+  Offers `shaped`, `record`, `transition`, `page` (about no seat). Used by run, job, orch,
+  watch, menu, logins. Leak: calls
   up into menu, run, watch and orch.
 - `prose.py`: detached last-message reader after a real Stop without a question; picks a
   worker, records its verbatim owner question through notify, or writes one seat-log line

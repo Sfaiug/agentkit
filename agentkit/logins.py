@@ -9,15 +9,17 @@ most once an hour, answered or not, since a login's end moves only when somebody
 again; whoever saw that happen asks for that one at once with `force`.
 """
 
+from datetime import date
 import json
 import os
 import subprocess
 import time
 
-from . import config
+from . import config, menu, notify
 
 ASK_EVERY = 3600    # seconds after an ask before the tick asks again
 ASK_TIMEOUT = 20    # the verb reads files on this machine; one that hangs answers nothing
+REMIND_WITHIN = 3 * 86400   # how near its end a login pages the owner, once a local day
 
 
 def path():
@@ -79,3 +81,27 @@ def refresh(cfg, now=None, force=()):
     if kept != old:
         config._write_json(path(), kept)
     return kept
+
+
+def remind(cfg, now=None):
+    """Refresh, then page the owner once per subscription and local calendar day while its
+    login ends within REMIND_WITHIN or has ended: `Claude II login owner@acme.test ends Mon 26
+    Oct 04:47 (in 2 days). Log in again from ak.`  The day is in the page's key, so no tick or
+    restart pages twice; a new login moves `ends` past the window, or to null, and it stops,
+    a page the webhook has not taken yet with it, since only asking again retries one."""
+    now = time.time() if now is None else now
+    day = date.fromtimestamp(now)
+    for provider, accounts in refresh(cfg, now).items():
+        for account, login in accounts.items():
+            ends = login.get("ends")
+            if ends is None or ends - now > REMIND_WITHIN:
+                continue
+            label = config.account_label(cfg, provider, account,
+                                         menu.NAMES.get(provider, provider.title()))
+            whose = f" {login['email']}" if login.get("email") else ""
+            at = time.strftime("%a %d %b %H:%M", time.localtime(ends))
+            days = (date.fromtimestamp(ends) - day).days
+            soon = {0: "today", 1: "tomorrow"}.get(days, f"in {days} days")
+            when = f"ended {at}" if ends <= now else f"ends {at} ({soon})"
+            notify.page(f"login:{provider}:{account}:{day}", label,
+                        f"{label} login{whose} {when}. Log in again from ak.")
