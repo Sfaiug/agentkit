@@ -218,8 +218,9 @@ def main(root, others=None):
     cache = Path.home() / ".cache/agentkit/test-times" / os.uname().nodename
     todo.sort(key=lambda path: last_time(cache / path.name), reverse=True)
     # One bytecode cache for the piece: each file compiling all of agentkit again cost
-    # about three quarters of a short file's CPU. No other piece writes or reads it.
-    pycache = tempfile.TemporaryDirectory(prefix="ak-test-pycache-", dir="/tmp")
+    # about three quarters of a short file's CPU. No other piece writes or reads it. It is in
+    # the checkout, where the boxes the files start see it: a box has its own /tmp.
+    pycache = tempfile.TemporaryDirectory(prefix=".ak-test-pycache-", dir=root)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
     # This checkout's code and shims are under test, never the ones installed on the caller's
     # PATH: a test's own shim takes the first `git` after it for the real one.
