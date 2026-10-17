@@ -26,14 +26,16 @@ prepare)   # KEY IMAGE, the parcel on stdin
     cd "$ROOT/$2/image" || exit 255
     base=$(awk '$1 == "FROM" {print $2; exit}' Containerfile)
     container image inspect "$base" >/dev/null 2>&1 && base=
-    container build --progress plain -t "$3" -f Containerfile . </dev/null >build.log 2>&1 ||
-      exit 255
+    container build --progress plain -t "$3" -f Containerfile . </dev/null >build.log 2>&1
+    built=$?
     container builder stop >/dev/null 2>&1
-    # The helper's image it replaces goes, and the base the build fetched, so the Mac holds the
-    # one image; the owner's own images stay, the base too where they had it before.
-    { container image ls | awk -v name="${3%:*}" -v keep="${3#*:}" \
+    # Once built, the helper's image it replaces goes; the base the build fetched goes even when
+    # the build failed, so the Mac holds the one image. The owner's own images stay, the base too
+    # where they had it before.
+    { [ "$built" != 0 ] || container image ls | awk -v name="${3%:*}" -v keep="${3#*:}" \
         'NR > 1 && $1 == name && $2 != keep {print $1":"$2}'; echo "$base"; } |
       while read -r old; do [ -z "$old" ] || container image delete "$old" >/dev/null 2>&1; done
+    [ "$built" = 0 ] || exit 255
   }
   claim "$2" held || exit 255 ;;
 run)       # KEY IMAGE NAME CPUS MEMORY_MB, then piece.sh's arguments

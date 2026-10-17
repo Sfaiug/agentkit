@@ -48,10 +48,11 @@ MAC_TOOLS = {
     "caffeinate": 'shift; exec "$@"',
     "container": 'case "$1 $2" in "system "*|"builder "*) exit 0;;\n'
                  '"image inspect") [ -e "$FAKE/has-${3##*/}" ];;\n'
-                 '"build "*) touch "$FAKE/has-ak-helper:new" "$FAKE/has-debian:trixie-slim";;\n'
+                 '"build "*) touch "$FAKE/has-debian:trixie-slim"\n'
+                 '  [ ! -e "$FAKE/broken" ] && touch "$FAKE/has-ak-helper:new";;\n'
                  '"image ls") printf "NAME TAG DIGEST\\nak-helper new 1\\nak-helper old 2\\n'
                  'acme-local unpublished 3\\n";;\n'
-                 '"image delete") echo "$3" >>"$FAKE/deleted";;\n'
+                 '"image delete") echo "$3" >>"$FAKE/deleted"; rm -f "$FAKE/has-${3##*/}";;\n'
                  '"run "*) while [ "$1" != --name ]; do shift; done\n'
                  '  sleep 1; ls "$FAKE" | grep "^vm-" >>"$FAKE/overlap"; touch "$FAKE/vm-$2"\n'
                  '  while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
@@ -185,6 +186,13 @@ class HelperMac(unittest.TestCase):
             tar.add(REPO / "tools" / "helper" / "Containerfile", "image/Containerfile")
         prepare = lambda key: helper._remote("acme-mac", "prepare", key, "ak-helper:new",
                                              input=parcel.getvalue()).returncode
+        # a failed build keeps the helper's old image and drops the base it fetched
+        (self.fake / "broken").touch()
+        self.assertEqual(prepare("broken"), helper.LOST)
+        self.assertEqual((self.fake / "deleted").read_text(),
+                         "docker.io/library/debian:trixie-slim\n")
+        (self.fake / "broken").unlink()
+        (self.fake / "deleted").unlink()
         self.assertEqual(prepare("first"), 0)
         self.assertEqual((self.fake / "deleted").read_text(),
                          "ak-helper:old\ndocker.io/library/debian:trixie-slim\n")
@@ -196,6 +204,7 @@ class HelperMac(unittest.TestCase):
         # a base the owner had before the build stays
         helper.finish(helper.Away("acme-mac", "third", *[None] * 6))
         (self.fake / "has-ak-helper:new").unlink()
+        (self.fake / "has-debian:trixie-slim").touch()
         (self.fake / "deleted").unlink()
         self.assertEqual(prepare("fourth"), 0)
         self.assertEqual((self.fake / "deleted").read_text(), "ak-helper:old\n")
