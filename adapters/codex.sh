@@ -8,7 +8,8 @@
 #                                  next thread under an id of the caller's -- exits 3: the TUI
 #                                  has no flag for one, so a Codex seat is given no id at all
 #                     install      -> npm i -g @openai/codex, unless codex is already here
-#                     login        -> the device-code login, unless already logged in
+#                     login [again] -> the device-code login, unless already logged in; `again`
+#                                  signs in afresh over a login that still stands
 #                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since Codex
 #                                  writes down no day its login ends
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
@@ -266,7 +267,7 @@ install)
   npm i -g @openai/codex ;;
 login)
   command -v codex >/dev/null || { echo "codex.sh login: codex is not installed" >&2; exit 2; }
-  if [ -s "$AUTH" ]; then echo "codex: already logged in"; exit 0; fi
+  if [ "${1:-}" != again ] && [ -s "$AUTH" ]; then echo "codex: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "codex: not logged in; run \`codex login --device-auth\` in a terminal" >&2; exit 1; }
   set --
   if [ -n "$ACCOUNT" ]; then home || exit 2; set -- -c "$STORE"; fi
@@ -334,6 +335,6 @@ models)
     python3 "$REPO/tools/catalog.py" codex
   fi ;;
 *)
-  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login | codex.sh login-end | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
+  echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh login-end | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
   exit 2 ;;
 esac
