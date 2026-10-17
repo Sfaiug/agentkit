@@ -18,7 +18,9 @@ lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count>
 checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the grammar of Python
 3.11, the oldest ak supports, as `ast.parse`'s `feature_version` applies it (f-strings it still
 reads by the running interpreter's rules), and import only from the standard library or this
-repository, including files smoke.sh already ran.
+repository, including files smoke.sh already ran. A file failing again is also named in the
+file AK_FAILED names; with AK_ONLY set only the files its file lists run, whatever the share,
+and the imports go unchecked: they are no listed test.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -38,7 +40,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
 from agentkit import guard, host, orch
-from suite_shares import HEADERS, LIVE_CHECKS, STATIC_CHECKS, shard, shares
+from suite_shares import HEADERS, LIVE_CHECKS, STATIC_CHECKS, listed, name_failed, shard, shares
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
                     # bigger hosts fit more files, busier or smaller hosts fit fewer
@@ -202,7 +204,8 @@ def main(root, others=None):
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
-    errors = import_errors(root)
+    only = listed()
+    errors = import_errors(root) if only is None else []
     if errors:
         for error in errors:
             print(f"FAIL  {error}", flush=True)
@@ -214,7 +217,8 @@ def main(root, others=None):
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip)
     # Exclude everything smoke runs before dividing the rest, regardless of its piece.
     owners = shares({path: path.stat().st_size for path in todo}, total)
-    todo = [path for path in todo if owners[path] == number]
+    todo = [path for path in todo if (owners[path] == number if only is None
+                                      else str(path.relative_to(root)) in only)]
     cache = Path.home() / ".cache/agentkit/test-times" / os.uname().nodename
     todo.sort(key=lambda path: last_time(cache / path.name), reverse=True)
     # One bytecode cache for the piece: each file compiling all of agentkit again cost
@@ -230,7 +234,7 @@ def main(root, others=None):
     env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
     path = next(pending, None)
-    began, again, failed, flaky, jobs = time.monotonic(), [], 0, 0, 0
+    began, again, failed, flaky, jobs = time.monotonic(), [], [], 0, 0
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
@@ -268,14 +272,15 @@ def main(root, others=None):
                 flaky += 1
                 print(f"flaky: {name} failed, then passed on its re-run")
             else:
-                failed += 1
+                failed.append(name)
                 out = rerun
                 reason = f"exit {code}" if code else "no tests ran"
                 print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
-    passed = f"{len(todo) - failed} passed" + (f" ({flaky} flaky)" if flaky else "")
-    print(f"test files: {passed}, {failed} failed, {jobs} at once, "
+    passed = f"{len(todo) - len(failed)} passed" + (f" ({flaky} flaky)" if flaky else "")
+    print(f"test files: {passed}, {len(failed)} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
+    name_failed(failed)
     return 1 if failed else 0
 
 
