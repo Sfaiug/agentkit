@@ -1092,28 +1092,28 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time and each box's CPU work everywhere, a line's checker included; only this
-    run's cgroup can attribute memory."""
+    """Wall time and each box's CPU work everywhere, a line's checker included; memory, less
+    the file cache reclaim frees, where a cgroup is this run's or holds only this process."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
         self.run_id = state.get("run_id")
         relative = host.process_cgroup() if state.get("scope") else None
         self.group = (host.cgroup_path(relative) if relative and
-                      Path(relative).name in turns._scope_units(state["scope"]) else None)
+                      Path(relative).name in turns._scope_units(state["scope"])
+                      else host.own_cgroup())
         self.cpu = []     # each box's CPU seconds (`worker.boxed`)
-        reading = host._scope_readings(self.group) if self.group is not None else None
-        self.baseline = reading[1] if reading else None
+        self.baseline = host.held_mb(self.group) if self.group is not None else None
         self.peak = self.baseline
         self.lock = threading.Lock()
         self.started = time.monotonic()
 
     def sample(self):
         if self.baseline is not None:
-            reading = host._scope_readings(self.group)
-            if reading:
+            held = host.held_mb(self.group)
+            if held is not None:
                 with self.lock:
-                    self.peak = max(self.peak, reading[1])
+                    self.peak = max(self.peak, held)
 
     def save(self, path, pieces):
         elapsed = time.monotonic() - self.started
@@ -1123,7 +1123,7 @@ class _SuiteMeasure:
         if len(self.cpu) == pieces:
             cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * pieces))
         if self.baseline is not None:
-            cost["mem_mb"] = max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces))
+            cost["mem_mb"] = max(HEAVY_MEM_MB, (self.peak - self.baseline) / pieces)
         try:
             with watch.state_lock():
                 previous = read_suite_cost(path)

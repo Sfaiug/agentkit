@@ -61,9 +61,9 @@ class MemoryGate(unittest.TestCase):
     def test_nearest_limited_cgroup_wins_over_ancestor(self):
         cgroup_file, root = self.make({
             "user@1000.service": {"high": gb(11), "current": gb(10),
-                                  "stat": "anon 0\nfile 0\n"},
+                                  "stat": "anon 0\ninactive_file 0\n"},
             "user@1000.service/agentkit.slice": {"high": gb(10), "current": gb(5),
-                                                 "stat": f"anon 0\nfile {gb(1)}\n"},
+                                                 "stat": f"anon 0\ninactive_file {gb(1)}\n"},
             "user@1000.service/agentkit.slice/agentkit-run-r.scope": {"high": "max"},
         }, "/user@1000.service/agentkit.slice/agentkit-run-r.scope")
         limits = host._unit_memory_limits(cgroup_file, root)
@@ -81,7 +81,7 @@ class MemoryGate(unittest.TestCase):
     def test_file_cache_is_not_counted(self):
         cgroup_file, root = self.make({
             "user@1000.service": {"high": gb(11), "current": gb(9.5),
-                                  "stat": f"anon 0\nfile {gb(5)}\n"},
+                                  "stat": f"anon 0\ninactive_file {gb(5)}\n"},
         }, "/user@1000.service")
         limits = host._unit_memory_limits(cgroup_file, root)
         used, high, raw, _ = limits[0]
@@ -92,10 +92,10 @@ class MemoryGate(unittest.TestCase):
         reason, _ = gate._wait_reason(readings, 3072, 8)
         self.assertIsNone(reason)
 
-    def test_inactive_file_counts_where_file_absent(self):
+    def test_both_file_lists_count(self):
         cgroup_file, root = self.make({
             "agentkit.slice": {"high": gb(11), "current": gb(9.5),
-                               "stat": f"anon 0\ninactive_file {gb(5)}\n"},
+                               "stat": f"anon 0\nactive_file {gb(2)}\ninactive_file {gb(3)}\n"},
         }, "/agentkit.slice")
         limits = host._unit_memory_limits(cgroup_file, root)
         self.assertAlmostEqual(limits[0][0], 4.5 * 1024, delta=0.01)
@@ -103,7 +103,7 @@ class MemoryGate(unittest.TestCase):
     def test_waiting_line_shows_both_figures(self):
         cgroup_file, root = self.make({
             "agentkit.slice": {"high": gb(10), "current": gb(9.5),
-                               "stat": f"anon 0\nfile {gb(1)}\n"},
+                               "stat": f"anon 0\ninactive_file {gb(1)}\n"},
         }, "/agentkit.slice")
         limits = host._unit_memory_limits(cgroup_file, root)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -116,7 +116,7 @@ class MemoryGate(unittest.TestCase):
     def test_truly_full_slice_still_waits(self):
         cgroup_file, root = self.make({
             "agentkit.slice": {"high": gb(10), "current": gb(9),
-                               "stat": f"anon 0\nfile {gb(0.5)}\n"},
+                               "stat": f"anon 0\ninactive_file {gb(0.5)}\n"},
         }, "/agentkit.slice")
         limits = host._unit_memory_limits(cgroup_file, root)
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -154,7 +154,7 @@ class MemoryGate(unittest.TestCase):
     def test_zero_high_still_gates(self):
         cgroup_file, root = self.make({
             "agentkit.slice": {"high": "0", "current": gb(1),
-                               "stat": "anon 0\nfile 0\n"},
+                               "stat": "anon 0\ninactive_file 0\n"},
         }, "/agentkit.slice")
         limits = host._unit_memory_limits(cgroup_file, root)
         self.assertEqual(len(limits), 1)

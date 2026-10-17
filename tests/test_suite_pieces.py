@@ -262,7 +262,7 @@ class SuitePieces(unittest.TestCase):
                                           (part, (parent_high, parent_cap, parent_used))):
                     for name, value in zip(("memory.high", "memory.max", "memory.current"), values):
                         (directory / name).write_text("max" if value == "max" else str(value * 1024**2))
-                    (directory / "memory.stat").write_text("file 0\n")
+                    (directory / "memory.stat").write_text("inactive_file 0\n")
                 with patch.dict(os.environ, {"AK_HOST_READINGS": ""}), \
                         patch.object(host, "PROC", proc), patch.object(host, "cpu_count", return_value=64):
                     readings = host.host_readings(cgroup_file=membership, cgroup_root=root,
@@ -390,8 +390,7 @@ class SuitePieces(unittest.TestCase):
         state = record.read_state(self.run_dir)
         record.save_state(self.run_dir, {**state, "scope": "acme"})
         with patch.object(host, "process_cgroup", return_value="/fixture/acme.scope"), \
-                patch.object(host, "_scope_readings", side_effect=[
-                    (1, 100 * 1024**2), (3, 2100 * 1024**2)]), \
+                patch.object(host, "held_mb", side_effect=[100, 2100]), \
                 patch.object(gate.time, "monotonic", side_effect=[0, 10]):
             measured = gate._SuiteMeasure(self.run_dir)
             measured.sample()

@@ -98,17 +98,18 @@ def cgroup_path(relative="", cgroup_root=None):
     return Path(root) / relative.lstrip("/")
 
 
-def cgroup_pids(relative):
+def cgroup_pids(relative, *, complete=False):
     """The pids, in order, the kernel holds in that cgroup and every one under it: a group's own
-    `cgroup.procs` leaves out its children's.  A list that cannot be read adds none; a threaded
-    child's never can, and its processes are on its thread root's."""
-    pids = []
-    for procs in cgroup_path(relative).rglob("cgroup.procs"):
+    `cgroup.procs` leaves out its children's.  A list or directory that cannot be read adds none,
+    or, with `complete`, makes the answer None, since it may hide any process; a threaded
+    child's list never can be read, and its processes are on its thread root's."""
+    pids, unread = [], []
+    for directory, _, _ in os.walk(cgroup_path(relative), onerror=unread.append):
         try:
-            pids += [int(pid) for pid in procs.read_text().split()]
-        except (OSError, ValueError):
-            continue
-    return sorted(pids)
+            pids += [int(pid) for pid in (Path(directory) / "cgroup.procs").read_text().split()]
+        except (OSError, ValueError) as error:
+            unread.append(error)
+    return None if complete and unread else sorted(pids)
 
 
 def memory_mb(name, meminfo=None, *, whole=False):
@@ -234,26 +235,24 @@ def _read_number(path, *, bytes_to_mb=False):
 def _reclaimable_mb(path):
     """Reclaimable file cache in MB from a cgroup's memory.stat, or None.
 
-    The kernel can reclaim file cache under pressure. Older kernels name
-    the counter inactive_file where newer ones say file.
+    The kernel reclaims file cache under pressure, before any OOM kill: the pages on its
+    file lists, active_file and inactive_file. tmpfs and shared memory sit on the anon
+    lists, which no reclaim frees without swap, and locked or ramfs pages on the
+    unevictable one, so `file`, which counts them all, would overstate it.
     """
     try:
         text = path.read_text()
     except OSError:
         return None
-    values = {}
+    values = []
     for line in text.splitlines():
         key, _, rest = line.partition(" ")
-        if key in ("file", "inactive_file"):
+        if key in ("active_file", "inactive_file"):
             try:
-                values[key] = float(rest.split()[0])
+                values.append(float(rest.split()[0]))
             except (ValueError, IndexError):
                 continue
-    if "file" in values:
-        return values["file"] / (1024 * 1024)
-    if "inactive_file" in values:
-        return values["inactive_file"] / (1024 * 1024)
-    return None
+    return sum(values) / (1024 * 1024) if values else None
 
 
 def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False, hard=False):
@@ -262,8 +261,8 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
     The used figure excludes reclaimable file cache. An empty list means
     no finite limit or no reading of its use. With `all_limits`, include each
     enclosing limit, memory.max too: a child cannot spend its parent's headroom.
-    With `hard`, read only enclosing memory.max caps and count file cache too,
-    since those bytes count toward OOM.
+    With `hard`, read only enclosing memory.max caps; reclaim frees file cache before an
+    OOM kill there too, and where memory.stat cannot say how much, all of it counts.
     """
     try:
         relative = next(line.split("::", 1)[1] for line in
@@ -283,7 +282,9 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
                 high = min(high, cap) if high is not None else cap
         if high is not None:
             raw = _read_number(current / "memory.current", bytes_to_mb=True)
-            cache = 0 if hard else _reclaimable_mb(current / "memory.stat")
+            cache = _reclaimable_mb(current / "memory.stat")
+            if cache is None and hard:
+                cache = 0.0
             if raw is not None and cache is not None:
                 limits.append((max(0.0, raw - cache), high, raw,
                                current.name if current != root else "/"))
@@ -481,15 +482,35 @@ def _slice_memory(cgroup):
             high = _read_number(base / "memory.max", bytes_to_mb=True)
         if high is None:
             return None
-        raw = _read_number(base / "memory.current", bytes_to_mb=True)
-        if raw is None:
-            return None
-        cache = _reclaimable_mb(base / "memory.stat")
-        if cache is None:
-            return None
-        return (max(0.0, raw - cache), high)
+        used = held_mb(base)
+        return None if used is None else (used, high)
     except OSError:
         return None
+
+
+def held_mb(cgroup):
+    """A cgroup's memory in MB less the file cache reclaim frees, or None where unread."""
+    raw = _read_number(Path(cgroup) / "memory.current", bytes_to_mb=True)
+    cache = _reclaimable_mb(Path(cgroup) / "memory.stat")
+    return None if raw is None or cache is None else max(0.0, raw - cache)
+
+
+def own_cgroup():
+    """This process's cgroup where it holds nothing but this process and what it started,
+    or None: only there is a change in its memory this process's doing."""
+    relative = process_cgroup()
+    pids = (cgroup_pids(relative, complete=True) if relative else None) or []
+    if os.getpid() not in pids:
+        return None
+    for pid in pids:
+        seen = set()
+        while pid != os.getpid():
+            stat = proc_stat(pid, PROC)
+            if stat is None or pid in seen:
+                return None
+            seen.add(pid)
+            pid = stat.ppid
+    return cgroup_path(relative)
 
 
 def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=None,
