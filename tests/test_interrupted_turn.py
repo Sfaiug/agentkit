@@ -166,6 +166,24 @@ class InterruptedTurn(Sandbox):
                 self.assertEqual(word("Stop"), "needs you")
                 self.assertEqual(word("Interrupt"), "idle")
 
+    def test_the_tick_types_nothing_into_a_muse_turn_the_owner_stopped(self):
+        """Muse has no end-of-turn hook, so the tick types `continue` at a stop its plan still
+        owes for: never at an Esc, which rests until the owner's next prompt."""
+        config.save_session(self.cfg, SEAT, "spark", ["astra"], {"cwd": str(self.root)})
+        config.plan_path(SEAT).write_text(OWED)
+        pane = (FIX / "muse-question-escaped-pane.txt").read_text(encoding="utf-8")
+        for event, keys in (("Interrupt", []), ("Stop", ["continue"])):
+            with self.subTest(event=event):
+                fact = {"event": event, "at": 9000}
+                live = watch.classify("muse", watch.pane_tail(pane), fact, None, {}, 10000)
+                watch.seat_write(SEAT, **live, turn_began=8000, stop_said_at=9000)
+                with patch.object(watch, "pane_text", return_value=pane), \
+                        patch.object(watch, "hook_facts", return_value=fact), \
+                        patch.object(watch, "type_into", return_value=True) as typed:
+                    watch.stop_nudge({"name": SEAT}, "muse", pane, None, [], False,
+                                     lambda _: None)
+                self.assertEqual([call.args[1] for call in typed.call_args_list], keys)
+
     def test_a_turn_interrupted_in_a_tool_call_is_at_its_prompt_too(self):
         fact = self.prompt("Run the acme tests.")
         self.said("user", fact["at"] + 3, TOOL_INTERRUPT)
