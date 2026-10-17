@@ -54,6 +54,7 @@ def slot_order(state):
 
 
 CPU_PRESSURE_LIMIT = 40   # ak's own processes are stalled on CPU nearly half the time
+MEMORY_PRESSURE_LIMIT = 10   # ... on memory a tenth of it: pages back from swap stall far less
 
 
 def resource_limits(readings):
@@ -234,8 +235,9 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
                     f"frozen {noun}, limit {_load(maximum)}", "load")
         return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
     pressure = host._reading(readings, "slice_memory_pressure")
-    if pressure is not None and pressure > 0:
-        return f"waiting for ak's memory · pressure {pressure:g}%", "unit memory"
+    if pressure is not None and pressure > MEMORY_PRESSURE_LIMIT:
+        return (f"waiting for ak's memory · pressure {pressure:g}%, "
+                f"limit {MEMORY_PRESSURE_LIMIT}%", "unit memory")
     unit = host._slice_or_unit_memory(readings)
     peak = history.recent_peak_rss_mb() if unit else None
     if unit and peak is not None:
