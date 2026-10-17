@@ -3,8 +3,10 @@
 Red there pauses the line on the retry ladder: nobody is woken, no repair starts, and at each
 step the piece runs there again; green there is the change's own red and goes to its fixer,
 whatever pass the target has on record; red through the whole ladder is the target's own and
-gets its one repair as before.  Offline: local Git, the fixture's shell suites, fake launches
-and wakes, a stopped clock.
+gets its one repair as before.  A piece that named the tests failing it, red again alone, has
+those alone run there first: passing, the red is the member's own; failing, which proves
+nothing, the piece runs.  Offline: local Git, the fixture's shell suites, fake launches and
+wakes, a stopped clock.
 """
 
 from pathlib import Path
@@ -18,6 +20,11 @@ import test_lander_red_main as red_main
 from agentkit import config, gate, land, record, run, turns
 
 FLAKY = "test ! -f ../flake"     # red on every checkout while the host holds the flag
+# Piece 2/2 runs each test_*.sh, or just those AK_ONLY lists, naming each that fails; 1/2 none.
+NAMING = ('if [ -n "$AK_ONLY" ]; then tests=$(cat "$AK_ONLY"); else case "$AK_SHARD" in '
+          '2/*) tests=$(ls test_*.sh);; *) tests=;; esac; fi; code=0; '
+          'for t in $tests; do bash "$t" || { echo "$t" >> "${AK_FAILED:-/dev/null}"; code=1; }; '
+          'done; exit $code')
 
 
 class RedOnTheTip(unittest.TestCase):
@@ -56,6 +63,9 @@ class RedOnTheTip(unittest.TestCase):
 
     def commands(self):
         return [cmds for cmds, _, _ in self.checks]
+
+    def probes(self):
+        return [(kw["shard"], kw.get("only")) for _, _, kw in self.checks if kw.get("shard")]
 
     def test_red_on_the_tip_alone_pauses_the_line_until_the_ladder_says_again(self):
         self.declare(FLAKY)
@@ -154,6 +164,44 @@ class RedOnTheTip(unittest.TestCase):
         self.assertIsNone(self.red())
         self.assertIn("flaky:", (first / "target-probe.log").read_text())
         self.wake.assert_called_once_with(first.name, ANY)
+
+    def own_red(self, change):
+        """The tip's probes, as (piece, tests), for a member whose `change` fails the tests its
+        piece names on a tip where test_tax.sh passes: the red its own, woken with them."""
+        (self.repo / "test_tax.sh").write_text("exit 0\n")
+        self.declare(NAMING)
+        first = self.member(**change)
+        self.advance()
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn)
+        self.assertEqual(self.wait(first)["fix"]["tests"], list(change))
+        self.wake.assert_called_once_with(first.name, ANY)
+        self.assertIsNone(self.red())
+        return self.probes()
+
+    def test_the_failed_tests_passing_alone_on_the_tip_make_the_red_the_members(self):
+        self.assertEqual(self.own_red({"test_tax.sh": "exit 1\n"}), [("2/2", ["test_tax.sh"])])
+
+    def test_a_test_the_member_added_leaves_the_tip_to_its_whole_piece(self):
+        self.assertEqual(self.own_red({"test_new.sh": "exit 1\n"}),
+                         [("2/2", ["test_new.sh"]), ("2/2", None)])
+
+    def test_the_failed_tests_red_on_the_tip_too_leave_the_whole_piece_to_decide(self):
+        self.declare(NAMING)
+        first = self.member()
+        self.advance(**{"test_tax.sh": "exit 1\n"})
+        held = self.clock()
+        before = (first / "run.json").read_bytes()
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn)
+            self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"]), ("2/2", None)])
+            self.assertNotIn("tests", self.red()["probe"])
+            self.assert_parked({first: before})
+            held[0] += turns.TRANSIENT_BACKOFF[0]
+            land.check_line(self.turn)      # the ladder runs the piece itself
+        self.assertEqual(self.probes()[2:], [("2/2", None)])
+        self.assertEqual(self.red()["probes"], 2)
+        self.wake.assert_not_called()
 
     def test_the_red_piece_is_read_from_its_exit_never_from_what_a_piece_printed(self):
         # piece 1 prints a red piece's record lines and passes; piece 2 fails on every checkout

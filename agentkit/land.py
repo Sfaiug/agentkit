@@ -247,14 +247,28 @@ def _scratch(repo, commit, opened):
     return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {commit} failed\n{out}")
 
 
-def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log):
+def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log,
+               tests=None):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
     alone, for the member in `directory`: True when it passes there, so the red is the
-    member's own.  Red there is the target's: the entry under `tree` counts the probe and holds
-    the line (`paused`) until the retry ladder's next step, and red through the whole ladder
-    starts the target's one repair (`_repair`)."""
-    ok, probe, _, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log",
-                             log, shard=piece or None)
+    member's own.  Where the stack's red was its `tests` failing again alone, those alone run
+    there first: passing there, the member's change is what fails them, and the piece need not
+    run.  Failing there proves nothing -- a test the member added is not on the tip, and a
+    runner may fail a name it cannot find -- so the whole piece then decides, as without them.
+    Red there is the target's: the entry under `tree` counts the probe and holds the line
+    (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
+    target's one repair (`_repair`)."""
+    from . import run
+    path = directory / "target-probe.log"
+    if tests:
+        if _check(directory, state, scratch, [suite], path, log, shard=piece or None,
+                  only=tests)[0]:
+            log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "
+                f"piece AK_SHARD={piece}, run alone: the red is the member's own")
+            return True
+        run.git(scratch, "reset", "--hard", tip)
+        run.git(scratch, "clean", "-fdx")
+    ok, probe, _, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
@@ -475,10 +489,11 @@ def red_piece(cmds, marks, pieces, suite, ok):
     return ""
 
 
-def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None):
+def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
+           only=None):
     """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
     it, the tests that piece named that failed again alone or None); with `shard` every
-    command runs as that one piece alone, on one turn."""
+    command runs as that one piece alone, on one turn, and with `only` just those tests."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -492,7 +507,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             cmds, scratch, log_path, set(),
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
-            marks=marks, shard=shard, pieces=pieces, confirmed=confirmed)
+            marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed)
     if (not clean or gitcall.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
@@ -741,7 +756,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # The target's tip answers for a red suite before anyone is blamed: its red
                     # piece (`red_piece`, from the exits the runner saw) runs there alone,
                     # whatever pass the target has on record, as the host, not the change, may
-                    # have failed it.  A red check of the member's own is the member's.
+                    # have failed it.  A red check of the member's own is the member's.  A
+                    # piece the tip passed whole on this pass answers again, tests named or not:
+                    # failing there, they would hand the probe back to that same piece.
                     if index == 0 and not prefix and "fix" in answer and not saved.get("repair"):
                         piece = answer["fix"].get("piece")
                         if piece is not None and piece not in tip_green:
@@ -749,11 +766,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 return
                             run.git(scratch, "reset", "--hard", tip)
                             run.git(scratch, "clean", "-fdx")
+                            tests = answer["fix"].get("tests")
                             if not _probe_tip(turn, member, saved, scratch, tip, upstream,
-                                              target_tree, suite, piece, log):
+                                              target_tree, suite, piece, log, tests):
                                 target_red = True
                                 return
-                            tip_green.add(piece)
+                            if not tests:   # a pass of its tests says nothing of the rest
+                                tip_green.add(piece)
                     if member not in verdicts:
                         if "land" in answer:
                             answer = {**answer, "after": {
