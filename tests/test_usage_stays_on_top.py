@@ -43,7 +43,7 @@ class UsageStaysOnTop(Sandbox):
         self.meters = {"anthropic": {"meters": [{"name": "weekly_all", "used": 79}]},
                        "openai": {"meters": [{"name": "weekly", "used": 31, "window_secs": WEEK}]}}
 
-    def draw(self, width, height, seats=14, cursor=None, keys=None):
+    def draw(self, width, height, seats=14, cursor=None, keys=None, piped=False):
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000,
                                                              "providers": self.meters}))
         drawn = {}
@@ -51,7 +51,7 @@ class UsageStaysOnTop(Sandbox):
                 patch.object(terminal, "height", return_value=height), \
                 redirect_stdout(io.StringIO()) as out:
             menu.draw(self.cfg, self.seats[:seats], keys or f"{menu.move_keys()}   {menu.KEYS}",
-                      0, cursor, drawn, look=False)
+                      0, cursor, None if piped else drawn, look=False)
         return terminal.ANSI.sub("", out.getvalue().replace("\033[K", "")).split("\n")[:-1], drawn
 
     def point(self, width, height, label, rows=None):
@@ -93,6 +93,18 @@ class UsageStaysOnTop(Sandbox):
             for label in labels:
                 self.assertRegex(text, rf"{re.escape(label)} (\d+%|—)", (width, height, label))
             self.assertIn("ChatGPT 69%", text)
+
+    def test_a_short_empty_screen_keeps_readings_without_reserving_page_keys(self):
+        for width, height in ((30, 8), (28, 9)):
+            for piped in (False, True):
+                with self.subTest(width=width, height=height, piped=piped):
+                    lines, _ = self.draw(width, height, seats=0, keys=menu.OVERLAY_KEYS,
+                                         piped=piped)
+                    self.assertIn("Claude 21%", lines[0])
+                    self.assertIn("  no sessions; n starts one", lines)
+                    self.assertIn("esc leave", lines[-1])
+                    self.assertLessEqual(len(lines), height - 2, lines)
+                    self.assertTrue(all(terminal.cells(line) <= width for line in lines), lines)
 
     def test_a_spent_week_says_its_credits_and_a_long_label_gives_way_first(self):
         self.meters["openai"] = {"meters": [{"name": "weekly", "used": 100, "window_secs": WEEK}],
