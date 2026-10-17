@@ -62,7 +62,8 @@ def _answering(turn, kind):
     """The evidence of `kind` that answers this lander: its own commit's, and another's once
     that commit and this one each passed a check of the line -- an ak update that breaks the
     checks themselves passes none, so nothing seen before it or under it is trusted."""
-    passing = set(_trees(turn, "passed")[1])
+    passing = ({entry.get("code") for entry in _trees(turn)[1].values()}
+               | set(_trees(turn, "passed")[1])) - {None}
     return {tree: entry for tree, entry in _trees(turn, kind)[1].items()
             if entry.get("code") == _code()
             or {entry.get("code"), _code()} <= passing}
@@ -71,16 +72,16 @@ def _answering(turn, kind):
 def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red=None,
          red_stacks=None):
     """Keep stack evidence, with the `checks` it ran and the lander `code` that ran them,
-    separately from target probes awaiting their repair and from when each code last passed
-    a check of the line, which a later pass of the same tree must not erase.  Evidence kept
-    again from an earlier pass (`at`) keeps that pass's code."""
+    separately from target probes awaiting their repair.  A pass a later one of the same tree
+    replaces stays on record as its code's (`passed`), as it still proves that code passed the
+    line.  Evidence kept again from an earlier pass (`at`) keeps that pass's code."""
     path, kept = _trees(turn)
     failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
     passes = _trees(turn, "passed")[1]
+    for old in (kept[tree] for tree in trees if kept.get(tree, {}).get("code")):
+        passes[old["code"]] = {"at": max(old["at"], passes.get(old["code"], {}).get("at", 0))}
     checked_at = time.time() if at is None else at
-    if trees and at is None:
-        passes[_code()] = {"at": checked_at}
     kept.update({tree: {"at": checked_at, "tested": tested or tree, "leader": leader,
                         "checks": list(checks), "code": _code() if at is None else code}
                  for tree in trees})

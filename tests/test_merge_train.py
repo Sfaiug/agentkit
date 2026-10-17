@@ -463,8 +463,14 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assert_cleaned()
 
     def test_another_commits_evidence_answers_once_this_commit_passed_the_line(self):
-        # an ak update that checks as before re-proves nothing its predecessor's lander saw,
-        # also once its own pass of the head replaced the predecessor's
+        # an ak update that checks as before re-proves nothing its predecessor's lander saw
+        self.assert_another_commits_evidence_answers(same_tree=False)
+
+    def test_another_commits_evidence_answers_once_this_commit_passed_its_tree_again(self):
+        # this commit's pass of the head replaces the predecessor's, which still proves it
+        self.assert_another_commits_evidence_answers(same_tree=True)
+
+    def assert_another_commits_evidence_answers(self, same_tree):
         head = self.member("head")
         red = self.member("red", joined=2, **{"broken.txt": "x\n"})
         self.member("later", joined=3, **{"later.txt": "later\n"})
@@ -475,9 +481,10 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 land.check_line(self.turn)
         failures = land._trees(self.turn, "red_stacks")[1]
         ((tree, evidence),) = land._trees(self.turn)[1].items()
+        passed = tree if same_tree else run.git(self.repo, "rev-parse", "origin/main^{tree}")
         self.checks.clear()
         with patch.object(land, "_code", return_value="this-commit"):
-            land.note(self.turn, [tree], head.name, checks=evidence["checks"])
+            land.note(self.turn, [passed], head.name, checks=evidence["checks"])
             land.check_line(self.turn)
         self.assertEqual(len(self.checks), 1)
         self.assertNotIn("broken.txt", self.trees[-1][1])
