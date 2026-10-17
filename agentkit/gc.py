@@ -1147,16 +1147,17 @@ def gone_jobs(now):
 def job_aged_out(directory, job, now):
     """Whether this job's launcher is gone and nothing was written for a run directory's age,
     in its directory or that of any run of it (`jobs.job_runs`): nobody is coming back for it.
-    A save left half done (`job.tmp`, `record.writing`) keeps it, as it keeps a finished job
-    and a run, and so does a link directly in any of those directories: the stop writes there.
+    A save left half done is a write like any other; a lock, which the stop takes, is not.  A
+    link directly in any of those directories keeps the job: the stop writes there.
     """
-    if jobs.reap_job(directory, job) or watch.run_last_write(directory) > now - RUN_DIR_AGE:
+    def quiet(top):
+        return watch.run_last_write(top, skip=(".lock",)) <= now - RUN_DIR_AGE
+    if jobs.reap_job(directory, job) or not quiet(directory):
         return False
     dirs = [directory, *(run_dir for run_dir, _ in jobs.job_runs(
         directory, job, read=lambda run_dir: retention.read_json(run_dir / "run.json")))]
-    return (not retention.present(directory / "job.tmp") and not any(map(record.writing, dirs))
-            and all(retention.safe(path) for top in dirs for path in (top, *retention.children(top)))
-            and max(map(watch.run_last_write, dirs)) <= now - RUN_DIR_AGE)
+    return (all(retention.safe(path) for top in dirs for path in (top, *retention.children(top)))
+            and all(map(quiet, dirs)))
 
 
 def session_lives(name):

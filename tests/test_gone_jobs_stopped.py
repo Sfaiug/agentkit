@@ -107,7 +107,7 @@ class GoneJobsStopped(Sandbox):
         self.assertEqual(jobs.receipt_path(directory).read_bytes(), receipt)
         self.assertEqual(record.read_state(config.RUNS / "fix-api-2")["state"], "running")
 
-    def test_a_job_whose_stop_would_write_through_a_link_or_a_half_save_stays_as_it_is(self):
+    def test_a_link_or_a_recent_half_save_holds_a_job_and_an_old_half_save_does_not(self):
         directory = config.JOBS / GONE
         receipt = jobs.receipt_path(directory).read_bytes()
         victim = self.root / "owner-notes.txt"
@@ -120,10 +120,16 @@ class GoneJobsStopped(Sandbox):
                 planted.unlink()
                 self.assertEqual(jobs.receipt_path(directory).read_bytes(), receipt)
                 self.assertEqual(victim.read_text(), "the owner's\n")
-        (directory / "job.tmp").write_text("{}")   # a save its launcher never finished
-        os.utime(directory / "job.tmp", (self.now - 31 * DAY, self.now - 31 * DAY))
+        for name, top in (("job.tmp", directory), ("run.tmp", config.RUNS / "fix-api-2")):
+            with self.subTest(half_save=name):
+                (top / name).write_text("{}")   # a save its writer never finished, yesterday
+                os.utime(top / name, (self.now - DAY, self.now - DAY))
+                gc.gc(lambda _message: None)
+                self.assertEqual(jobs.receipt_path(directory).read_bytes(), receipt)
+                os.utime(top / name, (self.now - 31 * DAY, self.now - 31 * DAY))
         gc.gc(lambda _message: None)
-        self.assertEqual(jobs.receipt_path(directory).read_bytes(), receipt)
+        self.assertTrue(jobs.read_job(directory)["finished_at"])
+        self.assertEqual(record.read_state(config.RUNS / "fix-api-2")["state"], "stopped")
 
 
 if __name__ == "__main__":
