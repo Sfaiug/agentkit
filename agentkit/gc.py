@@ -805,7 +805,7 @@ def stop_test_units(report):
 
 
 def stop_ended_logins(log):
-    """Stop, through logind, every login of ak's user that ended a day ago and still runs something.
+    """Have logind stop every login of ak's user that ended a day ago and still runs something.
 
     Only on ak's server with a user manager: there ak's own tmux server and seats live in
     `agentkit.slice`, never in a login, so what an ended login still runs was started by hand
