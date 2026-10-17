@@ -495,12 +495,17 @@ def dones(since, until):
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                return connection.execute(
-                    "SELECT at, began, (SELECT CASE WHEN COUNT(*) = 0 OR SUM(runs.finished_at IS NULL) "
-                    "OR SUM(runs.final_state = 'pass' AND runs.live_at IS NULL) THEN NULL "
-                    "ELSE MAX(runs.live_at) END FROM done_runs LEFT JOIN runs USING (run_id) "
-                    "WHERE done_runs.conversation = dones.conversation AND done_runs.at = dones.at) "
-                    "FROM dones WHERE at >= ? AND at <= ?", (since, until)).fetchall()
+                # a read connection makes no table: a history no write has met since done_runs
+                # came still shows its dones, none of them known live
+                live = ("(SELECT CASE WHEN SUM(runs.finished_at IS NULL) "
+                        "OR SUM(runs.final_state = 'pass' AND runs.live_at IS NULL) THEN NULL "
+                        "ELSE MAX(CASE WHEN runs.final_state = 'pass' THEN runs.live_at END) END "
+                        "FROM done_runs LEFT JOIN runs USING (run_id) "
+                        "WHERE done_runs.conversation = dones.conversation AND done_runs.at = dones.at)"
+                        if connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'done_runs'").fetchone()
+                        else "NULL")
+                return connection.execute(f"SELECT at, began, {live} FROM dones WHERE at >= ? AND at <= ?",
+                                          (since, until)).fetchall()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

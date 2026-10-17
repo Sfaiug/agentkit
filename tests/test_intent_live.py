@@ -8,7 +8,9 @@ Offline: a sandbox HOME with its own history database, a fake seat harness and r
 git answering nothing.
 """
 
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 import unittest
 from unittest.mock import patch
 
@@ -74,7 +76,13 @@ class IntentLive(Sandbox):
     def test_an_intent_none_of_whose_runs_passed_is_not_live(self):
         for run in ("r1", "r2"):
             history.finish_run(run, final_state="failed", finished_at=NOW - 7 * HOUR)
+        history.update_run("r1", live_at=NOW - 6 * HOUR)    # merged, then erred finishing
         self.assertIsNone(self.live())
+
+    def test_a_history_from_before_done_runs_keeps_its_dones(self):
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute("DROP TABLE done_runs")
+        self.assertEqual(history.dones(0, NOW), [(NOW - 2 * HOUR, NOW - 10 * HOUR, None)])
 
 
 if __name__ == "__main__":
