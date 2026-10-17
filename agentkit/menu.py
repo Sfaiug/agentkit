@@ -3093,7 +3093,7 @@ def config_add(cfg, keyboard=None, through=None):
             finding = (None if act == "esc" else finding[:-1] if act == "backspace"
                        else finding + (key.char or " "))
             ats[-1] = 0
-        elif act == "char" and key.char == "/":
+        elif act == "char" and key.char == "/" or spot.cell == "/":     # the key or `/ find`
             finding, ats[-1] = "", 0
         elif act == "esc":
             if not picked:
