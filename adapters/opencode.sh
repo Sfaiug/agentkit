@@ -70,19 +70,20 @@ have_key() {
       "$CFG" >/dev/null 2>&1
 }
 
-# 0 when OpenCode lists provider $1 as enabled -- where $1 is empty, any provider but its own
-# free `opencode` one: a key in its config, a saved login or one in the environment, whichever
-# OpenCode itself reads.  Asked of the background service, which `opencode api` starts where
-# none runs: a private `--standalone` server lists no provider at all (2.0.24).  Slow on a cold
-# start, so the config check runs first and this only on its `no`.  The list carries each
-# provider's settings, keys among them: it is read here and never printed.  Without jq it is a
-# no: the list names disabled providers too, and only jq tells them apart.
-enabled() {
-  command -v opencode >/dev/null && command -v jq >/dev/null || return 1
-  bound=""; command -v timeout >/dev/null && bound="timeout 20"
-  $bound opencode api provider.list 2>/dev/null | jq -e --arg p "${1:-}" '.data[]?
-      | select(.activation == "enabled" and (if $p == "" then .id != "opencode" else .id == $p end))' \
-      >/dev/null 2>&1
+# 0 when the auth store holds a login for provider $1, or for any provider where $1 is empty:
+# what `opencode auth login` keeps beside the config.  OpenCode's provider list is no answer:
+# its config alone enables a provider, key or not, and a saved login leaves one `auto`.  Slow
+# -- it boots a private server -- so the config check runs first and this only on its `no`.
+# `--standalone` is load-bearing: without it the call waits on the shared background service
+# instead of answering.  The list names every provider with a saved login, one
+# `"id": "<provider>"` each (2.0.24).  Matched as text, since a saved login is a yes even
+# where jq is missing.
+store_key() {
+  listed=$(command -v opencode >/dev/null \
+    && opencode auth list --standalone --format json 2>/dev/null) || listed=""
+  [ -n "${1:-}" ] && want="\"id\":\"$1\"" || want='"id":'
+  case "${listed//[[:space:]]/}" in *"$want"*) return 0 ;; esac
+  return 1
 }
 
 # MiMo's API has one reasoning control, `thinking` on or off, and it is on by default.  OpenCode
@@ -217,7 +218,7 @@ usage)
   p=${PROVIDERS%% *}
   if [ "$p" != mimo ]; then
     if [ -z "$p" ]; then why="unknown: no provider named in AGENTKIT_PROVIDER"
-    elif have_key "$p" || enabled "$p"; then
+    elif have_key "$p" || store_key "$p"; then
       printf '{"provider":"%s","meters":[],"error":null,"none":"no meter: OpenCode reads none for %s"}\n' "$p" "$p"
       exit 0
     else why="unknown: no login for $p; run opencode auth login $p"; fi
@@ -478,7 +479,7 @@ login)
   # list of every provider it can log in to.
   command -v opencode >/dev/null || { echo "opencode.sh login: opencode is not installed" >&2; exit 2; }
   p=${PROVIDERS%% *}
-  { have_key "$p" || enabled "$p"; } && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
+  { have_key "$p" || store_key "$p"; } && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
   [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
   opencode auth login ${p:+"$p"} ;;
 auth)
@@ -494,7 +495,7 @@ auth)
   for p in "$@"; do
     have_key "$p"; rc=$?
     if [ $rc -eq 0 ]; then said="${said:+$said; }a key for ${p:-a provider} is configured in $CFG"
-    elif enabled "$p"; then said="${said:+$said; }OpenCode lists ${p:-a provider} as logged in"
+    elif store_key "$p"; then said="${said:+$said; }a login for ${p:-a provider} is saved in the auth store"
     elif [ $rc -eq 2 ]; then echo "opencode: $CFG cannot be read without jq" >&2; exit 2
     else echo "opencode: no login for ${p:-any provider}; run \`opencode auth login${p:+ $p}\`" >&2; exit 1
     fi

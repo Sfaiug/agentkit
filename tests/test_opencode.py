@@ -34,27 +34,24 @@ FIXTURES = REPO / "tests/fixtures"
 
 STUB = """#!/usr/bin/env bash
 # canned opencode for tests/test_opencode.py: run cats $STUB_EVENTS and exits $STUB_RC,
-# session export cats $STUB_EXPORT, `api provider.list` prints $STUB_PROVIDER_LIST, models
-# cats $STUB_MODELS (and fails without one).  Every argv lands in $STUB_ARGV_LOG for the
-# assertions.
+# session export cats $STUB_EXPORT, auth list prints $STUB_AUTH_LIST, models cats
+# $STUB_MODELS (and fails without one).  Every argv lands in $STUB_ARGV_LOG for the assertions.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
-case "$1 ${2:-}" in
-  run*) cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
-  models*) cat -- "$STUB_MODELS" ;;
-  "api provider.list") printf '%s' "${STUB_PROVIDER_LIST:-}" ;;
-  session*) cat -- "$STUB_EXPORT" ;;
-  --version*) echo "opencode v9.9.9-test" ;;
+case "$1" in
+  run) cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
+  models) cat -- "$STUB_MODELS" ;;
+  session) cat -- "$STUB_EXPORT" ;;
+  auth) printf '%s' "${STUB_AUTH_LIST:-[]}" ;;
+  --version) echo "opencode v9.9.9-test" ;;
   *) echo "stub opencode: $*" >&2; exit 2 ;;
 esac
 """
 
-def listed(*ids, off=""):
-    """OpenCode's own list of providers as 2.0.24's server answers it: its free `opencode`
-    one, then each of these, enabled but for the one `off` names."""
-    return json.dumps({"data": [{"id": i, "name": i.title(),
-                                 "activation": "disabled" if i == off else "enabled",
-                                 "settings": {"apiKey": "dummy"}}
-                                for i in ("opencode", *ids)]})
+def listed(*ids):
+    """`opencode auth list` as 2.0.24 prints it: every provider holding a saved login."""
+    return json.dumps([{"id": i, "name": i.title(), "connections": [
+        {"type": "credential", "id": f"cred_{i}", "label": i.title(), "method": "key"}]}
+        for i in ids], indent=4)
 
 
 EVENTS_OK = """\
@@ -345,54 +342,48 @@ cat "$dir/bridge-eval"
         proc = self.adapter("auth")
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(len(proc.stderr.splitlines()), 1)
-        # and OpenCode's own list answers when the config has no key
-        proc = self.adapter("auth", env={"STUB_PROVIDER_LIST": listed("mimo")})
+        # and the auth store beside the config answers when the config has no key
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": '[{"id": "mimo"}]'})
         self.assertEqual(proc.returncode, 0)
-        self.assertIn("OpenCode lists mimo as logged in", proc.stdout)
-        # missing jq can read neither the config nor which provider OpenCode's list enables
+        self.assertIn("auth store", proc.stdout)
+        # missing jq cannot read the config, but a saved login is still a yes
         self.write_config("tp-dummy")
         # jq lives in /bin and /usr/bin. A bash on this PATH, and nothing else,
         # is what lets the adapter and the stub start without finding jq.
         (self.bin / "bash").symlink_to(shutil.which("bash"))
         bare = str(self.bin)
         proc = self.adapter("auth", env={"PATH": bare,
-                                         "STUB_PROVIDER_LIST": listed("mimo")})
-        self.assertEqual(proc.returncode, 2, proc.stdout)
-        (self.cfgdir / "opencode.json").unlink()
-        for named in ("mimo", ""):
-            for verb in ("auth", "login"):
-                proc = self.adapter(verb, env={"PATH": bare, "AGENTKIT_PROVIDER": named,
-                                               "STUB_PROVIDER_LIST": listed("mimo", off="mimo")},
-                                    stdin=subprocess.DEVNULL)
-                self.assertEqual(proc.returncode, 1, (named, verb, proc.stdout))
+                                         "STUB_AUTH_LIST": '[{"id": "mimo"}]'})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("auth store", proc.stdout)
+        proc = self.adapter("auth", env={"PATH": bare})
+        self.assertEqual(proc.returncode, 2)
 
     def test_only_the_named_provider_s_login_counts(self):
-        # OpenCode's list names every enabled provider, its free `opencode` one among them;
-        # only MiMo's serves a `mimo/` turn, so a list holding another provider's is a no
-        proc = self.adapter("auth", env={"STUB_PROVIDER_LIST": listed("anthropic")})
+        # `auth list` names every provider holding a saved login; only MiMo's serves a
+        # `mimo/` turn, so a store holding another provider's alone is a no
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic")})
         self.assertEqual(proc.returncode, 1, proc.stdout)
-        proc = self.adapter("login", env={"STUB_PROVIDER_LIST": listed("anthropic")},
+        proc = self.adapter("login", env={"STUB_AUTH_LIST": listed("anthropic")},
                             stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("not logged in", proc.stderr)
-        proc = self.adapter("auth", env={"STUB_PROVIDER_LIST": listed("anthropic", "mimo")})
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic", "mimo")})
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("OpenCode lists mimo as logged in", proc.stdout)
-        # one disabled is no login, and none named is any provider but OpenCode's own
-        proc = self.adapter("auth", env={"STUB_PROVIDER_LIST": listed("mimo", off="mimo")})
-        self.assertEqual(proc.returncode, 1, proc.stdout)
-        proc = self.adapter("auth", env={"STUB_PROVIDER_LIST": listed(),
+        self.assertIn("auth store", proc.stdout)
+        # none named is any provider with a saved login
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed(),
                                          "AGENTKIT_PROVIDER": ""})
         self.assertEqual(proc.returncode, 1, proc.stdout)
-        proc = self.adapter("auth", env={"STUB_PROVIDER_LIST": listed("anthropic"),
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic"),
                                          "AGENTKIT_PROVIDER": ""})
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_each_provider_named_needs_its_own_login(self):
-        # a key in OpenCode's config is that provider's login and no other's, OpenCode's list
+        # a key in OpenCode's config is that provider's login and no other's, the auth store
         # answers for the rest, and several named each need their own
         self.write_config("tp-dummy")
-        acme = {"STUB_PROVIDER_LIST": listed("acme")}
+        acme = {"STUB_AUTH_LIST": listed("acme")}
         for named, rc in (("mimo", 0), ("acme", 0), ("zeta", 1), ("mimo acme", 0), ("acme zeta", 1)):
             proc = self.adapter("auth", env={**acme, "AGENTKIT_PROVIDER": named})
             self.assertEqual(proc.returncode, rc, (named, proc.stdout, proc.stderr))
@@ -404,7 +395,7 @@ cat "$dir/bridge-eval"
         self.assertIn("`opencode auth login zeta`", proc.stderr)
 
     def test_a_provider_with_no_meter_is_none_once_logged_in(self):
-        acme = {"STUB_PROVIDER_LIST": listed("acme")}
+        acme = {"STUB_AUTH_LIST": listed("acme")}
         out = json.loads(self.adapter("usage", env={**acme, "AGENTKIT_PROVIDER": "acme"}).stdout)
         self.assertEqual((out["provider"], out["meters"], out["error"]), ("acme", [], None))
         self.assertIn("no meter", out["none"])

@@ -49,11 +49,11 @@ INSTALLER_URL = {
 }
 
 FAKE_BINARY = """#!/usr/bin/env bash
-# fake {name}: answers --version with its planted release, and OpenCode's provider list the
-# way the opencode login check asks it.  Anything else is a test bug, said out loud.
+# fake {name}: answers --version with its planted release, and `auth list` the way the
+# opencode login check asks it.  Anything else is a test bug, said out loud.
 case "$1" in
   --version) echo "{name} version {version}" ;;
-  api) printf '{{"data": [{{"id": "mimo", "activation": "enabled"}}]}}' ;;
+  auth) printf '[{{"id": "mimo"}}]' ;;
   *) echo "fake {name}: unexpected $*" >&2; exit 2 ;;
 esac
 """
@@ -79,11 +79,11 @@ class InstallFindsBinary(unittest.TestCase):
         self.root = Path(tmp.name)
         self.home = self.root / "home"
         self.home.mkdir()
-        # The only PATH the adapters see: bash, jq and the pipes they use, symlinked in, so
+        # The only PATH the adapters see: bash and the pipes they use, symlinked in, so
         # no real harness binary on this box can leak into a "not on PATH" assertion.
         self.tools = self.root / "tools"
         self.tools.mkdir()
-        for tool in ("bash", "head", "grep", "cat", "dirname", "jq"):
+        for tool in ("bash", "head", "grep", "cat", "dirname"):
             target = shutil.which(tool)
             self.assertIsNotNone(target, f"{tool} is required to drive the adapters")
             (self.tools / tool).symlink_to(target)
