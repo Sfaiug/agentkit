@@ -134,11 +134,11 @@ class TwoLines(Sandbox):
         self.assertEqual(title, "fix-api · done")
 
     def test_e_a_client_short_of_room_keeps_its_tasks_over_who_builds(self):
-        versions = statusbar.whys({"crew": (["astra"], ["opus"]), "tasks": [(0, "moving")] * 12})
+        versions = statusbar.whys({"crew": (["astra"], ["opus"]), "tasks": [(0, "moving")] * 101})
         self.assertEqual(len(versions), len(statusbar.WHYS))
         self.assertTrue(all("■" in drawn(version) for version in versions), versions)
         # the narrowest, which fits beside the key on a client 40 columns wide: one and a count
-        self.assertEqual(drawn(versions[-1]), "■□□  +11")
+        self.assertEqual(drawn(versions[-1]), "■□□  +100")
 
     def test_f_a_seat_dressed_with_one_line_gets_two_and_a_legacy_seat_is_never_written(self):
         watch.announce_state(self.seat, cfg=self.cfg)

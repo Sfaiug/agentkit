@@ -52,8 +52,6 @@ DIM = terminal.STATE_STYLES["dim"][2]
 # Line two: who builds and reviews and every task's squares, then the squares cut to six, then
 # the squares alone, then cut to six, then to one (`whys`).
 WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 5)))
-FEW = 5 * 6 - 2   # six tasks' squares and their gaps
-LEAST = 3 + 2 + 3   # one task's squares and the count of the rest, `+11`
 
 
 def _cut(option, room):
@@ -145,8 +143,7 @@ def whys(info):
     who, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
     if not tasks:
         return [who] * len(WHYS)
-    every, few, least = (menu.squares(tasks, room, tmux=True)
-                         for room in (5 * len(tasks), FEW, LEAST))
+    every, few, least = (menu.squares(tasks, tmux=True, most=most) for most in (None, 6, 1))
     return [f"{who}   {every}" if who else every, f"{who}   {few}" if who else few,
             every, few, least]
 

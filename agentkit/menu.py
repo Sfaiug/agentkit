@@ -844,15 +844,16 @@ def _paint(text, kind, tmux=False):
     return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
-def squares(tasks, room, tmux=False):
-    """`tasks` (`seat_tasks`) drawn in `room` cells: three squares each, two cells apart, the
-    stages it has reached filled -- in working's colour while it moves, dim while it waits, red
-    once it failed -- and the rest dim and empty; those that do not fit counted, `+3`.  No
-    colour: the shapes alone; no UTF-8: `#--`.  `tmux` draws it as tmux text."""
+def squares(tasks, room=float("inf"), tmux=False, most=None):
+    """`tasks` (`seat_tasks`) drawn in `room` cells, `most` of them at the most: three squares
+    each, two cells apart, the stages it has reached filled -- in working's colour while it
+    moves, dim while it waits, red once it failed -- and the rest dim and empty; those not drawn
+    counted, `+3`.  No colour: the shapes alone; no UTF-8: `#--`.  `tmux` draws it as tmux
+    text."""
     full, empty = "■□" if terminal.utf8() else "#-"
     kinds = {"moving": "working", "waiting": "dim", "failed": "FAIL"}
     # a group takes five cells with its gutter, the count of the rest as many as its digits
-    fit = len(tasks)
+    fit = len(tasks[:most])
     while fit and 5 * fit - 2 + (len(f"  +{len(tasks) - fit}") if fit < len(tasks) else 0) > room:
         fit -= 1
     drawn = [_paint(full * (stage + 1), kinds[state], tmux)
