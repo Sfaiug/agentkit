@@ -21,6 +21,9 @@
 #                                  OpenCode's own list, with the label and efforts of the
 #                                  [catalog] table of adapters/opencode.toml where it has
 #                                  them, else that table
+#                     providers    -> one `id<TAB>name<TAB>mode` line per provider OpenCode
+#                                  can log in to: logged-in ones first, with their mode, then
+#                                  the rest with none
 #                     $AGENTKIT_PROVIDER names the providers a call is about, by OpenCode's own
 #                     ids (config.provider_env); none named is any provider with a login
 #                     $AGENTKIT_ACCOUNT naming one of the provider's `accounts` is refused by
@@ -525,7 +528,37 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   IFS=$'\n'; set -f   # one argument a line
   python3 "$REPO/tools/catalog.py" opencode $listed ;;
+providers)
+  # Every provider OpenCode can log in to, for `+ add` on Providers: the ones with a login
+  # first -- a key in its config or one saved in its auth store, as `auth` reads them -- each
+  # `subscription` where OpenCode prices every one of its models at nothing (a plan's, or its
+  # own free ones) and `payg` where it prices one or says nothing of one (MiMo's), which never
+  # spends money unasked; then the rest, with no mode, in OpenCode's own order.  Its
+  # background service is asked one list at a time, since lists asked at once while it starts
+  # can fail, each cut to the fields read here: settings, keys among them, never leave jq.  A
+  # list of providers that fails is a failed verb: nothing to offer.
+  command -v jq >/dev/null || { echo "opencode: listing providers needs jq" >&2; exit 2; }
+  bound=""; command -v timeout >/dev/null && bound="timeout 20"
+  ask() { $bound opencode api "$1" 2>/dev/null | jq -ce "[.data[] | $2]" 2>/dev/null; }
+  if all=$(ask integration.list '{id, name}'); then
+    saved=$($bound opencode auth list --standalone --format json 2>/dev/null | jq -c '[.[]?.id]')
+    keyed=$(jq -c '[(.provider, .providers) | objects | to_entries[]
+        | select([.value | .. | objects | .apiKey? | strings | select(length > 0)] != []) | .key]' \
+        "$CFG" 2>/dev/null)
+    costs=$(ask model.list '{id: .providerID, cost}') || costs='[]'
+    jq -rn --argjson all "$all" --argjson in "[${keyed:-[]}, ${saved:-[]}]" --argjson costs "$costs" '
+      (reduce ($in | add // [])[] as $p ([]; if index([$p]) then . else . + [$p] end)) as $in
+      | ([$all[] | {(.id): .name}] | add // {}) as $names
+      | ($in[] | . as $p | [$costs[] | select(.id == $p) | .cost] as $priced
+        | [$p, $names[$p] // $p, if ($priced | length) > 0 and all($priced[]; length > 0
+            and all(.[]; type == "object" and .input == 0 and .output == 0))
+          then "subscription" else "payg" end]),
+        ($all[] | select(.id | IN($in[]) | not) | [.id, .name // .id, ""])
+      | join("\t")'
+  else
+    echo "opencode: OpenCode did not list its providers" >&2; exit 1
+  fi ;;
 *)
-  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models" >&2
+  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
   exit 2 ;;
 esac
