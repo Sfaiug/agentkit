@@ -2294,9 +2294,7 @@ def hook_look(launched, answered_at=None, said=""):
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
     asked = (notify.last(name) or {}).get("time")
-    if answered_at is not None and not (
-            isinstance(asked, (int, float)) and said
-            and any(sent.get("text") == said for sent in notify.typed_since(name, asked))):
+    if answered_at is not None and not notify.ak_prompt(name, said, asked):
         notify.answered(name, answered_at)
     return announce_state(session, cfg=config.load(), look=True, number=number)
 

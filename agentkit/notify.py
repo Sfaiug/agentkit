@@ -514,6 +514,11 @@ def opened(session, capture):
 ALSO = " Also: "      # between the questions a notice asks
 
 
+def question_key(question):
+    """A question's identity and date share a key; its stored words stay untouched."""
+    return " ".join(question.split()).casefold()
+
+
 def questions(notice):
     """The questions a needs notice asks, in the order asked: its own, or the several a seat
     asked before its owner answered (`_said`)."""
@@ -530,6 +535,31 @@ def typed_since(session, since):
     return [sent for sent in harness.entries(config.seat_file("input", session))
             if sent.get("source") != "owner" and isinstance(sent.get("at"), (int, float))
             and not isinstance(sent.get("at"), bool) and sent["at"] >= since]
+
+
+def ak_prompt(session, said, since):
+    """The prompt is a line ak typed since the question, rather than the owner's answer."""
+    return (isinstance(since, (int, float)) and bool(said)
+            and any(sent.get("text") == said for sent in typed_since(session, since)))
+
+
+def answer_context(session, said):
+    """The open questions this prompt may answer, read before its background look answers them.
+
+    Read without the notice lock: a sender holds it while typing a prompt and waiting for
+    this hook. Each question keeps its own last-asked date, or an older notice's timestamp.
+    """
+    from . import watch
+    notice = last(session)
+    if not watch.owner_question(notice) or ak_prompt(session, said, notice.get("time")):
+        return ""
+    dated = notice.get("asked_at") or {}
+    context = []
+    for question in questions(notice):
+        asked = dated.get(question_key(question), notice["time"])
+        stamp = datetime.fromtimestamp(asked, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        context.append(f"Asked {stamp}:\n{question}")
+    return "Questions you asked the owner that this prompt may answer:\n\n" + "\n\n".join(context)
 
 
 def progress(session, capture, seat_harness):
@@ -1474,10 +1504,10 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
                     and not resolved(previous) else [])
         if standing and at is not None:
             at = max(at, previous["time"])
-        asked, seen = list(standing), {" ".join(q.split()).casefold() for q in standing}
+        asked, seen = list(standing), {question_key(q) for q in standing}
         dated = dict(previous.get("asked_at") or {}) if standing else {}
         for question in [text] if isinstance(text, str) else text:
-            words = " ".join(question.split()).casefold()
+            words = question_key(question)
             if words not in seen:
                 seen.add(words)
                 asked.append(question)

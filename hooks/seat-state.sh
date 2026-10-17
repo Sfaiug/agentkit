@@ -18,10 +18,9 @@
 # the same hooks, and a seat's row must never be moved by one.  No $AGENTKIT_SESSION, or
 # AK_RUN_ROLE=worker, and this writes nothing and exits 0.
 #
-# On a prompt it passes on the one thing a seat is told with one: where its current rulebook
-# is, when the one it was handed is out of date or unknown (`orch.rulebook_news`), printed as
-# the harness's prompt context until the seat says it read it (`ak orch rules`).  That is all
-# it ever prints.
+# On a prompt it passes on where its current rulebook is, when the one it was handed is out
+# of date or unknown (`orch.rulebook_news`), and the open questions an owner's prompt may
+# answer (`notify.answer_context`), as the harness's prompt context.
 #
 # Every failure is exit 0 with nothing written: a hook that fails loudly is a harness that stops.
 
@@ -48,7 +47,7 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, sys.st
 }
 
 seat_state() {
-  local payload=$1 jq=$2 seat event kind text ts dir tmp row next hop owner write
+  local payload=$1 jq=$2 owner=$3 said=$4 seat event kind text ts dir tmp row next hop write
   seat=${AGENTKIT_SESSION:-}
   [[ -n $seat ]] || return 0
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
@@ -144,21 +143,9 @@ config.record_hook_fact(row, fact, kept)
     >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
   /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   # The owner's prompt answers an older question, once the background look checks its pane.
-  # The launch name still resolves after a rename; slash commands answer nothing, and nor does a
-  # turn the harness began itself on work it finished: a `<task-notification>`, or a
-  # `<system-reminder>` under a `task-completed-` or `subagent-completed-` prompt id.
-  owner=true
-  if "$jq" -e '([(.prompt // empty), (.message // empty)] | map(strings)
-                | any(contains("<task-notification") or test("^[[:space:]]*/")
-                      or test("^[[:space:]]*<system-reminder>")))
-               or ((.promptId // .prompt_id // "") | strings
-                   | test("^(task|subagent)-completed-"))' \
-      <<<"$payload" >/dev/null 2>&1; then
-    owner=false
-  fi
+  # The launch name still resolves after a rename; main leaves harness bookkeeping alone.
   if [[ $owner = true ]]; then
-    look "$seat" "$ts" "$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
-                                       | first // ""' <<<"$payload" 2>/dev/null)"
+    look "$seat" "$ts" "$said"
   else
     look "$seat"
   fi
@@ -166,7 +153,7 @@ config.record_hook_fact(row, fact, kept)
 
 main() {
   umask 077
-  local payload=$1 jq event
+  local payload=$1 jq event owner=true said=''
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // "Stop"' <<<"$payload" 2>/dev/null) || event=Stop
   # A sub-agent's own turn is not the seat's: written down, it would be a turn that never ends,
@@ -175,38 +162,58 @@ main() {
     "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1; then
     return 0
   fi
-  seat_state "$payload" "$jq"
+  # Slash commands and turns the harness begins on completed work answer nothing.
+  if "$jq" -e '([(.prompt // empty), (.message // empty)] | map(strings)
+                | any(contains("<task-notification") or test("^[[:space:]]*/")
+                      or test("^[[:space:]]*<system-reminder>")))
+               or ((.promptId // .prompt_id // "") | strings
+                   | test("^(task|subagent)-completed-"))' \
+      <<<"$payload" >/dev/null 2>&1; then
+    owner=false
+  fi
+  # Capture the questions before seat_state starts the look that marks them answered.
+  if [[ $event = UserPromptSubmit ]]; then
+    said=$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
+                     | first // ""' <<<"$payload" 2>/dev/null) || said=''
+    news "$payload" "$owner" "$said"
+  fi
+  seat_state "$payload" "$jq" "$owner" "$said" >/dev/null 2>&1
+  # SessionStart first captures the conversation its harness vouches for.
+  if [[ $event = SessionStart ]]; then
+    news "$payload" "$owner" "$said"
+  fi
 }
 
-# A seat's prompt carries where its current rulebook is, as the context its harness adds to
-# that prompt, until the seat says it read it; a harness that takes no context, a worker, a
-# client that is not the seat's own conversation and every other event print nothing.  A
-# compaction (a `SessionStart` from `compact`) leaves the conversation holding its
-# launch's rulebook again, which its next prompt is then told about.
+# A seat's prompt carries its rulebook news and the questions it may answer; a harness that
+# takes no context, a worker, a client that is not the seat's own conversation and every other
+# event print nothing. A compaction (a `SessionStart` from `compact`) leaves the conversation
+# holding its launch's rulebook again, which its next prompt is then told about.
 news() {
-  local payload=$1 jq event
+  local payload=$1 owner=$2 said=$3 jq event
   [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || return 0
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload")
   [[ $event = UserPromptSubmit || $event = SessionStart ]] || return 0
-  /usr/bin/env python3 -c '
+  # JSON contains no literal NUL; both it and a long answer travel on stdin, never argv.
+  printf '%s\0%s' "$payload" "$said" | /usr/bin/env python3 -c '
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import orch
-payload = json.loads(sys.stdin.read())
+payload, said = sys.stdin.read().split("\0", 1)
+payload = json.loads(payload)
 if payload.get("hook_event_name") == "SessionStart":
     if payload.get("source") == "compact":
         orch.rulebook_compacted(sys.argv[2], payload.get("session_id"))
     sys.exit(0)
-news = orch.rulebook_news(sys.argv[2], payload.get("session_id"))
+news = orch.prompt_news(sys.argv[2], payload.get("session_id"),
+                        said if sys.argv[3] == "true" else None)
 if news:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                              "additionalContext": news}}))
-' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" <<<"$payload"
+' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" "$owner"
 }
 
 payload=$(/bin/cat 2>/dev/null) || payload=''
-main "$payload" >/dev/null 2>&1 || true
-news "$payload" 2>/dev/null || true
+main "$payload" 2>/dev/null || true
 exit 0
