@@ -218,10 +218,8 @@ class Tallies(Sandbox):
         self.assertTrue(all(terminal.cells(line) <= 100 for line in screen.splitlines()))
         # No age on any row: the last column, not a clock, says what the seat is doing.
         self.assertNotRegex(screen, r"(?m)\d+[smhd]\s*$")
-        # The count is said once, on the top line.
-        self.assertIn("your projects · 1 needs you", screen)
-        # ... and each needing row says the word too, in the state column
-        self.assertEqual(screen.count("needs you"), 2)
+        # each needing row says the word, in the state column, and no line counts them
+        self.assertEqual(screen.count("needs you"), 1)
         with patch.object(terminal, "colour_depth", return_value=24):
             coloured, _ = self.draw(100, 30)
         self.assertIn(terminal.styled("atoll", "accent"), coloured)

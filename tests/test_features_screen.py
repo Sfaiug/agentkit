@@ -89,7 +89,8 @@ MENU, SCREEN = "menu", "screen"
 class Menu:
     """One child menu on a pty over a HOME with ~/code/ACME: what it wrote, keys sent to it."""
 
-    def __init__(self, case, features=FEATURES, seats=(), rows=40, cols=100, slow=0.0, wait=20):
+    def __init__(self, case, features=FEATURES, seats=("fix-api",), rows=40, cols=100, slow=0.0,
+                 wait=20):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="features-screen-")
         case.addCleanup(home.cleanup)
@@ -184,7 +185,8 @@ class Menu:
         return self.frame(kind, where, after=mark)
 
     def opened(self):
-        """Enter on the highlighted heading, and the screen once the rows are on it."""
+        """Up to the heading over the seat, Enter on it, and the screen once the rows are on it."""
+        self.press(UP, MENU, lambda lines: "ACME" in highlighted(lines))
         return self.press(ENTER, SCREEN, lambda lines: any("Dark mode" in line for line in lines))
 
     def leave(self, screen=False):
@@ -205,26 +207,28 @@ def marks(lines, name):
 
 
 def highlighted(lines):
+    """The one highlighted row, its runs of spaces one: a heading's count stands at its right."""
     marked = [line for line in lines if line.startswith("›")]
     assert len(marked) == 1, lines
-    return marked[0]
+    return " ".join(marked[0].split())
 
 
 class FeaturesScreen(unittest.TestCase):
-    def test_a_project_naming_its_switches_is_listed_with_no_seat(self):
+    def test_a_project_with_no_seat_shown_has_no_heading_whatever_its_switches(self):
+        menu = Menu(self, seats=())
+        lines = menu.frame(MENU, has("no sessions"))
+        self.assertNotIn("ACME", "\n".join(lines))
+        menu.leave()
         menu = Menu(self)
-        lines = menu.frame(MENU, has("ACME · 3 hidden features"))
-        self.assertEqual(highlighted(lines), "› ACME · 3 hidden features")   # a row to land on
-        self.assertNotIn("no sessions", "\n".join(lines))
         menu.opened()
         # Returning can draw the menu before its feature count arrives.
-        lines = menu.press(ESC, MENU, has("ACME · 3 hidden features"))
-        self.assertEqual(highlighted(lines), "› ACME · 3 hidden features")
+        lines = menu.press(ESC, MENU, has("3 hidden features"))
+        self.assertEqual(highlighted(lines), "› ACME 3 hidden features")
         menu.leave()
 
     def test_a_seat_s_project_heading_counts_them_too(self):
         menu = Menu(self, seats=["fix-api"])
-        lines = menu.frame(MENU, has("ACME · 3 hidden features"))
+        lines = menu.frame(MENU, has("3 hidden features"))
         self.assertEqual(sum("ACME" in line for line in lines), 1)     # one heading, not two
         heading = next(n for n, line in enumerate(lines) if "ACME" in line)
         self.assertIn("fix-api", lines[heading + 1])
@@ -241,7 +245,7 @@ class FeaturesScreen(unittest.TestCase):
 
     def test_the_count_is_the_features_off_for_everyone(self):
         for rows, heading in (([{**FEATURES[0], "everyone": True}, FEATURES[2]], "ACME"),
-                              ([FEATURES[0], FEATURES[2]], "ACME · 1 hidden feature")):
+                              ([FEATURES[0], FEATURES[2]], "ACME 1 hidden feature")):
             menu = Menu(self, features=rows)
             menu.opened()                                 # the list has landed
             lines = menu.press(ESC, MENU, lambda lines: highlighted(lines) == f"› {heading}")
@@ -271,8 +275,8 @@ class FeaturesScreen(unittest.TestCase):
         os.write(menu.master, f"\x1b[<0;{column};{number}M\x1b[<0;{column};{number}m".encode())
         menu.frame(SCREEN, lambda lines: marks(lines, "Beta search") == ["●", "●"], after=mark)
         self.assertIn("set beta everyone on", menu.calls())
-        lines = menu.press(ESC, MENU, has("ACME · 1 hidden feature"))
-        self.assertEqual(highlighted(lines), "› ACME · 1 hidden feature")
+        lines = menu.press(ESC, MENU, has("1 hidden feature"))
+        self.assertEqual(highlighted(lines), "› ACME 1 hidden feature")
         menu.leave()
 
     def test_a_failing_set_keeps_the_mark(self):
@@ -329,6 +333,7 @@ class FeaturesScreen(unittest.TestCase):
         lines = menu.frame(MENU, has("ACME"))
         self.assertLess(time.monotonic() - menu.started, 4)
         self.assertNotIn("list answered", menu.calls())           # asked, and not answered yet
+        lines = menu.press(UP, MENU, lambda lines: "ACME" in highlighted(lines))
         self.assertEqual(highlighted(lines), "› ACME")
         lines = menu.press(ENTER, SCREEN, has("asking for its features"))
         self.assertNotIn("list answered", menu.calls())
@@ -336,12 +341,12 @@ class FeaturesScreen(unittest.TestCase):
         # the answer is drawn when it lands, with no key pressed
         menu.until(lambda: "list answered" in menu.calls(), "the slow list", timeout=20)
         lines = menu.frame(SCREEN, has("Dark mode"))
-        lines = menu.press(ESC, MENU, has("ACME · 3 hidden features"))
+        lines = menu.press(ESC, MENU, has("3 hidden features"))
         menu.leave()
 
     def test_a_phone_draws_both_in_forty_columns(self):
         menu = Menu(self, seats=["fix-api"], rows=24, cols=40)
-        lines = menu.frame(MENU, has("ACME · 3 hidden features"))
+        lines = menu.frame(MENU, has("3 hidden features"))
         lines = menu.press(UP, MENU, lambda lines: "ACME" in highlighted(lines))
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)

@@ -91,7 +91,7 @@ class UsageLeft(Sandbox):
                 text = self.draw(seats, width)
                 self.assertTrue(all(terminal.cells(line) <= width for line in text.splitlines()))
                 self.assertNotIn("\033", text)
-                block, sessions = text.split("\nyour projects · ")
+                block, sessions = text.split("\n\n\n", 1)
                 self.assertRegex(block, r"Claude\s+[▰▱]+\s+21% left")
                 self.assertRegex(block, r"ChatGPT\s+[▰▱]+\s+69% left")
                 self.assertRegex(block, r"Muse\s+empty until Thu 22:00")

@@ -83,12 +83,13 @@ class UsageStaysOnTop(Sandbox):
                                            (30, 14, 1, None), (30, 20, 14, None),
                                            (30, 11, 1, None), (38, 10, 1, menu.OVERLAY_KEYS),
                                            (28, 13, 1, menu.OVERLAY_KEYS),
-                                           (38, 10, 14, menu.OVERLAY_KEYS)):
+                                           (38, 10, 14, menu.OVERLAY_KEYS),
+                                           (40, 15, 0, None), (100, 11, 0, None)):
             lines, _ = self.draw(width, height, seats, keys=keys)
             text = "\n".join(lines)
             self.assertLessEqual(len(lines), height - 2, text)
             self.assertNotIn("no reading yet", text)                   # not the grid
-            self.assertNotIn("…", text.split("\nyour projects")[0].split("\nacme")[0])
+            self.assertNotIn("…", text.split("\nacme")[0])
             for label in labels:
                 self.assertRegex(text, rf"{re.escape(label)} (\d+%|—)", (width, height, label))
             self.assertIn("ChatGPT 69%", text)
@@ -110,20 +111,20 @@ class UsageStaysOnTop(Sandbox):
         self.assertEqual([line for line in lines if terminal.cells(line) > 28], [])
 
     def test_only_a_screen_with_no_room_for_a_seat_cuts_the_readings_and_says_so(self):
-        lines, _ = self.draw(30, 10, keys=menu.OVERLAY_KEYS)
-        self.assertLessEqual(len(lines), 8, lines)
+        lines, _ = self.draw(30, 9, keys=menu.OVERLAY_KEYS)
+        self.assertLessEqual(len(lines), 7, lines)
         self.assertTrue(lines[0].endswith(" · …"), lines)
         self.assertTrue(any(re.match(r"[›> ] +\d+  ", line) for line in lines), lines)
         # a first reading as wide as the line keeps what it has left, its label giving way
         self.meters["anthropic"] = {"meters": [{"name": "weekly_all", "used": 100}],
                                     "credits": 62469.67}
-        self.assertRegex(self.draw(30, 10, keys=menu.OVERLAY_KEYS)[0][0],
+        self.assertRegex(self.draw(30, 9, keys=menu.OVERLAY_KEYS)[0][0],
                          r"^  \S+… 62,469 credits left · …$")
         self.cfg["providers"]["acme_subscription_provider"] = dict(self.cfg["providers"]["openai"],
                                                                    colour="#ff0000")
         self.meters["acme_subscription_provider"] = {
             "meters": [{"name": "weekly", "used": 17, "window_secs": WEEK}]}
-        self.assertRegex(self.draw(30, 10, keys=menu.OVERLAY_KEYS)[0][0],
+        self.assertRegex(self.draw(30, 9, keys=menu.OVERLAY_KEYS)[0][0],
                          r"^  Acme_Sub\S*… 83% · …$")
 
     def test_the_line_under_the_pointer_fits_and_reads_the_grid_it_lights(self):

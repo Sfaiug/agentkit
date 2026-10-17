@@ -3,16 +3,14 @@ the moment it is pressed, and from a pipe it is a line.
 
     agentkit                                                              14:02
     ────────────────────────────────────────────────────────────────────────
+      Claude I    ▰▰▱▱▱▱▱▱▱▱  21% left   ChatGPT     ▰▰▰▰▰▰▰▱▱▱  69% left
 
-      usage left
-      Claude   ███░░░░░░░░░   21% left · resets Fri 14:00 · Fable 47%
-
-      your projects · 1 needs you
 
     atoll
-    › 1  atoll-speed-check   fable   ! needs you   Merge the MOV helper before or after?
-      2  fix-api             fable   ● working     ━━━━╸───── 2 of 5
-      3  web-portal          fable   ✓ done        hero swapped and published
+    › 1  atoll-speed-check   fable   ! needs you   ━━━━━━━━━━━━━──────── 3 of 5
+           Merge the MOV helper before or after?
+      2  fix-api             fable   ● working     ━━━━╸───────────────── 2 of 9
+      3  web-portal          fable   ✓ done
 
       ↑↓ move   ⏎ open   n new   x stop   c config   esc leave
 
@@ -1028,10 +1026,10 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     across them from ~/code. Only a seat nobody filed and none of whose runs votes files under
     the fallback heading.
     A run makes no project and no row: no worktree, no throwaway repo under
-    ~/.agentkit/tmp and no run id is ever a heading. A project with no offered seat
-    is not listed, unless its AGENTS.md names its feature switches: that one is listed
-    whether or not a seat sits there, carrying `switches`, the rows its `list` last answered
-    ([] before any). Under a heading seats sort needs you, then working, then
+    ~/.agentkit/tmp and no run id is ever a heading. A project with no offered seat is not
+    listed, whatever its AGENTS.md says; one whose AGENTS.md names its feature switches carries
+    `switches`, the rows its `list` last answered ([] before any). Under a heading seats sort
+    needs you, then working, then
     done, then idle, then by name; numbers stay global by name.
 
     `found` is what `orch.listing` offers -- live seats and gone ones with a
@@ -1064,11 +1062,9 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
                                     {"name": orch.project_name(checkout), "seats": [],
                                      "checkout": checkout})
         project["seats"].append(info)
-    for checkout in orch.checkouts():
-        if switches_command(checkout):
-            groups.setdefault(str(checkout), {"name": orch.project_name(checkout), "seats": [],
-                                              "checkout": checkout})["switches"] = (
-                switches(checkout) or [])
+    for checkout in orch.checkouts():     # a project with no seat shown has no heading
+        if str(checkout) in groups and switches_command(checkout):
+            groups[str(checkout)]["switches"] = switches(checkout) or []
     for project in groups.values():
         project["seats"].sort(key=lambda info: (STATE_ORDER.index(info["word"]), info["name"]))
         project["needing"] = sum(1 for info in project["seats"] if info["word"] == "needs you")
@@ -1082,19 +1078,20 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
 
 
 def v5o_header(project, term_width):
-    """`<project>`, the checkout's basename in the accent style.
+    """`<project>`, the checkout's basename in bold.
 
-    How many need him is said once, on the top line, so no heading says `needs you`
-    at all; needing projects sort first, which is what carries the eye down to one.
-    A project naming its feature switches says how many are hidden -- off for everyone --
-    as `ACME · 2 hidden features`, and leaves room for the highlight's mark in front of it.
+    How many need the owner is said by their rows, and needing projects sort first, which is what
+    carries the eye down to one.  A project naming its feature switches says how many are
+    hidden -- off for everyone -- dim at the right, `23 hidden features`, and leaves room for
+    the highlight's mark in front of it.
     """
     room = terminal.layout_width(term_width)
-    if "switches" not in project:
-        return terminal.styled(terminal.cut(project["name"], room), "accent")
-    hidden = sum(1 for row in project["switches"] if not row.get("everyone"))
-    count = f" · {hidden} hidden feature{'' if hidden == 1 else 's'}" if hidden else ""
-    return terminal.styled(terminal.cut(project["name"] + count, max(1, room - 2)), "accent")
+    hidden = sum(1 for row in project.get("switches", ()) if not row.get("everyone"))
+    count = f"{hidden} hidden feature{'' if hidden == 1 else 's'}" if hidden else ""
+    name = terminal.cut(project["name"],
+                        max(1, room - 2 - (terminal.cells(count) + 2 if count else 0)))
+    gap = room - 2 - terminal.cells(name) - terminal.cells(count)
+    return terminal.styled(name, "bold") + (" " * gap + terminal.styled(count, "dim") if count else "")
 
 
 def _styled_cell(plain_text, width, kind=None, right=False):
@@ -1261,10 +1258,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
-    one dim rule the width of the layout, then the usage block, always, and the key line,
-    always last, and between them one line that answers the
-    question once (`your projects · nothing needs you` / `· N need you`), then
-    the projects and their seats -- the needing ones first -- and nothing else.
+    one dim rule the width of the layout, then the usage grid, always, and the key line,
+    always last, and between them the projects and their seats -- the needing ones first --
+    and nothing else.  Where a seat that needs the owner is on another page, the arrow that turns
+    to it is amber (`page_mark`).
     A row's number is its place in the whole list, on
     whichever page it is drawn. Uses terminal.header_line, terminal.rule_line,
     terminal.key_line, terminal.STATES, terminal.state_text,
@@ -1334,13 +1331,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # rows in what is left, a page at a time. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
     key_text = keys
-    # With the keyboard ← and → turn the pages, the key line starting with where the owner is
-    # (`page_mark`); in a pipe `j` and `k` do.
-    page_keys = "" if owned else "   " + PAGE_KEYS
+    # With the keyboard ← and → turn the pages; in a pipe `j` and `k` do.  Either way the key
+    # line starts with where the owner is (`page_mark`), budgeted at its widest.
+    paged_keys = key_text + ("" if owned else "   " + PAGE_KEYS)
     # A question under a row is budgeted with the key line, so it never pushes a row off.
     k_single = len(terminal.key_line(key_text, width)) + len(asked)
-    k_paged = len(page_mark(key_text, 98, 99, width) if owned
-                  else terminal.key_line(key_text + page_keys, width)) + len(asked)
+    k_paged = len(page_mark(paged_keys, 98, 99, width, owned)) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -1374,7 +1370,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     seat_blocks = _seat_blocks()
     blocks = [[heading(project)] + [pair for block in own for pair in block]
               for project, own in zip(ordered, seat_blocks)]
-    flat = _flat(blocks)
+    flat = _flat(blocks) or [("  no sessions; n starts one", None)]     # a row, budgeted as one
 
     # The highlighted seat's lines go under its row: as many kept on every page as the most any
     # seat opens, up to half the screen, so no page overflows or turns as the highlight moves;
@@ -1385,8 +1381,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     def _room(meters, paged, compact=False):
         keys = (k_paged if paged else k_single) + opens
         if compact:
-            return height - 2 - (1 + keys + len(meters))
-        chrome = 2 + len(meters) + 2 + 1 + 1 + keys
+            return height - 2 - (keys + len(meters))
+        chrome = 2 + len(meters) + 2 + 1 + keys
         return height - 2 - chrome
 
     def _seat_pages(room):
@@ -1447,8 +1443,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         page = next((number for number, lines in enumerate(pages)
                      if any(name == cursor for _, name in lines)), page)
     page = min(max(page, 0), len(pages) - 1)
-    key_lines = (page_mark(key_text, page, len(pages), width) if owned and len(pages) > 1
-                 else terminal.key_line(key_text + (page_keys if len(pages) > 1 else ""), width))
+    key_lines = terminal.key_line(key_text, width)
+    if len(pages) > 1:
+        needing = [any(words.get(name) == "needs you" for _, name in lines) for lines in pages]
+        key_lines = page_mark(paged_keys, page, len(pages), width, owned,
+                              (any(needing[:page]), any(needing[page + 1:])))
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
     # what may move: (key, the word it shows, its first cell, highlighted)
@@ -1460,31 +1459,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 terminal.rule_line(width, updating or 0)]
     grid = len(out) + 1 if meters and meters is meters_full else None     # its first row
     out += meters
-    body = [("  no sessions; n starts one", None)]
-    if ordered:
-        # One blank line between projects; seat rows two under their project.
-        # Rows keep their global numbers across pages, and in a pipe the heading says which
-        # page is up without moving any number; with the keyboard the key line does.
-        pages_count = len(pages)
-        # The question is answered once, here and nowhere else on the screen.
-        if total_needing <= 0:
-            base = "your projects · nothing needs you"
-        elif total_needing == 1:
-            base = "your projects · 1 needs you"
-        else:
-            base = f"your projects · {total_needing} need you"
-        # The page is what m turns: it is never the part that is cut.
-        suffix = "" if owned or pages_count <= 1 else f" {page + 1}/{pages_count}"
-        heading = terminal.cut(base, max(1, layout - terminal.cells(suffix))) + suffix
-        if compact:
-            # Compact: the heading, the rows, the keys and the prompt are all that is left.
-            out.append(heading)
-        else:
-            # Section titles are plain words in the accent style, flush left, one blank above.
-            out += ["", terminal.styled(heading, "accent"), ""]
-        body = pages[page] or body
-    else:
-        out.append("")
+    if not compact:
+        out += ["", ""]       # the line under the grid, then one blank above the projects
+    body = pages[page] if ordered else flat
     top, above = len(out), None
     under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
     info = next((info for info in infos if info["name"] == cursor), None)
@@ -4008,13 +3985,16 @@ def move_keys():
     return "↑↓ move   ⏎ open" if terminal.utf8() else "j/k move   enter open"
 
 
-def page_mark(keys, page, pages, width):
+def page_mark(keys, page, pages, width, arrows=True, needs=(False, False)):
     """The key line with where the owner is in front of the keys, `←  2 / 3  →`, wrapped with
-    them as one more item: each arrow a key a click turns the page with, the place between them
-    none."""
+    them as one more item: each arrow a key a click turns the page with, amber where a seat that
+    needs the owner is that way (`needs`, back and on), the place between them none.  From a
+    pipe, which turns pages with `j` and `k`, the place alone, `2 / 3`."""
     arrow, ahead = ("←", "→") if terminal.utf8() else ("<", ">")
-    return terminal.key_line(keys, width, first=f"{terminal.styled(arrow, 'dim')}  {page + 1} / "
-                                                f"{pages}  {terminal.styled(ahead, 'dim')}")
+    tone = ["amber" if need else "dim" for need in needs]
+    return terminal.key_line(keys, width, first=(
+        f"{terminal.styled(arrow, tone[0])}  {page + 1} / {pages}  "
+        f"{terminal.styled(ahead, tone[1])}" if arrows else f"{page + 1} / {pages}"))
 
 
 def turned(turns, page, cursor, step):

@@ -43,8 +43,9 @@ from agentkit import config, menu, orch, terminal, usage
 
 cfg = config.load()
 config.save_session(cfg, "alpha", "opus", ["opus", "astra"], {"cwd": "/", "created": 0})
-orch.listing = lambda reconcile=True: [
-    {"name": name, "repo": None, "path": "/", "created": 0} for name in ("alpha", "omega")]
+orch.listing = lambda reconcile=True: [   # alpha sits in ACME, whose heading has its switches
+    {"name": name, "repo": str(config.CODE / "ACME") if name == "alpha" else None, "path": "/",
+     "created": 0} for name in ("alpha", "omega")]
 notices = [os.environ["ESC_NOTICE"]] if os.environ.get("ESC_NOTICE") else []
 orch.job_notices = lambda: [notices.pop()] if notices else []
 orch.taken_names = lambda: {"alpha", "omega"}
