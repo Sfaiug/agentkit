@@ -156,6 +156,8 @@
   harness's plugin writes the MCP entry (`register_mcp`). For run, watch.
 - `macbridge.py`: `ak fetch` of Mac files: request, inbox, heartbeat, launchd agent. For
   bin/ak, menu, install.sh.
+- `helper.py`: a Mac (`suite_helper`) runs a sharded suite's pieces in sealed `container` VMs
+  while on power: `room`, `start` sends the tree, `piece` (exit `LOST`: lost), `finish`. For gate.
 - `host.py`: memory, load, CPUs, pressure, process/cgroup counters, `alive`, `process_identity`,
   and a process's stat and statm (`proc_stat`, `resident_bytes`); reads only, no agentkit
   imports. For config, orch, run, gate, status, job, watch, gc, record, history and worker.
@@ -201,6 +203,8 @@
   `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it looks at the seat
   again when its screen comes to rest, starts moving or its harness exits; it types nothing),
   `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
+- `tools/helper/`: helper.py's Mac side: `mac.sh` (probe, prepare, run, finish), `piece.sh`
+  (one piece in the VM, offline) and the image's `Containerfile`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
 - `tests/`: `landing.py` runs the static checks, then offline `smoke.sh` beside
