@@ -231,7 +231,7 @@ def _write(cache):
     tmp.replace(cache_path())
 
 
-def installed():
+def present():
     """Every harness present to run a turn, the ones whose models the matrix rows."""
     return sorted({name for name, _ in config.manifests() if config.harness_present(name)})
 
@@ -306,7 +306,7 @@ def matching(index, model, effort, benchmark=None):
 
 
 def rows(cfg, boards, harnesses):
-    """One row per model and effort `harnesses` (`installed`) offer, with the config name that
+    """One row per model and effort `harnesses` (`present`) offer, with the config name that
     runs it and the roles it runs it in, every board's numbers it matches and which board model
     and effort each came from."""
     indexes = {}
@@ -466,7 +466,7 @@ def refresh(cfg, *, refresh=False, now=None):
     boards = collect(refresh=refresh, now=now)
     held = stored()
     fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)
-    harnesses = installed()
+    harnesses = present()
     if (held.get("rows") is not None and held.get("computed_at", -1) >= fetched
             and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses):
         return boards, held["rows"]

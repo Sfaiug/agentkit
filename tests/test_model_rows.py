@@ -66,7 +66,7 @@ class ModelRows(Sandbox):
     def table(self):
         held = matrix.collect(now=10000)
         return {matrix.row_label(row): row
-                for row in matrix.rows(self.cfg, held, matrix.installed())}
+                for row in matrix.rows(self.cfg, held, matrix.present())}
 
     def test_a_row_per_effort_the_boards_list_or_the_config_runs(self):
         self.cfg["models"]["astra"]["exec_effort"] = "medium"
@@ -128,7 +128,7 @@ class ModelRows(Sandbox):
     def test_the_table_scores_the_rows_the_boards_make_and_names_the_rest(self):
         held = matrix.collect(now=10000)
         with patch.object(matrix.time, "time", return_value=10000):
-            table = matrix.scored(matrix.rows(self.cfg, held, matrix.installed()))
+            table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()))
             lines = [terminal.plain(line) for line in matrix.render(table, held).splitlines()]
         text = "\n".join(lines)
         self.assertEqual(lines[0].split()[:3], ["model", "harness", "id"])
@@ -153,7 +153,7 @@ class ModelRows(Sandbox):
         held = {"livebench.ai": {"rows": [{"model": "Acme Pro (0813)", "effort": None,
                                            "values": {"livebench.coding": 1.0}}]}}
         self.cfg["models"]["opus"]["benchmark"] = "Acme Pro (0813)"
-        table = [row for row in matrix.rows(self.cfg, held, matrix.installed())
+        table = [row for row in matrix.rows(self.cfg, held, matrix.present())
                  if row["name"] == "opus"]
         self.assertEqual(table[0]["matched"],
                          {"livebench.ai": {"model": "Acme Pro (0813)", "effort": None}})
