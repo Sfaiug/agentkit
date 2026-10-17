@@ -25,7 +25,7 @@ from pathlib import Path
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
                land as landing, orch, record as run_record, status, stop, task as taskfile,
                turns, usage, watch, worker, worktrees)
-from .deliver import (MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
+from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
 from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
@@ -1152,7 +1152,7 @@ def preflight(run_dir, opts, log):
             # waits for a slot, so its seat hears `split it` at once
             checkout = checkout_for(f"{owner}/{name}", log)
             head = info["headRefOid"]
-            fetch(checkout, "origin", f"pull/{number}/head", info["baseRefName"], check=True)
+            fetch_pr(checkout, number, info["baseRefName"], log)
             target_sha = git(checkout, "rev-parse", f"origin/{info['baseRefName']}^{{commit}}")
             base_sha = git(checkout, "merge-base", target_sha, head)
             why = (own_pr_first_review(checkout, url, number, base_sha, target_sha, head, run_dir)
@@ -1911,6 +1911,21 @@ def pr_view_past(url, info, stale):
     return info
 
 
+def fetch_pr(repo, number, base, log):
+    """GitHub can publish a PR before its pull ref: wait for that ref alone."""
+    ref = f"pull/{number}/head"
+    for tried in range(GITHUB_RETRIES + 1):
+        code, out = fetch(repo, "origin", ref, base)
+        if code == 0:
+            return
+        if out != f"fatal: couldn't find remote ref {ref}" or tried == GITHUB_RETRIES:
+            raise config.Error(f"git fetch origin {ref} {base} failed in {repo}: {out}")
+        delay = turns.transient_delay(tried + 1)
+        log(f"WARN GitHub has not published {ref}; fetching again in {delay}s "
+            f"({tried + 1}/{GITHUB_RETRIES})")
+        time.sleep(delay)
+
+
 def viewer_login():
     """This host's GitHub login, or None when gh cannot say.
 
@@ -2337,7 +2352,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if gc.disk_pressure():
         gc.gc(log)
     base, head = info["baseRefName"], info["headRefOid"]
-    fetch(repo, "origin", f"pull/{number}/head", base, check=True)
+    fetch_pr(repo, number, base, log)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")
     target_sha = git(repo, "rev-parse", f"origin/{base}^{{commit}}")
     base_sha = git(repo, "merge-base", target_sha, head)
