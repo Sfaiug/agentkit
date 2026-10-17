@@ -73,10 +73,14 @@ class Loop:
             gitcall.restore_probe_checkout(self, **probe)
 
     def role(self, name):
-        """The preamble this run's workers get: a scratch run has no commits to talk about."""
+        """The preamble this run's workers get: a scratch run has no commits to talk about.
+
+        A seat's own PR is reviewed as a task is: its writer is named in the task, and its
+        suite runs once at landing, which only the task reviewer's preamble says.
+        """
         if self.scratch:
             return f"{name}-scratch"
-        if name == "reviewer" and self.state.get("review_pr"):
+        if name == "reviewer" and self.state.get("review_pr") and not self.state.get("own_pr"):
             return "reviewer-pr"
         return name
 

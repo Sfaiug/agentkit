@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, deliver, gc, gitcall, handback, orch, run, watch, worktrees
+from agentkit import config, deliver, gc, gitcall, handback, orch, run, watch, worker, worktrees
 from agentkit import record
 from fixtures.hand_in import records
 
@@ -175,6 +175,34 @@ class OwnPr(unittest.TestCase):
         self.assertTrue(state["own_pr"])
         self.assertEqual(state["own_orchestrator"], "opus")
         self.assertEqual(events, ["COMMENT"])
+
+    def test_own_pr_reviewer_is_told_its_suite_runs_at_landing(self):
+        """An own PR's reviewer is not told the PR is another author's; another's still is."""
+        for author, own in ((LOGIN, True), ("other", False)):
+            with self.subTest(author=author):
+                run_dir = self.launch_dir(f"20260927-0020-preamble-{author}")
+                opts = {"--review": None, "--review-pr": URL}
+                told = []
+
+                def review(lp, *args, **kw):
+                    told.append(worker.PREAMBLES[lp.role("reviewer")])
+                    return self.review_pass(lp, *args, **kw)
+                with ExitStack() as mocks:
+                    for m in self.base_patches(author=author):
+                        mocks.enter_context(m)
+                    mocks.enter_context(patch.object(run, "review", side_effect=review))
+                    mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
+                    mocks.enter_context(patch.object(run, "gh_json", side_effect=self.gh_view()))
+                    mocks.enter_context(patch.object(gitcall, "gh", side_effect=self.posting_gh([])))
+                    mocks.enter_context(patch.object(deliver, "merge_lock",
+                                                     side_effect=lambda *a: nullcontext()))
+                    mocks.enter_context(patch.object(watch, "ask_inbox", return_value=0))
+                    with patch.dict(os.environ, {"AGENTKIT_SESSION": "fix-api"}):
+                        state = run.review_pr(self.cfg, run_dir, URL, opts, lambda line: None)
+                self.assertEqual(state["own_pr"], own)
+                self.assertEqual(len(told), 1)
+                self.assertEqual("by another author" in told[0], not own)
+                self.assertEqual("suite once at landing" in told[0], own)
 
     def test_own_pr_pass_joins_the_line_without_inbox(self):
         run_dir = self.launch_dir("20260927-0002-own-merge")
