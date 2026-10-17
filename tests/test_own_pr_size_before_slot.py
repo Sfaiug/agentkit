@@ -49,8 +49,9 @@ class OwnPrSizeBeforeSlot(OwnPr):
 
     def test_wording_a_reviewed_pr_and_somebody_elses_launch_whatever_their_size(self):
         self.git("checkout", "-qb", "notes", "main")
-        (self.repo / "notes.md").write_text("note\n" * 500)
-        self.git("add", "notes.md")
+        (self.repo / "docs").mkdir()
+        (self.repo / "docs/notes.md").write_text("note\n" * 500)
+        self.git("add", "docs/notes.md")
         self.git("commit", "-qm", "Notes")
         self.git("push", "-q", "--force", "origin", f"{self.git('rev-parse', 'HEAD')}:refs/heads/{BRANCH}")
         self.assertEqual(self.launch()[:2], (None, 1))
