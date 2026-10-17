@@ -3987,7 +3987,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     for at_row, name in enumerate(names):
         entry, note = config.model(cfg, name), notes[name]
         if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
-            lines.append(menu.model_heading(entry["provider"]))
+            lines.append(menu.model_heading(cfg, entry["provider"]))
         line = "  " + terminal.pad(menu.model_label(name, wide), wide)
         texts, builds = role_texts(selected, name, marks)
         own = []
