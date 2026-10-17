@@ -396,8 +396,18 @@ def recommended(table):
 
 
 LIVE_HEADERS = ("model", "orch", "exec", "review")
-# the run's column holding the effort the role ran it at; a review's effort is its review row's
-EFFORT_OF = {"orchestrate": "orchestrator_effort", "execute": "executor_effort"}
+
+
+def effort_of(row, role):
+    """The effort `role` ran the run at, off its row, None where unrecorded: the executor's as
+    the loop's save kept it; the PR writer's (`own_orchestrator`) as the launch receipt kept
+    the launching seat's orchestrator's, which is the writer's only where the writer's seat
+    launched the run -- a lease restart launches the writer's PR from the seat as it stands
+    since (`leases.restart`).  A review's effort is its review row's."""
+    if role == "execute":
+        return row.get("executor_effort")
+    writer_launched = row.get("orchestrator") == row.get("own_orchestrator")
+    return row.get("orchestrator_effort") if writer_launched else None
 
 
 def live(cfg, now=None):
@@ -421,7 +431,7 @@ def live(cfg, now=None):
         for role, column in (("orchestrate", "own_orchestrator"), ("execute", "executor")):
             for row in rows:
                 if row.get(column) == name:
-                    mine = counts.setdefault(row.get(EFFORT_OF[role]) or None, {})
+                    mine = counts.setdefault(effort_of(row, role) or None, {})
                     runs, in_first = mine.get(role, (0, 0))
                     mine[role] = (runs + 1, in_first + (row["run_id"] in first))
         entry = cfg["models"][name]

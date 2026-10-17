@@ -227,8 +227,9 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
-    goes, and every later write finds no row to change.  The orchestrator, and the effort it
-    runs at, are the launching seat's at the first write, whatever that seat runs by a resume.
+    goes, and every later write finds no row to change.  The orchestrator is the launching
+    seat's at the first write that names one, whatever that seat runs by a resume, and its
+    effort is that write's (unknown stays unknown: a resume's never stands in for it).
     `change` names the change the run belongs to (its PR, or the run it continues), which the
     scoreboard groups runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
     yet 0 and '', where a row from before they were recorded keeps NULL: unknown, not unbroken.
@@ -265,7 +266,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
             "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
-            "orchestrator_effort=COALESCE(runs.orchestrator_effort,excluded.orchestrator_effort), "
+            "orchestrator_effort=CASE WHEN runs.orchestrator IS NULL THEN excluded.orchestrator_effort "
+            "ELSE runs.orchestrator_effort END, "
             "change=COALESCE(excluded.change,runs.change)", values)
 
     _write(insert, log)

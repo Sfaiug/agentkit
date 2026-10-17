@@ -514,10 +514,11 @@ the run's row keeps, never the seat that launched a review of another's), the sh
 finished a review of, in any round and whatever became of the run since (its decision stood once given; a stopped run's
 never counts), by its harness and model id, the share whose round 1 it ended PASS (a review from before its round was
 recorded counts for nothing); each as `55% of 320`, `-` where it ran none. Every run records the effort each role ran it
-at, the entry's for that role at the time (`executor_effort` at the loop's save, `orchestrator_effort` at the launch
+at, the entry's for that role at the time (`executor_effort` at the executor's turn, `orchestrator_effort` at the launch
 receipt, the first write's as its orchestrator is, and each review's `effort` on its review row with its round and
 verdict), so a model's numbers are one row per effort (`opus @ max`, the strongest first), and its bare name holds the
-runs from before that was recorded. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+runs that recorded none: those from before, and a pull request its seat wrote that a lease restart launched from the seat
+running another model since. Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 
 ## The history
 

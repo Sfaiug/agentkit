@@ -102,7 +102,7 @@ class Loop:
         self.write()
         history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
                            executor=self.executor, reviewer=self.reviewer,
-                           executor_effort=config.worker_effort(self.cfg, self.executor, "executor"),
+                           executor_effort=self.state.get("executor_effort"),
                            rounds_used=len(self.state.get("round_summaries") or []),
                            session=transitions.launched_session(self.state), log=self.log)
 
@@ -1009,6 +1009,9 @@ def execute(lp, role, text, name):
         # read once the attempt ends, however it ends -- a refused, parked or killed turn spent
         # tokens too -- off its own model and directory, which a handover below moves on from
         model, attempt = lp.executor, out
+        # the effort this turn runs at (worker.py reads the same), kept on the record so a save
+        # from a later review or landing records what the executor ran at, not the config since
+        lp.state["executor_effort"] = config.worker_effort(lp.cfg, model, "executor")
         try:
             code, summary, lp.exec_sid, dead = turns.call_retrying(lp.cfg, lp.executor, body, lp.wt,
                                                              out, lp.role(role), lp.exec_sid,
