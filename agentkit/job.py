@@ -1127,6 +1127,17 @@ def reap_job(job_dir, job):
         return True  # uncertainty is never evidence of an exit
 
 
+def job_runs(job_dir, job, read=None):
+    """Every run of this job as (directory, record, or None where `read` finds none): named on
+    its receipt, or naming the job from its first write, before the scheduler files it there."""
+    read = read or record.read_state
+    named = {task.get("run_id") for task in job["tasks"]}
+    for run_dir in record.run_dirs():
+        state = read(run_dir)
+        if run_dir.name in named or (state or {}).get("job_id") == Path(job_dir).name:
+            yield run_dir, state
+
+
 def job_waiting(seat):
     """A live job this seat can wait on, even before any task has a run directory."""
     try:

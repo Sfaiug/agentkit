@@ -554,6 +554,7 @@ def gc_candidates(now=None):
     age = retention.PRESSURE_AGE if pressure else GC_AGE
     paths = retention.process_paths()
     left = leftovers()
+    yield from gone_jobs(now)
     for directory in retention.children(config.RUNS):
         candidates = []
         state = retention.read_json(directory / "run.json")
@@ -652,11 +653,6 @@ def gc_candidates(now=None):
         for directory in retention.children(config.JOBS):
             job = jobs.read_job_safely(directory)
             finished = (job or {}).get("finished_at")
-            if job and isinstance(job.get("tasks"), list) and job_aged_out(directory, job, now):
-                yield {"action": "stop", "kind": "gone-job", "path": str(directory),
-                       "job": str(directory), "why": "the job's launcher gone and nothing "
-                                                     f"written for {RUN_DIR_AGE // 86400} days"}
-                continue
             if (not job or not isinstance(job.get("tasks"), list) or not job["tasks"]
                     or not all(task.get("state") in jobs.JOB_TERMINAL for task in job["tasks"])
                     or not retention.expired(finished, now, age)
@@ -1135,14 +1131,32 @@ def run_aged_out(directory, state, now):
     return when <= now - RUN_DIR_AGE
 
 
+def gone_jobs(now):
+    """A stop for every job `job_aged_out` says nobody is coming back for.  Planned before any
+    run goes: the old-run rule's removal of a task's run would take its last write with it."""
+    if not retention.safe(config.JOBS):
+        return
+    for directory in retention.children(config.JOBS):
+        job = jobs.read_job_safely(directory)
+        if job and isinstance(job.get("tasks"), list) and job_aged_out(directory, job, now):
+            yield {"action": "stop", "kind": "gone-job", "path": str(directory),
+                   "job": str(directory), "why": "the job's launcher gone and nothing "
+                                                 f"written for {RUN_DIR_AGE // 86400} days"}
+
+
 def job_aged_out(directory, job, now):
     """Whether this job's launcher is gone and nothing was written for a run directory's age,
-    in the job's directory or any of its tasks' run directories: nobody is coming back for it.
+    in its directory or that of any run of it (`jobs.job_runs`): nobody is coming back for it.
+    A save left half done (`job.tmp`, `record.writing`) keeps it, as it keeps a finished job
+    and a run, and so does a link directly in any of those directories: the stop writes there.
     """
-    if jobs.reap_job(directory, job):
+    if jobs.reap_job(directory, job) or watch.run_last_write(directory) > now - RUN_DIR_AGE:
         return False
-    runs = [config.RUNS / task["run_id"] for task in job["tasks"] if task.get("run_id")]
-    return max(map(watch.run_last_write, [directory, *runs])) <= now - RUN_DIR_AGE
+    dirs = [directory, *(run_dir for run_dir, _ in jobs.job_runs(
+        directory, job, read=lambda run_dir: retention.read_json(run_dir / "run.json")))]
+    return (not retention.present(directory / "job.tmp") and not any(map(record.writing, dirs))
+            and all(retention.safe(path) for top in dirs for path in (top, *retention.children(top)))
+            and max(map(watch.run_last_write, dirs)) <= now - RUN_DIR_AGE)
 
 
 def session_lives(name):

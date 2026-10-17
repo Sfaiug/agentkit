@@ -357,9 +357,8 @@ def stop_job(job_dir, keep, *, why, owner_check=False, only_if=None, say=print):
 
     The launcher is ended under the job's lock, which every write of the receipt takes
     (`jobs.save_job`): it holds the receipt in memory and starts any task still queued, so it
-    is gone before the stop is written, and nothing writes the receipt back after.  A run
-    names its job from its first write, before the scheduler files it on the receipt, so its
-    own `job_id` finds it too.  A second stop ends whatever the first left going.
+    is gone before the stop is written, and nothing writes the receipt back after.  Its runs
+    are `jobs.job_runs`.  A second stop ends whatever the first left going.
     """
     with run_record.recovery_lock(job_dir):
         job = jobs.read_job(job_dir)
@@ -389,15 +388,11 @@ def stop_job(job_dir, keep, *, why, owner_check=False, only_if=None, say=print):
                                 verdict_line=f"{task['name']}: stopped")
             job["finished_at"] = time.time()
             jobs.save_job(job_dir, job)
-    named = {task.get("run_id") for task in job["tasks"]}
-    for run_dir in run_record.run_dirs():
-        state = run_record.read_state(run_dir)
+    for run_dir, state in jobs.job_runs(job_dir, job):
         if not state:
             # left as it is, as `cmd_stop` leaves one: a stop written over it loses what it held
-            if run_dir.name in named:
-                say(f"{run_dir.name}: cannot read {run_dir / 'run.json'}; left as it is")
-            continue
-        if (state.get("job_id") == job_dir.name or run_dir.name in named) and stoppable(state):
+            say(f"{run_dir.name}: cannot read {run_dir / 'run.json'}; left as it is")
+        elif stoppable(state):
             state = end(run_dir, keep=keep, why=why, owner_check=owner_check)
             if state:
                 say(stop_line(run_dir.name, state.get("branch"), state.get("stop_kept", False)))

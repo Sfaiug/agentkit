@@ -44,15 +44,17 @@ class GoneJobsStopped(Sandbox):
                             {"name": "fix-api-2.md", "state": "running", "run_id": "fix-api-2"},
                             {"name": "fix-api-3.md", "state": "queued", "run_id": None}])
         self.job(RECENT, 2, [{"name": "fix-ui-1.md", "state": "running", "run_id": "fix-ui-1"}])
-        self.job(WRITTEN, 35, [{"name": "fix-web-1.md", "state": "running", "run_id": "fix-web-1"}])
+        # its run ended by its record, so the old-run rule takes it in the same pass
+        self.job(WRITTEN, 35, [{"name": "fix-web-1.md", "state": "running", "run_id": "fix-web-1"}],
+                 run_state="pass")
         log = config.RUNS / "fix-web-1" / "log.txt"
         log.write_text("still at it\n")
         os.utime(log, (self.now - DAY, self.now - DAY))
         self.before = {name: jobs.receipt_path(config.JOBS / name).read_bytes()
                        for name in (RECENT, WRITTEN)}
 
-    def job(self, name, days, tasks):
-        """A job and its tasks' runs, all still going by their records, last written `days` ago."""
+    def job(self, name, days, tasks, run_state="running"):
+        """A job and its running tasks' runs, all last written `days` ago."""
         at = self.now - days * DAY
         directory = config.JOBS / name
         directory.mkdir(parents=True)
@@ -65,8 +67,9 @@ class GoneJobsStopped(Sandbox):
                 run_dir = config.RUNS / task["run_id"]
                 run_dir.mkdir()
                 record.save_state(run_dir, {
-                    "run_id": task["run_id"], "state": "running", "pid": 4241,
-                    "started_at": at, "launched_session": "gone-seat", "job_id": name,
+                    "run_id": task["run_id"], "state": run_state, "pid": 4241,
+                    "started_at": at, "finished_at": None if run_state == "running" else at,
+                    "launched_session": "gone-seat", "job_id": name,
                     "branch": f"ak/{task['run_id']}"})
                 written.append(run_dir)
         for top in written:
@@ -88,6 +91,7 @@ class GoneJobsStopped(Sandbox):
         self.kill.assert_not_called()
         for name, receipt in self.before.items():
             self.assertEqual(jobs.receipt_path(config.JOBS / name).read_bytes(), receipt, name)
+        self.assertFalse((config.RUNS / "fix-web-1").exists())   # the old-run rule's, after
         later = self.now + gc.GC_AGE + 60
         self.assertEqual([item["job"] for item in gc.gc_candidates(now=later)
                           if item.get("kind") == "finished-job"], [str(directory)])
@@ -102,6 +106,24 @@ class GoneJobsStopped(Sandbox):
             self.assertEqual(gc.gc(lambda _message: None), [])
         self.assertEqual(jobs.receipt_path(directory).read_bytes(), receipt)
         self.assertEqual(record.read_state(config.RUNS / "fix-api-2")["state"], "running")
+
+    def test_a_job_whose_stop_would_write_through_a_link_or_a_half_save_stays_as_it_is(self):
+        directory = config.JOBS / GONE
+        receipt = jobs.receipt_path(directory).read_bytes()
+        victim = self.root / "owner-notes.txt"
+        victim.write_text("the owner's\n")
+        os.utime(victim, (self.now - 31 * DAY, self.now - 31 * DAY))
+        for planted in (directory / "job.tmp", config.RUNS / "fix-api-2" / "result.md"):
+            with self.subTest(planted=planted.name):
+                planted.symlink_to(victim)
+                gc.gc(lambda _message: None)
+                planted.unlink()
+                self.assertEqual(jobs.receipt_path(directory).read_bytes(), receipt)
+                self.assertEqual(victim.read_text(), "the owner's\n")
+        (directory / "job.tmp").write_text("{}")   # a save its launcher never finished
+        os.utime(directory / "job.tmp", (self.now - 31 * DAY, self.now - 31 * DAY))
+        gc.gc(lambda _message: None)
+        self.assertEqual(jobs.receipt_path(directory).read_bytes(), receipt)
 
 
 if __name__ == "__main__":
