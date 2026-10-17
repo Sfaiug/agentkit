@@ -873,11 +873,7 @@ def seat_tasks(name, records=None, now=None, index=None):
         if transitions.landing_line(state):
             found.append((2, "waiting"))
         elif state.get("state") == "running":
-            # its loop marks, with its own pid, sleeping out a provider's transient wait and
-            # waiting for a heavy suite turn or another delivery's turn at its repository
-            pid, wait = state.get("pid"), state.get("transient_wait") or {}
-            paused = (gate.gate_turn_note(state) or (pid and state.get("delivery_wait") == pid)
-                      or (wait.get("pid") == pid and (wait.get("until") or 0) > now))
+            paused = gate.gate_turn_note(state) or watch.loop_wait(state) > now
             found.append((stage, "waiting" if paused else "moving"))
         elif transitions.going(state, now=now):
             found.append((stage, "waiting"))

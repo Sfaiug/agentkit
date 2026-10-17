@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import config, menu, terminal  # noqa: E402
+from agentkit import config, menu, record, terminal  # noqa: E402
 
 SEAT = "acme-api"
 NOW = 1_800_000_000
@@ -58,8 +58,9 @@ class CrewAndSquares(Sandbox):
                 gate_turn={"pid": 42, "of": "acme", "since": NOW}),
             run("g4-delivery", state="running", step="merge", pid=42, delivery_wait=42),
         ]
-        self.assertEqual(menu.seat_tasks(SEAT, records, NOW),
-                         [(0, "moving"), (0, "waiting"), (0, "waiting"), (2, "waiting")])
+        with patch.object(record, "process_active", return_value=True):
+            self.assertEqual(menu.seat_tasks(SEAT, records, NOW),
+                             [(0, "moving"), (0, "waiting"), (0, "waiting"), (2, "waiting")])
 
     def test_squares_fill_the_stages_reached_and_count_what_does_not_fit(self):
         tasks = [(0, "moving"), (1, "waiting"), (2, "failed")]

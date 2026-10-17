@@ -4420,20 +4420,28 @@ def stall_clock(run_dir, state):
     A freeze stops every write a run could make, so the silence under one is the host's and
     not the run's; the clock starts again where the freeze was lifted, never where it began.
     A transient wait is the loop's own -- up to an hour at a time, on a provider that is down,
-    writing nothing -- so the clock starts where that wait ends (`turns.transient_wait`).  Only
-    the loop that recorded the wait is owed it: a resume after its death is a new loop, and
-    its silence is its own. A live loop waiting for another delivery's repository lock is
-    silent for as long as that takes, so its clock starts now, every tick, until the wait
-    is over.
+    writing nothing -- so the clock starts where that wait ends (`loop_wait`). A live loop
+    waiting for another delivery's repository lock is silent for as long as that takes, so its
+    clock starts now, every tick, until the wait is over.
     """
+    until = loop_wait(state)
+    if until == math.inf:
+        return time.time()
+    return max(run_last_write(run_dir), state.get("thawed_at") or 0, until)
+
+
+def loop_wait(state):
+    """Until when this run's own loop waits, else 0: the end of the transient wait it is
+    sleeping out (`turns.transient_wait`), or `math.inf` while it waits for another delivery's
+    repository lock.  Only the loop that recorded the wait is owed it: a resume after its death
+    is a new loop, and its silence is its own."""
     delivery_wait = state.get("delivery_wait")
     if (delivery_wait and delivery_wait == state.get("pid") and state.get("state") == "running"
             and run_record.process_active(state)):
-        return time.time()
+        return math.inf
     wait = state.get("transient_wait")
-    until = (wait.get("until") or 0) if (isinstance(wait, dict)
-                                         and wait.get("pid") == state.get("pid")) else 0
-    return max(run_last_write(run_dir), state.get("thawed_at") or 0, until)
+    return (wait.get("until") or 0) if (isinstance(wait, dict)
+                                        and wait.get("pid") == state.get("pid")) else 0
 
 
 def note_freeze(run_dir, frozen, now):
