@@ -1159,6 +1159,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
     Callers keep one command and one outcome. Each piece has its own silence window;
     all attempts share the command's ceiling, and live output identifies its piece.
+    A red piece that named its failed tests (`AK_FAILED`) retries just those first (`AK_ONLY`).
     With `shard` (`k/N`) one piece runs alone with that share set, as the lander probes the
     target's tip: on one turn, never split again, measuring nothing, its cost the suite's.
     `pieces`, a dict, gets each piece's exit as the runner saw it, by share -- None for one
@@ -1198,11 +1199,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
         with ExitStack() as files:
             results = []
-            def attempt(shard):
+            def attempt(shard, only=None):
+                """The piece of `shard`, or with `only` just those of its tests, as one share."""
                 run_record.stop_check(run_dir)
                 piece = files.enter_context(tempfile.NamedTemporaryFile(
                     dir=activity.parent, prefix=f"{activity.stem}-piece-", suffix=".log"))
-                header = f"--- AK_SHARD={shard} ---\n".encode()
+                label = shard if only is None else f"{shard}, its failed tests alone"
+                header = f"--- AK_SHARD={label} ---\n".encode()
 
                 class Output:
                     def __init__(self):
@@ -1210,9 +1213,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
                     def emit(self, data):
                         nonlocal last_shard
-                        output.write((header if last_shard != shard else b"") + data)
+                        output.write((header if last_shard != label else b"") + data)
                         output.flush()
-                        last_shard = shard
+                        last_shard = label
 
                     def write(self, data):
                         with writing:
@@ -1247,17 +1250,17 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 left = deadline - time.monotonic()
                 if left <= 0:
                     cancel.set()
-                    return worker.TIMEOUT, piece, True
-                stream = Output()
+                    return worker.TIMEOUT, piece, True, []
+                stream, tests = Output(), []
                 try:
                     code, _, killed = worker.boxed(
                         ["bash", "-c", command], left,
-                        cwd=str(cwd), activity=Path(piece.name),
-                        output=stream, env={**env, "AK_SHARD": shard}, abort=abort,
-                        on_timeout=stopped, cpu=measure.cpu, **kwargs)
+                        cwd=str(cwd), activity=Path(piece.name), output=stream,
+                        env={**env, "AK_SHARD": shard if only is None else "1/1"}, abort=abort,
+                        on_timeout=stopped, cpu=measure.cpu, only=only, failed=tests, **kwargs)
                 finally:
                     stream.finish()
-                return code, piece, killed
+                return code, piece, killed, tests
 
             with ThreadPoolExecutor(max_workers=count) as pool:
                 try:
@@ -1267,16 +1270,16 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 except BaseException:
                     cancel.set()
                     raise
-            if not any(killed or code == SUITE_BUSY for code, _, killed in results):
+            if not any(killed or code == SUITE_BUSY for code, _, killed, _ in results):
                 measure.save(path, count)
             hold = getattr(_GATE_HELD, "hold", None)
             if hold is not None:
                 hold.alone()
             chunks, red, flakes = [], [], []
-            for index, (code, piece, killed) in enumerate(results, 1):
+            for index, (code, piece, killed, tests) in enumerate(results, 1):
                 shard = f"{index}/{count}"
-                failed = None
-                while code and not killed and not cancel.is_set():
+                failed = only = alone = None
+                while not killed and not cancel.is_set():
                     if code == SUITE_BUSY:
                         queued = busy_turn(run_dir, activity, log, command, cwd)
                         deadline += queued
@@ -1286,21 +1289,36 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         if hold is not None:
                             hold.alone()
                         env = suite_env()
+                    elif only is not None:
+                        # Failing again alone, the tests the piece named confirm it red in a
+                        # fraction of its time; passing, the whole piece decides, as a failure
+                        # can need the tests that ran before it.
+                        alone = ("its failed tests failed again, run alone" if code else
+                                 "its failed tests passed run alone: the failure needs the "
+                                 "tests that ran before them")
+                        if code:
+                            break
+                        only = None
+                    elif not code:
+                        break
                     elif failed is None:
                         piece.seek(0)
                         failed = piece.read()
+                        only = tests or None
                     else:
                         break
-                    code, piece, killed = attempt(shard)
+                    code, piece, killed, tests = attempt(shard, only)
                 if failed is not None and code == 0:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
                                                piece.read(), activity, run_dir, log))
-                results[index - 1] = code, piece, killed
+                results[index - 1] = code, piece, killed, tests
                 piece.seek(0, os.SEEK_END)
                 size = piece.tell()
                 piece.seek(max(0, size - turns.OUT_CAP))
                 text = piece.read().decode("utf-8", errors="replace").rstrip()
+                if code and not killed and alone:
+                    text = f"{alone}\n{text}"
                 # Existing failure diagnostics read the last output; leave a red piece last.
                 (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
                     f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
@@ -1309,9 +1327,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             output.flush()
             if pieces is not None:
                 pieces.update({f"{index}/{count}": None if killed else code
-                               for index, (code, _, killed) in enumerate(results, 1)})
-            return next((code for code, _, _ in results if code), 0), text, any(
-                killed for _, _, killed in results)
+                               for index, (code, _, killed, _) in enumerate(results, 1)})
+            return next((code for code, _, _, _ in results if code), 0), text, any(
+                killed for _, _, killed, _ in results)
 
 
 def _running_commands(pid):
