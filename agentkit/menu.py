@@ -2882,8 +2882,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     clicked; a cell that only explains is none.  The pointer does the same and acts on nothing,
     the cell it is on lit.  `act` is
     `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
-    resize, the pointer, or `timeout` seconds with no key -- a character key's character, and
-    any other key's name.
+    resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
+    key-line item's too (`r recommended`), and any other key's name.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
@@ -2919,8 +2919,10 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
             here, column = spot.what, None if isinstance(spot.cell, tuple) else spot.cell
         if act == "point":
             return None, here, column, top
-        if spot.what is None:
-            return "back" if spot.cell == "esc" else "", here, None, top
+        if spot.what is None:         # a key-line item does what its key does
+            item = spot.cell or ""
+            return ("back" if item == "esc" else item if len(item) == 1 and item.isalpha()
+                    else ""), here, None, top
         # a row runs its step; on Providers only a click on one of its two acts does
         act = "enter" if here[0] == "row" and here != PROVIDERS else ""
         if column is not None:
@@ -3944,8 +3946,9 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p`: the seats you stopped, each with its number, its project and how
     long ago, for the one you want back.  ↑/↓, k/j and the wheel move the highlight; Enter or a
     click reopens one where it stopped (`open_session`, what its number does on the main screen)
-    and the menu is back; `x` removes the highlighted one at once (`close_seat`, the second
-    stop), the rest staying up; Esc goes back.  From a pipe a number reopens, `x` asks which to
+    and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
+    (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
+    while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
     remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
     """
     here, top = None, 0
@@ -3993,7 +3996,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             open_session(cfg, next(session for _, session in past if session["name"] == here),
                          dry_run)
             return
-        if act == "x":
+        if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
             close_seat(here, dry_run)
             keyboard.take()

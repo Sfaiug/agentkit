@@ -26,7 +26,7 @@ import time
 import types
 import unittest
 from contextlib import redirect_stdout
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -412,6 +412,19 @@ class Screens(Sandbox):
         self.assertEqual(marked(screens[-1], "lit"), {})    # and one off it puts it out
         last = run(screen, move(*keys), ESC, depth=8)[1][-1]
         self.assertEqual(marked(last, "reverse"), {keys[1]: "esc back"})    # eight colours
+
+    def test_x_remove_clicked_with_the_highlight_out_brings_it_back_and_the_next_removes(self):
+        seats = [{"name": name, "repo": None, "closed": 1} for name in ("alpha", "beta")]
+        closed = self.stack.enter_context(patch.object(menu, "close_seat"))
+
+        def screen():
+            return menu.show_past({}, seats, keyboard=Mock())
+        col, row = at(run(screen, ESC)[1][0], "x remove")
+        click = f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode()
+        screens = run(screen, move(col, row), click, click, ESC)[1]
+        hidden = next(number for number, grid in enumerate(screens) if not highlighted(grid))
+        self.assertIn("alpha", highlighted(screens[hidden + 1])[0])     # the first click
+        self.assertEqual(closed.call_args_list, [call("alpha", False)])    # and the second
 
     def test_a_question_typed_on_a_screen_lights_its_key_line(self):
         def typed():
