@@ -866,16 +866,20 @@ def land_from_line(lp, upstream, deliver):
                                            "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip)}
                 lp.write()
                 result = deliver()
-                if "fix" not in lp.state.get("waiting_on", {}):
-                    if result:
-                        lp.state.pop("waiting_on", None)
-                        forget_landing_counts(lp.state)
-                        lp.write()
-                    return result
+                if "fix" in lp.state.get("waiting_on", {}):
+                    # Red required checks need a fixer, which this attempt was admitted without
+                    # weighing (`gate.claim_slot`): it parks on that verdict for the lander's wake.
+                    lp.state["state"] = "waiting"
+                    lp.write()
+                    return False
+                if result:
+                    lp.state.pop("waiting_on", None)
+                    forget_landing_counts(lp.state)
+                    lp.write()
+                return result
         finally:
             # Departures and changed-target rejoins were written under this flock.
             landing.start_line(turn, lp.log)
-        wait = lp.state["waiting_on"]
     if "fix" not in wait:
         return rejoin_line(lp, upstream, "waiting for the lander")
     failure = wait["fix"]

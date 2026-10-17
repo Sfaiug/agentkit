@@ -171,8 +171,12 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.review(directory, url)
         land.check_line(self.turn)
         self.assertIn("land", self.wait(directory))
-        with patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")), \
-                self.fixer(url, rename=False):
+        with patch.object(deliver, "checks", return_value=(False, "required checks failed: fence")):
+            self.review(directory, url)
+        # Parked on the fix: its fixer waits for a fix's admission, on the lander's wake.
+        self.assertIn("fix", self.wait(directory))
+        land.check_line(self.turn)
+        with self.fixer(url, rename=False):
             state = self.review(directory, url)
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(len(state["round_summaries"]), 1)

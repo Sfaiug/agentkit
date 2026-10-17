@@ -253,24 +253,8 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
     return None, None
 
 
-def claim_slot(state, limit, readings=None):
-    """Called under slot_lock: count, FIFO and two steady host polls decide admission."""
-    running, ahead, others = slot_counts(state)
-    # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
-    ungated = os.environ.get("AK_MAX_RUNS") == "0"
-    if state.get("run_depth", 0) or ungated:
-        state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
-                     **run_record.process_owner())
-        state.pop("resume_from", None)
-        return True
-    _save_queue(running, others[:ahead] + [state.get("run_id")] + others[ahead:])
-    is_first = not slot_order(state)[0]
-    if ahead or (limit and running >= limit and not is_first):
-        state["slot_waited"] = True
-        state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
-        state["slot_wait_kind"] = "count"
-        state["slot_healthy_polls"] = 0
-        return False
+def _host_admits(state, readings, is_first):
+    """The host gates and two steady polls: False, the wait written on `state`, while one holds."""
     readings = host.host_readings(slice_dir=orch.slice_cgroup) if readings is None else readings
     minimum, maximum = resource_limits(readings)
     if is_first:
@@ -314,6 +298,32 @@ def claim_slot(state, limit, readings=None):
             state["slot_wait_reason"] = (
                 f"waiting for steady readings · {host._g(free)} G free, "
                 f"ak cpu pressure {_pct(pressure)}")
+        return False
+    return True
+
+
+def claim_slot(state, limit, readings=None):
+    """Called under slot_lock: count, FIFO and two steady host polls decide admission."""
+    running, ahead, others = slot_counts(state)
+    # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
+    ungated = os.environ.get("AK_MAX_RUNS") == "0"
+    if state.get("run_depth", 0) or ungated:
+        state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
+                     **run_record.process_owner())
+        state.pop("resume_from", None)
+        return True
+    _save_queue(running, others[:ahead] + [state.get("run_id")] + others[ahead:])
+    is_first = not slot_order(state)[0]
+    if ahead or (limit and running >= limit and not is_first):
+        state["slot_waited"] = True
+        state["slot_wait_reason"] = slot_line(running, ahead, limit, is_first)
+        state["slot_wait_kind"] = "count"
+        state["slot_healthy_polls"] = 0
+        return False
+    # A green delivery only merges a tree its line already checked: it spends no headroom a
+    # gate guards, and every member behind it in the line waits on it.
+    if not landing.green_delivery(state.get("waiting_on") or {}) and not _host_admits(
+            state, readings, is_first):
         return False
     _save_queue(running + 1, others)
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
