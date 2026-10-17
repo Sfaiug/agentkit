@@ -1637,7 +1637,9 @@ def _intent(name, done_at):
     unknown, and the done still the next one's boundary, with no message of theirs since, where
     the harness reads no messages or cannot read them now, and for the first done of a
     conversation begun before dones were kept: its earlier dones were never recorded, and a
-    notice keeps only a seat's latest."""
+    notice keeps only a seat's latest.  A known start keeps the runs the seat started from it
+    to the done."""
+    from . import menu
     seat = conversation_of(name)
     if seat is None:
         return
@@ -1648,8 +1650,15 @@ def _intent(name, done_at):
     asked = [at for at in owner_said(name, seat) if at <= done_at]
     last, since = known
     fresh = [at for at in asked if last is None or at > last]
-    unknown = not fresh or (last is None and min(asked) < since)
-    history.done(f"{plugin.name}:{conversation}", done_at, None if unknown else min(fresh))
+    if not fresh or (last is None and min(asked) < since):
+        history.done(f"{plugin.name}:{conversation}", done_at, None)
+        return
+    began = min(fresh)
+    # the runs the seat started for it, whose going live is the intent's
+    history.done(f"{plugin.name}:{conversation}", done_at, began,
+                 [directory.name for directory, state in menu.run_records()
+                  if transitions.launched_session(state) == name
+                  and began <= (state.get("started_at") or 0) <= done_at])
 
 
 def ask_kept(name, ended=False):

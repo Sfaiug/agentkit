@@ -22,7 +22,7 @@ PARTS = (("model", ("executor", "reviewer")), ("ak", ("done-when", "merge")),
 MEASURES = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
-    ("intent", "intent", ("measured", "hours")),
+    ("intent", "intent", ("measured", "hours", "live", "live_hours")),
     ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
@@ -46,6 +46,7 @@ LOSSES = (
     ("ak's runs ended without merging", "ak", "unmerged", True, "%"),
     ("ak's runs merged in round 1", "ak", "first_round", False, "%"),
     ("hours from the owner's first message to done", "intent", "hours", True, "h"),
+    ("hours from the owner's first message to live", "intent", "live_hours", True, "h"),
     ("hours to merge a product run", "products", "hours", True, "h"),
     ("hours to merge a run on ak", "ak", "hours", True, "h"),
     ("run time waiting for a slot or a suite turn", "waits", "compute", True, "%"),
@@ -276,10 +277,14 @@ def compute(now=None):
             "asked": sum(kind == "asked" for kind, _ in kinds),
             "paged": sum(kind == "paged" for kind, _ in kinds),
             "hours": median(answers) if answers else None})
-        # the time the owner feels: from their first message of an intent to the done that ends it
-        took = [(at - began) / 3600 for at, began in dones or () if began is not None and in_week(at, end)]
-        intent.append(None if dones is None else {"measured": len(took),
-                                                  "hours": median(took) if took else None})
+        # the time the owner feels: from their first message of an intent to the done that ends
+        # it, and to the last of its changes live
+        known = [(at, began, live) for at, began, live in dones or () if began is not None and in_week(at, end)]
+        took = [(at - began) / 3600 for at, began, _ in known]
+        lived = [(live - began) / 3600 for _, began, live in known if live is not None]
+        intent.append(None if dones is None else {
+            "measured": len(took), "hours": median(took) if took else None,
+            "live": len(lived), "live_hours": median(lived) if lived else None})
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
@@ -417,8 +422,11 @@ def render(board=None):
             return "not recorded"
         if not stats["measured"]:
             return "no intent measured"
-        return (f"{stats['measured']} intents measured, median {stats['hours']:.1f} hours from the "
+        text = (f"{stats['measured']} intents measured, median {stats['hours']:.1f} hours from the "
                 "owner's first message to done")
+        if stats["live"]:
+            text += f"; {stats['live']} live, median {stats['live_hours']:.1f} hours to live"
+        return text
 
     def owner(stats):
         if stats is None:

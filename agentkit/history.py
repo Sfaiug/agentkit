@@ -124,6 +124,15 @@ CREATE TABLE IF NOT EXISTS dones (
 )
 """
 KEPT_SCHEMA = "CREATE TABLE IF NOT EXISTS kept (since REAL)"
+# The runs a seat started between its owner's first message and its done, one row each: the
+# changes whose going live is the intent's.
+DONE_RUNS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS done_runs (
+    conversation TEXT,
+    at REAL,
+    run_id TEXT
+)
+"""
 
 
 def path():
@@ -152,6 +161,7 @@ def _connect(*, readonly=False):
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
+    connection.execute(DONE_RUNS_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("reviews", REVIEW_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
@@ -465,20 +475,36 @@ def last_done(conversation):
         (conversation,)).fetchone())
 
 
-def done(conversation, at, began, *, log=None):
-    """A seat's done in that conversation, and the owner's first message since its previous one."""
-    _write(lambda connection: connection.execute(
-        "INSERT INTO dones (conversation, at, began) VALUES (?, ?, ?)", (conversation, at, began)), log)
+def done(conversation, at, began, runs=(), *, log=None):
+    """A seat's done in that conversation, the owner's first message since its previous one, and
+    the runs the seat started in between."""
+    def insert(connection):
+        connection.execute("INSERT INTO dones (conversation, at, began) VALUES (?, ?, ?)",
+                           (conversation, at, began))
+        connection.executemany("INSERT INTO done_runs (conversation, at, run_id) VALUES (?, ?, ?)",
+                               [(conversation, at, run) for run in runs])
+    _write(insert, log)
 
 
 def dones(since, until):
-    """The dones in the inclusive range, `(at, began)` as `done` wrote them; None where the
-    database cannot answer."""
+    """The dones in the inclusive range, `(at, began, live)`: `live` once each of its runs has
+    ended and each that passed is live, the last of them; None while one runs, where one passed
+    without going live (no merge, or no `health:` to prove it), a run has no row, or none
+    passed.  None where the database cannot answer."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                return connection.execute("SELECT at, began FROM dones WHERE at >= ? AND at <= ?",
+                # a read connection makes no table: a history no write has met since done_runs
+                # came still shows its dones, none of them known live
+                live = ("(SELECT CASE WHEN SUM(runs.finished_at IS NULL) "
+                        "OR SUM(runs.final_state = 'pass' AND runs.live_at IS NULL) THEN NULL "
+                        "ELSE MAX(CASE WHEN runs.final_state = 'pass' THEN runs.live_at END) END "
+                        "FROM done_runs LEFT JOIN runs USING (run_id) "
+                        "WHERE done_runs.conversation = dones.conversation AND done_runs.at = dones.at)"
+                        if connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'done_runs'").fetchone()
+                        else "NULL")
+                return connection.execute(f"SELECT at, began, {live} FROM dones WHERE at >= ? AND at <= ?",
                                           (since, until)).fetchall()
             finally:
                 connection.close()
