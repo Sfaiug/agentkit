@@ -405,8 +405,9 @@ def restart(log=print, now=None):
     (`holds`: waiting on a person or a provider window) -- its task
     naming its repository and the new run (`task_naming`), with a fix run's regression folder and
     receipt (`CARRIED`), or a pull request's review as that review again (`--review-pr`), with
-    the writer the stopped run captured at its launch (`own_pr`, `own_orchestrator`: the seat
-    may run another model by now), a new run of its seat (`run.launch_for_seat`).  The stopped
+    the writer the stopped run captured at its launch (`own_pr`, `own_orchestrator` and its
+    effort: the seat may run another model, or the same at another effort, by now), a new run
+    of its seat (`run.launch_for_seat`).  The stopped
     run names the new one first, and the launch follows, under the lock a stop and a seat's
     close take (as `handback.start_followups` holds it), so a stop before it calls it off, a
     closed seat gets none, and none starts twice whatever the launch did."""
@@ -441,7 +442,8 @@ def restart(log=print, now=None):
             review = state.get("review_pr")
             try:
                 if review:
-                    carried = {key: state.get(key) for key in ("own_pr", "own_orchestrator")}
+                    carried = {key: state.get(key) for key in
+                               ("own_pr", "own_orchestrator", "own_orchestrator_effort")}
                     kept = f"the review of {review} starts again on the landed base"
                 else:
                     (directory / "task.md").write_text(

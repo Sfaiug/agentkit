@@ -70,7 +70,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
-              ("own_orchestrator", "TEXT"))
+              ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
+              ("own_orchestrator_effort", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -99,8 +100,8 @@ CREATE TABLE IF NOT EXISTS reviews (
 )
 """
 # One finished review per row: the identity that ran it, its weighed counts, and since these
-# columns its round and the round's verdict (`record_review`).
-REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"))
+# columns its round, the round's verdict and the effort it ran at (`record_review`).
+REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"), ("effort", "TEXT"))
 
 # The owner's time, one row per moment and no seat named: each is whole when written, so no
 # rename, reused name or order of hooks can change it later.
@@ -287,7 +288,8 @@ def _update(connection, run_id, fields):
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator"}
+               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
+               "executor_effort", "own_orchestrator_effort"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -369,18 +371,18 @@ def add_tokens(run_id, role, tokens, *, log=None):
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
-                  log=None):
-    """Keep one finished review's weighed counts, its round and the round's verdict (the
-    review's, after ak's overrides), including landing reviews in the same round.
+                  effort=None, log=None):
+    """Keep one finished review's weighed counts, its round, the round's verdict (the review's,
+    after ak's overrides) and the effort it ran at, including landing reviews in the same round.
 
     Its output directory identifies it, so recording it again cannot count it twice; only
     runs already recorded in history can contribute.
     """
     _write(lambda connection: connection.execute(
         "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note, "
-        "round, verdict) SELECT run_id, ?,?,?,?,?,?,?,? FROM runs WHERE run_id=? "
+        "round, verdict, effort) SELECT run_id, ?,?,?,?,?,?,?,?,? FROM runs WHERE run_id=? "
         "ON CONFLICT(run_id, review_id) DO NOTHING",
-        (review_id, harness, model, blocking, followup, note, round, verdict, run_id)), log)
+        (review_id, harness, model, blocking, followup, note, round, verdict, effort, run_id)), log)
 
 
 def review_counts(harness, model):
@@ -401,24 +403,26 @@ def review_counts(harness, model):
 
 def reviewed_runs(harness, model):
     """Of the runs the identity finished a review of, in whichever round and whatever became of
-    the run since (its decision stood once given; a stopped run's never counts, `REAL_WORK`):
-    how many, and how many it let through in round 1 (a round-1 review of its ended PASS).  A
-    review from before its round was recorded counts for nothing."""
+    the run since (its decision stood once given; a stopped run's never counts, `REAL_WORK`),
+    per effort it reviewed at (None for a review from before efforts were recorded): how many,
+    and how many it let through in round 1 (a round-1 review of its ended PASS).  A review from
+    before its round was recorded counts for nothing."""
     _ensure_migrated()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                return connection.execute(
-                    "SELECT COUNT(DISTINCT run_id), "
+                counted = connection.execute(
+                    "SELECT reviews.effort, COUNT(DISTINCT run_id), "
                     "COUNT(DISTINCT CASE WHEN reviews.round=1 AND reviews.verdict='PASS' "
                     "THEN run_id END) FROM reviews JOIN runs USING (run_id) "
-                    f"WHERE harness=? AND model=? AND reviews.round IS NOT NULL AND {REAL_WORK}",
-                    (harness, model)).fetchone()
+                    f"WHERE harness=? AND model=? AND reviews.round IS NOT NULL AND {REAL_WORK} "
+                    "GROUP BY reviews.effort", (harness, model))
+                return {effort: (runs, let_through) for effort, runs, let_through in counted}
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
-        return (0, 0)
+        return {}
 
 
 def merged(row):
@@ -549,19 +553,21 @@ def close_step(run_id, at=None, *, keep=False, log=None):
 def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
-               changed_lines=None, rules_bytes=None, own_orchestrator=None, log=None):
+               changed_lines=None, rules_bytes=None, own_orchestrator=None,
+               own_orchestrator_effort=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
-    model whose seat wrote the pull request the run reviewed (`run.pr_writer`), none for
-    another's or a task.
+    model whose seat wrote the pull request the run reviewed and `own_orchestrator_effort` the
+    effort it was captured at (`run.pr_writer`), none for another's or a task.
     """
     finished_at = time.time() if finished_at is None else finished_at
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
-              "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator}
+              "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
+              "own_orchestrator_effort": own_orchestrator_effort}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 

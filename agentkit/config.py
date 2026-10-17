@@ -780,6 +780,14 @@ def role_effort(entry, role):
     return entry.get(ROLE_EFFORTS[role], entry["effort"])
 
 
+def worker_effort(cfg, name, role):
+    """The effort the model entry `name` runs `role` at, or None where `name` is no entry."""
+    try:
+        return role_effort(model(cfg, name), role) if name else None
+    except (Error, KeyError):       # no such entry, or a config that configures no models
+        return None
+
+
 def model_label(entry):
     """The model id to show for one entry, for a model that names no id too.
 

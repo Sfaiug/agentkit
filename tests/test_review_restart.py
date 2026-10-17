@@ -33,7 +33,7 @@ class ReviewRestart(LiveRuns):
         self.run_on(YOUNGER, 1000, step=None, rounds=0, session="seat-b")
         record.save_state(config.RUNS / YOUNGER, {
             **self.state(YOUNGER), "state": "stopped", "review_pr": URL, "pr": URL,
-            "own_pr": True, "own_orchestrator": "opus",
+            "own_pr": True, "own_orchestrator": "opus", "own_orchestrator_effort": "high",
             "launch_opts": {"--review-pr": URL, "--review": None, "--bg": True},
             "lease_wait": {"on": OLDER, "files": ["api.py"], "since": 2000}})
 
@@ -56,7 +56,8 @@ class ReviewRestart(LiveRuns):
         state = record.read_state(fresh)
         self.assertEqual((state["state"], state["launched_session"], state["review_pr"]),
                          ("queued", "seat-b", URL))
-        self.assertEqual((state["own_pr"], state["own_orchestrator"]), (True, "opus"))
+        self.assertEqual((state["own_pr"], state["own_orchestrator"], state["own_orchestrator_effort"]),
+                         (True, "opus", "high"))
         self.assertEqual(state["restarted"], {"run": YOUNGER, "why": f"{OLDER} has landed"})
         self.assertEqual(self.state(YOUNGER)["lease_restarted"], fresh.name)
         self.assertIn(f"started again for {YOUNGER}: {OLDER} has landed; the review of {URL} "

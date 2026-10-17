@@ -31,9 +31,9 @@ it rests on (`97 of 3`), and `ROLES` names each role's measures and why.  One ro
 recommended per role: the row resting on the most of the role's measures, then the highest
 score, then the faster, then the cheaper (an unknown speed or cost after every measured one),
 then the row the config runs in the role, then the higher effort, then the first by harness and
-model name.  ak's own run numbers stand beside, per configured model and role with their count,
-and never rank (AGENTS.md, Owner rules).  Attribution: artificialanalysis.ai, arena.ai,
-livebench.ai.
+model name.  ak's own run numbers stand beside, per configured model, the effort its runs
+recorded and role, with their count, and never rank (AGENTS.md, Owner rules).
+Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 """
 
 import contextlib
@@ -396,16 +396,21 @@ def recommended(table):
 
 
 LIVE_HEADERS = ("model", "orch", "exec", "review")
+# the run's column holding the effort the role ran it at (None where it was not recorded); a
+# review's effort is its review row's
+EFFORT_OF = {"orchestrate": "own_orchestrator_effort", "execute": "executor_effort"}
 
 
 def live(cfg, now=None):
-    """ak's own numbers per configured model and role, which never rank.  Off the history's runs
-    that ended with a verdict of the work (`record.JUDGED`): of the runs it executed, how many
-    and the share merged in round 1 (`history.merged`); of the pull requests its seat wrote
-    (the row's `own_orchestrator`), how many and the share merged in round 1.  Of the runs it
-    finished a review of, by its harness and model id, whatever became of them since, how many
-    and the share it let through in round 1 (`history.reviewed_runs`).  {name: {role: {"runs",
-    "round_1"} or None}}."""
+    """ak's own numbers per configured model, the effort it ran at and role, which never rank.
+    Off the history's runs that ended with a verdict of the work (`record.JUDGED`): of the runs
+    it executed, how many and the share merged in round 1 (`history.merged`); of the pull
+    requests its seat wrote (the row's `own_orchestrator`), how many and the share merged in
+    round 1.  Of the runs it finished a review of, by its harness and model id, whatever became
+    of them since, how many and the share it let through in round 1 (`history.reviewed_runs`).
+    {label: {role: {"runs", "round_1"} or None}}: a label per effort the model's runs recorded
+    (`acme @ max`, the strongest first), the bare name for runs that recorded none and for a
+    model that ran nothing."""
     from . import history     # here, not at the top: the boards and the table need no database
     now = time.time() if now is None else now
     rows = [row for row in history.ended_runs(0, now) if row.get("final_state") in record.JUDGED]
@@ -413,13 +418,19 @@ def live(cfg, now=None):
              if (row.get("rounds_used") or 0) <= 1 and history.merged(row)}
     found = {}
     for name in config.offered(cfg):
-        counts = {}
+        counts = {}     # {effort: {role: (runs, of them in round 1)}}
         for role, column in (("orchestrate", "own_orchestrator"), ("execute", "executor")):
-            mine = [row["run_id"] for row in rows if row.get(column) == name]
-            counts[role] = (len(mine), sum(run_id in first for run_id in mine))
+            for row in rows:
+                if row.get(column) == name:
+                    mine = counts.setdefault(row.get(EFFORT_OF[role]) or None, {})
+                    runs, in_first = mine.get(role, (0, 0))
+                    mine[role] = (runs + 1, in_first + (row["run_id"] in first))
         entry = cfg["models"][name]
-        counts["review"] = history.reviewed_runs(entry["harness"], entry["model"])
-        found[name] = {role: share(*counts[role]) for role in ROLES}
+        for effort, reviewed in history.reviewed_runs(entry["harness"], entry["model"]).items():
+            counts.setdefault(effort or None, {})["review"] = reviewed
+        for effort in sorted(counts, key=lambda word: (word is None, -effort_rank(word))) or [None]:
+            found[f"{name} @ {effort}" if effort else name] = {
+                role: share(*counts.get(effort, {}).get(role, (0, 0))) for role in ROLES}
     return found
 
 

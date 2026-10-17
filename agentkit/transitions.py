@@ -418,7 +418,8 @@ def history_finish(state, log=None):
                        session=launched_session(state), peak_rss_mb=state.get("peak_rss_mb"),
                        task_files=json.dumps(files) if files is not None else None,
                        changed_lines=size, rules_bytes=rules,
-                       own_orchestrator=state.get("own_orchestrator"), log=log)
+                       own_orchestrator=state.get("own_orchestrator"),
+                       own_orchestrator_effort=state.get("own_orchestrator_effort"), log=log)
 
 
 def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):

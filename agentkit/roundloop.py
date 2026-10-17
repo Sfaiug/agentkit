@@ -102,6 +102,7 @@ class Loop:
         self.write()
         history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
                            executor=self.executor, reviewer=self.reviewer,
+                           executor_effort=self.state.get("executor_effort"),
                            rounds_used=len(self.state.get("round_summaries") or []),
                            session=transitions.launched_session(self.state), log=self.log)
 
@@ -1008,6 +1009,12 @@ def execute(lp, role, text, name):
         # read once the attempt ends, however it ends -- a refused, parked or killed turn spent
         # tokens too -- off its own model and directory, which a handover below moves on from
         model, attempt = lp.executor, out
+        # the effort this turn runs at (worker.py reads the same), on the record before the
+        # worker runs: a later save -- a review's, a landing's, or a resume's after the host cut
+        # the loop off once the turn had closed (`continuation`) -- records what the executor
+        # ran at, not the config since
+        lp.state["executor_effort"] = config.worker_effort(lp.cfg, model, "executor")
+        lp.save()
         try:
             code, summary, lp.exec_sid, dead = turns.call_retrying(lp.cfg, lp.executor, body, lp.wt,
                                                              out, lp.role(role), lp.exec_sid,
@@ -1409,7 +1416,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
                           blocking=len(own.findings), followup=len(own.preexisting),
-                          note=len(own.notes), round=lp.rnd, verdict=verdict, log=lp.log)
+                          note=len(own.notes), round=lp.rnd, verdict=verdict,
+                          effort=config.role_effort(reviewed, "reviewer"), log=lp.log)
     return verdict
 
 
