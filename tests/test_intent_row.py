@@ -106,7 +106,7 @@ class IntentRow(Sandbox):
             self.done("fix-api", 300.0)
         self.harness.said += [(400.0, "c1")]
         self.done("fix-api", 500.0)
-        self.assertEqual(history.dones(0, NOW), [(300.0, None), (500.0, 400.0)])
+        self.assertEqual([done[:2] for done in history.dones(0, NOW)], [(300.0, None), (500.0, 400.0)])
 
     def test_each_intent_counts_in_the_week_its_done_fell_in(self):
         self.assertEqual(scoreboard.compute(NOW)["intent"], [None, None])   # no database
