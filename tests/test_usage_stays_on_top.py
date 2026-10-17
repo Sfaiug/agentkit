@@ -66,8 +66,12 @@ class UsageStaysOnTop(Sandbox):
 
     def test_a_short_screen_keeps_every_reading_whole(self):
         labels = [terminal.plain(label) for _, label, _, _ in menu.usage_rows(self.cfg)]
-        for width, height, seats in ((100, 14, 14), (40, 14, 14), (30, 14, 1), (30, 20, 14)):
-            lines, _ = self.draw(width, height, seats)
+        for width, height, seats, keys in ((100, 14, 14, None), (40, 14, 14, None),
+                                           (30, 14, 1, None), (30, 20, 14, None),
+                                           (30, 11, 1, None), (38, 10, 1, menu.OVERLAY_KEYS),
+                                           (28, 13, 1, menu.OVERLAY_KEYS),
+                                           (38, 10, 14, menu.OVERLAY_KEYS)):
+            lines, _ = self.draw(width, height, seats, keys=keys)
             text = "\n".join(lines)
             self.assertLessEqual(len(lines), height - 2, text)
             self.assertNotIn("usage left", text)
@@ -85,11 +89,15 @@ class UsageStaysOnTop(Sandbox):
         text = "\n".join(self.draw(30, 20)[0])
         self.assertIn("ChatGPT 62,469 credits left", text)
         self.assertRegex(text, r"Acme_Sub\S*… 83%")
+        self.meters["openai"]["currency"] = "CHF"      # its label gives way, the line fits
+        lines, _ = self.draw(28, 20, seats=1)
+        self.assertIn("  CHF 62,469.67 credits left", lines)
+        self.assertEqual([line for line in lines if terminal.cells(line) > 28], [])
 
     def test_only_a_screen_with_no_room_for_a_seat_cuts_the_readings_and_says_so(self):
-        lines, _ = self.draw(38, 10, keys=menu.OVERLAY_KEYS)
+        lines, _ = self.draw(30, 10, keys=menu.OVERLAY_KEYS)
         self.assertLessEqual(len(lines), 8, lines)
-        self.assertTrue(lines[0].endswith("· …"), lines)
+        self.assertTrue(lines[0].endswith(" · …"), lines)
         self.assertTrue(any(re.match(r"[›> ] +\d+  ", line) for line in lines), lines)
 
 

@@ -1336,8 +1336,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         return v5o_header(project, width), (
             project["checkout"] if "switches" in project
             else ("project", project["name"]) if project["checkout"] else None)
+    seat_blocks = _seat_blocks()
     blocks = [[heading(project)] + [pair for block in own for pair in block]
-              for project, own in zip(ordered, _seat_blocks())]
+              for project, own in zip(ordered, seat_blocks)]
     flat = _flat(blocks)
 
     # The highlighted seat's live line goes under its row: a line kept on every page while any
@@ -1390,15 +1391,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # one page before pages, the whole block before its readings, and compact last
     for meters, compact, paged in ((meters_full, False, False), (summary, False, False),
                                    (meters_full, False, True), (summary, False, True),
-                                   (summary, True, True)):
+                                   (summary, True, False), (summary, True, True)):
         room = _room(meters, paged, compact)
         if (len(flat) <= room) if not paged else (room >= least or compact):
             break
     folded = meters is summary
-    if compact and room < 3 and len(meters) > 1:
-        # what leaves a seat its heading and a line under its row, the readings cut said so
-        meters = meters[:max(1, len(meters) + room - 3)]
-        meters[-1] = "  " + terminal.cut(meters[-1].strip() + " · …", layout - 2)
+    # a seat under its heading: its row and, where it has one, a line under it
+    need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=1))
+    if compact and room < need and len(meters) > 1:
+        meters = usage_summary(cfg, layout, max(1, len(meters) + room - need))
         room = _room(meters, paged, compact)
     if room < 1:
         meters = meters[:max(0, len(meters) + room - 1)]      # what leaves one row
@@ -2087,13 +2088,7 @@ def usage_tip(cfg, number, now=None):
     if not 0 < number <= len(rows):
         return None, None
     name, label, prov, _ = rows[number - 1]
-    try:
-        week = usage.shared_week(cfg, name, prov, now)
-        why = week is None and unread(prov, [m for m in prov.get("meters") or []
-                                             if m.get("window_secs") != usage.SESSION_SECS],
-                                      usage.readable(prov, now), now)
-    except (AttributeError, KeyError, TypeError, ValueError):
-        week, why = None, "bad reading"
+    week, why, _ = reading(cfg, name, prov, now)
     if week is None:
         return (f"{terminal.plain(label)}: no week to draw, {why}; the bar comes with the first "
                 "reading of one"), None
@@ -2113,19 +2108,28 @@ def usage_tip(cfg, number, now=None):
                       if part), pace
 
 
-def usage_summary(cfg, width):
+def usage_summary(cfg, width, most=None):
     """The usage block folded, for a screen too short for it and a few rows under it: each
-    subscription's label and what it has left -- `17%`, a spent week's credits, `0%` once spent
-    until its reset, `—` with no reading -- whole, as many to a line as fit, ` · ` between."""
-    lines = [""]
+    subscription's label and what it has left -- `17%`, a spent week's credits where they fit,
+    else `0%`, as on its row, `0%` once spent until its reset, `—` with no reading -- whole, as
+    many to a line as fit, ` · ` between; in `most` lines, the last ending in ` · …` where
+    readings are left out."""
+    lines = [[]]
     for _, label, left, said in usage_cells(cfg):
-        figure = f"{left}%" if left else said if left == 0 else "—" if said[0] == "—" else "0%"
+        figure = (f"{left}%" if left else said if left == 0 and terminal.cells(said) <= width - 2
+                  else "—" if said[0] == "—" else "0%")
         # a label too long for the width gives way, never what it has left
-        part = f"{terminal.cut(label, max(1, width - 3 - terminal.cells(figure)))} {figure}"
-        if lines[-1] and terminal.cells(f"{lines[-1]} · {part}") > width - 2:
-            lines.append("")
-        lines[-1] += f" · {part}" if lines[-1] else part
-    return ["  " + line for line in lines if line]
+        room = width - 3 - terminal.cells(figure)
+        part = f"{terminal.cut(label, room)} {figure}" if room > 0 else figure
+        if lines[-1] and terminal.cells(" · ".join(lines[-1] + [part])) > width - 2:
+            lines.append([])
+        lines[-1].append(part)
+    if most is not None and len(lines) > most:
+        lines = lines[:most]
+        while lines[-1] and terminal.cells(" · ".join(lines[-1] + ["…"])) > width - 2:
+            lines[-1].pop()
+        lines[-1].append("…")
+    return ["  " + " · ".join(line) for line in lines if line]
 
 
 def reading(cfg, name, prov, now):
@@ -2199,16 +2203,8 @@ def usage_lines(cfg, width):
     floor = min(4, bar_width)
     for name, label, prov, _ in rows:
         prefix = "  " + terminal.pad(label, label_room) + "  "
-        why = None
-        try:
-            weekly = [m for m in prov.get("meters") or []
-                      if m.get("window_secs") != usage.SESSION_SECS]
-            readable = usage.readable(prov, now)
-            week = usage.shared_week(cfg, name, prov, now)
-        except (AttributeError, KeyError, TypeError, ValueError):
-            weekly, readable, week, why = [], [], None, "bad reading"
+        week, why, readable = reading(cfg, name, prov, now)
         if week is None:
-            why = why or unread(prov, weekly, readable, now)
             why = terminal.cut(why, max(0, width - terminal.cells(prefix) - 3))
             pending.append({"kind": "empty", "prefix": prefix, "why": why})
             continue
