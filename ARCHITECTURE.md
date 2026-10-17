@@ -217,7 +217,7 @@
   `fixtures/`: screens, `echo`,
   `landing.py` lands a crafted run through its line and lander verdict, `sandbox.py`'s
   `Sandbox` is the throwaway ak HOME that in-process tests run in, `tick.py`'s `only_passes` a
-  test's tick that runs only the passes it names.
+  test's tick that runs only the passes it names, and `tick.py` itself smoke's `ak watch`.
   `hooks.py` stubs detached prose readers when other tests run real hooks.
   `check_harness_contract.py`: standalone live contract check, also smoke's check 3;
   discovers adapter manifests and shares login/quota checks with smoke's later live calls.

@@ -3,19 +3,34 @@
 A pass is named by its WARN line in `watch.local_passes`.  Every other pass of that table is a
 no-op, one added to it later included: a test listing the passes to stub would run a new one for
 real, and the weekly audit pass opened a real seat that way.  HOME is the test's temporary
-directory, and no harness's state or login variable of the caller's (`config.state_env_names()`,
-CLAUDE_CONFIG_DIR among them) is left for a pass to find its way back to the owner's login with.
+directory, and no login of the caller's is left for a pass to find its way back to the owner's
+with: no harness's state or login root (CLAUDE_CONFIG_DIR among them), ak's own adapters' as well
+as any a test's fake adapters declare instead, no account or provider ak names, no credential.
 """
 
 from contextlib import contextmanager
 import os
 from pathlib import Path
+import re
 import sys
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from agentkit import config, watch
+
+# a variable that holds a credential, whichever harness or tool reads it
+CREDENTIAL = re.compile(r"(?:^|_)(?:TOKEN|KEY|SECRET|PASSWORD|AUTH)$")
+
+
+def logins():
+    """The caller's variables a pass could reach a login of theirs by."""
+    names = config.state_env_names() | {config.ACCOUNT_ENV, config.PROVIDER_ENV}
+    # a test's fake adapters replace the declarations of ak's own, never the caller's logins
+    with patch.dict(os.environ):
+        os.environ.pop(config.ADAPTER_DIR_ENV, None)
+        names |= config.state_env_names()
+    return names | {name for name in os.environ if CREDENTIAL.search(name)}
 
 
 @contextmanager
@@ -33,6 +48,13 @@ def only_passes(home, *named):
 
     with patch.object(watch, "local_passes", passes), \
             patch.dict(os.environ, {"HOME": str(home)}):
-        for name in config.state_env_names():
+        for name in logins():
             os.environ.pop(name, None)
         yield reached
+
+
+if __name__ == "__main__":
+    # `tick.py [--dry-run] [PASS...]`: `ak watch` as a check's subprocess has it, in its HOME
+    dry = sys.argv[1:2] == ["--dry-run"]
+    with only_passes(Path.home(), *sys.argv[1 + dry:]):
+        sys.exit(watch.main(sys.argv[1:1 + dry]))
