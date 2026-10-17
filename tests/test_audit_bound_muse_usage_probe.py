@@ -129,16 +129,15 @@ signal.signal(signal.SIGTERM, signal.SIG_IGN)
 if kind == "descendant":
     time.sleep(60)
     sys.exit(0)
-subprocess.Popen([str(root / "bin" / "descendant")],
-                 start_new_session=sys.platform == "linux",
-                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+descendant = subprocess.Popen([str(root / "bin" / "descendant")],
+                              start_new_session=sys.platform == "linux",
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 if kind == "muse":
     if sys.argv[1] == "exec":
         print("429 Subscription quota exhausted; resets at 2099-01-02T03:04:05Z", file=sys.stderr)
-        # Run-path testing needs no descendant; let this one finish and reap it here.
-        for child in pathlib.Path(f"/proc/{os.getpid()}/task/{os.getpid()}/children").read_text().split():
-            os.kill(int(child), signal.SIGKILL)
-            os.waitpid(int(child), 0)
+        # Run-path testing needs no descendant; kill this one and reap it here.
+        descendant.kill()
+        descendant.wait()
         sys.exit(1)
     # Both streams deliberately contain the fake credential: neither may reach diagnostics.
     print(os.environ["FIXTURE_SECRET"], flush=True)
@@ -440,7 +439,6 @@ raise AssertionError("this regression needs no tmux server")
         self.assertFalse(self.collect()["exhausted"])
         self.assertEqual(len(self.records("requests")), 2)
 
-    @unittest.skipUnless(sys.platform == "linux", "run fixture uses Linux child bookkeeping")
     def test_recorded_run_quota_keeps_both_caches_and_wins_until_reset(self):
         self.collect()
         prompt = self.root / "prompt"
