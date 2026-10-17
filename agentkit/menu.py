@@ -390,11 +390,12 @@ class Live:
             self.watching.clear()
 
     def recorded(self):
-        """usage.json, the runs' moved mark and every seat record: each one's name, inode and
-        mtime; and each project's feature switches as its `list` last answered, so their landing
-        is news too."""
+        """usage.json, logins.json, the runs' moved mark and every seat record: each one's name,
+        inode and mtime; and each project's feature switches as its `list` last answered, so
+        their landing is news too."""
+        from . import logins    # here, not at the top: logins names subscriptions through the menu
         found = []
-        for path in [config.STATE / "usage.json", config.runs_moved_path(),
+        for path in [config.STATE / "usage.json", logins.path(), config.runs_moved_path(),
                      *(path for _, path in config.seat_files("seat"))]:
             try:
                 stat = path.stat()
@@ -1326,10 +1327,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # sentence column starts at the same column under every project.
     widths = v5o_column_widths([seat for project in ordered
                                 for seat in project["seats"]], width)
-    # one reading of the cached meters for the whole draw, so the grid the screen is laid out
-    # around is the one the pointer lights
+    # one reading of the cached meters and logins for the whole draw, so the grid the screen is
+    # laid out around is the one the pointer lights, and a click signs in the amber meters drawn
     rows = usage_rows(cfg)
-    meters_full = usage_lines(cfg, layout, rows=rows)
+    ending = login_notes(rows)
+    meters_full = usage_lines(cfg, layout, rows=rows, ending=ending)
     # Height is budgeted the way width is: the frame, the usage and the keys always, and the
     # rows in what is left, a page at a time. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
@@ -1556,7 +1558,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         # the one the pointer is on in its colour, as every seat's model that runs on it is, and
         # what its cell has no room for on the blank line under the grid
         out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=pointed, rows=rows,
-                                                           spans=spans)
+                                                           spans=spans, ending=ending)
         for number, (provider, *_) in enumerate(rows, 1):
             washes[number] = colour(cfg, provider), [
                 *((grid + line, column, text, rest, False)
@@ -1565,7 +1567,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                   if number in on)]
             moves.append((("sub", number), number == pointed, None, False))
         if pointed:
-            out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows)
+            out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
+                                                              ending=ending)
     out = terminal.lit(out, spots)
     moved, rising = "", False
     if clock is not None:
@@ -1601,7 +1604,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                            if isinstance(name, (str, Path)) and name not in before), None))
         before.update(name for _, name in lines)
     logins = {number: (name, account) for number, ((name, _, _, account), note)
-              in enumerate(zip(rows, login_notes(rows)), 1) if note}
+              in enumerate(zip(rows, ending), 1) if note}
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
                  ask=top + at + 1 if at else None, spots=spots, turns=turns, logins=logins)
     return page, (len(pages) if ordered else 1)
@@ -2167,7 +2170,7 @@ def usage_columns(width):
     return max(1, min(3, width // (COLUMN + 2)))
 
 
-def usage_lines(cfg, width, lit=None, rows=None, spans=None):
+def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
@@ -2177,7 +2180,8 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None):
     each cell says is whole: the labels give way to the longest, and a width with no room for
     a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`).
     `spans`, where handed in, gets each one's cells that take its colour: {number: [(line,
-    column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1."""
+    column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1.
+    `ending`, `login_notes`' answer for `rows` already in hand, is drawn as it is."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
@@ -2192,7 +2196,7 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None):
     # a phone's one column is its width: the meter gives way first, down to four cells
     meter = max(4, min(METER, room - label_room - 13))
     full, empty = ("▰", "▱") if terminal.utf8() else ("#", "-")
-    ending = login_notes(rows)
+    ending = login_notes(rows) if ending is None else ending
     lines = []
     for start in range(0, len(found), columns):
         cells = []
@@ -2238,7 +2242,7 @@ def login_notes(rows, now=None):
     return notes
 
 
-def usage_detail(cfg, number, width=None, now=None, rows=None):
+def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     """What the line under the usage grid says of subscription `number`, from 1, while the
     pointer is on it: its label in its provider's colour, then -- each where it applies, joined
     with ` · ` -- a login that ends soon, in amber (`login_notes`), when its week resets, the
@@ -2246,7 +2250,8 @@ def usage_detail(cfg, number, width=None, now=None, rows=None):
     (`scoped_notes`), its 5-hour window (`session_note`), why its last probe failed (`fault`)
     and how old the reading is (`usage.as_of`); for one with no week to draw, why (`unread`).
     In `width` cells the notes give way one by one, the least worth keeping first (`fitting`),
-    and the label too, past the notes but before the login; `rows` as `usage_cells`'."""
+    and the label too, past the notes but before the login; `rows` as `usage_cells`', and
+    `ending` as `usage_lines`'."""
     now = time.time() if now is None else now
     rows = usage_rows(cfg) if rows is None else rows
     if not 0 < number <= len(rows):
@@ -2257,7 +2262,8 @@ def usage_detail(cfg, number, width=None, now=None, rows=None):
         (-1, usage.credits_note(prov)), (0, resets_note(week, now)), (1, in_hand(prov)),
         *((3, note) for note in scoped_notes(cfg, name, readable, week)),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
-    login = login_notes(rows[number - 1:number], now)[0]
+    login = (login_notes(rows[number - 1:number], now) if ending is None
+             else ending[number - 1:number])[0]
     notes = [note for note in [(-2, login), (-2, login and "click to log in again"), *notes]
              if note[1]]
     room = 10 ** 6 if width is None else width - 4
@@ -3296,11 +3302,23 @@ def _by_label(names, label):
             for text, name in zip(labels, names)}
 
 
+def _adapter_verb(harness, verb, account=None, provider=None):
+    """`harness`'s adapter's `verb` (one with its words, `login again`), run as install.sh runs
+    it, for `account`'s login when one is named and of `provider` when one is
+    (config.provider_env), on the terminal as it stands: whether it finished."""
+    try:
+        return not subprocess.run([str(config.adapter(harness)), *verb.split()],
+                                  env={**config.child_env(), **config.account_env(account),
+                                       **config.provider_env([provider] if provider else [])}
+                                  ).returncode
+    except (config.Error, OSError) as exc:
+        print(f"{harness}: {exc}")
+        return False
+
+
 def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None):
-    """Each of `verbs` of `harness`'s adapter (one with its words, `login again`), run as
-    install.sh runs them, for `account`'s
-    login when one is named and of `provider` when one is (config.provider_env), with the
-    terminal given back for them and taken again after.  The
+    """Each of `verbs` (`_adapter_verb`), with the terminal given back for them and taken again
+    after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
     it under the matrix, or "".  No verbs is nothing to run, and the terminal stays."""
     if not verbs:
@@ -3308,15 +3326,7 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
     keyboard.give()
     failed = ""
     for verb in verbs:
-        try:
-            code = subprocess.run([str(config.adapter(harness)), *verb.split()],
-                                  env={**config.child_env(), **config.account_env(account),
-                                       **config.provider_env([provider] if provider else [])}
-                                  ).returncode
-        except (config.Error, OSError) as exc:
-            print(f"{harness}: {exc}")
-            code = 1
-        if code:
+        if not _adapter_verb(harness, verb, account, provider):
             failed = f"{harness} {verb} did not finish; {picked} is not added"
             pause()
             break
@@ -3327,13 +3337,18 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
     one that ends soon: its harness's `login again` (`logins.harness`), the menu back as soon
-    as that ends, and that login alone asked again at once (`logins.refresh`), so its meter
-    turns grey once a new one stands and stays amber where none was made."""
+    as that ends however it did, and that login alone asked again (`logins.refresh`) in a
+    thread, since the tick may hold the logins asking others.  Its meter turns grey once a new
+    one stands, drawn as logins.json changes (`Live.recorded`), and stays amber where none was
+    made.  The thread is no daemon: a menu left at once still keeps the new login."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
     if harness:
-        _adapter_verbs(keyboard, harness, ("login again",), provider, account, provider)
-    logins.refresh(cfg, force={(provider, account or config.DEFAULT_ACCOUNT)})
+        keyboard.give()
+        _adapter_verb(harness, "login again", account, provider)
+        keyboard.take()
+    threading.Thread(target=logins.refresh, args=(cfg,), kwargs={
+        "force": {(provider, account or config.DEFAULT_ACCOUNT)}}).start()
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
@@ -4084,10 +4099,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
     nothing typed draws again, so the clock, the seat rows, the counts on the top line and the
     usage stay true in front of whoever left it open -- and it ends within STIR of any seat's
-    record or the usage cache changing, so a row never says for longer what its bar no longer
-    does.  Nothing is read between a key and its frame: the seats, their runs and their rows
-    are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
-    that did more than move the highlight, and within STIR of a record changing -- and every
+    record, the usage cache or the logins changing, so a row never says for longer what its bar
+    no longer does.  Nothing is read between a key and its frame: the seats, their runs and
+    their rows are read once before the first draw, then in `Live`'s thread -- on the clock,
+    after a key that did more than move the highlight, and within STIR of a record changing --
+    and every
     draw is what the last read left, drawn again when the next one lands.  While the owner is in
     a seat it opened, or on the screen that opens one, nothing is read but by the pass a seat
     listed was still owed, and back it reads once, at once, before it draws, as when it opened
