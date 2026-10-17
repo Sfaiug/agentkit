@@ -51,7 +51,7 @@ from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scop
     answered, finished_answer, scope_is_real,
     shell_foreground_note, stop_run_tree, tail)
 from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity, commit_leftovers,
-    default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, repo_line, repo_rules, round_commands, run_depth,
+    default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, repo_line, repo_rules, round_commands, run_depth, say,
     slugify, stopped, tool_env, tool_run, with_suite)
 
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
@@ -2782,7 +2782,7 @@ def main(argv):
     if argv[:1] == ["--lander"]:
         if len(argv) != 2 or Path(argv[1]).name != argv[1] or not argv[1].startswith(".merge-"):
             raise config.Error("usage: ak run --lander LINE")
-        landing.check_line(config.RUNS / argv[1], print)
+        landing.check_line(config.RUNS / argv[1], say)
         return 0
     if argv[:1] == ["status"]:
         return status.cmd_status(argv[1:])

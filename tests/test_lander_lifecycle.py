@@ -226,7 +226,7 @@ class LanderLifecycle(unittest.TestCase):
     def test_the_child_entry_checks_just_its_line(self):
         with patch.object(land, "check_line") as check:
             self.assertEqual(run.main(["--lander", self.turn.name]), 0)
-        check.assert_called_once_with(self.turn, print)
+        check.assert_called_once_with(self.turn, run.say)
         with self.assertRaises(config.Error):
             run.main(["--lander", "../.merge-other.lock"])
 
