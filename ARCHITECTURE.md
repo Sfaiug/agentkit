@@ -118,6 +118,8 @@
   `usage.json`, and what a week holds in tokens (`capacity.json`). Offers `collect`,
   `pick_order`, `mark_exhausted`, `record_pairs`, `render`. Used by run,
   orch, menu, watch, history. Leak: watch and Muse call its private helpers.
+- `logins.py`: when each subscription's login ends and whose it is, asked of the adapters'
+  `login-end` hourly by the tick, kept in `logins.json`. `refresh`, `read`.
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
@@ -162,8 +164,8 @@
 ## Harnesses
 
 - `adapters/<h>.sh`, for `claude`, `codex`, `muse`, `grokbuild`, `opencode`, `antigravity`,
-  answers `run`, `interactive`, `usage`, `install`, `login`, `auth`, `hooks`, `models`
-  (codex adds `reset`); `$AGENTKIT_ACCOUNT` picks the login.
+  answers `run`, `interactive`, `usage`, `install`, `login`, `login-end`, `auth`, `hooks`,
+  `models` (codex adds `reset`); `$AGENTKIT_ACCOUNT` picks the login.
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
   screen rules, stall/quota/auth/resume words, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
