@@ -1435,7 +1435,7 @@ SH
   codex_model_flag_check || OFFLINE_RC=1
 # --- offline_files: offline regressions -----------------------------------
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py \
-              test_usage_menus_and_runs.py test_dead_code.py test_boundaries.py test_architecture.py test_docs.py \
+              test_usage_menus_and_runs.py \
               test_audit_phone_menu_recovery_layout.py test_choose_click.py test_note_screen.py \
               test_audit_retry_required_notifications.py \
               test_from_run_takes_the_target.py test_repo_suite.py; do
@@ -4773,8 +4773,7 @@ if { python3 "$REPO/tests/test_v4c.py" &&
      python3 "$REPO/tests/test_reviewer_edits_never_land.py" &&
      python3 "$REPO/tests/test_v5ac.py" &&
      python3 "$REPO/tests/test_antigravity.py" &&
-     python3 "$REPO/tests/test_red_target.py" &&
-     python3 "$REPO/tests/test_docs.py"; } >"$WORK/v4c.log" 2>&1; then
+     python3 "$REPO/tests/test_red_target.py"; } >"$WORK/v4c.log" 2>&1; then
   ok "28 watcher SHA, backoff, dry-run; required checks, delivery, roles, session age; reviewer edits archived and undone"
 else
   no "28 v4c regressions"; tail -30 "$WORK/v4c.log"
@@ -5495,8 +5494,6 @@ if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
-# --- 49: repository boundaries and docs -----------------------------------
-{ python3 "$REPO/tests/test_dead_code.py" && python3 "$REPO/tests/test_boundaries.py" && python3 "$REPO/tests/test_architecture.py" && python3 "$REPO/tests/test_docs.py"; } >"$WORK/boundaries.log" 2>&1 && ok "49 definitions have callers, knowledge stays home, ARCHITECTURE.md maps every module and harness with at most 400 characters per module, and the docs match the interface" || { no "49 dead code, boundaries, map and docs"; tail -30 "$WORK/boundaries.log"; }
 # --- 49a: landed suite evidence -------------------------------------------
 if { python3 "$REPO/tests/test_repo_suite.py" &&
      python3 "$REPO/tests/test_merge_trailer.py"; } >"$WORK/merge-trailer.log" 2>&1; then

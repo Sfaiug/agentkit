@@ -196,8 +196,8 @@
   `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
-- `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
-  live output; live `live.sh`; `every_file.py`: imports/cases,
+- `tests/`: `landing.py` runs the static checks, then offline `smoke.sh` beside
+  `every_file.py`, with grouped live output; live `live.sh`; `every_file.py`: imports/cases,
   live memory/CPU admission; `suite_shares.py` picks each mode's checks and shards both.
   `fixtures/`: screens, `echo`,
   `landing.py` lands a crafted run through its line and lander verdict, `sandbox.py`'s
