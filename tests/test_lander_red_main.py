@@ -9,12 +9,14 @@ import json
 from pathlib import Path
 import sys
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
-from agentkit import config, gate, gitcall, handback, land, record, run, transitions, watch
+from agentkit import (config, deliver, gate, gitcall, handback, history, land, record,
+                      roundloop, run, transitions, watch)
 
 SUITE = "test ! -f broken.txt"
 
@@ -226,6 +228,35 @@ class RedMain(unittest.TestCase):
         # The repair's green tree is first's too, but first's own `# once` check still runs.
         self.assertEqual(len(self.checks), checks + 1)
         self.assertIn("true", self.checks[-1][0])
+
+    def test_a_repair_counts_a_failed_required_check_but_not_the_targets_red(self):
+        self.red_line()
+        self.exhaust()
+        repair = self.prepared[0][0]
+        branch = self.ready_repair(repair)
+        run.git(self.repo, "checkout", branch)
+        run.git(self.repo, "checkout", "origin/main", "--", "broken.txt")
+        self.commit("leave the target red")
+        identity = run.commit_identity(self.repo)
+        run.git(self.repo, "checkout", "main")
+        with record.record(repair) as state:
+            state["review"].update(identity)
+        land.check_line(self.turn)
+        self.assertIn("piece", self.wait(repair)["fix"])
+        history.start_run(repair.name, started_at=1)
+        lp = SimpleNamespace(state=record.read_state(repair), write=lambda: None, log=lambda _: None)
+        with patch.object(roundloop, "integrate", return_value=False):
+            deliver.land_from_line(lp, "origin/main", lambda: True)
+        # the lander never probed the red target for it: its red says nothing of its review
+        self.assertEqual(lp.state["landing_reds"], 1)
+        self.assertEqual(history.get(repair.name)["landing_breaks"], 0)
+        log = repair / "pr-checks.log"
+        log.write_text("required checks failed: unit\n")
+        lp.state["waiting_on"] = {"line": self.turn.name,
+                                  "fix": {"line": "required checks failed: unit", "log": str(log)}}
+        with patch.object(roundloop, "integrate", return_value=False):
+            deliver.land_from_line(lp, "origin/main", lambda: True)
+        self.assertEqual(history.get(repair.name)["landing_breaks"], 1)
 
     def test_a_green_bare_target_wakes_only_the_members_that_fail(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})

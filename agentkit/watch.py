@@ -6409,6 +6409,15 @@ def after_merge_seat(run_state, repo_key):
     return after_merge_fallback(repo_key)
 
 
+def broke_after_merge(run_id, check, log):
+    """The merged change a break was handed back to broke main's checks or its live health
+    (`check` as `after_merge_health` names a health probe): written on its history row once,
+    as the break is told, so the scoreboard counts what got past review and landing."""
+    from . import history
+    history.update_run(run_id, broke_after_merge="health" if str(check).startswith("health:")
+                       else "checks", log=log)
+
+
 def after_merge_checks(state, dry_run, log, now=None):
     """Follow target checks and health, and hand one break per repository back to fix.
 
@@ -6579,6 +6588,7 @@ def after_merge_checks(state, dry_run, log, now=None):
                     episodes[key] = {"notified": sha, "at": now, "run": run_name,
                                      "check": check, "finished": finished}
                     _save()
+                    broke_after_merge(run_name, check, log)
                     log(f"handed run {run_name} back for {check} on {target} "
                         "after its merge")
                 else:
@@ -6630,6 +6640,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             episodes[key] = {"notified": sha, "at": now, "run": name, "check": check,
                              "finished": finished}
             _save()
+            broke_after_merge(name, check, log)
             log(f"handed run {name} back for {check} on {target} after its merge")
         elif composed:
             log(f"run {name}'s after-merge notice sits in a composer; "

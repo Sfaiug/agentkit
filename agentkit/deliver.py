@@ -863,6 +863,8 @@ def land_from_line(lp, upstream, deliver):
     count = landing_count(failure)
     if not wait.get("fixing"):
         lp.state[count] = lp.state.get(count, 0) + 1
+        if suite_red(lp.state, failure):
+            history.add_landing_break(lp.state.get("run_id"), log=lp.log)
         lp.state["waiting_on"] = {**wait, "fixing": True}
         lp.write()
     if lp.state[count] > roundloop.CONFLICT_ROUNDS:
@@ -1112,6 +1114,16 @@ def end_on_dependency(cfg, run_dir, state, log, why):
     return finish_blocked(run_dir, state, turns.Blocked(why, f"## Blocked\n\n{why}"), log, cfg)
 
 
+def suite_red(state, failure):
+    """Whether a landing failure is the change's own tests going red: a suite piece red on its
+    tree after the target alone passed, or a required check failed.  A conflict with the
+    target, a head moved past its review, a red target or the rules' size is no such failure:
+    nothing there says the review let a defect through.  Nor is a piece a target's repair
+    fails: it lands on the red target, which the lander never probes for it."""
+    return (("piece" in failure and not state.get("repair"))
+            or failure.get("line", "").startswith("required checks failed:"))
+
+
 def fail_pr_landing(lp, failure, landing=True):
     """The PR's writer fixes a red landing tree, just as it fixes review findings.
 
@@ -1137,6 +1149,8 @@ def fail_pr_landing(lp, failure, landing=True):
     reds = lp.state.get(count, 0)
     if landing:
         reds = lp.state[count] = reds + 1
+        if suite_red(lp.state, failure):
+            history.add_landing_break(lp.state.get("run_id"), log=lp.log)
     if lp.state.get("own_pr") and (reds <= roundloop.CONFLICT_ROUNDS if landing else lp.rnd < lp.rounds):
         lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
         if landing:
