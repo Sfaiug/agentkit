@@ -429,7 +429,7 @@ class OwnPrRounds(OwnPr):
         self.git("push", "-q", "--force", "origin", f"{self.git('rev-parse', 'HEAD')}:refs/heads/{BRANCH}")
         state = self.review([])
         self.assertTrue(state["merged"])
-        self.assertEqual(state["round_summaries"][0]["summary"], "Text and translation files only; review skipped.")
+        self.assertEqual(state["round_summaries"][0]["summary"], "Documents only; review skipped.")
         self.assertEqual(self.prompts, [])
 
 
