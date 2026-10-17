@@ -9,6 +9,7 @@ renewal moves) and the account's email; the tick keeps every subscription's answ
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,12 +21,17 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, logins
 
 # A fake adapter: counts its calls in $FAKE/calls and answers for the account it was named,
-# or fails for one named in $FAKE/fail.
+# or fails for one named in $FAKE/fail, or for one named in $FAKE/hang leaves a reader behind
+# that holds its output, whose pid is $FAKE/reader.  Where $FAKE/interrupt exists that reader
+# interrupts its caller a second later, once it awaits the answer: an interrupt that lands
+# while Popen still starts the adapter loses its pid with it.
 FAKE_ADAPTER = r"""#!/usr/bin/env bash
 [ "$1" = login-end ] || exit 2
 account=${AGENTKIT_ACCOUNT:-default}
 echo "$account" >>"$FAKE/calls"
 [ ! -e "$FAKE/fail-$account" ] || exit 1
+[ ! -e "$FAKE/hang-$account" ] || (CALLER=$PPID sh -c 'echo $$ >"$FAKE/reader"
+    [ ! -e "$FAKE/interrupt" ] || { sleep 1; kill -INT "$CALLER"; }; exec sleep 30' &)
 cat "$FAKE/answer-$account"
 """
 
@@ -143,6 +149,39 @@ class Refresh(unittest.TestCase):
         kept = logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
         self.assertEqual(kept["anthropic"]["default"]["ends"], 50000)
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
+
+    def hang(self):
+        """The default account's adapter leaves a reader that this process adopts, orphaned."""
+        import ctypes
+        self.assertEqual(ctypes.CDLL(None).prctl(36, 1, 0, 0, 0), 0)  # PR_SET_CHILD_SUBREAPER
+        (self.fake / "hang-default").touch()
+
+    def reader_outlived_the_ask(self):
+        reader = int((self.fake / "reader").read_text())
+        try:
+            alive = os.waitpid(reader, os.WNOHANG)[0] == 0   # orphaned, it is this process's child
+        except ChildProcessError:
+            return False    # the ask reaped it
+        if alive:
+            os.kill(reader, signal.SIGKILL)
+            os.waitpid(reader, 0)
+        return alive
+
+    @unittest.skipUnless(sys.platform == "linux", "a subreaper sees the reader left behind")
+    def test_g_an_ask_that_hangs_leaves_none_of_its_readers_running(self):
+        self.hang()
+        with patch.object(logins, "ASK_TIMEOUT", 1):
+            kept = logins.refresh(self.cfg, now=1000)
+        self.assertEqual(kept["anthropic"]["default"], {"checked_at": 1000})
+        self.assertFalse(self.reader_outlived_the_ask())
+
+    @unittest.skipUnless(sys.platform == "linux", "a subreaper sees the reader left behind")
+    def test_h_an_interrupted_ask_leaves_none_of_its_readers_running(self):
+        self.hang()
+        (self.fake / "interrupt").touch()
+        with self.assertRaises(KeyboardInterrupt):
+            logins.refresh(self.cfg, now=1000)
+        self.assertFalse(self.reader_outlived_the_ask())
 
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch
