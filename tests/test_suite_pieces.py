@@ -390,8 +390,7 @@ class SuitePieces(unittest.TestCase):
         state = record.read_state(self.run_dir)
         record.save_state(self.run_dir, {**state, "scope": "acme"})
         with patch.object(host, "process_cgroup", return_value="/fixture/acme.scope"), \
-                patch.object(host, "_scope_readings", side_effect=[
-                    (1, 100 * 1024**2), (3, 2100 * 1024**2)]), \
+                patch.object(host, "held_mb", side_effect=[100, 2100]), \
                 patch.object(gate.time, "monotonic", side_effect=[0, 10]):
             measured = gate._SuiteMeasure(self.run_dir)
             measured.sample()

@@ -234,8 +234,9 @@ def _read_number(path, *, bytes_to_mb=False):
 def _reclaimable_mb(path):
     """Reclaimable file cache in MB from a cgroup's memory.stat, or None.
 
-    The kernel can reclaim file cache under pressure. Older kernels name
-    the counter inactive_file where newer ones say file.
+    The kernel reclaims file cache under pressure, before any OOM kill. Older kernels
+    name the counter inactive_file where newer ones say file. `file` counts tmpfs and
+    shared memory too, which no reclaim frees without swap, so shmem stays held.
     """
     try:
         text = path.read_text()
@@ -244,13 +245,13 @@ def _reclaimable_mb(path):
     values = {}
     for line in text.splitlines():
         key, _, rest = line.partition(" ")
-        if key in ("file", "inactive_file"):
+        if key in ("file", "inactive_file", "shmem"):
             try:
                 values[key] = float(rest.split()[0])
             except (ValueError, IndexError):
                 continue
     if "file" in values:
-        return values["file"] / (1024 * 1024)
+        return max(0.0, values["file"] - values.get("shmem", 0.0)) / (1024 * 1024)
     if "inactive_file" in values:
         return values["inactive_file"] / (1024 * 1024)
     return None
@@ -262,8 +263,8 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
     The used figure excludes reclaimable file cache. An empty list means
     no finite limit or no reading of its use. With `all_limits`, include each
     enclosing limit, memory.max too: a child cannot spend its parent's headroom.
-    With `hard`, read only enclosing memory.max caps and count file cache too,
-    since those bytes count toward OOM.
+    With `hard`, read only enclosing memory.max caps; reclaim frees file cache before an
+    OOM kill there too, and where memory.stat cannot say how much, all of it counts.
     """
     try:
         relative = next(line.split("::", 1)[1] for line in
@@ -283,7 +284,9 @@ def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False,
                 high = min(high, cap) if high is not None else cap
         if high is not None:
             raw = _read_number(current / "memory.current", bytes_to_mb=True)
-            cache = 0 if hard else _reclaimable_mb(current / "memory.stat")
+            cache = _reclaimable_mb(current / "memory.stat")
+            if cache is None and hard:
+                cache = 0.0
             if raw is not None and cache is not None:
                 limits.append((max(0.0, raw - cache), high, raw,
                                current.name if current != root else "/"))
@@ -481,15 +484,35 @@ def _slice_memory(cgroup):
             high = _read_number(base / "memory.max", bytes_to_mb=True)
         if high is None:
             return None
-        raw = _read_number(base / "memory.current", bytes_to_mb=True)
-        if raw is None:
-            return None
-        cache = _reclaimable_mb(base / "memory.stat")
-        if cache is None:
-            return None
-        return (max(0.0, raw - cache), high)
+        used = held_mb(base)
+        return None if used is None else (used, high)
     except OSError:
         return None
+
+
+def held_mb(cgroup):
+    """A cgroup's memory in MB less the file cache reclaim frees, or None where unread."""
+    raw = _read_number(Path(cgroup) / "memory.current", bytes_to_mb=True)
+    cache = _reclaimable_mb(Path(cgroup) / "memory.stat")
+    return None if raw is None or cache is None else max(0.0, raw - cache)
+
+
+def own_cgroup():
+    """This process's cgroup where it holds nothing but this process and what it started,
+    or None: only there is a change in its memory this process's doing."""
+    relative = process_cgroup()
+    pids = cgroup_pids(relative) if relative else []
+    if os.getpid() not in pids:
+        return None
+    for pid in pids:
+        seen = set()
+        while pid != os.getpid():
+            stat = proc_stat(pid, PROC)
+            if stat is None or pid in seen:
+                return None
+            seen.add(pid)
+            pid = stat.ppid
+    return cgroup_path(relative)
 
 
 def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=None,
