@@ -108,7 +108,12 @@ class ExecutorsOptional(Sandbox):
             self.assertEqual((receipt["workers"], receipt["reviewers"]), ([], ["astra"]))
             return job()
 
-        with patch.object(run, "pr_view", return_value=info), \
+        # the launch's size check reads the PR's checkout (`test_own_pr_size_before_slot`)
+        with patch.object(run, "checkout_for", return_value=self.root), \
+                patch.object(run, "fetch", return_value=(0, "")), \
+                patch.object(run, "git", return_value=""), \
+                patch.object(run, "own_pr_first_review", return_value=None), \
+                patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "viewer_login", return_value="acme-owner"), \
                 patch.object(run, "drive", side_effect=drive), \
                 patch.object(run, "review_pr", return_value=0) as review, \
