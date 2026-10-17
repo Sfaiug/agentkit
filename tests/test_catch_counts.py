@@ -121,8 +121,8 @@ class CatchCounts(unittest.TestCase):
         self.assert_counts(1, 1, 1, 1)
         with closing(sqlite3.connect(history.path())) as db:
             rows = db.execute("SELECT run_id, harness, model, blocking, followup, note, round, "
-                              "verdict FROM reviews").fetchall()
-        self.assertEqual(rows, [("fix-api", "test", "judge-1", 1, 1, 1, 1, "FAIL")])
+                              "verdict, effort FROM reviews").fetchall()
+        self.assertEqual(rows, [("fix-api", "test", "judge-1", 1, 1, 1, 1, "FAIL", "high")])
         self.assertEqual(history.path(), self.root / ".agentkit/history.db")
         # The run row changes reviewer; its earlier review still belongs to judge-1.
         lp.rnd = 2

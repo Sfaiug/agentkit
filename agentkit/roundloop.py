@@ -98,6 +98,7 @@ class Loop:
         self.write()
         history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
                            executor=self.executor, reviewer=self.reviewer,
+                           executor_effort=config.worker_effort(self.cfg, self.executor, "executor"),
                            rounds_used=len(self.state.get("round_summaries") or []),
                            session=transitions.launched_session(self.state), log=self.log)
 
@@ -1405,7 +1406,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     history.record_review(lp.state.get("run_id"), str(out),
                           harness=review_harness, model=review_model,
                           blocking=len(own.findings), followup=len(own.preexisting),
-                          note=len(own.notes), round=lp.rnd, verdict=verdict, log=lp.log)
+                          note=len(own.notes), round=lp.rnd, verdict=verdict,
+                          effort=config.role_effort(reviewed, "reviewer"), log=lp.log)
     return verdict
 
 

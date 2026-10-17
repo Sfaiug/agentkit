@@ -138,7 +138,7 @@
   on failure. For the orchestrator stop hook.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
-- `history.py`: SQLite `history.db`: runs, their steps and waits (`phase`, `phases`), reviews with round and verdict, the owner's seatless moments (`owner_time`) and dones by conversation (`done`) from notify; `ended_runs`, `merged`, `parks` (`leases.park`'s `parked_at`), `owner`, `dones` for the scoreboard, `reviewed_runs` for the matrix.
+- `history.py`: SQLite `history.db`: runs, their steps and waits (`phase`, `phases`), reviews with round, verdict and the reviewer's effort, the owner's seatless moments (`owner_time`) and dones by conversation (`done`) from notify; `ended_runs`, `merged`, `parks` (`leases.park`'s `parked_at`), `owner`, `dones` for the scoreboard, `reviewed_runs` for the matrix.
   For run, gate, harness. Leak: parses harness event logs.
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes that broke after review (`broke`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the owner's time (`owner`) and wait to done (`intent`), the week's largest loss in the vision's order (`loss`), words and wrapping.
   `compute`, `render` for run history.

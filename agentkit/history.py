@@ -70,7 +70,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
-              ("own_orchestrator", "TEXT"))
+              ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
+              ("orchestrator_effort", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -99,8 +100,8 @@ CREATE TABLE IF NOT EXISTS reviews (
 )
 """
 # One finished review per row: the identity that ran it, its weighed counts, and since these
-# columns its round and the round's verdict (`record_review`).
-REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"))
+# columns its round, the round's verdict and the effort it ran at (`record_review`).
+REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"), ("effort", "TEXT"))
 
 # The owner's time, one row per moment and no seat named: each is whole when written, so no
 # rename, reused name or order of hooks can change it later.
@@ -221,14 +222,15 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, change=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, orchestrator_effort=None,
+              change=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
-    goes, and every later write finds no row to change.  The orchestrator is the launching
-    seat's at the first write, whatever that seat runs by a resume.  `change` names the
-    change the run belongs to (its PR, or the run it continues), which the scoreboard groups
-    runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
+    goes, and every later write finds no row to change.  The orchestrator, and the effort it
+    runs at, are the launching seat's at the first write, whatever that seat runs by a resume.
+    `change` names the change the run belongs to (its PR, or the run it continues), which the
+    scoreboard groups runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
     yet 0 and '', where a row from before they were recorded keeps NULL: unknown, not unbroken.
     """
     if sandbox(repo):
@@ -242,7 +244,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "")
+              change, 0, "", orchestrator_effort)
 
     def insert(connection):
         connection.execute(
@@ -251,8 +253,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
-            "landing_breaks, broke_after_merge) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "landing_breaks, broke_after_merge, orchestrator_effort) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -263,6 +265,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
             "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
+            "orchestrator_effort=COALESCE(runs.orchestrator_effort,excluded.orchestrator_effort), "
             "change=COALESCE(excluded.change,runs.change)", values)
 
     _write(insert, log)
@@ -287,7 +290,8 @@ def _update(connection, run_id, fields):
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator"}
+               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
+               "executor_effort"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -369,18 +373,18 @@ def add_tokens(run_id, role, tokens, *, log=None):
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
-                  log=None):
-    """Keep one finished review's weighed counts, its round and the round's verdict (the
-    review's, after ak's overrides), including landing reviews in the same round.
+                  effort=None, log=None):
+    """Keep one finished review's weighed counts, its round, the round's verdict (the review's,
+    after ak's overrides) and the effort it ran at, including landing reviews in the same round.
 
     Its output directory identifies it, so recording it again cannot count it twice; only
     runs already recorded in history can contribute.
     """
     _write(lambda connection: connection.execute(
         "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note, "
-        "round, verdict) SELECT run_id, ?,?,?,?,?,?,?,? FROM runs WHERE run_id=? "
+        "round, verdict, effort) SELECT run_id, ?,?,?,?,?,?,?,?,? FROM runs WHERE run_id=? "
         "ON CONFLICT(run_id, review_id) DO NOTHING",
-        (review_id, harness, model, blocking, followup, note, round, verdict, run_id)), log)
+        (review_id, harness, model, blocking, followup, note, round, verdict, effort, run_id)), log)
 
 
 def review_counts(harness, model):
@@ -401,24 +405,26 @@ def review_counts(harness, model):
 
 def reviewed_runs(harness, model):
     """Of the runs the identity finished a review of, in whichever round and whatever became of
-    the run since (its decision stood once given; a stopped run's never counts, `REAL_WORK`):
-    how many, and how many it let through in round 1 (a round-1 review of its ended PASS).  A
-    review from before its round was recorded counts for nothing."""
+    the run since (its decision stood once given; a stopped run's never counts, `REAL_WORK`),
+    per effort it reviewed at (None for a review from before efforts were recorded): how many,
+    and how many it let through in round 1 (a round-1 review of its ended PASS).  A review from
+    before its round was recorded counts for nothing."""
     _ensure_migrated()
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                return connection.execute(
-                    "SELECT COUNT(DISTINCT run_id), "
+                counted = connection.execute(
+                    "SELECT reviews.effort, COUNT(DISTINCT run_id), "
                     "COUNT(DISTINCT CASE WHEN reviews.round=1 AND reviews.verdict='PASS' "
                     "THEN run_id END) FROM reviews JOIN runs USING (run_id) "
-                    f"WHERE harness=? AND model=? AND reviews.round IS NOT NULL AND {REAL_WORK}",
-                    (harness, model)).fetchone()
+                    f"WHERE harness=? AND model=? AND reviews.round IS NOT NULL AND {REAL_WORK} "
+                    "GROUP BY reviews.effort", (harness, model))
+                return {effort: (runs, let_through) for effort, runs, let_through in counted}
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
-        return (0, 0)
+        return {}
 
 
 def merged(row):
