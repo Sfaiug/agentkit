@@ -161,6 +161,24 @@ class OwnPrReview(unittest.TestCase):
                 self.git("update-ref", "refs/remotes/origin/main", predecessor)
         self.assertEqual(history.get(directory.name)["first_review_lines"], 3)
 
+    def test_files_the_target_marks_generated_after_the_merge_base_are_left_out(self):
+        # the marking landed on the target on its own while the PR stayed open: the merge base
+        # lacks it, the target's tip has it
+        self.git("checkout", "-qb", "feature")
+        attrs = "*.generated linguist-generated=true\nwork.txt linguist-generated\n"
+        (self.repo / ".gitattributes").write_text(attrs)
+        self.change(taskfile.MAX_PR_LINES + 100)
+        self.git("checkout", "-q", "main")
+        (self.repo / ".gitattributes").write_text(attrs)
+        self.git("update-ref", "refs/remotes/origin/main", self.commit())
+        self.git("checkout", "-q", "feature")
+        state, reviewer, _, _ = self.review()
+        self.assertEqual(state["state"], "pass")
+        self.assertEqual(state["base_sha"], self.base)
+        reviewer.assert_called_once()
+        run.history_finish(state)
+        self.assertEqual(history.get(state["run_id"])["changed_lines"], 1)     # the attribute line
+
     def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
         here = plan.named(self.repo)
         config.plan_path("fix-api").write_text(

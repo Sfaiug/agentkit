@@ -196,6 +196,24 @@ class SizeGate(Sandbox):
                          "PR #7 adds 401 lines (generated files aside; deletions never count): "
                          "a first review takes at most 400; split it")
 
+    def test_a_change_cannot_mark_its_own_lines_generated(self):
+        # the base marks dist/*.js generated; a change marking its own new file generated in
+        # the same diff still has every line of it counted, beside the attribute line (ATLAS
+        # #2453 on 16 Oct 2026: 2,943 lines read as 241)
+        self.git("checkout", "-q", self.base)
+        self.git("checkout", "-qb", "self-marked")
+        self.write({".gitattributes": "dist/*.js linguist-generated\nfixtures/* linguist-generated\n",
+                    "dist/bundle.js": "built\n" * 50}, "Mark the fixtures generated")
+        (self.repo / "fixtures").mkdir()
+        self.write({"fixtures/recorded.json": "{}\n" * 500}, "Record the fixtures")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 501)
+        self.assertEqual(transitions.reviewed_lines(self.repo, self.base, head)[0].total(), 501)
+        self.assertIn("split it", run.first_review_refusal("PR #7", 501))
+        # ... and once the marking has landed on its own, the fixtures are generated
+        self.assertEqual(run.diff_lines(self.repo, self.git("rev-parse", "HEAD~1"), head,
+                                        added_only=True), 0)
+
     def test_lines_moved_unchanged_from_what_the_diff_deletes_never_count(self):
         self.git("checkout", "-q", self.base)
         self.git("checkout", "-qb", "split-big")
