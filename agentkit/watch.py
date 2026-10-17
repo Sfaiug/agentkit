@@ -2421,6 +2421,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # neither its runs nor its `ak wait` going says he was not needed.
     if waiting and not waiting.get("until"):
         return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"]}
+    # ... and so is a seat ak could not reopen over a run of its own still going: it tries once
+    # per death (`revive_seats`), so the run going says nothing moves the seat back but the owner.
+    # One the owner closed since is no failure: rung 4 has it.
+    if (gone and last and str(last.get("source") or "").startswith("revive:")
+            and not notify.resolved(last) and not seat_closed_by_owner(name)):
+        return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
+                "since": last.get("time")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
