@@ -372,19 +372,25 @@ its progress is its line and its count.
 
 The row the owner points at, with the pointer or ↑/↓, opens its lines under
 itself, indented under the name and lit as the row is (`menu.detail`): the
-question for `needs you` and what got done for `done`, wrapped whole at words, so
-a question is read whole on ak's own screen before its seat is opened, whatever
-harness it runs; a working seat's live line, its tmux bar's second line at the
-row's width, the first of its versions that fits. No other row grows: every page
-keeps as many lines as the most any seat on screen opens, up to half the screen and what the headings, a row and the keys leave, a longer question cut to them with `…`, so no page overflows or turns as
-the highlight moves. From a pipe there is no highlight, so every row asking or
-done opens its lines. The orchestrator column is the model in its
+question for `needs you`, what got done for `done` and an idle seat's way back
+in, wrapped whole at words, so a question is read whole on ak's own screen before
+its seat is opened, whatever harness it runs; for any other, who builds and who reviews and each task in
+flight as three squares -- build, review, land -- the stages it reached filled, in
+working's colour while a model or ak works on it, dim while it waits, red once it
+failed (for a day, unless a later run takes it up), the rest empty:
+`astra builds · opus reviews   ■□□  ■■□  ■■■` (`menu.crew`, `menu.squares`,
+`menu.seat_tasks`). No screen names a task. No other row grows: every page
+keeps as many lines as the most any seat on screen opens, up to half the screen
+and what the headings, a row and the keys leave, a longer question cut to them with `…`, so no page overflows or turns as the
+highlight moves. From a pipe there is no highlight, so every row saying
+something opens its lines. The orchestrator column is the model in its
 company's colour, as on the seat bar, mirrored on a light background as the
 usage rows are.
 
 Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`, `terminal.cells`,
 `terminal.plain`, `terminal.styled`, `terminal.state_text`,
-`terminal.state_colour`, `terminal.plan_bar`, `menu.seat_runs`, `menu.live_line`,
+`terminal.state_colour`, `terminal.plan_bar`, `menu.seat_runs`, `menu.detail`,
+`menu.seat_tasks`, `menu.squares`, `menu.crew`,
 `menu.model_colour`.
 
 Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────── 2 of 5`.
@@ -412,8 +418,8 @@ Rows keep their global numbers. A screen too short for the usage block
 and a few rows under it folds it to each subscription's reading, whole, in as
 many lines as the width takes (`Claude I 17% · ChatGPT 74% · Grok —`); one too
 short for that drops the frame and the blank lines too (compact), and only one
-with no room for a seat under its heading even then cuts the readings, ending
-in `· …`. On a terminal the page up is the one the highlight is on and the key
+with no room for a seat under its heading even then gives up the lines the
+highlighted row opens, then cuts the readings, ending in `· …`. On a terminal the page up is the one the highlight is on and the key
 line says which (`←  1 / 2  →`); in a pipe the heading does (`your projects
 2/3`), the page never the part that is cut, and `j` and `k` turn the pages.
 
