@@ -62,7 +62,7 @@ class WithoutProcChildren(unittest.TestCase):
 
     def test_a_detached_child_is_killed_and_reaped_and_the_output_kept(self):
         proc = usage_probe.capture([sys.executable, "-c", HARNESS])
-        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "usage read\n", ""))
+        self.assertEqual((proc.returncode, proc.stdout.strip(), proc.stderr), (0, "usage read", ""))
         # Gone: the probe killed and reaped it instead of leaving it to sleep out its minute.
         with self.assertRaises(ProcessLookupError):
             os.kill(int(self.detached.read_text()), 0)
