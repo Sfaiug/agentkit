@@ -163,6 +163,19 @@ class Check(unittest.TestCase):
         self.assertEqual(made, [True])
         self.assertEqual(watch.seat_read("herdr")["state"], "at_prompt")
 
+    def test_an_error_the_tick_retries_is_looked_at_and_so_is_the_prompt_that_answers_it(self):
+        # both read as Muse's composer: only the error tells them apart
+        config.save_session(self.seat.cfg, "herdr", "spark", ["opus", "astra"],
+                            {"repo": self.seat.repo, "cwd": self.seat.repo})
+        looks, made = self.looks("muse")
+        self.show("muse-stall-pane.txt")
+        looks.check()
+        self.assertEqual(watch.seat_read("herdr")["reason"], "retrying: 429")
+        self.show("muse-prompt-pane.txt")
+        looks.check()
+        self.assertEqual(made, [True, True])
+        self.assertEqual(watch.seat_read("herdr")["word"], "idle")
+
     def test_a_pane_that_cannot_be_read_is_not_a_change(self):
         looks, made = self.looks()
         looks.read = lambda: None

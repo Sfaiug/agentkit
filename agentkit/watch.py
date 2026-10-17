@@ -1055,6 +1055,9 @@ def forget(session, *, resolve=True, acknowledge=True, opening=False, notice=Non
                 notice = last["text"]    # the user is taking over the watcher's recovery
             if not opening or not last or last.get("watcher") is True:
                 state["stalls"].pop(name, None)
+                # ... and seat_account's give-up on a bare 429, kept in the seat's record
+                if (seat_read(name).get("usage_refusal") or {}).get("told"):
+                    seat_write(name, usage_refusal=None)
             if notice is not None:
                 notify.clear(name, notice=notice)
             elif acknowledge:
@@ -1485,6 +1488,14 @@ def stalled_on(harness, pane, session, log):
             else next(mark for mark in stalls(harness) if says(last, mark)))
 
 
+def stall_mark(harness, pane, name, log):
+    """The stall the tick types that seat back past (`health`), or None.  An error that may be
+    a login is none: it takes the quiet path, and nothing types past it."""
+    said = recorded_error(harness, name)
+    said = output_line(content_lines(harness, pane_tail(pane))) if said is None else said
+    return None if LOGIN_HINT.search(said) else stalled_on(harness, pane, name, log)
+
+
 def stuck_on(harness, tail, name=None):
     """Login trouble or a blocked operation, not a test summary or an error above progress.
 
@@ -1865,7 +1876,7 @@ def live_state(session, harness=None, pane=None, cfg=None, now=None):
 
 def observed(name, harness, pane, previous, at):
     """`classify` of that pane with the seat's hook facts and an interruption its harness
-    recorded, writing nothing."""
+    recorded, and the stall the tick would type it back past (`stall`), writing nothing."""
     fact = hook_facts(name)
     # only a turn its hooks say runs, or asked in, can have ended unreported; and a prompt
     # whose hook lands while the record is read is a newer turn, which the record may not
@@ -1878,15 +1889,22 @@ def observed(name, harness, pane, previous, at):
             ended = max(at, _stamp(fact.get("at")) or at)
     if ended is not None and hook_facts(name) != fact:
         ended = None
-    return classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
-                    interrupted=ended)
+    found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
+                     interrupted=ended)
+    # read off this same capture, so a turn since answers it as soon as the screen does; a
+    # capture that failed says nothing of it
+    found["stall"] = (previous.get("stall") if not pane.strip() else
+                      stall_mark(harness, pane, name, lambda _: None)
+                      if found["state"] == "at_prompt" else None)
+    return found
 
 
 def word_from(found):
     """What of an observation a seat's word is decided from and kept beside it: its state and
-    rule, and the words of a question or a draft, which the owner reads -- never a spinner's
-    own line, which a harness redraws with its timer."""
-    said = found.get("evidence") if found.get("state") in ("asking", "draft") else ""
+    rule, and the words the owner reads in its reason, a question's, a draft's or the error a
+    retry is typed past -- never a spinner's own line, which a harness redraws with its timer."""
+    said = (found.get("evidence") if found.get("state") in ("asking", "draft")
+            else found.get("stall")) or ""
     return [found.get("state"), found.get("rule"), said]
 
 
@@ -2120,7 +2138,8 @@ def unsent(name, harness, found, session):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None, card=False):
+                  previous=None, auth_out=None, gh_out=None, token_out=None, card=False,
+                  stalls=None):
     """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those four words: the menu row, the project
@@ -2148,6 +2167,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       is stalled, or a merge wait only its age turned away;
     * its subscription ran out and ak resumes it when the usage comes back, so the seat is
       working, its reason saying until when (`resumes_at`);
+    * its turn stopped on an error the tick types it back past, as its look saw it (`stall`),
+      so the seat is working, `retrying: <error>`, until the tick gives up (`stalls`);
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in: one the owner closed
@@ -2194,11 +2215,12 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                        None) or {"name": name}
     if live is None:
         live = seat_read(name)
-    if auth_out is None or gh_out is None or token_out is None:
+    if auth_out is None or gh_out is None or token_out is None or stalls is None:
         saved = load_state()
         auth_out = (saved.get("auth_out") or {}) if auth_out is None else auth_out
         gh_out = (saved.get("gh_out") or {}) if gh_out is None else gh_out
         token_out = saved.get("worker_tokens") if token_out is None else token_out
+        stalls = (saved.get("stalls") or {}) if stalls is None else stalls
     if harness is None and not any(session.get(key) for key in orch.CLOSED):
         try:
             harness = seat_model(cfg if cfg is not None else config.load(), name)[0]
@@ -2206,7 +2228,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out,
-                            menu_mod, run_mod, terminal_mod)
+                            menu_mod, run_mod, terminal_mod, stalls)
     draft = "" if card else unsent(name, harness, live, session)
     if draft:
         answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
@@ -2340,7 +2362,7 @@ def still_owed(name, mine, index, stopped):
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
-                   terminal_mod):
+                   terminal_mod, stalls):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
     The seat's own runs are gathered before the first rung, because a login the top rung
@@ -2509,6 +2531,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if waiting:
         return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
                 "resumes_at": waiting["until"]}
+    # 3c. ... or its turn stopped on an error the tick types it back past (`health`, or
+    # `seat_account` for a bare 429): it moves on without the owner until the tick gives
+    # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.
+    # The error is its own look's (`stall`), so a turn since -- the retry's or the owner's --
+    # answers it as soon as the screen does.
+    if (found.get("stall") and not gone and not session.get("legacy")
+            and not seat_closed_by_owner(name) and not (stalls.get(name) or {}).get("told")
+            and not (seat_read(name).get("usage_refusal") or {}).get("told")):
+        return {"word": "working", "reason": f"retrying: {found['stall']}",
+                "since": found.get("began")}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, handed to
     # the seat, which says done once the whole of its work is.  Opening the seat, reading it and
     # its redraws leave the seat's own standing until a newer notice, but a question on its
@@ -4237,9 +4269,7 @@ def health(cfg, state, dry_run, log):
             # Suspected auth takes the quiet escalation path even when `API Error` coexists.
             # Only verified auth messages get an immediate needs-login notice, but neither
             # known nor unknown logout wording can receive a capacity nudge.
-            said = recorded_error(harness, name)
-            said = output_line(content_lines(harness, tail)) if said is None else said
-            mark = None if LOGIN_HINT.search(said) else stalled_on(harness, pane, name, log)
+            mark = stall_mark(harness, pane, name, log)
             if not mark:
                 if entry.get("signature"):
                     log(f"{name}: moving again")
@@ -4362,7 +4392,7 @@ def health(cfg, state, dry_run, log):
                                harness=harness, auth_out=state.get("auth_out") or {},
                                gh_out=state.get("gh_out") or {},
                                token_out=state.get("worker_tokens"),
-                               records=records)
+                               stalls=state["stalls"], records=records)
 
 
 # --- silent runs: the tick recovers what the loop cannot --------------------
