@@ -533,8 +533,12 @@ cat "$dir/bridge-eval"
         # No bridge at all: the provider key is tried against the same two
         # console calls, and code-0 answers are meters the same way.  (The
         # live API refuses the key with 401 today; this is the shape an
-        # accepted key would take.)
-        self.write_config("tp-dummy")
+        # accepted key would take.)  Another provider's key ahead of MiMo's
+        # is never the one sent.
+        self.cfgdir.mkdir(parents=True, exist_ok=True)
+        (self.cfgdir / "opencode.json").write_text(json.dumps(
+            {"provider": {"acme": {"options": {"apiKey": "acme-dummy"}},
+                          "mimo": {"options": {"apiKey": "tp-dummy"}}}}))
         self.fake_curl()
         self.answer("tokenPlan_usage", 200,
                     (FIXTURES / "mimo-tokenplan-usage.json").read_text())

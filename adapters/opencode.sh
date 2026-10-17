@@ -59,15 +59,20 @@ CFGDIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 CFG="$CFGDIR/opencode.json"
 cmd=${1:-}; shift 2>/dev/null || true
 
-# 0 when a non-blank apiKey is configured for provider $1, or for any provider where $1 is
-# empty; 1 when none is, 2 when the question cannot be answered for want of jq: a blank file
-# is not a login, and a guess is not an answer.
+# The first non-blank apiKey configured for provider $1, or for any provider where $1 is
+# empty; nothing when none is.
+config_key() {
+  jq -r --arg p "${1:-}" '(if $p == "" then . else [.provider[$p]?, .providers[$p]?] end)
+      | .. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0)' \
+      "$CFG" 2>/dev/null | head -1
+}
+
+# 0 when config_key finds one, 1 when it does not, 2 when the question cannot be answered
+# for want of jq: a blank file is not a login, and a guess is not an answer.
 have_key() {
   [ -r "$CFG" ] || return 1
   command -v jq >/dev/null || return 2
-  jq -e --arg p "${1:-}" '(if $p == "" then . else [.provider[$p]?, .providers[$p]?] end)
-      | .. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0)' \
-      "$CFG" >/dev/null 2>&1
+  [ -n "$(config_key "${1:-}")" ]
 }
 
 # 0 when the auth store holds a login for provider $1, or for any provider where $1 is empty:
@@ -443,8 +448,7 @@ usage)
     note "provider key untested (probe budget)"
   elif ! command -v curl >/dev/null; then note "provider key untested (curl missing)"
   else
-    key=$(jq -r '.. | objects | select(has("apiKey")) | .apiKey
-      | strings | select(length > 0)' "$CFG" 2>/dev/null | head -1 || true)
+    key=$(config_key mimo)
     if [ -z "$key" ]; then note "provider key unreadable"
     else
       out=$(plan_probe <(printf 'Authorization: Bearer %s\n' "$key"))
