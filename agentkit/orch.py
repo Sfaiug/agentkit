@@ -2833,7 +2833,8 @@ def sweep_finished(found, log):
             continue
         # Recheck every window and pane inside tmux's kill command: a pane respawned, added
         # or moved during capture must survive, as must a session renamed into a seat or whose
-        # own tag was cleared or changed (#{} reads the session's value while it holds one).
+        # own tag was cleared or changed. #{} reads the session's value while it holds one;
+        # once it holds none, show-environment fails and tmux skips the rest of the list.
         snapshot = f"{owner}/{name}/" + "".join(f"{p[2]}/{p[3]}/{p[4]};" for p in panes)
         snapshot = snapshot.replace("#", "##").replace(",", "#,").replace("}", "#}")
         condition = (f"#{{&&:#{{!=:#{{{MARK}}},1}},"
@@ -2841,7 +2842,8 @@ def sweep_finished(found, log):
                      f"#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
                      f"{snapshot}}}}}")
         if not guard.seat(name):
-            tmux_out("if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")
+            tmux_out("show-environment", "-t", sid, guard.TMUX_OWNER, ";",
+                     "if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")
 
 
 def sweep(log):

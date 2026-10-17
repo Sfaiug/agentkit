@@ -76,6 +76,9 @@ class FinishedTmux(unittest.TestCase):
 
     def tmux(self, *args, **kw):
         self.assertIn(kw.get("socket", orch.socket_name()), (None, "agentkit-test"))
+        if ";" in args:                 # tmux skips the rest of a list after a failed command
+            rc, out = self.tmux(*args[:args.index(";")], **kw)
+            return (rc, out) if rc else self.tmux(*args[args.index(";") + 1:], **kw)
         if args[0] == "list-panes":
             return 0, "\n".join(expand(args[-1], {**fields, **pane}, windows)
                                  for fields, windows in self.sessions.values()
@@ -157,7 +160,7 @@ class FinishedTmux(unittest.TestCase):
         self.assertEqual(self.closed, [])
 
     def test_a_session_changed_during_capture_is_kept(self):
-        for change in ("respawned", "marked", "renamed", "new-pane", "untagged"):
+        for change in ("respawned", "marked", "renamed", "new-pane", "emptied", "untagged"):
             with self.subTest(change=change):
                 self.sessions.clear()
                 self.add("$1", "old")
@@ -168,7 +171,8 @@ class FinishedTmux(unittest.TestCase):
                     "renamed": lambda: fields.update(session_name="recorded-seat"),
                     "new-pane": lambda: windows[0].append({"pane_id": "%99", "pane_dead": "0",
                                                           "pane_dead_time": ""}),
-                    "untagged": lambda: fields.update({guard.TMUX_OWNER: ""}),
+                    "emptied": lambda: fields.update({guard.TMUX_OWNER: ""}),
+                    "untagged": lambda: self.owners.update({"$1": ""}),
                 }[change]
                 config.session_path("recorded-seat").write_text("{}")
                 self.tick()
