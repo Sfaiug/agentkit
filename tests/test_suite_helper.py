@@ -10,11 +10,13 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from agentkit import config, gate, helper, worker
 
@@ -26,23 +28,31 @@ here=$(dirname "$0")
 eval "set -- $2"
 echo "$5" >>"$here/calls"
 case $5 in
-probe) printf 'cpus 3\nload 0\nmemory_mb 1048576\nfree_percent 100\ntaken_cpus 0\ntaken_mb 0\n' ;;
+probe) printf 'cpus 3\nload 0\nmemory_mb 1048576\nfree_percent 100\n' ;;
 prepare) cat >"$here/parcel.tar" ;;
 run) [ -e "$here/code-${11%/*}" ] && exit "$(cat "$here/code-${11%/*}")"
   echo "helper ran ${11}"; AK_SHARD=${11} exec bash -c "${15}" ;;
 esac
 """
 
-# The Mac's own tools, for tools/helper/mac.sh's probe run here.
+# The Mac's own tools, for tools/helper/mac.sh run here: on its charger for the first
+# $FAKE_AC_CALLS readings; a VM comes up a second after `container run` and runs until stopped.
 MAC_TOOLS = {
-    "pmset": "echo \"Now drawing from '$FAKE_POWER'\"",
+    "pmset": 'n=$(( $(cat "$FAKE/readings" 2>/dev/null || echo 0) + 1 )); echo $n >"$FAKE/readings"\n'
+             '[ $n -le "$FAKE_AC_CALLS" ] && echo "Now drawing from \'AC Power\'" ||'
+             ' echo "Now drawing from \'Battery Power\'"',
     "sysctl": 'case "$2" in hw.ncpu) echo 10;; vm.loadavg) echo "{ 1.00 2.50 3.00 }";;'
               ' hw.memsize) echo 17179869184;; esac',
     "memory_pressure": 'echo "System-wide memory free percentage: 50%"',
-    "container": 'case "$1" in system) exit 0;; ls)\n'
-                 'echo "ID IMAGE OS ARCH STATE IP CPUS MEMORY STARTED"\n'
-                 'echo "ak-1a2b-1-2 ak-helper:abc linux arm64 running 10.0.0.2/24 2 2048 MB now"\n'
-                 'echo "owners img linux arm64 running 192.168.64.3/24 4 4 GB now";; esac',
+    "caffeinate": 'shift; exec "$@"',
+    "container": 'case "$1 $2" in "system "*|"builder "*) exit 0;;\n'
+                 '"image inspect") [ -e "$FAKE/built" ];; "build "*) touch "$FAKE/built";;\n'
+                 '"image ls") printf "NAME TAG DIGEST\\nak-helper new 1\\nak-helper old 2\\n'
+                 'acme-local unpublished 3\\n";;\n'
+                 '"image delete") echo "$3" >>"$FAKE/deleted";;\n'
+                 '"run "*) while [ "$1" != --name ]; do shift; done\n'
+                 '  sleep 1; touch "$FAKE/vm-$2"; while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
+                 '"stop "*) rm "$FAKE/vm-$2";; esac',
     "ssh": 'exec bash -c "$2"',
 }
 
@@ -75,10 +85,17 @@ class SuiteHelper(unittest.TestCase):
         (self.fake / "ssh").write_text(FAKE_SSH)
         (self.fake / "ssh").chmod(0o755)
         self.stack.enter_context(patch.object(helper, "SSH", (str(self.fake / "ssh"),)))
-        self.turns = []
-        self.stack.enter_context(patch.object(
-            gate, "_acquire_gate_turn", side_effect=lambda *a, **kw: self.turns.append(a)))
+        self.turns, self.waited = [], 0.0
+        clock = Clock(time.sleep)
+        clock.monotonic = lambda: time.monotonic() + self.waited
+        self.stack.enter_context(patch.object(gate, "time", clock))
+        self.stack.enter_context(patch.object(gate, "_acquire_gate_turn", side_effect=self.turn))
         (config.HOME / config.CONFIG_NAME).write_text('suite_helper = "acme-mac"\n')
+
+    def turn(self, *args, **_kw):
+        # A turn here comes after longer than the suite's ceiling, which no wait is charged to.
+        self.turns.append(args)
+        self.waited += 60
 
     def check(self, codes):
         for path in [*self.fake.glob("code-*"), self.fake / "calls"]:
@@ -122,19 +139,54 @@ class SuiteHelper(unittest.TestCase):
         self.assertFalse((self.fake / "calls").exists())
 
 
-class HelperProbe(unittest.TestCase):
-    def test_probe_leaves_load_other_suites_half_the_free_memory_and_battery(self):
-        with tempfile.TemporaryDirectory(prefix="ak-test-helper-probe-") as tmp:
-            for name, body in MAC_TOOLS.items():
-                (Path(tmp) / name).write_text(f"#!/bin/bash\n{body}\n")
-                (Path(tmp) / name).chmod(0o755)
-            with patch.object(helper, "SSH", (f"{tmp}/ssh",)), patch.dict(os.environ, {
-                    "PATH": f"{tmp}:{os.environ['PATH']}", "FAKE_POWER": "AC Power"}):
-                # 10 CPUs less another suite's 2; 8 GiB free, half of it less that suite's 2.
-                self.assertEqual(helper.room("acme-mac", 1.0, 500), (2, 4, 1024))
-                self.assertIsNone(helper.room("acme-mac", 1.0, 2000))
-                os.environ["FAKE_POWER"] = "Battery Power"
-                self.assertIsNone(helper.room("acme-mac", 1.0, 500))
+class HelperMac(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix="ak-test-helper-mac-")
+        self.addCleanup(tmp.cleanup)
+        self.fake = Path(tmp.name)
+        for name, body in MAC_TOOLS.items():
+            (self.fake / name).write_text(f"#!/bin/bash\n{body}\n")
+            (self.fake / name).chmod(0o755)
+        self.root = self.fake / ".agentkit-helper"
+        for context in (patch.object(helper, "SSH", (str(self.fake / "ssh"),)), patch.dict(
+                os.environ, {"PATH": f"{self.fake}:{os.environ['PATH']}", "HOME": str(self.fake),
+                             "FAKE": str(self.fake), "FAKE_AC_CALLS": "99"})):
+            context.start()
+            self.addCleanup(context.stop)
+
+    def test_probe_leaves_load_half_the_free_memory_battery_and_a_held_mac(self):
+        # 10 CPUs less a load of 1; half of 8 GiB free.
+        self.assertEqual(helper.room("acme-mac", 1.0, 500), (4, 2, 1024))
+        self.assertIsNone(helper.room("acme-mac", 1.0, 2100))
+        (self.root / "other").mkdir(parents=True)
+        (self.root / "other" / "held").touch()
+        self.assertIsNone(helper.room("acme-mac", 1.0, 500))
+        os.utime(self.root / "other" / "held", (time.time() - 600,) * 2)
+        self.assertIsNotNone(helper.room("acme-mac", 1.0, 500))
+        os.environ["FAKE_AC_CALLS"] = "0"
+        self.assertIsNone(helper.room("acme-mac", 1.0, 500))
+
+    def test_one_suite_holds_the_mac_and_only_its_own_old_image_goes(self):
+        parcel = io.BytesIO()
+        with tarfile.open(fileobj=parcel, mode="w") as tar:
+            tar.add(REPO / "tools" / "helper" / "Containerfile", "image/Containerfile")
+        prepare = lambda key: helper._remote("acme-mac", "prepare", key, "ak-helper:new",
+                                             input=parcel.getvalue()).returncode
+        self.assertEqual(prepare("first"), 0)
+        self.assertEqual((self.fake / "deleted").read_text(), "ak-helper:old\n")
+        self.assertIsNone(helper.room("acme-mac", 1.0, 500))
+        self.assertEqual(prepare("second"), helper.LOST)
+        for key in ("first", "second"):
+            helper.finish(helper.Away("acme-mac", key, *[None] * 6))
+        self.assertEqual(prepare("third"), 0)
+
+    def test_a_vm_that_comes_up_after_its_charger_went_stops(self):
+        (self.root / "key").mkdir(parents=True)
+        os.environ["FAKE_AC_CALLS"] = "1"
+        run = helper._remote("acme-mac", "run", "key", "ak-helper:new", "ak-key-1-2", 1, 512,
+                             timeout=30)
+        self.assertEqual(run.returncode, helper.LOST)
+        self.assertEqual(list(self.fake.glob("vm-*")), [])
 
 
 if __name__ == "__main__":

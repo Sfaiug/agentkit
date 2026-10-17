@@ -1301,7 +1301,12 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 for index in (index for index in again if results[index][0] != helper.LOST):
                     if log is not None:
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper")
+                began = time.monotonic()
                 hold = _GATE_HELD.hold = _GATE_HELD.home()
+                queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
+                deadline += queued
+                if on_wait is not None:
+                    on_wait(queued)
                 env = suite_env()
                 attempts(again, len(hold.slots) if hold else len(again))
             hold = getattr(_GATE_HELD, "hold", None)
