@@ -15,7 +15,8 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, history, host, orch, transitions, turns, watch, worker
+from . import config, gitcall, handback, helper, history, host, orch, transitions, turns, watch
+from . import worker
 from . import land as landing
 from . import record as run_record
 
@@ -955,9 +956,26 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD reserves all the pieces live headroom fits, each a turn,
     using its repository's measured cost when available; this count is always derived.
+    A suite the helper has room for (`helper.start`) takes a turn only for pieces it hands back.
     """
-    if getattr(_GATE_HELD, "hold", None) is not None:
+    if getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None):
         yield
+        return
+    away = None
+    if command and cwd and names_shard(command):
+        away = helper.start(*suite_cost(command, cwd, run_dir)[1:], cwd, log or (lambda line: None))
+    if away is not None:
+        _GATE_HELD.away = away
+        _GATE_HELD.home = lambda: _acquire_gate_turn(run_dir, log_path, log, command, cwd,
+                                                     context=context)
+        try:
+            yield
+        finally:
+            current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
+            _GATE_HELD.away = _GATE_HELD.home = None
+            if current is not None:
+                current.release()
+            helper.finish(away)
         return
     hold = _acquire_gate_turn(run_dir, log_path, log, command, cwd, context=context)
     if hold is None:
@@ -1198,8 +1216,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         return result
     with gate_turn(run_dir, activity, log, command, cwd):
         hold = getattr(_GATE_HELD, "hold", None)
+        away = getattr(_GATE_HELD, "away", None)
         path, cpu, mem = suite_cost(command, cwd, run_dir)
-        count = len(hold.slots) if hold else derived_heavy_limit(
+        count = away.count if away else len(hold.slots) if hold else derived_heavy_limit(
             running=0, job_cpus=cpu, job_mem_mb=mem, unit=True)
         env = suite_env()    # the piece threads do not inherit this thread's held turn
         deadline = time.monotonic() + limit
@@ -1262,25 +1281,41 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     return worker.TIMEOUT, piece, True
                 stream = Output()
                 try:
-                    code, _, killed = worker.boxed(
-                        ["bash", "-c", command], left,
-                        cwd=str(cwd), activity=Path(piece.name),
+                    here = {} if away else {"cpu": measure.cpu}
+                    code, _, killed = (worker.limited if away else worker.boxed)(
+                        helper.piece(away, shard, command) if away else ["bash", "-c", command],
+                        left, cwd=str(cwd), activity=Path(piece.name),
                         output=stream, env={**env, "AK_SHARD": shard}, abort=abort,
-                        on_timeout=stopped, cpu=measure.cpu, **kwargs)
+                        on_timeout=stopped, **here, **kwargs)
                 finally:
                     stream.finish()
                 return code, piece, killed
 
-            with ThreadPoolExecutor(max_workers=count) as pool:
-                try:
-                    futures = [pool.submit(attempt, f"{index}/{count}")
-                               for index in range(1, count + 1)]
-                    results = [future.result() for future in futures]
-                except BaseException:
-                    cancel.set()
-                    raise
-            if not any(killed or code == SUITE_BUSY for code, _, killed in results):
+            def attempts(which, width):
+                with ThreadPoolExecutor(max_workers=width) as pool:
+                    try:
+                        futures = [pool.submit(attempt, f"{index + 1}/{count}") for index in which]
+                        for index, future in zip(which, futures):
+                            results[index] = future.result()
+                    except BaseException:
+                        cancel.set()
+                        raise
+
+            results = [None] * count
+            attempts(range(count), count)
+            if not away and not any(killed or code == SUITE_BUSY for code, _, killed in results):
                 measure.save(path, count)
+            again = [index for index, (code, _, killed) in enumerate(results)
+                     if away and code and not killed and not cancel.is_set()]
+            away = None
+            if again:
+                # What the helper lost or failed runs again here, on this host's own turns.
+                for index in (index for index in again if results[index][0] != helper.LOST):
+                    if log is not None:
+                        log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper")
+                hold = _GATE_HELD.hold = _GATE_HELD.home()
+                env = suite_env()
+                attempts(again, len(hold.slots) if hold else len(again))
             hold = getattr(_GATE_HELD, "hold", None)
             if hold is not None:
                 hold.alone()
