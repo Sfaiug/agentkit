@@ -35,12 +35,17 @@ class ClaudeAdapter(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.home = Path(tmp.name)
+        # macOS keeps the login in the Keychain, which no HOME hides: this `security` finds none
+        self.bin = self.home / "bin"
+        self.bin.mkdir()
+        (self.bin / "security").write_text("#!/usr/bin/env bash\nexit 1\n")
+        (self.bin / "security").chmod(0o755)
 
     def login_end(self, account=""):
         proc = subprocess.run(["bash", str(REPO / "adapters/claude.sh"), "login-end"],
                               capture_output=True, text=True, timeout=30,
-                              env={"HOME": str(self.home), "PATH": os.environ["PATH"],
-                                   "AGENTKIT_ACCOUNT": account})
+                              env={"HOME": str(self.home), "AGENTKIT_ACCOUNT": account,
+                                   "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)
 
@@ -112,19 +117,30 @@ class Refresh(unittest.TestCase):
         logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
         self.assertEqual(self.calls()[3:], ["second"])
 
-    def test_c_an_adapter_that_answers_nothing_leaves_its_last_answer(self):
+    def test_c_an_adapter_that_answers_nothing_leaves_its_last_answer_and_waits_an_hour(self):
         logins.refresh(self.cfg, now=1000)
         (self.fake / "fail-default").touch()
         self.answer("second", {"email": "two@acme.test", "ends": "soon"})
-        kept = logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
+        later = 1000 + logins.ASK_EVERY
+        kept = logins.refresh(self.cfg, now=later)
         self.assertEqual(kept["anthropic"]["default"],
-                         {"email": "owner@acme.test", "ends": 50000, "checked_at": 1000})
-        self.assertEqual(kept["anthropic"]["second"]["checked_at"], 1000)
+                         {"email": "owner@acme.test", "ends": 50000, "checked_at": later})
+        self.assertEqual(kept["anthropic"]["second"],
+                         {"email": "two@acme.test", "ends": None, "checked_at": later})
+        logins.refresh(self.cfg, now=later + 1)
+        self.assertEqual(self.calls(), ["default", "second"] * 2)
 
     def test_d_a_subscription_the_config_no_longer_lists_is_dropped(self):
         logins.refresh(self.cfg, now=1000)
         self.cfg["providers"]["anthropic"]["accounts"] = ["default"]
         self.assertEqual(list(logins.refresh(self.cfg, now=1001)["anthropic"]), ["default"])
+
+    def test_f_a_provider_whose_models_were_removed_keeps_its_logins(self):
+        logins.refresh(self.cfg, now=1000)
+        self.cfg["models"] = {}
+        kept = logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
+        self.assertEqual(kept["anthropic"]["default"]["ends"], 50000)
+        self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
 
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch
