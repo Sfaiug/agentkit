@@ -473,6 +473,35 @@ def provider_harnesses(cfg, provider):
                               and isinstance(entry.get("harness"), str)))
 
 
+def provider_hosts():
+    """{harness: its name} for each harness that runs any provider it can log in to, as its
+    manifest's `[providers] label` says: `+ add` on Providers offers it by that name, then
+    each provider its adapter lists (listed_providers)."""
+    hosts = {}
+    for harness, found in manifests():
+        block = found.get("providers")
+        if isinstance(block, dict) and isinstance(block.get("label"), str):
+            hosts.setdefault(harness, block["label"])
+    return hosts
+
+
+def listed_providers(harness):
+    """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
+    (id, name, mode), the logged-in ones first with their mode, `subscription` or `payg`, and
+    the rest with none.  Error, in the adapter's own last words, when it lists none."""
+    try:
+        proc = subprocess.run([str(adapter(harness)), "providers"], capture_output=True,
+                              timeout=75, stdin=subprocess.DEVNULL, encoding="utf-8",
+                              errors="replace", env=child_env())
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Error(f"{harness} providers: {exc}") from exc
+    rows = [tuple(fields) for fields in (line.split("\t") for line in proc.stdout.splitlines())
+            if len(fields) == 3 and fields[0]]
+    if proc.returncode or not rows:
+        raise Error((proc.stderr.strip().splitlines() or [f"{harness} lists no provider"])[-1])
+    return rows
+
+
 def shipped():
     """The shipped config.default.toml as it parses, {} when it does not: the providers the
     `c` screen's `+ add` offers, each added as it is here."""
@@ -512,6 +541,11 @@ def catalog_table(harness):
     return [{"id": model, "label": str(entry.get("label") or model),
              "efforts": [word for word in entry.get("efforts") or [] if isinstance(word, str)]}
             for model, entry in table.items() if isinstance(entry, dict)]
+
+
+def forget_catalog(harness):
+    """Ask that harness for its models afresh next time: a login has just changed them."""
+    _CATALOGS.pop(harness, None)
 
 
 def catalog(harness):

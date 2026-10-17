@@ -35,13 +35,15 @@ FIXTURES = REPO / "tests/fixtures"
 STUB = """#!/usr/bin/env bash
 # canned opencode for tests/test_opencode.py: run cats $STUB_EVENTS and exits $STUB_RC,
 # session export cats $STUB_EXPORT, auth list prints $STUB_AUTH_LIST, `api model.list` cats
-# $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one).  Every argv lands in
-# $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
+# $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one), `api integration.list`
+# prints $STUB_INTEGRATION_LIST.  Every argv lands in $STUB_ARGV_LOG, and run's
+# OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
 case "$1 ${2:-}" in
   run*) [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$OPENCODE_CONFIG_CONTENT" >"$STUB_ARGV_LOG.content"
         cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
   "api model.list") cat -- "$STUB_MODEL_LIST" && exit "${STUB_LIST_RC:-0}" ;;
+  "api integration.list") printf '%s' "${STUB_INTEGRATION_LIST:-}" ;;
   session*) cat -- "$STUB_EXPORT" ;;
   auth*) printf '%s' "${STUB_AUTH_LIST:-[]}" ;;
   --version*) echo "opencode v9.9.9-test" ;;
@@ -418,6 +420,30 @@ cat "$dir/bridge-eval"
         self.assertEqual((out["provider"], out["meters"]), ("zeta", []))
         self.assertIn("no login for zeta", out["error"])
         self.assertNotIn("none", out)
+
+    def test_providers_lists_the_logged_in_first_with_the_mode_their_prices_say(self):
+        free, priced = {"input": 0, "output": 0}, {"input": 0.15, "output": 0.6}
+        models = self.root / "model-list.json"
+        models.write_text(json.dumps({"data": [
+            {"providerID": "opencode", "id": "free-1", "cost": [free]},
+            {"providerID": "acme", "id": "rocket-1", "cost": [free], "settings": {"apiKey": "x"}},
+            {"providerID": "zeta", "id": "comet-1", "cost": [free]},
+            {"providerID": "zeta", "id": "comet-2", "cost": [priced]},
+            {"providerID": "vega", "id": "star-1", "cost": []}]}))
+        env = {"STUB_PROVIDER_LIST": listed("acme", "zeta", "vega"), "STUB_MODEL_LIST": str(models),
+               "STUB_INTEGRATION_LIST": json.dumps({"data": [
+                   {"id": name, "name": name.title()} for name in ("acme", "nova", "zeta", "opencode")]})}
+        proc = self.adapter("providers", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # a plan or a free provider prices every model at nothing; one priced, or not priced at
+        # all (MiMo's), is pay as you go; the rest have no login, so no mode
+        self.assertEqual([line.split("\t") for line in proc.stdout.splitlines()], [
+            ["opencode", "Opencode", "subscription"], ["acme", "Acme", "subscription"],
+            ["zeta", "Zeta", "payg"], ["vega", "Vega", "payg"], ["nova", "Nova", ""]])
+        self.assertNotIn("dummy", proc.stdout + proc.stderr)
+        proc = self.adapter("providers", env={**env, "STUB_INTEGRATION_LIST": ""})
+        self.assertEqual((proc.returncode, proc.stdout), (1, ""))
+        self.assertIn("did not list its providers", proc.stderr)
 
     def test_usage_reports_none_with_reason(self):
         # no key is a failed probe: an unauthenticated account must not rank neutral

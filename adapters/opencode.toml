@@ -172,6 +172,11 @@ signatures = [
   "Invalid API Key",
 ]
 
+# OpenCode runs any provider it can log in to, which its adapter's `providers` verb lists:
+# `+ add` on Providers offers OpenCode under this name, then each of them to log in to.
+[providers]
+label = "OpenCode"
+
 # The models this harness runs when OpenCode's own list cannot say: the MiMo models opencode
 # 2.0.14 listed for the shipped `mimo` provider.  Every other model takes OpenCode's own name
 # and variants; these take their label and efforts from here even where OpenCode lists them,
