@@ -102,23 +102,6 @@ mimo_variants() {  # <model>: the document for a MiMo model, nothing for another
     '"high":{"extraBody":{"thinking":{"type":"enabled"}}}'
 }
 
-# tag <model> <effort>: the `-m` spelling, OpenCode's `provider/model#variant`; a model already
-# carrying a variant keeps its own.  `none` is the model's own `none` variant where OpenCode's
-# list gives it one (asked as `models` asks), and otherwise a model that runs at no effort,
-# handed bare as adapters/antigravity.sh hands it -- except MiMo's, which is a variant like its
-# `high` (mimo_variants).
-tag() {
-  case $1:$2 in
-    *#*) printf '%s' "$1"; return ;;
-    mimo/*) ;;
-    *:none) command -v timeout >/dev/null && command -v jq >/dev/null \
-        && timeout 10 opencode api model.list 2>/dev/null | jq -e --arg m "$1" '.data[]?
-          | select("\(.providerID)/\(.id)" == $m) | .variants[]? | select(.id == "none")' \
-          >/dev/null 2>&1 || { printf '%s' "$1"; return; } ;;
-  esac
-  printf '%s#%s' "$1" "$2"
-}
-
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "opencode.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
@@ -128,7 +111,12 @@ run)
   [ -d "$ws" ] || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
   command -v opencode >/dev/null || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
   cd -- "$ws" || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
-  tagged=$(tag "$model" "$effort")   # the effort is OpenCode's model variant
+  # The effort is OpenCode's model variant: `provider/model#variant` is the `-m` spelling, and
+  # a model already carrying one keeps its own.  `none` is a model that runs at no effort and
+  # is handed bare, as adapters/antigravity.sh hands it -- except MiMo's, which is a variant
+  # like its `high` (mimo_variants).
+  tagged="$model#$effort"
+  case $model:$effort in *#*) tagged=$model;; mimo/*) ;; *:none) tagged=$model;; esac
   variants=$(mimo_variants "$model")
   [ -n "$variants" ] && export OPENCODE_CONFIG_CONTENT="$variants"
   # The session is titled for the run it belongs to: <run>/round-N/<role> reads as
@@ -208,7 +196,8 @@ interactive)
   # rules it was asked for is worse than one that does not open.
   rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  tagged=$(tag "$1" "$2")   # as `run` hands it, and with MiMo's variants beside it
+  tagged="$1#$2"   # as `run` hands it, and with MiMo's variants beside it
+  case $1:$2 in *#*) tagged=$1;; mimo/*) ;; *:none) tagged=$1;; esac
   # jq writes the document, the rulebook read as one string: a Python started for it was more
   # than half of what a launch waited on this adapter.  ASCII out, as that Python wrote it, so
   # the command line stays plain whatever the rulebook says.
@@ -523,9 +512,10 @@ hooks)
 models)
   # OpenCode's own list of every logged-in provider's models, from its background service as
   # `enabled` asks it: each `<provider>/<model>` under the name OpenCode gives it, its variants
-  # its efforts, and `none` alone for one that has no variant, which `tag` hands bare.  An id
-  # the [catalog] table knows takes the table's label and efforts instead: MiMo's thinking
-  # switch (mimo_variants).  Never `--standalone`, whose private server lists no model at all
+  # its efforts, and `none` alone for one that has no variant, which `run` hands bare.  A
+  # variant OpenCode itself names `none` is left out: ak's `none` is that bare model, and only
+  # a lookup at every launch could tell the two apart.  An id the [catalog] table knows takes
+  # the table's label and efforts instead: MiMo's thinking switch (mimo_variants).  Never `--standalone`, whose private server lists no model at all
   # (2.0.24).  A list that fails, outlasts ten seconds or says nothing leaves the table as it
   # is, and so does a host with no `timeout` to bound it (stock macOS): nothing waits on a
   # listing it cannot stop.  Settings, keys among them, never leave jq.
@@ -533,7 +523,7 @@ models)
   if command -v timeout >/dev/null && command -v opencode >/dev/null && command -v jq >/dev/null; then
     mapfile -t listed < <(timeout 10 opencode api model.list 2>/dev/null | jq -r '.data[]?
         | select(.enabled != false) | ["\(.providerID)/\(.id)", .name // .id,
-          ([.variants[]?.id] | if length == 0 then "none" else join(" ") end)] | join("\t")' \
+          ([.variants[]?.id | select(. != "none")] | if length == 0 then "none" else join(" ") end)] | join("\t")' \
         2>/dev/null)
   fi
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)

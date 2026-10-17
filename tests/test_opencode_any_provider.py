@@ -120,6 +120,9 @@ class AnyProvider(Sandbox):
         self.assertEqual(rows["opencode/glm-5.3-flash-free"], ["GLM-5.3-Flash Free", "low high max"])
         # no variant is a model that runs at no effort, which `run` hands bare
         self.assertEqual(rows["opencode/big-pickle"], ["Big Pickle", "none"])
+        # so a variant OpenCode names `none` is not offered: ak's `none` would hand it bare
+        self.assertEqual(rows["opencode/nemotron-3.5-super-vl-free"],
+                         ["Nemotron 3.5 Super VL Free", "minimal low medium high xhigh"])
         # MiMo's own come from the table, whose thinking switch reaches its API
         self.assertEqual(rows["mimo/mimo-v2.6-pro"], ["MiMo V2.6 Pro", "none high"])
         self.assertNotIn("--standalone", " ".join(self.asked()))

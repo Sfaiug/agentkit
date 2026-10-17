@@ -287,26 +287,20 @@ cat "$dir/bridge-eval"
         prompt.write_text("hi\n")
         events = self.root / "events.jsonl"
         events.write_text(EVENTS_OK)
-        # MiMo's `none` is a variant of its own, thinking off (tests/test_effort_step.py), and
-        # so is any model's that OpenCode lists with a `none` variant
-        listing = {"STUB_MODEL_LIST": str(FIXTURES / "opencode-model-list.json")}
+        # MiMo's `none` is a variant of its own, thinking off (tests/test_effort_step.py)
         for name, effort, model in (("acme/big", "none", "acme/big"),
                                     ("acme/big", "high", "acme/big#high"),
-                                    ("mimo/mimo-v2.6-pro", "none", "mimo/mimo-v2.6-pro#none"),
-                                    ("opencode/big-pickle", "none", "opencode/big-pickle"),
-                                    ("opencode/nemotron-3.5-super-vl-free", "none",
-                                     "opencode/nemotron-3.5-super-vl-free#none")):
+                                    ("mimo/mimo-v2.6-pro", "none", "mimo/mimo-v2.6-pro#none")):
             self.argv_log.unlink(missing_ok=True)
             proc = self.adapter("run", name, effort, str(self.root),
                                 str(prompt), str(self.root / f"out-{effort}"),
                                 env={"STUB_EVENTS": str(events), "STUB_ARGV_LOG": str(self.argv_log),
-                                     "STUB_EXPORT": str(self.root / "missing.json"), **listing})
+                                     "STUB_EXPORT": str(self.root / "missing.json")})
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            words = next(line.split() for line in self.argv_log.read_text().splitlines()
-                         if line.startswith("run "))
+            words = self.argv_log.read_text().splitlines()[0].split()
             self.assertEqual(words[words.index("-m") + 1], model)
             # and the seat is pinned to the same model
-            proc = self.adapter("interactive", name, effort, env=listing)
+            proc = self.adapter("interactive", name, effort)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             content = next(word for word in shlex.split(proc.stdout)
                            if word.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
