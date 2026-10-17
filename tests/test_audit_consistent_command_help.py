@@ -1,6 +1,8 @@
 """Finding 16: public help and parser contracts, with only repo-local offline fixtures."""
 
+import compileall
 from contextlib import ExitStack, nullcontext
+import gc
 import importlib
 import io
 import json
@@ -85,6 +87,10 @@ def serve():
     """Forks one probe per request line and answers with its exit and output. This parent
     imports only the standard library, so each probe still imports agentkit fresh and
     alone, without paying an interpreter start-up of its own."""
+    # Probes may not write bytecode, so without this each one compiles agentkit again.
+    compileall.compile_dir(REPO / "agentkit", quiet=2)
+    # Collections in a probe then skip this parent's objects, leaving their pages shared.
+    gc.freeze()
     for line in sys.stdin:
         request = json.loads(line)
         (out, out_w), (err, err_w) = os.pipe(), os.pipe()
