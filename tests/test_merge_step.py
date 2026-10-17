@@ -861,7 +861,7 @@ class MergeStep(unittest.TestCase):
         # while it has not yet worked out whether it merges: it is asked again while it says
         # UNKNOWN, a bounded number of times, and a PR it calls CLEAN is merged on a second
         # try; one it calls BLOCKED, or never works out, still ends the run as before
-        unknown = ["UNKNOWN"] * (delivery.MERGE_RETRIES + 1)
+        unknown = ["UNKNOWN"] * (delivery.GITHUB_RETRIES + 1)
         for answers, merged in ((["CLEAN"], True), (["UNKNOWN", "UNKNOWN", "CLEAN"], True),
                                 (unknown, False), (["BLOCKED"], False)):
             with self.subTest(answers=answers):
@@ -976,7 +976,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(len(merges), delivery.MERGE_RETRIES + 1)
+        self.assertEqual(len(merges), delivery.GITHUB_RETRIES + 1)
         state = record.read_state(run_dir)
         self.assertTrue(state["merged"])
         self.assertNotEqual(state.get("state"), "waiting")
