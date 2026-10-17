@@ -145,21 +145,56 @@ def slot_counts(state):
     return running, sum(order < mine for order in waiting), [order[-1] for order in waiting]
 
 
-def _save_queue(running, queue):
-    """Under slot_lock: the queue as this poll decided it, for the waiters behind its first."""
+FIRSTS_KEPT = 20     # the waits first in line kept, as a landing line keeps its passes
+
+
+def _save_queue(running, queue, admitted=None):
+    """Under slot_lock: the queue as this poll decided it, for the waiters behind its first, and
+    since when that run has been first, beside how long the firsts before it waited there for
+    their admission (`admitted`, the run this poll let in), for `first_in_line`."""
     path = config.RUNS / ".slots.queue"
+    saved, now = _saved_queue(), time.time()
+    first = queue[0] if queue else None
+    took = saved.get("took") or []
+    if admitted is not None and admitted == saved.get("first") and saved.get("since"):
+        took = (took + [now - saved["since"]])[-FIRSTS_KEPT:]
+    since = saved["since"] if first == saved.get("first") and saved.get("since") else now
     temp = path.with_name(".slots.queue.tmp")
-    temp.write_text(json.dumps({"at": time.time(), "running": running, "queue": queue}))
+    temp.write_text(json.dumps({"at": now, "running": running, "queue": queue,
+                                "first": first, "since": since, "took": took}))
     temp.replace(path)
+
+
+def _saved_queue():
+    try:
+        saved = json.loads((config.RUNS / ".slots.queue").read_text())
+    except (OSError, ValueError):
+        return {}
+    return saved if isinstance(saved, dict) else {}
 
 
 def slot_queue():
     """(when, live slot owners, waiting run ids first in line first) as the last poll left them."""
+    saved = _saved_queue()
     try:
-        saved = json.loads((config.RUNS / ".slots.queue").read_text())
         return float(saved["at"]), int(saved["running"]), [str(run_id) for run_id in saved["queue"]]
-    except (OSError, ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError):
         return 0.0, 0, []
+
+
+def first_in_line(now):
+    """(run id, since when it has been first, the waits of the firsts before it, how many wait
+    behind it) while the queue is polled, for `stuck` to hold the one against the others; None
+    while nobody waits, or every waiter is gone and recovery owns the queue."""
+    saved = _saved_queue()
+    at, _, queue = slot_queue()
+    try:
+        since, took = float(saved["since"]), [float(wait) for wait in saved["took"]]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not queue or saved.get("first") != queue[0] or not 0 <= now - at < 2 * SLOT_POLL:
+        return None
+    return queue[0], since, took, len(queue) - 1
 
 
 def behind_first(run_id):
@@ -333,7 +368,7 @@ def claim_slot(state, limit, readings=None):
     if not landing.green_delivery(state.get("waiting_on") or {}) and not _host_admits(
             state, readings, is_first):
         return False
-    _save_queue(running + 1, others)
+    _save_queue(running + 1, others, admitted=state.get("run_id"))
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **run_record.process_owner())
     for key in ("resume_from", "slot_healthy_polls", "reservation_pending",
