@@ -19,8 +19,8 @@ checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the gram
 3.11, the oldest ak supports, as `ast.parse`'s `feature_version` applies it (f-strings it still
 reads by the running interpreter's rules), and import only from the standard library or this
 repository, including files smoke.sh already ran. A file failing again is also named in the
-file AK_FAILED names; with AK_ONLY set only the files its file lists run, smoke.sh's among
-them, and the imports go unchecked: they are no listed test.
+file AK_FAILED names; with AK_ONLY set only the files its file lists run, whatever the share,
+smoke.sh's among them, and the imports go unchecked: they are no listed test.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -218,9 +218,10 @@ def main(root, others=None):
                                  if only is None else set())
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip
                   and (only is None or str(path.relative_to(root)) in only))
-    # Exclude everything smoke runs before dividing the rest, regardless of its piece.
-    owners = shares({path: path.stat().st_size for path in todo}, total)
-    todo = [path for path in todo if owners[path] == number]
+    if only is None:
+        # Exclude everything smoke runs before dividing the rest, regardless of its piece.
+        owners = shares({path: path.stat().st_size for path in todo}, total)
+        todo = [path for path in todo if owners[path] == number]
     cache = Path.home() / ".cache/agentkit/test-times" / os.uname().nodename
     todo.sort(key=lambda path: last_time(cache / path.name), reverse=True)
     # One bytecode cache for the piece: each file compiling all of agentkit again cost
