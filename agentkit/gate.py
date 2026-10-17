@@ -170,9 +170,10 @@ def slot_queue():
 def first_in_line(now):
     """(the run first in line for a slot, since when it has waited there, how many wait behind
     it) while a poll within four rewrote the queue, for `stuck`: its first polls every one, and
-    once it is gone a waiter behind it within three (`behind_first`); after a gap, a new wait."""
+    once it is gone a waiter behind it within three (`behind_first`); after a gap, a new wait.
+    A poll newer than `now`, one that ran while the caller read, is the same wait."""
     at, _, queue, since = slot_queue()
-    if queue and since and 0 <= now - at < 4 * SLOT_POLL:
+    if queue and since and now - at < 4 * SLOT_POLL:
         return queue[0], since, len(queue) - 1
     return None
 

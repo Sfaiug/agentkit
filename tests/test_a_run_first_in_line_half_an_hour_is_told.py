@@ -43,6 +43,7 @@ class FirstInLineHalfAnHour(unittest.TestCase):
             "behind it; `ak run status` shows what it waits on. Find why and build the smallest "
             "change to ak that keeps it from happening again, through the line, and ak notify "
             "done once it is live.")])
+        self.assertEqual(self.found(NOW - 1), [f"slot:{API}:{NOW - 3000}"])  # polled after `now`
         self.assertEqual(self.found(NOW + 150), [])     # four polls missed: nobody polls it
         self.polls(API, [API, WEB], NOW + 180, NOW + 1970)     # and a new wait starts
         self.assertEqual(self.found(NOW + 1970), [])
