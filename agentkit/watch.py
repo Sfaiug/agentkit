@@ -628,12 +628,12 @@ def continue_turns(cfg, log, accounts=False):
                 elif sent is None or quiet == [False]:
                     continue
                 elif tries < MIDTURN_TRIES:
-                    seat_write(name, midturn={**mark, "tries": tries})
+                    replace_midturn(name, mark, {**mark, "tries": tries})
                     log(f"WARN {name}: its line did not land; the next tick tries again")
                     continue
                 else:
                     log(f"WARN {name}: its line did not land in {tries} tries")
-        seat_write(config.resolve_session(name), midturn=None)
+        replace_midturn(config.resolve_session(name), mark)
 
 
 def finish_own_lines(cfg, log):
@@ -666,7 +666,7 @@ def finish_own_lines(cfg, log):
                              veto=lambda held: line != marked
                              and owner_question(notify.last(held)),
                              ready=alone) and line == marked):
-                strike_midturn(name, mark)
+                replace_midturn(name, mark)
             break
 
 
@@ -1888,15 +1888,15 @@ def wait_mark(name, wait, **marks):
         return False
 
 
-def strike_midturn(name, mark):
-    """Take that `continue_turns` mark off once its line landed, only while it is still that
-    mark: one saved while the Enter was confirmed -- a model switch's handover -- is a newer
-    line's, so the compare and the write are one stretch under the seat's lock."""
+def replace_midturn(name, mark, new=None):
+    """Replace that `continue_turns` mark -- take it off, or count a try -- only while it is
+    still that mark: one saved while the Enter was confirmed -- a model switch's handover -- is
+    a newer line's, so the compare and the write are one stretch under the seat's lock."""
     try:
         with seat_lock(name):
             data = seat_read(name)
             if data.get("midturn") == mark:
-                _seat_put(name, data, {"midturn": None})
+                _seat_put(name, data, {"midturn": new})
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
 

@@ -166,6 +166,22 @@ class BootReasks(Sandbox):
         self.assertEqual(self.keys, ["=needs:", "=needs:"])
         self.assertEqual(watch.seat_read("needs")["midturn"], newer)
 
+    def newer_mark_kept_by_the_boot_pass(self, fail_enter):
+        self.seat("needs", "Stop", notice=("needs", "Which branch should fix-api land on?"))
+        self.fail_enter = fail_enter
+        newer = {"boot": "after", "at": time.time(), "name": "needs",
+                 "line": "You now run on another model; read your plan and go on."}
+        self.meanwhile.append(lambda: watch.seat_write("needs", midturn=newer))
+        self.boot()
+        self.assertEqual(self.texts, [("needs", watch.ASKED_LINE)])
+        self.assertEqual(watch.seat_read("needs")["midturn"], newer)
+
+    def test_a_newer_mark_saved_while_the_boot_pass_line_landed_is_left(self):
+        self.newer_mark_kept_by_the_boot_pass(fail_enter=False)
+
+    def test_a_newer_mark_saved_while_the_boot_pass_line_missed_is_left(self):
+        self.newer_mark_kept_by_the_boot_pass(fail_enter=True)
+
 
 if __name__ == "__main__":
     unittest.main()
