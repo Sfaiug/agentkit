@@ -21,6 +21,7 @@ from . import config, menu, notify
 ASK_EVERY = 3600    # seconds after an ask before the tick asks again
 ASK_TIMEOUT = 20    # the verb reads files on this machine; one that hangs answers nothing
 REMIND_WITHIN = 3 * 86400   # how near its end a login pages the owner, once a local day
+WARN_WITHIN = 7 * 86400     # ... and turns its meter on the ak screen amber
 
 
 def path():
@@ -109,18 +110,26 @@ def remind(cfg, now=None):
     restart pages twice; a new login moves `ends` past the window, or to null, and it stops,
     a page the webhook has not taken yet with it, since only asking again retries one."""
     now = time.time() if now is None else now
-    day = date.fromtimestamp(now)
     for provider, accounts in refresh(cfg, now).items():
         for account, login in accounts.items():
-            ends = login.get("ends")
-            if ends is None or ends - now > REMIND_WITHIN:
+            when = ending(login, now, REMIND_WITHIN)
+            if not when:
                 continue
             label = config.account_label(cfg, provider, account,
                                          menu.NAMES.get(provider, provider.title()))
             whose = f" {login['email']}" if login.get("email") else ""
-            at = time.strftime("%a %d %b %H:%M", time.localtime(ends))
-            days = (date.fromtimestamp(ends) - day).days
-            soon = {0: "today", 1: "tomorrow"}.get(days, f"in {days} days")
-            when = f"ended {at}" if ends <= now else f"ends {at} ({soon})"
-            notify.page(f"login:{provider}:{account}:{day}", label,
+            notify.page(f"login:{provider}:{account}:{date.fromtimestamp(now)}", label,
                         f"{label} login{whose} {when}. Log in again from ak.")
+
+
+def ending(login, now, within=WARN_WITHIN):
+    """When `login`, one of `read`'s, ends -- `ends Mon 26 Oct 04:47 (in 2 days)`, or `ended
+    Mon 26 Oct 04:47` -- while that is `within` seconds away or past; None for one further
+    off or with no end written down."""
+    ends = login.get("ends") if isinstance(login, dict) else None
+    if not isinstance(ends, (int, float)) or ends - now > within:
+        return None
+    at = time.strftime("%a %d %b %H:%M", time.localtime(ends))
+    days = (date.fromtimestamp(ends) - date.fromtimestamp(now)).days
+    soon = {0: "today", 1: "tomorrow"}.get(days, f"in {days} days")
+    return f"ended {at}" if ends <= now else f"ends {at} ({soon})"
