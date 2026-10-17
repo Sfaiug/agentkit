@@ -379,7 +379,10 @@ The script implements the verbs: `run <model> <effort>
 token, ending `; logged in as <who>` where it can tell, or 1 with why not; never a network call), `interactive <model> <effort> [<session> [new]]` (the TUI command line, at the model's `effort`,
 with the harness's own bypass flag), `hooks` (install its lifecycle hooks idempotently), `models` (an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for a model that runs at no effort, empty
 where the harness does not say, which `c` then offers at its harness's `[effort]` vocabulary: live where the harness lists them (Claude's models API, Muse's `muse serve` `model/list`),
-else its `[catalog]`, which also stands in for a listing that fails, takes ten seconds or has no `timeout` to stop it), `install` and `login` for a fresh box, and
+else its `[catalog]`, which also stands in for a listing that fails, takes ten seconds or has no `timeout` to stop it), `install` and `login` for a fresh box, `login-end`
+(one JSON object, `email` whose login it is and `ends` the epoch second it stops serving, null where the harness writes no
+end down: only Claude does, the refresh token's `refreshTokenExpiresAt`, some thirty days after a login, which no renewal
+moves; the tick asks each subscription hourly at most and keeps the answers in `state/logins.json`), and
 optionally `reset-status` and `reset` where the provider hands out usage-limit resets. `usage`, `auth` and `login` are told the providers they are about in `$AGENTKIT_PROVIDER`, space-separated, every one the config runs on that harness for a question about the harness as a whole: a harness that runs one provider may ignore it, and one that runs several answers for each named. A `<provider>/<model>` id is that provider's, and `c` offers under a provider only its own models and those with no `/`. Grok's `auth` passes on a refresh
 token, since grok renews its six-hour key itself. Antigravity's `usage` reads the Gemini window of agy's own `/usage`
 panel off that panel's endpoint. Refused, both `usage` verbs let their harness renew (`grok models`, `agy models`) and

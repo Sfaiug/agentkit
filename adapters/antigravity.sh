@@ -14,6 +14,8 @@
 #                     install      -> Google's installer, unless agy is already here
 #                     login        -> `agy` in the terminal (a URL, then the code pasted back),
 #                                  unless already logged in
+#                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since a
+#                                  Google refresh token ends only when revoked
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> says why this harness has none installed; writes nothing
@@ -232,6 +234,13 @@ login)
   [ -t 0 ] || { echo "agy: not logged in; run \`$SIGNIN\` in a terminal, open the URL it prints and paste the code back" >&2; exit 1; }
   echo "agy: choose Google OAuth, open the URL, paste the code back, then leave with /exit"
   agy ${DATA:+"$DATA"} ;;
+login-end)
+  # A Google refresh token ends only when revoked, which shows only once `auth` says so.  The
+  # email is the id token's own claim, decoded here and never printed with the token.
+  command -v jq >/dev/null || { echo "antigravity.sh login-end: jq is required" >&2; exit 2; }
+  email=$(jq -r '.id_token // empty | split(".")[1] // empty | gsub("-"; "+") | gsub("_"; "/")
+                 | @base64d | fromjson | .email // empty' "$TOKEN" 2>/dev/null)
+  jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  A
@@ -281,6 +290,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" antigravity ;;
 *)
-  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
+  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;
 esac

@@ -10,6 +10,8 @@
 #                                    `seat` asks about the interactive login alone, never the
 #                                    worker token, because the two expire apart; a yes ends
 #                                    `; logged in as <email>` where Claude Code wrote it down
+#                       login-end    -> {"email","ends"}: whose the interactive login is, and the
+#                                    epoch second it ends, after which only a new login serves
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                    Anthropic's models API, else the [catalog] table of
@@ -281,6 +283,22 @@ login)
   fi
   [ -t 0 ] || { echo "claude: not logged in; run \`claude auth login\` in a terminal" >&2; exit 1; }
   claude auth login ;;
+login-end)
+  # Claude Code renews the hour-long access token itself, but the refresh token it renews it
+  # with dies on the day `refreshTokenExpiresAt` names (epoch milliseconds), some thirty days
+  # after the login was made, and no renewal moves that day: past it only a new login serves.
+  # Read, never renewed: the answer is the login as it stands.
+  command -v jq >/dev/null || { echo "claude.sh login-end: jq is required" >&2; exit 2; }
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+    || blob=$(cat "$CREDS" 2>/dev/null) || blob=
+  [ -n "$blob" ] || blob='{}'
+  email=$(who); email=${email#; logged in as }
+  printf '%s' "$blob" | jq -c --arg email "$email" '
+      .claudeAiOauth.refreshTokenExpiresAt as $end
+      | {email: (if $email == "" then null else $email end),
+         ends: (if ($end | type) != "number" then null
+                elif $end > 99999999999 then ($end / 1000 | floor) else $end end)}' 2>/dev/null \
+    || jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
 auth)
   # Can a turn authenticate right now?  Exit 0 and name the token, or exit 1 with one line
   # saying why not.  The loop asks before every turn and again after a turn that produced
@@ -490,6 +508,6 @@ models)
       | @tsv' 2>/dev/null) || listed=
   printf '%s\n' "${listed:-$table}" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login | claude.sh login-end | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

@@ -23,6 +23,8 @@
 #                                  preparation does for theirs
 #                     install      -> the x.ai installer, unless grok is already here
 #                     login        -> `grok login`, unless already logged in
+#                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since grok
+#                                  writes down no day its refresh token ends
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why: a
 #                                  refresh token or an unexpired key is a login grok can use,
 #                                  unless `usage` saw the endpoint refuse the key grok renewed;
@@ -323,6 +325,12 @@ login)
   [ -t 0 ] || { echo "grok: not logged in; run \`grok login\` in a terminal" >&2; exit 1; }
   share || exit 2
   grok login ;;
+login-end)
+  # grok trades its refresh token for a six-hour key itself, and that token names no end: a
+  # login that dies shows only once `auth` says so.  The email is the saved entry's own.
+  command -v jq >/dev/null || { echo "grokbuild.sh login-end: jq is required" >&2; exit 2; }
+  email=$(jq -r '[.[]? | .email? | strings | select(test("@"))] | first // empty' "$AUTH" 2>/dev/null)
+  jq -nc --arg email "$email" '{email: (if $email == "" then null else $email end), ends: null}' ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  The
@@ -426,6 +434,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" grokbuild $ids ;;
 *)
-  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
+  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login | grokbuild.sh login-end | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
   exit 2 ;;
 esac
