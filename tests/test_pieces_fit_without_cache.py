@@ -25,7 +25,8 @@ class PiecesFitWithoutCache(unittest.TestCase):
         self.root = Path(temp.name)
         stack = ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch.object(config, "STATE", self.root / "state"))
+        for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
+            stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.proc = self.root / "proc"
         for pid, parent in ((os.getpid(), 1), (CHILD, os.getpid()), (STRANGER, 1)):
             (self.proc / str(pid)).mkdir(parents=True)
@@ -44,10 +45,11 @@ class PiecesFitWithoutCache(unittest.TestCase):
     def holds(self, *pids):
         (self.unit / "cgroup.procs").write_text("".join(f"{pid}\n" for pid in pids))
 
-    def memory(self, directory, current, file, shmem=0, cap=None):
+    def memory(self, directory, current, file, shmem=0, cap=None, unevictable=0):
         (directory / "memory.current").write_text(str(current * MB))
         (directory / "memory.stat").write_text(
-            f"anon {(current - file) * MB}\nfile {file * MB}\nshmem {shmem * MB}\n")
+            f"anon {(current - file) * MB}\nfile {file * MB}\nshmem {shmem * MB}\n"
+            f"unevictable {unevictable * MB}\n")
         (directory / "memory.max").write_text("max" if cap is None else str(cap * MB))
         (directory / "memory.high").write_text("max")
 
@@ -71,11 +73,16 @@ class PiecesFitWithoutCache(unittest.TestCase):
         self.assertNotIn("mem_mb", self.lander_measures())
         self.assertEqual(gate.suite_cost(SUITE, self.root, None)[2], gate.HEAVY_MEM_MB)
 
+    def test_a_child_cgroup_whose_list_cannot_be_read_measures_no_memory(self):
+        (self.unit / "other.service").mkdir()     # no list to read: it may hold any process
+        self.assertNotIn("mem_mb", self.lander_measures())
+
     def test_reclaimable_cache_under_a_hard_cap_is_room_for_pieces(self):
-        for file, shmem, pieces in ((2600, 100, 7), (2600, 2600, 2)):
-            with self.subTest(file=file, shmem=shmem):
-                self.memory(self.unit, 3000, file, shmem=shmem, cap=4096)
-                self.memory(self.unit.parent, 3000, file, shmem=shmem)
+        # tmpfs, shared memory and locked or ramfs pages are file pages no reclaim frees
+        for shmem, unevictable, pieces in ((100, 0, 7), (2600, 0, 2), (0, 2600, 2)):
+            with self.subTest(shmem=shmem, unevictable=unevictable):
+                self.memory(self.unit, 3000, 2600, shmem, 4096, unevictable)
+                self.memory(self.unit.parent, 3000, 2600, shmem, None, unevictable)
                 with patch.dict(os.environ, {"AK_HOST_READINGS": ""}):
                     readings = {**host.host_readings(), "cpus": 64, "free_mb": 64 * 1024}
                 self.assertEqual(gate.derived_heavy_limit(

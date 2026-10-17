@@ -98,17 +98,18 @@ def cgroup_path(relative="", cgroup_root=None):
     return Path(root) / relative.lstrip("/")
 
 
-def cgroup_pids(relative):
+def cgroup_pids(relative, *, complete=False):
     """The pids, in order, the kernel holds in that cgroup and every one under it: a group's own
-    `cgroup.procs` leaves out its children's.  A list that cannot be read adds none; a threaded
-    child's never can, and its processes are on its thread root's."""
-    pids = []
-    for procs in cgroup_path(relative).rglob("cgroup.procs"):
+    `cgroup.procs` leaves out its children's.  A list or directory that cannot be read adds none,
+    or, with `complete`, makes the answer None, since it may hide any process; a threaded
+    child's list never can be read, and its processes are on its thread root's."""
+    pids, unread = [], []
+    for directory, _, _ in os.walk(cgroup_path(relative), onerror=unread.append):
         try:
-            pids += [int(pid) for pid in procs.read_text().split()]
-        except (OSError, ValueError):
-            continue
-    return sorted(pids)
+            pids += [int(pid) for pid in (Path(directory) / "cgroup.procs").read_text().split()]
+        except (OSError, ValueError) as error:
+            unread.append(error)
+    return None if complete and unread else sorted(pids)
 
 
 def memory_mb(name, meminfo=None, *, whole=False):
@@ -236,7 +237,9 @@ def _reclaimable_mb(path):
 
     The kernel reclaims file cache under pressure, before any OOM kill. Older kernels
     name the counter inactive_file where newer ones say file. `file` counts tmpfs and
-    shared memory too, which no reclaim frees without swap, so shmem stays held.
+    shared memory too, which no reclaim frees without swap, and locked or ramfs pages,
+    which none frees at all: shmem and unevictable, anonymous locked pages among it, stay
+    held, so reclaim is never overstated.
     """
     try:
         text = path.read_text()
@@ -245,13 +248,14 @@ def _reclaimable_mb(path):
     values = {}
     for line in text.splitlines():
         key, _, rest = line.partition(" ")
-        if key in ("file", "inactive_file", "shmem"):
+        if key in ("file", "inactive_file", "shmem", "unevictable"):
             try:
                 values[key] = float(rest.split()[0])
             except (ValueError, IndexError):
                 continue
     if "file" in values:
-        return max(0.0, values["file"] - values.get("shmem", 0.0)) / (1024 * 1024)
+        held = values.get("shmem", 0.0) + values.get("unevictable", 0.0)
+        return max(0.0, values["file"] - held) / (1024 * 1024)
     if "inactive_file" in values:
         return values["inactive_file"] / (1024 * 1024)
     return None
@@ -501,7 +505,7 @@ def own_cgroup():
     """This process's cgroup where it holds nothing but this process and what it started,
     or None: only there is a change in its memory this process's doing."""
     relative = process_cgroup()
-    pids = cgroup_pids(relative) if relative else []
+    pids = (cgroup_pids(relative, complete=True) if relative else None) or []
     if os.getpid() not in pids:
         return None
     for pid in pids:
