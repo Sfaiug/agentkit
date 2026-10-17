@@ -77,7 +77,7 @@ class AccountNotices(unittest.TestCase):
         for key in ("someName", "someFlag", "nested", "nothing", "one", "emptyList"):
             self.assertNotIn(key, after)
 
-    def test_seat_launch_pins_bypass_and_answers_auto_offer_on_either_login(self):
+    def test_seat_launch_answers_auto_offer_on_either_login(self):
         usual_settings = self.root / ".claude/settings.json"
         named_settings = self.root / f".claude-{ACCOUNT}/settings.json"
         for offer in ({}, {"hasSeenAutoDefaultNudge": False}):
@@ -93,10 +93,6 @@ class AccountNotices(unittest.TestCase):
                     os.environ.pop("CLAUDE_CONFIG_DIR", None)
                     account_config()
                     self.assertNotIn("CLAUDE_CONFIG_DIR", os.environ)
-                settings = json.loads(usual_settings.read_text())
-                self.assertEqual(settings["permissions"]["defaultMode"], "bypassPermissions")
-                self.assertEqual(settings["permissions"]["allow"], ["Read"])
-                self.assertEqual(settings["keep"], "usual-keep")
                 global_data = json.loads(self.usual.read_text())
                 self.assertIs(global_data["hasSeenAutoDefaultNudge"], True)
                 self.assertEqual(global_data["oauthAccount"], {"accountUuid": "usual-uuid"})
@@ -122,7 +118,6 @@ class AccountNotices(unittest.TestCase):
                 account_config()
                 self.assertEqual(os.environ.pop("CLAUDE_CONFIG_DIR"), str(self.named.parent))
                 settings = json.loads(named_settings.read_text())
-                self.assertEqual(settings["permissions"]["defaultMode"], "bypassPermissions")
                 self.assertEqual(settings["permissions"]["allow"], ["Read"])
                 self.assertEqual(settings["keep"], "usual-keep")
                 self.assertEqual(settings["custom"], "named-keep")
@@ -166,8 +161,6 @@ class AccountNotices(unittest.TestCase):
             self.assertFalse([thread for thread in threads if thread.is_alive()])
         for path in (usual_settings, self.usual):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-        settings = json.loads(usual_settings.read_text())
-        self.assertEqual(settings["permissions"]["defaultMode"], "bypassPermissions")
         self.assertIs(json.loads(self.usual.read_text())["hasSeenAutoDefaultNudge"], True)
         named_settings = self.root / f".claude-{ACCOUNT}/settings.json"
         named_settings.parent.mkdir(parents=True, exist_ok=True)

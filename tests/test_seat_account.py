@@ -237,8 +237,6 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             for key in ("env", "statusLine"):
                 self.assertEqual(result["settings"][key], shared[key])
             self.assertEqual(result["settings"]["permissions"]["allow"], ["Read"])
-            self.assertEqual(result["settings"]["permissions"]["defaultMode"],
-                             "bypassPermissions")
             self.assertIs(result["global"]["hasSeenAutoDefaultNudge"], True)
             if account == "second":
                 self.assertEqual(result["settings"]["custom"], "keep")

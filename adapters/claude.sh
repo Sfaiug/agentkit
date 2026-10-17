@@ -23,6 +23,14 @@ command -v claude >/dev/null || PATH="$HOME/.local/bin${PATH:+:$PATH}"   # its i
 # them, a seat's its rulebook with the project's AGENTS.md in it (`config.seat_rulebook`),
 # whatever harness runs them.  `run` sets these and `interactive` prints them.
 OWN_RULES_OFF="CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
+# What every session ak starts runs with, whatever the login's settings say: bypass permissions,
+# Claude Code's own messages from other sessions refused (seats never message one another; a seat
+# waits on a pull request or run through `ak wait`), and a message its safeguards flag switching
+# the conversation to another model by itself instead of pausing the seat on a dialog until the
+# owner answers.  `--settings` outranks the login's settings file, so an accepted auto-mode offer
+# or a hand edit there cannot undo them, and no launch writes them into that file.  `run` and
+# `renew` pass it and `interactive` prints it.
+PINS='{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
 TMPD="$HOME/.agentkit/tmp"
 CREDS="$HOME/.claude/.credentials.json"
 # `claude setup-token` mints a long-lived token; install.sh writes it here, 0600.  A worker given
@@ -85,7 +93,8 @@ renew() {
     # role keeps the seat hooks quiet when the caller is a seat
     unset CLAUDE_CODE_OAUTH_TOKEN
     [ -n "$ACCOUNT" ] || unset CLAUDE_CONFIG_DIR
-    echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence 9>&-
+    echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence \
+      --settings "$PINS" 9>&-
   ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
 }
 
@@ -110,7 +119,7 @@ run)
   # The prompt goes down stdin.
   # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
   env $OWN_RULES_OFF claude "$@" --model "$model" --effort "$effort" --dangerously-skip-permissions \
-      --output-format stream-json --verbose <"$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
+      --settings "$PINS" --output-format stream-json --verbose <"$pf" >"$out/events.jsonl" 2>"$out/stderr.log"
   rc=$?
   jq -sr '[.[] | select(.type == "result")] | last | .result // ""' \
       "$out/events.jsonl" >"$out/final.md" 2>/dev/null || : >"$out/final.md"
@@ -157,14 +166,13 @@ interactive)
   # that other seat and its resume reopened the conversation from before the move.
   printf 'env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_AGENT_VIEW=1 %s ' \
       "$OWN_RULES_OFF"
-  # Seat preparation runs in the seat's actual cwd before the TUI, on either login: bypass
-  # permissions, Claude's own messages between sessions refused (seats never message one another),
-  # and the first-run questions answered, trust in this directory among them.
+  # Seat preparation runs in the seat's actual cwd before the TUI, on either login: the first-run
+  # questions answered, trust in this directory among them.
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
   # Remote Control on, named after the seat: the owner follows his seats from the Claude
   # app, and a seat reopened without it -- a resume, an account move -- would be lost there.
-  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --remote-control %q\n' \
-      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "${AGENTKIT_SESSION:-}" ;;
+  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --settings %q --remote-control %q\n' \
+      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "$PINS" "${AGENTKIT_SESSION:-}" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   # One request per ask: the seat login's token while its own expiry is still in the future,
