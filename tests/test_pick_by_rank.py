@@ -3,11 +3,11 @@ then what their providers have left; the writer's own model last.
 
 The matrix every pick reads is the one `ak models` or the tick last computed and stored beside
 the boards in `state/matrix.json` (`matrix.refresh`), computed again only once a board answered
-anew or the config's models changed; `matrix.rank` reads each configured model's place for a
-role off it, (measures, score), None where the boards have nothing on it.  `usage.pick_order`
-puts the ranked models first, the most measures then the highest score, budget only among models
-ranked alike or by nothing, a model on credits after every one with a window left, and a spent
-model out; the reviewer's rank is the review score's.
+anew or the config's models or the harnesses installed changed; `matrix.rank` reads each
+configured model's place for a role off it, (measures, score), None where the boards have
+nothing on it.  `usage.pick_order` puts the ranked models first, the most measures then the
+highest score, budget only among models ranked alike or by nothing, a model on credits after
+every one with a window left, and a spent model out; the reviewer's rank is the review score's.
 
 Offline: the boards answered by bytes, the catalogs and installed harnesses faked
 (tests/test_model_rows.py), fake meters, a throwaway HOME.
@@ -75,6 +75,20 @@ class PickByRank(Sandbox):
         self.cfg["models"]["astra"]["effort"] = "xhigh"
         matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 1)
         self.assertEqual(matrix.stored()["computed_at"], 10000 + matrix.FRESH_FOR + 1)
+        # and so does a harness back from a moment missing in an upgrade swap, even one back
+        # while the catalogs were read
+        present, catalog = config.harness_present.side_effect, config.catalog.side_effect
+        opus = self.cfg["models"]["opus"]["harness"]
+        config.harness_present.side_effect = lambda harness: harness != opus and present(harness)
+        def back(harness):
+            config.harness_present.side_effect = present
+            return catalog(harness)
+        config.catalog.side_effect = back
+        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 2)
+        config.catalog.side_effect = catalog
+        self.assertIsNone(matrix.rank(self.cfg, "execute")["opus"])
+        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 3)
+        self.assertIsNotNone(matrix.rank(self.cfg, "execute")["opus"])
         # the tick's pass is the same refresh, never on a dry run
         passes = {what: (step, dry) for what, step, dry in watch.local_passes({}, False, print)}
         self.assertFalse(passes["the boards pass did not run"][1])

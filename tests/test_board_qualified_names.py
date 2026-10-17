@@ -75,7 +75,8 @@ class QualifiedNames(Sandbox):
                                        "provider": "anthropic"}}
         boards = {"artificialanalysis.ai": {"rows": board(NAMES)},
                   "arena.ai": {"rows": board(["Acme 5 (max)"])}}
-        rows = {matrix.row_label(row): row for row in matrix.rows(self.cfg, boards)}
+        rows = {matrix.row_label(row): row
+                for row in matrix.rows(self.cfg, boards, matrix.present())}
         self.assertEqual(rows["acme @ max"]["matched"], {
             "artificialanalysis.ai": {"model": "Acme 5 (Default Fallback)", "effort": "max"},
             "arena.ai": {"model": "Acme 5", "effort": "max"}})

@@ -6936,7 +6936,8 @@ def local_passes(state, dry_run, log):
         # ending within 3 days pages the owner once a day
         ("the login-end read did not run", lambda: logins.remind(config.load()), False),
         # the public boards once a day, and the matrix every pick reads, computed again only
-        # when a board answered anew or the config's models changed; a dry run reads nothing
+        # when a board answered anew or the config's models or the harnesses installed changed;
+        # a dry run reads nothing
         ("the boards pass did not run", lambda: matrix.refresh(config.load()), False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
         # the usage just read; a run parked on an expired login, the moment that harness's

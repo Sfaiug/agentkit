@@ -231,6 +231,11 @@ def _write(cache):
     tmp.replace(cache_path())
 
 
+def present():
+    """Every harness present to run a turn, the ones whose models the matrix rows."""
+    return sorted({name for name, _ in config.manifests() if config.harness_present(name)})
+
+
 def config_key(cfg):
     """What of the config the matrix is computed from: a change here recomputes it."""
     return sorted([name, cfg["models"][name]["harness"], cfg["models"][name]["model"],
@@ -300,8 +305,8 @@ def matching(index, model, effort, benchmark=None):
                 next((row for row in hits if row["effort"] is None), None))
 
 
-def rows(cfg, boards):
-    """One row per model and effort the installed harnesses offer, with the config name that
+def rows(cfg, boards, harnesses):
+    """One row per model and effort `harnesses` (`present`) offer, with the config name that
     runs it and the roles it runs it in, every board's numbers it matches and which board model
     and effort each came from."""
     indexes = {}
@@ -317,9 +322,7 @@ def rows(cfg, boards):
             names[key] = name
             roles.setdefault(key, set()).add(role)
     table = []
-    for harness in sorted({name for name, _ in config.manifests()}):
-        if not config.harness_present(harness):
-            continue
+    for harness in harnesses:
         listed = {item["id"]: item["efforts"] for item in config.catalog(harness)}
         for (h, model, effort), name in names.items():
             if h == harness:
@@ -449,26 +452,29 @@ def cell(found):
 
 
 def stored():
-    """The matrix as last computed, {"computed_at", "config", "rows"}, or {}."""
+    """The matrix as last computed, {"computed_at", "config", "harnesses", "rows"}, or {}."""
     return _held().get("matrix") or {}
 
 
 def refresh(cfg, *, refresh=False, now=None):
     """The boards (`collect`) and the matrix computed from them and the config, written beside
     the boards in `state/matrix.json` so every pick reads one computed truth; computed again
-    only once a board answered anew or the config's models changed, since the harness catalogs
-    it asks take time.  Returns (boards, the scored rows); `recommended` reads off the rows."""
+    only once a board answered anew, the config's models changed or the harnesses installed
+    are not the ones it rowed, since the harness catalogs it asks take time.  Returns (boards,
+    the scored rows); `recommended` reads off the rows."""
     now = time.time() if now is None else now
     boards = collect(refresh=refresh, now=now)
     held = stored()
     fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)
+    harnesses = present()
     if (held.get("rows") is not None and held.get("computed_at", -1) >= fetched
-            and held.get("config") == config_key(cfg)):
+            and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses):
         return boards, held["rows"]
-    table = scored(rows(cfg, boards))
+    table = scored(rows(cfg, boards, harnesses))
     with _locked():
         cache = _held()
-        cache["matrix"] = {"computed_at": now, "config": config_key(cfg), "rows": table}
+        cache["matrix"] = {"computed_at": now, "config": config_key(cfg), "harnesses": harnesses,
+                           "rows": table}
         _write(cache)
     return boards, table
 
