@@ -197,6 +197,16 @@ class RunRecords(Sandbox):
         write(live, state="running")
         self.assertEqual(menu.run_records(), full())
 
+    def test_the_cache_before_the_database_is_removed(self):
+        self.runs(3)
+        old = [config.STATE / name for name in
+               ("run-records.jsonl", "run-records.lock", "run-records.tmp")]
+        for path in old:
+            path.write_text("[]\n")
+        self.assertEqual(menu.run_records(), full())
+        self.assertEqual([path for path in old if path.exists()], [])
+        self.assertTrue((config.STATE / menu.RUN_RECORDS).exists())
+
     def test_cache_failure_does_not_prevent_process_local_reuse(self):
         self.runs(20)
         with patch.object(sqlite3, "connect", side_effect=sqlite3.OperationalError("locked")):
