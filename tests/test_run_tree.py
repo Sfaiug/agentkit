@@ -205,6 +205,8 @@ class RunTree(unittest.TestCase):
                 patch.object(worker.os, "listdir", side_effect=lambda _path: list(map(str, markers))), \
                 patch.object(worker, "open", side_effect=environ, create=True), \
                 patch.object(worker.os, "kill", side_effect=kill), \
+                patch.object(worker.host, "proc_stat", side_effect=lambda pid: (
+                    worker.host.ProcStat("S", 1, 0) if pid in markers else None)), \
                 patch.object(orch, "stop_scope", return_value=False):
             self.assertEqual(set(stop.marker_pids(self.run_id)), {101, 102})
             run.stop_run_tree({"run_id": self.run_id})
@@ -453,6 +455,42 @@ class RunTree(unittest.TestCase):
         self.assertTrue(worker.kill_marked(self.marker))
         for pid in found:
             self.assertTrue(wait_gone(pid))
+
+    def test_sweep_waits_for_a_killed_process_to_exit(self):
+        # Exiting, a process drops its environment before it exits: the marker scan
+        # misses it while its stat still reads running. The sweep reports nothing left
+        # only once that stat reads exited. A fake table: one read running, then a zombie.
+        state = ["S"]
+
+        def stat(pid):
+            read = state[0]
+            if read == "R":
+                state[0] = "Z"
+            return worker.host.ProcStat(read, 1, 7)
+
+        with patch.object(worker, "marked_pids",
+                          lambda *_a, **_kw: [4242] if state[0] == "S" else []), \
+                patch.object(worker.os, "kill", lambda pid, sig: state.__setitem__(0, "R")), \
+                patch.object(worker.host, "proc_stat", stat):
+            self.assertTrue(worker.kill_marked(self.marker, grace=1))
+        self.assertEqual(state, ["Z"])
+
+    def test_sweep_never_kills_a_pid_reused_while_it_waited(self):
+        # The killed process is reaped and its pid goes to an unmarked process during the
+        # grace's last sleep: KILL goes only to pids the scan after that sleep still saw.
+        now, start, signalled = [0.0], [7], []
+
+        def sleep(seconds):
+            now[0] += seconds
+            start[0] = 8
+
+        with patch.object(worker, "marked_pids", lambda *_a, **_kw: [] if signalled else [4242]), \
+                patch.object(worker.os, "kill", lambda pid, sig: signalled.append(sig)), \
+                patch.object(worker.host, "proc_stat",
+                             lambda pid: worker.host.ProcStat("R", 1, start[0])), \
+                patch.object(worker, "time", SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)):
+            self.assertTrue(worker.kill_marked(self.marker, grace=0.1))
+        self.assertEqual(signalled, [signal.SIGTERM])
 
     def _leave_marked_sleep(self, left, marker=None):
         kid = subprocess.Popen(
