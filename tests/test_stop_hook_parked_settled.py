@@ -12,10 +12,11 @@ against fake run records in a throwaway HOME, never a real seat or transcript.
 import json
 import os
 from pathlib import Path
-import subprocess
 import tempfile
 import time
 import unittest
+
+from fixtures import hooks
 
 REPO = Path(__file__).resolve().parents[1]
 HOOK = REPO / "hooks/orchestrator-stop.sh"
@@ -57,7 +58,7 @@ class ParkedSettled(unittest.TestCase):
         transcript = self.home / "transcript.jsonl"
         transcript.write_text(json.dumps({"type": "assistant", "message": {
             "role": "assistant", "content": [{"type": "text", "text": SAID}]}}) + "\n")
-        done = subprocess.run(
+        done = hooks.run(
             ["bash", str(HOOK)], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": "Stop", "session_id": "fake",
                               "transcript_path": str(transcript)}),

@@ -11,9 +11,10 @@ option it is told to set.
 import json
 import os
 import shutil
-import subprocess
 import time
 import unittest
+
+from fixtures import hooks
 
 import test_live_status as live
 from agentkit import watch
@@ -37,7 +38,7 @@ class StopHookLooks(live.LiveStatus):
                     "FAKE_TMUX_LOG": str(log), "FAKE_TMUX_SLOW": "0"})
 
         def run(script, payload):
-            subprocess.run(["bash", str(REPO / "hooks" / script)], input=json.dumps(payload),
+            hooks.run(["bash", str(REPO / "hooks" / script)], input=json.dumps(payload),
                            env=env, text=True, capture_output=True, timeout=30, check=True)
 
         def title():
