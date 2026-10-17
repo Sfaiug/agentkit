@@ -32,6 +32,8 @@ class StopAJob(Sandbox):
         for name in ("acme-api", "acme-ui"):
             config.save_session(self.cfg, name, "opus", ["opus", "astra"])
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
+        # status reaps fix-api-1 and reopens its gone seat: no real tmux seat may start
+        self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(1, "fake tmux")))
         self.kill = self.stack.enter_context(patch.object(watch, "kill_tree"))
         self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
         self.stack.enter_context(patch.object(worktrees, "stop_checkout", return_value=True))
