@@ -247,7 +247,7 @@ refusal parks the provider until it refills, a usage-limit reset held or not: ak
 
 `ak watch` runs every three minutes from cron on the server, under a lock so ticks never overlap, writing
 `~/.agentkit/tmp/watch.log` and rolling it at 5 MB. Before typing new lines, it gives Enter to a composer holding
-only ak's full account-switch notice, mid-turn continuation or resume nudge, even when its retries ran out and its mark
+only ak's full account-switch notice, mid-turn continuation, re-ask notice or resume nudge, even when its retries ran out and its mark
 is gone. It reads the composer again under the typing lock before each Enter; other text and dialogs are left
 alone, including partial lines whose last rows match a recovery notice. The whole composer must be visible,
 from its opening to its closing chrome; cropped or scrolled composers and owner rows that resemble footer
@@ -288,7 +288,9 @@ is final, and `--keep` holds the branch for a task with `from: <branch>`. Given 
 and each of its runs still going, records every unfinished task `stopped` and ends the job, which is then collected like
 any finished one; a resume of it begun before the stop stands down. After a reboot the first tick or menu brings
 back Claude and Codex seats with proven conversations, once per boot, but none you closed; the tick tells one that died
-mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it.
+mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it,
+and tells one that was asking you, by its question on screen or its own unanswered `ak notify needs`, to ask it again
+once it rests at its prompt with no question or draft.
 
 ### When a run goes silent
 

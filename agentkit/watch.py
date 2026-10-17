@@ -53,6 +53,9 @@ INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is
 # what a seat reopened after its process died mid-turn is told, in a run's mid-turn words
 MIDTURN_LINE = ("Your process was ended by the host, not by you, in the middle of a turn. "
                 "Continue that turn and finish it; do not start over.")
+# ... and one reopened while it asked the owner: its harness marks the open question interrupted
+ASKED_LINE = ("The host restarted while your question to the owner was still open. "
+              "Ask it again.")
 ACCOUNT_LINE = ("Your subscription ran out. This seat has resumed the same conversation on "
                 "an account of the same provider with usage available. Continue where you stopped.")
 CONTINUE_LINE = "continue"
@@ -465,24 +468,30 @@ def boot_id():
         return None
 
 
-def died_mid_turn(cfg, name):
-    """Was that seat in the middle of a turn when its process went?
+def reboot_line(cfg, name):
+    """What that seat is told once it is back, by what it was doing when its process went.
 
-    The ladder's own test on its last look -- a hook's prompt with no `Stop` after it, or a
-    screen positively `working`, as it is once a question the turn asked was answered --
-    unless its hook has spoken since that look, which is then the newest word.
+    In the middle of a turn: the ladder's own test on its last look -- a hook's prompt with no
+    `Stop` after it, or a screen positively `working`, as it is once a question the turn asked
+    was answered -- unless its hook has spoken since that look, which is then the newest word.
+    Else asking the owner: its question on the screen, or its own unanswered `ak notify needs`.
+    None for a seat that was idle or done.
     """
     harness = seat_model(cfg, name)[0]
     if not harness:
-        return False
+        return None
     looked = seat_read(name)
     try:
         hooked, _event, _text, when = hook_state(harness, hook_facts(name))
     except config.Error:
-        return False
+        return None
     if when is not None and when != looked.get("hooked_at"):
         looked = {"state": hooked, "hooked": hooked, "hooked_at": when}
-    return _turn_in_flight(harness, looked)[0]
+    if _turn_in_flight(harness, looked)[0]:
+        return MIDTURN_LINE
+    if looked.get("state") == "asking" or owner_question(notify.last(name)):
+        return ASKED_LINE
+    return None
 
 
 def resume_after_boot(cfg, dry_run=False, log=print):
@@ -490,9 +499,9 @@ def resume_after_boot(cfg, dry_run=False, log=print):
 
     The watch lock is shared with the menu. Claims survive a killed recovery pass; the boot
     is complete only after all candidates were considered. No run is launched or retried.
-    A seat the owner closed stays closed. A seat that died mid-turn and came back on its own
-    conversation is marked for `continue_turns`: otherwise it sits silent at its prompt,
-    reading `needs you`.
+    A seat the owner closed stays closed. A seat that died mid-turn or asking the owner and
+    came back on its own conversation is marked for `continue_turns`: otherwise it sits silent
+    at its prompt, its turn or its question lost.
     """
     boot = boot_id()
     if not boot:
@@ -522,13 +531,14 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             attempted = [*attempted, name]
             state["boot_resume"] = {"id": boot, "attempted": attempted}
             _write_state(state)       # a failed or interrupted launch is never repeated this boot
-            mid = died_mid_turn(cfg, name)   # read before the relaunch writes anything
+            line = reboot_line(cfg, name)   # read before the relaunch writes anything
             try:
                 back = orch.resume(cfg, name, log=lambda _: None, detached=True,
                                    hand_over=False)
                 log(f"resumed {name} after reboot")
-                if mid and back == "resumed":
-                    seat_write(name, midturn={"boot": boot, "at": time.time(), "name": name})
+                if line and back == "resumed":
+                    seat_write(name, midturn={"boot": boot, "at": time.time(), "name": name,
+                                              "line": line})
             except (config.Error, OSError) as exc:
                 log(f"WARN could not resume {name} after reboot: {exc}")
         if not dry_run:
@@ -550,7 +560,8 @@ def prompted_since(name, at):
 
 
 def continue_turns(cfg, log, accounts=False):
-    """Continue rebooted seats, or (`accounts`) seats reopened on another subscription.
+    """Continue rebooted seats or have them ask again, or (`accounts`) continue seats reopened
+    on another subscription.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -560,6 +571,7 @@ def continue_turns(cfg, log, accounts=False):
     has been prompted since it came back -- by the line, or by him, finished or not -- need
     no line at all, and that is read under the send's own lock, just before each keystroke.
     A question the seat put to the owner holds no line back: that turn went on after asking.
+    Every other line waits for a quiet prompt: no question on the screen and no draft.
     A seat renamed since loses its mark: its harness stamps prompts under the name it was
     started with.
     """
@@ -569,13 +581,14 @@ def continue_turns(cfg, log, accounts=False):
         if not isinstance(mark, dict) or (mark.get("line") == ACCOUNT_LINE) != accounts:
             continue
         at = mark.get("at") if isinstance(mark.get("at"), (int, float)) else 0
+        line = mark.get("line") or MIDTURN_LINE
         session = orch.find(name) if mark.get("boot") == boot else None
         if session and not session.get("exited"):
             wait = at + INBOX_WARMUP - time.time()
             if wait > 0:
                 time.sleep(min(wait, INBOX_WARMUP))   # the TUI has to be listening first
             harness, found = look_at(session, cfg=cfg)
-            if accounts and found.get("state") in ("draft", "asking"):
+            if line != MIDTURN_LINE and found.get("state") in ("draft", "asking"):
                 continue
             flight, began = _turn_in_flight(harness, found) if harness else (False, None)
             if not (flight and isinstance(began, (int, float)) and began > at):
@@ -583,19 +596,19 @@ def continue_turns(cfg, log, accounts=False):
 
                 def taken(held):
                     return held != mark.get("name") or prompted_since(held, at)
-                sent = type_into(session, mark.get("line") or MIDTURN_LINE, log, taken, asked=True)
+                sent = type_into(session, line, log, taken, asked=True)
                 if sent:
-                    log(f"told {name} to continue the turn it was in before reopening")
+                    log(f"told {name}: {line}")
                 elif taken(config.resolve_session(name)):
-                    log(f"{name} was prompted or renamed since it came back: no continue line")
+                    log(f"{name} was prompted or renamed since it came back: no line")
                 elif sent is None:
                     continue
                 elif tries < MIDTURN_TRIES:
                     seat_write(name, midturn={**mark, "tries": tries})
-                    log(f"WARN {name}: the continue line did not land; the next tick tries again")
+                    log(f"WARN {name}: its line did not land; the next tick tries again")
                     continue
                 else:
-                    log(f"WARN {name}: the continue line did not land in {tries} tries")
+                    log(f"WARN {name}: its line did not land in {tries} tries")
         seat_write(config.resolve_session(name), midturn=None)
 
 
@@ -614,7 +627,7 @@ def finish_own_lines(cfg, log):
             continue
         resume = config.manifest(harness).get("resume")
         key = resume.get("key") if isinstance(resume, dict) else None
-        for line in (ACCOUNT_LINE, MIDTURN_LINE, CONTINUE_LINE, key):
+        for line in (ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
