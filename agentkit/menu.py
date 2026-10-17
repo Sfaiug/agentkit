@@ -3338,17 +3338,24 @@ def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
     one that ends soon: its harness's `login again` (`logins.harness`), the menu back as soon
     as that ends however it did, and that login alone asked again (`logins.refresh`) in a
-    thread, since the tick may hold the logins asking others.  Its meter turns grey once a new
-    one stands, drawn as logins.json changes (`Live.recorded`), and stays amber where none was
-    made.  The thread is no daemon: a menu left at once still keeps the new login."""
+    process of its own: the tick may hold the logins asking others, and the answer still lands
+    once the menu is left or restarted for an update, neither of which waits for it.  That
+    process, or None.  Its meter turns grey once a new one stands, drawn as logins.json changes
+    (`Live.recorded`), and stays amber where none was made."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
     if harness:
         keyboard.give()
         _adapter_verb(harness, "login again", account, provider)
         keyboard.take()
-    threading.Thread(target=logins.refresh, args=(cfg,), kwargs={
-        "force": {(provider, account or config.DEFAULT_ACCOUNT)}}).start()
+    try:
+        return subprocess.Popen([sys.executable, "-m", "agentkit.logins", provider,
+                                 account or config.DEFAULT_ACCOUNT], cwd=config.REPO,
+                                env=config.child_env(), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True)
+    except OSError:
+        return None     # the tick asks it within the hour, its meter amber till then
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):

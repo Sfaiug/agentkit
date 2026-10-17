@@ -1,7 +1,8 @@
 """A click on an amber meter -- a login ending within a week -- hands the terminal to that
 login's `login again`, and the ak screen is back as soon as it ends, however it did, with no
-key to press; the login is asked again off the screen, which the tick may hold up, and its meter
-is no longer amber once a new login stands.  A click on any other meter signs nothing in.
+key to press; the login is asked again in a process of its own, which the tick may hold up and
+which outlives the menu, and its meter is no longer amber once a new login stands.  A click on
+any other meter signs nothing in.
 
 `menu.loop` in-process on a taken keyboard, its keys scripted, in a temporary HOME whose
 Claude adapter is a fake: `login again` writes down its call and a login 30 days out, and
@@ -9,11 +10,11 @@ Claude adapter is a fake: `login again` writes down its call and a login 30 days
 """
 
 from contextlib import closing, redirect_stdout
+import fcntl
 import io
 import json
 import os
 import sys
-import threading
 import unittest
 from unittest.mock import patch
 
@@ -67,6 +68,9 @@ class Screen(io.StringIO):
 class LoginClick(Sandbox):
     def setUp(self):
         super().setUp()
+        # the state a process ak starts reads, under this HOME
+        self.stack.enter_context(patch.object(config, "STATE", self.root / ".agentkit/state"))
+        config.STATE.mkdir(parents=True)
         self.fake = self.root / "fake"
         self.fake.mkdir()
         (self.fake / "claude.sh").write_text(ADAPTER)
@@ -110,37 +114,33 @@ class LoginClick(Sandbox):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
 
     def sign_in(self, *labels):
-        """Each of `labels`' meters clicked in turn, then the screen drawn again once the login
-        read the last click started has landed: whether that read found the screen back before
-        it went on.  It waits for that, as one waits while the tick asks other logins."""
-        waited, back, landed, real = [], threading.Event(), threading.Event(), logins.refresh
+        """Each of `labels`' meters clicked in turn, then the menu left, while the tick holds the
+        logins asking others: whether the login read each sign-in started was still waiting
+        once the menu had gone, each then waited for as the tick lets go."""
+        started, real = [], menu.sign_in
 
-        def refresh(*args, **kwargs):
-            waited.append(back.wait(10))
-            try:
-                return real(*args, **kwargs)
-            finally:
-                landed.set()
-
-        def landing():
-            back.set()
-            self.assertTrue(landed.wait(10))
-            return None          # drawn again, as the watcher has it once logins.json changes
-        with patch.object(logins, "refresh", side_effect=refresh):
-            self.loop(*(lambda label=label: self.click(self.draws[-1], label) for label in labels),
-                      landing)
-        return waited
+        def sign_in(*args, **kwargs):
+            started.append(real(*args, **kwargs))
+        with logins.path().with_name(".logins.lock").open("a") as tick:
+            fcntl.flock(tick, fcntl.LOCK_EX)
+            with patch.object(menu, "sign_in", side_effect=sign_in):
+                self.loop(*(lambda label=label: self.click(self.draws[-1], label)
+                            for label in labels))
+            waiting = [asked.poll() is None for asked in started]
+        for asked in started:
+            asked.wait(10)
+        return waiting
 
     def test_a_click_on_the_amber_meter_signs_in_and_comes_back(self):
         # grey: no login ends soon; amber: it ends in 2 days
         self.assertEqual(self.sign_in("ChatGPT", "Claude"), [True])
         calls = self.fake / "calls"
         self.assertEqual(calls.read_text() if calls.exists() else "", "again default\n")
+        self.assertEqual(len(self.draws), 3)        # drawn again as login again ended
         kept = json.loads((config.STATE / "logins.json").read_text())["anthropic"]["default"]
         self.assertEqual(kept["ends"], 10000 + 30 * DAY)
-        # back before the read landed, and drawn again once it had with no meter amber
-        self.assertEqual(len(self.draws), 4)
-        self.assertEqual(self.draws[-1]["logins"], {})
+        # and drawn again with no meter amber once that lands
+        self.assertFalse(any(menu.login_notes(menu.usage_rows(self.cfg))))
         with closing(menu.Live(self.cfg)) as live:
             self.assertIn("logins.json", [entry[0] for entry in live.recorded()])
 
@@ -148,7 +148,8 @@ class LoginClick(Sandbox):
         (self.fake / "claude.sh").write_text("#!/bin/sh\nexit 1\n")
         with patch.object(menu, "read", side_effect=AssertionError("a key was waited for")):
             self.assertEqual(self.sign_in("Claude"), [True])
-        self.assertEqual(list(self.draws[-1]["logins"].values()), [("anthropic", None)])
+        self.assertEqual(len(self.draws), 2)
+        self.assertTrue(any(menu.login_notes(menu.usage_rows(self.cfg))))
 
     def test_a_click_signs_in_only_what_the_screen_drew_amber(self):
         login = config.STATE / "logins.json"

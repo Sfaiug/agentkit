@@ -15,6 +15,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 
 from . import config, menu, notify
@@ -144,3 +145,9 @@ def ending(login, now, within=WARN_WITHIN):
     days = (date.fromtimestamp(ends) - date.fromtimestamp(now)).days
     soon = {0: "today", 1: "tomorrow"}.get(days, f"in {days} days")
     return f"ended {at}" if ends <= now else f"ends {at} ({soon})"
+
+
+if __name__ == "__main__":
+    # `python3 -m agentkit.logins <provider> <account>`: that login asked again in a process
+    # of its own, which the menu that signed it in neither waits for nor ends (`menu.sign_in`)
+    refresh(config.load(), force={tuple(sys.argv[1:3])})
