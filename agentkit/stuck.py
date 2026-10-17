@@ -4,11 +4,11 @@ per stall, for that seat to fix ak through the line as it fixes the week's loss 
 A stall is a landing line's check pass that has run more than three times the median of the
 line's last passes (`land.passes`), and half an hour at least, while its lander lives: red
 stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  So is the
-run first in line for a slot half an hour while the queue is polled (`gate.first_in_line`): a
-gate that never opens, or a dead run the waiters behind it wait on.  The seat
-is told one stall at a time, each once (`told`); `state/stuck.json` keeps the line being told
-and how far its delivery got, as `state/audit.json` does the week's, which goes first
-(`watch.tell_audit`).
+run first in line for a slot as long, against the waits there of the last firsts let in, while
+the queue is polled (`gate.first_in_line`): a gate that never opens, or a dead run the waiters
+behind it wait on.  The seat is told one stall at a time, each once (`told`); `state/stuck.json`
+keeps the line being told and how far its delivery got, as `state/audit.json` does the week's,
+which goes first (`watch.tell_audit`).
 """
 
 import json
@@ -18,9 +18,9 @@ import time
 
 from . import config, land, record
 
-SLOWER = 3            # a pass this many times its line's median is stuck,
-FLOOR = 30 * 60       # and none shorter than half an hour, however quick its line
-SAMPLES = 3           # a line with fewer finished passes has no pace to compare with
+SLOWER = 3            # a pass or wait this many times its usual is stuck,
+FLOOR = 30 * 60       # and none shorter than half an hour, however quick its usual
+SAMPLES = 3           # fewer finished passes or waits give no pace to compare with
 ASKED = ("Find why and build the smallest change to ak that keeps it from happening again, "
          "through the line, and ak notify done once it is live.")     # of the seat, each stall
 
@@ -46,6 +46,12 @@ def write(data):
     tmp.replace(path())
 
 
+def _far_past(took):
+    """How long a pass or wait runs before it is stuck: SLOWER times the median of the last
+    (`took`), and FLOOR at least; FLOOR while fewer than SAMPLES give it a pace."""
+    return max(FLOOR, SLOWER * statistics.median(took)) if len(took) >= SAMPLES else FLOOR
+
+
 def stalls(now):
     """(key, what, line) for each landing pass and slot wait running at `now`, the line None
     while it is not stuck: its key names it while it runs (`scan`)."""
@@ -57,7 +63,7 @@ def stalls(now):
         if not started or len(took) < SAMPLES or not record.process_active(kept):
             continue
         usual = statistics.median(took)
-        if now - started <= max(FLOOR, SLOWER * usual):
+        if now - started <= _far_past(took):
             yield f"{turn.name}:{started}", None, None
             continue
         members = land.line(turn)
@@ -69,12 +75,13 @@ def stalls(now):
                f"its log is {turn.with_suffix('.log')}. {ASKED}")
     first = gate.first_in_line(now)
     if first:
-        run_id, since, behind = first
+        run_id, since, behind, took = first
+        past = _far_past(took)
         yield (f"slot:{run_id}:{since}", "the stall of the slot queue",
                f"ak stalled: {run_id} has been first in line for a slot for "
-               f"{orch.span(now - since)}, more than {orch.span(FLOOR)}, with {behind} behind "
+               f"{orch.span(now - since)}, more than {orch.span(past)}, with {behind} behind "
                f"it; `ak run status` shows what it waits on. {ASKED}"
-               if now - since > FLOOR else None)
+               if now - since > past else None)
 
 
 def scan(cfg, log, now=None):
