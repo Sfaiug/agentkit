@@ -76,6 +76,29 @@ class AnswerMidTurn(Sandbox):
         self.assertEqual([(kind, waited) for _, kind, waited in moments],
                          [("asked", None), ("answered", 60.0)])
 
+    def test_a_question_standing_beside_it_is_answered_by_his_reply_after_both(self):
+        self.asks_at(1000.0)
+        with patch.dict(os.environ, {"AGENTKIT_SESSION": "inbox"}), \
+                patch.object(notify.time, "time", return_value=1100.0):
+            self.assertEqual(notify.main(["needs", "--session", SEAT, "Merge acme#7?"]), 0)
+        self.harness.said = [900.0, 1060.0, 1200.0]     # 1060 came before the second question
+        self.turn_ends_at(1300.0)
+        self.assertIsNone(notify.last(SEAT))
+        self.assertEqual(notify.last(SEAT, include_seen=True)["answered_at"], 1200.0)
+
+    def test_his_prompt_whose_words_answer_it_lets_go_of_the_stall_latch(self):
+        self.asks_at(1000.0)
+        with watch.state_lock():
+            state = watch.load_state()
+            state["stalls"][SEAT] = {"signature": "API Error", "since": 900.0, "told": 950.0}
+            watch._write_state(state)
+        with patch.object(watch.time, "time", return_value=1300.0):
+            watch.turn_ended(SEAT)
+        self.harness.said = [900.0, 1400.0]
+        notify.answered(SEAT, 1400.0)
+        self.assertIsNone(notify.last(SEAT))
+        self.assertNotIn(SEAT, watch.load_state()["stalls"])
+
     def test_a_message_from_before_the_question_answers_nothing(self):
         self.asks_at(1000.0)
         self.harness.said = [900.0, 990.0]

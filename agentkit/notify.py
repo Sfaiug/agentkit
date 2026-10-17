@@ -457,10 +457,11 @@ def answered(session, at):
     waiting prompt -- is what was answered, and its card keeps the answer.  An answered
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     A question the seat kept back for its turn's end, that end on record, is the one he read
-    at its stop and answers: it is asked here first, whoever held this lock when it ended.
+    at its stop and answers: it is asked here first, whoever held this lock when it ended, or
+    answered by what the owner typed into that turn, which lets go of the latch as well.
     """
     with session_lock(session) as session:
-        ask_kept(session, ended=True)
+        replied = ask_kept(session, ended=True) == "answered"
         previous = last(session)
         if previous and previous.get("watcher") is True:
             return
@@ -468,8 +469,9 @@ def answered(session, at):
             card = _card_read(session)
             if card.get("word") == "needs you":
                 _card_write(session, {**card, "answered_at": at})
-            return
-        if not answer(session, previous, at):
+            if not replied:
+                return
+        elif not answer(session, previous, at):
             return
     from . import watch    # here, not at the top: watch imports this module
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
@@ -1606,7 +1608,8 @@ def ask_kept(name, ended=False):
     The caller holds `session_lock(name)`.  With `ended` it asks only those whose turn's end
     is already on record, which are the first kept: the caller has not looked at the seat
     itself, and one kept since, in a turn still going, waits for its own.  The tick's card
-    pass sends the card, like any other's.
+    pass sends the card, like any other's.  What it did: `asked`, `answered`, or False with
+    nothing kept.
     """
     from . import watch
     kept = watch.questions_kept(watch.seat_read(name).get("unasked"))
@@ -1616,18 +1619,20 @@ def ask_kept(name, ended=False):
         return False
     stamps = [question.get("ended") for question in kept]
     # What the owner types while the turn runs goes into that turn, and no prompt hook hears
-    # it: his first message after the last question was kept answers them, as his next prompt
-    # would, and they were asked when the seat asked them.
+    # it: the owner's first message after these questions and any standing beside them answers
+    # them all, as the next prompt would, and these were asked when the seat asked them.
     kept_at = [question.get("at") for question in kept]
-    reply = None if None in kept_at else next(
-        (at for at in owner_said(name) if at > max(kept_at)), None)
+    standing = last(name)
+    asked = [*kept_at, *([standing.get("time")] if watch.owner_question(standing) else [])]
+    reply = None if None in asked else next(
+        (at for at in owner_said(name) if at > max(asked)), None)
     _said(name, "needs", [question["text"] for question in kept],
           at=max(kept_at) if reply is not None else None if None in stamps else max(stamps))
     watch.kept_asked(name, kept)
     notice = last(name) if reply is not None else None
-    if notice:
-        answer(name, notice, reply)
-    return True
+    if notice and answer(name, notice, reply):
+        return "answered"
+    return "asked"
 
 
 def check():
