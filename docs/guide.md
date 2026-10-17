@@ -445,8 +445,9 @@ per-benchmark scores are Pro's). Arena Agent is read off its leaderboard's Huggi
 `agent_steerability` boards as `arena.<board>`. LiveBench 2.0 is read off its newest release whose table answers (the
 dates are in its page's script): each suite as `livebench.<suite>` and `livebench.cost_coding`, the cost of a successful
 coding task as the site counts it; the release's cost file is part of the answer. A board's row is one model at one effort,
-read off the bracket in its name (`Claude Opus 5.5 (max)`; `Acme Pro (High) (0813)` is `Acme Pro (0813)` at high;
-`(Non-reasoning)` is `none`, a bracket naming no effort leaves the row at none). A board that cannot answer keeps its last
+read off the bracket in its name (`Claude Opus 5.5 (max)`; `Acme Pro (High) (0813)` is `Acme Pro (0813)` at high; `Acme
+5 (Max, Default Fallback)` is `Acme 5 (Default Fallback)` at max; `(Non-reasoning)` is `none`, a bracket naming no effort
+leaves the row at none). A board that cannot answer keeps its last
 rows with the error beside them and, like one that answered, is not asked again before the day is up. Callers at once
 share one collection: `collect` holds `state/matrix.lock` from reading the cache to replacing it.
 
