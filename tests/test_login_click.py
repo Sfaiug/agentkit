@@ -1,0 +1,100 @@
+"""A click on an amber meter -- a login ending within a week -- hands the terminal to that
+login's `login again`, and the ak screen is back, the login asked again and its meter no longer
+amber, as soon as it ends; a click on any other meter signs nothing in.
+
+`menu.loop` in-process on a taken keyboard, its keys scripted, in a temporary HOME whose
+Claude adapter is a fake: `login again` writes down its call and a login 30 days out, and
+`login-end` answers whichever login stands.  Nothing here logs in or reads a real login.
+"""
+
+from contextlib import redirect_stdout
+import io
+import json
+import os
+import sys
+import unittest
+from unittest.mock import patch
+
+from fixtures.sandbox import Sandbox
+from fixtures.subscriptions import number
+from agentkit import config, menu, terminal
+
+DAY = 86400
+WEEK = {"name": "weekly", "resets_at": 10000 + 3 * DAY, "window_secs": 604800, "used": 50}
+ADAPTER = r"""#!/usr/bin/env bash
+case "$*" in
+  "login again") echo "again ${AGENTKIT_ACCOUNT:-default}" >>"$FAKE/calls"
+                 cp "$FAKE/renewed" "$FAKE/standing" ;;
+  login-end) cat "$FAKE/standing" ;;
+  *) exit 2 ;;
+esac
+"""
+
+
+class Keyboard:
+    def take(self):
+        return True
+
+    def give(self):
+        pass
+
+    def close(self):
+        pass
+
+
+class LoginClick(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.fake = self.root / "fake"
+        self.fake.mkdir()
+        (self.fake / "claude.sh").write_text(ADAPTER)
+        (self.fake / "claude.sh").chmod(0o755)
+        soon = {"email": "owner@acme.test", "ends": 10000 + 2 * DAY}
+        (self.fake / "standing").write_text(json.dumps(soon))
+        (self.fake / "renewed").write_text(json.dumps({**soon, "ends": 10000 + 30 * DAY}))
+        (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
+            "anthropic": {"meters": [WEEK]}, "openai": {"meters": [WEEK]}}}))
+        (config.STATE / "logins.json").write_text(json.dumps(
+            {"anthropic": {"default": {**soon, "checked_at": 10000}}}))
+        self.stack.enter_context(patch.dict(os.environ, {
+            "FAKE": str(self.fake), config.ADAPTER_DIR_ENV: str(self.fake)}))
+        for target, name, value in ((menu.orch, "listing", []), (menu.orch, "job_notices", []),
+                                    (menu.Live, "probe", False), (sys.stdin, "isatty", True)):
+            self.stack.enter_context(patch.object(target, name, return_value=value))
+        self.stack.enter_context(patch.object(menu.usage, "collect", return_value={}))
+        for target, name in ((menu.Live, "watch"), (terminal, "sense")):
+            self.stack.enter_context(patch.object(target, name))
+        self.stack.enter_context(patch.object(terminal, "Keyboard", Keyboard))
+        self.stack.enter_context(patch.object(terminal, "width", return_value=100))
+
+    def click(self, drawn, label):
+        """A click on the middle of `label`'s cell in the grid as `drawn`."""
+        cell = ("usage", number(self.cfg, label))
+        return next(terminal.Key("click", col=(first + last) // 2, row=row)
+                    for row, (_, places) in drawn["spots"].items()
+                    for first, last, at in places if at == cell)
+
+    def test_a_click_on_the_amber_meter_signs_in_and_comes_back(self):
+        draws = []
+        real = menu.draw
+
+        def draw(*args, **kwargs):
+            draws.append(args[5])         # what the screen drew, read back as the loop does
+            return real(*args, **kwargs)
+        script = iter([lambda: self.click(draws[-1], "ChatGPT"),   # grey: no login ends soon
+                       lambda: self.click(draws[-1], "Claude"),    # amber: it ends in 2 days
+                       lambda: terminal.Key("esc")])
+        with patch.object(menu, "draw", side_effect=draw), \
+                patch.object(menu, "moving", side_effect=lambda *a, **k: next(script)()), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        calls = self.fake / "calls"
+        self.assertEqual(calls.read_text() if calls.exists() else "", "again default\n")
+        kept = json.loads((config.STATE / "logins.json").read_text())["anthropic"]["default"]
+        self.assertEqual(kept["ends"], 10000 + 30 * DAY)
+        # the screen came back by itself, its meter no longer amber, before Esc left it
+        self.assertEqual(len(draws), 3)
+        self.assertFalse(any(menu.login_notes(menu.usage_rows(self.cfg))))
+
+if __name__ == "__main__":
+    unittest.main()

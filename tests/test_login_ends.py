@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -143,12 +144,52 @@ class Refresh(unittest.TestCase):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default"]
         self.assertEqual(list(logins.refresh(self.cfg, now=1001)["anthropic"]), ["default"])
 
-    def test_f_a_provider_whose_models_were_removed_keeps_its_logins(self):
+    def test_f_a_provider_whose_models_were_removed_is_asked_through_its_shipped_harness(self):
         logins.refresh(self.cfg, now=1000)
         self.cfg["models"] = {}
+        self.answer("default", {"email": "owner@acme.test", "ends": 90000})
         kept = logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
-        self.assertEqual(kept["anthropic"]["default"]["ends"], 50000)
+        self.assertEqual(kept["anthropic"]["default"]["ends"], 90000)
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
+        # one no harness names keeps what it last said
+        self.cfg["providers"]["acme"] = {}
+        config._write_json(logins.path(),
+                           {**kept, "acme": {"default": {"ends": 7, "checked_at": 0}}})
+        self.assertEqual(logins.refresh(self.cfg, now=1000 + 2 * logins.ASK_EVERY)["acme"],
+                         {"default": {"ends": 7, "checked_at": 1000 + 2 * logins.ASK_EVERY}})
+
+    def test_i_a_forced_ask_asks_that_login_alone(self):
+        logins.refresh(self.cfg, now=1000)
+        later = 1000 + logins.ASK_EVERY       # both are due, one is named
+        kept = logins.refresh(self.cfg, now=later, force={("anthropic", "second")})
+        self.assertEqual(self.calls()[2:], ["second"])
+        self.assertEqual(kept["anthropic"]["default"]["checked_at"], 1000)
+
+    def test_j_a_sign_in_asked_while_the_tick_asks_keeps_the_new_login(self):
+        logins.refresh(self.cfg, now=1000)
+        real, held, go = logins._ask, threading.Event(), threading.Event()
+
+        def ask(harness, account):
+            answer = real(harness, account)
+            if threading.current_thread().name == "tick" and account == "default":
+                held.set()                    # the tick has read the old login ...
+                go.wait(10)
+            return answer
+        with patch.object(logins, "_ask", ask):
+            tick = threading.Thread(name="tick", target=logins.refresh,
+                                    args=(self.cfg, 1000 + logins.ASK_EVERY))
+            tick.start()
+            self.assertTrue(held.wait(10))
+            # ... the owner signs in again, and the sign-in asks while the tick still holds it
+            self.answer("default", {"email": "owner@acme.test", "ends": 90000})
+            sign_in = threading.Thread(target=logins.refresh, args=(self.cfg,),
+                                       kwargs={"force": {("anthropic", "default")}})
+            sign_in.start()
+            sign_in.join(1)
+            go.set()
+            tick.join(10)
+            sign_in.join(10)
+        self.assertEqual(logins.read()["anthropic"]["default"]["ends"], 90000)
 
     def hang(self):
         """The default account's adapter leaves a reader that this process adopts, orphaned."""
