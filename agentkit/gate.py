@@ -146,20 +146,35 @@ def slot_counts(state):
 
 
 def _save_queue(running, queue):
-    """Under slot_lock: the queue as this poll decided it, for the waiters behind its first."""
-    path = config.RUNS / ".slots.queue"
+    """Under slot_lock: the queue as this poll decided it, for the waiters behind its first, and
+    since when that first has waited there while polled (`first_in_line`)."""
+    path, now = config.RUNS / ".slots.queue", time.time()
+    waits = first_in_line(now)
+    since = waits[1] if waits and queue[:1] == [waits[0]] else now
     temp = path.with_name(".slots.queue.tmp")
-    temp.write_text(json.dumps({"at": time.time(), "running": running, "queue": queue}))
+    temp.write_text(json.dumps({"at": now, "running": running, "queue": queue, "since": since}))
     temp.replace(path)
 
 
 def slot_queue():
-    """(when, live slot owners, waiting run ids first in line first) as the last poll left them."""
+    """(when, live slot owners, waiting run ids first in line first, since when that first has
+    waited there) as the last poll left them."""
     try:
         saved = json.loads((config.RUNS / ".slots.queue").read_text())
-        return float(saved["at"]), int(saved["running"]), [str(run_id) for run_id in saved["queue"]]
+        return (float(saved["at"]), int(saved["running"]),
+                [str(run_id) for run_id in saved["queue"]], float(saved.get("since") or 0))
     except (OSError, ValueError, KeyError, TypeError):
-        return 0.0, 0, []
+        return 0.0, 0, [], 0.0
+
+
+def first_in_line(now):
+    """(the run first in line for a slot, since when it has waited there, how many wait behind
+    it) while a poll within four rewrote the queue, for `stuck`: its first polls every one, and
+    once it is gone a waiter behind it within three (`behind_first`); after a gap, a new wait."""
+    at, _, queue, since = slot_queue()
+    if queue and since and 0 <= now - at < 4 * SLOT_POLL:
+        return queue[0], since, len(queue) - 1
+    return None
 
 
 def behind_first(run_id):
@@ -168,7 +183,7 @@ def behind_first(run_id):
     Such a run skips its poll: it reads no record and takes no lock. A queue no poll rewrote
     for two polls -- its first stopped or died -- is counted again by whoever polls next.
     """
-    at, _, queue = slot_queue()
+    at, _, queue, _ = slot_queue()
     return 0 <= time.time() - at < 2 * SLOT_POLL and run_id in queue[1:]
 
 
@@ -203,7 +218,7 @@ def slot_line(running, ahead, limit, first=False):
 
 def slot_note(state):
     # A run behind the first polls nothing that refreshes its own reason: its place is the queue's.
-    _, running, queue = slot_queue()
+    _, running, queue, _ = slot_queue()
     if state.get("run_id") in queue[1:]:
         counts = running, queue.index(state["run_id"])
     elif state.get("slot_wait_reason"):

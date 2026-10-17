@@ -3,7 +3,9 @@ per stall, for that seat to fix ak through the line as it fixes the week's loss 
 
 A stall is a landing line's check pass that has run more than three times the median of the
 line's last passes (`land.passes`), and half an hour at least, while its lander lives: red
-stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  The seat
+stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  So is the
+run first in line for a slot half an hour while the queue is polled (`gate.first_in_line`): a
+gate that never opens, or a dead run the waiters behind it wait on.  The seat
 is told one stall at a time, each once (`told`); `state/stuck.json` keeps the line being told
 and how far its delivery got, as `state/audit.json` does the week's, which goes first
 (`watch.tell_audit`).
@@ -19,6 +21,8 @@ from . import config, land, record
 SLOWER = 3            # a pass this many times its line's median is stuck,
 FLOOR = 30 * 60       # and none shorter than half an hour, however quick its line
 SAMPLES = 3           # a line with fewer finished passes has no pace to compare with
+ASKED = ("Find why and build the smallest change to ak that keeps it from happening again, "
+         "through the line, and ak notify done once it is live.")     # of the seat, each stall
 
 
 def path():
@@ -43,8 +47,8 @@ def write(data):
 
 
 def stalls(now):
-    """(key, what, line) for each landing line whose running pass is far past its usual."""
-    from . import orch
+    """(key, what, line) for each landing pass and slot wait found stuck at `now`."""
+    from . import gate, orch
     for kept_at in sorted(config.RUNS.glob(".merge-*.passes")):
         turn = kept_at.with_suffix(".lock")     # the line's own name (`deliver.merge_lock_path`)
         kept = land.passes(turn)
@@ -60,9 +64,14 @@ def stalls(now):
         yield (f"{turn.name}:{started}", f"the stall of {what}",
                f"ak stalled: {what} has run one check pass for {orch.span(now - started)}, more "
                f"than {SLOWER} times its usual {orch.span(usual)}, with {len(members)} in line; "
-               f"its log is {turn.with_suffix('.log')}. Find why and build the smallest "
-               "change to ak that keeps it from happening again, through the line, and ak "
-               "notify done once it is live.")
+               f"its log is {turn.with_suffix('.log')}. {ASKED}")
+    first = gate.first_in_line(now)
+    if first and now - first[1] > FLOOR:
+        run_id, since, behind = first
+        yield (f"slot:{run_id}:{since}", "the stall of the slot queue",
+               f"ak stalled: {run_id} has been first in line for a slot for "
+               f"{orch.span(now - since)}, more than {orch.span(FLOOR)}, with {behind} behind "
+               f"it; `ak run status` shows what it waits on. {ASKED}")
 
 
 def scan(cfg, log, now=None):
