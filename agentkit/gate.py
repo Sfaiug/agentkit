@@ -364,8 +364,11 @@ def count_wait(run_id, wait, counted):
     return began, now
 
 
-def wait_for_slot(run_dir):
-    """Reserve a slot in run.json before work starts; no process-local semaphore can do this."""
+def wait_for_slot(run_dir, between=None):
+    """Reserve a slot in run.json before work starts; no process-local semaphore can do this.
+
+    `between` runs after each poll's wait, while the wait holds nothing: it may replace this
+    process with the same launch on newer code (`run.pickup_while_queued`)."""
     announced = False
     first_poll = True
     behind = False
@@ -376,6 +379,8 @@ def wait_for_slot(run_dir):
             counted = counted or (time.time(), time.monotonic())
             time.sleep(SLOT_POLL)
             counted = count_wait(run_dir.name, "slot", counted)
+            if between is not None:
+                between()
             if behind_first(run_dir.name):
                 behind = True
                 continue
@@ -395,6 +400,9 @@ def wait_for_slot(run_dir):
                 run_record.save_state(run_dir, state)
             if state.get("state") != "queued" or state.get("pid") != os.getpid():
                 raise config.Error(f"{run_dir.name}: another process owns this launch")
+            if first_poll:
+                # what held the launch before this process took it up: its launcher, a pickup
+                wait_kind = state.get("slot_wait_kind")
             if behind:
                 # The polls it skipped were count waits, and steadiness starts over after one.
                 state.update(slot_waited=True, slot_wait_kind="count", slot_healthy_polls=0)

@@ -639,6 +639,29 @@ def pickup_new_code(lp, execv=None, current=None):
     return True
 
 
+def pickup_while_queued(run_dir, execv=None, current=None):
+    """A launch waiting for its slot holds nothing: where the installed agentkit moved since it
+    started, it replaces itself with the same launch on the new code, which takes up the same
+    receipt -- the pid and `queued_at`, so its place in line, stay -- and a change to admission
+    reaches the runs already waiting, as `pickup_new_code` brings new code to a run before a
+    round.  Only a detached launch's own process moves (`spawn_bg`); a job's threads share one.
+    `execv` and `current` are the injected exec and installed version the tests use."""
+    if (os.environ.get(config.RUN_DIR_ENV) != str(run_dir)
+            or threading.current_thread() is not threading.main_thread()
+            or getattr(jobs._JOB_MUTE, "depth", 0)):
+        return False
+    now = installed_head() if current is None else current
+    if not now or not _PICKUP_START or now == _PICKUP_START:
+        return False
+    logger(run_dir)(f"picked up agentkit {_PICKUP_START}..{now} while waiting for a slot")
+    sys.stdout.flush()
+    try:
+        (execv or os.execv)(sys.executable, [sys.executable, *sys.argv])
+    except OSError:
+        return False
+    return True
+
+
 def seat_refusal(opts, flags):
     """Why a seat's launch is refused: a seat names no model, no place in the queue and no
     second run of a change under way, since ak picks the models, decides what goes first and
@@ -682,7 +705,7 @@ def depth_refused():
 
 @contextmanager
 def run_slot(run_dir, prior=None):
-    state = gate.wait_for_slot(run_dir)
+    state = gate.wait_for_slot(run_dir, between=lambda: pickup_while_queued(run_dir))
     if prior is not None:
         prior.update({key: state[key] for key in (
             "state", "run_depth", "parent_run", "queued_at", "slot_waiting", "slot_started_at")
@@ -2920,9 +2943,13 @@ def main(argv):
     resumed = os.environ.get(config.RUN_DIR_ENV)
     if resumed and not queued(Path(resumed)):
         receipt = run_record.read_state(Path(resumed)) or {}
+        name = receipt.get("run_id") or Path(resumed).name
         if needs_recovery(receipt):
-            name = receipt.get("run_id") or Path(resumed).name
             raise config.Error(f"this launch was interrupted; ak run resume {name} to recover it")
+        if (receipt.get("state") == "stopped" and receipt.get("pid") == os.getpid()
+                and run_record.process_active(receipt)):
+            # this very process's launch, stopped as it waited: a pickup's exec keeps the pid
+            raise config.Error(f"{name} was stopped before it could start; nothing was launched")
         # a stale variable inherited from some other run: start our own instead of stealing it
         print(f"ak run: ignoring {config.RUN_DIR_ENV}={resumed}: not a queued run",
               file=sys.stderr)
