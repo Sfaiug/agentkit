@@ -83,12 +83,13 @@ def refresh(cfg, now=None, force=()):
 
     An adapter that answers nothing, or a provider no harness names, leaves its last answer
     standing, so a briefly unrunnable one neither raises a warning nor lifts one.  An answer
-    another refresh kept since this one read the file stands unless this one asked later: a
-    sign-in's, made while the tick still asked the old login, is not undone by the tick's.  A
+    another refresh kept since this one read the file stands, except over a forced ask that
+    answered: whoever forces one saw that login made, so a tick that asked before it or
+    answered nothing never undoes it (one tick runs at a time, watch.tick_lock).  A
     subscription the config no longer lists is dropped with its answer.
     """
     now = time.time() if now is None else now
-    old, kept, asked = read(), {}, set()
+    old, kept, seen = read(), {}, set()
     for provider in cfg["providers"]:
         harness = next(iter(config.provider_harnesses(cfg, provider)), None)
         for account in config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]:
@@ -97,19 +98,19 @@ def refresh(cfg, now=None, force=()):
             checked = last.get("checked_at")
             fresh = ((provider, account) not in force if force else
                      isinstance(checked, (int, float)) and 0 <= now - checked < ASK_EVERY)
-            if not fresh:
-                asked.add((provider, account))
+            answer = None if fresh else harness and _ask(harness, account)
+            if answer and (provider, account) in force:
+                seen.add((provider, account))
             kept.setdefault(provider, {})[account] = last if fresh else {
-                **last, **(harness and _ask(harness, account) or {}), "checked_at": now}
+                **last, **(answer or {}), "checked_at": now}
     config.ensure_dirs()
     with config._record_lock(path()):
         on_disk = read()
         for provider, accounts in kept.items():
             for account in accounts:
                 theirs = (on_disk.get(provider) or {}).get(account)
-                if not isinstance(theirs, dict) or theirs == (old.get(provider) or {}).get(account):
-                    continue    # nobody kept another answer since
-                if (provider, account) not in asked or theirs.get("checked_at", now) > now:
+                if (isinstance(theirs, dict) and (provider, account) not in seen
+                        and theirs != (old.get(provider) or {}).get(account)):
                     accounts[account] = theirs
         if kept != on_disk:
             config._write_json(path(), kept, prepare=False)

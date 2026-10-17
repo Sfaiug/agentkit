@@ -171,6 +171,22 @@ class Refresh(unittest.TestCase):
         self.assertEqual(kept["anthropic"]["default"]["ends"], 90000)
         self.assertEqual(logins.read()["anthropic"]["default"]["ends"], 90000)
 
+    def test_k_a_tick_answering_nothing_while_a_sign_in_asks_does_not_undo_it(self):
+        logins.refresh(self.cfg, now=1000)
+        ask = logins._ask
+
+        def ticked_meanwhile(harness, account):
+            answer = ask(harness, account)
+            if not (self.fake / "ticked").exists():
+                (self.fake / "ticked").touch()
+                (self.fake / "fail-default").touch()
+                logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
+            return answer
+        self.answer("default", {"email": "owner@acme.test", "ends": 90000})
+        with patch.object(logins, "_ask", ticked_meanwhile):
+            logins.refresh(self.cfg, now=1001, force={("anthropic", "default")})
+        self.assertEqual(logins.read()["anthropic"]["default"]["ends"], 90000)
+
     def hang(self):
         """The default account's adapter leaves a reader that this process adopts, orphaned."""
         import ctypes
