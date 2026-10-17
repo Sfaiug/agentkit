@@ -763,7 +763,9 @@ class Phone(Sandbox):
         self.seat(LONG_NAME)
         phone.keys("F5")                     # a key that does nothing: a draw, and no more
         if narrow:
-            screen = phone.until("your projects", "11  phone-au", prompt="esc leave")
+            # all twelve counted: a read from before the last seat came lists eleven, and 12
+            # pressed on those opens nothing
+            screen = phone.until("your projects · 12 need you", "11  phone-au", prompt="esc leave")
             self.whole_page(screen, width, height)
             self.assertRegex(self.place(screen), r"^\d+ / \d+$")
         else:
