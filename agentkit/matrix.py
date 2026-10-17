@@ -231,12 +231,18 @@ def _write(cache):
     tmp.replace(cache_path())
 
 
+def installed():
+    """Every harness present to run a turn, the ones whose models the matrix rows."""
+    return sorted({name for name, _ in config.manifests() if config.harness_present(name)})
+
+
 def config_key(cfg):
-    """What of the config the matrix is computed from: a change here recomputes it."""
-    return sorted([name, cfg["models"][name]["harness"], cfg["models"][name]["model"],
-                   *(config.role_effort(cfg["models"][name], role) for role in config.ROLE_EFFORTS),
-                   cfg["models"][name].get("benchmark") or ""]
-                  for name in config.offered(cfg))
+    """What besides the boards the matrix is computed from, the config's models and the
+    harnesses installed: a change here recomputes it."""
+    return [sorted([name, cfg["models"][name]["harness"], cfg["models"][name]["model"],
+                    *(config.role_effort(cfg["models"][name], role) for role in config.ROLE_EFFORTS),
+                    cfg["models"][name].get("benchmark") or ""]
+                   for name in config.offered(cfg)), installed()]
 
 
 def collect(*, refresh=False, now=None):
@@ -317,9 +323,7 @@ def rows(cfg, boards):
             names[key] = name
             roles.setdefault(key, set()).add(role)
     table = []
-    for harness in sorted({name for name, _ in config.manifests()}):
-        if not config.harness_present(harness):
-            continue
+    for harness in installed():
         listed = {item["id"]: item["efforts"] for item in config.catalog(harness)}
         for (h, model, effort), name in names.items():
             if h == harness:
@@ -456,7 +460,7 @@ def stored():
 def refresh(cfg, *, refresh=False, now=None):
     """The boards (`collect`) and the matrix computed from them and the config, written beside
     the boards in `state/matrix.json` so every pick reads one computed truth; computed again
-    only once a board answered anew or the config's models changed, since the harness catalogs
+    only once a board answered anew or `config_key` changed, since the harness catalogs
     it asks take time.  Returns (boards, the scored rows); `recommended` reads off the rows."""
     now = time.time() if now is None else now
     boards = collect(refresh=refresh, now=now)
