@@ -110,12 +110,13 @@ def refuse_unready(cfg, providers, name):
     """
     from . import usage  # here, not at the top: usage imports staffing
     why = usage.unready(cfg, name, providers)
-    harness = config.model(cfg, name)["harness"]
+    entry = config.model(cfg, name)
+    harness = entry["harness"]
     if why and update.swap_end(harness, providers.asked_at, time.time()):
         while (end := update.swap_end(harness, providers.asked_at, time.time()) or 0) > (
                 now := time.time()):
             time.sleep(min(turns.SWAP_POLL, end - now))
-        why = usage.harness_unready(harness)
+        why = usage.harness_unready(harness, provider=entry["provider"])
     if why:
         raise config.Error(f"{name} cannot run here: {why}")
 

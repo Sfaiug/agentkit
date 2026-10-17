@@ -2651,13 +2651,16 @@ def _nearest(effort, levels):
                if word in EFFORT_RANK else len(EFFORT_RANK))
 
 
-def _offered(harness, *screen):
-    """Every model that harness's catalog lists, asked while `screen` waits on it (`waited`),
-    each with the efforts it is offered at (config.efforts): the catalog's own, or for one
-    whose efforts it does not say -- a model newer than its adapter's table -- the harness's
-    `[effort] levels`, read without asking the catalog a second time."""
+def _offered(harness, *screen, provider=None):
+    """Every model that harness's catalog lists for `provider`, asked while `screen` waits on
+    it (`waited`), each with the efforts it is offered at (config.efforts): the catalog's own,
+    or for one whose efforts it does not say -- a model newer than its adapter's table -- the
+    harness's `[effort] levels`, read without asking the catalog a second time.  A
+    `<provider>/<model>` id is that provider's, the way OpenCode names every provider's models,
+    and any other id is every provider's the harness runs."""
     return [dict(model, efforts=model["efforts"] or config.efforts(harness))
-            for model in waited(lambda: config.catalog(harness), *screen)]
+            for model in waited(lambda: config.catalog(harness), *screen)
+            if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
 def config_model_id(cfg, name, step, screen):
@@ -2667,7 +2670,7 @@ def config_model_id(cfg, name, step, screen):
     say under the screen, or ""."""
     entry = cfg["models"][name]
     try:
-        models = _offered(entry.get("harness"), *screen)
+        models = _offered(entry.get("harness"), *screen, provider=entry.get("provider"))
     except config.Error as exc:
         return f"config: {exc}"
     if not models:
@@ -2989,8 +2992,9 @@ def _add_choices(cfg, picked, screen):
     it shows).
 
     The harnesses of the providers the config has (config.provider_harnesses), with their
-    providers' names; then every model that harness's catalog lists, as config_model_id offers
-    them (_offered), each id beside its label where the two differ; then that model's efforts.
+    providers' names; then every model that harness's catalog lists for that provider, as
+    config_model_id offers them (_offered), each id beside its label where the two differ;
+    then that model's efforts.
     A model the config runs already, or an effort it runs it at, is marked with the names it
     runs under.  `screen` is what waits on a catalog (`waited`).
     """
@@ -3001,11 +3005,11 @@ def _add_choices(cfg, picked, screen):
         return [((harness, provider), [harness, NAMES.get(provider, provider.title())])
                 for provider in cfg["providers"]
                 for harness in config.provider_harnesses(cfg, provider)]
-    harness = picked[0][0]
+    harness, provider = picked[0]
     if len(picked) == 1:
         return [(model, [model["label"], "" if model["id"] == model["label"] else model["id"],
                          mark(_runs(cfg, harness, model["id"]))])
-                for model in _offered(harness, *screen)]
+                for model in _offered(harness, *screen, provider=provider)]
     model = picked[1]["id"]
     return [(effort, [effort, mark(_runs(cfg, harness, model, effort))])
             for effort in picked[1]["efforts"]]
@@ -3147,9 +3151,10 @@ def _by_label(names, label):
             for text, name in zip(labels, names)}
 
 
-def _adapter_verbs(keyboard, harness, verbs, picked, account=None):
+def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None):
     """Each of `verbs` of `harness`'s adapter, run as install.sh runs them, for `account`'s
-    login when one is named, with the terminal given back for them and taken again after.  The
+    login when one is named and of `provider` when one is (config.provider_env), with the
+    terminal given back for them and taken again after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
     it under the matrix, or "".  No verbs is nothing to run, and the terminal stays."""
     if not verbs:
@@ -3159,7 +3164,8 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None):
     for verb in verbs:
         try:
             code = subprocess.run([str(config.adapter(harness)), verb],
-                                  env={**config.child_env(), **config.account_env(account)}
+                                  env={**config.child_env(), **config.account_env(account),
+                                       **config.provider_env([provider] if provider else [])}
                                   ).returncode
         except (config.Error, OSError) as exc:
             print(f"{harness}: {exc}")
@@ -3182,7 +3188,7 @@ def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",))
     harnesses = config.provider_harnesses(cfg, provider)
     if not harnesses:
         return f"config: no model names a harness for [providers.{provider}]"
-    failed = _adapter_verbs(keyboard, harnesses[0], verbs, picked, listed[-1])
+    failed = _adapter_verbs(keyboard, harnesses[0], verbs, picked, listed[-1], provider)
     if failed:
         return failed
     before = copy.deepcopy(cfg)
@@ -3237,7 +3243,8 @@ def config_add_provider(cfg, keyboard):
             continue       # it is in ak again, or has no provider to go back to
         # its provider's harness even with none of its models left, as _add_subscription finds it
         harnesses = config.provider_harnesses(cfg, name)
-        passed, said = worker.auth_ok(harnesses[0], account=account) if harnesses else (0, "")
+        passed, said = (worker.auth_ok(harnesses[0], account=account, provider=name)
+                        if harnesses else (0, ""))
         if passed:
             who = re.search(r"; logged in as (.+)$", said)
             offers.append((who[1] if who else "", label, (name, after)))
@@ -3271,11 +3278,11 @@ def config_add_provider(cfg, keyboard):
         return f"{picked} adds its model as {first}, and a model has that name; nothing added"
     verbs = () if config.harness_present(harness) else ("install",)
     failed = _adapter_verbs(keyboard, harness, verbs if picked in kept else (*verbs, "login"),
-                            picked)
+                            picked, provider=name)
     if failed:
         return failed
     try:
-        models = _offered(harness, "config · add a provider")
+        models = _offered(harness, "config · add a provider", provider=name)
     except Back:
         return ""                     # Esc while its catalog was asked: nothing added
     if not models:

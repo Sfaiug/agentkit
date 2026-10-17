@@ -202,7 +202,7 @@ class PathIsNotARateLimit(unittest.TestCase):
                     auth.assert_not_called()
                     self.assertNotIn("logged_in", fresh)
                 else:
-                    auth.assert_called_once_with("claude")
+                    auth.assert_called_once_with("claude", account=None, provider="acme")
                     self.assertTrue(fresh["logged_in"])
                     self.assertTrue(usage._kept({}, fresh, 1_800_000_000)["logged_in"])
 

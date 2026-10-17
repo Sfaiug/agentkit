@@ -48,6 +48,7 @@ SEAT_REPO_ENV = "AGENTKIT_SEAT_REPO"      # a new seat's project, for rulebook.p
 # origin/HEAD would win the short one
 RULES_REF = "refs/remotes/origin/HEAD"
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
+PROVIDER_ENV = "AGENTKIT_PROVIDER"         # ... and which providers, where a harness runs several's
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk
 UNATTENDED_ENV = "AGENTKIT_UNATTENDED"   # set below a run loop: what it starts is machinery
@@ -1544,6 +1545,20 @@ def account_env(account):
     """What an adapter call for that account is told: its name in AGENTKIT_ACCOUNT, and for
     `default` the empty name -- the login the adapter uses when no account is named at all."""
     return {ACCOUNT_ENV: "" if account in (None, DEFAULT_ACCOUNT) else account}
+
+
+def provider_env(providers):
+    """What an adapter call is told about the providers it is for: their names in
+    AGENTKIT_PROVIDER, space-separated.  A harness that runs several providers' models
+    (OpenCode) answers for those, and every other harness has only one to answer for."""
+    return {PROVIDER_ENV: " ".join(providers)}
+
+
+def harness_providers(cfg, harness):
+    """The providers whose offered models `cfg` runs on that harness, each once: what a
+    question about the harness as a whole is a question about (worker.auth_ok)."""
+    return list(dict.fromkeys(cfg["models"][name]["provider"] for name in offered(cfg)
+                              if cfg["models"][name].get("harness") == harness))
 
 
 def kept_logins():

@@ -141,12 +141,16 @@ class LoginExpired(Exception):
         self.harness, self.why, self.session = harness, why, session
 
 
-def auth_ok(harness, seat=False, run_id=None, account=None):
+def auth_ok(harness, seat=False, run_id=None, account=None, provider=None):
     """Whether that harness can authenticate right now, and the one line it said about it.
 
     `run_id` marks the probe as that run's own, so detached descendants die with the run
     like any other child; a probe with no run to name runs unmarked, as before.  `account`
     asks about that one of its provider's logins (`config.account_env`), never another's.
+    `provider` asks about that provider's, on a harness that runs several providers' models
+    (OpenCode); none named asks about every provider the config runs on that harness, each
+    needing its own, so a question about the harness as a whole -- a seat's login, a run
+    parked on one -- is never answered yes by another provider's login.
 
     `seat` asks about the interactive login instead of a headless turn's.  They are two
     logins wherever a harness has a worker credential of its own, and they expire apart: a
@@ -182,6 +186,14 @@ def auth_ok(harness, seat=False, run_id=None, account=None):
         env.pop(RUN_MARKER, None)
     if account is not None:
         env.update(config.account_env(account))
+    if provider is None:
+        try:
+            named = config.harness_providers(config.load(), harness)
+        except config.Error:
+            named = []       # no config to read: the adapter answers for any login it has
+    else:
+        named = [provider]
+    env.update(config.provider_env(named))
     try:
         # `input` rather than DEVNULL: the adapter gets a stdin that is closed at once, and
         # asking it a question opens no file of its own on a machine watching for that.
@@ -683,7 +695,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         extra = {"BASH_DEFAULT_TIMEOUT_MS": cap, "BASH_MAX_TIMEOUT_MS": cap}
     turn_env = {**config.seatless_env(), **extra, **(env or {})}
     ok, why = auth_ok(entry["harness"], run_id=turn_env.get(RUN_MARKER),
-                      account=turn_env.get(config.ACCOUNT_ENV))
+                      account=turn_env.get(config.ACCOUNT_ENV), provider=entry["provider"])
     if ok is False:
         raise LoginExpired(entry["harness"], why)
     out_dir = Path(out_dir)
@@ -742,7 +754,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         # nothing streamed and it was over in a minute: this turn never reached the model, so
         # ask why before treating a silence as one -- the verb, not a guess at the stderr
         authed, said = auth_ok(entry["harness"], run_id=turn_env.get(RUN_MARKER),
-                               account=turn_env.get(config.ACCOUNT_ENV))
+                               account=turn_env.get(config.ACCOUNT_ENV),
+                               provider=entry["provider"])
         mark = said if authed is False else None
     if mark:
         raise LoginExpired(entry["harness"], mark, session)
