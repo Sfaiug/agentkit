@@ -3,7 +3,10 @@ per stall, for that seat to fix ak through the line as it fixes the week's loss 
 
 A stall is a landing line's check pass that has run more than three times the median of the
 line's last passes (`land.passes`), and half an hour at least, while its lander lives: red
-stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  The seat
+stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  The run
+first in line for a slot is one the same way against the firsts before it, its wait there
+counted while the queue is polled (`gate.first_in_line`): a gate that never opens, or a waiter
+older than its rule.  The seat
 is told one stall at a time, each once (`told`); `state/stuck.json` keeps the line being told
 and how far its delivery got, as `state/audit.json` does the week's, which goes first
 (`watch.tell_audit`).
@@ -42,17 +45,24 @@ def write(data):
     tmp.replace(path())
 
 
+def _far_past(now, started, took):
+    """The usual of `took` where a wait since `started` has gone far past it, else None."""
+    if not started or len(took) < SAMPLES:
+        return None
+    usual = statistics.median(took)
+    return usual if now - started > max(FLOOR, SLOWER * usual) else None
+
+
 def stalls(now):
-    """(key, what, line) for each landing line whose running pass is far past its usual."""
-    from . import orch
+    """(key, what, line) for each landing line whose running pass is far past its usual, and for
+    the run first in line for a slot while it has waited there far past the firsts before it."""
+    from . import gate, orch
     for kept_at in sorted(config.RUNS.glob(".merge-*.passes")):
         turn = kept_at.with_suffix(".lock")     # the line's own name (`deliver.merge_lock_path`)
         kept = land.passes(turn)
-        took, started = kept.get("took") or [], kept.get("started")
-        if not started or len(took) < SAMPLES or not record.process_active(kept):
-            continue
-        usual = statistics.median(took)
-        if now - started <= max(FLOOR, SLOWER * usual):
+        started = kept.get("started")
+        usual = _far_past(now, started, kept.get("took") or [])
+        if usual is None or not record.process_active(kept):
             continue
         members = land.line(turn)
         what = (f"the {Path(members[0][1]['repo']).name} landing line" if members
@@ -63,6 +73,17 @@ def stalls(now):
                f"its log is {turn.with_suffix('.log')}. Find why and build the smallest "
                "change to ak that keeps it from happening again, through the line, and ak "
                "notify done once it is live.")
+    first = gate.first_in_line(now)
+    if first:
+        run_id, since, took, behind = first
+        usual = _far_past(now, since, took)
+        if usual is not None:
+            yield (f"slot:{run_id}:{since}", "the stall of the slot queue",
+                   f"ak stalled: {run_id} has been first in line for a slot for "
+                   f"{orch.span(now - since)}, more than {SLOWER} times the usual "
+                   f"{orch.span(usual)}, with {behind} behind it; `ak run status` shows what it "
+                   "waits on. Find why and build the smallest change to ak that keeps it from "
+                   "happening again, through the line, and ak notify done once it is live.")
 
 
 def scan(cfg, log, now=None):
