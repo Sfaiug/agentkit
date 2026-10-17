@@ -1,5 +1,6 @@
 """The run first in line for a slot half an hour while the queue is polled is a stall for the
-`audit` seat, one per wait.  Offline: a temporary runs directory and the clock injected."""
+`audit` seat, one per wait.  Offline: temporary runs and state directories and the clock
+injected."""
 
 from pathlib import Path
 import sys
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, stuck
+from agentkit import config, gate, land, record, stuck
 
 NOW = 1_800_000_000.0
 API, WEB = "20270115-0900-fix-api", "20270115-0901-fix-web"
@@ -20,7 +21,12 @@ class FirstInLineHalfAnHour(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-first-in-line-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        for patcher in (patch.object(config, "RUNS", Path(tmp.name)),
+        for name in ("RUNS", "STATE"):
+            (Path(tmp.name) / name.lower()).mkdir()
+        for patcher in (patch.object(config, "RUNS", Path(tmp.name) / "runs"),
+                        patch.object(config, "STATE", Path(tmp.name) / "state"),
+                        patch.object(config, "ensure_dirs"),
+                        patch.object(config, "audit", return_value={"on": True}),
                         patch.object(gate, "SLOT_POLL", 30),
                         patch.object(gate, "time", SimpleNamespace(time=lambda: self.clock))):
             patcher.start()
@@ -33,7 +39,14 @@ class FirstInLineHalfAnHour(unittest.TestCase):
                 gate._save_queue(0, queue)
 
     def found(self, now):
-        return [key for key, _what, _line in stuck.stalls(now)]
+        return [key for key, _what, line in stuck.stalls(now) if line]
+
+    def told(self, now):
+        """The stall the tick's scan tells at `now`, delivered at once."""
+        found = stuck.scan({}, lambda _: None, now)
+        if found:
+            stuck.write({**found[1], "delivered": now})
+            return found[1]["told"][-1]
 
     def test_a_run_first_in_line_half_an_hour_is_one_stall_per_wait(self):
         self.polls(API, [API, WEB], NOW - 3000, NOW)
@@ -51,6 +64,16 @@ class FirstInLineHalfAnHour(unittest.TestCase):
         self.assertEqual(self.found(NOW + 2000), [f"slot:{API}:{NOW + 180}"])
         self.polls(API, [WEB], NOW + 2030, NOW + 2030)     # let in, it hands first place on
         self.assertEqual(self.found(NOW + 2040), [])
+
+    def test_a_wait_told_stays_told_while_the_clock_is_set_back(self):
+        self.polls(API, [API, WEB], NOW - 1830, NOW)
+        self.assertEqual(self.told(NOW), f"slot:{API}:{NOW - 1830}")
+        self.polls(API, [API, WEB], NOW - 90, NOW - 90)     # back under half an hour
+        land._keep_passes(config.RUNS / ".merge-acme.lock", {     # and another stall is told
+            "started": NOW - 3090, "took": [600, 700, 800], **record.process_owner()})
+        self.assertEqual(self.told(NOW - 90), f".merge-acme.lock:{NOW - 3090}")
+        self.polls(API, [API, WEB], NOW - 60, NOW + 30)
+        self.assertIsNone(self.told(NOW + 30))
 
     def test_a_first_that_never_polls_is_a_stall_the_run_behind_it_finds(self):
         self.polls(WEB, [API, WEB], NOW - 3000, NOW)

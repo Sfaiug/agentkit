@@ -47,7 +47,8 @@ def write(data):
 
 
 def stalls(now):
-    """(key, what, line) for each landing pass and slot wait found stuck at `now`."""
+    """(key, what, line) for each landing pass and slot wait running at `now`, the line None
+    while it is not stuck: its key names it while it runs (`scan`)."""
     from . import gate, orch
     for kept_at in sorted(config.RUNS.glob(".merge-*.passes")):
         turn = kept_at.with_suffix(".lock")     # the line's own name (`deliver.merge_lock_path`)
@@ -57,6 +58,7 @@ def stalls(now):
             continue
         usual = statistics.median(took)
         if now - started <= max(FLOOR, SLOWER * usual):
+            yield f"{turn.name}:{started}", None, None
             continue
         members = land.line(turn)
         what = (f"the {Path(members[0][1]['repo']).name} landing line" if members
@@ -66,12 +68,13 @@ def stalls(now):
                f"than {SLOWER} times its usual {orch.span(usual)}, with {len(members)} in line; "
                f"its log is {turn.with_suffix('.log')}. {ASKED}")
     first = gate.first_in_line(now)
-    if first and now - first[1] > FLOOR:
+    if first:
         run_id, since, behind = first
         yield (f"slot:{run_id}:{since}", "the stall of the slot queue",
                f"ak stalled: {run_id} has been first in line for a slot for "
                f"{orch.span(now - since)}, more than {orch.span(FLOOR)}, with {behind} behind "
-               f"it; `ak run status` shows what it waits on. {ASKED}")
+               f"it; `ak run status` shows what it waits on. {ASKED}"
+               if now - since > FLOOR else None)
 
 
 def scan(cfg, log, now=None):
@@ -89,10 +92,11 @@ def scan(cfg, log, now=None):
     if state.get("line") and not state.get("delivered"):
         return setting, state
     found = {key: (what, line) for key, what, line in stalls(now)}
-    # a pass stays a stall until it ends: its key is kept while it is found, and no longer
+    # a stall stays one until it ends: its key is kept while it runs, back under its line or
+    # not (a clock set back), and no longer
     told = [key for key in state.get("told") or [] if key in found]
     for key, (what, line) in found.items():
-        if key in told:
+        if key in told or not line:
             continue
         state = {"about": what, "line": line, "typed": None, "delivered": None,
                  "told": [*told, key]}
