@@ -3224,9 +3224,9 @@ def config_add_provider(cfg, keyboard):
     goes back with nothing done.  What to say under the matrix, or "".
     """
     shipped, hosts = config.shipped(), config.provider_hosts()
-    labels = _by_label([name for name in shipped.get("providers") or {}
-                        if name not in cfg["providers"]
-                        and hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))],
+    gone = [name for name in shipped.get("providers") or {} if name not in cfg["providers"]]
+    labels = _by_label([name for name in gone
+                        if hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))],
                        lambda name: COMPANIES.get(name, NAMES.get(name, name.title())))
     through = {label: harness for harness, label in hosts.items() if label not in labels}
     more = {}
@@ -3240,7 +3240,7 @@ def config_add_provider(cfg, keyboard):
     offers = []
     for name, account, label in config.kept_logins():
         listed = config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]
-        if name in labels.values():
+        if name in gone:      # listed or not: one on a host harness is listed through it
             after = None if account == config.DEFAULT_ACCOUNT else [account]
         elif name in cfg["providers"] and account not in listed:
             after = [*listed, account]

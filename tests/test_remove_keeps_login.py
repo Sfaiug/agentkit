@@ -8,15 +8,20 @@ its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The
 fakes in that HOME that log each verb with the account it was asked for, and whose `auth` passes
 on a `login` file in a home of that account's own; nothing is logged in, nothing here reads or
 writes the owner's ~/.agentkit or a harness's home, and the only process signalled is the test's
-own child.
+own child.  The one whose provider is reached through OpenCode calls `menu.config_add_provider`
+itself instead, with the kept login, its `auth` and the list faked: no fake adapter here is
+OpenCode's.
 """
 
+import tomllib
 import unittest
+from unittest import mock
 
 from test_add_subscription import CLAUDE, CODEX, rows
 from test_config_matrix import DOWN, ENTER, ESC, LEFT, RIGHT, Screen
-from test_provider_screen import (ADD, GIVE, KEYS, MATRIX, REMOVE, SHIPPED, open_providers,
-                                  pick, title)
+from test_provider_screen import (ADD, GIVE, KEYS, MATRIX, ONE, REMOVE, SHIPPED,
+                                  open_providers, pick, title)
+from agentkit import config, menu
 
 FAKE = r"""#!/usr/bin/env bash
 H=%s ACCOUNT=${AGENTKIT_ACCOUNT:-default}
@@ -209,6 +214,16 @@ class RemoveKeepsLogin(unittest.TestCase):
         for path in kept:
             self.assertTrue(path.exists(), path)
         screen.leave()
+
+    def test_a_removed_provider_listed_only_through_its_host_harness_is_still_offered(self):
+        with mock.patch.object(config, "kept_logins",
+                               return_value=[("mimo", config.DEFAULT_ACCOUNT, "MiMo")]), \
+                mock.patch.object(menu.worker, "auth_ok", return_value=(True, "configured")), \
+                mock.patch.object(menu.terminal, "choose", return_value=None) as choose:
+            menu.config_add_provider(tomllib.loads(ONE), None)
+        offered = choose.call_args.args[0]
+        self.assertIn("OpenCode", offered)                          # MiMo is reached through it
+        self.assertEqual(offered[-1], "Use MiMo")
 
 
 if __name__ == "__main__":
