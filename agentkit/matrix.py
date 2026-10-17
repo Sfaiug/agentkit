@@ -479,6 +479,12 @@ def refresh(cfg, *, refresh=False, now=None):
     return boards, table
 
 
+def _at(entry, role):
+    """The row a configured model runs in `role`: its harness and model, at the effort the
+    config runs it at there."""
+    return (entry["harness"], entry["model"], config.role_effort(entry, CONFIG_ROLES[role]))
+
+
 def rank(cfg, role):
     """Each configured model's place for `role` off the matrix as last computed, at the effort
     the config runs it at in that role: (the measures its score rests on, the score), None for
@@ -488,12 +494,18 @@ def rank(cfg, role):
     rows_by = {(row["harness"], row["model"], row["effort"]): row for row in held.get("rows") or []}
     found = {}
     for name in config.offered(cfg):
-        entry = cfg["models"][name]
-        row = rows_by.get((entry["harness"], entry["model"],
-                           config.role_effort(entry, CONFIG_ROLES[role])))
+        row = rows_by.get(_at(cfg["models"][name], role))
         score = (row.get("scores") or {}).get(role) if row else None
         found[name] = (score["measures"], score["score"]) if score else None
     return found
+
+
+def runs(cfg, row, role):
+    """The configured model that runs `row` in `role`, off the config as it stands and matched
+    as `rank` matches a model to its row; None where none does."""
+    return next((name for name in config.offered(cfg)
+                 if _at(cfg["models"][name], role) == (row["harness"], row["model"], row["effort"])),
+                None)
 
 
 def row_label(row):

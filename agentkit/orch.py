@@ -3792,30 +3792,38 @@ def role_texts(selected, name, marks):
             builds)
 
 
-def role_mark(cfg, selected, name, column, providers):
-    """A proposed mark, without mutating the saved groups when it cannot form a pair.
-
-    Copy legacy reviewers before changing workers, so the two columns are independent from
-    the first flip. Executors may be left empty: the orchestrator then builds everything.
-    Reviewers keep one; empty is possible only before choosing from an all-spent screen.
-    """
-    changed = {**selected, "reviewers": list(selected.get("reviewers", selected["workers"]))}
-    if column == 0:
-        if selected["orchestrator"] == name:
-            return selected, ""
-        changed["orchestrator"] = name
-    else:
-        role = "workers" if column == 1 else "reviewers"
-        group = changed[role]
-        if name in group and len(group) == 1 and role == "reviewers":
-            return selected, f"{ROLE_HEADS[column]} needs one model"
-        changed[role] = ([peer for peer in group if peer != name] if name in group
-                         else [*group, name])
+def role_groups(cfg, selected, providers, **groups):
+    """`selected` with `groups` (orchestrator, workers, reviewers) replaced, legacy reviewers
+    copied first so the two columns are independent from the first flip; (`selected`, why)
+    where the pair could not run (role_refusal) or a group names a model since removed from
+    the config.  Empty reviewers are not checked: that is possible only before choosing from
+    an all-spent screen."""
+    changed = {**selected, "reviewers": list(selected.get("reviewers", selected["workers"])),
+               **groups}
     if changed["reviewers"]:
-        note = role_refusal(cfg, changed, providers)
+        try:
+            note = role_refusal(cfg, changed, providers)
+        except config.Error as exc:
+            note = str(exc)
         if note:
             return selected, note
     return changed, ""
+
+
+def role_mark(cfg, selected, name, column, providers):
+    """A proposed mark (role_groups), without mutating the saved groups when it cannot form a
+    pair.  Executors may be left empty: the orchestrator then builds everything.  Reviewers
+    keep one."""
+    if column == 0:
+        if selected["orchestrator"] == name:
+            return selected, ""
+        return role_groups(cfg, selected, providers, orchestrator=name)
+    role = "workers" if column == 1 else "reviewers"
+    group = selected["workers"] if column == 1 else selected.get("reviewers", selected["workers"])
+    if name in group and len(group) == 1 and role == "reviewers":
+        return selected, f"{ROLE_HEADS[column]} needs one model"
+    return role_groups(cfg, selected, providers, **{
+        role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 
 
 def handover_text(name, old_model, transcript):

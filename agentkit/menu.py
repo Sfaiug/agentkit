@@ -133,7 +133,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, history, matrix, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
 from . import record
 
 KEYS = "n new   x stop   c config   esc leave"
@@ -2305,6 +2305,10 @@ REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
+# The config screen's line of what `ak models` recommends per role, and the key that takes it.
+ADVICE_HEAD = "ak recommends"
+ADVICE_NONE = "nothing yet: ak models"
+ADVICE_KEY = "r recommended"
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
@@ -2376,7 +2380,69 @@ def model_heading(cfg, provider):
     return terminal.styled(provider_name(cfg, provider), "accent")
 
 
-def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
+def advice(cfg, held):
+    """What `ak models` recommends per role off `held`, the matrix as last computed
+    (matrix.stored): {role: (its row's label, the configured model that runs it in that role or
+    None)}; {} while nothing is computed.  The model is read off `cfg` as it stands
+    (matrix.runs), not the row as stored, so the same matrix is read against the config each
+    draw: a model removed on this screen is `(not configured)` at once."""
+    found = {}
+    for role, row in matrix.recommended(held.get("rows") or []).items():
+        name = matrix.runs(cfg, row, role)
+        found[role] = (matrix.row_label({**row, "name": name}), name)
+    return found
+
+
+def advice_lines(found):
+    """The dim lines under a seat's models: each role's recommended row, `r takes` where the
+    executor's or the reviewer's is a configured model, wrapped under themselves to the
+    screen's width as the rows under them are."""
+    if found:
+        said = " · ".join(f"{orch.ROLE_HEADS[number]} {label}"
+                          + ("" if name else " (not configured)")
+                          for number, role in enumerate(matrix.ROLES)
+                          for label, name in [found.get(role, ("-", None))])
+        if any(found.get(role, (None, None))[1] for role in ("execute", "review")):
+            said += " · r takes exec and review"
+    else:
+        said = ADVICE_NONE
+    wide, room = terminal.cells(ADVICE_HEAD), terminal.layout_width() - 2
+    return [terminal.styled(terminal.table_row([ADVICE_HEAD if number == 0 else "", part],
+                                               [wide, room - wide - 2], indent="  "), "dim")
+            for number, part in enumerate(terminal.wrap(said, room - wide - 2))]
+
+
+def take_advice(cfg, name, selected, providers, found):
+    """`r`: the seat's executors and reviewers become the recommended rows that are configured
+    models, saved to its record at once as a flipped mark is (marks_saved); the orchestrator is
+    only said, since moving the seat is the owner's (the orchestrator mark asks first).  What
+    to say under the rows, or ""."""
+    taken = {group: found.get(role, (None, None))[1]
+             for group, role in (("workers", "execute"), ("reviewers", "review"))}
+    if not any(taken.values()):
+        return "nothing to take: the recommended rows are not configured models"
+    changed, note = orch.role_groups(cfg, selected, providers,
+                                     **{group: [model] for group, model in taken.items() if model})
+    return note or marks_saved(name, selected, changed)
+
+
+def marks_saved(name, selected, changed):
+    """A seat's role groups as `changed` has them, saved to its record at once and then into
+    `selected`; a save that fails leaves both alone.  What to say under the rows, or ""."""
+    try:
+        # a screen open across a rename has the old name
+        saved = config.update_session(config.resolve_session(name), workers=changed["workers"],
+                                      reviewers=changed["reviewers"])
+    except OSError as exc:
+        return f"session: {exc}"
+    if saved is None:
+        return f"session: {name} has no saved models"
+    selected.update(changed)
+    return ""
+
+
+def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None,
+                found=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, harness (dim), the three role
@@ -2392,7 +2458,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
     act on, -1 its label, and on Providers 0 or less `+ add`, 1 `− remove` and 2 or more the
-    last act it offers.  `cells`
+    last act it offers.  Under a session's models, `found` (`advice`) is what `ak models`
+    recommends per role, dim lines (advice_lines) that are no row.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
     the terminal counts. On a phone the harness gives way, then the bars, then the label.
     """
@@ -2468,6 +2535,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 places[len(lines)] = (("model", name), cells if number == 0 else [])
                 lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
                              else part)
+    if selected is not None and found is not None:
+        lines.extend(advice_lines(found))
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
     values = ("", "", discord_value(), audit_value(cfg), version or "?")
@@ -2861,7 +2930,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
     here, column, top, clock = None, columns[1], 0, motion.Clock()
+    held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
+        found = advice(cfg, held) if selected else None   # against the config as it stands
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
@@ -2870,10 +2941,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
                  if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
                  else "mark")
-        keys = CONFIG_KEYS[where][0 if terminal.utf8() else 1] + "   esc back"
+        keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
+                + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
         body, places = config_body(cfg, version, None if terminal.away() else here, column,
-                                   selected, providers, moves)
+                                   selected, providers, moves, found)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         was = here
@@ -2890,6 +2962,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         note = ""
         if act == "back":
             return cfg
+        if act == "r" and found:
+            note = take_advice(cfg, session, selected, providers, found)
+            continue
         if act in ("enter", "space") and (here[0] == "row" or column < 0):
             clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
@@ -3540,7 +3615,8 @@ def show_config(dry_run=False, keyboard=None, session=None):
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
-                       config_body(cfg, version, selected=selected, providers=providers)[0],
+                       config_body(cfg, version, selected=selected, providers=providers,
+                                   found=advice(cfg, matrix.stored()) if selected else None)[0],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
@@ -3567,33 +3643,20 @@ def session_mark(cfg, name, selected, model, column, providers):
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
     under the same name (the screen has asked first, `move_asked`), and a harness that is not installed or not logged in, or a meter
-    that is spent, is refused in one line with the seat as it was. Reviewers keep one
-    model, executors may be empty, and a flip leaving no allowed pair is refused. A run
-    launched afterwards reads the record as left here; one already going keeps the groups
-    its receipt saved. A refusal or a save that fails leaves the record, and `selected`,
-    alone. What to say under the rows, or "".
+    that is spent, is refused in one line with the seat as it was, and so is a record naming
+    a model removed on this screen. Reviewers keep one model, executors may be empty, and a
+    flip leaving no allowed pair is refused. A run launched afterwards reads the record as
+    left here (marks_saved); one already going keeps the groups its receipt saved. A refusal
+    or a save that fails leaves the record, and `selected`, alone. What to say under the
+    rows, or "".
     """
     if column == 0:
         note = orch.switch_orchestrator(cfg, name, model, providers)
         if not note:
             selected["orchestrator"] = model
         return note
-    try:
-        changed, note = orch.role_mark(cfg, selected, model, column, providers)
-    except config.Error as exc:     # the record names a model removed on this screen
-        return str(exc)
-    if note:
-        return note
-    try:
-        # a screen open across a rename has the old name
-        saved = config.update_session(config.resolve_session(name), workers=changed["workers"],
-                                      reviewers=changed["reviewers"])
-    except OSError as exc:
-        return f"session: {exc}"
-    if saved is None:
-        return f"session: {name} has no saved models"
-    selected.update(changed)
-    return ""
+    changed, note = orch.role_mark(cfg, selected, model, column, providers)
+    return note or marks_saved(name, selected, changed)
 
 
 # A production project's feature switches are live data in the project, reached through the one
