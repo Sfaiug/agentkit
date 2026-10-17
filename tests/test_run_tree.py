@@ -475,6 +475,23 @@ class RunTree(unittest.TestCase):
             self.assertTrue(worker.kill_marked(self.marker, grace=1))
         self.assertEqual(state, ["Z"])
 
+    def test_sweep_never_kills_a_pid_reused_while_it_waited(self):
+        # The killed process is reaped and its pid goes to an unmarked process during the
+        # grace's last sleep: KILL goes only to pids the scan after that sleep still saw.
+        now, start, signalled = [0.0], [7], []
+
+        def sleep(seconds):
+            now[0] += seconds
+            start[0] = 8
+
+        with patch.object(worker, "marked_pids", lambda *_a, **_kw: [] if signalled else [4242]), \
+                patch.object(worker.os, "kill", lambda pid, sig: signalled.append(sig)), \
+                patch.object(worker.host, "proc_stat",
+                             lambda pid: worker.host.ProcStat("R", 1, start[0])), \
+                patch.object(worker, "time", SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)):
+            self.assertTrue(worker.kill_marked(self.marker, grace=0.1))
+        self.assertEqual(signalled, [signal.SIGTERM])
+
     def _leave_marked_sleep(self, left, marker=None):
         kid = subprocess.Popen(
             ["setsid", "sleep", "100"], start_new_session=True,

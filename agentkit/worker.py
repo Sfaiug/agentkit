@@ -428,23 +428,23 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
+    # The deadline is read after each scan, so KILL goes only to pids the last scan saw
+    # still the process that was marked: a pid reused during the sleep is not the run's.
     deadline = time.monotonic() + grace
-    while time.monotonic() < deadline:
-        marked = left()
-        if not marked:
-            return True
+    while (marked := left()) and time.monotonic() < deadline:
         time.sleep(0.2)
+    if not marked:
+        return True
     for pid in marked:
         try:
             os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
     deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        marked = left()
-        if not marked:
-            return True
+    while (marked := left()) and time.monotonic() < deadline:
         time.sleep(0.2)
+    if not marked:
+        return True
     if log is not None:
         log(f"WARN {run_id}: still alive after KILL: {marked[:5]}; the next cleanup acts again")
     return False
