@@ -495,14 +495,18 @@ def reboot_line(cfg, name):
 
 
 def resume_after_boot(cfg, dry_run=False, log=print):
-    """Claim each owned, absent seat before restarting it, once per kernel boot.
+    """Claim each owned, absent seat that still owes work before restarting it, once per
+    kernel boot.
 
     The watch lock is shared with the menu. Claims survive a killed recovery pass; the boot
     is complete only after all candidates were considered. No run is launched or retried.
-    A seat the owner closed stays closed. A seat that died mid-turn or asking the owner and
-    came back on its own conversation is marked for `continue_turns`: otherwise it sits silent
-    at its prompt, its turn or its question lost.
+    A seat the owner closed stays closed, and so does one that owes nothing (`owes_work`) and
+    was neither mid-turn nor asking the owner when the host went down: it reopens with its
+    number, like any closed seat. A seat that died mid-turn or asking the owner and came back
+    on its own conversation is marked for `continue_turns`: otherwise it sits silent at its
+    prompt, its turn or its question lost.
     """
+    from . import menu as menu_mod    # here, not at the top: the menu imports this module
     boot = boot_id()
     if not boot:
         return
@@ -521,9 +525,17 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             recovery = {}
         attempted = recovery.get("attempted", []) if recovery.get("id") == boot else []
         present = {seat["name"] for seat in orch.sessions()}
+        try:
+            records = menu_mod.run_records()
+        except (config.Error, OSError, ValueError):
+            records = []
+        index, now = transitions.supersession_index(records), time.time()
         for name, record in sorted(config.session_records().items()):
             if (name in present or name in attempted or not orch.resumable(record)
                     or seat_closed_by_owner(name)):
+                continue
+            line = reboot_line(cfg, name)   # read before the relaunch writes anything
+            if not line and not owes_work(name, own_runs(name, records), index, now):
                 continue
             if dry_run:
                 log(f"would resume {name} after reboot in {record.get('cwd')}")
@@ -531,7 +543,6 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             attempted = [*attempted, name]
             state["boot_resume"] = {"id": boot, "attempted": attempted}
             _write_state(state)       # a failed or interrupted launch is never repeated this boot
-            line = reboot_line(cfg, name)   # read before the relaunch writes anything
             try:
                 back = orch.resume(cfg, name, log=lambda _: None, detached=True,
                                    hand_over=False)
@@ -2400,6 +2411,54 @@ def still_owed(name, mine, index, stopped):
     return None
 
 
+def own_runs(name, records):
+    """That seat's own (run_dir, state) pairs among `records`: the runs launched from it."""
+    mine = []
+    for run_dir, state in records:
+        try:
+            owner = transitions.launched_session(state)
+        except config.Error:
+            owner = None
+        if owner == name:
+            mine.append((run_dir, state))
+    return mine
+
+
+def resumes_itself(state, at):
+    """Whether that run is unfinished and resumes itself.  `stalled` is the exception, as in
+    the stop hook's `parked`: `going` counts it, but only `ak run resume` moves one."""
+    return transitions.going(state, now=at) and state.get("state") != "stalled"
+
+
+def parked_runs(mine, index, at):
+    """Those of `mine` parked with no scheduled resume, which nothing but the owner moves: an
+    ending still in the owner's tally, a stalled run, a merge wait only its age turned away."""
+    from . import menu as menu_mod    # the menu imports this module
+    return [(run_dir, state) for run_dir, state in mine
+            if (state.get("state") in ("error", "exhausted")
+                and menu_mod.v5o_needs_look(state, index=index, now=at))
+            or (state.get("state") == "stalled" and transitions.unfinished(state, index=index))
+            or (state.get("state") == "waiting" and not transitions.going(state, now=at)
+                and transitions.tick_admission({**state, "finished_at": at}, now=at)
+                and not transitions.is_superseded(state, None, index, merged_only=True))]
+
+
+def owes_work(name, mine, index, at):
+    """Whether that seat still owes work: a question or a watcher's alert still standing, what
+    keeps any resting seat the owner's (`still_owed`), or a run of its own going, parked, or
+    ended with nobody yet deciding it (the tally's own `needs you`).  It keeps a seat nobody is
+    in the owner's, and, beside a turn or a question the host cut off (`reboot_line`), brings
+    one back after a reboot.  `mine` is the seat's own (run_dir, state) pairs, `index` their
+    supersession index."""
+    from . import menu as menu_mod    # the menu imports this module
+    last = notify.last(name)
+    return bool(parked_runs(mine, index, at) or (last and last["kind"] != "done")
+                or still_owed(name, mine, index, stopped=False) is not None
+                or any(resumes_itself(state, at) or transitions.unfinished(state, index=index)
+                       or menu_mod.v5o_needs_look(state, index=index, now=at)
+                       for _, state in mine))
+
+
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
                    found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
                    terminal_mod, stalls):
@@ -2414,14 +2473,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             records = menu_mod.run_records()
         except (config.Error, OSError, ValueError):
             records = []
-    mine = []
-    for run_dir, state in records:
-        try:
-            owner = transitions.launched_session(state)
-        except config.Error:
-            owner = None
-        if owner == name:
-            mine.append((run_dir, state))
+    mine = own_runs(name, records)
     # 1. a login expired: the seat cannot move and only he can move it.  What decides it for
     # this seat is its harness's own `auth seat` verb, as the last tick asked it -- never the
     # pane, which a queued input redraws between ticks, and which is how `needs login` and
@@ -2485,11 +2537,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             and not notify.resolved(last) and not seat_closed_by_owner(name)):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
-    # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
-    # is the exception, as in the stop hook's `parked`: `going` counts it, but only
-    # `ak run resume` moves one, so rung 3 has it.
-    going = [(run_dir, state) for run_dir, state in mine
-             if transitions.going(state, now=at) and state.get("state") != "stalled"]
+    # 2. a run of its own is unfinished and resumes itself: the seat is working.
+    going = [(run_dir, state) for run_dir, state in mine if resumes_itself(state, at)]
     if going:
         going.sort(key=lambda pair: (pair[1].get("started_at") or 0, pair[0].name))
 
@@ -2546,13 +2595,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # is the way back to the run, never the run itself.
     if index is None:
         index = transitions.supersession_index(records)
-    parked = [(run_dir, state) for run_dir, state in mine
-              if (state.get("state") in ("error", "exhausted")
-                  and menu_mod.v5o_needs_look(state, index=index, now=at))
-              or (state.get("state") == "stalled" and transitions.unfinished(state, index=index))
-              or (state.get("state") == "waiting" and not transitions.going(state, now=at)
-                  and transitions.tick_admission({**state, "finished_at": at}, now=at)
-                  and not transitions.is_superseded(state, None, index, merged_only=True))]
+    parked = parked_runs(mine, index, at)
     if parked and not gone:
         run_dir, first = min(parked, key=lambda pair: pair[1].get("finished_at") or 0)
         name, reason = run_dir.name, handback.handback_reason(first)
@@ -2609,7 +2652,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # 4. nobody is in it: its number is the way back into the conversation.  A seat the
     # owner closed is `idle`: he ended it, so nothing in it is his to unblock, and a hand-back
     # waiting on it waits for him to want it back; one that went on its own is the owner's
-    # only while it owes work.
+    # only while it owes work (`owes_work`).
     # An ended run is its orchestrator's to act on -- the run handed its ending back to
     # the seat that launched it -- so no reason ever says `press r` or names a run.
     if gone:
@@ -2632,17 +2675,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             if waiting:
                 reason += f" · {waiting} hand-backs waiting"
             return {"word": "idle", "since": None, "reason": closed(reason)}
-        # One that went on its own is the owner's while it owes work -- a question or a watcher's
-        # alert still standing, what keeps any resting seat theirs (`still_owed`), or a run of its
-        # own going, parked, or ended with nobody yet deciding it (the tally's own `needs
-        # you`): no ending is typed into a seat nobody is in, so nothing moves it until it is
-        # opened.  With nothing owed it says what it said last, done, or rests.
+        # One that went on its own is the owner's while it owes work: no ending is typed into a
+        # seat nobody is in, so nothing moves it until it is opened.  With nothing owed it says
+        # what it said last, done, or rests.
         reason = closed(f"session closed: press {where} to reopen")
-        if (parked or (last and last["kind"] != "done")
-                or still_owed(name, mine, index, stopped=False) is not None
-                or any(transitions.unfinished(state, index=index)
-                       or menu_mod.v5o_needs_look(state, index=index, now=at)
-                       for _, state in mine)):
+        if owes_work(name, mine, index, at):
             return {"word": "needs you", "since": None, "reason": reason}
         if not (last and last["kind"] == "done"):
             return {"word": "idle", "since": None, "reason": reason}

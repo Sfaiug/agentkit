@@ -171,8 +171,10 @@ class NoReplay(Sandbox):
 
     def test_a_reboot_leaves_a_seat_the_owner_closed_closed(self):
         # A pause script ends a seat and leaves its record: after a reboot the tick brings
-        # back every seat with a proven conversation, but never one he closed himself --
-        # reopening it would clear his mark and put a card on his phone.
+        # back every seat with a proven conversation that owes work, but never one he closed
+        # himself -- reopening it would clear his mark and put a card on his phone.
+        config.plan_path(SEAT).write_text(
+            "- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")
         orch.mark_owner_closed(SEAT)
         watch.save_state({**watch.load_state(), "boot_id": "before"})
         with patch.object(watch, "boot_id", return_value="after"), \

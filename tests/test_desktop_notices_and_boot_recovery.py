@@ -109,6 +109,10 @@ class DesktopAndBoot(Sandbox):
         self.save_seat("stopped")
         with redirect_stdout(io.StringIO()):
             orch.cmd_stop(["stopped"])
+        # each owes work, so only what proves its conversation decides which come back
+        for name in ("claude", "codex", "fresh", "muse", "stopped"):
+            config.plan_path(name).write_text(
+                "- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")
         # Interrupted work keeps its own receipt and explicit recovery action.
         self.ended("interrupted", state="interrupted", owner="claude")
         self.stack.enter_context(patch.object(orch, "command", side_effect=lambda cfg, model, conversation=None,

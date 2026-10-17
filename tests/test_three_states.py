@@ -628,7 +628,8 @@ class ThreeStates(Sandbox):
         # with no Stop after it, or its screen read the turn going again after a question it
         # asked was answered.  The first tick after the reboot reopens it on its own
         # conversation and tells it to continue that turn, the way a run's mid-turn resume
-        # does; a seat that had finished its turn, or comes back fresh, is told nothing.
+        # does; a seat that had finished its turn owing nothing stays down, and one that comes
+        # back fresh is told nothing.
         live, reopened = self.reboot_fixture({
             "atoll": ("UserPromptSubmit", ""), "asked": ("Notification", "permission_prompt"),
             "idle": ("Stop", ""), "fresh": ("UserPromptSubmit", "")})
@@ -652,7 +653,7 @@ class ThreeStates(Sandbox):
             watch.resume_after_boot(self.cfg, log=lambda _line: None)
             watch.continue_turns(self.cfg, lambda _line: None)
         self.assertEqual(sorted(call.args[1] for call in resume.call_args_list),
-                         ["asked", "atoll", "fresh", "idle"])
+                         ["asked", "atoll", "fresh"])
         self.assertEqual(sorted(typed), [("asked", watch.MIDTURN_LINE),
                                          ("atoll", watch.MIDTURN_LINE)])
         self.assertIn("Continue that turn", watch.MIDTURN_LINE)

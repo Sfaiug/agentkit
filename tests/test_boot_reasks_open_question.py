@@ -102,7 +102,7 @@ class BootReasks(Sandbox):
         orch.mark_owner_closed("closed")
         self.boot()
         self.assertEqual(sorted(call.args[1] for call in self.resume.call_args_list),
-                         ["asked-in-turn", "dialog", "done", "idle", "needs", "working"])
+                         ["asked-in-turn", "dialog", "needs", "working"])
         self.assertEqual(sorted(self.texts), [("asked-in-turn", watch.ASKED_LINE),
                                               ("dialog", watch.ASKED_LINE),
                                               ("needs", watch.ASKED_LINE),
