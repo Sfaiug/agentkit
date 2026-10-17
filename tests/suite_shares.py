@@ -1,5 +1,5 @@
-"""Choose the declared suite's checks for its mode and divide them, without changing a check
-or keeping shared timing state."""
+"""Choose the declared suite's checks for its mode and divide them, and name those that failed,
+without changing a check or keeping shared timing state."""
 
 import os
 from pathlib import Path
@@ -16,6 +16,20 @@ def shard(value=None):
         if number <= total:
             return number, total
     raise ValueError("AK_SHARD must be k/N with 1 <= k <= N")
+
+
+def listed():
+    """The test IDs, checkout-relative paths, in the file AK_ONLY names, one per line: the only
+    tests to run, whatever the share. None when AK_ONLY is unset: every test runs."""
+    path = os.environ.get("AK_ONLY", "")
+    return {line.strip() for line in Path(path).read_text().splitlines()} - {""} if path else None
+
+
+def name_failed(tests):
+    """Append the failed tests' IDs to the file AK_FAILED names, one per line, if it names one."""
+    if os.environ.get("AK_FAILED"):
+        with open(os.environ["AK_FAILED"], "a") as fh:
+            fh.writelines(f"{test}\n" for test in tests)
 
 
 def shares(costs, total):
