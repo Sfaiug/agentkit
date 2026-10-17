@@ -3854,16 +3854,16 @@ orch.start(sys.argv[1], "/tmp", ["sleep", "600"], "fable")
 orch.start(sys.argv[2], "/tmp", ["sleep", "600"], "astra")
 PY
 # the status bar, set on the sessions themselves and on nothing else: two lines, its text in
-# options the bar's formats draw -- the name and who orchestrates it, in its company's colour,
-# until the first classification, the one key at the right of line two, the name as the title.
+# options the bar's formats draw -- the name and the model that orchestrates it, dim, until the
+# first classification, the one key at the right of line two, the name as the title.
 # The tick and every menu draw rewrite them through the one writer; a rename writes them at
 # once. What they come to on screen is asserted further down.
 [ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV1#[nobold]  #[fg=#D97757]fable#[fg=#6c7086] orchestrates#[default]" ] || OVERLAY=1
+  = " #[bold]$OV1#[nobold]   #[fg=#6c7086]fable#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV2#[nobold]  #[fg=default]astra#[fg=#6c7086] orchestrates#[default]" ] || OVERLAY=1
+  = " #[bold]$OV2#[nobold]   #[fg=#6c7086]astra#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_key 2>/dev/null)" \
   = "Ctrl-b m#[fg=#6c7086]  menu #[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1
@@ -3910,12 +3910,12 @@ for _ in $(seq 1 30); do
   OVWHERE=$(ovtmux list-clients -F '#{session_name}' 2>/dev/null | grep -c "^$OV2\$")
   ovhost capture-pane -p -t ovhost >"$WORK/overlay-after.txt" 2>/dev/null
   [ "$OVWHERE" = 1 ] && ! grep -q 'n start a session' "$WORK/overlay-after.txt" &&
-    grep -q "$OV2  astra orchestrates" "$WORK/overlay-after.txt" && break
+    grep -q "$OV2   astra" "$WORK/overlay-after.txt" && break
   sleep 1
 done
 [ "$OVWHERE" = 1 ] || OVERLAY=1
 grep -q 'n start a session' "$WORK/overlay-after.txt" && OVERLAY=1        # the popup came down with it
-grep -q "$OV2  astra orchestrates" "$WORK/overlay-after.txt" || OVERLAY=1   # its own bar
+grep -q "$OV2   astra" "$WORK/overlay-after.txt" || OVERLAY=1   # its own bar
 ovhost kill-server 2>/dev/null
 ovtmux kill-server 2>/dev/null
 [ "$OVERLAY" = 0 ] && ok "20e Ctrl-b m: the popup drew both seats under the overlay's own keys, 2 switched the client to smoke-ov-2 and closed the popup behind it; each seat carried the status bar agentkit's own tmux.conf dressed it with" \

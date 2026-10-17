@@ -352,8 +352,7 @@ class Recovery(Sandbox):
 
 class Bar(Sandbox):
     def test_the_bar_is_the_row_s_values_and_the_one_key(self):
-        top, why, key, title = statusbar.lines("herdr", "fable", "#D97757", "working",
-                                               "tasks x 2/5")
+        top, why, key, title = statusbar.lines("herdr", "fable", "working", "tasks x 2/5")
         self.assertIn(terminal.state_text("working"), top)
         self.assertTrue(top.endswith("   tasks x 2/5"), top)
         self.assertEqual(why, "")
@@ -367,13 +366,12 @@ class Bar(Sandbox):
         env = {**os.environ, "TERM": "xterm-256color", "LC_ALL": "C.UTF-8"}
         env.pop("NO_COLOR", None)
         key = "Ctrl-b m#[fg=#6c7086]  menu #[default]"
-        fable = "#[bold]herdr#[nobold]  #[fg=#D97757]fable#[fg=#6c7086] orchestrates#[default]"
+        fable = "#[bold]herdr#[nobold]   #[fg=#6c7086]fable#[default]"
         with patch.dict(os.environ, env, clear=True):
-            self.assertEqual(statusbar.lines("herdr", "fable", "#D97757", "working", "tasks x 2/5"),
-                             (" #[fg=#89b4fa]▐#[fg=#11111b,bg=#89b4fa,bold]● working#[default]"
-                              f"#[fg=#89b4fa]▌#[default]  {fable}   tasks x 2/5",
+            self.assertEqual(statusbar.lines("herdr", "fable", "working", "tasks x 2/5"),
+                             (f" #[fg=#89b4fa]● working#[default]   {fable}   tasks x 2/5",
                               "", key, "herdr · working"))
-            self.assertEqual(statusbar.lines("herdr", "fable", "#D97757"),
+            self.assertEqual(statusbar.lines("herdr", "fable"),
                              (f" {fable}", "", key, "herdr"))
 
 
@@ -693,7 +691,7 @@ class Phone(Sandbox):
         self.fits(screen, width, height)
         phone.keys("Enter")
         # the unnamed seat opens in this terminal, and its bar keeps the key
-        screen = phone.until(STAND_IN, "new  astra orch", "Ctrl-b m  menu")
+        screen = phone.until(STAND_IN, "new   astra", "Ctrl-b m  menu")
         self.fits(screen, width, height)
         bar = screen[-1]
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
@@ -723,16 +721,16 @@ class Phone(Sandbox):
         # and an Enter sent before it is drawn is lost in its loading
         phone.until("agentkit · new session", "orch", "exec", "review", prompt="esc back")
         phone.keys("Enter")                  # what the last creation was given: astra
-        phone.until("new-2  a", "Ctrl-b m  menu", absent=["esc leave"])
+        phone.until("new-2  ", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
         phone.menu("1  new-2", "2  phone-au")
         phone.press("2")
-        phone.until("▌  phone-au", absent=["esc leave"])   # its bar: line one cut on a phone
+        phone.until("   phone-a", absent=["esc leave"])   # its bar: line one cut on a phone
         phone.settled()
         phone.menu("1  new-2")
         phone.press("1")
-        phone.until("new-2  a", absent=["esc leave"])
+        phone.until("new-2  ", absent=["esc leave"])
         phone.settled()
         phone.menu()
         phone.press("x")                     # this session's, asked under its own row
@@ -781,16 +779,16 @@ class Phone(Sandbox):
         phone.press("12")
         # the menu's look at it publishes the words, behind the frame the key was read on
         if narrow:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you▌  {LONG_NAME[:8]}…")
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME[:7]}…")
         else:
-            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you▌  {LONG_NAME}")
+            screen = phone.until(STAND_IN, "Ctrl-b m  menu", f"! needs you    {LONG_NAME}")
         top, bar = screen[-2:]
         self.fits(screen, width, height)
         if narrow:
-            self.assertTrue(top.endswith(f"▌  {LONG_NAME[:8]}… ! 11 need you"), top)
+            self.assertTrue(top.endswith(f"    {LONG_NAME[:7]}… ! 11 need you"), top)
         else:
-            # the word the row shows opens the bar, then the name and who orchestrates it
-            self.assertIn(f"! needs you▌  {LONG_NAME}  astra orchestrates", top)
+            # the word the row shows opens the bar, then the name and the model that orchestrates it
+            self.assertIn(f"! needs you    {LONG_NAME}   astra", top)
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
         phone.keys("C-b", "d")
         screen = phone.until("your projects", prompt="esc leave")
@@ -805,7 +803,7 @@ class Phone(Sandbox):
             self.assertNotIn("j more", "\n".join(screen))
         # the popup over a seat holds fewer rows still, and pages them the same way
         phone.press("11")                    # phone-audit, eleventh by name
-        phone.until(STAND_IN, "▌  phone-au")
+        phone.until(STAND_IN, "   phone-a")
         screen = phone.menu("your projects", "←  1 / ")
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
@@ -835,7 +833,7 @@ class Phone(Sandbox):
         self.every_page(phone, screen, lambda lines: lines, 12, 6)
         # the popup over a seat on that short screen fills it, and still pages rows
         phone.press("11")
-        phone.until(STAND_IN, "▌  phone-au")
+        phone.until(STAND_IN, "   phone-a")
         screen = phone.menu("←  1 / ")
         self.assertIn("no project", "\n".join(Terminal.inside(screen)))
         self.every_page(phone, screen, self.popup_page, 12, 8)

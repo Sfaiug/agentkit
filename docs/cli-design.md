@@ -59,8 +59,8 @@ the matches. Each launched run then files the seat under the checkout most of it
 to, a run still queued for a slot among them, whether it works in one checkout or across
 several from `~/code`; a tie keeps the one it has. A seat with no filing and no run belonging
 to a checkout sits under `no project`, and the next draw files it once a run counts. There is
-no run row, ever: `ak run status` is where runs are looked up, and a working seat's live
-line, its tmux bar's second line, is where it says what its runs do now.
+no run row, ever: `ak run status` is where runs are looked up, and the line a
+seat's row opens, its tmux bar's second line, is where its tasks show, as squares.
 
 The question is answered once, on the top line -- `your projects · nothing
 needs you`, `· 1 needs you`, `· 3 need you` -- and on no other line. A project
@@ -87,9 +87,8 @@ reason says -- the question the seat asked, `stopped with work open: <line>`,
 the done summary, an idle seat's way back in, `session closed: press 2 to
 reopen` -- opens under the row (Rows are tables), never beside it. Never `N
 running`, and never when the work will finish: the line and its count are a
-seat's progress. No row ever names a run: a seat's live runs are named on one line only,
-its live line -- task id, step, the model doing it -- and an ended run is its orchestrator's
-business.
+seat's progress. No screen names a run or a task, and an ended run is its
+orchestrator's business.
 
 ## Keys
 
@@ -389,7 +388,7 @@ usage rows are.
 
 Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`, `terminal.cells`,
 `terminal.plain`, `terminal.styled`, `terminal.state_text`,
-`terminal.state_colour`, `terminal.plan_bar`, `menu.seat_runs`, `menu.detail`,
+`terminal.state_colour`, `terminal.plan_bar`, `menu.detail`,
 `menu.seat_tasks`, `menu.squares`, `menu.crew`,
 `menu.model_colour`.
 
@@ -492,34 +491,25 @@ key: keys typed while it waits are kept for `terminal.read_key`, and an answer
 that comes later is swallowed there whole. Every other command draws the dark
 palette, in true colour by `COLORTERM` alone.
 
-A seat's tmux bar (`statusbar.py`) is two lines on the terminal's own
-background, never tmux's green. Its state chip is dark bold text on that
-state's dark colour, which reads on either background; the rest is the
-terminal's own text or `dim`, and the orchestrator its company's colour. tmux
-cannot say which background a client has, so a light grey company (ChatGPT's
-white) is the terminal's own foreground: its mirror tone on a light terminal.
-Line one's right end is the owner's other seats on ak's server: each that needs
+A seat's tmux bar (`statusbar.py`) is its row on the `ak` screen with the line
+under it always open, two lines on the terminal's own background, never tmux's
+green, and it never moves. Line one opens with its word: `! needs you` alone a
+chip, dark bold text on its amber, the one loud thing on the bar, which reads on
+either background; any other word its glyph and word in its colour. Then the
+seat's name in bold, the model that orchestrates it in `dim`, never a company's
+colour, and its progress line. Line one's right end is the owner's other seats on ak's server: each that needs
 you by name in needs-you's bold colour, a click on it switching to that seat,
 then how many others are working and done in their colours. Where they do not
 fit beside the left part, its progress line narrows first, then the names fold into
 one count (`! 2 need you`), then only who needs you stays, and only then is the
 left part cut.
 
-A working seat's second line is its live line (`statusbar.live`): each run it
-launched by its task id (a PR review by the PR's number, `#2157`), in bold and
-red on its last round, then a cell per step of a round -- dim for the steps
-passed, the current one in the colour of the model doing it, hollow for those
-to come -- then that model (the executor
-building, the reviewer reviewing, none checking or landing, or while the seat
-is fixing what its own PR's review found), what it is doing (`menu.DOING`),
-`round N of M` past the first round and the time on the step:
-`gh2 ■□□□ opus building · round 2 of 3 · 3m   lg1 ■■■□ astra reviewing · 11m`.
-Runs go in the order a round does what they do. More than two doing one thing
-are one count, `landing 8 · longest 2h`, and runs queued for a slot are
-`waiting 2`. Each client draws the first of the line's versions that fits it:
-each next one folds one more into its count, the last first, and the last drops
-the counts' times, so a narrow client loses whole runs to counts before anything
-is cut.
+Line two is what the row opens for any seat that is not asking or done: who
+builds and who reviews, and each task in flight as its squares (`statusbar.whys`),
+for every word, since inside a seat its question or its summary is on its own
+screen. Each client draws the first of its versions that fits: all the squares,
+then six of them and a count, then the squares alone, then six and a count alone,
+then one and a count alone.
 
 Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 

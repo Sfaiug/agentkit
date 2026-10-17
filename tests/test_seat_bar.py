@@ -152,11 +152,12 @@ class SeatBar(Sandbox):
         self.assertEqual(word, "working")
         self.assertEqual(last, "")
         self.assertTrue(row.rstrip().endswith("● working"), row)
-        self.assertTrue(bar.endswith(" orchestrates#[default]"), bar)
+        self.assertTrue(bar.endswith("fable#[default]"), bar)
         self.assertEqual(menu.seat_progress("fix-api"), (0, 0))
-        # `needs you` and `done` keep their reason, a bar or not
-        self.assertEqual(menu.last_column("needs you", "Merge first?", 3, 7), "Merge first?")
-        self.assertEqual(menu.last_column("done", "Shipped", 0, 0), "Shipped")
+        # any word but idle draws its line where it has a plan, and never its reason
+        self.assertRegex(menu.last_column("needs you", "Merge first?", 3, 7), r"^[━╸]+─+ 3 of 7$")
+        self.assertEqual(menu.last_column("done", "Shipped", 0, 0), "")
+        self.assertEqual(menu.last_column("idle", "", 3, 7), "")
 
 
 if __name__ == "__main__":
