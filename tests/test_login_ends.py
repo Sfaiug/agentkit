@@ -21,15 +21,17 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, logins
 
 # A fake adapter: counts its calls in $FAKE/calls and answers for the account it was named,
-# or fails for one named in $FAKE/fail, or hangs in a reader whose pid is $FAKE/reader for one
-# named in $FAKE/hang; that reader first interrupts its caller where $FAKE/interrupt exists.
+# or fails for one named in $FAKE/fail, or for one named in $FAKE/hang leaves a reader behind
+# that holds its output, whose pid is $FAKE/reader.  Where $FAKE/interrupt exists that reader
+# interrupts its caller a second later, once it awaits the answer: an interrupt that lands
+# while Popen still starts the adapter loses its pid with it.
 FAKE_ADAPTER = r"""#!/usr/bin/env bash
 [ "$1" = login-end ] || exit 2
 account=${AGENTKIT_ACCOUNT:-default}
 echo "$account" >>"$FAKE/calls"
 [ ! -e "$FAKE/fail-$account" ] || exit 1
-[ ! -e "$FAKE/hang-$account" ] || CALLER=$PPID sh -c 'echo $$ >"$FAKE/reader"
-    [ ! -e "$FAKE/interrupt" ] || kill -INT "$CALLER"; exec sleep 30'
+[ ! -e "$FAKE/hang-$account" ] || (CALLER=$PPID sh -c 'echo $$ >"$FAKE/reader"
+    [ ! -e "$FAKE/interrupt" ] || { sleep 1; kill -INT "$CALLER"; }; exec sleep 30' &)
 cat "$FAKE/answer-$account"
 """
 
@@ -149,14 +151,17 @@ class Refresh(unittest.TestCase):
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
 
     def hang(self):
-        """The default account's adapter hangs in a reader this process adopts once orphaned."""
+        """The default account's adapter leaves a reader that this process adopts, orphaned."""
         import ctypes
         self.assertEqual(ctypes.CDLL(None).prctl(36, 1, 0, 0, 0), 0)  # PR_SET_CHILD_SUBREAPER
         (self.fake / "hang-default").touch()
 
     def reader_outlived_the_ask(self):
         reader = int((self.fake / "reader").read_text())
-        alive = os.waitpid(reader, os.WNOHANG)[0] == 0   # orphaned, it is this process's child
+        try:
+            alive = os.waitpid(reader, os.WNOHANG)[0] == 0   # orphaned, it is this process's child
+        except ChildProcessError:
+            return False    # the ask reaped it
         if alive:
             os.kill(reader, signal.SIGKILL)
             os.waitpid(reader, 0)

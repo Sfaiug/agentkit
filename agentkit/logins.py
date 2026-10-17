@@ -51,12 +51,15 @@ def _ask(harness, account):
             except BaseException:
                 # Hung or interrupted, its readers (security, jq) die with it rather than pile up
                 # a tick at a time: in their own session no ^C reaches them.  Their output
-                # closes once the last of them is gone.
+                # closes as they die; the ones a subreaper caller adopted, it reaps here, or
+                # they could still be exiting once the ask has returned.
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.communicate(timeout=ASK_TIMEOUT)
-                except (ProcessLookupError, subprocess.TimeoutExpired):
-                    pass    # none was left, or one left the group still holding the output
+                    while True:
+                        os.waitpid(-proc.pid, 0)
+                except (ProcessLookupError, ChildProcessError, subprocess.TimeoutExpired):
+                    pass    # all gone, or one left the group still holding the output
                 raise
         data = json.loads(out) if proc.returncode == 0 else None
     except (config.Error, subprocess.TimeoutExpired, OSError, ValueError):
