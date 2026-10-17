@@ -205,6 +205,8 @@ class RunTree(unittest.TestCase):
                 patch.object(worker.os, "listdir", side_effect=lambda _path: list(map(str, markers))), \
                 patch.object(worker, "open", side_effect=environ, create=True), \
                 patch.object(worker.os, "kill", side_effect=kill), \
+                patch.object(worker.host, "proc_stat", side_effect=lambda pid: (
+                    worker.host.ProcStat("S", 1, 0) if pid in markers else None)), \
                 patch.object(orch, "stop_scope", return_value=False):
             self.assertEqual(set(stop.marker_pids(self.run_id)), {101, 102})
             run.stop_run_tree({"run_id": self.run_id})
