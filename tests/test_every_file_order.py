@@ -16,6 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tests"))
 import every_file
+import suite_shares
 from agentkit import worker
 
 
@@ -28,7 +29,10 @@ class EveryFileOrder(unittest.TestCase):
         self.home.mkdir()
         (self.root / "tests").mkdir(parents=True)
         (self.root / "tests/smoke.sh").write_text("#!/bin/bash\n")
-        (self.root / "tests/landing.py").write_text((REPO / "tests/landing.py").read_text())
+        for name in ("landing.py", "suite_shares.py"):
+            (self.root / "tests" / name).write_text((REPO / "tests" / name).read_text())
+        for name in suite_shares.STATIC_CHECKS:
+            (self.root / "tests" / f"{name}.py").write_text("")
         (self.root / "tests/gate_contract.py").write_text("")
         self.enterContext(patch.dict(os.environ, {
             "HOME": str(self.home), "PATH": os.environ.get("PATH", os.defpath),

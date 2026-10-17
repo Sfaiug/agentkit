@@ -1,4 +1,5 @@
-"""Run both landing parts and the gate's contract together, keeping progress live and outputs separate."""
+"""Run the static checks, then both landing parts and the gate's contract together, keeping
+progress live and outputs separate."""
 
 import shutil
 import subprocess
@@ -6,6 +7,13 @@ import sys
 import tempfile
 import time
 
+from suite_shares import STATIC_CHECKS
+
+# A red static check ends the share in seconds, not after its whole run and the re-run alone.
+# All of them run, so one landing names every one that fails.
+if any([subprocess.call([sys.executable, f"tests/{name}.py"], stderr=subprocess.STDOUT)
+        for name in STATIC_CHECKS]):
+    sys.exit(1)
 
 # every_file.py re-runs a failed file with nothing of this piece beside it: it waits for the
 # end of its standard input, closed below once smoke.sh and the contract have ended, and by

@@ -33,7 +33,10 @@ class LandingSuiteOffline(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         (self.root / "tests").mkdir()
-        (self.root / "tests/landing.py").write_text((REPO / "tests/landing.py").read_text())
+        for name in ("landing.py", "suite_shares.py"):
+            (self.root / "tests" / name).write_text((REPO / "tests" / name).read_text())
+        for name in suite_shares.STATIC_CHECKS:
+            (self.root / "tests" / f"{name}.py").write_text("")
         (self.root / "tests/gate_contract.py").write_text("")
         self.log = self.root / "ran.log"
 
