@@ -140,6 +140,17 @@ class AfterMerge(unittest.TestCase):
         # what got past review and landing is on the change's row once it is told
         self.assertEqual(history.get("run-old")["broke_after_merge"], "checks")
 
+    def test_a_check_named_like_a_health_probe_is_a_check(self):
+        # where the failing verdict came from decides, never what the check is called
+        sha = "a" * 40
+        self.merged("run-old", sha)
+        history.start_run("run-old", started_at=NOW - 660)
+        self.set_checks({sha: [completed("health: smoke", "failure")]})
+        self.rows = [self.live(SEAT)]
+        self.follow()
+        self.assertEqual(len(self.typed), 1)
+        self.assertEqual(history.get("run-old")["broke_after_merge"], "checks")
+
     def test_no_health_with_unreachable_checkout_preserves_green_and_later_break(self):
         checkout = self.root / "widget"
         subprocess.run(["git", "init", "-q", str(checkout)], check=True, timeout=10)
