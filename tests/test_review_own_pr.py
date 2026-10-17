@@ -349,7 +349,7 @@ class OwnPr(unittest.TestCase):
         self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
         # a submodule's commit or a link names code elsewhere, however its path is spelled
         # and whatever the local git settings hide
-        for name, ignore in (("vendor", "all"), ("docs.md", "none")):
+        for name, ignore in (("vendor", "all"), ("docs/vendor.md", "none")):
             with self.subTest(submodule=name, ignore=ignore):
                 run.git(self.repo, "config", "diff.ignoreSubmodules", ignore)
                 run.git(self.repo, "update-index", "--add", "--cacheinfo", f"160000,{base},{name}")
@@ -382,12 +382,12 @@ class OwnPr(unittest.TestCase):
                 run.git(self.repo, "commit", "-qm", "Fixture adds a binary lookalike")
                 self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))
         # an AGENTS.md below the root that is a link makes its target configuration too
-        (self.repo / "rules.md").write_text("---\ntests: true\n---\n")
+        (self.repo / "docs/rules.md").write_text("---\ntests: true\n---\n")
         (self.repo / "nested").mkdir()
-        (self.repo / "nested/AGENTS.md").symlink_to("../rules.md")
+        (self.repo / "nested/AGENTS.md").symlink_to("../docs/rules.md")
         run.git(self.repo, "add", "-A")
         run.git(self.repo, "commit", "-qm", "Fixture links nested instructions")
-        (self.repo / "rules.md").write_text("---\ntests: false\n---\n")
+        (self.repo / "docs/rules.md").write_text("---\ntests: false\n---\n")
         run.git(self.repo, "add", "-A")
         run.git(self.repo, "commit", "-qm", "Fixture changes them through the link")
         self.assertFalse(run.text_only_pr(self.repo, "HEAD^", "HEAD"))

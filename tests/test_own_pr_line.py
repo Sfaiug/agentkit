@@ -237,17 +237,19 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         for name, setup in (("a name git mangles", lambda: (
                                 self.repo / ".gitattributes").write_text("*.md diff\n")),
                             ("a linked AGENTS.md", lambda: (
-                                run.git(self.repo, "mv", "AGENTS.md", "rules.md"),
-                                (self.repo / "AGENTS.md").symlink_to("rules.md")))):
+                                (self.repo / "docs").mkdir(),
+                                run.git(self.repo, "mv", "AGENTS.md", "docs/rules.md"),
+                                (self.repo / "AGENTS.md").symlink_to("docs/rules.md")))):
             with self.subTest(case=name):
                 self.doCleanups()
                 self.setUp()
                 self.on_main(setup, name)
                 directory, url = self.own_pr("README", 1)
                 if name == "a name git mangles":
-                    (self.repo / "binary\r.md").write_bytes(b"words\0binary\n")
+                    (self.repo / "docs").mkdir()
+                    (self.repo / "docs/binary\r.md").write_bytes(b"words\0binary\n")
                 else:
-                    (self.repo / "rules.md").write_text("---\nusers: none\ntests: true\n---\n")
+                    (self.repo / "docs/rules.md").write_text("---\nusers: none\ntests: true\n---\n")
                 self.pushed(url, name)
                 state = self.review(directory, url)
                 self.assertFalse(state["review"].get("skipped", False))
