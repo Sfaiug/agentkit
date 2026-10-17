@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import config, menu, motion, terminal  # noqa: E402
+from agentkit import config, menu, motion, terminal, watch  # noqa: E402
 
 CLAUDE = menu.COLOURS["anthropic"]
 
@@ -102,6 +102,11 @@ class Wash(Sandbox):
         number, model = self.row(self.screen((5, 3)), seat["name"]).split(seat["name"])
         self.assertIn(terminal.styled("1", "dim")[:-1], number)
         self.assertIn(terminal.styled("1", CLAUDE)[:-1], model)
+
+    def test_a_row_shorter_than_a_wider_word_beside_it_lights_its_model(self):
+        watch.seat_write("acme-docs", word="working", reason="", word_since=9100)
+        self.assertIn(terminal.styled("opus", CLAUDE)[:-1],
+                      self.row(self.screen((5, 3)), "acme-plan"))
 
     def test_a_free_slot_on_the_grid_s_last_line_lights_nothing(self):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]

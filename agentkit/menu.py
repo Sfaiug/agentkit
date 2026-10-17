@@ -1516,10 +1516,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         # a heading is flush left, so its mark goes in front of it
         lit = owned and name is not None and name == cursor and not terminal.away()
         seat = seats.get(name) if name != above else None
-        head = seat and seat.get("runs_on") and _head(seat, widths)
+        # as its block keeps it, with no trailing space (`v5o_seat_blocks`)
+        head = seat and seat.get("runs_on") and _head(seat, widths).rstrip()
         if head and line.startswith(head):
             provider, account = seat["runs_on"]
-            coloured = _head(seat, widths, colour(cfg, provider))
+            coloured = _head(seat, widths, colour(cfg, provider)).rstrip()
             on = [number for number, (each, _, _, own) in enumerate(rows, 1)
                   if each == provider and own in (None, account)]
             line = coloured + line[len(head):] if pointed in on else line
