@@ -482,15 +482,19 @@ def gh_json(cwd, *args, timeout=None):
 
 
 def text_only_pr(repo, base, head):
-    """Does every change between `base` and `head` touch only a prose or translation file?
+    """Does every change between `base` and `head` touch only a document people read?
 
-    Both sides of a rename count: moving code into a prose filename still needs review.
-    AGENTS.md is executable configuration: its front matter supplies shell commands.  Only a
-    regular file counts: a submodule's commit or a link names code elsewhere, and a local
-    `diff.ignoreSubmodules` hides nothing here.  A file is binary when its committed bytes hold
-    a NUL, whatever `.gitattributes` tells the diff.  Names are read byte for byte, so each is
-    looked up as the file it is, never a lookalike.  An AGENTS.md at any depth that is a link
-    makes its target executable configuration too, so then nothing skips review.
+    A document is a README, CHANGELOG, LICENSE, ARCHITECTURE or the like, at any depth, or
+    prose under the top-level `docs/`.  Markdown elsewhere may be what a product or a model
+    reads (a support assistant's knowledge, a rulebook) and translations are the product's
+    own words, so they are reviewed.  Both sides of a rename count: moving code into a
+    document's name still needs review.  AGENTS.md is executable configuration: its front
+    matter supplies shell commands.  Only a regular file counts: a submodule's commit or a link
+    names code elsewhere, and a local `diff.ignoreSubmodules` hides nothing here.  A file is
+    binary when its committed bytes hold a NUL, whatever `.gitattributes` tells the diff.
+    Names are read byte for byte, so each is looked up as the file it is, never a lookalike.
+    An AGENTS.md at any depth that is a link makes its target executable configuration too,
+    so then nothing skips review.
     """
     raw = ("--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", "-z")
     try:
@@ -506,20 +510,26 @@ def text_only_pr(repo, base, head):
     except (config.Error, gitcall.Stopped):
         return False        # a diff nobody could read cannot be shown to be wording
     files = [entry.split("\t", 2) for entry in entries if entry]
-    extensions = {".md", ".markdown", ".rst", ".adoc", ".po", ".pot", ".xlf", ".xliff",
-                  ".strings", ".stringsdict", ".srt", ".vtt"}
-    names = {"README", "LICENSE", "COPYING", "NOTICE", "AUTHORS", "CHANGELOG"}
     return (bool(files) and len(modes) == len(files)
             and all(mode.lstrip(":") in ("000000", "100644", "100755")
                     for pair in modes for mode in pair)
             and all(len(row) == 3 and row[0].isdigit() and row[1].isdigit()
-                    and Path(row[2]).name.upper() != "AGENTS.MD"
-                    and (Path(row[2]).suffix.lower() in extensions
-                         or Path(row[2]).name.upper() in names
-                         or Path(row[2]).suffix.lower() in (".txt", ".text")
-                         and Path(row[2]).stem.upper() in names) for row in files)
+                    and document(row[2]) for row in files)
             and all(text_blob(repo, ref, row[2]) for pair, row in zip(modes, files)
                     for mode, ref in zip(pair, (base, head)) if mode.lstrip(":") != "000000"))
+
+
+def document(name):
+    """Is the file `name` a document people read, as `text_only_pr` counts them?"""
+    path = Path(name)
+    suffix = path.suffix.lower()
+    prose = suffix in (".md", ".markdown", ".rst", ".adoc", ".txt", ".text")
+    if path.name.upper() == "AGENTS.MD":
+        return False        # executable configuration, wherever it sits
+    if path.stem.upper() in ("README", "CHANGELOG", "LICENSE", "COPYING", "NOTICE", "AUTHORS",
+                             "ARCHITECTURE"):
+        return prose or not suffix
+    return prose and len(path.parts) > 1 and path.parts[0] == "docs"
 
 
 def text_blob(repo, ref, path):
