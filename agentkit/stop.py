@@ -348,6 +348,58 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
     return state
 
 
+def stop_job(job_dir, keep):
+    """End a whole job: its launcher, then every task left unfinished recorded stopped and the
+    job finished, then each run of it still going as `end` ends one, so status reads it ended
+    and gc collects it as any finished job.
+
+    The launcher is ended under the job's lock, which every write of the receipt takes
+    (`jobs.save_job`): it holds the receipt in memory and starts any task still queued, so it
+    is gone before the stop is written, and nothing writes the receipt back after.  A run
+    names its job from its first write, before the scheduler files it on the receipt, so its
+    own `job_id` finds it too.  A second stop ends whatever the first left going.
+    """
+    with run_record.recovery_lock(job_dir):
+        job = jobs.read_job(job_dir)
+        if not job or not isinstance(job.get("tasks"), list):
+            raise config.Error(f"{job_dir.name}: cannot read {jobs.receipt_path(job_dir)}")
+        config.check_stop_owner(job.get("seat"))
+        stopped = bool(job.get("finished_at"))
+        if stopped and all(task.get("state") != "stopped" for task in job["tasks"]):
+            raise config.Error(f"{job_dir.name} is already finished; "
+                               "only unfinished work can be stopped")
+        log = run.note_in(job_dir / "log.txt")
+        orch.stop_scope(job.get("scope"), log)
+        try:
+            # read after the scope stop, which may have ended the launcher and freed its pid
+            launcher_alive = bool(run_record.process_active(job))
+        except (TypeError, ValueError, AttributeError, OSError):
+            launcher_alive = False  # an old receipt with no pid to check, as a resume reads it
+        if launcher_alive:
+            watch.kill_tree(job["pid"], log)
+        if not stopped:
+            for task in job["tasks"]:
+                if task.get("state") not in jobs.JOB_TERMINAL:
+                    task.update(state="stopped", finished_at=time.time(),
+                                verdict_line=f"{task['name']}: stopped")
+            job["finished_at"] = time.time()
+            jobs.save_job(job_dir, job)
+    named = {task.get("run_id") for task in job["tasks"]}
+    for run_dir in run_record.run_dirs():
+        state = run_record.read_state(run_dir)
+        if not state:
+            # left as it is, as `cmd_stop` leaves one: a stop written over it loses what it held
+            if run_dir.name in named:
+                print(f"{run_dir.name}: cannot read {run_dir / 'run.json'}; left as it is")
+            continue
+        if (state.get("job_id") == job_dir.name or run_dir.name in named) and stoppable(state):
+            state = end(run_dir, keep=keep, why="stopped by the user", owner_check=True)
+            if state:
+                print(stop_line(run_dir.name, state.get("branch"), state.get("stop_kept", False)))
+    print(f"{job_dir.name} is already stopped" if stopped else f"stopped {job_dir.name}")
+    return 0
+
+
 def cmd_stop(argv):
     """End a run deliberately: its record first, then its loop and its checkout.
 
@@ -364,6 +416,8 @@ def cmd_stop(argv):
     if len(args) != 1 or Path(args[0]).name != args[0] or args[0] in (".", ".."):
         raise config.Error("usage: ak run stop ID [--keep]")
     run_id = args[0]
+    if jobs.receipt_path(config.JOBS / run_id).exists():
+        return stop_job(config.JOBS / run_id, keep)
     run_dir = config.RUNS / run_id
     if not (run_dir / "run.json").exists():
         raise config.Error(f"no such run: {run_id} (looked in {config.RUNS})")

@@ -50,7 +50,11 @@ caller_opencode=${OPENCODE_CONFIG:-${OPENCODE_CONFIG_DIR:-$caller_config/opencod
 
 TS=$(date +%Y%m%d-%H%M%S)
 MARKER="e2e-$TS.txt"                 # the file the real task adds to the private target
-WORK=$(mktemp -d /tmp/ak-e2e-XXXXXX) || exit 2
+# Not under /tmp: every worker box gets an empty /tmp of its own, and step f's executor and
+# reviewer run the adapters of the agentkit copy in this HOME.  A gate killed outright (update's
+# time cap does) cannot remove it on the way out; registered, ak's retention takes it a day later.
+mkdir -p -- "$INVHOME/.agentkit/tmp" && WORK=$(mktemp -d "$INVHOME/.agentkit/tmp/e2e-XXXXXX") || exit 2
+PYTHONPATH="$REPO" python3 -m agentkit.retention begin "$WORK" smoke "$$" || :
 UH="$WORK/home"
 mkdir -p -- "$UH"
 SMOKE_REPO=""
@@ -344,7 +348,7 @@ must "the install did not say it was a sandbox HOME" grep -q "sandbox HOME" "$WO
 # A sandbox HOME installs no cron: prove it said so, and touch the caller's real crontab never.
 must "no sandbox cron skip for the server role" grep -q 'ak watch cron is not installed' "$WORK/install1.log"
 verdict "a  fresh HOME: revision $SOURCE_SHA + install.sh with no tty" \
-  "ak on PATH, yolo defaults, idle-compact hook, harnesses on PATH, cron skipped for sandbox, summary printed"
+  "ak on PATH, yolo defaults, seat hooks, harnesses on PATH, cron skipped for sandbox, summary printed"
 [ "$IRC" = 0 ] || diagnose "$IRC" "$WORK/install1.log" as "clone revision $SOURCE_SHA and bash install.sh"
 
 # ==== b) the second run changes nothing =====================================
@@ -805,10 +809,13 @@ send \x1b
 EXP
   drive menu3 xterm-256color ak
   D3=$?
-  as 'ak orch list' >"$WORK/orch-after.txt" 2>&1
+  # A stopped seat stays listed, `idle`; only a seat whose process is gone reads closed by
+  # the owner, so one Stop left running fails here whatever its word.
+  as 'ak orch why atoll' >"$WORK/orch-after.txt" 2>&1
   must "x and Stop did not stop the seat" test "$D3" = 0
-  must "the seat is still running" bash -c "! grep -q '^atoll ' '$WORK/orch-after.txt'"
-  verdict "d2 menu: x, Stop stops the session" "atoll stopped, ak orch list is empty again"
+  must "atoll does not read closed by the owner" \
+    grep -q '^  reason: *session closed by the owner' "$WORK/orch-after.txt"
+  verdict "d2 menu: x, Stop stops the session" "atoll stopped, it reads closed by the owner"
   [ "$D3" = 0 ] || { sed 's/^/      /' "$WORK/menu3.log" | tail -4; tail -c 400 "$WORK/pty/menu3.txt" | sed 's/^/      | /'; }
 fi
 

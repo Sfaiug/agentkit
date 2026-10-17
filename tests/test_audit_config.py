@@ -126,11 +126,23 @@ class AuditSetting(unittest.TestCase):
             self.assertEqual(self.path.read_text(), before)
         for answers, words in ((("yes", "", "", ""), "on or off, not 'yes'"),
                                (("", "nova", "", ""), "unknown model 'nova'"),
-                               (("", "", "", "none"), "[audit].reviewers must name a model")):
+                               (("", "", "opus none", ""), "unknown model 'none'"),
+                               (("", "", "", "none"), "unknown model 'none'")):
             read, pause = self.step(*answers)
             self.assertEqual(pause.call_count, 1)
             self.assertIn(words, pause.call_args.args[0])
             self.assertEqual(self.path.read_text(), before)
+
+    def test_none_empties_the_executors_only_as_the_whole_answer(self):
+        # a model named none is a name like any other: it reviews, and executes beside another
+        cfg = config.load()
+        cfg["models"]["none"] = dict(cfg["models"]["astra"])
+        config.save(cfg)
+        self.step("", "", "opus none", "none")
+        self.assertEqual(self.table(), {"workers": ["opus", "none"], "reviewers": ["none"]})
+        self.assertEqual(config.audit(config.load())["reviewers"], ["none"])
+        self.step("", "", "none", "")
+        self.assertEqual(self.table(), {"workers": [], "reviewers": ["none"]})
 
     def test_c_shows_the_row_with_its_value_from_a_pipe(self):
         out = io.StringIO()

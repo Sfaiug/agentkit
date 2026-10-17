@@ -1,10 +1,10 @@
-"""The owner's unsent text reads needs you over a Stop on background work.
+"""The owner's unsent text over a Stop on background work keeps the word and says it.
 
 A seat that ended its turn on background work still in flight keeps its composer
-open, so a line typed there is not sent. Its hook fact reads `working`, but his
-own unsent text is his, as at a quiet prompt: `needs you` with `unsent: <text>`.
-While a client is attached the draft is his typing, and with an empty composer
-the background wait still reads `working`. Offline: a temporary HOME, fake hook
+open, so a line typed there is not sent. Its hook fact reads `working`, and text in
+the composer never changes the word (owner, 14 Oct 2026): once nobody is in the seat
+its reason says `unsent: <text>`. While a client is attached the draft is their typing,
+and with an empty composer the background wait reads `working` alone. Offline: a temporary HOME, fake hook
 records and fake pane text; never a real seat, tmux or ~/.agentkit.
 """
 
@@ -62,9 +62,9 @@ class DraftOverBackground(Sandbox):
                                     auth_out={}, gh_out={}, token_out={}, previous={})
         return found["word"], found["reason"]
 
-    def test_background_stop_with_draft_and_nobody_attached_is_needs_you_unsent(self):
+    def test_background_stop_with_draft_and_nobody_attached_works_and_says_unsent(self):
         self.fact("Stop", kind="background")
-        self.assertEqual(self.decide(), ("needs you", f"unsent: {TEXT}"))
+        self.assertEqual(self.decide(), ("working", f"unsent: {TEXT}"))
 
     def test_background_stop_with_draft_and_client_attached_is_working(self):
         self.fact("Stop", kind="background")

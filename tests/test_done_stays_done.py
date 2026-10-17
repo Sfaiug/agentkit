@@ -143,7 +143,7 @@ class DoneStaysDone(Sandbox):
         self.assertEqual(self.decide(),
                          ("needs you", "Which of the two schemas should it read?"))
 
-    def test_a_question_on_its_screen_and_a_draft_outrank_it(self):
+    def test_a_question_on_its_screen_outranks_it_and_a_draft_only_joins_its_reason(self):
         notify.record(SEAT, "done", SUMMARY)
         self.fact("Notification", kind="permission_prompt",
                   text="Claude needs your permission to use Bash")
@@ -153,9 +153,10 @@ class DoneStaysDone(Sandbox):
         self.fact("Stop")
         self.pane = DRAFT
         word, reason = self.decide()
-        self.assertEqual(word, "needs you")
-        self.assertIn("Fix the login redirect", reason)
-        # the question and the draft outranked the declaration without ending it
+        # text in the composer never changes the word (owner, 14 Oct 2026)
+        self.assertEqual(word, "done")
+        self.assertIn("unsent: Fix the login redirect", reason)
+        # the question outranked the declaration without ending it
         self.pane = PROMPT
         self.assertEqual(self.decide()[0], "done")
 

@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, record, roundloop, run, task as taskfile, transitions, turns
+from agentkit import config, history, record, roundloop, run, task as taskfile, transitions, turns
 
 
 class SizeGate(Sandbox):
@@ -92,8 +92,17 @@ class SizeGate(Sandbox):
             directory = config.RUNS / run_id
             directory.mkdir(parents=True)
             record.save_state(directory, state)
+            history.start_run(run_id, repo=str(self.repo))
             return run.Loop(config.load(), directory, state, {}, lambda _s: None, self.repo,
                             "# Fix the API", ["true"], "Do the task.", [])
+
+        read = []
+
+        def judged(lp):
+            # what the first review reads is in the run's history row before any verdict, so a
+            # run that ends FAIL, blocked or stopped keeps it as a pass does
+            read.append(history.get(lp.state["run_id"])["first_review_lines"])
+            return "PASS"
 
         def rounds(lp, lines):
             def build(*_args):
@@ -102,7 +111,7 @@ class SizeGate(Sandbox):
             with patch.object(roundloop, "execute", side_effect=build), \
                     patch.object(run, "pickup_new_code", return_value=None), \
                     patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
-                    patch.object(roundloop, "review", return_value="PASS") as review:
+                    patch.object(roundloop, "review", side_effect=lambda *_a, **_k: judged(lp)) as review:
                 try:
                     run.rounds(lp)
                 except turns.Blocked as blocked:
@@ -116,6 +125,7 @@ class SizeGate(Sandbox):
         refused = ("The change on fix-api adds 401 lines (generated files aside; deletions never "
                    "count): a first review takes at most 400; split it")
         self.assertEqual((reviewed, why, section), (0, refused, f"## Blocked\n\n{refused}"))
+        self.assertIsNone(history.get("20261015-0910-past-it")["first_review_lines"])
         # the work is committed on the branch the blocked run keeps, for the pieces
         self.assertIn("new.py", self.git("show", "--name-only", "--format=", "HEAD"))
         self.assertEqual(self.git("status", "--porcelain"), "")
@@ -138,6 +148,40 @@ class SizeGate(Sandbox):
                                     "round_summaries": [{"round": 1, "verdict": "FAIL"}]})
         self.assertEqual(rounds(loop("20261015-0920-from-its-branch", "the-change"),
                                 taskfile.MAX_PR_LINES), (1, None, None))
+        # the first review read 400 lines; a later review of the change is no first review
+        self.assertEqual(read, [taskfile.MAX_PR_LINES, None])
+
+    def test_a_first_review_resumed_before_its_verdict_keeps_the_size_it_first_read(self):
+        self.enterContext(patch.dict(os.environ, {"AGENTKIT_RUN": "", "AK_PARENT_RUN": "",
+                                                  "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0",
+                                                  "AK_MAX_RUNS": "0"}))
+        directory = config.RUNS / "20261015-0930-interrupted"
+        directory.mkdir(parents=True)
+        state = {"run_id": directory.name, "title": "Fix the API", "state": "running",
+                 "repo": str(self.repo), "worktree": str(self.repo), "base": "main",
+                 "base_sha": self.base, "branch": "fix-api", "executor": "opus",
+                 "reviewer": "astra", "rounds": 3, "round_summaries": []}
+        record.save_state(directory, state)
+        history.start_run(directory.name, repo=str(self.repo))
+        lp = run.Loop(config.load(), directory, state, {}, lambda _s: None, self.repo,
+                      "# Fix the API", ["true"], "Do the task.", [])
+
+        def interrupted(lp, summary, *_a, **_k):
+            lp.state["review_pending"] = {"round": lp.rnd, "summary": summary}
+            lp.save()
+            raise turns.Exhausted("stopped before a verdict")
+
+        with patch.object(roundloop, "execute", return_value="built"), \
+                patch.object(run, "pickup_new_code", return_value=None), \
+                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")):
+            with patch.object(roundloop, "review", side_effect=interrupted), \
+                    self.assertRaises(turns.Exhausted):
+                run.rounds(lp)
+            # the work grows while the review waits
+            self.write({"extra.py": "extra = 1\n"}, "More work")
+            with patch.object(roundloop, "review", return_value="PASS"):
+                roundloop.resume_review(lp)
+        self.assertEqual(history.get(directory.name)["first_review_lines"], 2)
 
     def test_the_lines_a_first_review_reads_leave_out_generated_files_and_deletions(self):
         self.assertEqual(run.diff_lines(self.repo, self.base, self.head, added_only=True), 2)

@@ -28,7 +28,7 @@ from agentkit import record
 
 Key = terminal.Key
 QUESTION = "Stop fix-api and everything it runs?"
-TAIL = "with it; the session stays listed: its number reopens it, x on it again removes it."
+TAIL = "with it; the session moves to past sessions, p, where it reopens where it stopped."
 MEANS = f"2 runs stop {TAIL}"
 NONE = f"No runs stop {TAIL}"           # no runs
 # The child's count of a seat's runs, slow: the card is up before it lands.

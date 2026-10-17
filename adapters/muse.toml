@@ -80,10 +80,12 @@ name = "PostToolBatch"
 state = "working"
 kinds = ["request_user_input"]
 
-# an Esc fires this and no Stop: the turn is over, and a question it had up is down with it
+# an Esc fires this and no Stop: the turn is over, and a question it had up is down with it;
+# the owner stopped it, so the seat rests whatever its plan still owes
 [[hooks.event]]
 name = "Interrupt"
 state = "at_prompt"
+interrupt = true
 
 # The end-of-turn rule -- a turn ends with a question, a done, or a run to wait on -- needs a
 # blocking end-of-turn hook to enforce itself, and Muse has none.  `nudge` asks the `ak watch`
@@ -206,26 +208,6 @@ signatures = [
   "no login to refresh a key from; run `muse login` or set META_API_KEY",
   "Log in with browser · Enter to choose Set an API key ↓↑ to select · Esc to quit",
 ]
-
-# How a Muse seat compacts itself; the format is the `[compact]` table in docs/guide.md.
-# Verified against Muse Code 1.2.1 (1.2.1-R2847.1): `/compact` -- "Summarize the conversation to
-# free up context" -- is in its slash-command list.  Muse has no hooks, so the end of a turn is
-# the `prompt.composer` rule above coming true again, read off the seat's own output.  The
-# context size comes from the session.jsonl under ~/.local/share/muse/sessions whose
-# `runtime.session.route_facts` record names this seat's own pid -- never a neighbour's -- and is
-# the last `goal_usage_attribution` of a `main_root` owner with `usage_family = "provider"`:
-# `record.quantity.input_tokens` (25,364 on the session that was read), which already includes
-# the cached prefix and so is the whole context that turn sent.
-# The text and the return are separate keys: a TUI opens its slash-command chooser on the `/`
-# and a return that arrives in the same read is absorbed by it, leaving the command sitting
-# unsent in the composer -- seen on Codex 0.153.4 and Muse Code 1.2.1, and the pause between
-# them is tools/idle-compact.py's KEY_GAP.
-[compact]
-command = ["/compact", "\r"]
-signal = "screen"
-context = "muse-session"
-idle = 30
-stash = "none"
 
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 # The same words its status line shows beside the model name; see [screen] composer above.

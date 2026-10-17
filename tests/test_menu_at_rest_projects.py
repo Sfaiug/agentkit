@@ -179,7 +179,7 @@ class Projects(Sandbox):
         self.seat("atoll-fix", "atoll")
         self.notices["atoll-fix"] = {"kind": "needs", "text": "Which schema?",
                                      "time": NOW - 300}
-        self.seat("atoll-plan", "atoll", live="draft")
+        self.seat("atoll-plan", "atoll", live="asking")
         self.seat("herdr", "agentkit", since=NOW - DAY)
         count = re.compile(r"nothing needs you|\d+ needs? you|\d+ need you")
 

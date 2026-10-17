@@ -192,16 +192,6 @@ signatures = [
   "authentication failed or timed out",
 ]
 
-# agy 1.3.5 compacts on `/compact`, and says how big the context was only on its screen when it
-# has (`20 steps summarized · context 7.6k → ~9.2k`): no hook is installed to report it, so
-# tools/idle-compact.py, which a seat runs under, says so once and types nothing.
-[compact]
-command = ["/compact", "\r"]
-signal = "screen"
-context = "none"
-idle = 30
-stash = "none"
-
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 [effort]
 levels = ["low", "medium", "high"]

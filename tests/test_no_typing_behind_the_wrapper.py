@@ -132,13 +132,13 @@ class WrappedPane(Seats):
     def start_wrapper(self):
         (self.root / 'ready').unlink(missing_ok=True)
         env = {key: value for key, value in os.environ.items()
-               if not key.startswith(('AGENTKIT_', 'AK_', 'IDLE_COMPACT_'))
+               if not key.startswith(('AGENTKIT_', 'AK_'))
                and key not in ('TMUX', 'TMUX_PANE')}
         env.update(HOME=str(self.root), AGENTKIT_SESSION=SEAT,
                    AGENTKIT_TMUX_SOCKET='a-different-server',
                    TMUX=f'{self.root / "server"},123,0', TMUX_PANE='%7')
         self.proc = subprocess.Popen([sys.executable, str(REPO / 'tools/idle-compact.py'),
-                                      '--poll', '.01', '--', sys.executable, '-c', HARNESS],
+                                      '--', sys.executable, '-c', HARNESS],
                                      stdin=self.slave, stdout=self.slave, stderr=subprocess.PIPE,
                                      cwd=self.root, env=env)
         self.addCleanup(self.stop, self.proc)
@@ -206,9 +206,8 @@ class WrappedPane(Seats):
         self.assertEqual(self.typed, [])
         self.assertFalse(self.told())
         self.assertEqual(self.receipts(), [])
-        sent, typed = Mock(return_value=(0, '')), Mock()
-        self.assertIsNone(watch._send_line(self.seat, '/compact', lambda _: None, typed, send=sent))
-        sent.assert_not_called()
+        typed = Mock()
+        self.assertIsNone(watch._send_line(self.seat, LINE, lambda _: None, typed))
         typed.assert_not_called()
         self.release_reader(data)
         for _ in range(3):
@@ -265,9 +264,6 @@ class WrappedPane(Seats):
                 self.assertEqual(unread(self.slave), 0)
                 self.assertGreater(unread(slave), 0)
                 self.assertFalse(watch.pane_unread(self.seat))
-                sent = Mock(return_value=(0, ''))
-                self.assertTrue(watch._send_line(self.seat, 'Run finished.', lambda _: None, send=sent))
-                sent.assert_called_once_with('Run finished.')
 
     def test_a_refused_respawn_keeps_the_live_wrappers_guard(self):
         self.held_input()
@@ -323,7 +319,6 @@ class RelayBacklog(Seats):
             '#{@ak_input_tty}', self.paths[1])
 
     def test_each_terminal_can_hold_a_line_even_when_the_other_is_empty_or_unavailable(self):
-        sent = Mock(return_value=(0, ''))
         for master, slave, other in ((self.outer_master, self.outer_slave, 1),
                                      (self.inner_master, self.inner_slave, 0)):
             os.write(master, b'draft')
@@ -331,11 +326,10 @@ class RelayBacklog(Seats):
             original = self.paths[other]
             for path in (original, str(self.root / 'missing-tty')):
                 self.paths[other] = path
-                self.assertIsNone(watch._send_line(self.seat, 'Run finished.', lambda _: None, send=sent))
+                self.assertIsNone(watch._send_line(self.seat, 'Run finished.', lambda _: None))
                 self.assertEqual(unread(slave), 5)
             self.paths[other] = original
             self.assertEqual(os.read(slave, 5), b'draft')
-        sent.assert_not_called()
         self.assertEqual(self.receipts(), [])
 
     def test_a_reader_that_never_reads_leaves_the_inner_tty_full_when_the_relay_queues_input(self):
@@ -360,9 +354,7 @@ class RelayBacklog(Seats):
         queued = bytes(self.relay.to_child)
         self.relay.poll(0)
         self.assertEqual(bytes(self.relay.to_child), queued)
-        sent = Mock(return_value=(0, ''))
-        self.assertIsNone(watch._send_line(self.seat, 'Run finished.', lambda _: None, send=sent))
-        sent.assert_not_called()
+        self.assertIsNone(watch._send_line(self.seat, 'Run finished.', lambda _: None))
         self.assertEqual(self.receipts(), [])
 
 

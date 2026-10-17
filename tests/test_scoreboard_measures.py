@@ -3,10 +3,10 @@ and a visible test change (AGENTS.md, Owner rules, 14 Oct 2026): the rows and th
 cell is built from (`scoreboard.MEASURES`), the rows and parts `compute` answers with, and
 the labels `render` shows, in that order; tests/test_scoreboard.py holds the words `render`
 says of each part, tests/test_who_built.py those of `built` and `parks`,
-tests/test_sunk_tokens.py those of `sunk`.
+tests/test_sunk_tokens.py those of `sunk`, tests/test_owner_row.py those of `owner`.
 
 Offline: an empty sandbox HOME with no history database, and git answering nothing; the
-filled board reads literal history rows and parks, and git answering one line to everything.
+filled board reads literal history rows, parks and owner moments, and git answering one line to everything.
 """
 
 import os
@@ -27,6 +27,7 @@ NOW = 1_800_000_000
 PINNED = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
@@ -68,7 +69,8 @@ class Measures(unittest.TestCase):
         self.assertEqual(board, {key: [None, None] for key, _, _ in PINNED})
 
     def test_every_filled_cell_answers_with_exactly_its_pinned_parts(self):
-        # a merged run this week in a product and in ak, with its waits: every row has a cell
+        # a merged run this week in a product and in ak, with its waits, and a question the
+        # owner answered: every row has a cell
         rows = [{"run_id": f"fix-{repo}", "repo": repo, "final_state": "pass", "rounds_used": 1,
                  "started_at": NOW - 3600, "finished_at": NOW - 60, "changed_lines": 1,
                  "executor_tokens": 1, "reviewer_tokens": 1, "total_seconds": 3540,
@@ -76,6 +78,9 @@ class Measures(unittest.TestCase):
                  "lander_wait_seconds": 0} for repo in ("acme", "toolkit")]
         with patch.object(scoreboard.history, "ended_runs", return_value=rows), \
                 patch.object(scoreboard.history, "parks", return_value=[NOW - 60]), \
+                patch.object(scoreboard.history, "owner",
+                             return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
+                                           (NOW - 60, "answered", 30)]), \
                 patch.object(scoreboard, "_git", lambda *args, **kw: b"x\n"):
             board = scoreboard.compute(NOW)
         self.assertEqual({key: list(cells[0]) for key, cells in board.items()},

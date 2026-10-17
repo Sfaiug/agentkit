@@ -88,7 +88,7 @@
   (`weekly`); `audit.json` and `audit/<week>.md` under STATE. For watch, whose `tell_audit`
   opens or resumes the seat and types the line.
 - `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
-  launch and resume, the picker, systemd slice and scopes. Offers `main`, `sessions`,
+  launch and resume, the picker, foreground and detached systemd placement. Offers `main`, `sessions`,
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`, which
@@ -105,7 +105,7 @@
   Used by run, gate, watch, usage, menu, harness. Leak: Claude shell timeout.
 - `plan.py`: `ak plan`, checked outcomes or the owner's eye; a merged run writes its review follow-ups here.
 - `box.py`: credential masks, own temporary places and /run, PID teardown. `command`, `check`,
-  `returncode`, `leftovers`; for worker and run.
+  `returncode`, `leftovers`, `cpu_seconds`; for worker and run.
 - `guard.py`: what a seat may not do and its refusal -- tmux end or type into another seat
   (`refusal`), `gh pr merge` (`gh_refusal`), `git worktree add` into ~/code (`worktree_refusal`),
   scp/rsync/sftp a transfer to the live server (`transfer_refusal`); `tools/shim` hands `main`
@@ -122,23 +122,23 @@
   `adapters/muse-usage.sh`). Leak: Muse's names.
 - `matrix.py`: the public boards' model rows (Artificial Analysis, Arena Agent, LiveBench), each
   asked once a day into `state/matrix.json`, and the matrix: a row per model and effort the
-  installed harnesses offer, matched to the boards and scored per role (`ROLES`); `ak models`.
-  Offers `collect`, `rows`, `scored`. For bin/ak.
+  installed harnesses offer, matched to the boards and scored per role (`ROLES`), one row
+  recommended per role; `ak models`. Offers `collect`, `rows`, `scored`, `recommended`. For bin/ak.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
-- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs` and `parks` (the `parked_at` `leases.park` stamps) for the scoreboard.
+- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs`, `parks` (the `parked_at` `leases.park` stamps) and `owner` for the scoreboard; the owner's moments, one row each naming no seat (`owner_time`, which notify writes).
   For run, gate, harness. Leak: parses harness event logs.
-- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the week's largest loss in the vision's order (`loss`), words and wrapping.
+- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the owner's time (`owner`), the week's largest loss in the vision's order (`loss`), words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression; a harness config's stale trust and MCP entries, where its plugin
   says they are (`config_entries`). For gc, run, orch, update, notify.
-- `pty_relay.py`: nonblocking terminal transport, bounded queues, ordered injected keys and
-  exit draining. `Relay.poll`, `send`, `finish`, `close` for `tools/idle-compact.py`;
-  owns the two directions without harness or model knowledge.
+- `pty_relay.py`: nonblocking terminal transport, bounded queues and exit draining.
+  `Relay.poll`, `finish`, `close` for `tools/idle-compact.py`; owns the two directions without
+  harness or model knowledge.
 - `terminal.py`: width, wrapping, colour, keys, `choose`/`ask`/`frame`, state styles, for
   every listing screen. Used by menu, usage, orch, watch, run, motion.
 - `motion.py`: one clock: time, easing, what moves; for menu, orch, terminal.
@@ -160,7 +160,7 @@
   answers `run`, `interactive`, `usage`, `install`, `login`, `auth`, `hooks`, `models`
   (codex adds `reset`); `$AGENTKIT_ACCOUNT` picks the login.
 - `adapters/<h>.toml` is the manifest: update, usage, conversation, titles, launch, hooks,
-  screen rules, stall/quota/auth/resume words, compact, effort, catalog, contract-check model/effort.
+  screen rules, stall/quota/auth/resume words, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
   resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`, `register_mcp`.
   `config_entries`: every plugin's trust and MCP tables. `user_messages`: timed owner input
@@ -188,14 +188,15 @@
   merge`), `git-shim` (refuses a `git worktree add` into ~/code) and `scp-shim`/`rsync-shim`/
   `sftp-shim` (refuse a transfer to the live server) links to it, each linked as
   `<HOME>/bin/<name>` first on a seat's PATH; and, called by adapters:
-  `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it compacts a quiet seat,
-  and looks at the seat again when its screen comes to rest, starts moving or its harness exits),
+  `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it looks at the seat
+  again when its screen comes to rest, starts moving or its harness exits; it types nothing),
   `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
 - `tests/`: `landing.py` runs offline `smoke.sh` beside `every_file.py`, with grouped
   live output; live `live.sh`; `every_file.py`: imports/cases,
-  live memory/CPU admission; `suite_shares.py` shards both. `fixtures/`: screens, `echo`,
+  live memory/CPU admission; `suite_shares.py` picks each mode's checks and shards both.
+  `fixtures/`: screens, `echo`,
   `landing.py` lands a crafted run through its line and lander verdict, `sandbox.py`'s
   `Sandbox` is the throwaway ak HOME that in-process tests run in.
   `check_harness_contract.py`: standalone live contract check, also smoke's check 3;

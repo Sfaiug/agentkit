@@ -122,18 +122,47 @@ def host_status_line():
 
 
 def slot_counts(state):
-    """Live slot owners, and top-level receipts ahead of this one (including dead waiters)."""
-    running, ahead = 0, 0
+    """Live slot owners, top-level receipts ahead of this one (including dead waiters), and
+    the other waiters' run ids in queue order."""
+    running, waiting = 0, []
     for directory in run_record.run_dirs():
         other = run_record.read_state(directory) or {}
         if other.get("run_id") == state.get("run_id") or other.get("run_depth", 0):
             continue
         if other.get("state") == "running" and run_record.process_active(other):
             running += 1
-        elif (other.get("state") == "queued" and other.get("slot_waiting") and
-              slot_order(other) < slot_order(state)):
-            ahead += 1
-    return running, ahead
+        elif other.get("state") == "queued" and other.get("slot_waiting"):
+            waiting.append(slot_order(other))
+    waiting.sort()
+    mine = slot_order(state)
+    return running, sum(order < mine for order in waiting), [order[-1] for order in waiting]
+
+
+def _save_queue(running, queue):
+    """Under slot_lock: the queue as this poll decided it, for the waiters behind its first."""
+    path = config.RUNS / ".slots.queue"
+    temp = path.with_name(".slots.queue.tmp")
+    temp.write_text(json.dumps({"at": time.time(), "running": running, "queue": queue}))
+    temp.replace(path)
+
+
+def slot_queue():
+    """(when, live slot owners, waiting run ids first in line first) as the last poll left them."""
+    try:
+        saved = json.loads((config.RUNS / ".slots.queue").read_text())
+        return float(saved["at"]), int(saved["running"]), [str(run_id) for run_id in saved["queue"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0.0, 0, []
+
+
+def behind_first(run_id):
+    """Whether the queue still has this run waiting behind its first, who alone can be admitted.
+
+    Such a run skips its poll: it reads no record and takes no lock. A queue no poll rewrote
+    for two polls -- its first stopped or died -- is counted again by whoever polls next.
+    """
+    at, _, queue = slot_queue()
+    return 0 <= time.time() - at < 2 * SLOT_POLL and run_id in queue[1:]
 
 
 def frozen_runs(state):
@@ -166,8 +195,15 @@ def slot_line(running, ahead, limit, first=False):
 
 
 def slot_note(state):
-    return state.get("slot_wait_reason") or slot_line(
-        *slot_counts(state), config.max_runs(), not slot_order(state)[0])
+    # A run behind the first polls nothing that refreshes its own reason: its place is the queue's.
+    _, running, queue = slot_queue()
+    if state.get("run_id") in queue[1:]:
+        counts = running, queue.index(state["run_id"])
+    elif state.get("slot_wait_reason"):
+        return state["slot_wait_reason"]
+    else:
+        counts = slot_counts(state)[:2]
+    return slot_line(*counts, config.max_runs(), not slot_order(state)[0])
 
 
 def _slice_cpu_reason(readings):
@@ -210,7 +246,7 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
 
 def claim_slot(state, limit, readings=None):
     """Called under slot_lock: count, FIFO and two steady host polls decide admission."""
-    running, ahead = slot_counts(state)
+    running, ahead, others = slot_counts(state)
     # AK_MAX_RUNS=0 is the test-suite escape hatch: it disables count and host gates together.
     ungated = os.environ.get("AK_MAX_RUNS") == "0"
     if state.get("run_depth", 0) or ungated:
@@ -218,6 +254,7 @@ def claim_slot(state, limit, readings=None):
                      **run_record.process_owner())
         state.pop("resume_from", None)
         return True
+    _save_queue(running, others[:ahead] + [state.get("run_id")] + others[ahead:])
     is_first = not slot_order(state)[0]
     if ahead or (limit and running >= limit and not is_first):
         state["slot_waited"] = True
@@ -269,6 +306,7 @@ def claim_slot(state, limit, readings=None):
                 f"waiting for steady readings · {host._g(free)} G free, "
                 f"ak cpu pressure {_pct(pressure)}")
         return False
+    _save_queue(running + 1, others)
     state.update(state="running", slot_waiting=False, slot_started_at=time.time(),
                  **run_record.process_owner())
     for key in ("resume_from", "slot_healthy_polls", "reservation_pending",
@@ -303,9 +341,17 @@ def wait_for_slot(run_dir):
     """Reserve a slot in run.json before work starts; no process-local semaphore can do this."""
     announced = False
     first_poll = True
+    behind = False
     wait_kind = None
     counted = None
     while True:
+        if not first_poll:
+            counted = counted or (time.time(), time.monotonic())
+            time.sleep(SLOT_POLL)
+            counted = count_wait(run_dir.name, "slot", counted)
+            if behind_first(run_dir.name):
+                behind = True
+                continue
         limit = config.max_runs()
         with slot_lock(), run_record.recovery_lock(run_dir):
             state = run_record.read_state(run_dir) or {}
@@ -322,6 +368,10 @@ def wait_for_slot(run_dir):
                 run_record.save_state(run_dir, state)
             if state.get("state") != "queued" or state.get("pid") != os.getpid():
                 raise config.Error(f"{run_dir.name}: another process owns this launch")
+            if behind:
+                # The polls it skipped were count waits, and steadiness starts over after one.
+                state.update(slot_wait_kind="count", slot_healthy_polls=0)
+                behind = False
             first_poll = False
             if claim_slot(state, limit):
                 run_record.save_state(run_dir, state)
@@ -333,9 +383,6 @@ def wait_for_slot(run_dir):
             print(slot_note(state), flush=True)
             handback.redress_seat(state.get("launched_session"))
             announced = True
-        counted = counted or (time.time(), time.monotonic())
-        time.sleep(SLOT_POLL)
-        counted = count_wait(run_dir.name, "slot", counted)
     if counted:
         count_wait(run_dir.name, "slot", counted)
     if state.get("slot_waited"):
@@ -653,11 +700,12 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     whichever fits fewer.  Headroom already excludes running suites, so add
     them once; a saturated slice starts one only when none run.  Both come
     off the slice's own cgroup -- its CPU room and the slice's memory headroom --
-    which a shell beside the slice reads like a worker inside it; where
+    which a shell beside the slice reads like a worker inside it; the host's CPU
+    use outside the slice takes from the cores the slice may use.  Where
     no slice answers, the host's idle cores and free memory stand in.  An
     unreadable gate fails open to the other resource, and to one suite where
-    neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, for jobs
-    other than a heavy suite. With `unit`, pieces also fit the caller's soft
+    neither answers.  `job_cpus` and `job_mem_mb` are one job's cost, such as a suite
+    piece's as measured (`suite_cost`). With `unit`, pieces also fit the caller's soft
     limit and the remaining room under every enclosing hard memory cap.
     """
     if running is None:
@@ -665,11 +713,16 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if readings is None:
         readings = host.host_readings(slice_dir=orch.slice_cgroup)
     cpu_quota = host._reading(readings, "slice_cpu_quota")
-    if cpu_quota is not None:
-        used = host._reading(readings, "slice_cpu_used")
+    cpus = host._reading(readings, "cpus", "nproc")
+    used = host._reading(readings, "slice_cpu_used")
+    if cpu_quota is not None or (cpus is not None and used is not None):
+        if cpu_quota is None:
+            cpu_quota = cpus
+        outside = host._reading(readings, "outside_cpu_used")
+        if outside is not None and cpus is not None:
+            cpu_quota = min(cpu_quota, cpus - outside)
         cpu_free = cpu_quota - used if used is not None else float(cpu_quota)
     else:
-        cpus = host._reading(readings, "cpus", "nproc")
         load = host._reading(readings, "load", "load1", "load_1m")
         if cpus is not None and load is not None:
             cpu_free = cpus - load
@@ -759,7 +812,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             readings = host.host_readings(slice_dir=orch.slice_cgroup) if pinned is None else None
             # At the top CPU weight (the line's checker) the use lower-weighted runs hold is its own.
             kept = host.kept_cpu(orch.slice_cgroup()) if pinned is None else None
-            if kept is not None and host._reading(readings, "slice_cpu_quota") is not None:
+            if kept is not None:
                 readings = {**readings, "slice_cpu_used": kept}
             total = max(1, _heavy_max_existing() + 1, len(slots))
             while len(slots) < total:
@@ -958,20 +1011,19 @@ def names_shard(command):
 
 
 def suite_cost(command, cwd, run_dir):
-    """A repository and suite's measured scheduling cost, or the initial estimate."""
+    """A repository and suite's measured scheduling cost, each part the initial estimate
+    until a finished suite measured it."""
     state = run_record.read_state(run_dir) or {} if run_dir else {}
     repo = Path(state.get("repo") or gitcall.main_checkout(cwd)).resolve()
     key = hashlib.sha256(f"{repo}\n{command}".encode()).hexdigest()
     path = config.STATE / f"suite-{key}.json"
-    try:
-        cost = read_suite_cost(path)
-        cpu, mem = cost["cpus"], cost["mem_mb"]
-        if all(type(value) in (int, float) and math.isfinite(value) and value > 0
-               for value in (cpu, mem)):
-            return path, max(HEAVY_CPUS, cpu), max(HEAVY_MEM_MB, mem)
-    except (OSError, ValueError, TypeError, KeyError):
-        pass
-    return path, HEAVY_CPUS, HEAVY_MEM_MB
+    cost = read_suite_cost(path)
+    def measured(name, estimate):
+        value = cost.get(name)
+        if type(value) in (int, float) and math.isfinite(value) and value > 0:
+            return max(estimate, value)
+        return estimate
+    return path, measured("cpus", HEAVY_CPUS), measured("mem_mb", HEAVY_MEM_MB)
 
 
 def read_suite_cost(path):
@@ -1036,7 +1088,8 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time works everywhere; only this run's cgroup can attribute CPU and memory."""
+    """Wall time and each box's CPU work everywhere, a line's checker included; only this
+    run's cgroup can attribute memory."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
@@ -1044,7 +1097,7 @@ class _SuiteMeasure:
         relative = host.process_cgroup() if state.get("scope") else None
         self.group = (host.cgroup_path(relative) if relative and
                       Path(relative).name in turns._scope_units(state["scope"]) else None)
-        self.cpu = host._slice_cpu_stat(self.group) or {}
+        self.cpu = []     # each box's CPU seconds (`worker.boxed`)
         reading = host._scope_readings(self.group) if self.group is not None else None
         self.baseline = reading[1] if reading else None
         self.peak = self.baseline
@@ -1059,15 +1112,14 @@ class _SuiteMeasure:
                     self.peak = max(self.peak, reading[1])
 
     def save(self, path, pieces):
-        cpu = (host._slice_cpu_stat(self.group) or {}).get("usage_usec")
-        first = self.cpu.get("usage_usec")
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
         cost = {"wall_seconds": elapsed, "run_id": self.run_id}
-        if cpu is not None and first is not None and self.baseline is not None:
-            cost.update(cpus=max(HEAVY_CPUS, (cpu - first) / (elapsed * 1e6 * pieces)),
-                        mem_mb=max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces)))
+        if len(self.cpu) == pieces:
+            cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * pieces))
+        if self.baseline is not None:
+            cost["mem_mb"] = max(HEAVY_MEM_MB, (self.peak - self.baseline) / (1024**2 * pieces))
         try:
             with watch.state_lock():
                 previous = read_suite_cost(path)
@@ -1122,8 +1174,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if measured:
                 measured.sample()
             return aborting() if aborting else False
-        result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd),
-                              activity=activity, output=output, env=env, abort=abort, **kwargs)
+        result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
+                              output=output, env=env, abort=abort,
+                              cpu=measured.cpu if measured else None, **kwargs)
         if measured and not result[2] and result[0] != SUITE_BUSY:
             measured.save(path, 1)
         return result
@@ -1197,7 +1250,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         ["bash", "-c", command], left,
                         cwd=str(cwd), activity=Path(piece.name),
                         output=stream, env={**env, "AK_SHARD": shard}, abort=abort,
-                        on_timeout=stopped, **kwargs)
+                        on_timeout=stopped, cpu=measure.cpu, **kwargs)
                 finally:
                     stream.finish()
                 return code, piece, killed

@@ -28,7 +28,7 @@ from . import (box, command_help, config, gate, gc, gitcall, history, host, job 
 from .deliver import (MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
-from .deliver import (PUSH_RIGHTS, checks, gh_json, github_body,
+from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
     push, require_review_pass, rights,
     text_only_pr, wait_checks)
 from .roundloop import execute, final_check, integrate, review, rounds
@@ -2034,7 +2034,7 @@ def own_pr_fix(state):
     red's stands for it, and the next round still starts in a directory of its own."""
     done = len(state.get("round_summaries") or [])
     if state.get("landing_fix"):
-        return done, f"landing-{state['landing_reds']}-fixer"
+        return done, f"landing-{sum(state.get(key, 0) for key in LANDING_COUNTS)}-fixer"
     return done + 1, "executor"
 
 
@@ -2378,6 +2378,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         if why:
             lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
+        # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
+        history.first_review(state.get("run_id"), lines - carried, log=log)
     if text_only:
         # The seat's own wording needs no reviewer: it joins the line like a passed review,
         # where the repository's suite and CI still check it.

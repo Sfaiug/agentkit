@@ -739,26 +739,6 @@ cat "$dir/bridge-eval"
         (out / "events.jsonl").write_text(EVENTS_OK)
         self.assertIsNone(history.event_tokens(out / "events.jsonl"))
 
-    # --- compact ---------------------------------------------------------------
-    def test_compact_stamp_from_handed_tokens(self):
-        state = self.root / "stamp.json"
-        env = dict(self.env, AK_RUN_ROLE="seat", IDLE_COMPACT_STATE=str(state))
-        payload = json.dumps({"hook_event_name": "Stop", "session_id": "ses_last",
-                              "context_tokens": 12832})
-        proc = subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")],
-                              input=payload, capture_output=True, text=True, env=env)
-        self.assertEqual(proc.returncode, 0)
-        stamp = json.loads(state.read_text())
-        self.assertEqual(stamp["context_tokens"], 12832)
-        self.assertEqual(stamp["session_id"], "ses_last")
-        # zero is not a size: nothing is stamped and the last good one stands
-        state.unlink()
-        payload = json.dumps({"hook_event_name": "Stop", "context_tokens": 0})
-        proc = subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")],
-                              input=payload, capture_output=True, text=True, env=env)
-        self.assertEqual(proc.returncode, 0)
-        self.assertFalse(state.exists())
-
     def test_plugin_translates_lifecycle_events(self):
         node = shutil.which("node")
         self.assertIsNotNone(node, "node is required to load the OpenCode plugin")
@@ -769,10 +749,6 @@ cat "$dir/bridge-eval"
             {"type": "session.idle", "data": {}},
             {"type": "session.inbox.enqueued", "data": {
                 "item": {"type": "user", "payload": {"text": "do the thing"}}}},
-            {"type": "session.step.ended", "data": {
-                "sessionID": "ses_plug",
-                "tokens": {"input": 10, "output": 4, "reasoning": 1,
-                           "cache": {"read": 2, "write": 3}}}},
             {"type": "session.execution.succeeded", "data": {"sessionID": "ses_plug"}},
             {"type": "permission.asked", "data": {
                 "action": "bash", "resources": ["ls", 7]}},
@@ -781,10 +757,9 @@ cat "$dir/bridge-eval"
 import { pathToFileURL } from "node:url";
 const { seatFact } = await import(pathToFileURL(process.argv[1]).href);
 const events = JSON.parse(process.argv[2]);
-const steps = new Map();
 const facts = [];
 for (const event of events) {
-  const fact = seatFact(event, steps);
+  const fact = seatFact(event);
   if (fact) facts.push(fact);
 }
 console.log(JSON.stringify(facts));
@@ -797,7 +772,7 @@ console.log(JSON.stringify(facts));
         facts = json.loads(proc.stdout)
         self.assertEqual(facts, [
             {"hook_event_name": "UserPromptSubmit", "message": "do the thing"},
-            {"hook_event_name": "Stop", "session_id": "ses_plug", "context_tokens": 20},
+            {"hook_event_name": "Stop", "session_id": "ses_plug"},
             {"hook_event_name": "PermissionRequest", "tool_name": "bash", "message": "bash ls"},
         ])
 

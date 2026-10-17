@@ -77,7 +77,8 @@ glides -- then is still.  The sub-screens are not live: they are read once, like
 question -- but a project's feature switches, which draw again within a second of their `list`
 landing.
 
-Five keys: the numbers, `n`, `x`, `c` (the highlighted seat's models, every model's effort,
+Six keys: the numbers, `n`, `x`, `p` (the sessions you stopped, offered while there is one),
+`c` (the highlighted seat's models, every model's effort,
 providers, discord, version), and Esc, which leaves, as it goes back from every
 screen and question under it; `q` is no key.  Nothing needs a manual: the pointer lights what
 it rests on and says nothing more of it on the key line.  A question typed inside the menu is
@@ -89,14 +90,15 @@ click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
 the highlighted seat's: a done one is closed at once, and any other is asked about under its row,
 `Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  A stopped
-seat keeps its row, its number reopening it, and `x` on it again takes it off the list at once
--- the key line says `x remove` while one is highlighted.  `c` holds
+seat leaves its project for the past screen, `p` (`show_past`): one row a stopped seat, with its
+number, its project and how long ago, where Enter reopens it where it stopped and `x` takes it
+off at once.  `c` holds
 its orchestrator, executors and reviewers: the orchestrator moves the seat at once, the
 roles flip with the same keys and save at once.
 `ak run status` and `ak browser` stay as commands for
 orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
-to reopen`, and one you stopped reads `idle` with `session closed by the owner: press N to
-reopen`; an ended run is its orchestrator's business, so no row ever says `press r`.
+to reopen`; one you stopped has no row under its project, only its row on the past screen; an
+ended run is its orchestrator's business, so no row ever says `press r`.
 
 The screen is budgeted by height as well as width: a list of seats longer than the
 screen is drawn a page at a time -- on a terminal the page the highlight is on, from a pipe the
@@ -138,6 +140,7 @@ KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
+PAST_KEYS = ("↑↓ move   ⏎ reopen   x remove   esc back", "j/k move   enter reopen   x remove   esc back")
 LEAST = 3                # rows a page keeps; the usage block gives way before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
 # seat sorts last in its project.  `watch.session_state` is what decides which of the four a
@@ -203,12 +206,15 @@ class Live:
         os.set_blocking(self.reader, False)
         os.set_blocking(self.writer, False)
         self.watcher, self.done = None, threading.Event()
+        self.watching = threading.Event()  # clear until `watch`, and while the owner is away
+        self.reading = threading.RLock()   # held for a read and its pass decided (`away`)
         self.seen = None                 # the records the last read was read from, as they stood
         self.looker = None               # the thread of the last pass looking at every seat
         self.passing = threading.Lock()  # held while a pass is going
         self.met = set()                 # the listed seats a pass of this menu's has looked at
         self.asked, self.looking = threading.Event(), False   # a read asked for, and a look
         self.last = None                 # where each read leaves the seats and their groups
+        self.read_from = None            # the seats and runs it read them from, a pass's too
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
 
@@ -222,7 +228,8 @@ class Live:
         file is worse than a draw nobody asked for.
         """
         self.done.set()
-        self.asked.set()                 # the watcher out of its wait, to see it is done
+        self.asked.set()                 # the watcher out of its waits, to see it is done
+        self.watching.set()
         with self.lock:
             for fd in (self.reader, self.writer):
                 if fd is not None:
@@ -262,30 +269,34 @@ class Live:
             pass    # an adapter that cannot answer leaves the cache as it was; the row says why
         self._wake()
 
-    def look(self, found):
+    def look(self, found, records):
         """Look at every seat again, off the read, and wait for none of it.
 
         The looks are `v5o_groups`' own -- each seat captured, decided, and written to its record
         and its bar -- in a thread of their own, so a seat whose capture hangs holds up no read
         and no draw: the read is the records as they stand, and a look landing has them read
-        again (`ask`) for its words to be drawn.  One pass at a time; one still going is not
-        doubled, and a menu that has left starts none: whether this one started is the answer.
+        again (`ask`) for its words to be drawn.  They decide on `records`, the runs the read
+        that started them read, so a pass reads nothing of its own.  One pass at a time; one
+        still going is not doubled, and a menu that has left starts none: whether this one
+        started is the answer.
         """
         if not self.done.is_set() and self.passing.acquire(blocking=False):
-            self.looker = threading.Thread(target=self._look, args=(found,), daemon=True)
+            self.looker = threading.Thread(target=self._look, args=(found, records), daemon=True)
             self.looker.start()
             return True
         return False
 
-    def _look(self, found):
+    def _look(self, found, records):
         try:
-            v5o_groups(self.cfg, found)
+            v5o_groups(self.cfg, found, records)
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             pass    # a seat that cannot be looked at keeps what its record says
         finally:
-            # Over before the read it asks for, not when its thread ends: that read is the one
-            # that starts the pass for a seat found while this one was going.
+            # Over before the next is decided, not when its thread ends: a seat listed while this
+            # one was going gets its own pass here, on what the read listing it read (`away`).
             self.passing.release()
+        with self.reading:
+            self.meet()
         self.ask()
 
     def tidy(self, work):
@@ -312,21 +323,30 @@ class Live:
 
         The one place the main screen reads them, and never between a key and its frame: a draw
         is whatever the last read left, so a key that moves the highlight costs a draw and
-        nothing more, and one back from another screen shows the list at once.  With `look`
+        nothing more, and one back from another screen shows the list at once; back from a seat,
+        or the screen that opens one, it is read first (`away`).  With `look`
         every seat is looked at as well, behind it (`look`); and without, when one is listed
         that no pass of this menu's has looked at yet: a seat started elsewhere while the menu
         is open is drawn on what there is (`seat_row_state`), a word its bar has never been
         told, and opening it keeps every later look away for as long as its owner stays in it.
-        The pass is always over every seat, each under the number it is listed by.
+        The pass is always over every seat, each under the number it is listed by (`meet`).
         """
-        found = orch.listing()
-        records = run_records()       # one pass over run.json a read, filing and drawing
-        orch.file_projectless(found, [state for _, state in records])
+        with self.reading:
+            found = orch.listing()
+            records = run_records()       # one pass over run.json a read: filing, looking, drawing
+            orch.file_projectless(found, [state for _, state in records])
+            self.read_from = found, records
+            self.meet(look)
+            self.last[:] = found, v5o_groups(self.cfg, found, records, look=False)
+
+    def meet(self, look=False):
+        """Start a pass over what the last read read with `look`, or for a seat it listed that no
+        pass has looked at."""
+        found, records = self.read_from
         listed = {seat["name"] for seat in found}
         self.met &= listed            # one that went and came back is new
-        if (look or listed - self.met) and self.look(found):
+        if (look or listed - self.met) and self.look(found, records):
             self.met = listed
-        self.last[:] = found, v5o_groups(self.cfg, found, records, look=False)
 
     def ask(self, look=False):
         """Have everything read again, and with `look` every seat looked at, off the draw."""
@@ -347,11 +367,25 @@ class Live:
         replaces the file -- and nothing here captures a pane.  A read on news starts a look
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
+        Called again back from a seat (`away`), it is that first read again, and the same thread
+        watching after it.
         """
         self.last, self.seen = last, self.recorded()
+        self.asked.clear()               # what was asked while the owner was away, this answers
         self.read(look=True)
-        self.watcher = threading.Thread(target=self._watch, daemon=True)
-        self.watcher.start()
+        if self.watcher is None:
+            self.watcher = threading.Thread(target=self._watch, daemon=True)
+            self.watcher.start()
+        self.watching.set()
+
+    def away(self):
+        """The owner is going into a seat, or to the screen that opens one: nothing draws a read
+        until the menu is back, so the watcher makes none, nor a `stat`, until `watch` again.  A
+        read going ends first, so none lands while away or over the read back.  A seat listed
+        while a pass was going still gets its own once that one ends, on what was read with it
+        (`_look`): opened, it gets no other look while its owner is in it (`read`)."""
+        with self.reading:
+            self.watching.clear()
 
     def recorded(self):
         """usage.json, the runs' moved mark and every seat record: each one's name, inode and
@@ -372,20 +406,24 @@ class Live:
     def _watch(self):
         while True:
             self.asked.wait(STIR)
-            if self.done.is_set():
-                return
-            now = self.recorded()
-            if now == self.seen and not self.asked.is_set():
-                continue
-            self.asked.clear()
-            look = self.looking
-            if look:
-                self.looking = False     # a look asked for since is this one: it starts after
-            self.seen = now
-            try:
-                self.read(look)
-            except (config.Error, OSError, ValueError, TypeError, KeyError):
-                pass    # what cannot be read now stays drawn as it was last read
+            self.watching.wait()
+            with self.reading:
+                if self.done.is_set():
+                    return
+                if not self.watching.is_set():
+                    continue             # away since the wait: what it would read, nobody draws
+                now = self.recorded()
+                if now == self.seen and not self.asked.is_set():
+                    continue
+                self.asked.clear()
+                look = self.looking
+                if look:
+                    self.looking = False     # a look asked for since is this one: it starts after
+                self.seen = now
+                try:
+                    self.read(look)
+                except (config.Error, OSError, ValueError, TypeError, KeyError):
+                    pass    # what cannot be read now stays drawn as it was last read
             self._wake()
 
     def _wake(self):
@@ -597,7 +635,7 @@ def seat_row_state(cfg, session, look=True, **facts):
     recorded = watch.seat_read(session["name"])
     if recorded.get("word"):
         return {"word": recorded["word"], "reason": recorded.get("reason"),
-                "since": recorded.get("word_since")}
+                "unsent": recorded.get("unsent"), "since": recorded.get("word_since")}
     return seat_state(cfg, session, **facts)
 
 
@@ -905,7 +943,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is the reason for `needs you` and `done`, and for `working`
-    its place in the landing line, else the tasks bar from `seat_progress` -- its plan,
+    its place in the landing line or what the owner left unsent, else the tasks bar from
+    `seat_progress` -- its plan,
     else its unfinished jobs -- and `seat_runs`, else empty -- never two state words on one
     row. Every seat `orch.listing` offers gets
     a row: the ones tmux holds, and the ones only their record does -- a seat whose tmux
@@ -930,7 +969,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     return {"number": str(number), "name": name, "session": session,
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "tone": model_colour(cfg, orchestrator) if selection else "dim",
-            "sentence": sentence, "bar": bar,
+            "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
             "runs": seat_runs(name, records) if word == "working" else [],
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
@@ -953,8 +992,9 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     done, then idle, then by name; numbers stay global by name.
 
     `found` is what `orch.listing` offers -- live seats and gone ones with a
-    conversation to resume into -- and every one of them keeps its row and its
-    global number.
+    conversation to resume into -- and every one of them keeps its global number; a seat
+    the owner stopped (`closed`, `orch.ghost`) keeps it on the past screen (`show_past`) and
+    has no row under its project.
     """
     at = time.time() if now is None else now
     records = run_records() if records is None else list(records)
@@ -968,6 +1008,8 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     jobs_cache = {}
     infos = []
     for number, session in enumerate(found, 1):
+        if session.get("closed"):
+            continue          # stopped: its number is kept for the past screen
         infos.append(v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache,
                                    at, index, None, look))
     # Grouped by the checkout the seat's repo is, so a project can never be listed
@@ -1020,20 +1062,25 @@ def _styled_cell(plain_text, width, kind=None, right=False):
     return space + styled if right else styled + space
 
 
-def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=False):
+def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=False,
+                unsent=""):
     """The one last column of a seat's row, and of its status bar.
 
     For `needs you` and `done` the reason from the state function; for `working` its place
-    in the landing line, else the tasks bar (`terminal.plan_bar`) in `room` cells when
-    `seat_progress` finds a plan or an unfinished job, each of `runs` (`seat_runs`) part of a
-    slot by its step, red on its last round; else empty -- never `N running`.  The bar keeps 8
-    cells at least, which a row too short for them draws under itself; where `room` is all there
-    is -- a `narrow` screen's line, each width of a seat's bar -- it takes that room and never
-    more.  `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two can never disagree.
-    Never two state words on one row.
+    in the landing line, else what the owner left unsent (`unsent`, the state function's own
+    field: a run's title in the reason can say anything), else the tasks bar
+    (`terminal.plan_bar`) in `room` cells when `seat_progress` finds a plan or an unfinished
+    job, each of `runs` (`seat_runs`) part of a slot by its step, red on its last round; else
+    empty -- never `N running`.  The bar keeps 8 cells at least, which a row too short for them
+    draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
+    a seat's bar -- it takes that room and never more.  `tmux` draws it for a seat's bar.  The
+    row and the bar read this one function, so the two can never disagree.  Never two state
+    words on one row.
     """
     if not tasks_bar(word, reason):
         return terminal.plain(reason or "")
+    if unsent:
+        return terminal.plain(unsent)
     fills = [(FILLS[run["step"]], bool(run["rounds"]) and run["round"] >= run["rounds"])
              for run in runs if run["step"] in FILLS]
     return terminal.plan_bar(done, total, fills, room, 0 if narrow else 8, word, tmux)
@@ -1041,8 +1088,9 @@ def last_column(word, reason, done, total, runs=(), room=8, narrow=False, tmux=F
 
 def tasks_bar(word, reason):
     """Is a seat's last column its tasks bar (`last_column`), not a sentence?  A working seat's
-    is, but while it waits in the landing line, which its reason says."""
-    return word == "working" and not (reason or "").startswith("waiting · ")
+    is, but while it waits in the landing line or shows what the owner left unsent, which the
+    column then starts with."""
+    return word == "working" and not (reason or "").startswith(("waiting · ", "unsent: "))
 
 
 def _last_text(info, room, narrow=False):
@@ -1050,7 +1098,7 @@ def _last_text(info, room, narrow=False):
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
     return last_column(info.get("word"), info.get("sentence"), done, total, info.get("runs", ()),
-                       room, narrow)
+                       room, narrow, unsent=info.get("unsent"))
 
 
 def live_line(cfg, info, room, now=None):
@@ -1168,7 +1216,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None):
             blocks.append([head + "  " + last])
             continue
         cont_room = max(1, room - 4)
-        bar = tasks_bar(info.get("word"), info.get("sentence"))
+        bar = tasks_bar(info.get("word"), last)
         if bar or free < sent_room:
             # a tasks bar too long for the column is never wrapped, which drops its colours, and
             # a row without ten cells left starts nothing: either goes under its row, the bar
@@ -1209,8 +1257,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     light crosses that bar as the pointer comes onto it (`motion.glinting`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
-    `x close` while that seat is done and `x remove` while it is stopped (`closed` on its row,
-    `orch.ghost`).  `ask` is the seat `x` is asking about and the card it
+    `x close` while that seat is done; `p past` is on it while a seat the owner stopped is
+    offered (`closed` on its row, `orch.ghost`), the past screen's.  `ask` is the seat `x` is
+    asking about and the card it
     asks on (`terminal.confirm`): the card is drawn under its row, the rows below moving down,
     and `drawn["ask"]` is the screen row of its first line.
 
@@ -1241,10 +1290,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if cursor not in order:
         cursor = next((name for name in order if isinstance(name, str)),
                       order[0] if order else None)      # a seat before any heading
-    stopped = {session["name"] for session in found if session.get("closed")}
-    if owned and (own or cursor) in stopped:
-        keys = keys.replace("x stop", "x remove", 1)
-    elif owned and words.get(own or cursor) == "done":
+    if past_offered(found):
+        keys = keys.replace("c config", "p past   c config", 1)
+    if owned and words.get(own or cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
     asking, card = ask or (None, ())
     asked = list(card) if asking in words else []
@@ -1564,10 +1612,10 @@ def session_runs(name):
 def stop_means(runs):
     """What `Stop` means on the card `x` asks on: `runs`, how many runs stop with the seat, or
     None while they are counted, and what becomes of the seat: `orch.cmd_stop` keeps its record,
-    so its number reopens it, and a second `x` removes it."""
+    so the past screen reopens it (`show_past`)."""
     stop = ("Its runs stop" if runs is None else "No runs stop" if not runs
             else "1 run stops" if runs == 1 else f"{runs} runs stop")
-    return f"{stop} with it; the session stays listed: its number reopens it, x on it again removes it."
+    return f"{stop} with it; the session moves to past sessions, p, where it reopens where it stopped."
 
 
 def stop_question(name):
@@ -1577,7 +1625,7 @@ def stop_question(name):
 
 def close_seat(name, dry_run):
     """End that seat and everything it runs, asking nothing: `x` on a done seat, or `Stop`;
-    on a stopped seat, take it off the list.
+    on a stopped seat, `x` on the past screen, take it off the list.
 
     Its runs stop first, as `stop_session` stops them, then `orch.cmd_stop` takes their
     checkouts and the tmux session and keeps the seat -- or, stopped already, takes it.
@@ -1596,22 +1644,26 @@ def stop_session(found, dry_run):
     """`x` read a line at a time -- a pipe, a file: which seat, then one question, and nothing else.
 
     With the keyboard `x` is the highlighted seat's instead (`loop`, `close_seat`).  The seat is
-    picked by number or by name; Esc and an empty Enter go back
+    picked by the number the main screen gives it or by name, among the ones not stopped already
+    -- a stopped one keeps its number for the past screen (`show_past`), where it is removed,
+    and is never asked about here; Esc and an empty Enter go back
     to the menu, as does anything but `y` to the one question, which says, as the
-    keyboard's card does, that its number reopens the seat. Its runs stop
+    keyboard's card does, that the past screen reopens the seat. Its runs stop
     first, the same way `ak run stop` stops one, so none is left to read as an
     accident afterwards. `ak orch stop` then removes the checkouts and the tabs, and
     keeps the seat.
     """
-    if not found:
+    offered = {number: session for number, session in enumerate(found, 1)
+               if not session.get("closed")}
+    if not offered:
         pause("no session to stop")
         return
     terminal.frame("stop")
-    choice = terminal.ask("Stop", found[0]["name"],
-                          [session["name"] for session in found], read=read)
+    names = [session["name"] for session in offered.values()]
+    choice = terminal.ask("Stop", names[0], names, read=read, numbers=list(offered))
     if not choice:
         return
-    session = next(session for session in found if session["name"] == choice)
+    session = next(session for session in offered.values() if session["name"] == choice)
     if dry_run:
         stop_session_runs(session["name"], dry_run=True)
         print(f"would stop {session['name']}")
@@ -2675,7 +2727,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     clicked; a cell that only explains is none.  The pointer does the same and acts on nothing,
     the cell it is on lit.  `act` is
     `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
-    resize, the pointer, or `timeout` seconds with no key -- and the key's name otherwise.
+    resize, the pointer, or `timeout` seconds with no key -- a character key's character, and
+    any other key's name.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
@@ -2704,7 +2757,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         return None, here, None, top
     if clock is not None and key.name != "point":
         clock.settle()                # a key ends what moves on its last frame
-    act, column = key.name, None
+    act, column = key.char if key.name == "char" else key.name, None
     if act in ("click", "point"):
         spot = terminal.under(key, spots)
         if spot.what is not None:
@@ -3287,7 +3340,7 @@ def config_audit(cfg):
     """
     terminal.frame("config · weekly audit", [
         "  " + part for text in (audit_value(cfg), "Executors and reviewers are space-separated; "
-                                 "none: the orchestrator builds alone.")
+                                 "none as the executors: the orchestrator builds alone.")
         for part in terminal.wrap(text, terminal.layout_width() - 2)])
     answers = {}
     for key, prompt in (("on", "On (on/off): "), ("orchestrator", "Orchestrator: "),
@@ -3305,9 +3358,11 @@ def config_audit(cfg):
         table["on"] = answers["on"] == "on"
     if answers["orchestrator"]:
         table["orchestrator"] = answers["orchestrator"]
+    # `none` empties the executors only as the whole answer: anywhere else it is a name, which
+    # config.audit takes when a model has it and refuses when none does
     for role in ("workers", "reviewers"):
         if answers[role]:
-            table[role] = [name for name in answers[role].split() if name != "none"]
+            table[role] = [] if (role, answers[role]) == ("workers", "none") else answers[role].split()
     try:
         config.audit({**cfg, "audit": table})
         config.save({**cfg, "audit": table})
@@ -3618,6 +3673,100 @@ def show_features(checkout, dry_run=False):
                          features_flip(checkout, feature, column))
 
 
+def past_offered(found):
+    """Whether the past screen has a row, so `p` is a key and the key line offers it: a seat
+    the owner stopped is among `found` (`closed`, `orch.ghost`)."""
+    return any(session.get("closed") for session in found)
+
+
+def past_body(past, at=None):
+    """The past screen's lines, one a stopped seat -- its number, name, project, how long ago
+    it was stopped and, where its harness starts it fresh, that -- and where each is,
+    {line: (("row", name), [])}.  `at` is the highlighted seat's name, or None while the
+    pointer is off the rows."""
+    rows = [(str(number), session["name"],
+             orch.project_name(session.get("repo"), ""),
+             f"stopped {orch.age(session['closed'])} ago", session.get("restart") or "")
+            for number, session in past]
+    widths = [max(terminal.cells(row[column]) for row in rows) for column in range(4)]
+    room = terminal.layout_width() - 4 - widths[0]
+    # the project goes where a row has no room for it beside the name and when; the name is
+    # cut, never wrapped, to what the when leaves it
+    columns = (1, 2, 3) if sum(widths[1:]) + 4 <= room else (1, 3)
+    widths[1] = min(widths[1], room - 2 - widths[3] - (widths[2] + 2 if 2 in columns else 0))
+    lines, places = [], {}
+    for row in rows:
+        rest = "  ".join(terminal.pad(row[column], widths[column]) for column in columns)
+        if row[4] and terminal.cells(rest) + 2 + terminal.cells(row[4]) <= room:
+            rest += "  " + row[4]      # that it starts fresh rides only where the row has room
+        line = "  " + _styled_cell(row[0], widths[0], "dim", right=True) + "  " + terminal.cut(
+            rest, room, spaced=True)
+        places[len(lines)] = (("row", row[1]), [])
+        lines.append(terminal.highlight(line) if at == row[1] else line)
+    return lines, places
+
+
+@terminal.clicks_its_own
+def show_past(cfg, found, dry_run=False, keyboard=None):
+    """`past sessions`, `p`: the seats you stopped, each with its number, its project and how
+    long ago, for the one you want back.  ↑/↓, k/j and the wheel move the highlight; Enter or a
+    click reopens one where it stopped (`open_session`, what its number does on the main screen)
+    and the menu is back; `x` removes the highlighted one at once (`close_seat`, the second
+    stop), the rest staying up; Esc goes back.  From a pipe a number reopens, `x` asks which to
+    remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
+    """
+    here, top = None, 0
+    while True:
+        past = [(number, session) for number, session in enumerate(found, 1)
+                if session.get("closed")]
+        if not past:
+            return
+        names = [session["name"] for _, session in past]
+        here = here if here in names else names[0]
+        if not terminal.taken():
+            keys = "x remove   esc back"
+            terminal.frame("past sessions", past_body(past)[0], keys)
+            if dry_run:
+                return
+            line = read("> ", "")
+            if not line or terminal.is_esc(line):
+                return
+            if line.isdecimal() and line.isascii() and 1 <= int(line) <= len(found):
+                if found[int(line) - 1].get("closed"):
+                    open_session(cfg, found[int(line) - 1], dry_run)
+                    return
+                pause(f"no past session {line}", keys)
+            elif line.lower() == "x":
+                choice = terminal.ask("Remove", names[0], names, read=read,
+                                      numbers=[number for number, _ in past])
+                if choice:
+                    close_seat(choice, dry_run)
+                    found = [session for session in found if session["name"] != choice]
+            else:
+                pause(f"not a key: {line!r}", keys)
+            continue
+        keys = PAST_KEYS[0 if terminal.utf8() else 1]
+        body, places = past_body(past, None if terminal.away() else here)
+        act, row, _column, top = matrix_key("past sessions", body, places,
+                                            [("row", name) for name in names], ("row", here),
+                                            top, "", keys)
+        here = row[1]
+        if act is None:
+            continue              # a resize or the pointer: drawn again
+        if act == "back":
+            return
+        if act == "enter":
+            keyboard.give()       # the seat has the terminal while he is in it
+            open_session(cfg, next(session for _, session in past if session["name"] == here),
+                         dry_run)
+            return
+        if act == "x":
+            keyboard.give()       # the stop says what it did where it can be read
+            close_seat(here, dry_run)
+            keyboard.take()
+            found = [session for session in found if session["name"] != here]
+
+
 def move_keys():
     """The key line's first two items while the menu has the keyboard; ASCII without UTF-8."""
     return "↑↓ move   ⏎ open" if terminal.utf8() else "j/k move   enter open"
@@ -3669,7 +3818,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     does.  Nothing is read between a key and its frame: the seats, their runs and their rows
     are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
     that did more than move the highlight, and within STIR of a record changing -- and every
-    draw is what the last read left, drawn again when the next one lands.  The clock and those
+    draw is what the last read left, drawn again when the next one lands.  While the owner is in
+    a seat it opened, or on the screen that opens one, nothing is read but by the pass a seat
+    listed was still owed, and back it reads once, at once, before it draws, as when it opened
+    (`Live.away`).  The clock and those
     keys have every seat looked at again as well, in a thread of its own (`Live.look`), so no
     seat's capture holds up a read or a draw: the first draw is the records as they stand, and
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
@@ -3693,13 +3845,17 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     stays on its seat whatever comes or goes above it.  A key that does nothing here is let
     go without a word, `i` among them, and every key that does something gives the terminal back
     before it does it -- but `c`, `n` and `x`'s question, which are read with the keys on
-    the screen the menu has: `x` on a done seat closes it at once, on a stopped one removes it
-    at once, and on any other asks `Keep` or `Stop` under its row, Enter or a click answering
-    and Esc keeping it.  Esc, and a click
+    the screen the menu has: `x` on a done seat closes it at once and on any other asks `Keep`
+    or `Stop` under its row, Enter or a click answering and Esc keeping it; `p` opens the past
+    screen (`show_past`) on the same keys, and is a key only while the key line offers it
+    (`past_offered`).  Esc, and a click
     on `esc leave`, leaves at once, whatever a thread is doing (`Live.close`); `q` is no key.
+
+    A test driving this mocks `wait_key` beside `read`: the real wait selects on stdin, and a
+    stdin that never delivers EOF redraws forever instead of finishing.  It leaves `Live`'s
+    probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
     """
     keys = OVERLAY_KEYS if overlay else KEYS
-    actions = ("n", "x", "c")
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
@@ -3712,9 +3868,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
-        live.watch(last)                  # read once before the first draw, looked at behind it
-        while True:
-            if look:
+        back = True                       # read before the draw: the first, and one back from
+        while True:                       # a seat (`Live.away`)
+            if back:
+                live.watch(last)          # read once, now, looked at behind it
+                back = False
+            elif look:
                 live.ask(look=True)       # read and looked at again, off the draw
             messages = orch.job_notices() + live.heard()
             if updates:
@@ -3735,6 +3894,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 os.execve(sys.executable, [sys.executable, *sys.argv],
                           {**os.environ, "AK_MENU_CURSOR": str(cursor or "")})
             found, groups = last          # after any notice: what changed under it is drawn as is
+            past = not overlay and past_offered(found)
+            actions = ("n", "x", "c", "p") if past else ("n", "x", "c")
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else f"{move_keys()}   {keys}"
@@ -3812,10 +3973,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
             if key == "x" and drawn is not None and seat in drawn["words"]:
-                # the seat it acts on: a done one closes at once, a stopped one is taken off the
-                # list at once, any other is asked under its row
-                stopped = any(s.get("closed") for s in found if s["name"] == seat)
-                if drawn["words"][seat] != "done" and not stopped:
+                # the seat it acts on: a done one closes at once, any other is asked under its row
+                if drawn["words"][seat] != "done":
                     cursor = seat
 
                     # its runs are counted off the draw, so the card is up at once whatever
@@ -3838,8 +3997,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 keyboard.give()
                 close_seat(seat, dry_run)
                 continue
-            if key not in ("c", "n", "r"):
+            if key not in ("c", "n", "p", "r"):
                 keyboard.give()           # whatever the key opens has the terminal as it was
+            if key.isdigit() or key in ("n", "p"):
+                back = True               # each can hand the owner a seat, where nothing is read
+                live.away()
             if key.isdigit():
                 if 1 <= int(key) <= len(found):
                     open_session(cfg, found[int(key) - 1], dry_run)
@@ -3862,6 +4024,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 # read with the keys, too; the looks and probes go on with what it saved
                 cfg = live.cfg = show_config(dry_run, keyboard,
                                              seat if isinstance(seat, str) else None) or cfg
+            elif key == "p" and past:
+                show_past(cfg, found, dry_run, keyboard)    # read with the keys, too
             elif key in ("j", "k") and pages > 1:
                 page = (page + (1 if key == "j" else -1)) % pages
             elif key:

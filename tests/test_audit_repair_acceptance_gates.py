@@ -250,7 +250,7 @@ skip_unavailable() { return 1; }
         snapshot = {"providers": {p: {"exhausted_until": 9999999999}
                     for p in config.load()["providers"]}}
         (self.root / 'spent.json').write_text(json.dumps(snapshot))
-        browser = between(SMOKE, '# 31d/31e: real calls', '\nfi\n\n# --- 32:')
+        browser = between(SMOKE, '# --- 31d:', '\n# --- 32:')
         prerequisite = between(SMOKE, '# --- 4d:', '\nfi\n\n# --- 5:').rsplit('\nfi', 1)[0] + '\nfi\n'
         result = self.shell('ak() { cat "$WORK/spent.json"; }\n' + loop
                             + 'spent_until() { echo "provider tomorrow"; }\n' + skipped
@@ -371,7 +371,7 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         (self.bin / ".muse-release-info.json").write_text('{"version":"1.0.0-R1"}\n')
         real_step = update.step
         real_version = update.version
-        def step(cmd, fh, env=None, timeout=None):
+        def step(cmd, fh, env=None, timeout=None, **_kw):
             if cmd[0] == "bash":
                 self.assertEqual(env["AGENTKIT_ACCEPTANCE_REQUIRED"], "1")
                 return real_step(["/bin/bash", "-c", self.common + 'skip "3a codex: spent"; finish'], fh, env)

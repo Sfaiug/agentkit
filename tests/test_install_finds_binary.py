@@ -189,7 +189,7 @@ class InstallFindsBinary(unittest.TestCase):
                  "env": {}, "cannot": ""}]
         real_step = update.step
 
-        def fake_step(cmd, fh, env=None, timeout=None):
+        def fake_step(cmd, fh, env=None, timeout=None, **_kw):
             if Path(cmd[0]).name == "opencode":
                 return real_step(cmd, fh, env, timeout)
             self.assertEqual(cmd[0], "bash")   # only the gates take another road

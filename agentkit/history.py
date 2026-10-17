@@ -68,7 +68,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("changed_lines", "INTEGER"), ("live_at", "REAL"), ("slot_wait_seconds", "REAL"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
-              ("merge_sha", "TEXT"), ("parked_at", "REAL"))
+              ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -97,6 +97,16 @@ CREATE TABLE IF NOT EXISTS reviews (
 )
 """
 
+# The owner's time, one row per moment and no seat named: each is whole when written, so no
+# rename, reused name or order of hooks can change it later.
+OWNER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS owner (
+    at REAL,
+    kind TEXT,
+    waited REAL
+)
+"""
+
 
 def path():
     """The history database follows the configured HOME, including test homes."""
@@ -114,6 +124,7 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
+    connection.execute(OWNER_SCHEMA)
     have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
     for name, kind in MIGRATIONS:
         if name not in have:
@@ -220,6 +231,14 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
 def update_run(run_id, *, log=None, **fields):
     """Update known row fields, silently retaining unknown state keys."""
     _write(lambda connection: _update(connection, run_id, fields), log)
+
+
+def first_review(run_id, lines, *, log=None):
+    """Record the lines a change's first review reads, once: a review resumed before its verdict,
+    the work grown or the target moved meanwhile, keeps the size first read."""
+    _write(lambda connection: connection.execute(
+        "UPDATE runs SET first_review_lines=COALESCE(first_review_lines,?) WHERE run_id=?",
+        (lines, run_id)), log)
 
 
 def _update(connection, run_id, fields):
@@ -342,6 +361,28 @@ def parks(since, until):
                 return [row[0] for row in connection.execute(
                     "SELECT parked_at FROM runs WHERE parked_at >= ? AND parked_at <= ?",
                     (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+
+
+def owner_time(kind, at, waited=None, *, log=None):
+    """A moment of the owner's time: a question a seat `asked` them, a card `paged` to them, or
+    a question `answered`, `waited` seconds after it was asked."""
+    _write(lambda connection: connection.execute(
+        "INSERT INTO owner (at, kind, waited) VALUES (?, ?, ?)", (at, kind, waited)), log)
+
+
+def owner(since, until):
+    """The moments of the owner's time in the inclusive range, `(at, kind, waited)` as
+    `owner_time` wrote them; None where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute("SELECT at, kind, waited FROM owner WHERE at >= ? AND at <= ?",
+                                          (since, until)).fetchall()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

@@ -46,7 +46,7 @@ from http.client import HTTPException
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from . import command_help, config, retention, transitions
+from . import command_help, config, history, retention, transitions
 from . import record as run_record
 from . import harness
 
@@ -472,10 +472,18 @@ def answered(session, at):
         previous["answered_at"] = at
         if not resolved(previous):
             return
+        waited(previous, at)
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     from . import watch    # here, not at the top: watch imports this module
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
+
+
+def waited(notice, at):
+    """Each question that notice asks the owner is answered at `at`: one wait apiece, from when
+    it was last asked (`_said` dates them)."""
+    for asked in (notice.get("asked_at") or {}).values():
+        history.owner_time("answered", at, at - asked)
 
 
 def job_done(notice):
@@ -530,9 +538,9 @@ def progress(session, capture, seat_harness):
     Capture under the notice lock: output sampled before an open or a newer notify cannot
     resolve it. Empty captures and viewport resizing are not evidence of resumed work, and
     neither is output once ak has typed a line of its own into the seat since the open -- a
-    hand-back, a wait's end, an idle `/compact`: the seat's turn, not the owner's answer, which
-    its harness's prompt hook then reports.  A line typed before the open is history, and so is
-    one typed where no prompt hook reports anything: there this output is the only answer.
+    hand-back, a wait's end: the seat's turn, not the owner's answer, which its harness's prompt
+    hook then reports.  A line typed before the open is history, and so is one typed where no
+    prompt hook reports anything: there this output is the only answer.
     Nor is any output the answer to the seat's own question where `seat_harness`, its harness
     (None for a seat ak has no record of), reports his prompts: a seat asks with `ak notify
     needs` and works on, so its screen moves whether he answered or only looked, and his prompt
@@ -562,6 +570,7 @@ def progress(session, capture, seat_harness):
             extra["open_needs"] = []
         record(session, previous["kind"], previous["text"], **extra)
         if resolved(extra):
+            waited(extra, extra["last_progress_at"])
             close_needs(previous, "Answered")
             return True
 
@@ -727,6 +736,8 @@ def _attempt(event):
     receipt = {}
     post(event["payload"], [], event["message"], receipt)
     event["status"] = receipt["status"]
+    if event["status"] == "delivered":
+        history.owner_time("paged", time.time())
     event["receipt"] = {k: receipt[k] for k in ("message_id", "webhook") if k in receipt}
     if receipt.get("error"):
         event["error"] = receipt["error"]
@@ -1461,20 +1472,26 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
         # the seat's screen says what the alert would.  Taken in its place, the question was
         # lost once the alert was retracted, though nobody had answered it.
         return previous
+    fresh = 0     # the questions this notice asks the owner for the first time
     if kind == "needs":
         standing = (questions(previous) if watch.owner_question(previous)
                     and not resolved(previous) else [])
+        if standing and at is not None:
+            at = max(at, previous["time"])
         asked, seen = list(standing), {" ".join(q.split()).casefold() for q in standing}
+        dated = dict(previous.get("asked_at") or {}) if standing else {}
         for question in [text] if isinstance(text, str) else text:
             words = " ".join(question.split()).casefold()
             if words not in seen:
                 seen.add(words)
                 asked.append(question)
+            dated[words] = time.time() if at is None else at
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
-        if standing and at is not None:
-            at = max(at, previous["time"])
+        if not extra["watcher"]:
+            fresh = len(asked) - len(standing)
+            extra["asked_at"] = dated
     earlier = previous and previous.get("answered_at", previous.get("earlier_answer_at"))
     if earlier:
         # The answer ends its card's episode at the next tick; the newer notice carries it
@@ -1490,6 +1507,8 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     if at is not None:
         extra["time"] = at
     record(name, kind, text, **extra)
+    for _ in range(fresh):
+        history.owner_time("asked", time.time() if at is None else at)
     return previous
 
 

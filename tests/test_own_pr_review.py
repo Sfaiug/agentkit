@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import (config, gate, gc, gitcall, handback, history, notify, plan, run, staffing,
-                      status, task as taskfile, watch)
+                      status, task as taskfile, turns, watch)
 from agentkit import record
 
 URL = "https://github.com/acme/widget/pull/7"
@@ -119,6 +119,7 @@ class OwnPrReview(unittest.TestCase):
         self.change(taskfile.MAX_PR_LINES)          # the ceiling itself, generated files aside
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
+        firsts = []
         for background in (False, True):
             with self.subTest(background=background):
                 state, reviewer, usage, _ = self.review(background=background)
@@ -129,6 +130,36 @@ class OwnPrReview(unittest.TestCase):
                 self.assertEqual(usage.call_count, 2 if background else 1)
                 run.history_finish(state)
                 self.assertEqual(history.get(state["run_id"])["changed_lines"], taskfile.MAX_PR_LINES)
+                firsts.append(history.get(state["run_id"])["first_review_lines"])
+        # the first review records what it read; the second run reviews a PR already reviewed
+        self.assertEqual(firsts, [taskfile.MAX_PR_LINES, None])
+
+    def test_an_own_pr_review_resumed_before_its_verdict_keeps_the_size_it_first_read(self):
+        predecessor = self.change(2)
+        (self.repo / "extra.txt").write_text("extra\n")
+        head = self.commit()
+        directory = config.RUNS / "review-interrupted"
+        directory.mkdir()
+        opts = {"--review": None, "--review-pr": URL, "--no-merge": True}
+        run.capture_launch(directory, {"--review-pr": URL})
+        info = dict(state="OPEN", title="Mend the fence", author="owner",
+                    baseRefName="main", headRefOid=head, body="small fix")
+        with ExitStack() as mocks:
+            for name, value in (("pr_view", info), ("viewer_login", "owner"),
+                                ("checkout_for", self.repo), ("fetch", (0, "")),
+                                ("collect_usage", {}), ("ready_order", ["astra"]),
+                                ("make_worktree", (self.repo, "ak/pr-7"))):
+                mocks.enter_context(patch.object(run, name, return_value=value))
+            mocks.enter_context(patch.object(gc, "disk_pressure", return_value=False))
+            for name in ("exclude_junk", "join_session_project", "write_result"):
+                mocks.enter_context(patch.object(run, name))
+            mocks.enter_context(patch.object(run, "review", side_effect=turns.Exhausted("stopped")))
+            for _ in range(2):
+                with self.assertRaises(turns.Exhausted):
+                    run.review_pr_round(self.cfg, directory, URL, opts, lambda _: None)
+                # the target takes the PR's first commit while the review waits: what is left reads 1 line
+                self.git("update-ref", "refs/remotes/origin/main", predecessor)
+        self.assertEqual(history.get(directory.name)["first_review_lines"], 3)
 
     def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
         here = plan.named(self.repo)

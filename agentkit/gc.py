@@ -12,11 +12,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
 
-from . import config, gitcall, handback, host, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
+from . import config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -106,29 +107,6 @@ def stale_seat_files(now):
     return found
 
 
-def compact_pid(path):
-    """The wrapper's pid an `idle-compact/[<seat>-]<pid>.json` stamp is named for."""
-    return path.name.rpartition(".")[0].rpartition("-")[2]
-
-
-def compact_stamp_stale(path, now):
-    """`idle-compact/[<seat>-]<pid>.json` of a wrapper that is gone, a day after its last write.
-
-    tools/idle-compact.py removes its own on the way out; one killed outright cannot.
-    """
-    pid, ext = compact_pid(path), path.name.rpartition(".")[2]
-    return (ext == "json" and pid.isdigit() and not host.alive(int(pid)) and retention.safe(path)
-            and path.is_file()
-            and retention.expired(path.lstat().st_mtime, now, retention.EPHEMERAL_AGE))
-
-
-def stale_compact_stamps(now):
-    return [{"action": "remove", "kind": "compact-stamp", "path": str(path),
-             "why": f"its wrapper, pid {compact_pid(path)}, is gone"}
-            for path in retention.children(config.STATE / "idle-compact")
-            if compact_stamp_stale(path, now)]
-
-
 def tmp_protected(name):
     """Dot entries, tmux sockets and systemd-private directories: never the collector's."""
     return (name.startswith(".") or name.startswith("tmux-")
@@ -188,8 +166,19 @@ def tmp_listdir(path):
         os.close(fd)
 
 
+def tmp_changed(info):
+    """When that entry last changed.
+
+    A file or link counts its inode change too: a restored mtime (tar) backdates it.  A
+    directory counts its modification alone: systemd-tmpfiles-clean puts every directory's
+    times back after its daily pass, moving its change time, while an entry added, removed
+    or renamed inside moves its modification time anyway.
+    """
+    return info.st_mtime if stat.S_ISDIR(info.st_mode) else max(info.st_mtime, info.st_ctime)
+
+
 def tmp_tree_newest(path):
-    """The newest modification/change time, or None when it is not ours alone to take.
+    """The newest change of any entry, or None when it is not ours alone to take.
 
     Ours alone is every entry owned by this user, no link at the top, and no
     socket, fifo or device inside: links inside are unlinked, never traversed,
@@ -199,8 +188,7 @@ def tmp_tree_newest(path):
     if not retention.safe(path):
         return None
     try:
-        info = path.lstat()
-        newest = max(info.st_mtime, info.st_ctime)
+        newest = tmp_changed(path.lstat())
     except OSError:
         return None
     if not path.is_dir():
@@ -220,12 +208,11 @@ def tmp_tree_newest(path):
                 return None
             if info.st_uid != os.getuid():
                 return None
+            newest = max(newest, tmp_changed(info))
             if child.is_symlink():
-                newest = max(newest, info.st_mtime, info.st_ctime)
                 continue
             if not retention.safe(child):
                 return None
-            newest = max(newest, info.st_mtime, info.st_ctime)
             if child.is_dir():
                 stack.append(child)
     return newest
@@ -676,7 +663,6 @@ def gc_candidates(now=None):
     yield from retention.ephemeral_plan(now, pressure, paths)
     yield from stale_worktrees(now, paths)
     yield from stale_seat_files(now)
-    yield from stale_compact_stamps(now)
     yield from retention.harness_plan()
     yield from stale_tmp_entries(now)
     yield from stale_repo_tmp_entries(now)
@@ -748,9 +734,8 @@ def gc(report, automatic=False):
                 try:
                     # the planner's own proof once more, now: a seat launched under the name,
                     # a wrapper or a run back in the checkout since, and it all stays
-                    if item["kind"] in ("seat-file", "compact-stamp"):
-                        if not (seat_file_stale if item["kind"] == "seat-file"
-                                else compact_stamp_stale)(path, time.time()):
+                    if item["kind"] == "seat-file":
+                        if not seat_file_stale(path, time.time()):
                             continue
                         retention.remove(path)
                         done = True

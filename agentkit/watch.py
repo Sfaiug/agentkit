@@ -60,8 +60,8 @@ MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its p
 MARKER = "agentkit review of"
 RETRY_BACKOFF = (600, 1800, 3600)  # after that, hourly; a head is never abandoned
 KEY_GAP = 0.5           # text and Enter go separately: a return in the same read as the text
-                        # is absorbed by the TUI, leaving the line unsent; equal to KEY_GAP in
-                        # tools/idle-compact.py, measured on Codex 0.153.4 and Muse 1.2.1
+                        # is absorbed by the TUI, leaving the line unsent; measured on Codex
+                        # 0.153.4 and Muse 1.2.1, 0.10 s still lost it and 0.15 s did not
 SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
@@ -1722,7 +1722,8 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
     # Esc ends a turn with no Stop, a question's turn too: the dialog goes with it.
-    if hooked in ("working", "asking") and interrupted is not None and interrupted >= when:
+    stopped = hooked in ("working", "asking") and interrupted is not None and interrupted >= when
+    if stopped:
         hooked, spoken = "at_prompt", "the owner interrupted its turn"
     if hooked and authority.get(hooked) == "hooks" and seen in (None, hooked):
         state, source, why, evidence, began = hooked, "hook", event, spoken, when
@@ -1751,7 +1752,10 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
             # `session_state` reads it for the one thing the manifest reserves to hooks,
             # and which event said it, so a Stop on background work is not a turn in flight
             # for his own unsent text
-            "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None}
+            "hooked": hooked, "hooked_at": when, "hooked_event": event if hooked else None,
+            # the owner stopped its last turn, as recorded or by a hook event its manifest marks
+            # `interrupt`: until their next prompt the seat rests
+            "interrupted": stopped or event in marked_events(harness, "interrupt")}
 
 
 def seat_read(name):
@@ -1914,7 +1918,7 @@ def _composer_open(harness, found):
     """Is that seat's turn over with its composer open: no turn in flight, or a Stop on
     background work, which its manifest marks and whose composer takes a line at once."""
     return (not _turn_in_flight(harness, found)[0]
-            or found.get("hooked_event") in _background_stops(harness))
+            or found.get("hooked_event") in marked_events(harness, "background"))
 
 
 def keeps_back(name):
@@ -2024,25 +2028,26 @@ def ask_kept_back(name, harness, found, held=False):
         pass
 
 
-def _background_stops(harness):
-    """Hook events the manifest marks as background waits, or ().  No names live here."""
+def marked_events(harness, mark):
+    """Hook events the manifest marks with `mark` (a background wait, an interrupt), as
+    `hook_state` names them, or ().  No names live here."""
     try:
         events = (config.manifest(harness).get("hooks") or {}).get("event") or ()
     except config.Error:
         return ()
-    stops = []
+    marked = []
     for entry in events:
-        if not isinstance(entry, dict) or not entry.get("background"):
+        if not isinstance(entry, dict) or not entry.get(mark):
             continue
         name = entry.get("name")
         if not isinstance(name, str):
             continue
         kinds = entry.get("kinds")
         if isinstance(kinds, list):
-            stops.extend(f"{name}/{kind}" for kind in kinds if isinstance(kind, str))
+            marked.extend(f"{name}/{kind}" for kind in kinds if isinstance(kind, str))
         else:
-            stops.append(name)
-    return tuple(stops)
+            marked.append(name)
+    return tuple(marked)
 
 
 def look_at(session, cfg=None, pane=None, now=None):
@@ -2096,6 +2101,22 @@ def plan_progress(name):
     return (done, total)
 
 
+def unsent(name, harness, found, session):
+    """`unsent: <text>` for typed text nobody sent at a quiet prompt once nobody is in the seat
+    to see it, else "".  Text in the composer never changes the word (owner, 14 Oct 2026): it
+    is a reason, so the seat the owner left reads what its runs and its turn say and still shows
+    what they never sent.  Three seats once read `working` over their own unsent text for
+    nineteen hours while they believed each had their message.  While a client is attached it
+    is their typing; a Stop on background work is a quiet prompt, its composer open, and so is
+    a turn refused for usage, whose hooks never saw it end (`usage_wait`)."""
+    if (not harness or any(session.get(key) for key in orch.CLOSED) or session.get("attached")
+            or found.get("state") != "draft"
+            or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
+        return ""
+    text = " ".join(str(found.get("evidence") or "").split())
+    return f"unsent: {text}" if text else ""
+
+
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
                   previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
@@ -2117,9 +2138,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       harness, because any seat's next turn on it can be the one that fails;
     * a question on its screen is him even during a turn, and so is one it asked with `ak
       notify needs` that nothing has answered (its own, from the end of the turn it asked
-      in: `keeps_back`); so is typed text nobody sent while no client
-      is attached and no turn is in flight -- the question, or `unsent: <text>` -- and a
-      move to another account that failed, whatever its runs do;
+      in: `keeps_back`); so is a move to another account that failed, whatever its runs do;
     * a run it launched is unfinished and resumes itself, so the seat is working;
     * a harness turn is in flight, so the seat is working (a turn past three hours says so
       in its reason and keeps the word) -- parked run or not;
@@ -2157,6 +2176,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
     always was, and no word of the seat's to every screen.
 
+    Typed text nobody sent is never a word: once no client is attached, whatever the ladder
+    says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
+    fact a row's last column reads it from (`menu.last_column`).
+
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
     number are read from `orch.listing(reconcile=False)` and never from the reconciling one.
@@ -2184,6 +2207,10 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
                             silent, live, harness, auth_out, gh_out, token_out, jobs,
                             menu_mod, run_mod, terminal_mod)
+    draft = unsent(name, harness, live, session)
+    if draft:
+        answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
+        answer["unsent"] = draft
     # `since` is the beginning of this run of this word, the way the classifier carries
     # `began`: unchanged, it keeps counting from where it started; changed, it starts now,
     # because a fact older than the change is not when the word began.  Only the first
@@ -2230,7 +2257,8 @@ def announce_state(session, cfg=None, look=False, **facts):
                 or previous.get("word_since") != answer["since"]
                 or previous.get("word_from") != decided):
             seat_write(name, word=answer["word"], reason=answer["reason"],
-                       word_since=answer["since"], word_from=decided)
+                       unsent=answer.get("unsent", ""), word_since=answer["since"],
+                       word_from=decided)
         statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
         if previous.get("word") != answer["word"]:
             statusbar.retell(session)
@@ -2294,17 +2322,18 @@ def start_look(launched):
         return None
 
 
-def still_owed(name, mine, index):
+def still_owed(name, mine, index, stopped):
     """Why a seat with nothing running and nothing asked on its screen or in its notices is
     still the owner's, or None where it rests.  Work its plan owes is a turn the stop hook let
     stand on its third stop, or one a harness it cannot send back left: the stop hook's own test
-    says which (`stop.owed_line`), so this word and the turn's end never disagree; so does a
+    says which (`stop.owed_line`), so this word and the turn's end never disagree -- except after
+    a turn the owner `stopped`: they are in the seat and know (owner, 14 Oct 2026).  So does a
     question it kept back for its turn's end.  A done it said that a run of its own then
     failed stays theirs after the card pass marks that done seen.  Any other ending of its runs
     is typed into the seat at its next quiet prompt, so it is the seat's to act on, not theirs.
     `mine` is the seat's own (run_dir, state) pairs, `index` their supersession index."""
     from . import stop as stop_mod    # stop imports this module
-    line = stop_mod.owed_line(name)
+    line = None if stopped else stop_mod.owed_line(name)
     if line is not None or seat_read(name).get("unasked"):
         return f"stopped with work open: {line}" if line else "stopped with work open"
     declared = notify.last(name, include_seen=True)
@@ -2370,26 +2399,18 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     reason, since = token_alert(token_out)
     if reason:
         return {"word": "needs you", "reason": reason, "since": since}
-    # 1d. typed text nobody sent at a quiet prompt, or a question even during a turn: that is
-    # him, whatever its runs are doing.  Three seats read `working` over his own unsent
-    # text for nineteen hours while he believed each had his message.  A draft is not that
-    # while a client is attached to the seat -- it is his typing, and the seat reads as its
-    # runs and its turn say -- but a question is his to answer wherever he is, and its card
-    # is held back while he is in the seat by the card rule itself.  A Stop on background
-    # work is a quiet prompt here: its composer is open, so a line typed there is not sent.
-    # A seat nobody is in has no screen, so its record is history.
+    # 1d. a question on its screen, even during a turn: that needs the owner, whatever its runs
+    # are doing, and its card is held back while they are in the seat by the card rule itself.
+    # Typed text nobody sent is no word of its own: `unsent` adds it to the reason.  A seat
+    # nobody is in has no screen, so its record is history.
     gone = any(session.get(key) for key in orch.CLOSED)
     # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
     # shows, no turn is in flight until ak resumes it (3b).
     waiting = None if gone or seat_closed_by_owner(name) else seat_read(name).get("usage_wait")
-    if (harness and not gone and found.get("state") in ("asking", "draft")
-            and (found["state"] == "asking" or not session.get("attached"))
-            and (found["state"] == "asking" or waiting or _composer_open(harness, found))):
+    if harness and not gone and found.get("state") == "asking":
         asked = " ".join(str(found.get("evidence") or "").split())
-        if found.get("state") == "draft":
-            asked = f"unsent: {asked}"
         return {"word": "needs you", "reason": asked or "waiting for you",
-                "since": found.get("began"), "question": found["state"] == "asking"}
+                "since": found.get("began"), "question": True}
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
@@ -2489,10 +2510,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 "resumes_at": waiting["until"]}
     # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
     # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
-    # seat's own standing until a newer notice, but a question on its screen, typed text
-    # nobody sent, or a question it kept back for its turn's end outranks it.  Read here,
-    # once, for the live-check wait below and for rung 5.
-    if last and last["kind"] == "done" and (found.get("state") in ("asking", "draft") or (
+    # seat's own standing until a newer notice, but a question on its screen or a question it
+    # kept back for its turn's end outranks it; typed text nobody sent only joins its reason.
+    # Read here, once, for the live-check wait below and for rung 5.
+    if last and last["kind"] == "done" and (found.get("state") == "asking" or (
             not jobs and notify.job_done(last)) or seat_read(name).get("unasked")):
         last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
@@ -2582,8 +2603,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if asked:
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # Nothing running, asked or owed: the seat rests and nothing on it is the owner's to do -- a
-    # new seat, a conversation that ended, a plan it finished.
-    owed = still_owed(name, mine, index)
+    # new seat, a conversation that ended, a plan it finished, a turn the owner stopped.
+    owed = still_owed(name, mine, index, found.get("interrupted"))
     if owed is None:
         return {"word": "idle", "reason": "", "since": found.get("began")}
     return {"word": "needs you", "since": found.get("began"), "reason": owed}
@@ -2933,12 +2954,11 @@ def _send_enter(session, log):
     return True
 
 
-def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None):
+def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
     """Type one literal line; the caller waits KEY_GAP before sending its Enter.
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
-    A pty sender supplies `send(text)`; both transports share the same typing receipt.
     None means unread input deferred this line before any receipt or key was written.
     """
     if pane_unread(session):
@@ -2956,8 +2976,8 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", send=None
         # A restart between text and Enter must still know whose line is in the composer.
         fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
         fh.flush()
-        rc, out = (send(text) if send else orch.tmux_out(
-            "send-keys", "-t", f"={name}:", "-l", text, socket=orch.seat_socket(session)))
+        rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "-l", text,
+                                socket=orch.seat_socket(session))
         if rc != 0:
             fh.truncate(before)
             log(f"WARN could not type into the {name} seat: {out[-200:]}")
@@ -3397,7 +3417,7 @@ def takes_line(session, cfg=None, pane=None):
         found = live_state(session, harness, pane=pane, cfg=cfg)
     except (config.Error, OSError):
         return False
-    return found.get("hooked_event") in _background_stops(harness)
+    return found.get("hooked_event") in marked_events(harness, "background")
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -3516,6 +3536,12 @@ PREEXISTING_NOTE = "pre-existing ending; not replayed"
 OWNER_CLOSED_REASON = "session closed by the owner"
 
 
+def seat_stopped_at(name):
+    """When the owner stopped that seat (`orch.cmd_stop`, `orch.mark_owner_closed`), or None:
+    the mark in its state file, which a launch under the name clears again."""
+    return seat_read(name).get("stopped_at") or None
+
+
 def seat_closed(name):
     """Whether that seat stays gone: `ak orch stop` ended it, or nothing of it is left.
 
@@ -3523,7 +3549,7 @@ def seat_closed(name):
     clears it again.  A seat with neither a pane nor a record was stopped, forgotten or never
     agentkit's to open: there is nothing to bring back, and the owner is asked as before.
     """
-    if seat_read(name).get("stopped_at"):
+    if seat_stopped_at(name):
         return True
     return not orch.find(name) and not config.session_records().get(name)
 
@@ -6354,9 +6380,10 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     tries again, and with the composer's mark kept across retries, so a line whose Enter
     did not land is entered and never typed a second time.  True when the line was told.
     """
-    line = handback.seat_notice(line, {}, run_dir,
-                              f"run {run_dir.name}: a check failed after its merge.",
-                              "Fix the target.")
+    if run_dir is not None:
+        line = handback.seat_notice(line, {}, run_dir,
+                                  f"run {run_dir.name}: a check failed after its merge.",
+                                  "Fix the target.")
     try:
         session = transitions.launched_session(run_state)
     except config.Error:

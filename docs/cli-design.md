@@ -159,12 +159,23 @@ checkouts and tmux session and keeps the seat, its number reopening it. Any
 other it asks about
 on the question card (Questions), under that seat's row, the rows below moving
 down: `Stop <name> and everything it runs?`, then how many runs stop with it
-and that the session stays listed, its number reopening it and `x` on it again
-removing it; the key line reads `esc back` while it asks. The runs are counted off the draw, so the card is up at
+and that the session moves to past sessions, where it reopens where it
+stopped; the key line reads `esc back` while it asks. The runs are counted off the draw, so the card is up at
 once: `Its runs stop` until the number lands. The key line says `x close` while
-a done seat is highlighted (in the popup, while its own seat is done), `x
-remove` while a stopped seat is, and `x stop` otherwise, and a done
+a done seat is highlighted (in the popup, while its own seat is done) and `x
+stop` otherwise, and a done
 seat's tmux bar reads `Ctrl-b m  x close` at the right end of its second line.
+
+A stopped seat has no row under its project: it keeps its number on the past
+screen, `p`, which the key line offers as `p past` while there is one. The
+screen is `past sessions` over one row a stopped seat -- number, name,
+project, `stopped 2h ago`, and its harness's word where it cannot resume the
+conversation -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`: Enter or a
+click reopens the highlighted seat where it stopped, as its number does from
+the main screen, and the menu is back; `x` removes it at once, the rest
+staying up; Esc goes back. From a pipe a number reopens, `x` asks which to
+remove by the same numbers, and an empty line goes back. The sweep removes a stopped seat on its
+own a week after the stop.
 
 A stdin that is no terminal -- a pipe, a file, the smoke suite -- keeps the
 line menu: a key and Enter, and the key line
@@ -245,7 +256,7 @@ Helpers: `terminal.confirm`, `terminal.choose`.
 
 Example:
 `  Stop fix-api and everything it runs?`
-`  2 runs stop with it; the session stays listed: its number reopens it, x on it again removes it.`
+`  2 runs stop with it; the session moves to past sessions, p, where it reopens where it stopped.`
 `› ✓ Keep`
 `  ✗ Stop`.
 

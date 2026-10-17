@@ -1,12 +1,11 @@
 """A turn the harness started itself is neither the seat's turn nor the owner's answer.
 
 A sub-agent's prompt runs through the seat's own hooks (Codex: `agent_id`; Grok: `subagentType`)
-and ends with a SubagentStop, never the seat's Stop nor its idle auto-compact's stamp; a turn the
-harness wakes on finished work (Grok: `<system-reminder>` under a `task-completed-` or
-`subagent-completed-` prompt id) is not the owner typing.  And background work a Stop hands over
-is a wait under either spelling, Claude Code's `background_tasks` or Grok Build's
-`backgroundTasks`.  Offline: real hook input, fake tmux, a temporary HOME -- the harness of
-tests/test_answer_closes_question.py.
+and ends with a SubagentStop, never the seat's Stop; a turn the harness wakes on finished work
+(Grok: `<system-reminder>` under a `task-completed-` or `subagent-completed-` prompt id) is not
+the owner typing.  And background work a Stop hands over is a wait under either spelling,
+Claude Code's `background_tasks` or Grok Build's `backgroundTasks`.  Offline: real hook input,
+fake tmux, a temporary HOME -- the harness of tests/test_answer_closes_question.py.
 """
 
 import json
@@ -46,15 +45,6 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
                 self.assertEqual(config.stop_path(SEAT).read_text(), before)
                 self.assertNotEqual(json.loads(config.hook_facts_path(SEAT).read_text())
                                     .get("event"), "Stop")
-
-    def test_a_sub_agents_stop_leaves_the_seats_idle_stamp_alone(self):
-        stamp = self.root / "idle.json"
-        for marker in ({"agent_id": "acme-agent"}, {"subagentType": "general"}):
-            with self.subTest(marker=marker):
-                self.hook("Stop", wait=False, env={"TMUX": "", "TMUX_PANE": "",
-                                                   "IDLE_COMPACT_STATE": str(stamp)},
-                          session_id="sub-1", context_tokens=123456, **marker)
-                self.assertFalse(stamp.exists())
 
     def test_a_turn_the_harness_woke_on_finished_work_leaves_the_question_open(self):
         self.notice()

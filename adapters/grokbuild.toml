@@ -215,16 +215,6 @@ remedy = "exit Grok, run grok login in the host shell, then reopen the session"
 signatures = ["Session expired. Run `grok login` to re-authenticate.",
   "Your session has expired. Run `grok login` to sign in again"]
 
-# /compact is a slash command, a turn's end arrives over the Stop hook, and the update
-# stream it names carries the turn's own total tokens -- input with output, a conservative
-# stand-in for the context the next turn starts on.
-[compact]
-command = ["/compact", "\r"]
-signal = "hook"
-context = "grok-updates"
-idle = 30
-stash = "none"
-
 # The models this harness runs, for `adapters/grokbuild.sh models`: `grok models` names them and
 # no effort, so their efforts come from here -- the list grok 1.0.40 keeps in
 # ~/.grok/models_cache.json, each model with the reasoning efforts it offers, strongest last --

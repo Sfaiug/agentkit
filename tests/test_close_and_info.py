@@ -1,6 +1,5 @@
-"""`x` acts on the highlighted seat, a done one closes with that one key and a stopped one is
-taken off the list with it; a press begun on one screen is no click on the next; a seat stopped
-twice leaves no rulebook, no idle-compact stamp and no open card.
+"""`x` acts on the highlighted seat, and a done one closes with that one key; a press begun on
+one screen is no click on the next; a seat stopped twice leaves no rulebook and no open card.
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
@@ -274,23 +273,6 @@ class CloseAndInfo(unittest.TestCase):
         self.assertIn("   x stop   ", lines[-1])
         menu.leave()
 
-    def test_x_on_a_stopped_seat_removes_it_without_a_question(self):
-        menu = Menu(self, {"alpha": "working", "omega": "stopped"})
-        lines = menu.frame()
-        self.assertIn("alpha", menu.highlighted(lines))     # idle sorts last
-        self.assertRegex(lines[-1], r"   x stop   ")
-        menu.send(b"j")
-        lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
-        self.assertRegex(lines[-1], r"   x remove   ")
-        mark = menu.mark()
-        menu.send(b"x")
-        menu.saw("<stopped omega>", after=mark)
-        lines = menu.frame(lambda lines: not any("omega" in line for line in lines), after=mark)
-        self.assertIn("alpha", menu.highlighted(lines))
-        menu.leave()
-        self.assertNotIn("everything it runs", menu.text())
-        self.assertEqual(menu.text().count("<stopped"), 1)
-
     def test_the_popup_closes_its_own_done_seat_and_asks_under_its_own_row(self):
         menu = Menu(self, {"alpha": "working", "omega": "done"}, own="omega")
         lines = menu.frame()
@@ -422,13 +404,9 @@ class ClosedSeat(Sandbox):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(orch.cmd_stop(["atoll"]), 0)
 
-    def test_a_closed_seat_leaves_no_rulebook_or_idle_compact_file(self):
-        stamps = config.STATE / "idle-compact"
-        stamps.mkdir()
-        mine = [config.STATE / "rulebook-atoll.md", stamps / "atoll-4242.json",
-                stamps / "atoll-4243.json"]
-        kept = [config.STATE / "rulebook-atoll-fix.md", stamps / "atoll-fix-4244.json",
-                stamps / "4245.json", stamps / "log"]
+    def test_a_closed_seat_leaves_no_rulebook(self):
+        mine = [config.STATE / "rulebook-atoll.md"]
+        kept = [config.STATE / "rulebook-atoll-fix.md"]
         for path in mine + kept:
             path.write_text("{}\n")
         self.stop()                                 # stopped: kept, for its number to reopen it
@@ -442,10 +420,7 @@ class ClosedSeat(Sandbox):
         self.assertEqual(self.tmux, [])            # no tmux session by the name: nothing killed
 
     def test_a_renamed_seat_leaves_nothing_under_the_name_it_was_launched_with(self):
-        stamps = config.STATE / "idle-compact"
-        stamps.mkdir()
-        left = [config.STATE / "rulebook-atoll.md", config.STATE / "stop-atoll.json",
-                stamps / "atoll-4242.json"]
+        left = [config.STATE / "rulebook-atoll.md", config.STATE / "stop-atoll.json"]
         for path in left:
             path.write_text("{}\n")
         config.rename_session("atoll", "beta")    # what a rename moves, and what it leaves
@@ -467,20 +442,6 @@ class ClosedSeat(Sandbox):
         self.assertTrue(config.rulebook_path("atoll").exists())   # its orchestrator still reads it
         self.assertTrue(config.stop_path("atoll").exists())       # its hooks still write it
         self.assertTrue(config.seat_file("launch", "atoll").exists())   # a starting pane reads it
-
-    def test_idle_compact_names_its_stamp_for_its_seat(self):
-        told = self.root / "told"
-        env = {key: value for key, value in os.environ.items()
-               if key not in ("IDLE_COMPACT_STATE", "TMUX", "TMUX_PANE")}
-        env.update({"HOME": str(self.root), "AGENTKIT_SESSION": "atoll", "TOLD": str(told)})
-        subprocess.run([sys.executable, str(REPO / "tools/idle-compact.py"), "--",
-                        "sh", "-c", 'printf %s "$IDLE_COMPACT_STATE" >"$TOLD"'],
-                       env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
-        self.assertRegex(told.read_text(), r"/\.agentkit/state/idle-compact/atoll-\d+\.json$")
-        # and the daily collector still reads the pid off a stamp named either way
-        from agentkit import gc
-        self.assertEqual(gc.compact_pid(Path("atoll.v2-4242.json")), "4242")
-        self.assertEqual(gc.compact_pid(Path("4242.json")), "4242")
 
     def card(self):
         url = os.environ["AGENTKIT_DISCORD_WEBHOOK"]

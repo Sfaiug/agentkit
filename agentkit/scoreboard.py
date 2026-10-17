@@ -30,6 +30,7 @@ ANSWERS_FOR = 7 * 86400   # a merged change answers for its lines this long: a l
 MEASURES = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
+    ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
@@ -54,9 +55,12 @@ LOSSES = (
     ("hours to merge a run on ak", "ak", "hours", True, "h"),
     ("run time waiting for a slot or a suite turn", "waits", "compute", True, "%"),
     ("hours a merged change spent waiting", "merged", "waiting", True, "h"),
+    ("questions asked of the owner", "owner", "asked", True, "n"),
+    ("cards sent to the owner", "owner", "paged", True, "n"),
     ("tokens per merged product run", "products", "tokens", True, "n"),
     ("tokens per merged run on ak", "ak", "tokens", True, "n"),
     ("ak's share of all tokens", "ak", "token_share", True, "%"),
+    ("tokens spent on runs that never merged", "sunk", "share", True, "%"),
     ("runs the park stopped", "parks", "parked", True, "n"),
     ("ak's code lines", "size", "code_lines", True, "n"),
     ("ak's README words", "size", "readme_words", True, "n"),
@@ -320,8 +324,9 @@ def compute(now=None):
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
 
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
+    moments = history.owner(now - 2 * week, now)
     board, waits, merged_changes, escapes_seen = {"products": [], "ak": []}, [], [], []
-    built, parks, sunk = [], [], []
+    built, parks, sunk, owner = [], [], [], []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
@@ -346,6 +351,13 @@ def compute(now=None):
         wasted = sum((row.get(role + "_tokens") or 0) for row in ended if not delivered(row)
                      for role in ("executor", "reviewer"))
         sunk.append({"share": wasted / total_tokens, "tokens": wasted} if total_tokens else None)
+        # the owner's time: what the seats asked them, what reached them, how long they were waited on
+        kinds = [(kind, waited) for at, kind, waited in moments or () if in_week(at, end)]
+        answers = [waited / 3600 for kind, waited in kinds if kind == "answered"]
+        owner.append(None if moments is None else {
+            "asked": sum(kind == "asked" for kind, _ in kinds),
+            "paged": sum(kind == "paged" for kind, _ in kinds),
+            "hours": median(answers) if answers else None})
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group:
@@ -384,6 +396,7 @@ def compute(now=None):
 
     before = git("rev-list", "--first-parent", "-1",
                  "--before=" + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - week)), "HEAD")
+    board["owner"] = owner
     board["built"] = built
     board["waits"] = waits
     board["merged"] = merged_changes
@@ -481,9 +494,17 @@ def render(board=None):
         return (f"{stats['share']:.0%} of the week's tokens, {stats['tokens']:,}, went to runs "
                 "that never merged")
 
-    words ={"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
-             "built": built, "waits": waited, "merged": split, "parks": parked, "sunk": sunk,
-             "escaped": escapes, "size": size}
+    def owner(stats):
+        if stats is None:
+            return "not recorded"
+        text = f"{stats['asked']} questions asked, {stats['paged']} cards sent"
+        if stats["hours"] is not None:
+            text += f", median {stats['hours']:.1f} hours waiting for an answer"
+        return text
+
+    words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True),
+             "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
+             "sunk": sunk, "escaped": escapes, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
     room = max(1, (terminal.content_width() - 12) // 2)

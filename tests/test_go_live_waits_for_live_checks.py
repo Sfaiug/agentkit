@@ -30,7 +30,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, update, watch, worker
+from agentkit import config, orch, update, watch, worker
 
 INSTALL = '#!/bin/sh\necho installed >>"$HOME/installs"\n'
 LIVE = f"""#!/bin/sh
@@ -71,6 +71,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
         self.root = Path(tmp.name).resolve()
         stack = ExitStack()
         self.addCleanup(stack.close)
+        stack.enter_context(patch.object(orch, "user_manager", return_value=False))
         stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",

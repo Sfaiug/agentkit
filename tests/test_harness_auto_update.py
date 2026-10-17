@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, update
+from agentkit import config, update, watch
 
 START = update.start   # the real starter, before a test stands in for it
 
@@ -83,6 +83,7 @@ class HarnessAutoUpdate(unittest.TestCase):
         # the detached child, run here and now instead
         self.start = self.stack.enter_context(
             patch.object(update, "start", side_effect=update.background))
+        self.stack.enter_context(patch.object(watch, "after_merge_fallback", return_value=None))
 
     def write(self, **files):
         for name, text in files.items():

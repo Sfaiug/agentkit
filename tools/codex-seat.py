@@ -282,6 +282,8 @@ def serve(cmd, receipt, parent):
         signal.signal(sig, ended)
     # prepare replaces the receipt BEFORE tmux kills the old pane. The receipt
     # is not a deletion signal. Serialize both launches, including their cleanup.
+    # The lock sits beside the home, which the first launch has yet to make.
+    home.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with home.with_suffix(".lock").open("a") as lock:
         while alive():
             try:

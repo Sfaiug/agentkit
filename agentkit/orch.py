@@ -118,7 +118,6 @@ INTERPRETERS = (
      ("--require", "--import", "--loader", "--experimental-loader", "--conditions",
       "--input-type", "--title", "--inspect-port", "--env-file"), "ep", ("--eval", "--print")),
 )
-_VERSIONS = {}             # installed harness builds, asked for once and only to name a refusal
 _MANAGER = {}              # whether this host has a user systemd manager, asked once
 _OOM_POLICY = {}           # whether its scopes take OOMPolicy=continue, asked once too,
 _OOM_POLICY_LOCK = threading.Lock()   # ... however many of a job's threads launch at once
@@ -515,7 +514,7 @@ def in_slice(argv, unit, socket=None, env=None, target_slice=None, properties=()
 
 
 def detached_in_slice(argv, unit, env, output=None, socket=None, forking=False,
-                      target_slice=None, properties=()):
+                      target_slice=None, properties=(), wait=False):
     """(argv, env) for work the manager starts itself inside the slice.
 
     A service rather than a scope, because a scope moves the caller's own process into the
@@ -523,6 +522,7 @@ def detached_in_slice(argv, unit, env, output=None, socket=None, forking=False,
     where cron puts a tick.  The manager starts a service itself, inside the slice, so it
     starts with the manager's environment and the manager's stdio instead of this process's:
     both are handed over by name.  `--collect` leaves nothing behind if it fails.
+    `wait` forwards stdio, keeps the client until the work ends and returns its exit status.
 
     A unit's command line is not a shell's: systemd reads a dollar there as the start of a
     variable and `$$` as one plain dollar, so every dollar in it is doubled and the command
@@ -534,6 +534,7 @@ def detached_in_slice(argv, unit, env, output=None, socket=None, forking=False,
         return argv, env
     return (["systemd-run", "--user", f"--slice={target_slice}", "--quiet", "--collect",
              f"--unit={unit}",
+             *(["--wait", "--pipe"] if wait else []),
              *([f"--property=StandardOutput=append:{output}"] if output else []),
              *(["--property=Type=forking"] if forking else []),
              *properties,
@@ -638,7 +639,14 @@ def next_scope_unit(unit):
 
 def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=None,
                    properties=(), nice=False, placement=None, ends=True):
-    """Start detached work inside the slice, appending its output to `output`; its pid.
+    """Start detached work inside the slice, appending its output to `output`; its pid."""
+    return _start_in_slice(argv, unit, env, output, log, target_slice,
+                           properties, nice, placement, ends)[0]
+
+
+def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), nice=False,
+                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None):
+    """The placement shared by detached and foreground work; (pid, client, placed unit).
 
     A scope where this process may be moved with its child; a service, which the manager
     starts inside the slice itself, where it may not -- cron's cgroup is the system's, and
@@ -680,10 +688,13 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
                 placement["scope_reason"] = reason
 
     def spawn(command, environment, lower_nice=False):
-        with open(output, "a") as out:      # the child keeps a descriptor of its own
+        with ExitStack() as stack:
+            out = stdout if stdout is not None else stack.enter_context(open(output, "a"))
             kwargs = {"stdout": out, "stderr": subprocess.STDOUT,
                       "stdin": subprocess.DEVNULL, "start_new_session": True,
                       "env": environment}
+            if cwd is not None:
+                kwargs["cwd"] = cwd
             if lower_nice:
                 kwargs["preexec_fn"] = lambda: os.nice(10)
             return subprocess.Popen(command, **kwargs)
@@ -705,7 +716,8 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     if not user_manager():
         reason = "no user systemd manager"
         set_scope("none", reason)
-        return spawn(argv, env, lower_nice=nice).pid
+        proc = spawn(argv, env, lower_nice=nice)
+        return proc.pid, proc, None
     config.TMP.mkdir(parents=True, exist_ok=True)
     marker.unlink(missing_ok=True)
     scoped = can_scope()
@@ -714,12 +726,13 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     witness = ["sh", "-c", f"{scope_ends(unit)} {WITNESS}" if ends and scoped else WITNESS,
                str(marker),
                *( (["nice", "-n", "10"] if nice and scoped else []) ), *argv]
-    service_properties = (*properties, *( ("-p", "Nice=10") if nice else () ))
+    service_properties = (*properties, *( ("-p", "Nice=10") if nice else () ),
+                          *( ("-p", f"WorkingDirectory={cwd}") if cwd is not None else () ))
     placed, placed_env = (in_slice(witness, unit, env=env, target_slice=target_slice,
                                    properties=properties) if scoped
-                          else detached_in_slice(witness, unit, env, output,
+                          else detached_in_slice(witness, unit, env, None if wait else output,
                                                  target_slice=target_slice,
-                                                 properties=service_properties))
+                                                 properties=service_properties, wait=wait))
     # written before the launch, so that a start this process does not live to finish is
     # still an attempt the next one knows to ask the manager about
     claim.write_text(f"{unit}.{'scope' if scoped else 'service'}")
@@ -729,7 +742,7 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     except OSError as exc:
         proc, note = None, str(exc)
     if proc is not None:
-        if scoped:
+        if scoped or wait:
             # the client waits on the manager before the work can exist, so a client that is
             # merely still there says nothing yet: only the mark says the work is running,
             # and a client gone without one says it never will
@@ -750,7 +763,7 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
         if pid:
             claim.unlink(missing_ok=True)      # placed and running: the unit is the work's
             set_scope(unit)
-            return pid
+            return pid, proc, f"{unit}.{'scope' if scoped else 'service'}"
         if waiting and not stop_placed(unit, scoped, proc):
             # it never said it was running, it was never refused, and it could not be ended
             # either: the manager may yet bring it up, and the plain start below would be
@@ -761,7 +774,34 @@ def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=Non
     reason = f"systemd-run failed ({note})"
     set_scope("none", reason)
     log(f"WARN {unit} did not go into {target_slice} ({note}); started plainly")
-    return spawn(argv, env, lower_nice=nice).pid
+    proc = spawn(argv, env, lower_nice=nice)
+    return proc.pid, proc, None
+
+
+def call_in_slice(argv, unit, env, output, timeout=None, log=lambda _: None,
+                  target_slice=None, cwd=None):
+    """Run foreground work with the shared placement and plain fallback; its exit status.
+
+    `output` is the caller's open log: the client shares its descriptor, so a service's
+    output advances the same offset the caller writes at. Cleanup ends a client still ours
+    and asks the manager to stop placed work, on a timeout or interruption too.
+    """
+    _, proc, placed = _start_in_slice(
+        argv, unit, env, None, log, target_slice, stdout=output, wait=True,
+        cwd=Path.cwd() if cwd is None else cwd)
+    try:
+        return proc.wait(timeout=timeout)
+    finally:
+        try:
+            if proc.returncode is None and proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+        finally:
+            if placed:
+                stop_scope(placed, log=log)
 
 
 def scope_self(unit, target_slice, properties=(), placement=None):
@@ -1314,7 +1354,7 @@ def agentless(socket, names):
 def bind_pane(session):
     """Give an older Claude launch its pane once, from its own interactive command.
 
-    The client is the pane's process or the immediate child of our compact wrapper.
+    The client is the pane's process or the immediate child of our seat wrapper.
     Searching deeper would let a shell's or another client's nested Claude claim it.
     """
     from .harness import claude
@@ -1475,7 +1515,7 @@ def ghost(name, record):
     return {"name": name, "path": record.get("cwd", ""),
             "created": record.get("created") or record.get("seen") or int(time.time()),
             "attached": False, "exited": False, "legacy": False, "resumable": True,
-            "closed": watch.seat_read(name).get("stopped_at") or None}
+            "closed": watch.seat_stopped_at(name)}
 
 
 def listing(reconcile=True):
@@ -1484,8 +1524,8 @@ def listing(reconcile=True):
     A seat whose tmux instance is gone is not a seat that never was -- the orchestrator's
     conversation is still in its harness's own store, and the record here says which one -- so
     it keeps its row, and its number opens the conversation where it stopped.  A seat the owner
-    stopped keeps its row whether or not its harness can resume it (`cmd_stop`): the row is
-    what `x` removes it by, and what keeps its name taken.
+    stopped is offered whether or not its harness can resume it (`cmd_stop`), its row on the
+    menu's past screen: that is what `x` removes it by, and what keeps its name taken.
     A record whose harness keeps its row without owning anything -- `[conversation]
     always_offered`, because there ownership is evidence and not a field -- keeps it with that
     harness's own fresh-start explanation.
@@ -2594,8 +2634,8 @@ def rulebook_compacted(session, conversation):
     """A compaction keeps the launch's rulebook, which is in the system prompt, and drops what
     the conversation read since, so it holds its launch's again: its next prompt tells it what
     changed since then (`rulebook_news`), never a change it was told from rules it read since.
-    Without the seat's lock, which the typing of that `/compact` may hold: an `ak orch rules`
-    landing between the read and the write only means it is told once more."""
+    Without the seat's lock: an `ak orch rules` landing between the read and the write only
+    means it is told once more."""
     current = config.resolve_session(session)
     if owns(config.session_records().get(current) or {}, conversation):
         config.update_session(current, rulebook_read=None, rulebook_told=None)
@@ -2721,7 +2761,13 @@ def unread_question(name):
 
 
 def sweep(log):
-    """Retire old detached dead seats and stale records; preserve active job evidence."""
+    """Retire old detached dead seats and stale records; preserve active job evidence.
+
+    A record's week runs from the seat's last sighting in tmux, or from the owner's stop where
+    there was one (`watch.seat_stopped_at`): a seat long gone from tmux that the owner stops
+    today keeps its row and its number the whole week.
+    """
+    from . import watch   # here, not at the top: watch imports this module
     found = {s["name"]: s for s in sessions()}
     protected = set()
     for directory in run_record.run_dirs():
@@ -2734,7 +2780,8 @@ def sweep(log):
     now = time.time()
     for name, record in records().items():
         seat = found.get(name)
-        since = record.get("exited_since") if seat else record.get("seen")
+        since = (record.get("exited_since") if seat
+                 else watch.seat_stopped_at(name) or record.get("seen"))
         if (name in protected or unread_question(name)
                 or not retention.expired(since, now, config.SESSION_STALE)):
             continue
@@ -2857,8 +2904,8 @@ def job_notices():
 def rename(old, new, log=print, *, auto=False):
     """Give a running seat a new name, and move everything that carries it.
 
-    tmux, the record, and every state file -- notify, seat, hook, compact, plan, card and
-    stop -- all move, and every run the seat launched answers to the new name in its
+    tmux, the record, and every state file -- notify, seat, hook, plan, card and stop --
+    all move, and every run the seat launched answers to the new name in its
     record; a pointer stays behind at the old name, because the orchestrator inside was
     started with the old name in its environment and hands it to every `ak` it runs --
     see config.resolve_session.  The bar is rewritten at once, so it never shows the old
@@ -3006,50 +3053,6 @@ def state_word(session, cfg=None):
     return watch.announce_state(session, cfg=cfg, look=True)["word"]
 
 
-def harness_version(harness):
-    """The installed build of that harness, for a line that has to name what cannot compact."""
-    if harness not in _VERSIONS:
-        try:
-            entry = next((h for h in update.harnesses() if h["name"] == harness), None)
-            _VERSIONS[harness] = (update.version(entry) if entry else "") or "(version unknown)"
-        except config.Error:
-            # a config.toml or an adapter toml nobody can read names no build either
-            _VERSIONS[harness] = "(version unknown)"
-    return _VERSIONS[harness]
-
-
-def compacts(session, cfg):
-    """Whether this seat compacts itself, how, and when it last did.
-
-    Auto-compaction is the seat's and never a worker's, and tools/idle-compact.py performs it the
-    same way whatever the harness; the `[compact]` table of adapters/<harness>.toml says what
-    that harness can do.  One that has no compact command, or reports no context size, is named
-    with its installed build rather than guessed at.
-    """
-    record = config.session_records().get(session["name"], {})
-    try:
-        harness = config.model(cfg, record.get("orchestrator"))["harness"]
-    except config.Error:
-        return "unknown: this seat names no harness to read a [compact] table from"
-    table = config.manifest(harness).get("compact")
-    table = table if isinstance(table, dict) else {}
-    if not table.get("command") or table.get("command") == "none":
-        return f"no: {harness} {harness_version(harness)} has no compact command"
-    if not table.get("context") or table.get("context") == "none":
-        return f"no: {harness} {harness_version(harness)} does not report context size"
-    answer = f"yes ({harness}, {table.get('signal') or 'screen'})"
-    try:
-        stamp = json.loads(config.compact_path(session["name"]).read_text())
-        when = float(stamp["last_compact_at"])
-        # a record left by an earlier seat of this name compacted that one, not this one
-        created = session.get("created")
-        if not isinstance(created, (int, float)) or when >= created:
-            return f"{answer}, compacted {age(when)} ago"
-    except (config.Error, OSError, ValueError, TypeError, KeyError):
-        pass
-    return answer
-
-
 def explain(session, cfg):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
@@ -3063,7 +3066,6 @@ def explain(session, cfg):
     lines.append(f"  reason:    {found['reason'] or '-'}")
     if any(session.get(key) for key in CLOSED):
         lines.append("  authority: -     the process is gone; nothing here read its screen")
-        lines.append(f"  compacts:  {compacts(session, cfg)}")
         return lines
     live = watch.seat_read(session["name"])
     since = found.get("since")
@@ -3073,7 +3075,6 @@ def explain(session, cfg):
                  f"  rule: {live.get('rule') or '-'}")
     lines.append(f"  evidence:  {live.get('evidence') or 'nothing on the screen said otherwise'}")
     lines.append(f"  since:     {when}")
-    lines.append(f"  compacts:  {compacts(session, cfg)}")
     return lines
 
 
@@ -3292,10 +3293,8 @@ def mark_owner_closed(name):
 
 
 def session_owned_files(name):
-    """Every `<kind>-<name>.*` file this seat owns, for a known per-seat kind, and the
-    `idle-compact/<name>-<pid>.json` stamps its harness wrappers left -- under its name, or
-    under an old one a rename left leading to it, since a rename moves neither its rulebook
-    nor a stamp a running wrapper still writes to.
+    """Every `<kind>-<name>.*` file this seat owns, for a known per-seat kind -- under its name,
+    or under an old one a rename left leading to it, since a rename does not move its rulebook.
 
     The kind is the first component and the name the rest, so stopping `fix`
     takes `hook-fix.json` but leaves `session-atoll-fix.json`, `browser-tabs.json`
@@ -3312,12 +3311,6 @@ def session_owned_files(name):
         owner = config.seat_file_owner(path)
         if owner and owner[1] in names and path.is_file() and not path.is_symlink():
             found.append(path)
-    stamps = config.STATE / "idle-compact"
-    for path in stamps.iterdir() if stamps.is_dir() else ():
-        seat, dash, pid = path.name.removesuffix(".json").rpartition("-")
-        if (path.name.endswith(".json") and dash and seat in names and pid.isdigit()
-                and path.is_file() and not path.is_symlink()):
-            found.append(path)
     return found
 
 
@@ -3329,15 +3322,15 @@ def cmd_stop(argv):
     closed as `Answered`, the tabs the seat or its runs opened close, and the tmux session
     goes -- under the seat's own typing lock, so a line being typed into it finishes first.
     Its record and state files stay, the stop mark in the seat file, so its row keeps its
-    number, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number reopens
-    the conversation where it stopped, and a
+    number a week, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number
+    reopens the conversation where it stopped, and a
     hand-back for a run of its waits for that (`watch.seat_closed_by_owner`).  The run
     directories stay, their results collected by age; a card Discord would not take the edit
     for stays, for the tick to close; browser tabs with no recorded opener are left to the
     idle rule.
 
     A stop on a seat already stopped -- `Stop` on its row again, `ak orch stop` again -- is the
-    other half, `forget_seat`, and so is the sweep of a record a week gone from tmux.  A
+    other half, `forget_seat`, and so is the sweep a week after the stop.  A
     record is enough on its own to stop, whether or not tmux still has the session; a session
     with no record -- made by hand, or from before agentkit kept records -- has nothing to
     keep and no number to reopen it, so its one stop is the whole stop.
@@ -3479,26 +3472,36 @@ PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
 
 
 def in_flight(name, repo):
-    """What the other seats filed under the same checkout have in flight, so two sessions
-    never build the same thing unaware: [(seat, open plan lines, changed files)] by name.
+    """What the other seats have in flight on that checkout, so two sessions never build the
+    same thing unaware: [(seat, open plan lines, changed files)] by name.
 
-    A seat's open lines are its plan's unticked ones; its files are what its going runs
-    change against their base, committed or not, or a queued run's task `files:`.  A seat
-    with neither is left out.
+    A seat counts when it is filed under the checkout or has a going run on it, whatever it is
+    filed under.  Its open lines are its plan's unticked ones, of a seat filed elsewhere only
+    those written on this checkout; its files are what its going runs on the checkout change
+    against their base, committed or not, or a queued run's task `files:`.  A seat with
+    neither is left out.  A going run launched from no seat counts as `run <id>`.
     """
     from . import menu, watch  # here, not at the top: menu imports this module
     target = checkout_of(repo)
-    seats = {seat: ([], set()) for seat, record in sorted(config.session_records().items())
-             if seat != name and target and checkout_of(record.get("repo")) == target}
-    for seat, (lines, _) in seats.items():
-        plan = watch.plan_text(seat)
-        lines.extend(m.group(1).strip() for m in map(PLAN_OPEN.match, plan.splitlines()) if m)
+    if not target:
+        return []
+    filed = {seat for seat, record in config.session_records().items()
+             if checkout_of(record.get("repo")) == target}
+    seats = {seat: ([], set()) for seat in filed if seat != name}
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
         seat = transitions.launched_session(state)
-        if seat in seats and not menu.smoke_run(state) and transitions.going(state):
-            seats[seat][1].update(changed_files(state, directory))
-    return [(seat, lines, files) for seat, (lines, files) in seats.items() if lines or files]
+        if (seat != name and not menu.smoke_run(state) and transitions.going(state)
+                and checkout_of(state.get("repo")) == target):
+            seats.setdefault(seat or f"run {directory.name}", ([], set()))[1].update(
+                changed_files(state, directory))
+    for seat, (lines, _) in seats.items():
+        for line in watch.plan_text(seat).splitlines():
+            found, written = PLAN_OPEN.match(line), plan.LINE.match(line.strip())
+            if found and (seat in filed or written and checkout_of(
+                    plan.place(seat, written["project"])) == target):
+                lines.append(found.group(1).strip())
+    return [(seat, lines, files) for seat, (lines, files) in sorted(seats.items()) if lines or files]
 
 
 def changed_files(state, directory):

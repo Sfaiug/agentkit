@@ -261,7 +261,10 @@ class Screens(Sandbox):
         rows = len(texts(first))
         flood = b"".join(move(1 + n % 60, 1 + n % rows) for n in range(499))
         label = at(first, "grok")
-        screens = self.matrix(flood + move(*label) + ESC)
+        # a frame that no reading of the flood can outlast, however slow the host: what is
+        # counted is the draw for where the pointer ended, never one a frame's passing adds
+        with patch.object(terminal.motion, "FRAME", 60.0):
+            screens = self.matrix(flood + move(*label) + ESC)
         self.assertEqual(len(screens), 2)               # the first draw, and the one for them
         self.assertOneHighlight(screens[-1], "grok")    # where the pointer ended
 

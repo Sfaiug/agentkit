@@ -146,14 +146,16 @@ class SuitePieces(unittest.TestCase):
 
     def test_a_check_at_the_top_cpu_weight_counts_lower_weighted_use_as_its_own(self):
         # The line's checker outweighs every run: the CPU builds use now is its for the taking.
-        busy = {**ROOM, "slice_cpu_used": 3.5, "slice_memory_high_mb": 4100}
-        for kept, count in ((None, 1), (0.7, 4)):
-            with self.subTest(kept=kept), patch.dict(os.environ, {
-                    "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}), \
-                    patch.object(host, "kept_cpu", return_value=kept):
-                ok, text = self.check()
-                self.assertTrue(ok, text)
-                self.assertEqual(text.count("--- AK_SHARD="), count)
+        for quota in (4, None):
+            busy = {**ROOM, "slice_cpu_quota": quota, "slice_cpu_used": 3.5,
+                    "load": 3.5, "outside_cpu_used": 0, "slice_memory_high_mb": 4100}
+            for kept, count in ((None, 1), (0.7, 4)):
+                with self.subTest(quota=quota, kept=kept), patch.dict(os.environ, {
+                        "AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(busy)}), \
+                        patch.object(host, "kept_cpu", return_value=kept):
+                    ok, text = self.check()
+                    self.assertTrue(ok, text)
+                    self.assertEqual(text.count("--- AK_SHARD="), count)
 
     def cgroups(self, busy, outside=0.0):
         """ak's slice, its runs slice and the run groups `busy` maps to (weight, cores used),
@@ -388,13 +390,12 @@ class SuitePieces(unittest.TestCase):
         state = record.read_state(self.run_dir)
         record.save_state(self.run_dir, {**state, "scope": "acme"})
         with patch.object(host, "process_cgroup", return_value="/fixture/acme.scope"), \
-                patch.object(host, "_slice_cpu_stat", side_effect=[
-                    {"usage_usec": 0}, {"usage_usec": 40_000_000}]), \
                 patch.object(host, "_scope_readings", side_effect=[
                     (1, 100 * 1024**2), (3, 2100 * 1024**2)]), \
                 patch.object(gate.time, "monotonic", side_effect=[0, 10]):
             measured = gate._SuiteMeasure(self.run_dir)
             measured.sample()
+            measured.cpu.extend([15, 25])     # what each piece's box reported
             path, _, _ = gate.suite_cost(SUITE, self.root, self.run_dir)
             measured.save(path, 2)
         self.assertEqual(json.loads(path.read_text()),

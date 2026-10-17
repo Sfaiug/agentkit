@@ -5,7 +5,6 @@ Real PTYs and pipes, a fake harness, and an isolated HOME; no model or live seat
 import errno
 import hashlib
 import json
-import fcntl
 import pty
 import signal
 import struct
@@ -51,7 +50,7 @@ class SeatTransport(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.env = {k: v for k, v in os.environ.items()
-                    if not k.startswith(('AGENTKIT_', 'AK_', 'IDLE_COMPACT_'))}
+                    if not k.startswith(('AGENTKIT_', 'AK_'))}
         self.env.update(HOME=str(self.root), XDG_DATA_HOME=str(self.root / 'share'))
 
     def stop(self, proc):
@@ -66,7 +65,7 @@ class SeatTransport(unittest.TestCase):
         fake = self.root / 'harness.py'
         fake.write_text(HARNESS)
         data = b'\x1b[<35;12;6M' * 32768 + b'an owner draft\x1b'
-        proc = subprocess.Popen([sys.executable, str(WRAPPER), '--poll', '.05', '--',
+        proc = subprocess.Popen([sys.executable, str(WRAPPER), '--',
                                  sys.executable, str(fake), str(self.root), str(len(data))],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, env=self.env, cwd=self.root)
@@ -106,71 +105,6 @@ class SeatTransport(unittest.TestCase):
         self.assertEqual(proc.wait(timeout=5), 7, proc.stderr.read().decode())
         self.assertEqual(bytes(output), bytes(range(256)) * 4096)
         self.assertEqual((self.root / 'received').read_text(), hashlib.sha256(data).hexdigest())
-
-    def test_a_backed_up_display_never_compacts_from_its_stale_prompt(self):
-        from agentkit.pty_relay import BUFFER_LIMIT
-        adapters = self.root / 'adapters'
-        adapters.mkdir()
-        (adapters / 'plain.toml').write_text('''version = 1
-[compact]
-command = ["/compact", "\\r"]
-signal = "screen"
-context = "muse-session"
-idle = 30
-stash = "none"
-[screen]
-composer = ">$"
-[[rule]]
-state = "at_prompt"
-at_composer = true
-lines = 8
-none = ["esc to interrupt"]
-''')
-        fake = self.root / 'busy.py'
-        fake.write_text(r'''
-import json, os, select, sys, time, tty
-from pathlib import Path
-tty.setraw(0)
-root = Path(os.environ["HOME"])
-directory = Path(os.environ["XDG_DATA_HOME"]) / "muse/sessions/2026/10/08/fake"
-directory.mkdir(parents=True)
-(directory / "session.jsonl").write_text(json.dumps({"payload": {
- "kind": "route_facts", "record": {"pid": os.getpid()}}}) + "\n" + json.dumps({"payload": {
- "event": {"kind": "goal_usage_attribution", "record": {"usage_family": "provider",
- "owner": {"owner_type": "main_root"}, "quantity": {"input_tokens": 40000}}}}}) + "\n")
-view = memoryview(b">" * int(sys.argv[1]))
-while view:
- view = view[os.write(1, view):]
-os.write(1, b"\nesc to interrupt\n>\n")
-received = bytearray()
-until = time.monotonic() + 2
-while time.monotonic() < until:
- if select.select([0], [], [], .05)[0]:
-  received.extend(os.read(0, 65536))
-(root / "received").write_bytes(received)
-''')
-        reader, writer = os.pipe()
-        self.addCleanup(os.close, reader)
-        capacity = fcntl.fcntl(writer, fcntl.F_GETPIPE_SZ)
-        proc = subprocess.Popen([sys.executable, str(WRAPPER), '--harness', 'plain',
-                                 '--idle', '.05', '--poll', '.01', '--',
-                                 sys.executable, str(fake), str(capacity + BUFFER_LIMIT)],
-                                stdin=subprocess.PIPE, stdout=writer, stderr=subprocess.PIPE,
-                                cwd=self.root, env={**self.env, 'AGENTKIT_ADAPTER_DIR': str(adapters)})
-        os.close(writer)
-        self.addCleanup(self.stop, proc)
-        received = self.root / 'received'
-        deadline = time.monotonic() + 20
-        while not received.exists() and time.monotonic() < deadline:
-            self.assertIsNone(proc.poll(), 'fake harness exited before recording input')
-            time.sleep(.01)
-        self.assertTrue(received.exists(), 'fake harness could not write its busy marker')
-        os.set_blocking(reader, False)
-        while proc.poll() is None and time.monotonic() < deadline:
-            if select.select([reader], [], [], .05)[0]:
-                os.read(reader, 65536)
-        self.assertEqual(proc.wait(timeout=5), 0, proc.stderr.read().decode())
-        self.assertEqual(received.read_bytes(), b'', 'an unread busy marker must defer compaction')
 
 
 class RelayIO(unittest.TestCase):
@@ -304,47 +238,6 @@ class RelayIO(unittest.TestCase):
             received.extend(self.read(self.slave))
         self.assertEqual(received, b'last input\x04')
         self.assertFalse(self.relay.input_open)
-
-    def test_injected_keys_drain_redraws(self):
-        from agentkit.pty_relay import Relay
-        # A fake child writes more than the transport's buffer before it reads
-        # the injected command, exactly the cycle normal typing used to hit.
-        code = """import os, termios, tty
-from pathlib import Path
-tty.setraw(0, termios.TCSANOW)
-view = memoryview(b'R' * 262144)
-while view:
- view = view[os.write(1, view):]
-received = b''
-while len(received) < 131073:
- received += os.read(0, 65536)
-Path(os.environ['RECEIPT']).write_bytes(received)
-"""
-        with tempfile.TemporaryDirectory(prefix='.ak-test-inject-', dir=REPO) as root:
-            receipt = Path(root) / 'received'
-            os.set_blocking(self.slave, True)
-            child = subprocess.Popen([sys.executable, '-c', code], stdin=self.slave,
-                                     stdout=self.slave, env={**os.environ, 'RECEIPT': str(receipt)})
-            def reap():
-                if child.poll() is None:
-                    child.kill()
-                child.wait(timeout=10)
-            self.addCleanup(reap)
-            # A regular file is an unblocked terminal sink, without a second
-            # thread or another reader in this test's process.
-            with (Path(root) / 'screen').open('wb') as screen:
-                self.relay.close()
-                self.relay = Relay(self.master, self.source, screen.fileno(), self.seen.extend,
-                                   lambda: child.poll() is None)
-                try:
-                    self.assertTrue(self.relay.send([b'K' * 131072, b'\r'], .01))
-                    self.assertEqual(child.wait(timeout=10), 0)
-                    self.relay.finish()
-                finally:
-                    self.relay.close()
-                    self.relay = None
-            self.assertEqual(receipt.read_bytes(), b'K' * 131072 + b'\r')
-            self.assertEqual((Path(root) / 'screen').read_bytes(), b'R' * 262144)
 
     def test_closing_the_child_retains_its_final_output(self):
         os.write(self.slave, b'last screen')
