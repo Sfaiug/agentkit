@@ -6425,13 +6425,13 @@ def after_merge_seat(run_state, repo_key):
     return after_merge_fallback(repo_key)
 
 
-def broke_after_merge(run_id, check, log):
+def broke_after_merge(run_id, source, log):
     """The merged change a break was handed back to broke main's checks or its live health
-    (`check` as `after_merge_health` names a health probe): written on its history row once,
-    as the break is told, so the scoreboard counts what got past review and landing."""
+    (`source`, "checks" or "health", as the status that failed came from): written on its
+    history row once, as the break is told, so the scoreboard counts what got past review and
+    landing."""
     from . import history
-    history.update_run(run_id, broke_after_merge="health" if str(check).startswith("health:")
-                       else "checks", log=log)
+    history.update_run(run_id, broke_after_merge=source, log=log)
 
 
 def after_merge_checks(state, dry_run, log, now=None):
@@ -6507,7 +6507,7 @@ def after_merge_checks(state, dry_run, log, now=None):
         for finished, name, run_dir, st, owner, repo, host, sha, pr_url in found:
             if sha is None:
                 statuses.append((finished, name, run_dir, st, None, pr_url,
-                                 "unknown", None, None))
+                                 "unknown", None, None, None))
                 continue
             if now - finished <= AFTER_MERGE_WINDOW:
                 verdict, check, url = after_merge_status(owner, repo, host, sha, log)
@@ -6523,10 +6523,11 @@ def after_merge_checks(state, dry_run, log, now=None):
                     log(f"WARN run {name}'s health could not be followed: {exc}")
             if now - finished >= AFTER_MERGE_WINDOW and health and health[0] == "failed":
                 expired_health.append(run_dir)
+            source = "checks"   # where the verdict came from: a check's name can be any text
             if health and verdict != "failed" and (health[0] != "passed" or verdict == "ignored"):
                 if health[0] == "failed" or verdict != "unknown":
-                    verdict, check, url = health
-            statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
+                    (verdict, check, url), source = health, "health"
+            statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url, source))
         episode = episodes.get(key)
         if isinstance(episode, str):
             episode = episodes[key] = {"notified": episode} if episode else {}
@@ -6604,7 +6605,8 @@ def after_merge_checks(state, dry_run, log, now=None):
                     episodes[key] = {"notified": sha, "at": now, "run": run_name,
                                      "check": check, "finished": finished}
                     _save()
-                    broke_after_merge(run_name, check, log)
+                    # a break kept by an install that did not carry its source counts as checks
+                    broke_after_merge(run_name, pending.get("source") or "checks", log)
                     log(f"handed run {run_name} back for {check} on {target} "
                         "after its merge")
                 else:
@@ -6627,7 +6629,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             log(f"WARN {key}: a newer merge's checks are unreadable; "
                 "the after-merge notice waits a tick")
             continue
-        finished, name, run_dir, st, sha, pr_url, _, check, url = candidate
+        finished, name, run_dir, st, sha, pr_url, _, check, url, source = candidate
         target = after_merge_target(st)
         line = after_merge_line(check or "A check", target, url or pr_url)
         if dry_run:
@@ -6641,7 +6643,7 @@ def after_merge_checks(state, dry_run, log, now=None):
 
         def fresh(mark):
             episodes[key] = {"pending": {"sha": sha, "line": line, "typed": mark,
-                                         "run": name, "check": check,
+                                         "run": name, "check": check, "source": source,
                                          "finished": finished, "target": target,
                                          "session": session}}
             composed.append(True)
@@ -6656,7 +6658,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             episodes[key] = {"notified": sha, "at": now, "run": name, "check": check,
                              "finished": finished}
             _save()
-            broke_after_merge(name, check, log)
+            broke_after_merge(name, source, log)
             log(f"handed run {name} back for {check} on {target} after its merge")
         elif composed:
             log(f"run {name}'s after-merge notice sits in a composer; "
