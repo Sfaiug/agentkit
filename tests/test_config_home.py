@@ -103,8 +103,8 @@ class ConfigHome(unittest.TestCase):
         stack = ExitStack()
         for name in SANDBOXED:
             stack.enter_context(patch.object(config, name, self.home / name.lower()))
-        # tmux is the seats\' own business and no part of this: sessions() would ask a server
-        stack.enter_context(patch.object(orch, "sessions", return_value=[]))
+        # Fake the tmux boundary so both seat listing and auxiliary-session probes stay offline.
+        stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         return stack
 
     def dead_loop(self):

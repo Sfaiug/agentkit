@@ -87,11 +87,10 @@
   the board with its largest loss (`scoreboard.loss`) and the line the `audit` seat is told
   (`weekly`); `audit.json` and `audit/<week>.md` under STATE. For watch, whose `tell_audit`
   opens or resumes the seat and types the line.
-- `orch.py`: seats. Hides the tmux server, naming and rename, model and account choice,
-  launch and resume, the picker, foreground and detached systemd placement. Offers `main`, `sessions`,
-  `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
-  Its sweep saves and closes tagged auxiliary sessions whose panes have been dead for a day.
-  Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
+- `orch.py`: seats: tmux server, names, models/accounts, launch/resume, picker and systemd placement.
+  `main`, `sessions`, `listing`, `ensure`, `resume`, `rename` for menu, watch, run, job,
+  notify, usage, update. Sweep saves tagged auxiliary sessions' screens and closes them
+  after a day with every pane dead. Leaks: rename rewrites watch.json/run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`, which
   loads `state/run-records.db` once per process and reads and writes only changed runs, and
   `tally`) and a seat's last column and live runs (`seat_runs`), for watch, run, orch, notify,
