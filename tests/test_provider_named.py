@@ -102,6 +102,12 @@ class ProviderNamed(Sandbox):
         os.environ["LOGGED_IN"] = "acme zeta"
         self.assertIs(worker.auth_ok("relay")[0], True)
 
+    def test_a_provider_the_config_leaves_out_is_not_asked_about(self):
+        # a model whose provider has no table stays in the file and out of every choice
+        (config.HOME / "config.toml").write_text(CONFIG.replace('[providers.zeta]\nmode = "payg"', ""))
+        self.assertIs(worker.auth_ok("relay")[0], True)
+        self.assertEqual(self.asked(), ["auth acme"])
+
     def test_a_pick_withholds_only_the_logged_out_provider_s_models(self):
         read = usage.readiness(self.cfg, usage.Readings({}))
         self.assertIsNone(usage.unready(self.cfg, "rocket", read))

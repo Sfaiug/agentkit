@@ -169,7 +169,7 @@ class HarnessSwap(unittest.TestCase):
             run.refuse_unready(self.cfg, read, "opus")
         self.assertEqual(len(self.sleeps), 1)
         self.assertTrue(0 < self.sleeps[0] <= turns.SWAP_POLL, self.sleeps)
-        asked.assert_called_once_with("claude")
+        asked.assert_called_once_with("claude", provider="anthropic")
         # a swap that ended between the read and the pick is asked about again at once, and
         # one still missing its command after the swap is refused in the harness's own words
         with patch.object(run.usage, "harness_unready", return_value="claude is not installed"), \

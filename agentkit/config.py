@@ -1555,11 +1555,10 @@ def provider_env(providers):
 
 
 def harness_providers(cfg, harness):
-    """The providers whose models `cfg` runs on that harness, each once: what a question about
-    the harness as a whole is a question about (worker.auth_ok)."""
-    return list(dict.fromkeys(entry["provider"] for entry in cfg["models"].values()
-                              if isinstance(entry, dict) and entry.get("harness") == harness
-                              and isinstance(entry.get("provider"), str)))
+    """The providers whose offered models `cfg` runs on that harness, each once: what a
+    question about the harness as a whole is a question about (worker.auth_ok)."""
+    return list(dict.fromkeys(cfg["models"][name]["provider"] for name in offered(cfg)
+                              if cfg["models"][name].get("harness") == harness))
 
 
 def kept_logins():
