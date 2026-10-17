@@ -24,7 +24,7 @@ from urllib.parse import unquote_to_bytes
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
 from agentkit import browser, config, deliver, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, prompts, roundloop, run, status, terminal, transitions, watch, worktrees
-from agentkit import record
+from agentkit import matrix, record
 
 SEAT = "seat"
 TYPE_CHECKED = watch.type_checked   # the real confirmed send, for the tests that drive it
@@ -157,6 +157,7 @@ class HandBack(Sandbox):
             notify, "shaped",
             side_effect=lambda kind, text, **kw: self.cards.append((kind, text, kw)) or 0))
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
+        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.stack.enter_context(patch.object(
             orch, "ensure",
             side_effect=lambda cfg, name, log=print, saved=False:

@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
 from agentkit import browser, config, gc, handback, menu, notify, orch, run, status, watch
-from agentkit import record
+from agentkit import matrix, record
 
 SEAT = "seat"
 
@@ -56,6 +56,7 @@ class NoReplay(Sandbox):
             notify, "shaped",
             side_effect=lambda kind, text, **kw: self.cards.append((kind, text, kw)) or 0))
         self.stack.enter_context(patch.object(notify, "tick_cards"))
+        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
         self.stack.enter_context(patch.object(
             orch, "ensure",
