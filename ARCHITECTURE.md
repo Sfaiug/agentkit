@@ -54,8 +54,8 @@
 - `leases.py`: the tick's collision scan: two live runs of a repository that cannot merge in
   memory over their shared base are recorded, the younger waiting on the older
   (`state/leases/`); a younger build before its review stops there, branch kept (`park`),
-  and starts again once the older landed (`restart`), from the target when its `from:`
-  branch landed with it (`landed_with`).
+  and starts again once the older landed (`restart`), from its base when its `from:`
+  branch landed there with the older (`landed_with`).
   Reads run records and `transitions.going`.
 - `land.py`: landing line and passed trees. Lander checks each stack in a scratch
   worktree, keyed by its tree, and wakes parked members to land; only a red member

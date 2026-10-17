@@ -371,9 +371,9 @@ def task_naming(run_dir, directory, repo, landed=False):
     absolute -- started again by the tick, a task naming none, or a relative one, would be
     resolved in the tick's directory -- and the new run where it names the stopped one (a fix
     run's check, the regression script it may write and the run its search leaves out,
-    `handback.start_followups`).  With `landed`, its `from:` branch is on the target already
-    (`landed_with`), so it starts from the target: built on the branch, its change would count
-    the landed lines again, from where the branch left a target it can no longer merge."""
+    `handback.start_followups`).  With `landed`, its `from:` branch is on its base already
+    (`landed_with`), so it starts from there: built on the branch, its change would count the
+    landed lines again, from where the branch left a base it can no longer merge."""
     from . import task
     pairs, body = task.front_matter(run_dir / "task.md")
     drop = {"repo", *(("from",) if landed else ())}
@@ -381,14 +381,21 @@ def task_naming(run_dir, directory, repo, landed=False):
             + f"repo: {repo}\n---\n" + body.replace(run_dir.name, directory.name))
 
 
-def landed_with(repo, branch, head):
-    """Whether `branch` holds nothing beyond `head`, the landed head of the run a stopped run
-    waited on: its tip, origin's else the local one, is that head or behind it.  A branch
-    neither has, or one moved on since, is not landed."""
-    for ref in (f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"):
-        tip = gitcall.git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
+def landed_with(state, holder):
+    """Whether the `from:` branch of `state`, a run stopped waiting on `holder`, holds nothing
+    beyond what `holder` landed on the base `state` builds from: `holder` merged into that base,
+    and the branch's tip, the local one a build cuts from (origin's once that is gone), is
+    `holder`'s landed head or behind it.  A branch neither has, or one moved on since, is not
+    landed."""
+    from . import watch
+    branch, head = state.get("from"), holder and holder.get("merged") and holder.get("head_sha")
+    if not (branch and head and state.get("repo") and state.get("base")
+            and watch.after_merge_target(holder) == state["base"].removeprefix("origin/")):
+        return False
+    for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+        tip = gitcall.git(state["repo"], "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
         if tip:
-            return gitcall.git_out(repo, "merge-base", "--is-ancestor", tip.strip(), head)[0] == 0
+            return gitcall.git_out(state["repo"], "merge-base", "--is-ancestor", tip.strip(), head)[0] == 0
     return False
 
 
@@ -417,9 +424,7 @@ def restart(log=print, now=None):
                                   f"stands still ({holder['state']})" if holder and transitions.going(holder, now=now)
                                   else "is over")
         try:            # asked before the claim: a git that never answered leaves it for the next tick
-            landed = bool(holder and holder.get("merged") and holder.get("head_sha")
-                          and state.get("from") and state.get("repo") and not state.get("review_pr")
-                          and landed_with(state["repo"], state["from"], holder["head_sha"]))
+            landed = not state.get("review_pr") and landed_with(state, holder)
         except config.Error as exc:
             log(f"WARN {run_dir.name} waits a tick to start again: {exc}")
             continue
@@ -446,7 +451,7 @@ def restart(log=print, now=None):
                                         directory / turns.REGRESSION.parent, symlinks=True)
                     carried = {key: state[key] for key in CARRIED if key in state}
                     kept = f"its earlier attempt is kept on branch {state.get('branch')}" + (
-                        f"; {state['from']} landed with it, so it starts from the target" if landed else "")
+                        f"; {state['from']} landed with it, so it starts from {state['base']}" if landed else "")
                 (directory / "log.txt").touch()
                 gitcall.logger(directory)(f"started again for {run_dir.name}: {why}; {kept}")
                 run.launch_for_seat(
