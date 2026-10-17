@@ -25,7 +25,7 @@ class BarInOneCall(Sandbox):
     def tmux(self, *args, **_kw):
         self.calls.append(args)
         if args[0] == "list-sessions":
-            return 0, "\n".join(f"${n}\t{name}\t1" for n, name in enumerate(self.seats))
+            return 0, "\n".join(f"${n}:{name}:1" for n, name in enumerate(self.seats))
         return 0, ""
 
     def test_a_seats_bar_is_one_call_with_its_title_last(self):

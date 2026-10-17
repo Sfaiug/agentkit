@@ -148,26 +148,30 @@ def whys(info):
             every, few, least]
 
 
-def seats():
-    """(session id, name, word) of every seat on ak's own server, the word the one it last
-    announced: what each bar's right end counts.  What `orch.seated` does not hold is no seat,
-    whatever word a record under its name says: a watcher an orchestrator started, or a
-    session whose agent has left.  A session under a name no seat can have
-    (`orch.session_name`) is none either, so every name drawn is the plain ASCII a seat's is,
-    whose cells `others` counts as tmux draws them."""
-    from . import watch   # here, not at the top: the watch announces seats, which write this bar
+def sessions():
+    """(session id, name, mark) of every session on ak's own server; None where no server is
+    up to list them.  The fields are split at `:`, which tmux keeps out of every session's name,
+    and not at a tab, which it shows a client outside a UTF-8 locale as `_`."""
     rc, out = orch.tmux_out("list-sessions", "-F",
-                            f"#{{session_id}}\t#{{session_name}}\t#{{{orch.MARK}}}",
+                            f"#{{session_id}}:#{{session_name}}:#{{{orch.MARK}}}",
                             socket=orch.socket_name())
-    rows = []
-    for line in out.splitlines() if rc == 0 else ():
-        parts = line.split("\t")
-        if len(parts) == 2:
-            parts.append("")   # no mark: the last line's empty field went with the output's strip
-        if len(parts) == 3:
-            rows.append(parts)
-    held = orch.seated(orch.socket_name(), {name: mark for _, name, mark in rows})
-    return [(sid, name, watch.seat_read(name).get("word")) for sid, name, _ in rows
+    if rc != 0:
+        return None
+    return [parts for parts in (line.split(":", 2) for line in out.splitlines())
+            if len(parts) == 3]
+
+
+def seats(listed=None):
+    """(session id, name, word) of every seat among those `sessions`, listed now where not
+    given, the word the one it last announced: what each bar's right end counts.  What
+    `orch.seated` does not hold is no seat, whatever word a record under its name says: a
+    watcher an orchestrator started, or a session whose agent has left.  A session under a name
+    no seat can have (`orch.session_name`) is none either, so every name drawn is the plain
+    ASCII a seat's is, whose cells `others` counts as tmux draws them."""
+    from . import watch   # here, not at the top: the watch announces seats, which write this bar
+    listed = (sessions() or []) if listed is None else listed
+    held = orch.seated(orch.socket_name(), {name: mark for _, name, mark in listed})
+    return [(sid, name, watch.seat_read(name).get("word")) for sid, name, _ in listed
             if sid.startswith("$") and name in held and orch.session_name(name) == name]
 
 
@@ -233,12 +237,20 @@ def _tell(only=None, own=()):
     that was up before the names came gets it with the first bar that draws one.
 
     What tmux refuses for its length is told again in pieces (`orch.tmux_options`), so a bar
-    does not keep what was said before because what is said now is longer than a message.
+    does not keep what was said before because what is said now is longer than a message.  An
+    `own` option on a session the listing shows gone -- no server is up, or it lists others --
+    is not told at all: tmux would refuse the call, then each option alone (`orch.tmux_lists`),
+    on every draw a stopped seat is in.  A listing that reads no session says nothing, since
+    tmux ends a server with its last one, and there every option is told as before.
     """
     config.ensure_dirs()
     with (config.STATE / "statusbar.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        found, told = seats(), []
+        listed = sessions()
+        here = {f"={name}:" for _, name, _ in listed or ()}
+        # a seat tmux did not list has no bar to write: no other session is asked what it is
+        found = seats(listed or []) if only is None or f"={only}:" in here else []
+        told = []
         for _, name, _ in found:
             if only in (None, name):
                 named, folded, needing, hit = others(found, name)
@@ -250,9 +262,10 @@ def _tell(only=None, own=()):
                 told.append(([(target, HIT, "")],
                              [(target, SEATS, named), (target, FOLD, folded),
                               (target, NEED, needing), (target, HIT, hit)]))
+        told += [((), [option]) for option in own if option[0] in here or listed == []]
         # a seat gone since it was listed fails its own list and no other's (`orch.tmux_lists`)
-        orch.tmux_options([*told, *(((), [option]) for option in own)], [CLICK],
-                          socket=orch.socket_name())
+        if told:
+            orch.tmux_options(told, [CLICK], socket=orch.socket_name())
 
 
 def dress(name, model):
@@ -296,13 +309,13 @@ def redress(session, answer, cfg=None, records=None):
 
 
 def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=False):
-    """Set the bar on that seat's own session, never the server's or another seat's: a seat gone
-    mid-draw, or a draw under test, fails its `set-option` quietly.  `={name}:` is that session
-    alone: tmux reads a plain name as the start of any session's, so a gone `new-1` would write
-    `new-10`'s bar, and it refuses `=name` without the colon as a target.  `lasts` are the
-    seat's last column at each of `BARS`, and `versions` its line two at each of `WHYS`
-    (`whys`), tmux text.  `every` has each other seat's bar count this one again, in the same
-    call."""
+    """Set the bar on that seat's own session, never the server's or another seat's: a seat
+    whose session is gone is not written (`_tell`), and one gone mid-draw fails its `set-option`
+    quietly.  `={name}:` is that session alone: tmux reads a plain name as the start of any
+    session's, so a gone `new-1` would write `new-10`'s bar, and it refuses `=name` without the
+    colon as a target.  `lasts` are the seat's last column at each of `BARS`, and `versions`
+    its line two at each of `WHYS` (`whys`), tmux text.  `every` has each other seat's bar
+    count this one again, in the same call."""
     lasts = lasts or [""] * len(BARS)
     versions = list(versions) or [""] * len(WHYS)
     tops = [lines(name, model, word, last)[0] for last in lasts]

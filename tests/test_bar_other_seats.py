@@ -52,7 +52,7 @@ class OtherSeats(Sandbox):
     def tmux(self, *args, socket=None, **_kw):
         self.calls.append((args, socket))
         if args[:2] == ("list-sessions", "-F"):
-            return 0, "\n".join(f"{sid}\t{name}\t1" for name, sid in self.ids.items())
+            return 0, "\n".join(f"{sid}:{name}:1" for name, sid in self.ids.items())
         if args[0] == "kill-session":
             del self.ids[args[-1].lstrip("=")]
         command = []
