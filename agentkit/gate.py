@@ -33,6 +33,11 @@ GATE_POLL = 15      # seconds between a waiting gate's tries for a turn; each re
 HEAVY_CPUS = 0.7      # initial measured estimates; a repository's pieces may cost more
 HEAVY_MEM_MB = 410
 SUITE_BUSY = 75       # sysexits' EX_TEMPFAIL: a heavy suite's own host-wide lock is another copy's
+# A piece on the suite helper runs in a clone there, which land._check's look at this checkout
+# never sees: the piece checks that clone itself and fails, as land._check does, if it changed.
+PINNED_PIECE = ('head=$(git rev-parse HEAD) && bash -c {} || exit\n'
+                '[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||'
+                ' {{ echo "the piece changed the checkout it tests" >&2; exit 1; }}')
 
 
 @contextmanager
@@ -1283,7 +1288,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 try:
                     here = {} if away else {"cpu": measure.cpu}
                     code, _, killed = (worker.limited if away else worker.boxed)(
-                        helper.piece(away, shard, command) if away else ["bash", "-c", command],
+                        helper.piece(away, shard, PINNED_PIECE.format(shlex.quote(command)))
+                        if away else ["bash", "-c", command],
                         left, cwd=str(cwd), activity=Path(piece.name),
                         output=stream, env={**env, "AK_SHARD": shard}, abort=abort,
                         on_timeout=stopped, **here, **kwargs)

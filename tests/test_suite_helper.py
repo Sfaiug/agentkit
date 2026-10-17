@@ -36,7 +36,8 @@ esac
 """
 
 # The Mac's own tools, for tools/helper/mac.sh run here: on its charger for the first
-# $FAKE_AC_CALLS readings; a VM comes up a second after `container run` and runs until stopped.
+# $FAKE_AC_CALLS readings; a VM comes up a second after `container run`, noting any VM up
+# already, and runs until stopped.
 MAC_TOOLS = {
     "pmset": 'n=$(( $(cat "$FAKE/readings" 2>/dev/null || echo 0) + 1 )); echo $n >"$FAKE/readings"\n'
              '[ $n -le "$FAKE_AC_CALLS" ] && echo "Now drawing from \'AC Power\'" ||'
@@ -51,7 +52,8 @@ MAC_TOOLS = {
                  'acme-local unpublished 3\\n";;\n'
                  '"image delete") echo "$3" >>"$FAKE/deleted";;\n'
                  '"run "*) while [ "$1" != --name ]; do shift; done\n'
-                 '  sleep 1; touch "$FAKE/vm-$2"; while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
+                 '  sleep 1; ls "$FAKE" | grep "^vm-" >>"$FAKE/overlap"; touch "$FAKE/vm-$2"\n'
+                 '  while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
                  '"stop "*) rm "$FAKE/vm-$2";; esac',
     "ssh": 'exec bash -c "$2"',
 }
@@ -75,7 +77,8 @@ class SuiteHelper(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(worker, "ACTIVITY_POLL", 0.01))
         self.repo = self.root / "repo"
-        git = ["git", "-C", str(self.repo), "-c", "user.name=acme", "-c", "user.email=a@acme.test"]
+        self.git = git = ["git", "-C", str(self.repo), "-c", "user.name=acme",
+                          "-c", "user.email=a@acme.test"]
         subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True)
         subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "start"], check=True)
         subprocess.run([*git, "update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
@@ -97,15 +100,16 @@ class SuiteHelper(unittest.TestCase):
         self.turns.append(args)
         self.waited += 60
 
-    def check(self, codes):
+    def check(self, codes, suite=SUITE):
         for path in [*self.fake.glob("code-*"), self.fake / "calls"]:
             path.unlink(missing_ok=True)
         for piece, code in codes.items():
             (self.fake / f"code-{piece}").write_text(str(code))
         self.turns.clear()
         logs = []
-        code, text, _ = gate.run_suite(SUITE, 30, cwd=self.repo, activity=self.root / "live.log",
-                                       output=io.BytesIO(), log=logs.append)
+        code, text, _ = gate.run_suite(suite, 30, cwd=self.repo, activity=self.root / "live.log",
+                                       output=io.BytesIO(), log=logs.append,
+                                       stderr=subprocess.STDOUT)
         self.assertEqual(code, 0, text)
         return text, [line for line in logs if "WARN" in line]
 
@@ -132,6 +136,14 @@ class SuiteHelper(unittest.TestCase):
                 self.assertIn("helper ran 1/3", text)
                 self.assertEqual(len(self.turns), 1)
                 self.assertEqual([line[:17] for line in warned], warn)
+
+    def test_a_piece_that_changes_its_checkout_there_fails_there(self):
+        (self.repo / "tracked").write_text("committed\n")
+        subprocess.run([*self.git, "add", "tracked"], check=True)
+        subprocess.run([*self.git, "commit", "-qm", "tracked"], check=True)
+        warned = self.check({}, SUITE + "; echo altered >>tracked")[1]
+        self.assertEqual(sorted(line[:17] for line in warned),
+                         [f"WARN AK_SHARD={k}/3" for k in (1, 2, 3)])
 
     def test_no_helper_named_runs_here(self):
         (config.HOME / config.CONFIG_NAME).write_text("")
@@ -179,6 +191,29 @@ class HelperMac(unittest.TestCase):
         for key in ("first", "second"):
             helper.finish(helper.Away("acme-mac", key, *[None] * 6))
         self.assertEqual(prepare("third"), 0)
+
+    def test_a_piece_waits_while_another_suite_holds_the_mac(self):
+        def start(key):
+            (self.root / key).mkdir(parents=True)
+            (self.root / key / "held").touch()    # its claim, as `prepare` leaves it
+            return subprocess.Popen(helper._remote("acme-mac", "run", key, "ak-helper:new",
+                                                   f"ak-{key}", 1, 512), stdout=subprocess.DEVNULL)
+
+        def up(name):
+            deadline = time.monotonic() + 30
+            while not (self.fake / name).exists():
+                self.assertLess(time.monotonic(), deadline, f"{name} never came up")
+                time.sleep(0.1)
+            return self.fake / name
+
+        first = start("first")
+        up("vm-ak-first")
+        second = start("second")
+        time.sleep(3)   # the second VM would be up beside the first by now, were it let
+        up("vm-ak-first").unlink()
+        up("vm-ak-second").unlink()
+        self.assertEqual((first.wait(30), second.wait(30)), (0, 0))
+        self.assertEqual((self.fake / "overlap").read_text(), "")
 
     def test_a_vm_that_comes_up_after_its_charger_went_stops(self):
         (self.root / "key").mkdir(parents=True)

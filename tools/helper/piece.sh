@@ -21,8 +21,4 @@ offline() {
     'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"
 }
 offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "could not go offline"
-head=$(git rev-parse HEAD)
-offline bash -c "$command" || exit
-# land._check reads ak's own checkout, not this clone: a piece that changed this one fails.
-[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||
-  { echo "ak helper: the piece changed the checkout it tests" >&2; exit 1; }
+offline bash -c "$command"
