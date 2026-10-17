@@ -6799,7 +6799,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import job as jobs, leases, logins, retire
+    from . import job as jobs, leases, logins, matrix, retire
     providers = {}
 
     def read_usage():
@@ -6846,6 +6846,9 @@ def local_passes(state, dry_run, log):
         # when each subscription's login ends and whose it is, each asked hourly at most; one
         # ending within 3 days pages the owner once a day
         ("the login-end read did not run", lambda: logins.remind(config.load()), False),
+        # the public boards once a day, and the matrix every pick reads, computed again only
+        # when a board answered anew or the config's models changed; a dry run reads nothing
+        ("the boards pass did not run", lambda: matrix.refresh(config.load()), False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
         # the usage just read; a run parked on an expired login, the moment that harness's
         # `auth` verb passes again; a run in error, on the loop's transient ladder, hourly at

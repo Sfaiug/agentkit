@@ -14,8 +14,10 @@ anything.
 
 Exhaustion is the one hard exclusion, and it is not a knob: a meter is spent at 100% used and
 not one point earlier, because a subscription is bought to be used to the end.  The worker
-pick (`pick_order`) ranks whatever is left by budget; the orchestrator choice (`ak orch`)
-ignores both numbers and takes the default orchestrator while it still has something to spend.
+pick (`pick_order`) ranks whatever is left by the matrix's score for the role (`matrix.rank`,
+off `ak models`: the measures a score rests on, then the score), budget only among models
+ranked alike or ranked by nothing; the orchestrator choice (`ak orch`) ignores every number
+and takes the default orchestrator while it still has something to spend.
 
 Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
 such a provider is not spent, only ranked after every one with a window left (`on_credits`),
@@ -36,7 +38,7 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-from . import command_help, config, staffing, terminal, turns, usage_probe, worker
+from . import command_help, config, matrix, staffing, terminal, turns, usage_probe, worker
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -1544,19 +1546,24 @@ def model_spent(cfg, name, providers):
 
 def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=None, quiet=False,
                repo=None, skip=(), reviewers=None):
-    """The workers, highest budget first, for every role.
+    """The workers for a role, the one the matrix ranks first for it first.
 
-    Budget divides the fraction unspent by the fraction of its window still to go. Unknown readings have budget zero and sort
-    after every known model, and a model on credits (`on_credits`) after both; equal budgets
-    keep list order. The one exclusion is a gate meter at 100% used with no credits left;
-    `skip` names models a caller leaves out before any of this reads the list.
-    payg providers are the exception: they cost money,
-    so they stay out while any subscription model is still below pace, and a subscription model
-    whose meters report nothing counts as below it.  Where the harness's own config says what
-    a model is paid from, that outranks the provider's `mode`.
+    The rank is `matrix.rank`'s for the role (`execute` for an executor, `review` for a
+    reviewer): the measures a score rests on, then the score, off the matrix as `ak models`
+    or the tick last computed it; a model the boards have nothing on, or a matrix nobody
+    computed yet, ranks after every ranked model.  Among models ranked alike, budget decides:
+    the fraction unspent over the fraction of the window still to go, unknown readings after
+    every known one; a model on credits (`on_credits`) after every one with a window left;
+    equal on all of it keeps list order.  The one exclusion is a gate meter at 100% used with
+    no credits left; `skip` names models a caller leaves out before any of this reads the
+    list.  payg providers are the exception: they cost money, so they stay out while any
+    subscription model is still below pace, and a subscription model whose meters report
+    nothing counts as below it.  Where the harness's own config says what a model is paid
+    from, that outranks the provider's `mode`.
 
-    Each role stays within its selection. History never affects the order. JSON output uses
-    `quiet` because the providers already carry their unknown reasons as structured fields.
+    Each role stays within its selection. ak's own run numbers never affect the order. JSON
+    output uses `quiet` because the providers already carry their unknown reasons as
+    structured fields.
     """
     if workers is None:
         workers, reviewers = config.role_groups(cfg, reviewers=reviewers)
@@ -1591,8 +1598,12 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
             provider = config.model(cfg, name)["provider"]
             reason = reason.removeprefix("unknown: ")
             print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: {reason}; "
-                  "ranked last", file=sys.stderr)
+                  "after every known budget of its rank", file=sys.stderr)
+    ranks = matrix.rank(cfg, "review" if role == "reviewer" else "execute")
     return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers),
+                                             ranks.get(n) is None, *(
+                                                 (-ranks[n][0], -ranks[n][1]) if ranks.get(n)
+                                                 else (0, 0)),
                                              budgets[n][1] is not None, -budgets[n][0]))
 
 
