@@ -108,6 +108,24 @@ class SeatQuestionWhole(Sandbox):
         self.assertIn("2 acme-web opus ! needs you", screen)
         self.assertTrue(screen.endswith("← 1 / 3 → n new x stop c config esc leave"), screen)
 
+    def test_what_opens_takes_only_the_lines_the_screen_has_left(self):
+        groups = ([{"name": "acme", "checkout": None, "seats": ROWS}], ROWS, 2, 0)
+        for width in (38, 62):
+            for height in range(7, 14):
+                with self.subTest(width=width, height=height):
+                    out = io.StringIO()
+                    with patch.object(terminal, "width", return_value=width), \
+                            patch.object(terminal, "height", return_value=height), \
+                            redirect_stdout(out):
+                        menu.draw(self.cfg, [], cursor="fix-api", drawn={}, groups=groups,
+                                  keys=f"{menu.move_keys()}   {menu.KEYS}", look=False)
+                    lines = [terminal.ANSI.sub("", line) for line in
+                             out.getvalue().split("\033[J")[0].split("\n")[:-1]]
+                    # the heading and the keys stay, over the two lines every draw keeps
+                    self.assertLessEqual(len(lines), height - 2, "\n".join(lines))
+                    self.assertTrue(any("your projects" in line for line in lines), lines)
+                    self.assertIn("esc leave", lines[-1])
+
     def test_no_page_turns_as_the_highlight_moves(self):
         for width in (44, 62, 100):
             for height in (*range(8, 24), 50):

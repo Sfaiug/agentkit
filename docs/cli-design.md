@@ -376,7 +376,7 @@ question for `needs you` and what got done for `done`, wrapped whole at words, s
 a question is read whole on ak's own screen before its seat is opened, whatever
 harness it runs; a working seat's live line, its tmux bar's second line at the
 row's width, the first of its versions that fits. No other row grows: every page
-keeps as many lines as the most any seat on screen opens, up to half the screen, a longer question cut to them with `…`, so no page overflows or turns as
+keeps as many lines as the most any seat on screen opens, up to half the screen and what the headings, a row and the keys leave, a longer question cut to them with `…`, so no page overflows or turns as
 the highlight moves. From a pipe there is no highlight, so every row asking or
 done opens its lines. The orchestrator column is the model in its
 company's colour, as on the seat bar, mirrored on a light background as the

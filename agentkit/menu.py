@@ -1408,6 +1408,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     folded = meters is summary
     # a seat under its heading: its row and, where it has one, a line under it
     need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=1))
+    # the opened lines take only what that leaves, before the usage gives any of its own
+    opens = max(0, opens - max(0, need - room))
+    room = _room(meters, paged, compact)
     if compact and room < need and len(meters) > 1:
         meters = usage_summary(cfg, layout, max(1, len(meters) + room - need))
         room = _room(meters, paged, compact)
