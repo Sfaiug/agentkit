@@ -1426,11 +1426,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     for meters, compact, paged in ((block, False, False), (summary, False, False),
                                    (block, False, True), (summary, False, True),
                                    (summary, True, False), (summary, True, True)):
+        paged = paged and len(flat) > 1
         room = _room(meters, paged, compact)
         if (len(flat) <= room) if not paged else (room >= least or compact):
             break
     # a seat under its heading: its row and, where it has one, a line under it
-    need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=1))
+    need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=0))
     # the opened lines take only what that leaves, before the usage gives any of its own
     opens = max(0, opens - max(0, need - room))
     room = _room(meters, paged, compact)
