@@ -49,12 +49,23 @@ def passed(turn, tree):
 
 @functools.cache
 def _code():
-    """The ak commit this lander checks under: a pass another commit's lander saw may not hold."""
+    """The ak commit this lander checks under: what another commit's lander saw holds only once
+    both commits passed a check of the line (`_answering`)."""
     from . import run
     try:
         return run.git(config.REPO, "rev-parse", "HEAD")
     except config.Error:
         return None
+
+
+def _answering(turn, kind):
+    """The evidence of `kind` that answers this lander: its own commit's, and another's once
+    that commit and this one each passed a check of the line -- an ak update that breaks the
+    checks themselves passes none, so nothing seen before it or under it is trusted."""
+    passing = {entry.get("code") for entry in _trees(turn)[1].values()} - {None}
+    return {tree: entry for tree, entry in _trees(turn, kind)[1].items()
+            if entry.get("code") == _code()
+            or {entry.get("code"), _code()} <= passing}
 
 
 def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red=None,
@@ -595,9 +606,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             suite = gitcall.declared_suite(stacks[0][2], ref=tip)
             if limit is None:
                 limit = gate.whole_checks_that_fit(suite)
-            # Only this lander's ak commit answers: another's pass or failure is checked again.
-            green, red = ({tree: entry for tree, entry in _trees(turn, kind)[1].items()
-                           if entry.get("code") == _code()} for kind in ("trees", "red_stacks"))
+            green, red = (_answering(turn, kind) for kind in ("trees", "red_stacks"))
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
             if not prefix:

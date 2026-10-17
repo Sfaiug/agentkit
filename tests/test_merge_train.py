@@ -5,6 +5,7 @@ Offline: real Git and checks, sandbox records, fake processes and wakes.
 
 from contextlib import contextmanager
 import fcntl
+import json
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -458,6 +459,32 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         rebuilt, files = self.trees[-1]
         self.assertNotIn(rebuilt, checked)
         self.assertNotIn("broken.txt", files)
+        self.assertIn(self.wait(red)["fix"]["log"], [entry["log"] for entry in failures.values()])
+        self.assertIn("land", self.wait(head))
+        self.assert_cleaned()
+
+    def test_another_commits_evidence_answers_once_this_commit_passed_the_line(self):
+        # an ak update that checks as before re-proves nothing its predecessor's lander saw
+        head = self.member("head")
+        red = self.member("red", joined=2, **{"broken.txt": "x\n"})
+        self.member("later", joined=3, **{"later.txt": "later\n"})
+        self.advance()
+        with patch.object(record, "record", side_effect=RuntimeError("crash before verdicts")):
+            with self.assertRaisesRegex(RuntimeError, "crash before verdicts"):
+                land.check_line(self.turn)
+        count = len(self.checks)
+        path = land._trees(self.turn)[0]
+        kept = json.loads(path.read_text())
+        for kind in ("trees", "red_stacks"):
+            for evidence in kept[kind].values():
+                evidence["code"] = "another-commit"
+        path.write_text(json.dumps(kept))
+        failures = land._trees(self.turn, "red_stacks")[1]
+        land.note(self.turn, [run.git(self.repo, "rev-parse", "origin/main^{tree}")], "earlier",
+                  checks=[SUITE])
+        land.check_line(self.turn)
+        self.assertEqual(len(self.checks), count + 1)
+        self.assertNotIn("broken.txt", self.trees[-1][1])
         self.assertIn(self.wait(red)["fix"]["log"], [entry["log"] for entry in failures.values()])
         self.assertIn("land", self.wait(head))
         self.assert_cleaned()
