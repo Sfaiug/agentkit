@@ -24,7 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, update, usage, watch
-from agentkit import record
+from agentkit import matrix, record
 
 INSTALL = '#!/bin/sh\necho installed >>"$(dirname "$0")/../installs"\n'
 
@@ -53,6 +53,7 @@ class LiveUpdate(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         self.stack.enter_context(patch.object(watch, "LOG_OWNED", set()))
+        self.stack.enter_context(patch.object(matrix, "refresh"))
         config.ensure_dirs()
         self.cfg = config.load()   # off this checkout's defaults, before REPO is the clone's
         # the tick moves only the checkout it runs from; here that is the throwaway clone

@@ -24,7 +24,7 @@ REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, gate, gc, gitcall, host, menu, notify, orch, retention, run, status, update, watch
+from agentkit import config, gate, gc, gitcall, host, matrix, menu, notify, orch, retention, run, status, update, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -45,6 +45,7 @@ class RetainState(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
+        self.stack.enter_context(patch.object(matrix, "refresh"))
         sockets, binaries, adapters = (self.root / name for name in ("sockets", "bin", "adapters"))
         for directory in (sockets, binaries, adapters):
             directory.mkdir(mode=0o700)

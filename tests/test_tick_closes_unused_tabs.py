@@ -22,7 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, notify, orch, run as run_mod, usage, watch
-from agentkit import logins, record
+from agentkit import logins, matrix, record
 
 NOW = 1_750_000_000.0
 
@@ -259,6 +259,7 @@ class V5AE(unittest.TestCase):
                    patch.object(watch, "save_state"),
                    patch.object(usage, "collect", return_value={}),
                    patch.object(logins, "remind"),
+                   patch.object(matrix, "refresh"),
                    patch.object(record, "run_dirs", return_value=[]),
                    patch.object(orch, "sessions", return_value=[]),
                    patch.object(gc, "schedule_gc"),
