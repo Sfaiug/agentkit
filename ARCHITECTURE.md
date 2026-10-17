@@ -187,9 +187,10 @@
 - `tools/`: `shim`, the one sh body of every PATH shim -- the real binary is the first on PATH after
   the shim's own; a worker's or seatless call runs it at once (git is hot: no Python start), a
   seat's own asks `agentkit.guard`, which refuses or execs it (tagging tmux new-session) -- with
-  `tmux-shim` (refuses ending or typing into another seat), `gh-shim` (refuses a seat's `gh pr
-  merge`), `git-shim` (refuses a `git worktree add` into ~/code) and `scp-shim`/`rsync-shim`/
-  `sftp-shim` (refuse a transfer to the live server) links to it, each linked as
+  `tmux-shim` (refuses ending or typing into another seat; gives what a seat starts its name),
+  `gh-shim` (refuses a seat's `gh pr merge`), `git-shim` (refuses a `git worktree add` into
+  ~/code) and `scp-shim`/`rsync-shim`/`sftp-shim` (refuse a transfer to the live server) links
+  to it, each linked as
   `<HOME>/bin/<name>` first on a seat's PATH; and, called by adapters:
   `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it looks at the seat
   again when its screen comes to rest, starts moving or its harness exits; it types nothing),

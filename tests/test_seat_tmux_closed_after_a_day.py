@@ -183,7 +183,7 @@ class FinishedTmux(unittest.TestCase):
             result = subprocess.run([str(shimdir / "tmux"), *args], env=env,
                                     capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 3, result.stderr)
-            tag = ["-e", f"{guard.TMUX_OWNER}=acme"]
+            tag = ["-e", "AGENTKIT_SESSION=acme", "-e", f"{guard.TMUX_OWNER}=acme"]
             self.assertEqual(json.loads(result.stdout),
                              [*args[:3], *tag, *args[3:8], *tag, *args[8:]])
         for override in ({"AK_RUN_ROLE": "worker"}, {"AGENTKIT_SESSION": ""}):
