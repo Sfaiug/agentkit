@@ -1097,6 +1097,27 @@ def _send_card(session, kind, card, answer):
     return result
 
 
+def page(key, text):
+    """Page the owner about no seat, once per `key` however often it is asked: the outbox
+    keeps the event, so no later tick or restart queues it again, and retries it as a card's.
+    No seat names it, so the text itself is the title."""
+    payload = {"username": "agentkit", "embeds": [{
+        "title": text[:256], "color": COLORS["needs"],
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}]}
+    who = mention()
+    if who:
+        payload["content"] = who
+    key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
+    with outbox_lock():
+        if _read_event(key) is not None:
+            return 0
+        event = {"id": key, "session": None, "kind": "needs", "text": text, "payload": payload,
+                 "message": text, "created_at": time.time(), "sink": sink() is not None,
+                 "status": "pending", "attempts": 0, "next_attempt": 0}
+        _write_event(event)
+        return _attempt(event)
+
+
 def _history(card):
     """Did that episode begin before the agentkit running now was installed?
 

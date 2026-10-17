@@ -6843,8 +6843,9 @@ def local_passes(state, dry_run, log):
         ("the lease restart pass did not run", lambda: leases.restart(log), False),
         ("the tick's watch.json was not saved", lambda: save_state(state), False),
         ("the usage refresh did not finish", read_usage, True),
-        # when each subscription's login ends and whose it is, each asked hourly at most
-        ("the login-end read did not run", lambda: logins.refresh(config.load()), False),
+        # when each subscription's login ends and whose it is, each asked hourly at most; one
+        # ending within 3 days pages the owner once a day
+        ("the login-end read did not run", lambda: logins.remind(config.load()), False),
         # An exhausted run waits for a provider window and resumes itself when one refills, on
         # the usage just read; a run parked on an expired login, the moment that harness's
         # `auth` verb passes again; a run in error, on the loop's transient ladder, hourly at
