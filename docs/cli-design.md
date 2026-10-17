@@ -225,20 +225,12 @@ pointer alike, `terminal.lit`, `terminal.relight`, `terminal.away`, `terminal.un
 
 Nobody needs a manual, and nothing explains itself: the pointer lights what it
 rests on and the key line stays the keys, on every screen (the owner, 14 Oct
-2026: "I dont think hovering should show extra info anywhere"). A usage row under
-the pointer glints once and shows a tick at the share that would remain if usage
-kept pace with time. A state word, a heading naming no switches, a usage row and
-a provider's name only explain: nothing lights on them and a click there does
-nothing of its own (`terminal.Spot`). `esc back` means just what it says, so it
-lights nothing.
-
-A usage row under the pointer shows the one thing the row cannot: whether its
-allowance lasts the week at this pace. One glint of light crosses its bar, left to
-right in 400 ms (Motion), and a hairline tick stands in the bar at the share
-that would be left had it been spent as fast as time passes, from the meter's
-window and reset -- cut out of the fill's colour where the fill reaches past
-it, and standing through a glide -- until the pointer leaves.
-Helpers: `terminal.pointed`, `terminal.lit`, `menu.usage_tip`, `motion.glinting`.
+2026: "I dont think hovering should show extra info anywhere"). What a seat asks
+or did opens under its row (Rows are tables), and what a subscription's cell has
+no room for opens under the grid (Subscriptions); nothing else says more. A state
+word, a heading naming no switches, a subscription and a provider's name only
+explain: nothing lights on them and a click there does nothing of its own
+(`terminal.Spot`). `esc back` means just what it says, so it lights nothing.
 
 ## Questions
 
@@ -355,8 +347,7 @@ line under the row, so no line runs past the screen.
 Columns use gutters, never ` · `. Never cut inside a
 glyph or a colour sequence. No rendered line keeps trailing space: cell pads
 land outside the colour escapes and every row is rstripped, so the snapshots
-never pin invisible whitespace. The usage bars are one column, sized once per
-draw from the row that has the least room.
+never pin invisible whitespace.
 
 A working seat's progress takes all the room its last column has, never under
 8 cells of line, and is never wrapped or cut: one too long for the column, or a row with
@@ -416,7 +407,7 @@ keeps, wherever the rows end. Seats that do not fit between them turn pages,
 whole seat blocks packed under repeated headers, so a seat's lines never split
 across pages: one taller than a page is cut to it, its last line ending in `…`.
 Rows keep their global numbers. A screen too short for the usage block
-and a few rows under it folds it to each subscription's reading, whole, in as
+and a few rows under it, or too narrow for a name beside each cell's words, folds it to each subscription's reading, whole, in as
 many lines as the width takes (`Claude I 17% · ChatGPT 74% · Grok —`); one too
 short for that drops the frame and the blank lines too (compact), and only one
 with no room for a seat under its heading even then gives up the lines the
@@ -424,46 +415,37 @@ highlighted row opens, then cuts the readings, ending in `· …`. On a terminal
 line says which (`←  1 / 2  →`); in a pipe the heading does (`your projects
 2/3`), the page never the part that is cut, and `j` and `k` turn the pages.
 
-## Usage rows
+## Subscriptions
 
-One row per provider under `usage left`, one column of bars: the provider's
-display name, the bar and `NN% left` of its **shared** weekly meter -- the one
-every model of it draws on, never a cap one model has to itself -- or, once that
-week is spent, the credits the account still runs on in the percentage's place
-(`62,469 credits left`, `$12.40 credits left`) wherever they fit beside a
-four-cell bar -- then, joined with ` · ` and each only when it applies: the
-credits not standing in the percentage's place; `resets <weekday> <HH:MM>` in local
+Right under the rule, a grid of every subscription, three to a line from 105
+columns: its name, a ten-cell meter of its **shared** weekly meter -- the one every model of
+it draws on, never a cap one model has to itself -- `▰` left and a dim `▱` spent,
+and `NN% left`; a spent week says `empty until <when>`, dim, or the credits it
+still runs on, which count as usage left. A row
+with no shared week at all -- no reading, or nothing but one model's private cap --
+is `—` and the words that say why, never `—` alone. No cell's words are cut: the names
+give way to the longest. At rest nothing on it has a
+company's colour. The rows run red through violet by the hue of that colour, the
+near-greys last and lightest first: Claude, MiMo, Muse, Gemini, Grok, ChatGPT.
+The pointer on one draws its name and meter in its company's own colour --
+Claude `#D97757`, ChatGPT `#FFFFFF`, Muse `#3E9EFB`,
+Grok `#736CD3`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
+`colour = "#RRGGBB"` in config.toml, else the accent; on a light
+background a light grey is drawn as its mirror tone, so ChatGPT's white reads
+black -- and the blank line under the grid says the rest, joined with ` · ` and
+each only when it applies: `resets <weekday> <HH:MM>` in local
 time from that meter (`resets 23 Oct` more than six days out in a window longer
 than a week, such as MiMo's 30-day plan; `resets in 3d` when only a duration is
-known); `1 reset in hand` (`2 resets in hand`) while the subscription holds
+known); the credits; `1 reset in hand` (`2 resets in hand`) while the subscription holds
 usage-limit resets, which the owner spends on `c`; one `<Model> NN%` note per
-scoped cap whose figure differs from the shared one; `? <reason>` in the
+scoped cap whose figure differs from the shared one; the 5-hour window; `? <reason>` in the
 adapter's own words when the last probe errored though the meter it read still
-stands, or `rate limited` / `unavailable` when the endpoint refused it and the
-last reading stood in. No row, heading or note -- here or in `ak usage` -- says
-how old a reading is: an open menu probes each provider at most once a minute,
-host-wide, the tick does when no menu is open, and Muse's billed probe spends at
-most one model call in ten minutes. A row with no
-shared week at all -- no reading, or nothing but one model's private cap --
-is `—` and the words that say why, never `—` alone. The bar's filled cells are
-the company's own colour -- Claude `#D97757`, ChatGPT `#FFFFFF`, Muse `#3E9EFB`,
-Grok `#736CD3`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
-`colour = "#RRGGBB"` in config.toml, else the accent -- until little is left,
-whoever's week it is (`menu.fill`, on the whole percent the row prints): amber
-from 20% down, red from 5% down; a week with anything left keeps at least one
-filled cell, so its red is seen, and the empty cells are dim. On a light
-background a light grey is drawn as its mirror tone, so ChatGPT's white reads
-black. The rows run red through violet by the hue of that colour, the
-near-greys last and lightest first: Claude, MiMo, Muse, Gemini, Grok, ChatGPT. The bar gives way to the
-notes first, down to four cells; only then does each note that still will not
-fit give way on its own, so a phone keeps every short note it has room for
-rather than losing them all with one long one. Everything else a provider knows -- `week
+stands; how old an old reading is (`menu.usage_detail`). Everything else a provider knows -- `week
 elapsed`, `session`, `headroom`, `budget`, `outlook` --
 belongs to `ak usage`, whose table gains a `resets` column reading the same
-shared week off the same meter, so the two views can never disagree; the
-usage-limit credits that used to hold that heading are `resets held`.
+shared week off the same meter, so the two views can never disagree.
 
-Example: `  Claude    ██████░░░░░░  52% left · resets Fri 14:00 · Fable 41%`.
+Example: `  Claude I    ▰▰▰▰▰▱▱▱▱▱  52% left  ChatGPT     empty until Thu 20:00`.
 
 ## Colour
 
@@ -557,17 +539,10 @@ terminal, under `NO_COLOR` or at eight colours: there the dot stands still.
 News moves once and is then still, on the same clock. A row that turns
 `needs you` gives its `!` two soft pulses toward the light, 600 ms in all; one
 that turns `done` has its `✓` appear bright and settle to `done`'s colour over
-400 ms. A usage bar whose value changes glides to it over 300 ms, an eighth of
-a cell at a time, each cell on its own, and its last frame is the bar as drawn;
-one whose value reaches full -- even one its rounding drew full already -- then
-sends one light across it, left to right, the only light on it. A seat's
-progress line does not glide yet: each draw shows it as it is. Only a change seen while the
+400 ms. A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
-`forget`). The pointer coming onto a usage row is news the same way: one light
-crosses its bar, left to right over 400 ms, then it is still, its tick standing
-(Keys); resting there sends it again only once the pointer has left and come
-back.
+`forget`).
 
 A step on an effort on `c` is news too: the bar it fills rises into place over
 150 ms, and the one it empties lowers, the rest standing still; a step onto the
@@ -606,7 +581,7 @@ back from the wait, the fetch left to finish on its own, and any other key is le
 go (`motion.fetching`, `menu.matrix_key`, `menu.waited`).
 
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
-`motion.gliding`, `motion.glinting`, `motion.rising`, `motion.shimmering`, `motion.fetching`,
+`motion.rising`, `motion.shimmering`, `motion.fetching`,
 `menu.moving`, `menu.waited`, `terminal.faded`, `terminal.fade`, `terminal.signal`.
 
 ## Ages

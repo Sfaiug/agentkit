@@ -36,7 +36,7 @@ orch.taken_names = lambda: {"fix-api", "ship-docs"}
 
 menu.seat_row_state = lambda cfg, session, **_kw: {
     "word": "working", "reason": "", "since": None}
-menu.usage_lines = lambda cfg, width: []
+menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, **_kw: False
 menu.Live.look = lambda self, *_a, **_kw: None
 menu.update_first = lambda *args, **_kw: None

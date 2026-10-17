@@ -112,7 +112,7 @@ class Palette(unittest.TestCase):
 
 
 class Bars(Sandbox):
-    def test_bars_at_half_a_sixth_and_a_thirtieth_left_draw_own_amber_red(self):
+    def test_meters_are_grey_at_rest_and_the_one_pointed_at_in_its_companys_colour(self):
         week = {"name": "weekly", "resets_at": 10000 + 3 * 86400, "window_secs": 604800}
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
             "anthropic": {"meters": [{**week, "used": 50}]},
@@ -121,24 +121,15 @@ class Bars(Sandbox):
         for depth in (24, 256, 8):
             with self.subTest(depth=depth), \
                     patch.object(terminal, "colour_depth", return_value=depth):
-                rows = {terminal.plain(row).split()[0]: row
-                        for row in menu.usage_lines(self.cfg, 100)[1:]}
-                # 50% left is six cells of twelve, 15% two, and 3% still one
-                for label, cells, kind in (("Claude", 6, "#D97757"), ("ChatGPT", 2, "amber"),
-                                           ("Muse", 1, "FAIL")):
-                    self.assertIn(terminal.styled("█" * cells, kind) +
-                                  terminal.styled("░" * (12 - cells), "dim"), rows[label])
-        self.assertEqual([menu.fill(left, "#736CD3") for left in (100, 21, 20, 6, 5, 1, 0)],
-                         ["#736CD3", "#736CD3", "amber", "amber", "FAIL", "FAIL", "FAIL"])
-        with patch.object(terminal, "colour_depth", return_value=24):
-            dark = "\n".join(menu.usage_lines(self.cfg, 100))
-            with patch.object(terminal, "_LIGHT", True):
-                light = "\n".join(menu.usage_lines(self.cfg, 100))
-        for text, amber, red in ((dark, "249;226;175", "243;139;168"),
-                                 (light, "156;99;20", "210;15;57")):
-            self.assertIn("\033[38;2;217;119;87m██████\033[0m", text)   # Claude's, on both
-            self.assertIn(f"\033[1;38;2;{amber}m██\033[0m", text)
-            self.assertIn(f"\033[38;2;{red}m█\033[0m", text)
+                rest = "\n".join(menu.usage_lines(self.cfg, 120))
+                # 50% left is five cells of ten, 15% two, and 3% still one, none in a colour
+                for cells in (5, 2, 1):
+                    self.assertIn("▰" * cells + terminal.styled("▱" * (10 - cells), "dim"), rest)
+                lit = "\n".join(menu.usage_lines(self.cfg, 120, lit=1))
+                self.assertIn(terminal.styled("Claude", "#D97757"), lit)
+                self.assertIn(terminal.styled("▰" * 5, "#D97757") +
+                              terminal.styled("▱" * 5, "dim"), lit)
+                self.assertNotIn(terminal.styled("Claude", "#D97757"), rest)
 
     def test_a_light_grey_of_the_callers_reads_as_its_mirror_on_a_light_background(self):
         with patch.object(terminal, "colour_depth", return_value=24):

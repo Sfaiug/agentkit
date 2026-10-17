@@ -52,7 +52,7 @@ orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {
     "word": seats().get(session["name"], "working").replace(STOPPED, "idle"),
     "reason": "", "since": None}
-menu.usage_lines = lambda cfg, width: []
+menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
 menu.stop_session_runs = lambda name, dry_run=False: None

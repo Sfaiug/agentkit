@@ -8,12 +8,12 @@ once that window reads 100% used.  Offline, with invented readings.
 """
 
 import json
-import re
 import time
 from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import Sandbox
+from fixtures.subscriptions import said
 from agentkit import config, menu, terminal, usage
 
 NOW = 10000                   # the clock the Sandbox pins; a Thursday
@@ -61,13 +61,9 @@ class UsageRowsAccounts(Sandbox):
         (config.STATE / "usage.json").write_text(
             json.dumps({"fetched_at": fetched_at, "providers": providers}))
 
-    def rows(self, width=100):
-        return [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
-
-    @staticmethod
-    def bar_cells(line):
-        found = re.search(r"[█░]+", line)
-        return terminal.cells(found.group(0)) if found else 0
+    def rows(self):
+        """What the screen says of each subscription, by its number from 1 (`said`)."""
+        return ["", *(f"{label} {text}" for label, text in said(self.cfg).items())]
 
     def test_one_row_per_account_in_config_order(self):
         rows = self.rows()
@@ -102,7 +98,7 @@ class UsageRowsAccounts(Sandbox):
         cached["anthropic"]["accounts"]["second"] = {}
         self.cache(cached)
         rows = self.rows()
-        self.assertRegex(rows[1], r"Claude I\s+[█░]+\s+52% left")
+        self.assertTrue(rows[1].startswith("Claude I 52% left"), rows)
         self.assertEqual(rows[2].split(), ["Claude", "II", "—", "no", "reading", "yet"])
 
     def test_a_provider_without_accounts_keeps_its_single_row(self):
@@ -122,23 +118,13 @@ class UsageRowsAccounts(Sandbox):
                  (-1, "5h spent until 04:46"), (1, "rate limited")]
         self.assertEqual(menu.fitting(notes, 20), ["5h spent until 04:46"])
         # at a width where only one note fits, the spent 5h is the one kept
-        rows = self.rows(60)
-        self.assertIn("5h spent until 04:46", rows[2])
-        self.assertNotIn("resets", rows[2])
+        self.assertEqual(terminal.plain(menu.usage_detail(self.cfg, 2, 34)),
+                         "Claude II 5h spent until 04:46")
 
-    def test_rows_fit_and_share_one_bar_at_40_100_and_170(self):
+    def test_the_grid_fits_at_40_100_and_170(self):
         for width in (40, 100, 170):
             lines = menu.usage_lines(self.cfg, width)
             self.assertTrue(all(terminal.cells(line) <= width for line in lines), (width, lines))
-            bars = [line for line in lines[1:] if self.bar_cells(terminal.plain(line))]
-            self.assertTrue(bars, (width, lines))
-            self.assertEqual(len({self.bar_cells(terminal.plain(line)) for line in bars}), 1,
-                             (width, lines))
-            if width >= 100:
-                plain = [terminal.plain(line) for line in lines]
-                self.assertIn("5h 40% left", plain[1])
-                self.assertIn("5h spent until 04:46", plain[2])
-
 
 if __name__ == "__main__":
     unittest.main()

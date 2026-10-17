@@ -134,7 +134,7 @@ orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0} for name in ("seat-a", "seat-b")]
 orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "", "since": None}
-menu.usage_lines = lambda cfg, width: []
+menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)

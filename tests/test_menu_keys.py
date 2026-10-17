@@ -42,7 +42,7 @@ orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {
     "word": "done" if session["name"].startswith("done-") else "working", "reason": "",
     "since": None}
-menu.usage_lines = lambda cfg, width: []
+menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
 menu.TICK = float(os.environ["MENU_KEYS_TICK"])

@@ -15,6 +15,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.subscriptions import said
 from agentkit import config, menu, terminal, usage
 
 NOW = 10000                 # the clock the Sandbox pins; 1970-01-01 02:46:40 UTC, a Thursday
@@ -52,9 +53,6 @@ class LiveMenu(Sandbox):
         tmp.write_text(
             json.dumps({"fetched_at": fetched_at, "providers": providers}))
         tmp.replace(cache)
-
-    def rows(self, width=100):
-        return [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
 
     def run_menu(self, answers, collect=None):
         """`menu.loop` driven by a scripted read; returns the screen drawn before each answer.
@@ -101,7 +99,7 @@ class LiveMenu(Sandbox):
         screens = self.run_menu([quit_now], collect)
         self.assertTrue(done.wait(5))          # and the probe still ran, behind the draw
         self.assertEqual(waited, [False])      # the screen was up before the probe answered
-        self.assertRegex(screens[0], r"Claude\s+[█░]+\s+52% left")
+        self.assertRegex(screens[0], r"Claude\s+[▰▱]+\s+52% left")
 
     def test_the_probe_landing_draws_again_with_the_meters_it_wrote(self):
         release, done = threading.Event(), threading.Event()
@@ -129,8 +127,8 @@ class LiveMenu(Sandbox):
 
         with patch.object(menu.Live, "watch", watch):
             screens = self.run_menu([woken, lambda wake: ""], collect)
-        self.assertRegex(screens[0], r"Claude\s+[█░]+\s+52% left")
-        self.assertRegex(screens[1], r"Claude\s+[█░]+\s+30% left")
+        self.assertRegex(screens[0], r"Claude\s+[▰▱]+\s+52% left")
+        self.assertRegex(screens[1], r"Claude\s+[▰▱]+\s+30% left")
 
     def test_a_wait_that_times_out_draws_again_and_the_clock_moves(self):
         clocks = iter(["14:02", "14:03"])
@@ -144,7 +142,7 @@ class LiveMenu(Sandbox):
         self.assertIn("14:02", screens[0].splitlines()[0])
         self.assertIn("14:03", screens[1].splitlines()[0])
         for screen in screens:
-            self.assertIn("usage left", screen)
+            self.assertRegex(screen, r"Claude\s+[▰▱]+\s+52% left")
             self.assertIn("no sessions; n starts one", screen)
 
     def test_a_key_typed_during_a_draw_is_read_by_the_next_wait(self):
@@ -281,13 +279,13 @@ class LiveMenu(Sandbox):
     def test_the_row_is_the_shared_week_and_says_when_it_resets(self):
         # weekly_all is what every Claude model draws on; weekly_scoped is Fable's own cap,
         # and its 41% is never the provider's number.
-        self.assertRegex(self.rows()[1], r"Claude\s+[█░]+\s+52% left · resets Fri 14:00")
-        self.assertRegex(self.rows()[6], r"ChatGPT\s+[█░]+\s+69% left · resets Fri 14:00")
+        self.assertTrue(said(self.cfg)["Claude"].startswith("52% left · resets Fri 14:00"))
+        self.assertTrue(said(self.cfg)["ChatGPT"].startswith("69% left · resets Fri 14:00"))
         # A meter that names no moment but says how long it has to run says that instead.
         self.cache(self.providers(openai={"meters": [{"name": "weekly", "used": 31,
                                                       "window_secs": WEEK,
                                                       "resets_in": 3 * 86400}]}))
-        self.assertIn("69% left · resets in 3d", self.rows()[6])
+        self.assertIn("69% left · resets in 3d", said(self.cfg)["ChatGPT"])
         # `ak usage` keeps the columns that left the menu, and its `resets` is the row's:
         # the shared week's, even when the tightest meter it ranks on resets at another hour.
         meters = [self.meter("weekly_all", 48),
@@ -296,62 +294,59 @@ class LiveMenu(Sandbox):
         table = {"anthropic": {"meters": [{**m, "elapsed": 50, "pace": 0} for m in meters],
                                "resets": 2}}
         row = dict(zip(usage.HEADERS, usage.rows(self.cfg, table)[0]))
-        self.assertIn("52% left · resets Fri 14:00 · Fable 41%", self.rows()[1])
+        self.assertIn("52% left · resets Fri 14:00 · Fable 41%", said(self.cfg)["Claude"])
         self.assertEqual(row["resets"], "Fri 14:00")     # and never the scoped week's Sat 09:00
         self.assertEqual(row["left"], "41%")             # the picker still reads the tightest
         # Everything else the table knows stays in the table, the resets in hand among them.
         for kept in ("week elapsed", "session", "resets held", "headroom", "budget", "outlook"):
             self.assertIn(kept, usage.HEADERS)
         self.assertEqual(row["resets held"], "2")
-        self.assertNotRegex("\n".join(self.rows()),
+        self.assertNotRegex("\n".join(said(self.cfg).values()),
                             r"elapsed|headroom|budget|outlook|\+2 resets")
 
     def test_a_scoped_cap_that_differs_is_its_own_note(self):
-        self.assertIn("52% left · resets Fri 14:00 · Fable 41%", self.rows()[1])
+        self.assertIn("52% left · resets Fri 14:00 · Fable 41%", said(self.cfg)["Claude"])
         # The same figure twice says nothing the row has not said: no note.
         self.cache(self.providers(anthropic={"meters": [self.meter("weekly_all", 48),
                                                         self.meter("weekly_scoped", 48)]}))
-        self.assertIn("52% left · resets Fri 14:00", self.rows()[1])
-        self.assertNotIn("Fable", self.rows()[1])
+        self.assertIn("52% left · resets Fri 14:00", said(self.cfg)["Claude"])
+        self.assertNotIn("Fable", said(self.cfg)["Claude"])
         # A provider whose only readable week is one model's own cap has no shared week to
         # show, and borrowing the cap would be the very number the owner's report called
         # wrong: the row says so instead, and carries no percentage at all.
         self.cache(self.providers(anthropic={"meters": [self.meter("weekly_scoped", 9)]}))
-        self.assertEqual(self.rows()[1].split(), ["Claude", "—", "no", "shared", "week"])
-        self.assertNotRegex(self.rows()[1], "91|Fable|[█░]")
+        self.assertEqual(said(self.cfg)["Claude"].split(), ["—", "no", "shared", "week"])
+        self.assertNotRegex(said(self.cfg)["Claude"], "91|Fable")
 
     def test_a_failed_probe_keeps_its_bar_and_says_why(self):
         self.cache(self.providers(meta={"meters": [self.meter("weekly", 10)],
                                         "error": "unknown: muse usage timed out after 30s"}))
         self.assertIn("90% left · resets Fri 14:00 · ? muse usage timed out after 30s",
-                      self.rows()[3])
+                      said(self.cfg)["Muse"])
         with patch.object(sys.stdout, "isatty", return_value=True), \
                 patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
-            self.assertIn("\033[1;33m?\033[0m", menu.usage_lines(self.cfg, 100)[3])
+            self.assertIn("\033[1;33m?\033[0m", menu.usage_detail(self.cfg, 3))
         # With no meter to draw at all the row is still `—` and the words that say why -- and
         # `no login` comes from the `auth` verb the probe asked, never from the error's wording.
         self.cache(self.providers(meta={"meters": [], "error": "unknown: not logged in",
                                         "logged_in": False}))
-        self.assertEqual(self.rows()[3].split(), ["Muse", "—", "no", "login"])
+        self.assertEqual(said(self.cfg)["Muse"].split(), ["—", "no", "login"])
         self.cache(self.providers(meta={"meters": [], "error": "unknown: not logged in"}))
-        self.assertEqual(self.rows()[3].split(), ["Muse", "—", "not", "reached"])
+        self.assertEqual(said(self.cfg)["Muse"].split(), ["—", "not", "reached"])
         # A probe the endpoint refused keeps the reading it could not replace, and says nothing
         # about the refusal rather than blaming the login.
         self.cache(self.providers(meta={"meters": [self.meter("weekly", 10)], "error": None,
                                         "probe_error": "unknown: HTTP 429 from api.example",
                                         "stale_since": NOW - 60}))
-        self.assertTrue(self.rows()[3].endswith("90% left · resets Fri 14:00"), self.rows()[3])
-        self.assertNotIn("rate limited", self.rows()[3])
-        self.assertNotIn("no login", self.rows()[3])
+        self.assertEqual(said(self.cfg)["Muse"], "90% left · resets Fri 14:00")
 
     def test_no_reading_carries_an_age(self):
         # The readings are kept current instead: no row and no heading says how old one is,
         # however old the cache is.
         for late in (0, 599, 600, 2 * 3600):
             self.cache(self.providers(), fetched_at=NOW - late)
-            self.assertNotIn("old", "\n".join(self.rows()))
-            self.assertEqual(self.rows()[0], "usage left")
+            self.assertNotIn("old", "\n".join(said(self.cfg).values()))
 
 
 if __name__ == "__main__":

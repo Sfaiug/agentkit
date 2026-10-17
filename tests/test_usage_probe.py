@@ -19,7 +19,9 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, terminal, usage
+from agentkit import config, terminal, usage
+sys.path.insert(0, str(REPO / "tests"))
+from fixtures.subscriptions import said  # noqa: E402
 
 NOW = 1000000.0
 WEEK = 604800
@@ -113,9 +115,9 @@ class GentleProbe(unittest.TestCase):
             return []
         return [line for line in said if line.endswith(" " + verb)]
 
-    def rows(self, width=100):
-        """The menu's usage block, plain: the heading, then one row per provider."""
-        return [terminal.plain(line) for line in menu.usage_lines(self.cfg, width)]
+    def row(self, label="Alpha"):
+        """What the menu says of `label`: its cell, then the line under the grid."""
+        return said(self.cfg)[label]
 
     def refused(self, provider="alpha"):
         """A cache holding one good reading, then one probe the endpoint answered with a 429.
@@ -222,8 +224,8 @@ class GentleProbe(unittest.TestCase):
         self.assertIn("429", prov["probe_error"])
         self.assertIsNone(prov["error"])         # the refusal is not the reading's own error
         # The row keeps its bar and its percentage, and wears neither the refusal nor an age.
-        row = self.rows()[1]
-        self.assertRegex(row, r"Alpha\s+[█░]+\s+60% left")
+        row = self.row()
+        self.assertTrue(row.startswith("60% left"), row)
         self.assertNotIn("rate limited", row)
         self.assertNotIn("old", row)
         self.assertNotIn("no login", row)
@@ -238,7 +240,7 @@ class GentleProbe(unittest.TestCase):
             self.answer("alpha", [], error)
             prov = usage.collect(self.cfg, refresh=True)["alpha"]
             self.assertEqual([m["used"] for m in prov["meters"]], [40])
-            self.assertNotIn("unavailable", self.rows()[1])
+            self.assertNotIn("unavailable", self.row())
             self.assertEqual(prov["stale_since"], NOW + usage.PROBE_EVERY)   # since the first
 
     def test_no_login_is_said_only_when_the_auth_verb_says_no(self):
@@ -246,7 +248,7 @@ class GentleProbe(unittest.TestCase):
         # because the endpoint answered, and the row never reads `no login`.
         self.refused()
         self.assertEqual(self.asked("auth"), [])
-        self.assertNotIn("no login", "\n".join(self.rows()))
+        self.assertNotIn("no login", self.row())
         # A probe that failed some other way asks, and whatever the answer the last reading
         # still stands: the row keeps its bar, and the failure is recorded beside it.
         self.now[0] += usage.PROBE_EVERY
@@ -257,8 +259,8 @@ class GentleProbe(unittest.TestCase):
         self.assertEqual([m["used"] for m in prov["meters"]], [40])
         self.assertIn("no fake token", prov["probe_error"])
         self.assertEqual(prov["stale_since"], NOW + usage.PROBE_EVERY)   # since the 429
-        row = self.rows()[1]
-        self.assertRegex(row, r"Alpha\s+[█░]+\s+60% left")
+        row = self.row()
+        self.assertTrue(row.startswith("60% left"), row)
         self.assertNotIn("no login", row)
         # And a no is recorded as one, still beside the reading that stands.
         (self.fake / "auth-code").write_text("1")
@@ -267,7 +269,7 @@ class GentleProbe(unittest.TestCase):
         prov = usage.collect(self.cfg, refresh=True)["alpha"]
         self.assertIs(prov["logged_in"], False)
         self.assertEqual([m["used"] for m in prov["meters"]], [40])
-        self.assertRegex(self.rows()[1], r"Alpha\s+[█░]+\s+60% left")
+        self.assertTrue(self.row().startswith("60% left"), self.row())
 
     def test_without_a_reading_a_no_from_auth_is_no_login(self):
         # No probe has ever answered, so there is no reading to keep: the row says what the
@@ -276,13 +278,13 @@ class GentleProbe(unittest.TestCase):
         self.answer("alpha", [], "unknown: no fake token (~/.fake/token); run 'fake' to log in")
         prov = usage.collect(self.cfg)["alpha"]
         self.assertTrue(prov["logged_in"])
-        self.assertEqual(self.rows()[1].split(), ["Alpha", "—", "not", "reached"])
+        self.assertEqual(self.row().split(), ["—", "not", "reached"])
         (self.fake / "auth-code").write_text("1")
         (self.fake / "auth-line").write_text("no fake token; run 'fake' to log in\n")
         self.now[0] += usage.PROBE_EVERY
         prov = usage.collect(self.cfg, refresh=True)["alpha"]
         self.assertIs(prov["logged_in"], False)
-        self.assertEqual(self.rows()[1].split(), ["Alpha", "—", "no", "login"])
+        self.assertEqual(self.row().split(), ["—", "no", "login"])
 
     def test_the_picker_ranks_on_the_last_known_budget_after_a_failed_probe(self):
         # alpha has 60% of its week left and beta 40%, in the same window: alpha ranks first,
@@ -371,8 +373,7 @@ class GentleProbe(unittest.TestCase):
         self.assertRegex(rendered, rf"\nmeta\s+one\s+0%\s+-\s+-\s+{when}\s+50%.*exhausted")
         # The menu draws the snapshot its probe thread refreshed, and that holds the record too.
         usage.collect(self.cfg, refresh=True)
-        row = self.rows(170)[1]
-        self.assertRegex(row, rf"Muse\s+░+\s+0% left · resets {when}$")
+        self.assertEqual(self.row("Muse"), f"empty until {when}")
         self.assertEqual(len(self.asked()), 2)
 
     def test_the_lock_is_one_file_per_provider_and_outlives_no_probe(self):

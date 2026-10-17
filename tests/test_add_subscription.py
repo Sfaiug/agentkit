@@ -20,7 +20,7 @@ from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, RIGHT, Screen
 from test_provider_screen import ADD, KEYS, MATRIX, REMOVE, choices, open_providers, pick, title
-from agentkit import config, menu, terminal
+from agentkit import config, menu
 
 FAKE = r"""#!/usr/bin/env bash
 echo "%s $1 ${AGENTKIT_ACCOUNT-unset}" >> "$HOME/verbs.log"
@@ -82,13 +82,12 @@ EVERY = 6
 
 
 def rows(home):
-    """The names on the menu's usage rows for the config in `home`, read by the menu's own
+    """The names on the menu's usage grid for the config in `home`, read by the menu's own
     loader, so a name `+ add` wrote is one the config accepts."""
     with tempfile.TemporaryDirectory(prefix="subscription-state-") as state, \
             mock.patch.object(config, "HOME", home / ".agentkit"), \
             mock.patch.object(config, "STATE", Path(state)):
-        return [terminal.ANSI.sub("", line)[2:].split("  ")[0]
-                for line in menu.usage_lines(config.load(), 100)[1:]]
+        return [label for _, label, _, _ in menu.usage_cells(config.load())]
 
 
 class AddSubscription(unittest.TestCase):
