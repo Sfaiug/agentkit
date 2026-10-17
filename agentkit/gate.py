@@ -1355,10 +1355,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
                                                piece.read(), activity, run_dir, log))
                 results[index - 1] = code, piece, killed
-                piece.seek(0, os.SEEK_END)
-                size = piece.tell()
-                piece.seek(max(0, size - turns.OUT_CAP))
-                text = piece.read().decode("utf-8", errors="replace").rstrip()
+                text = turns.cut_file(piece, 0, run_dir or activity.parent,
+                                      f"{activity.stem}-AK_SHARD-{shard.replace('/', '-of-')}")
                 # Existing failure diagnostics read the last output; leave a red piece last.
                 (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
                     f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
@@ -1471,8 +1469,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             deadline += seconds
         log_path.write_text("")
         for cmd in cmds:
-            first = None        # the output of a first run that failed, while its re-run decides
-            first_span = None   # its byte span in the gate log: the flaky diff reads whole runs
+            first_span = None   # the gate log's byte span of a first run that failed, while its
+                                # re-run decides: the flaky diff reads whole runs
             busy = False
             while True:
                 run_record.stop_check(run_dir)
@@ -1492,11 +1490,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
-                with log_path.open("rb") as progress:
-                    progress.seek(max(offset, log_path.stat().st_size - turns.OUT_CAP))
-                    out = progress.read().decode("utf-8", errors="replace")
-                if split(cmd):
-                    out = piece_text
                 if heavy and code == SUITE_BUSY and not killed:
                     if log is not None and not busy:
                         log(f"done-when: busy: {cmd} exited {SUITE_BUSY}; it runs again "
@@ -1504,11 +1497,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     busy = True
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
-                if code == 0 or killed or first is not None or split(cmd):
+                if code == 0 or killed or first_span is not None or split(cmd):
                     break
-                first = out
                 first_span = (offset, end)
-            if left <= 0 and first is None:
+            if left <= 0 and first_span is None:
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
                 chunks.append(f"$ {cmd}\n[not run: the done-when limit was already spent]")
@@ -1518,9 +1510,15 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             ok &= code == 0
             if marks is not None:
                 marks.append(None if killed else code)
+            if split(cmd):
+                out = piece_text
+            else:
+                with log_path.open("rb") as progress:
+                    out = turns.cut_file(progress, offset, run_dir or log_path.parent,
+                                         log_path.stem)
             chunks.append(f"$ {cmd}\n[{'killed at the limit' if killed else f'exit {code}'}]\n"
-                          f"{out if split(cmd) else out[-turns.OUT_CAP:]}".rstrip())
-            if first is not None and code == 0:
+                          f"{out}".rstrip())
+            if first_span is not None and code == 0:
                 # blank lines dropped: a record is what lies between two, and these are one
                 # both runs read whole from the gate log: the capped `out` starts mid-output
                 # on a chatty suite, which hides a failure above the cap and frames shared

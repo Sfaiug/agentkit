@@ -8,6 +8,7 @@ read here into the line that names its first failure.
 """
 
 import difflib
+import io
 import json
 import re
 import shutil
@@ -691,7 +692,7 @@ def review_disputes(lp, head):
     return hand_in.Review(disputes)
 
 
-def failing_blocks(text, cap=None):
+def failing_blocks(text, where, cap=None):
     """What a fixer reads of a failed check: its last `cap` characters, as before, and ahead of
     them every block that begins above that end and says what failed.
 
@@ -700,7 +701,7 @@ def failing_blocks(text, cap=None):
     saw the red file 32 KB before it.  A block is a line that names a failure
     (`FAILURE_LINE`, at the start of the line) and the indented lines under it, taken whole
     even where the end begins inside it.  The end is kept whole too, so nothing the end alone
-    showed is ever traded for a block.
+    showed is ever traded for a block, and the whole is saved under `where` and named first.
     """
     cap = turns.OUT_CAP if cap is None else cap
     if len(text) <= cap:
@@ -721,15 +722,16 @@ def failing_blocks(text, cap=None):
         else:
             block = None
     named = "\n".join("\n".join(block).rstrip() for block in blocks)
-    return f"{named}\n\n... the end of the output:\n{text[-cap:]}" if named else text[-cap:]
+    shown = f"{named}\n\n... the end of the output:\n{text[-cap:]}" if named else text[-cap:]
+    return f"{turns.kept(io.BytesIO(text.encode()), where, 'failed-check')}\n{shown}"
 
 
-def red_target_text(cmd, upstream, tip, output, piece=None):
+def red_target_text(cmd, upstream, tip, output, where, piece=None):
     """What a red target's repair is told: the command (its red `piece`, `AK_SHARD=k/N`, named
     where the suite ran in pieces), where it fails, and what it printed there, read as a fixer
     reads a failed check -- indented, so nothing it printed reads as a heading or a fence of
     the task."""
-    printed = "\n".join("    " + line for line in failing_blocks(output).splitlines())
+    printed = "\n".join("    " + line for line in failing_blocks(output, where).splitlines())
     what = f"`{cmd}`" + (f", its piece AK_SHARD={piece}," if piece else "")
     return (f"{what} fails on {upstream} at {tip}, the target's own tip, whichever branch runs "
             f"it. What it printed there:\n\n{printed}")

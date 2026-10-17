@@ -35,6 +35,10 @@ class FakeRun:
 
 
 class LandingFixer(unittest.TestCase):
+    def kept(self):
+        """Where the whole of a cut output is saved: a directory of the test's own."""
+        return Path(self.enterContext(tempfile.TemporaryDirectory()))
+
     def fixer_reads(self, text):
         seen = []
 
@@ -42,10 +46,12 @@ class LandingFixer(unittest.TestCase):
             seen.append(fix)
             raise Handed
 
+        lp = FakeRun()
+        lp.run_dir = self.kept()
         with patch.object(roundloop, "landing_fixer", side_effect=fixer), \
                 patch.object(roundloop, "released_gate_turn", nullcontext), \
                 self.assertRaises(Handed):
-            roundloop.fix_final_check(FakeRun(), "main", text)
+            roundloop.fix_final_check(lp, "main", text)
         return seen[0]
 
     def test_a_failure_far_from_the_end_reaches_the_fixer(self):
@@ -60,6 +66,7 @@ class LandingFixer(unittest.TestCase):
         log = Path(self.enterContext(tempfile.TemporaryDirectory())) / "red.log"
         log.write_text("--- AK_SHARD=2/5 ---\n" + EARLY + PASSES + LATE)
         lp = FakeRun()
+        lp.run_dir = log.parent
         lp.state = {"waiting_on": {"line": ".merge-acme.lock", "fix": {"log": str(log)}}}
         seen = []
 
@@ -74,7 +81,7 @@ class LandingFixer(unittest.TestCase):
 
     def test_a_red_targets_repair_is_told_every_failure(self):
         text = prompts.red_target_text("python3 tests/landing.py", "main", "c0ffee",
-                                   "--- AK_SHARD=2/5 ---\n" + EARLY + PASSES + LATE)
+                                   "--- AK_SHARD=2/5 ---\n" + EARLY + PASSES + LATE, self.kept())
         self.assertTrue(text.startswith("`python3 tests/landing.py` fails on main at c0ffee"))
         for block in (EARLY, LATE):
             for line in block.splitlines():
@@ -86,7 +93,7 @@ class LandingFixer(unittest.TestCase):
         nested = "  not ok 7 - acme widget answers\n"
         end = nested + "x" * (turns.OUT_CAP - 2048) + "\n"
         text = EARLY + "y" * (turns.OUT_CAP // 2) + "\n" + LATE * 3 + end
-        read = prompts.failing_blocks(text)
+        read = prompts.failing_blocks(text, self.kept())
         self.assertTrue(read.endswith(text[-turns.OUT_CAP:]))
         self.assertIn(nested.rstrip(), read)
         self.assertIn(EARLY.rstrip(), read)
@@ -100,7 +107,7 @@ class LandingFixer(unittest.TestCase):
                 tail = EARLY[inside:] + "z" * turns.OUT_CAP
                 text = "PASS  tests/test_widget.py (0s)\n" + EARLY[:inside] + tail[:turns.OUT_CAP]
                 self.assertEqual(text[-turns.OUT_CAP:][:len(EARLY) - inside], EARLY[inside:])
-                read = prompts.failing_blocks(text)
+                read = prompts.failing_blocks(text, self.kept())
                 self.assertIn(header + "\n" + under, read)
                 self.assertTrue(read.endswith(text[-turns.OUT_CAP:]))
 
