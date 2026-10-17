@@ -85,7 +85,9 @@ class Refresh(unittest.TestCase):
             patcher = patch.object(config, name, root / name.lower())
             patcher.start()
             self.addCleanup(patcher.stop)
-        env = patch.dict(os.environ, {"FAKE": str(self.fake), config.ADAPTER_DIR_ENV: str(adapters)})
+        # the tick's pass pages for the login 50000 ended: nowhere, whatever webhook is set
+        env = patch.dict(os.environ, {"FAKE": str(self.fake), config.ADAPTER_DIR_ENV: str(adapters),
+                                      "AK_NOTIFY_SINK": "off"})
         env.start()
         self.addCleanup(env.stop)
         self.cfg = {"providers": {"anthropic": {"accounts": ["default", "second"]}},
