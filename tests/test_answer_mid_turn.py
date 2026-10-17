@@ -15,6 +15,7 @@ Offline: a sandbox HOME, a fake seat harness, Discord off.
 
 import os
 import unittest
+from contextlib import nullcontext
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
@@ -86,18 +87,38 @@ class AnswerMidTurn(Sandbox):
         self.assertIsNone(notify.last(SEAT))
         self.assertEqual(notify.last(SEAT, include_seen=True)["answered_at"], 1200.0)
 
-    def test_his_prompt_whose_words_answer_it_lets_go_of_the_stall_latch(self):
-        self.asks_at(1000.0)
+    def stalled(self):
+        """The watcher told the owner of a stall, a latch only an answered question lets go of."""
         with watch.state_lock():
             state = watch.load_state()
             state["stalls"][SEAT] = {"signature": "API Error", "since": 900.0, "told": 950.0}
             watch._write_state(state)
+
+    def test_his_prompt_whose_words_answer_it_lets_go_of_the_stall_latch(self):
+        self.asks_at(1000.0)
+        self.stalled()
         with patch.object(watch.time, "time", return_value=1300.0):
             watch.turn_ended(SEAT)
         self.harness.said = [900.0, 1400.0]
         notify.answered(SEAT, 1400.0)
         self.assertIsNone(notify.last(SEAT))
         self.assertNotIn(SEAT, watch.load_state()["stalls"])
+
+    def test_his_next_prompt_lets_go_of_the_latch_after_a_look_answered_it(self):
+        for held in (False, True):      # a screen look; the typing preflight, under both locks
+            with self.subTest(held=held):
+                self.asks_at(1000.0)
+                self.stalled()
+                self.harness.said = [900.0, 1200.0]
+                with patch.object(watch.time, "time", return_value=1300.0):
+                    watch.turn_ended(SEAT)
+                    with watch.state_lock() if held else nullcontext(), \
+                            notify.session_lock(SEAT) if held else nullcontext():
+                        watch.ask_kept_back(SEAT, "claude", {"state": "at_prompt"}, held=held)
+                self.assertIsNone(notify.last(SEAT))
+                self.harness.said.append(1400.0)
+                notify.answered(SEAT, 1400.0)
+                self.assertNotIn(SEAT, watch.load_state()["stalls"])
 
     def test_a_message_from_before_the_question_answers_nothing(self):
         self.asks_at(1000.0)

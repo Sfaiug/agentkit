@@ -458,10 +458,10 @@ def answered(session, at):
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     A question the seat kept back for its turn's end, that end on record, is the one he read
     at its stop and answers: it is asked here first, whoever held this lock when it ended, or
-    answered by what the owner typed into that turn, which lets go of the latch as well.
+    answered by what the owner typed into that turn, whose latch this prompt lets go of then.
     """
     with session_lock(session) as session:
-        replied = ask_kept(session, ended=True) == "answered"
+        ask_kept(session, ended=True)
         previous = last(session)
         if previous and previous.get("watcher") is True:
             return
@@ -469,8 +469,11 @@ def answered(session, at):
             card = _card_read(session)
             if card.get("word") == "needs you":
                 _card_write(session, {**card, "answered_at": at})
-            if not replied:
+            previous = last(session, include_seen=True)
+            if not (previous and previous.pop("holds_latch", None)):
                 return
+            record(session, previous["kind"], previous["text"],
+                   **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
         elif not answer(session, previous, at):
             return
     from . import watch    # here, not at the top: watch imports this module
@@ -1608,8 +1611,7 @@ def ask_kept(name, ended=False):
     The caller holds `session_lock(name)`.  With `ended` it asks only those whose turn's end
     is already on record, which are the first kept: the caller has not looked at the seat
     itself, and one kept since, in a turn still going, waits for its own.  The tick's card
-    pass sends the card, like any other's.  What it did: `asked`, `answered`, or False with
-    nothing kept.
+    pass sends the card, like any other's.
     """
     from . import watch
     kept = watch.questions_kept(watch.seat_read(name).get("unasked"))
@@ -1630,9 +1632,11 @@ def ask_kept(name, ended=False):
           at=max(kept_at) if reply is not None else None if None in stamps else max(stamps))
     watch.kept_asked(name, kept)
     notice = last(name) if reply is not None else None
-    if notice and answer(name, notice, reply):
-        return "answered"
-    return "asked"
+    if notice:
+        # forget takes the state lock, never taken under the notice lock every caller here
+        # holds: the stall latch the question held waits for the owner's next prompt
+        answer(name, {**notice, "holds_latch": True}, reply)
+    return True
 
 
 def check():
