@@ -196,7 +196,7 @@ class Scoreboard(unittest.TestCase):
         self.assertEqual(board, {"products": [None, None], "ak": [None, None], "intent": [None, None],
                                  "owner": [None, None],
                                  "built": [None, None], "waits": [None, None], "merged": [None, None],
-                                 "parks": [None, None], "sunk": [None, None], "escaped": [None, None],
+                                 "parks": [None, None], "sunk": [None, None], "broke": [None, None],
                                  "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
@@ -233,8 +233,7 @@ class Scoreboard(unittest.TestCase):
             "merged": [{"model": 1.375, "ak": 1.875, "waiting": 0.75, "seat": 1.0}, None],
             "parks": [None, None],
             "sunk": [{"share": .4, "tokens": 1200}, None],
-            "escaped": [{"merged": 2, "escaped": 1, "open": 1, "unknown": 1,
-                         "reviewers": {"acme-reviewer": [1, 2]}}, None],
+            "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "unknown": 1}, None],
         }
         expected = [
             "Scoreboard (reported tokens; size now and 7 days ago)",
@@ -260,10 +259,9 @@ class Scoreboard(unittest.TestCase):
             "parks     not recorded                                  not recorded",
             "sunk      40% of the week's tokens, 1,200, went to      no tokens recorded",
             "          runs that never merged",
-            "escaped   1 of 2 merged changes had a line rewritten    no merged change",
-            "          within 7 days (acme-reviewer 1 of 2); 1",
-            "          merged under 7 days ago may still be; 1 with",
-            "          no merge commit to follow",
+            "broke     1 of 2 merged changes broke main or live      no merged change",
+            "          after merge; 1 went red at landing; 1 merged",
+            "          before breaks were recorded",
             "ak size   17 code lines, 5 README words, 9 AGENTS.md    size unavailable",
             "          words",
         ]

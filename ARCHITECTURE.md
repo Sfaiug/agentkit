@@ -24,7 +24,7 @@
 - `run.py`: a run's launch and resume, the drive of its loop, and a pull request's review.
   Passed writable workers and automatic review-PR merges park in the line and exit;
   foreground callers and jobs follow records. Forks keep `land`. API: `main`; for watch, job, gc, orch.
-- `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); Git's own patch and its files (`patch_args`, `patch_files`) for the size gate and the scoreboard; the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.
+- `gitcall.py`: git, gh and tool calls with their stop handling (`Stopped`); Git's own patch and its files (`patch_args`, `patch_files`) for the size gate; the declared suite, rules and front matter read off a checkout; worktrees, leftovers, sandboxes, the reviewer's copy and probe checkouts; the run's child environment and logger. The base every leaf of `run.py` calls.
 - `sentences.py`: the merge driver every ak git call that merges names for `*.md` (`gitcall.merge_config`): Markdown merged sentence by sentence, a clash inside one sentence left as git's line merge leaves it. Git runs it as a script; it imports nothing of ak's.
 - `turns.py`: one model turn: the call, its retries, the handover when a window is spent, what a harness said instead of an answer, the endings it hands back (`Exhausted`, `Dead`, `Killed`, `Blocked`, `NotNeeded`, `RanDry`, `CannotRun`, `TransientHandover`), a round's turn directories and answer file, the memory cap a scope ran under, the stop of a run's process tree.
 - `prompts.py`: what a reviewer is handed and how its hand-in is weighed: the diff and done-when output, the findings a fixer gets, the replay of earlier findings on a later commit and where a fix left them, the proofs ak runs for a finding, follow-up or dispute, what a fixer's summary becomes, a check's output read into its first failure's line. For run, roundloop, deliver, handback and land.
@@ -134,7 +134,7 @@
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
 - `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs`, `parks` (`leases.park`'s `parked_at`), `owner` and `dones` for the scoreboard; the owner's moments naming no seat (`owner_time`) and dones by conversation (`done`), one row each, which notify writes.
   For run, gate, harness. Leak: parses harness event logs.
-- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes a later change rewrote within a week (`escaped`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the owner's time (`owner`) and wait to done (`intent`), the week's largest loss in the vision's order (`loss`), words and wrapping.
+- `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes that broke after review (`broke`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the owner's time (`owner`) and wait to done (`intent`), the week's largest loss in the vision's order (`loss`), words and wrapping.
   `compute`, `render` for run history.
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression; a harness config's stale trust and MCP entries, where its plugin

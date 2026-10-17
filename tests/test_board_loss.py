@@ -19,26 +19,26 @@ BOARD = {
     "products": [STATS, {**STATS, "runs": 8, "merged": 5, "first_round": .6, "unmerged": .2,
                          "hours": 2.0, "tokens": 900}],
     "ak": [None, None], "waits": [None, None], "merged": [None, None],
-    "escaped": [{"merged": 6, "escaped": 3, "open": 0, "unknown": 0, "reviewers": {}},
-                {"merged": 5, "escaped": 3, "open": 0, "unknown": 0, "reviewers": {}}],
+    "broke": [{"merged": 6, "after_merge": 3, "landing": 0, "unknown": 0},
+              {"merged": 5, "after_merge": 3, "landing": 0, "unknown": 0}],
     "size": [None, None],
 }
 EMPTY = {key: [None, None] for key in BOARD}
-REWRITTEN = "merged changes with a line rewritten within 7 days"
+BROKE = "merged changes that broke main or live after merge"
 
 
 class Loss(unittest.TestCase):
     def test_the_first_measure_in_the_vision_s_order_that_got_worse(self):
-        # quality first: the rewritten share fell, so the next quality measure that rose names it
+        # quality first: the share that broke after merge fell, so the next quality measure that rose names it
         self.assertEqual(scoreboard.loss(BOARD), ("product runs ended without merging", .3, .2, "%"))
-        worse = {**BOARD, "escaped": [BOARD["escaped"][0], {**BOARD["escaped"][1], "escaped": 2}]}
-        self.assertEqual(scoreboard.loss(worse), (REWRITTEN, .5, .4, "%"))
+        worse = {**BOARD, "broke": [BOARD["broke"][0], {**BOARD["broke"][1], "after_merge": 2}]}
+        self.assertEqual(scoreboard.loss(worse), (BROKE, .5, .4, "%"))
         # less merged in round 1 is worse, though the number fell
         fewer = {**BOARD, "products": [STATS, {**STATS, "first_round": .6}]}
         self.assertEqual(scoreboard.loss(fewer), ("product runs merged in round 1", .5, .6, "%"))
         # speed after quality: with every quality measure as good or better, the hours name it
         slower = {**BOARD, "products": [{**STATS, "hours": 3.0}, {**STATS, "hours": 2.0}],
-                  "escaped": [BOARD["escaped"][0], BOARD["escaped"][0]]}
+                  "broke": [BOARD["broke"][0], BOARD["broke"][0]]}
         self.assertEqual(scoreboard.loss(slower), ("hours to merge a product run", 3.0, 2.0, "h"))
         # the owner's own wait is the first speed: slower from their first message to done names
         # it ahead of the hours to merge
@@ -48,12 +48,12 @@ class Loss(unittest.TestCase):
         # on that quality measure, whatever the speed: the order is the owner's (14 Oct)
         faster_but_worse = {**BOARD, "products": [{**STATS, "unmerged": .31, "hours": .5, "tokens": 200},
                                                   {**STATS, "unmerged": .3, "hours": 2.0, "tokens": 900}],
-                            "escaped": [BOARD["escaped"][0], BOARD["escaped"][0]]}
+                            "broke": [BOARD["broke"][0], BOARD["broke"][0]]}
         self.assertEqual(scoreboard.loss(faster_but_worse),
                          ("product runs ended without merging", .31, .3, "%"))
         # and cost after speed, size last: everything better but the lines of code names those
         bigger = {**BOARD, "products": [STATS, {**STATS, "unmerged": .4, "hours": 2.0, "tokens": 2000}],
-                  "escaped": [BOARD["escaped"][0], BOARD["escaped"][0]],
+                  "broke": [BOARD["broke"][0], BOARD["broke"][0]],
                   "size": [{"code_lines": 110, "readme_words": 9, "agents_words": 9},
                            {"code_lines": 100, "readme_words": 9, "agents_words": 9}]}
         self.assertEqual(scoreboard.loss(bigger), ("ak's code lines", 110, 100, "n"))
@@ -69,7 +69,7 @@ class Loss(unittest.TestCase):
 
     def test_nothing_worse_names_the_first_measure_the_board_reads_at_all(self):
         same = {**BOARD, "products": [STATS, STATS]}
-        self.assertEqual(scoreboard.loss(same), (REWRITTEN, .5, .6, "%"))
+        self.assertEqual(scoreboard.loss(same), (BROKE, .5, .6, "%"))
         only_size = {**EMPTY, "size": [{"code_lines": 100, "readme_words": 9, "agents_words": 9}, None]}
         self.assertEqual(scoreboard.loss(only_size), ("ak's code lines", 100, None, "n"))
         # a row a newer board adds is read once it is there, and read as none before
@@ -79,8 +79,8 @@ class Loss(unittest.TestCase):
         self.assertIsNone(scoreboard.loss({}))
 
     def test_a_share_of_nothing_merged_reads_as_none(self):
-        none_merged = {**EMPTY, "escaped": [{"merged": 0, "escaped": 0, "open": 0, "unknown": 0,
-                                              "reviewers": {}}, None]}
+        none_merged = {**EMPTY, "broke": [{"merged": 0, "after_merge": 0, "landing": 0, "unknown": 0},
+                                          None]}
         self.assertIsNone(scoreboard.loss(none_merged))
 
     def test_each_value_prints_as_its_kind_reads(self):
