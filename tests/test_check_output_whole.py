@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from unittest.mock import patch
 
@@ -35,6 +36,10 @@ CHATTY = f"printf 'first\\n'; head -c {LONG} /dev/zero | tr '\\0' x; printf '\\n
 PIECES = (f"printf 'first %s\\n' \"$AK_SHARD\"; head -c {LONG} /dev/zero | tr '\\0' x; "
           "printf '\\nlast %s\\n' \"$AK_SHARD\"")
 SHORT = "printf 'all of it\\n'"
+# more than a run's memory should hold of one check at once, and the same as a suite
+LOUD = 8 * 1024 * 1024
+FLOOD = f"yes acme | head -c {LOUD}"
+FLOODS = f"{FLOOD}  # AK_SHARD"
 NAMED = re.compile(r"^\[only part of this output is shown; all of it is in (.+)\]$", re.M)
 
 
@@ -102,6 +107,19 @@ class CheckOutputWhole(unittest.TestCase):
         for shard in shards:
             self.assertNotIn(f"first {shard}\n", text)
             self.assertIn(f"last {shard}", text)
+
+    def test_a_check_printing_more_than_memory_holds_is_never_read_whole(self):
+        for cmd in (FLOOD, FLOODS):
+            with self.subTest(cmd=cmd):
+                tracemalloc.start()
+                try:
+                    ok, text = self.check(cmd)
+                    held = tracemalloc.get_traced_memory()[1]
+                finally:
+                    tracemalloc.stop()
+                self.assertTrue(ok, text[:300])
+                self.assertLess(held, LOUD // 2)
+                self.assertTrue(all(len(whole) == LOUD for whole in self.wholes(text)))
 
     def test_a_landing_fixer_handed_part_of_a_failure_is_told_where_the_rest_is(self):
         failure = "FAIL  tests/test_acme.py: boom\n" + "PASS  tests/test_widget.py\n" * 2000

@@ -8,6 +8,7 @@ read here into the line that names its first failure.
 """
 
 import difflib
+import io
 import json
 import re
 import shutil
@@ -722,7 +723,7 @@ def failing_blocks(text, where, cap=None):
             block = None
     named = "\n".join("\n".join(block).rstrip() for block in blocks)
     shown = f"{named}\n\n... the end of the output:\n{text[-cap:]}" if named else text[-cap:]
-    return f"{turns.kept(text, where, 'failed-check')}\n{shown}"
+    return f"{turns.kept(io.BytesIO(text.encode()), where, 'failed-check')}\n{shown}"
 
 
 def red_target_text(cmd, upstream, tip, output, where, piece=None):

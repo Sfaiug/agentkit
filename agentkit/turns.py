@@ -7,9 +7,11 @@ answer file a turn leaves are read here, as is the memory cap a turn's scope ran
 the stop of a run's process tree.  The call itself, its retries and what its harness said instead of an answer are here too.
 """
 
+import io
 import json
 import os
 import re
+import shutil
 import tempfile
 import threading
 import time
@@ -400,18 +402,30 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
 OUT_CAP = 20 * 1024
 
 
-def kept(text, where, name):
-    """Save `text` whole in a new file under `where`: the line that names it heads any part of
-    it a model is handed, so nothing a check printed is out of its reach."""
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=where, prefix=f"{name}-whole-",
-                                     suffix=".log", delete=False) as whole:
-        whole.write(text)
+def kept(output, where, name):
+    """Save `output`, a binary file from where it stands, whole in a new file under `where`, a
+    part at a time: the line that names it heads any part of it a model is handed, so nothing a
+    check printed is out of its reach."""
+    with tempfile.NamedTemporaryFile(dir=where, prefix=f"{name}-whole-", suffix=".log",
+                                     delete=False) as whole:
+        shutil.copyfileobj(output, whole)
     return f"[only part of this output is shown; all of it is in {Path(whole.name).resolve()}]"
 
 
 def cut(text, where, name):
     """`text` as a model is handed it: whole up to OUT_CAP, else its end under `kept`'s line."""
-    return text if len(text) <= OUT_CAP else f"{kept(text, where, name)}\n{text[-OUT_CAP:]}"
+    return (text if len(text) <= OUT_CAP else
+            f"{kept(io.BytesIO(text.encode()), where, name)}\n{text[-OUT_CAP:]}")
+
+
+def cut_file(output, start, where, name):
+    """`cut` of a binary file's bytes from `start` to its end, never read whole: a check can
+    print more than the run's memory holds."""
+    size = output.seek(0, os.SEEK_END)
+    output.seek(start)
+    line = f"{kept(output, where, name)}\n" if size - start > OUT_CAP else ""
+    output.seek(max(start, size - OUT_CAP))
+    return line + output.read(OUT_CAP).decode("utf-8", errors="replace")
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session
