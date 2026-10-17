@@ -8,6 +8,8 @@ continuations, redirects and heredocs all resolved -- so there is no shell strin
 refuses a kill (`kill-server`, `kill-session`, `kill-window`, `kill-pane`) that would end another
 seat, and a type (`send-keys`, `paste-buffer`, `send-prefix`, `pipe-pane -I`) into one; otherwise
 it execs the real tmux.
+Each new-session also gets its creator's name in its session environment, for the tick's
+cleanup of finished auxiliary sessions (`orch.sweep_finished`).
 
 Which session a `-t` names is answered by the real tmux, with a read-only command of the SAME
 target type as the one guarded -- `list-windows -t` (a session target) for `kill-session`,
@@ -70,6 +72,26 @@ REQUIRES = {"pipe-pane": "I"}         # pipe-pane types into the pane only with 
 ALIASES = {"killp": "kill-pane", "killw": "kill-window", "send": "send-keys",
            "pasteb": "paste-buffer", "pipep": "pipe-pane"}
 SERVER_VALUED = set("fLScT")                            # tmux server options that take a value
+TMUX_OWNER = "AK_TMUX_OWNER"        # session environment: the seat that created it, not a seat mark
+
+
+def tmux_owned(args):
+    """Tag each new session at creation, including unnamed ones and commands chained with `;`.
+
+    `-e` belongs to new-session itself: no later lookup can tag the wrong session, and `-A`
+    attaching an existing session leaves its ownership alone.
+    """
+    _, i = server_opts(args)
+    result = args[:i]
+    changed = False
+    for cmd in commands(args[i:]):
+        if len(result) > i:
+            result.append(";")
+        if cmd[0] == "new" or (cmd[0].startswith("new-s") and "new-session".startswith(cmd[0])):
+            cmd = [cmd[0], "-e", f"{TMUX_OWNER}={config.current_session()}", *cmd[1:]]
+            changed = True
+        result.extend(cmd)
+    return result if changed else args
 
 
 def guarded(name):
@@ -383,22 +405,23 @@ def transfer_refusal(args, real):
 # What each shim asks: its refusal, called with the call's argv and the real binary's path.
 REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": worktree_refusal,
             "scp": transfer_refusal, "rsync": transfer_refusal, "sftp": transfer_refusal}
-REFUSED = 3            # an exit code Python itself never ends with: only a refusal stops a call
 
 
 def main(args):
-    """`python3 -m agentkit.guard NAME REAL ARGS...`, from tools/shim for a seat's own call:
-    `REFUSED` with the refusal, else 0 -- a guard that fails, or one that will not even import,
-    stops no seat's command."""
+    """Refuse or exec a seat's call; a broken guard still runs the original command."""
+    name, real, *rest = args
     try:
-        name, real, *rest = args
         reason = REFUSALS[name](rest, real) if name in REFUSALS else None
     except Exception:
         reason = None
     if reason:
         sys.stderr.write(reason + "\n")
-        return REFUSED
-    return 0
+        return 1
+    try:
+        rest = tmux_owned(rest) if name == "tmux" else rest
+    except Exception:
+        pass
+    os.execv(real, [real, *rest])
 
 
 def shim_dir():
