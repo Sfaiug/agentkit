@@ -907,7 +907,7 @@ class SessionState(unittest.TestCase):
             with patch.object(usage, "_resets", return_value=0), \
                     patch.object(subprocess, "run", side_effect=failure):
                 self.assertEqual(row(usage._probe(self.cfg, "openai", self.now)), dash("not reached"))
-        for used, expected in ((0, "100%"), (-10, "100%"), (120, "0%")):
+        for used, expected in ((0, "100%"), (-10, "100%"), (120, "empty")):
             with patch.object(usage, "_resets", return_value=0), \
                     patch.object(subprocess, "run", return_value=subprocess.CompletedProcess(
                         [], 0, json.dumps({"meters": [meter(used)]}))):
