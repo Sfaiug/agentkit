@@ -39,6 +39,9 @@ class Slots(unittest.TestCase):
         runs = patch.object(config, "RUNS", Path(temp.name))
         runs.start()
         self.addCleanup(runs.stop)
+        home = patch.object(config, "HOME", Path(temp.name))
+        home.start()
+        self.addCleanup(home.stop)
 
     def claim(self, readings, state=None):
         state = {"run_id": "r", "run_depth": 0, **(state or {})}

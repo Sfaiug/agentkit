@@ -41,6 +41,13 @@ def fixture(files, rel):
 
 
 class MemoryGate(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix=".ak-test-memory-history-", dir=REPO)
+        self.addCleanup(temp.cleanup)
+        home = patch.object(config, "HOME", Path(temp.name))
+        home.start()
+        self.addCleanup(home.stop)
+
     def tearDown(self):
         for tmp in getattr(self, "_tmps", []):
             import shutil

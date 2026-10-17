@@ -233,9 +233,18 @@ def _wait_reason(readings, minimum, maximum, frozen=0):
             return (f"waiting for the host to calm · load {_load(load)} + {frozen} "
                     f"frozen {noun}, limit {_load(maximum)}", "load")
         return f"waiting for the host to calm · load {_load(load)}, limit {_load(maximum)}", "load"
-    unit = host._unit_memory(readings)
-    if unit and unit[0] > unit[1] * .75:
-        raw = unit[2] if len(unit) > 2 else None
+    pressure = host._reading(readings, "slice_memory_pressure")
+    if pressure is not None and pressure > 0:
+        return f"waiting for ak's memory · pressure {pressure:g}%", "unit memory"
+    unit = host._slice_or_unit_memory(readings)
+    peak = history.recent_peak_rss_mb() if unit else None
+    if unit and peak is not None:
+        room = unit[1] - unit[0]
+        if room < peak:
+            return (f"waiting for the unit's memory · {host._g(room)} G left, "
+                    f"a run needs {host._g(peak)} G", "unit memory")
+    elif unit and unit[0] > unit[1] * .75:
+        raw = unit[2]
         if raw is not None:
             return (f"waiting for the unit's memory · {host._g(unit[0])} of {host._g(unit[1])} G "
                     f"in use ({host._g(raw)} with cache)", "unit memory")
@@ -730,16 +739,11 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
             cpu_free = float(cpus)
         else:
             cpu_free = None
-    slice_used = host._reading(readings, "slice_memory_used_mb")
-    slice_high = host._reading(readings, "slice_memory_high_mb")
-    if slice_used is not None and slice_high is not None:
-        mem_free = slice_high - slice_used
+    memory = host._slice_or_unit_memory(readings)
+    if memory is not None:
+        mem_free = memory[1] - memory[0]
     else:
-        own = host._unit_memory(readings)
-        if own is not None:
-            mem_free = own[1] - own[0]
-        else:
-            mem_free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
+        mem_free = host._reading(readings, "free_mb", "mem_available_mb", "mem_available")
     if unit:
         own = host._unit_memory(readings)
         if own is not None:
