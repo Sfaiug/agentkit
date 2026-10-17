@@ -100,17 +100,26 @@ class MemoryAdmissionByRoom(unittest.TestCase):
                 self.assertEqual(gate.derived_heavy_limit(readings, running=1,
                                                           job_mem_mb=PEAK), suites)
 
-    def test_pressure_holds_with_room_and_with_or_without_measurements(self):
+    def test_pressure_past_its_limit_holds_with_room_and_with_or_without_measurements(self):
         for measured in (False, True):
             if measured:
                 self.measured()
             for first in (False, True):
                 with self.subTest(measured=measured, first=first):
                     state = {"run_id": "queued", "first": first}
-                    self.assertFalse(self.claim(state, slice_memory_pressure=.01))
-                    self.assertFalse(self.claim(state, slice_memory_pressure=.01))
+                    self.assertFalse(self.claim(state, slice_memory_pressure=10.5))
+                    self.assertFalse(self.claim(state, slice_memory_pressure=10.5))
                     self.assertEqual(gate.slot_note(state),
-                                     "waiting for ak's memory · pressure 0.01%")
+                                     "waiting for ak's memory · pressure 10.5%, limit 10%")
+
+    def test_pages_coming_back_from_swap_hold_no_run_with_room(self):
+        # Idle seats paging back in kept the slice at 0.01 to 1.2% on 17 Oct, with 4.3 G of room.
+        self.measured()
+        for pressure in (.01, 1.2, 10):
+            with self.subTest(pressure=pressure):
+                state = {"run_id": "queued"}
+                self.assertFalse(self.claim(state, slice_memory_pressure=pressure))
+                self.assertTrue(self.claim(state, slice_memory_pressure=pressure))
 
     def test_no_measurements_keep_old_share(self):
         state = {"run_id": "queued"}
