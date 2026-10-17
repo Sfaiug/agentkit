@@ -50,9 +50,10 @@ BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one 
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
 DIM = terminal.STATE_STYLES["dim"][2]
 # Line two: who builds and reviews and every task's squares, then the squares cut to six, then
-# the squares alone, then who builds and reviews alone (`whys`).
-WHYS = (WHY, f"{WHY}1", f"{WHY}2", f"{WHY}3")
+# the squares alone, then cut to six, then to one (`whys`).
+WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 5)))
 FEW = 5 * 6 - 2   # six tasks' squares and their gaps
+LEAST = 3 + 2 + 3   # one task's squares and the count of the rest, `+11`
 
 
 def _cut(option, room):
@@ -138,14 +139,16 @@ def lines(name, model, word=None, last="", why=""):
 def whys(info):
     """Line two, one version for each of `WHYS`: who builds and who reviews (`menu.crew`) and
     every task in flight as its squares (`menu.squares`), then the squares cut to six, then the
-    squares alone, then who builds and reviews alone; as tmux text.  Inside a seat its question
-    or its summary is on its own screen, so line two is this for every word."""
+    squares alone, then cut to six, then to one and the count of the rest, so a narrow client
+    still sees its tasks; as tmux text.  Inside a seat its question or its summary is on its own
+    screen, so line two is this for every word."""
     who, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
     if not tasks:
         return [who] * len(WHYS)
-    every, few = (menu.squares(tasks, room, tmux=True) for room in (5 * len(tasks), FEW))
-    return [part for part in (f"{who}   {every}" if who else every,
-                              f"{who}   {few}" if who else few, every, who or few)]
+    every, few, least = (menu.squares(tasks, room, tmux=True)
+                         for room in (5 * len(tasks), FEW, LEAST))
+    return [f"{who}   {every}" if who else every, f"{who}   {few}" if who else few,
+            every, few, least]
 
 
 def seats():
@@ -288,12 +291,9 @@ def redress(session, answer, cfg=None, records=None):
         lasts = [menu.last_column(word, answer.get("reason"), *progress, cells,
                                   narrow=True, tmux=True, unsent=answer.get("unsent"))
                  for cells in BARS]
-        model = selection["orchestrator"] if selection else None
-        builds = (list(selection.get("workers") or []) or [model]) if selection else []
-        reviews = (list(selection.get("reviewers", selection.get("workers") or []))
-                   if selection else [])
-        info = {"crew": (builds, reviews), "tasks": menu.seat_tasks(name, records)}
-        _write(name, model, word, lasts, cfg, whys(info))
+        info = {"crew": menu.seat_crew(selection), "tasks": menu.seat_tasks(name, records)}
+        _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,
+               whys(info))
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the draw or the tick beneath it
         pass
 

@@ -508,8 +508,8 @@ Line two is what the row opens for any seat that is not asking or done: who
 builds and who reviews, and each task in flight as its squares (`statusbar.whys`),
 for every word, since inside a seat its question or its summary is on its own
 screen. Each client draws the first of its versions that fits: all the squares,
-then six of them and a count, then the squares alone, then who builds and reviews
-alone.
+then six of them and a count, then the squares alone, then six and a count alone,
+then one and a count alone.
 
 Helpers: `terminal.sense`, `terminal.styled`, `terminal.colour_depth`.
 

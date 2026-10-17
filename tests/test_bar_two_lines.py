@@ -116,12 +116,29 @@ class TwoLines(Sandbox):
         self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
+    def test_c2_a_seat_waiting_to_land_names_its_target_as_text(self):
+        # a branch may hold what tmux would read as a format, a command or a time
+        target = "release/#{session_name}#(true)%Y"
+        statusbar.redress(self.seat, {"word": "working",
+                                      "reason": f"waiting · 3rd in line to land on {target}"},
+                          cfg=self.cfg)
+        top = self.options[statusbar.TOP]
+        self.assertTrue(top.endswith("   waiting · 3rd in line to land on "
+                                     "release/##{session_name}##(true)%Y"), top)
+
     def test_d_a_done_seat_offers_the_close_key(self):
         top, why, key, title = statusbar.lines("fix-api", "fable", "done", "", "astra builds")
         self.assertIn("#[fg=#a6e3a1]✓ done#[default]", top)
         self.assertEqual(drawn(why), "  astra builds")
         self.assertEqual(drawn(key), "Ctrl-b m  x close ")
         self.assertEqual(title, "fix-api · done")
+
+    def test_e_a_client_short_of_room_keeps_its_tasks_over_who_builds(self):
+        versions = statusbar.whys({"crew": (["astra"], ["opus"]), "tasks": [(0, "moving")] * 12})
+        self.assertEqual(len(versions), len(statusbar.WHYS))
+        self.assertTrue(all("■" in drawn(version) for version in versions), versions)
+        # the narrowest, which fits beside the key on a client 40 columns wide: one and a count
+        self.assertEqual(drawn(versions[-1]), "■□□  +11")
 
     def test_f_a_seat_dressed_with_one_line_gets_two_and_a_legacy_seat_is_never_written(self):
         watch.announce_state(self.seat, cfg=self.cfg)

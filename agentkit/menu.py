@@ -861,6 +861,16 @@ def squares(tasks, room, tmux=False):
     return "  ".join(drawn + ([_paint(f"+{rest}", "dim", tmux)] if rest else []))
 
 
+def seat_crew(selection):
+    """(who builds, who reviews) a seat's work, from its saved selection: its workers, else its
+    own orchestrator alone; its reviewers, else its workers.  No selection: nobody.  The menu
+    row and the seat's own bar both read this, as they read `seat_tasks`."""
+    if not selection:
+        return [], []
+    workers = list(selection.get("workers") or [])
+    return workers or [selection["orchestrator"]], list(selection.get("reviewers", workers))
+
+
 def crew(info, tmux=False):
     """`astra builds · opus reviews`: who builds and who reviews a seat's work, its own
     orchestrator where it builds alone, models in plain text and the verbs dim; `tmux` draws it
@@ -997,10 +1007,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     word = found["word"]
     reason = found["reason"] or ""
     sentence = reason
-    builds = (list(selection.get("workers") or []) or [orchestrator]) if selection else []
-    reviews = list(selection.get("reviewers", selection.get("workers") or [])) if selection else []
     return {"number": str(number), "name": name, "session": session,
-            "crew": (builds, reviews), "tasks": seat_tasks(name, records, now, index),
+            "crew": seat_crew(selection), "tasks": seat_tasks(name, records, now, index),
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "tone": model_colour(cfg, orchestrator) if selection else "dim",
             "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
