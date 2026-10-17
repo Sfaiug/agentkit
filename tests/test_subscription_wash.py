@@ -8,6 +8,7 @@ Offline: a temporary HOME, fake seats, no tmux, the pointer set by hand.
 
 from contextlib import redirect_stdout
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -83,6 +84,19 @@ class Wash(Sandbox):
         frame, until = motion.colouring("opus", 0.0, CLAUDE, False, "dim")
         self.assertEqual(frame(0.0), "".join(terminal.styled(char, CLAUDE) for char in "opus"))
         self.assertEqual(frame(until), "".join(terminal.styled(char, "dim") for char in "opus"))
+
+    def test_a_meter_amber_for_its_login_drains_back_to_amber(self):
+        week = {"name": "weekly", "resets_at": 10000 + 86400, "window_secs": 604800, "used": 50}
+        (config.STATE / "usage.json").write_text(json.dumps(
+            {"fetched_at": 10000, "providers": {"anthropic": {"meters": [week]}}}))
+        (config.STATE / "logins.json").write_text(json.dumps(
+            {"anthropic": {"default": {"email": "owner@acme.test", "ends": 10000 + 86400}}}))
+        clock = motion.Clock()
+        self.screen((5, 3), clock)
+        self.screen(clock=clock)                    # the pointer leaves
+        frame, until = next(cell for (row, _), cell in clock.cells.items()
+                            if row == 3 and terminal.plain(cell[0](0)).startswith("▰"))
+        self.assertEqual(frame(until), terminal.styled("▰", "amber") * 5)
 
     def test_a_wide_label_is_washed_whole_from_its_first_cell(self):
         self.cfg["providers"]["anthropic"]["name"] = "界A"

@@ -1559,8 +1559,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                                                            spans=spans)
         for number, (provider, *_) in enumerate(rows, 1):
             washes[number] = colour(cfg, provider), [
-                *((grid + line, column, text, None, False)
-                  for line, column, text in spans.get(number, ())),
+                *((grid + line, column, text, rest, False)
+                  for line, column, text, rest in spans.get(number, ())),
                 *((row, model_at, model, "dim", bright) for row, model, bright, on in models
                   if number in on)]
             moves.append((("sub", number), number == pointed, None, False))
@@ -2175,7 +2175,7 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None):
     each cell says is whole: the labels give way to the longest, and a width with no room for
     a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`).
     `spans`, where handed in, gets each one's cells that take its colour: {number: [(line,
-    column, text)]}, the line from 0 and the column from 1."""
+    column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
@@ -2200,7 +2200,7 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None):
             warn = ending[number - 1] and not ink    # under the pointer its line says when
             shown = terminal.cut(terminal.plain(label), label_room)
             at = (start // columns, 3 + (number - 1) % columns * (COLUMN + 2))
-            took = [(*at, shown)]
+            took = [(*at, shown, None)]
             text = ((terminal.styled(shown, ink) if ink else shown)
                     + " " * (label_room - terminal.cells(shown) + 2))
             if not left:     # no meter: `empty until`, or why there is none, or the credits
@@ -2209,7 +2209,8 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None):
             else:
                 filled = max(1, round(meter * left / 100))
                 fill = ink or warn and "amber"
-                took.append((at[0], at[1] + label_room + 2, full * filled))
+                took.append((at[0], at[1] + label_room + 2, full * filled,
+                             ending[number - 1] and "amber"))
                 text += ((terminal.styled(full * filled, fill) if fill else full * filled)
                          + terminal.styled(empty * (meter - filled), "dim") + "  " + said)
             cells.append(text + " " * max(0, room - terminal.cells(text)))
