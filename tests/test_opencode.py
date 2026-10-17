@@ -342,6 +342,12 @@ cat "$dir/bridge-eval"
         proc = self.adapter("auth")
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(len(proc.stderr.splitlines()), 1)
+        # a key ahead of a part that is not JSON is no login either
+        self.write_config("tp-dummy")
+        with (self.cfgdir / "opencode.json").open("a") as f:
+            f.write("\n{")
+        proc = self.adapter("auth")
+        self.assertEqual(proc.returncode, 1)
         # and the auth store beside the config answers when the config has no key
         proc = self.adapter("auth", env={"STUB_AUTH_LIST": '[{"id": "mimo"}]'})
         self.assertEqual(proc.returncode, 0)
@@ -533,8 +539,12 @@ cat "$dir/bridge-eval"
         # No bridge at all: the provider key is tried against the same two
         # console calls, and code-0 answers are meters the same way.  (The
         # live API refuses the key with 401 today; this is the shape an
-        # accepted key would take.)
-        self.write_config("tp-dummy")
+        # accepted key would take.)  Another provider's key ahead of MiMo's
+        # is never the one sent.
+        self.cfgdir.mkdir(parents=True, exist_ok=True)
+        (self.cfgdir / "opencode.json").write_text(json.dumps(
+            {"provider": {"acme": {"options": {"apiKey": "acme-dummy"}},
+                          "mimo": {"options": {"apiKey": "tp-dummy"}}}}))
         self.fake_curl()
         self.answer("tokenPlan_usage", 200,
                     (FIXTURES / "mimo-tokenplan-usage.json").read_text())
