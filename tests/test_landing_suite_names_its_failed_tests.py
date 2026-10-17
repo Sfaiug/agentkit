@@ -27,10 +27,16 @@ print("TESTS_RUN=1")
 sys.exit(name in os.environ["ACME_FAILS"].split()
          or name in os.environ["ACME_FLAKY"].split() and log.read_text().split().count(name) == 1)
 '''
-SMOKE = '''echo smoke.sh >>"$ACME_LOG"
+# Like smoke.sh, a piece runs only its share, and smoke.sh runs a test file of its own.
+SMOKE = '''if [ "${AK_SHARD:-1/1}" = 1/1 ]; then
+  echo smoke.sh >>"$ACME_LOG"
+else
+  echo "smoke.sh $AK_SHARD" >>"$ACME_LOG"
+fi
+python3 tests/test_smoked.py || exit 1
 case " $ACME_FAILS " in *" smoke.sh "*) exit 1 ;; esac
 '''
-FILES = ("test_acme", "test_boom", "test_flaky", "test_fix_api")
+FILES = ("test_acme", "test_boom", "test_flaky", "test_fix_api", "test_smoked")
 
 
 class LandingSuiteNamesItsFailedTests(unittest.TestCase):
@@ -63,7 +69,7 @@ class LandingSuiteNamesItsFailedTests(unittest.TestCase):
         proc = subprocess.run([sys.executable, "tests/landing.py"], cwd=root, env=env,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=120)
-        read = lambda path: sorted(path.read_text().split()) if path.exists() else []
+        read = lambda path: sorted(path.read_text().splitlines()) if path.exists() else []
         return proc, read(log), read(failed)
 
     def test_each_failure_is_named_once_and_a_flaky_file_is_not(self):
@@ -91,15 +97,19 @@ class LandingSuiteNamesItsFailedTests(unittest.TestCase):
                     only=["tests/test_flaky.py", "tests/test_docs.py", "tests/smoke.sh"])
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertEqual(ran, ["smoke.sh", "test_docs.py", "test_flaky.py",
-                                       "test_flaky.py"])
+                                       "test_flaky.py", "test_smoked.py"])
                 self.assertEqual(failed, [])
 
     def test_a_listed_test_failing_again_fails_and_is_named(self):
-        proc, ran, failed = self.landing(fails="test_boom.py gate_contract.py",
-                                         only=["tests/test_boom.py", "tests/gate_contract.py"])
+        # smoke.sh runs test_smoked.py and is not listed: every_file.py runs it instead.
+        proc, ran, failed = self.landing(
+            fails="test_boom.py test_smoked.py gate_contract.py",
+            only=["tests/test_boom.py", "tests/test_smoked.py", "tests/gate_contract.py"])
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
-        self.assertEqual(ran, ["gate_contract.py", "test_boom.py", "test_boom.py"])
-        self.assertEqual(failed, ["tests/gate_contract.py", "tests/test_boom.py"])
+        self.assertEqual(ran, ["gate_contract.py", "test_boom.py", "test_boom.py",
+                               "test_smoked.py", "test_smoked.py"])
+        self.assertEqual(failed, ["tests/gate_contract.py", "tests/test_boom.py",
+                                  "tests/test_smoked.py"])
 
     def test_an_unknown_test_runs_nothing_and_fails_nothing(self):
         # Every stand-in would fail, and the import check too: no listed test holds it.

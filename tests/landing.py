@@ -1,7 +1,8 @@
 """Run the static checks, then both landing parts and the gate's contract together, keeping
 progress live and outputs separate. Each test that fails is named in the file AK_FAILED names;
-with AK_ONLY set only the tests its file lists run (suite_shares.listed)."""
+with AK_ONLY set only the tests its file lists run, whatever the share (suite_shares.listed)."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,9 @@ import time
 from suite_shares import STATIC_CHECKS, listed, name_failed
 
 only = listed()
+if only is not None:
+    # A listed part runs whole: smoke.sh and every_file.py would otherwise run only this share.
+    os.environ["AK_SHARD"] = "1/1"
 
 
 def part(*command):
