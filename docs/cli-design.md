@@ -293,7 +293,9 @@ line under the rows says that subscription's week as its usage row reads it:
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
 `model`, then `effort`, each a list opening under the one chosen above it, a
 chosen one kept as one line; Enter on the effort adds the model and highlights
-its row, glowing (Motion), Esc steps back one list. On `Discord` Enter or a click asks its two
+its row, glowing (Motion), Esc steps back one list. A list longer than the screen adds
+`/ find` to the key line: what is typed after `/` keeps the choices holding it, shown as
+`/text` beside the list's name, and Esc lets the whole list back. On `Discord` Enter or a click asks its two
 secrets on the same keys. The key
 line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc or a click on it returns. A
