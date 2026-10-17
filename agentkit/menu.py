@@ -1565,8 +1565,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         turns.append(next((name for _, name in lines
                            if isinstance(name, (str, Path)) and name not in before), None))
         before.update(name for _, name in lines)
+    logins = {number: (name, account) for number, ((name, _, _, account), note)
+              in enumerate(zip(rows, login_notes(rows)), 1) if note}
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
-                 ask=top + at + 1 if at else None, spots=spots, turns=turns)
+                 ask=top + at + 1 if at else None, spots=spots, turns=turns, logins=logins)
     return page, (len(pages) if ordered else 1)
 
 
@@ -2219,7 +2221,8 @@ def usage_detail(cfg, number, width=None, now=None, rows=None):
         *((3, note) for note in scoped_notes(cfg, name, readable, week)),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
     login = login_notes(rows[number - 1:number], now)[0]
-    notes = [note for note in [(-2, login), *notes] if note[1]]
+    notes = [note for note in [(-2, login), (-2, login and "click to log in again"), *notes]
+             if note[1]]
     room = 10 ** 6 if width is None else width - 4
     # a login ending is kept before the label, which the lit cell above already shows; a label
     # too long for the line gives way, as in its cell
@@ -3180,7 +3183,8 @@ def _by_label(names, label):
 
 
 def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None):
-    """Each of `verbs` of `harness`'s adapter, run as install.sh runs them, for `account`'s
+    """Each of `verbs` of `harness`'s adapter (one with its words, `login again`), run as
+    install.sh runs them, for `account`'s
     login when one is named and of `provider` when one is (config.provider_env), with the
     terminal given back for them and taken again after.  The
     first that fails ends them, and waits until what it said has been read: what to say about
@@ -3191,7 +3195,7 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
     failed = ""
     for verb in verbs:
         try:
-            code = subprocess.run([str(config.adapter(harness)), verb],
+            code = subprocess.run([str(config.adapter(harness)), *verb.split()],
                                   env={**config.child_env(), **config.account_env(account),
                                        **config.provider_env([provider] if provider else [])}
                                   ).returncode
@@ -3204,6 +3208,18 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
             break
     keyboard.take()
     return failed
+
+
+def sign_in(cfg, keyboard, provider, account):
+    """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
+    one that ends soon: its harness's `login again`, the menu back as soon as that ends, and
+    the login asked again at once (`logins.refresh`), so its meter turns grey once a new one
+    stands and stays amber where none was made."""
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
+    harnesses = config.provider_harnesses(cfg, provider)
+    if harnesses:
+        _adapter_verbs(keyboard, harnesses[0], ("login again",), provider, account, provider)
+    logins.refresh(cfg, force={(provider, account or config.DEFAULT_ACCOUNT)})
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
@@ -4092,6 +4108,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     look = False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing
+                cell = terminal.under(key, shown["spots"]).cell if key.name == "click" else None
+                if isinstance(cell, tuple) and cell[0] == "usage" and cell[1] in shown["logins"]:
+                    sign_in(cfg, keyboard, *shown["logins"][cell[1]])   # an amber meter
+                    continue
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back
