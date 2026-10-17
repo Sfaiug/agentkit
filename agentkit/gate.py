@@ -182,17 +182,18 @@ def slot_queue():
         return 0.0, 0, []
 
 
-def first_in_line(now):
+def first_in_line():
     """(run id, since when it has been first, the waits of the firsts before it, how many wait
-    behind it) while the queue is polled, for `stuck` to hold the one against the others; None
-    while nobody waits, or every waiter is gone and recovery owns the queue."""
+    behind it) while that run lives, polling or not, for `stuck` to hold the one against the
+    others; None while nobody waits, or the first is gone and recovery owns the queue."""
     saved = _saved_queue()
-    at, _, queue = slot_queue()
+    _, _, queue = slot_queue()
     try:
         since, took = float(saved["since"]), [float(wait) for wait in saved["took"]]
     except (ValueError, KeyError, TypeError):
         return None
-    if not queue or saved.get("first") != queue[0] or not 0 <= now - at < 2 * SLOT_POLL:
+    if not queue or saved.get("first") != queue[0] or not run_record.process_active(
+            run_record.read_state(config.RUNS / queue[0]) or {}):
         return None
     return queue[0], since, took, len(queue) - 1
 

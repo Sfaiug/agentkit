@@ -19,10 +19,11 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import audit, config, gate, orch, record, stuck, watch
+from agentkit import audit, config, gate, land, orch, record, stuck, watch
 
 NOW = 1_800_000_000.0
 LIVE = record.process_owner()
+GONE = {"pid": 2 ** 22 + 1, "process_identity": {"boot": "gone", "ticks": 0}}
 
 
 class FirstInLineFarPastItsUsual(unittest.TestCase):
@@ -101,27 +102,32 @@ class FirstInLineFarPastItsUsual(unittest.TestCase):
             "again, through the line, and ak notify done once it is live."])
         self.assertEqual(self.log[-1], "audit: told the audit seat about the stall of the slot "
                                        "queue")
-        self.poll(first, NOW + 590)
-        self.assertEqual(len(self.tick(NOW + 600)), 1)
+        # another stall told while the first goes unpolled a while leaves the first told
+        land._keep_passes(config.RUNS / ".merge-acme.lock",
+                          {"started": NOW - 3000, "took": [60, 60, 60], **LIVE})
+        self.assertEqual(len(self.tick(NOW + 600)), 2)
+        self.poll(first, NOW + 650)
+        self.assertEqual(len(self.tick(NOW + 660)), 2)
         # let in, it hands first place on: the next run's wait there starts from naught
         self.held.discard(first["run_id"])
         self.assertTrue(self.poll(first, NOW + 700))
         self.poll(behind, NOW + 710)
-        self.assertEqual(len(self.tick(NOW + 720)), 1)
+        self.assertEqual(len(self.tick(NOW + 720)), 2)
 
-    def test_a_first_within_the_usual_or_in_a_queue_nobody_polls_is_no_stall(self):
-        for waits, since, polled in (((60, 60, 60), NOW - 1700, NOW - 10),     # under half an hour
-                                     ((700, 700, 700), NOW - 2000, NOW - 10),  # under 3 times 700s
-                                     ((60, 60, 60), NOW - 3000, NOW - 300),    # nobody polls it
-                                     ((60, 60), NOW - 3000, NOW - 10)):        # no pace yet
-            with self.subTest(waits=waits, since=since, polled=polled):
+    def test_a_first_within_the_usual_or_gone_is_no_stall(self):
+        for waits, since, owner in (((60, 60, 60), NOW - 1700, LIVE),     # under half an hour
+                                    ((700, 700, 700), NOW - 2000, LIVE),  # under 3 times 700s
+                                    ((60, 60, 60), NOW - 3000, GONE),     # the first is gone
+                                    ((60, 60), NOW - 3000, LIVE)):        # no pace yet
+            with self.subTest(waits=waits, since=since, owner=owner):
                 shutil.rmtree(config.RUNS)
                 config.ensure_dirs()
                 self.firsts(waits)
                 first = self.queue("20270115-0900-fix-api", since)
                 self.held.add(first["run_id"])
                 self.poll(first, since)
-                self.poll(first, polled)
+                self.poll(first, NOW - 10)
+                record.save_state(config.RUNS / first["run_id"], {**first, **owner})
                 self.assertEqual(self.tick(), [])
                 self.assertEqual(stuck.read(), {})
 
