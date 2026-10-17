@@ -6,7 +6,8 @@ which only a new login brings it back; null where the harness writes no such day
 answers are kept in `state/logins.json` as {provider: {account: {email, ends, checked_at}}},
 for every screen and reminder that warns before a login ends.  The tick asks each one at
 most once an hour, answered or not, since a login's end moves only when somebody logs in
-again; whoever saw that happen asks for that one at once with `force`.
+again; but one whose meter is amber (`ending`) every time it runs, so a new login shows on
+the ak screen at the next tick.
 """
 
 from datetime import date
@@ -75,29 +76,34 @@ def _ask(harness, account):
     return {"email": email, "ends": ends}
 
 
-def refresh(cfg, now=None, force=()):
-    """Ask every subscription the config lists that was last asked ASK_EVERY ago or more, or is
-    named in `force` as (provider, account), and keep what they said; returns what is kept.
+def harness(cfg, provider):
+    """The harness that asks and signs in `provider`'s logins: its first model's, else the one
+    the shipped default runs it on, so a login whose models were all removed is still asked;
+    None where neither names one."""
+    return next(iter(config.provider_harnesses(cfg, provider)), None)
 
-    An adapter that answers nothing, or a provider with no model left to name one, leaves its
-    last answer standing, so a briefly unrunnable one neither raises a warning nor lifts one.
-    A subscription the config no longer lists is dropped with its answer.
+
+def refresh(cfg, now=None):
+    """Ask every subscription the config lists that was last asked ASK_EVERY ago or more, or
+    whose login ends within WARN_WITHIN or has ended, and keep what they said; returns what
+    is kept.
+
+    An adapter that answers nothing, or a provider no harness names, leaves its last answer
+    standing, so a briefly unrunnable one neither raises a warning nor lifts one.  A
+    subscription the config no longer lists is dropped with its answer.
     """
     now = time.time() if now is None else now
     old, kept = read(), {}
     for provider in cfg["providers"]:
-        try:
-            harness, _ = config.provider_harness(cfg, provider)
-        except config.Error:
-            harness = None    # no model left to name its harness
+        asker = harness(cfg, provider)
         for account in config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]:
             last = (old.get(provider) or {}).get(account)
             last = last if isinstance(last, dict) else {}
             checked = last.get("checked_at")
-            fresh = (isinstance(checked, (int, float)) and (provider, account) not in force
-                     and 0 <= now - checked < ASK_EVERY)
+            fresh = (isinstance(checked, (int, float)) and 0 <= now - checked < ASK_EVERY
+                     and not ending(last, now))
             kept.setdefault(provider, {})[account] = last if fresh else {
-                **last, **(harness and _ask(harness, account) or {}), "checked_at": now}
+                **last, **(asker and _ask(asker, account) or {}), "checked_at": now}
     if kept != old:
         config._write_json(path(), kept)
     return kept
