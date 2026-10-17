@@ -488,7 +488,7 @@ def spoken_at(notice):
 
 def answer_typed(log=print):
     """A message the owner typed while a seat's turn ran went into that turn, and no prompt hook
-    heard it: one written after its standing question was said answers it now, by the path his
+    heard it: one written after its standing question was said answers it now, by the path their
     prompt takes (`answered`), whoever asked it.  Read from the seat's own conversation
     (`owner_said`, which leaves ak's own lines out), only while a question of its own stands;
     one it still keeps back waits for the look that asks it, which dates it."""
@@ -1599,7 +1599,7 @@ def conversation_of(name):
 
 
 def owner_said(name, seat=None):
-    """When the owner wrote each message of his in that seat's conversation, oldest first:
+    """When the owner wrote each of their messages in that seat's conversation, oldest first:
     `user_messages` leaves ak's own lines out; none where it cannot be read."""
     seat = seat or conversation_of(name)
     if seat is None or not seat[3]:

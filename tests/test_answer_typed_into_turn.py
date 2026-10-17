@@ -5,8 +5,8 @@ Its owner reads it in the pane and often answers at once; a message typed while 
 goes into that turn, and no prompt hook hears it.  The question used to stand as `needs you`,
 its card out, until the owner's next prompt, hours later.  Now the tick, before its card pass,
 answers a standing question whose seat's conversation holds a message of the owner's written
-after the question was said, by the path his prompt takes (`notify.answered`): its waits, the
-stall latch it lets go and the done it no longer refuses are his prompt's.  A message from
+after the question was said, by the path their prompt takes (`notify.answered`): its waits, the
+stall latch it lets go and the done it no longer refuses are their prompt's.  A message from
 before the question, or before another question standing beside it, answers nothing, and
 neither do ak's own lines (`user_messages` leaves them out).  A question still kept back waits
 for the look that asks it.
@@ -78,7 +78,7 @@ class AnswerTypedIntoTurn(Sandbox):
             state["stalls"][SEAT] = {"signature": "API Error", "since": 900.0, "told": 950.0}
             watch._write_state(state)
 
-    def test_his_answer_typed_into_the_turn_answers_it_as_his_prompt_would(self):
+    def test_their_answer_typed_into_the_turn_answers_it_as_their_prompt_would(self):
         self.stalled()
         self.asks_at(1000.0)
         self.harness.said = [900.0, 1200.0]     # 900: the prompt that began the turn

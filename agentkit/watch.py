@@ -6828,7 +6828,7 @@ def local_passes(state, dry_run, log):
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
         # What the owner typed into a seat's turn after it asked answers its question before
-        # the cards are read, so no card goes out for a question he answered.
+        # the cards are read, so no card goes out for a question they answered.
         ("the typed-answer pass did not run", lambda: notify.answer_typed(log=log), False),
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.
