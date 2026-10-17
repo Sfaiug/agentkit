@@ -11,7 +11,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import box, command_help, config, gitcall, hand_in, host, record
+from . import box, command_help, config, gitcall, hand_in, host, record, task as taskfile
 from .harness import load as harness_plugin
 
 # A worker session is not a seat: `ak notify` is suppressed there.
@@ -106,6 +106,9 @@ PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops pr
              "when your turn ends and asks once to finish in the foreground.")
 CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when "
           "commands even when the worker skips them.")
+SIZE = (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
+        f"its first review would read more than {taskfile.MAX_PR_LINES} added lines, the tests among "
+        "them (generated files and blocks moved unchanged aside).")
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -253,10 +256,13 @@ def said_nothing(out_dir):
 
 
 PREAMBLES = {
+    "reader": ("You are the reader.\n"
+               "[worker judgement] Read the supplied text and return the requested answer. "
+               "Do not use tools or edit files."),
     "executor": (
         "You are the executor.\n"
         "[worker judgement] Work only inside {workspace} on the current branch; never push.\n"
-        f"{COMMITS}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        f"{COMMITS}\n{CHECKS}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with a `## Summary` section: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer": (
@@ -277,7 +283,7 @@ PREAMBLES = {
         f"{GATE}\n{ONE_PASS}"),
     "fixer": (
         "You are the executor, continuing.\n"
-        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
+        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself

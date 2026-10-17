@@ -101,8 +101,8 @@ to reopen`; one you stopped has no row under its project, only its row on the pa
 ended run is its orchestrator's business, so no row ever says `press r`.
 
 The screen is budgeted by height as well as width: a list of seats longer than the
-screen is drawn a page at a time -- on a terminal the page the highlight is on, from a pipe the
-one `j` and `k` turn to -- and a row keeps the number it has in the whole list on whichever page
+screen is drawn a page at a time -- on a terminal the page the highlight is on, which ← and →
+turn, from a pipe the one `j` and `k` turn to -- and a row keeps the number it has in the whole list on whichever page
 it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
@@ -119,13 +119,13 @@ key uses.
 
 import colorsys
 import copy
-import fcntl
 import json
 import os
 import re
 import select
 import shlex
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -164,7 +164,9 @@ UNREAD = ((re.compile(r"already reset"), "window reset"),
           (re.compile(r"returned no meters"), "no reading yet"))
 USAGE = ("usage: ak [--client] [--overlay] [--dry-run]   "
          "(the menu; `ak attach` is the same)")
-RUN_RECORDS = "run-records.jsonl"   # under STATE: what `run_records` read, one line per run.json
+RUN_RECORDS = "run-records.db"   # under STATE: one independently replaceable row per run.json
+_RUN_RECORDS = None
+_RUN_RECORDS_LOCK = threading.Lock()
 
 
 def read(prompt, default=None):
@@ -1306,11 +1308,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # every number stays reachable. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
     key_text = keys
-    # With the keyboard the highlight turns the pages, so `j` and `k` are not offered then.
+    # With the keyboard ← and → turn the pages, the key line starting with where the owner is
+    # (`page_mark`); in a pipe `j` and `k` do.
     page_keys = "" if owned else "   " + PAGE_KEYS
     # A question under a row is budgeted with the key line, so it never pushes a row off.
     k_single = len(terminal.key_line(key_text, width)) + len(asked)
-    k_paged = len(terminal.key_line(key_text + page_keys, width)) + len(asked)
+    k_paged = len(page_mark(key_text, 98, 99, width) if owned
+                  else terminal.key_line(key_text + page_keys, width)) + len(asked)
 
     def _flat(blocks):
         flat = []
@@ -1400,10 +1404,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             decided = True
     if not decided:
         meters, compact, pages = [], True, _seat_pages(_room([], True, True))
-    key_lines = terminal.key_line(key_text + (page_keys if len(pages) > 1 else ""), width)
     if owned and cursor is not None:
         page = next((number for number, lines in enumerate(pages)
                      if any(name == cursor for _, name in lines)), page)
+    page = min(max(page, 0), len(pages) - 1)
+    key_lines = (page_mark(key_text, page, len(pages), width) if owned and len(pages) > 1
+                 else terminal.key_line(key_text + (page_keys if len(pages) > 1 else ""), width))
     # The layout is min(terminal width, 120); beyond that the margin grows, never the text.
     out = []
     # what may move: (key, what it shows -- a word, or a bar's value and its blocks -- its first
@@ -1444,10 +1450,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     body = [("  no sessions; n starts one", None)]
     if ordered:
         # One blank line between projects; seat rows two under their project.
-        # Rows keep their global numbers across pages, and the heading says which
-        # page is up without moving any number.
+        # Rows keep their global numbers across pages, and in a pipe the heading says which
+        # page is up without moving any number; with the keyboard the key line does.
         pages_count = len(pages)
-        page = min(max(page, 0), pages_count - 1)
         # The question is answered once, here and nowhere else on the screen.
         if total_needing <= 0:
             base = "your projects · nothing needs you"
@@ -1456,7 +1461,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         else:
             base = f"your projects · {total_needing} need you"
         # The page is what m turns: it is never the part that is cut.
-        suffix = "" if pages_count <= 1 else f" {page + 1}/{pages_count}"
+        suffix = "" if owned or pages_count <= 1 else f" {page + 1}/{pages_count}"
         heading = terminal.cut(base, max(1, layout - terminal.cells(suffix))) + suffix
         if compact:
             # Compact: the heading, the rows, the keys and the prompt are all that is left.
@@ -1562,8 +1567,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in out))
                      + "\033[J" + moved)
     sys.stdout.flush()
+    # each page's first seat or heading drawn on no page before it, so the highlight resting
+    # there has that page up: a heading over its project's next page, or a tall seat's rest, is not
+    turns, before = [], set()
+    for lines in pages:
+        turns.append(next((name for _, name in lines
+                           if isinstance(name, (str, Path)) and name not in before), None))
+        before.update(name for _, name in lines)
     drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
-                 ask=top + at + 1 if at else None, spots=spots)
+                 ask=top + at + 1 if at else None, spots=spots, turns=turns)
     return page, (len(pages) if ordered else 1)
 
 
@@ -1775,62 +1787,80 @@ def smoke_run(state, resolved=None):
     return False
 
 
-def run_records():
-    """Every run's record, read once: the rows' tallies are drawn from one pass.
-
-    Runs whose task or repo lives under ~/.agentkit/tmp/smoke-* are left out here, so a seat's
-    tally never counts the toolkit testing itself.  So is a run marked `unattended`: a worker
-    or a done-when command below another run started it, so it belongs to no seat and to no
-    terminal, and there is nobody to offer it to.  A run launched by hand belongs to no seat
-    either but does belong to the terminal it was started from.  Read-only: a bad record is
-    skipped, never repaired.
-
-    A run.json is parsed only when it changed: each pass keeps what it read in RUN_RECORDS, one
-    line per run under the stat it was read at (inode, mtime_ns, size), and a line whose stat no
-    longer matches is read again.  The stat comes before the read, so a line holds that file's
-    record or a newer one, never an older.  Passes racing to write the file cost the next one a
-    re-read, nothing more.  Which runs are left out is decided on every pass: a smoke run's
-    paths can come to resolve elsewhere with no record written.
-    """
-    cache = config.STATE / RUN_RECORDS
-    try:
-        lines = cache.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        lines = []
-    known = {}
-    for line in lines:
+class _RunRecords:
+    def __init__(self, root):
+        self.root, self.known, self.db = root, {}, None
         try:
-            name, *key, state = json.loads(line)
-            known[name] = key, state, line
-        except (ValueError, TypeError, RecursionError):
-            continue
-    found, fresh, resolved = [], [], {}
-    for run_dir in record.run_dirs():
-        try:
-            info = (run_dir / "run.json").stat()
-        except OSError:
-            continue
-        key = [info.st_ino, info.st_mtime_ns, info.st_size]
-        if run_dir.name in known and known[run_dir.name][0] == key:
-            state, line = known[run_dir.name][1:]
-        else:
-            state = record.read_state(run_dir)
-            if state is None:
+            self.db = sqlite3.connect(config.STATE / RUN_RECORDS, timeout=0,
+                                      check_same_thread=False)
+            self.db.execute("CREATE TABLE IF NOT EXISTS records (name TEXT PRIMARY KEY, value TEXT)")
+            for name, value in self.db.execute("SELECT name, value FROM records"):
+                try:
+                    key, state = json.loads(value)
+                    if isinstance(key, list) and isinstance(state, dict):
+                        self.known[name] = key, state
+                except (ValueError, TypeError, RecursionError):
+                    continue
+        except sqlite3.Error:
+            self.close()       # the run files remain authoritative, even with no writable cache
+
+    def close(self):
+        if self.db is not None:
+            self.db.close()
+            self.db = None
+
+    def read(self):
+        found, fresh, changed, resolved = [], {}, [], {}
+        for run_dir in record.run_dirs():
+            try:
+                info = (run_dir / "run.json").stat()
+            except OSError:
                 continue
-            line = json.dumps([run_dir.name, *key, state])
-        fresh.append(line)
-        if not state.get("unattended") and not smoke_run(state, resolved):
-            found.append((run_dir, state))
-    if fresh != lines:
-        try:
-            with open(cache.with_suffix(".lock"), "w") as held:
-                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)   # or the pass holding it writes
-                temp = cache.with_suffix(".tmp")
-                temp.write_text("".join(f"{line}\n" for line in fresh), encoding="utf-8")
-                temp.replace(cache)
-        except OSError:
-            pass
-    return found
+            key = [info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size]
+            if run_dir.name in self.known and self.known[run_dir.name][0] == key:
+                state = self.known[run_dir.name][1]
+            else:
+                state = record.read_state(run_dir)
+                if state is None:
+                    continue
+                changed.append((run_dir.name, json.dumps([key, state])))
+            fresh[run_dir.name] = key, state
+            if not state.get("unattended") and not smoke_run(state, resolved):
+                found.append((run_dir, state))
+        removed = self.known.keys() - fresh.keys()
+        self.known = fresh
+        if self.db is not None and (changed or removed):
+            try:
+                with self.db:
+                    self.db.executemany("INSERT INTO records VALUES (?, ?) ON CONFLICT(name) "
+                                        "DO UPDATE SET value = excluded.value", changed)
+                    self.db.executemany("DELETE FROM records WHERE name = ?",
+                                        ((name,) for name in removed))
+            except sqlite3.Error:
+                pass           # another process can fill the cache; this one keeps its reads
+        return found
+
+
+def run_records():
+    """Every run's record, loading the shared cache only once per process.
+
+    Only a changed run.json is opened again, with its stat taken before the read so a racing
+    write can cause another read, never hide one. SQLite commits only changed rows and keeps
+    other processes' reads whole. Cache failures leave the run files authoritative. Returned
+    records are shared read-only snapshots, replaced only when their run.json changes.
+
+    Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
+    Paths are resolved on every pass: a symlink can move without a run.json changing. Bad run
+    files are skipped, never repaired.
+    """
+    global _RUN_RECORDS
+    with _RUN_RECORDS_LOCK:
+        root = config.RUNS, config.STATE, os.getpid()
+        if _RUN_RECORDS is None or _RUN_RECORDS.root != root:
+            if _RUN_RECORDS is not None:
+                _RUN_RECORDS.close()
+            _RUN_RECORDS = _RunRecords(root)
+        return _RUN_RECORDS.read()
 
 
 def unread(prov, weekly, readable, now):
@@ -3772,6 +3802,23 @@ def move_keys():
     return "↑↓ move   ⏎ open" if terminal.utf8() else "j/k move   enter open"
 
 
+def page_mark(keys, page, pages, width):
+    """The key line with where the owner is in front of the keys, `←  2 / 3  →`, wrapped with
+    them as one more item: each arrow a key a click turns the page with, the place between them
+    none."""
+    arrow, ahead = ("←", "→") if terminal.utf8() else ("<", ">")
+    return terminal.key_line(keys, width, first=f"{terminal.styled(arrow, 'dim')}  {page + 1} / "
+                                                f"{pages}  {terminal.styled(ahead, 'dim')}")
+
+
+def turned(turns, page, cursor, step):
+    """Where ← (`step` -1) or → (1) takes the highlight from `page`: to the first thing it can
+    rest on (`turns`, each page's) of the nearest page that way holding one, passing a page
+    with none -- only a heading, or the rest of a tall seat; else it stays on `cursor`."""
+    ahead = range(page + step, len(turns) if step > 0 else -1, step)
+    return next((turns[n] for n in ahead if turns[n] is not None), cursor)
+
+
 def pressed(key, drawn, found):
     """What one `terminal.Key` asks of the main screen, in the line menu's own words.
 
@@ -3793,7 +3840,8 @@ def pressed(key, drawn, found):
             return opens(spot.what)
         item = spot.cell or ""
         if item not in ("⏎", "enter", "esc"):
-            return item if len(item) == 1 else ""
+            # the page's place between the arrows is no seat's number
+            return item if len(item) == 1 and not item.isdigit() else ""
         key = terminal.Key({"⏎": "enter"}.get(item, item))
     if key.name == "enter":
         return opens(drawn["cursor"])
@@ -3932,6 +3980,13 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         at = order.index(cursor) + terminal.step(key)
                         cursor = order[min(max(at, 0), len(order) - 1)]
                     look = False          # the highlight moves over what is in hand
+                    continue
+                # ← and →, or a click on either arrow in front of the keys, turn the page
+                turn = ({"←": -1, "<": -1, "→": 1, ">": 1}.get(pressed(key, shown, found), 0)
+                        if key.name == "click" else {"left": -1, "right": 1}.get(key.name, 0))
+                if turn:
+                    cursor = turned(shown.get("turns") or [], page, cursor, turn)
+                    look = False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing
                 typed, key = key, pressed(key, shown, found)

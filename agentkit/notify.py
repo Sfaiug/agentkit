@@ -487,8 +487,8 @@ def waited(notice, at):
 
 
 def job_done(notice):
-    """A job's `all N tasks finished`: done to its card, the way it always was, and no word of
-    the seat's, which only the seat says of itself."""
+    """A job's `all N tasks finished`, as a job loop of an earlier install still records it:
+    no word of the seat's, which only the seat says of itself."""
     return bool(notice) and notice["kind"] == "done" and str(
         notice.get("source") or "").startswith("job:")
 
@@ -514,6 +514,11 @@ def opened(session, capture):
 ALSO = " Also: "      # between the questions a notice asks
 
 
+def question_key(question):
+    """A question's identity and date share a key; its stored words stay untouched."""
+    return " ".join(question.split()).casefold()
+
+
 def questions(notice):
     """The questions a needs notice asks, in the order asked: its own, or the several a seat
     asked before its owner answered (`_said`)."""
@@ -530,6 +535,31 @@ def typed_since(session, since):
     return [sent for sent in harness.entries(config.seat_file("input", session))
             if sent.get("source") != "owner" and isinstance(sent.get("at"), (int, float))
             and not isinstance(sent.get("at"), bool) and sent["at"] >= since]
+
+
+def ak_prompt(session, said, since):
+    """The prompt is a line ak typed since the question, rather than the owner's answer."""
+    return (isinstance(since, (int, float)) and bool(said)
+            and any(sent.get("text") == said for sent in typed_since(session, since)))
+
+
+def answer_context(session, said):
+    """The open questions this prompt may answer, read before its background look answers them.
+
+    Read without the notice lock: a sender holds it while typing a prompt and waiting for
+    this hook. Each question keeps its own last-asked date, or an older notice's timestamp.
+    """
+    from . import watch
+    notice = last(session)
+    if not watch.owner_question(notice) or ak_prompt(session, said, notice.get("time")):
+        return ""
+    dated = notice.get("asked_at") or {}
+    context = []
+    for question in questions(notice):
+        asked = dated.get(question_key(question), notice["time"])
+        stamp = datetime.fromtimestamp(asked, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        context.append(f"Asked {stamp}:\n{question}")
+    return "Questions you asked the owner that this prompt may answer:\n\n" + "\n\n".join(context)
 
 
 def progress(session, capture, seat_harness):
@@ -1176,12 +1206,11 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             # A screen may have observed an intervening episode since our last tick, but
             # not while a job's done stands: the screens read no notice there, and their
             # `needs you` is not the card's.
-            if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
-                         or job_done(declared)):
+            if card and (previous.get("word_since") or 0) <= card.get("since", 0):
                 previous = {"word": card["word"], "word_since": card["since"]}
             current = watch.session_state(name, now=time.time() if answer is not None else at,
                                           session=seat, records=records,
-                                          previous=previous, jobs=True)
+                                          previous=previous)
             # A newer declaration or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.
@@ -1432,10 +1461,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # event re-records nothing, but the latch is still evaluated: the first
         # attempt may have recorded without ever queueing the card.
         stamp = time.time()
-        # While a job's done stood the screens' record was not the card's, as in `transition`.
-        card = _card_read(name) if job_done(previous) else {}
-        answer = watch.session_state(name, now=stamp, jobs=True, previous={
-            "word": card["word"], "word_since": card["since"]} if card else None)
+        answer = watch.session_state(name, now=stamp)
         if answer["word"] == "needs you":
             since = answer.get("since")
             if not (isinstance(since, (int, float)) and math.isfinite(since)
@@ -1478,10 +1504,10 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
                     and not resolved(previous) else [])
         if standing and at is not None:
             at = max(at, previous["time"])
-        asked, seen = list(standing), {" ".join(q.split()).casefold() for q in standing}
+        asked, seen = list(standing), {question_key(q) for q in standing}
         dated = dict(previous.get("asked_at") or {}) if standing else {}
         for question in [text] if isinstance(text, str) else text:
-            words = " ".join(question.split()).casefold()
+            words = question_key(question)
             if words not in seen:
                 seen.add(words)
                 asked.append(question)

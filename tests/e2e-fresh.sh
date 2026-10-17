@@ -12,8 +12,8 @@
 # which outranks any webhook the HOME was given, the webhook is `off` besides, and the two
 # notify checks are --dry-run.
 #
-# Every tmux server it touches is the throwaway HOME's own -- a test socket in a socket
-# directory under the workdir -- and it never runs a tmux command except to stop that server
+# Every tmux server it touches is the throwaway HOME's own -- a test socket in a private
+# directory under /tmp -- and it never runs a tmux command except to stop that server
 # on the way out, so no session of yours is in reach.
 #
 #   tests/e2e-fresh.sh                 every step
@@ -76,11 +76,9 @@ for h in claude codex muse grok opencode agy; do
           command -v "$h") || continue
   EPATH="$EPATH:${found%/*}" HOSTPATH="$HOSTPATH:${found%/*}" HOSTBIN="$HOSTBIN$h "
 done
-# The throwaway HOME's own tmux server, like the smoke suite's: a test socket in a socket
-# directory under the workdir, so no seat of yours is in reach.
+# Keep the private socket path short: a valid HOME can exceed Unix socket path limits.
 E2E_TMUX_SOCKET=agentkit-test
-E2E_TMUX_DIR="$WORK/tmux"
-mkdir -p -- "$E2E_TMUX_DIR"
+E2E_TMUX_DIR=$(mktemp -d /tmp/ak-e2e-tmux-XXXXXX) || exit 2
 
 # --- one gate at a time on its remote, the way tests/smoke.sh guards its own --------
 # Step f's clone, run and delivery check are one turn on a host-wide lock: two gates running
@@ -262,6 +260,7 @@ cleanup() {
   sync_back || { KEEP=1 rc=1; }
   [ "$KEEP" = 1 ] && { echo "kept: HOME $UH, workdir $WORK${SMOKE_REPO:+ (repo $SMOKE_REPO)}"; exit "$rc"; }
   TMUX_TMPDIR="$E2E_TMUX_DIR" tmux -L agentkit-test kill-server >/dev/null 2>&1 || true
+  rm -rf -- "$E2E_TMUX_DIR"
   smoke_lock_drop
   cleanup_logs "$rc"
 }

@@ -1,7 +1,7 @@
 """A job's closing line counts only failed or blocked tasks as needing the owner. Offline.
 
 A task the owner stopped was ended on purpose: the line names it as stopped, and a job whose
-only undelivered tasks were stopped says nobody is needed instead of sending the seat after it.
+only undelivered tasks were stopped says nobody is needed; either way its seat is handed the line.
 """
 
 from contextlib import ExitStack
@@ -52,13 +52,11 @@ class JobLineStoppedTasks(unittest.TestCase):
 
     def test_a_job_whose_only_undelivered_tasks_were_stopped_needs_nobody(self):
         self.close("passed", "stopped", "stopped")
-        self.assertEqual(self.handed, [], "a stopped task is never handed back as needing you")
-        self.assertEqual(len(self.cards), 1)
-        kind, text = self.cards[0]
-        self.assertEqual(kind, "done")
-        self.assertNotIn("need you", text)
-        self.assertIn("2 task(s) stopped", text)
-        self.assertIn("nobody is needed", text)
+        self.assertEqual(self.cards, [], "its seat says done itself: the job sends no card")
+        self.assertEqual(len(self.handed), 1)
+        self.assertNotIn("need you", self.handed[0])
+        self.assertIn("2 task(s) stopped", self.handed[0])
+        self.assertIn("nobody is needed", self.handed[0])
 
     def test_only_failed_and_blocked_tasks_are_counted_as_needing_you(self):
         self.close("failed", "blocked", "stopped", "stopped", "passed")

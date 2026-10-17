@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 
-from . import config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, worktrees
+from . import config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, turns, worktrees
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -709,6 +709,58 @@ def record_gc(message):
         output.write(line)
 
 
+def forget_failed_units(report):
+    """Forget day-old failures only after no unconcluded run can need their OOM evidence."""
+    if not orch.user_manager():
+        return
+    try:
+        with retention.reading(config.RUNS, directory=True) as fd:
+            directories = [config.RUNS / name for name in os.listdir(fd)]
+    except OSError:
+        return                  # an unlistable run store is no proof that no run holds a scope
+    held = set()
+    for directory in directories:
+        state = retention.read_json(directory / "run.json")
+        if state is None:
+            if retention.present(directory / "run.json"):
+                return          # an unreadable record may still name the failed scope
+        elif state.get("state") not in record.ENDED:
+            held.update(turns._scope_units(state.get("scope")))
+
+    def systemctl(*args):
+        return subprocess.run(["systemctl", "--user", *args],
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              encoding="utf-8", errors="replace", env=orch.bus_env(), timeout=5)
+
+    try:
+        listed = systemctl("list-units", "--failed", "--no-legend", "--plain", "--no-pager",
+                           "agentkit-*")
+    except (OSError, subprocess.SubprocessError):
+        return
+    if listed.returncode:
+        return
+    for line in listed.stdout.splitlines():
+        unit = line.split()[0] if line.strip() else ""
+        if not unit.startswith("agentkit-") or unit in held:
+            continue
+        try:
+            shown = systemctl("show", unit, "-p", "ActiveState", "-p",
+                              "StateChangeTimestampMonotonic")
+            if shown.returncode:
+                continue
+            fields = dict(line.split("=", 1) for line in shown.stdout.splitlines() if "=" in line)
+            # Both clocks count microseconds/seconds since this boot, without date parsing
+            # or wall-clock adjustments making a recent failure look old.
+            changed = int(fields.get("StateChangeTimestampMonotonic", "0")) / 1_000_000
+            if (fields.get("ActiveState") != "failed"
+                    or not retention.expired(changed, time.monotonic(), retention.EPHEMERAL_AGE)):
+                continue
+            if systemctl("reset-failed", unit).returncode == 0:
+                report(f"gc: reset-failed {unit}")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+
+
 def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []
@@ -728,6 +780,7 @@ def gc(report, automatic=False):
                     caller(message)
                 report("gc: automatic collection started")
                 config._write_json(stamp, {"started_at": time.time()})
+                forget_failed_units(report)
             tmp_inventory = None
             for item in gc_candidates():
                 path = Path(item["path"])

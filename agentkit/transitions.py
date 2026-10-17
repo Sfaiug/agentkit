@@ -178,11 +178,13 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
     """Added plus deleted text lines, excluding files Git marks linguist-generated; with
     `added_only`, the added lines alone, what a reviewer reads: nothing deleted counts.
 
-    Deleted files read their attributes at the base; their directory's attributes may
-    have been deleted too. NUL records preserve unusual filenames and rename pairs.
+    The diff runs from where `head` left `base`, the target it lands on, and every file reads
+    its attributes at `base`, so a change cannot leave its own lines out by marking them
+    generated: a path is marked by a change of its own that lands first.  NUL records
+    preserve unusual filenames and rename pairs.
     """
     total = 0
-    for selector, source in (("d", head), *(() if added_only else (("D", base),))):
+    for selector in ("d", *(() if added_only else ("D",))):
         parts = iter(gitcall.git(repo, "diff", "--numstat", "-z", "--find-renames",
                          f"--diff-filter={selector}", f"{base}...{head}").split("\0"))
         changes = []
@@ -191,13 +193,19 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
                 continue
             added, deleted, name = entry.split("\t", 2)
             if not name:
-                next(parts)  # the old name; surviving files use their new attributes
+                next(parts)  # the old name; a renamed file counts under its new one
                 name = next(parts)
             if added != "-":
                 changes.append((name, int(added) if added_only else int(added) + int(deleted)))
-        generated = _generated(repo, source, [name for name, _ in changes])
+        generated = _generated(repo, base, [name for name, _ in changes])
         total += sum(lines for name, lines in changes if name not in generated)
     return total
+
+
+def size_base(state):
+    """What a run's size is counted against (`diff_lines`): the target's tip it recorded, whose
+    attributes say which files are generated, else its base, for a run that recorded none."""
+    return state.get("target_sha") or state.get("base_sha")
 
 
 def _generated(repo, source, names):
@@ -254,7 +262,7 @@ def reviewed_lines(repo, base, head="HEAD"):
             added[new] = [" ".join(line[1:].split()) for line in lines if line[:1] == "+"]
         if old:
             deleted[old] = [" ".join(line[1:].split()) for line in lines if line[:1] == "-"]
-    skip_new = _generated(repo, head, sorted(added))
+    skip_new = _generated(repo, base, sorted(added))
     skip_old = _generated(repo, base, sorted(deleted))
     gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
     # each deleted position is indexed by the run of lines from it that first reaches
@@ -308,9 +316,9 @@ REPLACED_WITHIN = 14 * 86400    # a pull request that failed at its budget this 
 
 def budget_failed_reviews(repo, exclude=None):
     """The pull requests of that repository whose review spent the budget, counted
-    across their runs (`rounds_spent_elsewhere`), none of which merged, as (url, base, head) of
-    each run of them that ended `fail` within `REPLACED_WITHIN`: what a replacement inherits
-    rounds from.  The run itself (`exclude`) counts for nothing."""
+    across their runs (`rounds_spent_elsewhere`), none of which merged, as (url, `size_base`,
+    head) of each run of them that ended `fail` within `REPLACED_WITHIN`: what a replacement
+    inherits rounds from.  The run itself (`exclude`) counts for nothing."""
     found, merged = [], set()
     for run_dir in run_record.run_dirs():
         if exclude is not None and run_dir.name == Path(exclude).name:
@@ -322,9 +330,9 @@ def budget_failed_reviews(repo, exclude=None):
             # a task run keeps its pull request in `pr`, a review in `review_pr`
             merged |= {pr_key(state.get("pr")), pr_key(state.get("review_pr"))}
         elif (state.get("review_pr") and state.get("state") == "fail"
-                and same_repo(state.get("repo"), repo) and state.get("base_sha") and state.get("head_sha")
+                and same_repo(state.get("repo"), repo) and size_base(state) and state.get("head_sha")
                 and time.time() - (state.get("finished_at") or 0) <= REPLACED_WITHIN):
-            found.append((state["review_pr"], state["base_sha"], state["head_sha"]))
+            found.append((state["review_pr"], size_base(state), state["head_sha"]))
     return [(url, base, head) for url, base, head in found if pr_key(url) not in merged
             and rounds_spent_elsewhere(pr=url, exclude=exclude)[0] >= taskfile.TASK_MAX_ROUNDS]
 
@@ -385,13 +393,13 @@ def history_finish(state, log=None):
     except (OSError, TypeError):
         present = False
     repo = wt if present else state.get("repo")
-    size = None
-    if state.get("merged") and state.get("base_sha"):
+    size, against = None, size_base(state)
+    if state.get("merged") and against:
         try:
             review = state.get("review") or {}
             head = state.get("delivery_sha") or review.get("head_sha") or ("HEAD" if present else None)
             if repo and head:
-                size = diff_lines(repo, state["base_sha"], head)
+                size = diff_lines(repo, against, head)
         except (config.Error, OSError, ValueError, TypeError, AttributeError, StopIteration):
             pass  # best-effort history must never change the merge's outcome
     # the AGENTS.md its workers were handed, measured as the ceiling measures it

@@ -92,7 +92,7 @@
   `listing`, `ensure`, `resume`, `rename` to menu, watch, run, job, notify, usage, update.
   Leaks: rename rewrites watch.json and run.json; binds Claude panes by name.
 - `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`, which
-  keeps what it read in `state/run-records.jsonl` and re-reads only a changed run.json, and
+  loads `state/run-records.db` once per process and reads and writes only changed runs, and
   `tally`) and a seat's last column and live runs (`seat_runs`), for watch, run, orch, notify,
   statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `statusbar.py`: a seat's two tmux status lines, line one ending in the owner's other seats
@@ -127,6 +127,9 @@
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
+- `prose.py`: detached last-message reader after a real Stop without a question; picks a
+  worker, records its verbatim owner question through notify, or writes one seat-log line
+  on failure. For the orchestrator stop hook.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
 - `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`); `ended_runs`, `parks` (the `parked_at` `leases.park` stamps) and `owner` for the scoreboard; the owner's moments, one row each naming no seat (`owner_time`, which notify writes).
@@ -199,6 +202,7 @@
   `fixtures/`: screens, `echo`,
   `landing.py` lands a crafted run through its line and lander verdict, `sandbox.py`'s
   `Sandbox` is the throwaway ak HOME that in-process tests run in.
+  `hooks.py` stubs detached prose readers when other tests run real hooks.
   `check_harness_contract.py`: standalone live contract check, also smoke's check 3;
   discovers adapter manifests and shares login/quota checks with smoke's later live calls.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat

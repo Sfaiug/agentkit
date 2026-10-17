@@ -15,9 +15,10 @@ import io
 import json
 import os
 from pathlib import Path
-import subprocess
 import unittest
 from unittest.mock import patch
+
+from fixtures import hooks
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, menu, notify, orch, run, watch, worker
@@ -239,7 +240,7 @@ class Wait(Sandbox):
         transcript = self.root / "transcript.jsonl"
         transcript.write_text(json.dumps({"type": "assistant", "isSidechain": False, "message": {
             "role": "assistant", "content": [{"type": "text", "text": said}]}}) + "\n")
-        done = subprocess.run(
+        done = hooks.run(
             ["bash", str(REPO / "hooks/orchestrator-stop.sh")], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": "Stop", "session_id": "fake",
                               "transcript_path": str(transcript)}),

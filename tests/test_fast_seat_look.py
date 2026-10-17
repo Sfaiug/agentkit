@@ -4,14 +4,15 @@ parses only the run.json files that changed.
 A look runs from a seat's hook, so it inherits the seat's environment and PATH, where `tmux` is
 the guard's shim: each call of ak's own paid for a Python start.  ak's calls run the first tmux
 on PATH that is not the shim.  `menu.run_records` keeps what it read in one file under ak's
-state, each line under its run.json's stat, and reads a record again only when that changed.
+state, each row under its run.json's stat, and reads a record again only when that changed.
 
 Offline: a sandbox HOME, fake tmux binaries that write down which of them ran, and runs written
 there; what was parsed is counted at `record.read_state`.
 """
 
-import json
 import os
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 import sys
 import unittest
@@ -119,8 +120,8 @@ class RunRecords(Sandbox):
         (fix / "run.json").unlink()
         fix.rmdir()
         self.assertEqual(self.parsed(), [])
-        kept = (config.STATE / menu.RUN_RECORDS).read_text().splitlines()
-        self.assertEqual([json.loads(line)[0] for line in kept], [acme.name])
+        with closing(sqlite3.connect(config.STATE / menu.RUN_RECORDS)) as db:
+            self.assertEqual(list(db.execute("SELECT name FROM records")), [(acme.name,)])
 
 
 if __name__ == "__main__":

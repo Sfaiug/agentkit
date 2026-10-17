@@ -129,11 +129,11 @@ class AdmissionSliceCpu(unittest.TestCase):
         (slice_dir / "cpu.pressure").write_text(
             "some avg10=24.01 avg60=32.25 avg300=41.39 total=115793455101\n"
             "full avg10=2.73 avg60=3.79 avg300=5.51 total=30965092215\n")
-        self.assertEqual(host._slice_cpu_pressure(slice_dir), 24.01)
+        self.assertEqual(host._slice_pressure(slice_dir, "cpu"), 24.01)
         (slice_dir / "cpu.pressure").unlink()
-        self.assertIsNone(host._slice_cpu_pressure(slice_dir))
+        self.assertIsNone(host._slice_pressure(slice_dir, "cpu"))
         (slice_dir / "cpu.pressure").write_text("some avg10=banana\n")
-        self.assertIsNone(host._slice_cpu_pressure(slice_dir))
+        self.assertIsNone(host._slice_pressure(slice_dir, "cpu"))
 
     def test_slice_stat_exposes_counters(self):
         slice_dir = self.root / "agentkit.slice"

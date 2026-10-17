@@ -550,6 +550,7 @@ def add(name, what, check=None, repo=None, proven=None, deferred=False):
     found = base = None
     if check is not None:
         check = one_command(check)
+        holds_checkout(check, repo)
         if proven:
             found, base = root(repo, proven), proven[:12]
             if not found:
@@ -590,6 +591,28 @@ def one_command(check):
     return check
 
 
+def holds_checkout(check, repo):
+    """Refuse a check whose text holds the path of the project's checkout `repo`: a check runs
+    in a clean checkout of the default branch, and one that goes to `repo` tests what that
+    checkout holds instead (uncommitted work, or ak's install behind main).  It reads text, not
+    the shell: the path is looked for as written from `/`, `~`, `$HOME` or `${HOME}`, with every
+    quote and backslash dropped from both, so any quoting of it is found and a longer name that
+    starts with it (`acme-old`) is refused too.  A path the check builds as it runs (a variable,
+    `..`, a link) is not seen."""
+    home, paths = Path.home(), set()
+    for path in {Path(repo), Path(repo).resolve()}:
+        paths.add(str(path))
+        for top in {home, home.resolve()}:
+            if path.is_relative_to(top):
+                paths |= {f"{lead}/{path.relative_to(top)}" for lead in ("~", "$HOME", "${HOME}")}
+    drop = re.compile(r"[\"'\\]")
+    if any(drop.sub("", path) in drop.sub("", check) for path in paths):
+        shown = min(sorted(paths), key=len)
+        raise config.Error(f"this check holds {shown}, the path of the project's checkout, but a "
+                           "check runs in a clean checkout of its default branch: name paths "
+                           "relative to the repository, as in `python3 tests/test_x.py`")
+
+
 def numbered(text, number):
     """Where plan line `number`, as `ak plan` lists them, is in the plan's `text`."""
     listed = [at for at, line in enumerate(text) if line.lstrip().startswith("- [")]
@@ -612,8 +635,10 @@ def recheck(name, number, check):
     found = LINE.match(line)
     if not (found and found["check"]):
         raise config.Error("only a check line takes another check")
+    repo = place(name, found["project"])
+    if repo:
+        holds_checkout(check, repo)
     if found["base"]:
-        repo = place(name, found["project"])
         if not repo:
             raise config.Error(f"this host has no checkout of {found['project']}")
         if not fails_on_main(repo, check, found["base"])[0]:

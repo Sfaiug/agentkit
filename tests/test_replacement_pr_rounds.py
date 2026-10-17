@@ -116,6 +116,22 @@ class ReplacementRounds(Sandbox):
         self.assertIsNone(self.refusal(self.head("unrelated", [f"def h{n}(): return {n}" for n in range(25)],
                                                  moved=range(60))))
 
+    def test_both_sizes_leave_out_what_the_target_marks_generated(self):
+        # the target marked the failed one's fixture generated after it branched: counted against
+        # their recorded targets, an unchanged replacement is no split of it
+        theirs = [f"def f{n}(): return {n}" for n in range(40)]
+        self.git("checkout", "-q", self.head("failed", theirs))
+        (self.repo / "recorded.txt").write_text("recorded fixture\n" * 300)
+        self.git("add", "."); self.git("commit", "-qm", "Record the fixture")
+        failed = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-q", "main")
+        (self.repo / ".gitattributes").write_text("recorded.txt linguist-generated\n")
+        self.git("add", "."); self.git("commit", "-qm", "Mark the fixture generated")
+        directory = self.failed_review("20260101-0900-marked", failed)
+        self.base = self.git("rev-parse", "HEAD")
+        record.save_state(directory, {**record.read_state(directory), "target_sha": self.base})
+        self.assertIn("re-adds 40 of its 40 lines", self.refusal(failed))
+
     def test_only_a_recent_unmerged_budget_failure_of_the_repository_charges_it(self):
         theirs = [f"def f{n}(): return {n}" for n in range(40)]
         failed = self.head("failed", theirs)

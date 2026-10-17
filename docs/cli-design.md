@@ -124,7 +124,11 @@ once. A resize in that half second does not cut it short, and any other key
 read in it is kept for after the seat -- a click with the screen it was made
 on. Esc, or a click on `esc leave`, leaves. A key that does nothing here is let go without a
 word. The key line is the example below -- `j/k move   enter open` leads it
-without UTF-8 -- and never offers `j` or `k` for pages.
+without UTF-8 -- and never offers `j` or `k` for pages: while the seats run to
+more than one page it starts with where the owner is, `←  1 / 2  →`, and ← and →,
+or a click on either arrow, turn the page, the highlight going to the first
+thing it can rest on of the nearest page that way holding one. The place
+between the arrows opens nothing.
 
 The menu draws on the alternate screen with the cursor hidden, going home and
 writing over the last draw line by line in one write, so it never flickers.
@@ -405,11 +409,11 @@ mode drops the frame and the blank lines so every number stays reachable.
 Pages start with a collapsed overview (every project header, no numbers),
 then whole seat blocks packed under repeated headers, so a seat's lines never
 split across pages: one taller than a page is cut to it, its last line ending
-in `…`. Rows keep their global numbers. The heading says which
-page is up (`your projects 2/3`), and in compact mode the page is never the
-part that is cut. On a terminal the page up is the one the highlight is on,
-and there is no overview page, since the highlight is never on it; in a pipe
-`j` and `k` turn the pages.
+in `…`. Rows keep their global numbers. On a terminal the page up is the one
+the highlight is on and the key line says which (`←  1 / 2  →`), and there is
+no overview page, since the highlight is never on it. In a pipe the heading
+says which page is up (`your projects 2/3`), in compact mode the page never the
+part that is cut, and `j` and `k` turn the pages.
 
 ## Usage rows
 

@@ -2426,6 +2426,11 @@ def on_disk(path):
         return None
 
 
+def takes_prompt_context(record, conversation):
+    """Only the seat's own conversation, on a harness whose prompt hook carries context."""
+    return bool(record and seat_plugin(record).prompt_context and owns(record, conversation))
+
+
 def rulebook_due(name):
     """(record, conversation, rulebook) when the seat's conversation is to be told its rulebook,
     else None; `name` is the name it goes by now.
@@ -2437,7 +2442,7 @@ def rulebook_due(name):
     told again, whatever the rules are now."""
     record = config.session_records().get(name)
     conversation = seat_conversation(record) if record else None
-    if not record or not seat_plugin(record).prompt_context or not owns(record, conversation):
+    if not takes_prompt_context(record, conversation):
         return None
     holds = held_sha(record, conversation)
     text = config.seat_rulebook(name)
@@ -2599,7 +2604,7 @@ def rulebook_news(session, conversation):
     """
     from . import notify
     current = config.resolve_session(session)
-    if (not owns(config.session_records().get(current) or {}, conversation)
+    if (not takes_prompt_context(config.session_records().get(current), conversation)
             or not rulebook_due(current)):
         return ""
     # the prompt never waits: a delivery holds the seat's lock while it types this prompt,
@@ -2614,7 +2619,7 @@ def rulebook_news(session, conversation):
     path = config.seat_file("rules", current)
     # read again: a /clear or a relaunch while the lock was held makes another conversation
     # the seat's, whatever this one was told
-    if (not owns(record, conversation) or not seat_plugin(record).prompt_context
+    if (not takes_prompt_context(record, conversation)
             or on_disk(path) != text.encode() or told.get("conversation") != conversation
             or told.get("sha") != config.rulebook_digest(text)):
         return ""                       # nothing it could read and say so yet: the next prompt
@@ -2628,6 +2633,21 @@ def rulebook_news(session, conversation):
     return (f"Read {path} in full now, before anything else: it is your current rulebook, and "
             "where it differs from the one you were opened with, it wins. Then run "
             f"`ak orch rules {told['code']}` to say you have.")
+
+
+def prompt_news(session, conversation, said=None):
+    """The rulebook news, beside the questions an owner's prompt may answer.
+
+    `said` is None for harness bookkeeping; the hook extracts the owner's words once for
+    both this foreground context and its background answer.
+    """
+    from . import notify
+    news = rulebook_news(session, conversation)
+    name = config.resolve_session(session)
+    record = config.session_records().get(name)
+    if said is not None and takes_prompt_context(record, conversation):
+        news = "\n\n".join(filter(None, (news, notify.answer_context(name, said))))
+    return news
 
 
 def rulebook_compacted(session, conversation):
@@ -3488,20 +3508,25 @@ def in_flight(name, repo):
     filed = {seat for seat, record in config.session_records().items()
              if checkout_of(record.get("repo")) == target}
     seats = {seat: ([], set()) for seat in filed if seat != name}
+    rows = []
     for directory in run_record.run_dirs():
         state = run_record.read_state(directory) or {}
         seat = transitions.launched_session(state)
         if (seat != name and not menu.smoke_run(state) and transitions.going(state)
                 and checkout_of(state.get("repo")) == target):
-            seats.setdefault(seat or f"run {directory.name}", ([], set()))[1].update(
-                changed_files(state, directory))
+            files = changed_files(state, directory)
+            if seat:
+                seats.setdefault(seat, ([], set()))[1].update(files)
+            elif files:
+                rows.append((f"run {directory.name}", [], set(files)))
     for seat, (lines, _) in seats.items():
         for line in watch.plan_text(seat).splitlines():
             found, written = PLAN_OPEN.match(line), plan.LINE.match(line.strip())
             if found and (seat in filed or written and checkout_of(
                     plan.place(seat, written["project"])) == target):
                 lines.append(found.group(1).strip())
-    return [(seat, lines, files) for seat, (lines, files) in sorted(seats.items()) if lines or files]
+    rows.extend((seat, lines, files) for seat, (lines, files) in seats.items() if lines or files)
+    return sorted(rows)
 
 
 def changed_files(state, directory):

@@ -2119,7 +2119,7 @@ def unsent(name, harness, found, session):
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
-                  previous=None, auth_out=None, gh_out=None, token_out=None, jobs=False):
+                  previous=None, auth_out=None, gh_out=None, token_out=None):
     """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
 
     Every screen reads this and says one of those four words: the menu row, the project
@@ -2173,8 +2173,6 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     verbs answered per harness, `gh_out` what it found about `gh`, `token_out` what its daily
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
-    `jobs` is the cards' alone: a job's `all N tasks finished` is `done` to its card, the way it
-    always was, and no word of the seat's to every screen.
 
     Typed text nobody sent is never a word: once no client is attached, whatever the ladder
     says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
@@ -2205,7 +2203,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
         except config.Error:
             harness = None
     answer = _session_state(name, at, session, cfg, records, number, run_numbers, index,
-                            silent, live, harness, auth_out, gh_out, token_out, jobs,
+                            silent, live, harness, auth_out, gh_out, token_out,
                             menu_mod, run_mod, terminal_mod)
     draft = unsent(name, harness, live, session)
     if draft:
@@ -2297,9 +2295,7 @@ def hook_look(launched, answered_at=None, said=""):
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
     asked = (notify.last(name) or {}).get("time")
-    if answered_at is not None and not (
-            isinstance(asked, (int, float)) and said
-            and any(sent.get("text") == said for sent in notify.typed_since(name, asked))):
+    if answered_at is not None and not notify.ak_prompt(name, said, asked):
         notify.answered(name, answered_at)
     return announce_state(session, cfg=config.load(), look=True, number=number)
 
@@ -2345,7 +2341,7 @@ def still_owed(name, mine, index, stopped):
 
 
 def _session_state(name, at, session, cfg, records, number, run_numbers, index, silent_map,
-                   found, harness, auth_out, gh_out, token_out, jobs, menu_mod, run_mod,
+                   found, harness, auth_out, gh_out, token_out, menu_mod, run_mod,
                    terminal_mod):
     """The ladder itself, top rung first, from the facts its caller gathered.
 
@@ -2422,6 +2418,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # neither its runs nor its `ak wait` going says he was not needed.
     if waiting and not waiting.get("until"):
         return {"word": "needs you", "reason": waiting["reason"], "since": waiting["since"]}
+    # ... and so is a seat ak could not reopen over a run of its own still going: it tries once
+    # per death (`revive_seats`), so the run going says nothing moves the seat back but the owner.
+    # One the owner closed since is no failure: rung 4 has it.
+    if (gone and last and str(last.get("source") or "").startswith("revive:")
+            and not notify.resolved(last) and not seat_closed_by_owner(name)):
+        return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
+                "since": last.get("time")}
     # 2. a run of its own is unfinished and resumes itself: the seat is working.  `stalled`
     # is the exception, as in the stop hook's `parked`: `going` counts it, but only
     # `ak run resume` moves one, so rung 3 has it.
@@ -2508,13 +2511,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     if waiting:
         return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
                 "resumes_at": waiting["until"]}
-    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, and only
-    # its card (`jobs`) reads it as one.  Opening the seat, reading it and its redraws leave the
-    # seat's own standing until a newer notice, but a question on its screen or a question it
-    # kept back for its turn's end outranks it; typed text nobody sent only joins its reason.
-    # Read here, once, for the live-check wait below and for rung 5.
+    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, handed to
+    # the seat, which says done once the whole of its work is.  Opening the seat, reading it and
+    # its redraws leave the seat's own standing until a newer notice, but a question on its
+    # screen or a question it kept back for its turn's end outranks it; typed text nobody sent
+    # only joins its reason.  Read here, once, for the live-check wait below and for rung 5.
     if last and last["kind"] == "done" and (found.get("state") == "asking" or (
-            not jobs and notify.job_done(last)) or seat_read(name).get("unasked")):
+            notify.job_done(last)) or seat_read(name).get("unasked")):
         last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it

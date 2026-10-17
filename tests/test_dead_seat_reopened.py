@@ -18,6 +18,7 @@ from agentkit import record as run_record
 
 SEAT = "seat"
 REAL_ENSURE = orch.ensure
+REAL_SHAPED = notify.shaped
 
 
 class V5s(Sandbox):
@@ -201,6 +202,33 @@ class V5s(Sandbox):
         # once: the marker stands until the seat is seen live
         watch.revive_seats(self.cfg, self.logs.append)
         self.assertEqual((len(self.reopened), len(self.cards)), (1, 1))
+
+    def test_v5s_a_seat_that_could_not_be_reopened_pages_the_owner_while_its_run_goes_on(self):
+        # its run going would read `working`, but ak reopens once per death: only the owner
+        # brings the seat back now, so it needs them, and its card goes out after a minute
+        posts = []
+
+        def post(payload, files, message, receipt):
+            posts.append(payload["embeds"][0]["title"])
+            receipt.update(status="disabled", message_id="1", webhook="sink")
+            return 0
+
+        self.stack.enter_context(patch.object(notify, "shaped", new=REAL_SHAPED))
+        self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
+        self.stack.enter_context(patch.object(notify, "post", side_effect=post))
+        self.stack.enter_context(patch.object(notify, "terminal_notice"))
+        self.going("run-2", state="queued")
+        self.rows = [self.exited()]
+        self.back = config.Error("no saved conversation to reopen")
+        watch.revive_seats(self.cfg, self.logs.append)
+        found = watch.session_state(SEAT, session=self.rows[0])
+        self.assertEqual(found["word"], "needs you")
+        self.assertIn("could not: no saved conversation to reopen", found["reason"])
+        notify.transition(SEAT, now=10061, seat=self.rows[0])
+        self.assertEqual(posts, [f"Needs you · {SEAT}"])
+        # a seat the owner closed since is their choice, no failure: its run going speaks again
+        orch.mark_owner_closed(SEAT)
+        self.assertEqual(watch.session_state(SEAT, session=self.rows[0])["word"], "working")
 
     # (e) a seat stopped on purpose is not reopened by either path
 

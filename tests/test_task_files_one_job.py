@@ -311,16 +311,16 @@ sys.exit(1)
         self.assertEqual(by_name["fail-a.md"]["state"], "failed")
         self.assertEqual(by_name["lone-c.md"]["state"], "passed")
 
-    def test_v5q_one_done_card_when_all_merged(self):
+    def test_v5q_all_merged_goes_back_to_the_seat(self):
+        # the job's finish is its seat's, which says done itself once the whole of its work
+        # is: a seat mid-turn has the line left for the tick's next quiet prompt, no card
         a = self.task("a.md", "Alpha task")
         b = self.task("b.md", "Beta task")
         with redirect_stdout(io.StringIO()):
             rc = run.main([a, b, "--exec", self.executor, "--review", self.reviewer])
         self.assertEqual(rc, 0)
-        self.assertEqual(self.shaped.call_count, 1)
-        args, kwargs = self.shaped.call_args
-        self.assertEqual(args[0], "done")
-        self.assertEqual(kwargs.get("session"), "seat-v5q")
+        self.assertEqual(self.shaped.call_count, 0)
+        self.assertIn("all 2 tasks finished", self.read_job(self.job_dirs()[0])["handback_pending"])
         log = (self.job_dirs()[0] / "log.txt").read_text()
         self.assertIn("a.md: PASS", log)
         self.assertIn("b.md: PASS", log)
@@ -413,9 +413,10 @@ sys.exit(1)
         with redirect_stdout(io.StringIO()):
             rc = run.cmd_resume([job_dir.name])
         self.assertEqual(rc, 0)
-        # adopting the interrupted run sent no per-task recovery noise: one Done card only
-        self.assertEqual(self.shaped.call_count, 1)
-        self.assertEqual(self.shaped.call_args.args[0], "done")
+        # adopting the interrupted run sent no per-task recovery noise: the job's one line,
+        # for its seat
+        self.assertEqual(self.shaped.call_count, 0)
+        self.assertIn("tasks finished", self.read_job(job_dir)["handback_pending"])
         # the interrupted run resumed in its own directory; only the unstarted task is new
         fresh = set(record.run_dirs()) - before
         self.assertEqual(len(fresh), 1)
@@ -970,9 +971,10 @@ sys.exit(1)
         job_dir = self.job_dirs()[0]
         job = self.read_job(job_dir)
         job["finished_at"] = time.time() - gc.GC_AGE - 1
-        # the launcher is long gone: only then is an old finished job collectible
+        # its seat took its line long ago, and the launcher is long gone: only then is an old finished job collectible
         job.update(pid=99999999)
         job.pop("process_identity", None)
+        job.pop("handback_pending", None)
         (job_dir / "job.json").write_text(json.dumps(job))
         kinds = [item["kind"] for item in gc.gc_plan()]
         self.assertIn("finished-job", kinds)
