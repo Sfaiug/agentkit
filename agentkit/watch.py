@@ -375,27 +375,33 @@ def load_state():
 
 
 def tell_audit(cfg, log, now=None):
-    """The tick's pass for the weekly audit: the week's line (`audit.weekly`) goes into the
-    `audit` seat at its quiet prompt.  The seat is opened with the setting's models while there
-    is neither a seat nor a record of one, resumed while its record is there and its process
-    gone (`orch.ensure`), and left alone while the owner closed it on purpose: what the owner
-    stopped stays stopped, and the line waits for them to open it.  Delivered at least once:
-    the mark is kept in the audit's record from tick to tick until the composer reads empty,
-    and a tick that dies mid-line is finished by the next.  The one exception to "only a person
-    opens a seat" (AGENTS.md, Owner rules, 14 Oct)."""
-    from . import audit
+    """The tick's pass for the `audit` seat: the week's line (`audit.weekly`), else a stall's
+    (`stuck.scan`), goes into the seat at its quiet prompt.  The seat is opened with the
+    setting's models while there is neither a seat nor a record of one, resumed while its
+    record is there and its process gone (`orch.ensure`), and left alone while the owner closed
+    it on purpose: what the owner stopped stays stopped, and the line waits for them to open
+    it.  Delivered at least once: the mark is kept in the line's record from tick to tick until
+    the composer reads empty, and a tick that dies mid-line is finished by the next.  The one
+    exception to "only a person opens a seat" (AGENTS.md, Owner rules, 14 Oct, 17 Oct)."""
+    from . import audit, stuck
     now = time.time() if now is None else now
-    found = audit.weekly(cfg, log, now)
+    pending = stuck.read()
+    # a stall's line in the composer is sent before a new week's is written to go after it
+    found, write = (None if pending.get("typed") and not pending.get("delivered")
+                    else audit.weekly(cfg, log, now)), audit.write
+    if not found:
+        found, write = stuck.scan(cfg, log, now), stuck.write
     if not found:
         return
     setting, state = found
+    about = f"week {state['week']}" if state.get("week") else state["about"]
     name = config.resolve_session(audit.NAME)     # the name the owner may have given it since
     if seat_closed_by_owner(name):
         if not state.get("held"):
             state["held"] = True
-            audit.write(state)
-            log(f"audit: the {name} seat was closed by the owner; week {state['week']}'s "
-                "line waits for them to open it")
+            write(state)
+            log(f"audit: the {name} seat was closed by the owner; its line about {about} "
+                "waits for them to open it")
         return
     seat = orch.find(name)
     if not seat or seat.get("exited"):
@@ -408,12 +414,12 @@ def tell_audit(cfg, log, now=None):
 
     def kept(mark):
         state["typed"] = mark
-        audit.write(state)
+        write(state)
 
     if type_at_prompt(seat, state["line"], log, cfg=cfg, typed=state.get("typed"), receipt=kept):
         state["delivered"] = now
-        audit.write(state)
-        log(f"audit: told the {name} seat about week {state['week']}")
+        write(state)
+        log(f"audit: told the {name} seat about {about}")
 
 
 @contextmanager

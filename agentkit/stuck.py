@@ -1,0 +1,93 @@
+"""Work that waits while nothing moves it: the tick finds it and has the `audit` seat told, once
+per stall, for that seat to fix ak through the line as it fixes the week's loss (`audit`).
+
+A stall is a landing line's check pass that has run more than three times the median of the
+line's last passes (`land.passes`), and half an hour at least, while its lander lives: red
+stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  The seat
+is told one stall at a time, each once (`told`); `state/stuck.json` keeps the line being told
+and how far its delivery got, as `state/audit.json` does the week's, which goes first
+(`watch.tell_audit`).
+"""
+
+import json
+from pathlib import Path
+import statistics
+import time
+
+from . import config, land, record
+
+SLOWER = 3            # a pass this many times its line's median is stuck,
+FLOOR = 30 * 60       # and none shorter than half an hour, however quick its line
+SAMPLES = 3           # a line with fewer finished passes has no pace to compare with
+
+
+def path():
+    return config.STATE / "stuck.json"
+
+
+def read():
+    """The stall last written, its line, how far its delivery got, and the stalls told that
+    still run."""
+    try:
+        data = json.loads(path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write(data):
+    config.ensure_dirs()
+    tmp = path().with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path())
+
+
+def stalls(now):
+    """(key, what, line) for each landing line whose running pass is far past its usual."""
+    from . import orch
+    for kept_at in sorted(config.RUNS.glob(".merge-*.passes")):
+        turn = kept_at.with_suffix(".lock")     # the line's own name (`deliver.merge_lock_path`)
+        kept = land.passes(turn)
+        took, started = kept.get("took") or [], kept.get("started")
+        if not started or len(took) < SAMPLES or not record.process_active(kept):
+            continue
+        usual = statistics.median(took)
+        if now - started <= max(FLOOR, SLOWER * usual):
+            continue
+        members = land.line(turn)
+        what = (f"the {Path(members[0][1]['repo']).name} landing line" if members
+                else f"the landing line {turn.name}")
+        yield (f"{turn.name}:{started}", f"the stall of {what}",
+               f"ak stalled: {what} has run one check pass for {orch.span(now - started)}, more "
+               f"than {SLOWER} times its usual {orch.span(usual)}, with {len(members)} in line; "
+               f"its log is {turn.with_suffix('.log')}. Find why and build the smallest "
+               "change to ak that keeps it from happening again, through the line, and ak "
+               "notify done once it is live.")
+
+
+def scan(cfg, log, now=None):
+    """The tick's pass: answers (the setting, the record) while a stall's line is still to be
+    told, for `watch.tell_audit`; a new stall is looked for only once the line before is in.
+    None while the audit is off or unreadable (`audit.weekly` says so), or nothing is stuck."""
+    now = time.time() if now is None else now
+    try:
+        setting = config.audit(cfg)
+    except config.Error:
+        return None
+    if not setting["on"]:
+        return None
+    state = read()
+    if state.get("line") and not state.get("delivered"):
+        return setting, state
+    found = {key: (what, line) for key, what, line in stalls(now)}
+    # a pass stays a stall until it ends: its key is kept while it is found, and no longer
+    told = [key for key in state.get("told") or [] if key in found]
+    for key, (what, line) in found.items():
+        if key in told:
+            continue
+        state = {"about": what, "line": line, "typed": None, "delivered": None,
+                 "told": [*told, key]}
+        write(state)
+        log(f"stuck: {line}")
+        return setting, state
+    return None
