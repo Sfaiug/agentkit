@@ -24,7 +24,8 @@ REAL_TMUX = shutil.which("tmux")
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, gate, gc, gitcall, host, matrix, menu, notify, orch, retention, run, status, update, watch
+from fixtures.tick import only_passes
+from agentkit import config, gate, gc, gitcall, host, menu, notify, orch, retention, run, status, update, watch
 from agentkit import record as run_record
 
 DAY = 86400
@@ -45,7 +46,6 @@ class RetainState(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
-        self.stack.enter_context(patch.object(matrix, "refresh"))
         sockets, binaries, adapters = (self.root / name for name in ("sockets", "bin", "adapters"))
         for directory in (sockets, binaries, adapters):
             directory.mkdir(mode=0o700)
@@ -680,7 +680,7 @@ if not review:
         old, wt = self.receipt("auto-old")
         disposable = self.ephemeral("smoke-auto")
         self.seat("gone")
-        with patch.object(watch, "health"), patch.object(notify, "retry_pending"), \
+        with only_passes(self.root, "retention pass did not finish"), \
                 patch.object(gc, "schedule_gc", side_effect=lambda log: gc.gc(log, automatic=True)), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 redirect_stdout(io.StringIO()):
@@ -690,7 +690,7 @@ if not review:
         self.assertTrue((old / "result.md").exists())
         self.assertFalse(config.session_path("gone").exists())
         untouched = self.ephemeral("smoke-dry-tick")
-        with patch.object(watch, "health"), patch.object(notify, "retry_pending"), \
+        with only_passes(self.root, "retention pass did not finish"), \
                 patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(watch.main(["--dry-run"]), 0)
@@ -970,7 +970,9 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
         orch.sweep(lambda _: None)
         self.assertFalse(config.session_path("gone").exists())
         order = []
-        with patch.object(notify, "retry_pending", side_effect=lambda **kw: order.append("retry")), \
+        with only_passes(self.root, "the notification retry did not run",
+                         "the session health pass did not run", "retention pass did not finish"), \
+                patch.object(notify, "retry_pending", side_effect=lambda **kw: order.append("retry")), \
                 patch.object(watch, "health", side_effect=lambda *a: order.append("health")), \
                 patch.object(gc, "schedule_gc", side_effect=lambda *a: order.append("schedule")), \
                 patch.object(orch, "sweep", side_effect=AttributeError("bad metadata")), \

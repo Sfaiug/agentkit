@@ -21,8 +21,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, gc, notify, orch, run as run_mod, usage, watch
-from agentkit import logins, matrix, record
+from agentkit import browser, config, notify, record, run as run_mod, watch
+from fixtures.tick import only_passes
 
 NOW = 1_750_000_000.0
 
@@ -246,28 +246,17 @@ class V5AE(unittest.TestCase):
 
 
     def test_v5ae_tick_calls_tidy_once_skips_dry_run_and_stays_offline(self):
-        # The tick must stay offline here: no collector over the real HOME and no tmux
-        # outside -L agentkit-test may escape, so the maintenance pass is fully stubbed.
+        # The tick must stay offline here: it runs only its tidy, and no command or tmux
+        # outside -L agentkit-test may escape.
         self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
         self.stack.enter_context(patch.object(subprocess, "run",
                                               side_effect=AssertionError("subprocess")))
-        healthy = [patch.object(watch, "gh_json", return_value=({"login": "me"}, "")),
-                   patch.object(watch, "health"),
-                   patch.object(watch, "recover_runs"),
+        healthy = [only_passes(self.root, "browser tidy did not finish"),
+                   patch.object(watch, "gh_json", return_value=({"login": "me"}, "")),
                    patch.object(watch, "incoming"),
                    patch.object(watch, "outgoing"),
                    patch.object(watch, "save_state"),
-                   patch.object(usage, "collect", return_value={}),
-                   patch.object(logins, "remind"),
-                   patch.object(matrix, "refresh"),
-                   patch.object(record, "run_dirs", return_value=[]),
-                   patch.object(orch, "sessions", return_value=[]),
-                   patch.object(gc, "schedule_gc"),
-                   patch.object(orch, "stamp"),
-                   patch.object(orch, "sweep"),
-                   patch.object(notify, "retry_pending"),
-                   patch.object(watch, "tell_audit"),
-                   patch.object(notify, "tick_cards")]
+                   patch.object(record, "run_dirs", return_value=[])]
         for handle in healthy:
             self.stack.enter_context(handle)
         with patch.object(watch.browser, "tidy") as tidy:
