@@ -150,20 +150,15 @@ def whys(info):
 
 def sessions():
     """(session id, name, mark) of every session on ak's own server; None where no server is
-    up to list them."""
+    up to list them.  The fields are split at `:`, which tmux keeps out of every session's name,
+    and not at a tab, which it shows a client outside a UTF-8 locale as `_`."""
     rc, out = orch.tmux_out("list-sessions", "-F",
-                            f"#{{session_id}}\t#{{session_name}}\t#{{{orch.MARK}}}",
+                            f"#{{session_id}}:#{{session_name}}:#{{{orch.MARK}}}",
                             socket=orch.socket_name())
     if rc != 0:
         return None
-    rows = []
-    for line in out.splitlines():
-        parts = line.split("\t")
-        if len(parts) == 2:
-            parts.append("")   # no mark: the last line's empty field went with the output's strip
-        if len(parts) == 3:
-            rows.append(parts)
-    return rows
+    return [parts for parts in (line.split(":", 2) for line in out.splitlines())
+            if len(parts) == 3]
 
 
 def seats(listed=None):
@@ -245,15 +240,17 @@ def _tell(only=None, own=()):
     does not keep what was said before because what is said now is longer than a message.  An
     `own` option on a session the listing shows gone -- no server is up, or it lists others --
     is not told at all: tmux would refuse the call, then each option alone (`orch.tmux_lists`),
-    on every draw a stopped seat is in.  A listing that reads no session says nothing, since a
-    server ends with its last one: it is one this client cannot read (outside a UTF-8 locale
-    tmux shows it each tab as `_`), and every option is told as before.
+    on every draw a stopped seat is in.  A listing that reads no session says nothing, since
+    tmux ends a server with its last one, and there every option is told as before.
     """
     config.ensure_dirs()
     with (config.STATE / "statusbar.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         listed = sessions()
-        found, told = seats(listed or []), []
+        here = {f"={name}:" for _, name, _ in listed or ()}
+        # a seat tmux did not list has no bar to write: no other session is asked what it is
+        found = seats(listed or []) if only is None or f"={only}:" in here else []
+        told = []
         for _, name, _ in found:
             if only in (None, name):
                 named, folded, needing, hit = others(found, name)
@@ -265,7 +262,6 @@ def _tell(only=None, own=()):
                 told.append(([(target, HIT, "")],
                              [(target, SEATS, named), (target, FOLD, folded),
                               (target, NEED, needing), (target, HIT, hit)]))
-        here = {f"={name}:" for _, name, _ in listed or ()}
         told += [((), [option]) for option in own if option[0] in here or listed == []]
         # a seat gone since it was listed fails its own list and no other's (`orch.tmux_lists`)
         if told:
