@@ -1,26 +1,31 @@
 #!/usr/bin/env bash
 # OpenCode adapter.  run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]
-#                     usage        -> the plan meters off the console's own API through
-#                        the shared browser's login (else the mimo CLI, else the
-#                        provider key); [usage] none with the reason once a key is
-#                        configured and no source answers; a missing key is a failed
-#                        probe, not a neutral meter
+#                     usage        -> the named provider's meters: MiMo's plan meters off
+#                        the console's own API through the shared browser's login (else
+#                        the mimo CLI, else the provider key), [usage] none with the
+#                        reason once a key is configured and no source answers; any
+#                        other provider's, [usage] none once it has a login; a missing
+#                        login is a failed probe, not a neutral meter
 #                     interactive <model> <effort> [session-id [new]] -> the TUI command line,
 #                                  for `ak orch`; the id resumes that session.  `new` -- open the
 #                                  next session under an id of the caller's -- exits 3: the TUI
 #                                  takes `--session` for one that exists and has no flag for one
 #                                  that does not, so a seat's id is the one its plugin reports
 #                     install      -> the owner's installer, unless opencode is already here
-#                     login        -> `opencode auth login`, unless already logged in
-#                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
-#                                  `seat` is the same login here, and is accepted and ignored
+#                     login        -> `opencode auth login <provider>`, unless already logged in
+#                     auth [seat]  -> 0 when a turn on each named provider can authenticate, 1
+#                                  and one line why; `seat` is the same login here, and is
+#                                  accepted and ignored
 #                     hooks        -> says where this harness's hooks come from; writes nothing
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `opencode models`, labelled and given efforts by the
 #                                  [catalog] table of adapters/opencode.toml, else that table
+#                     $AGENTKIT_PROVIDER names the providers a call is about, by OpenCode's own
+#                     ids (config.provider_env); none named is any provider with a login
 #                     $AGENTKIT_ACCOUNT naming one of the provider's `accounts` is refused by
 #                     every verb, in one line
 set -uo pipefail
+PROVIDERS=${AGENTKIT_PROVIDER:-}
 # OpenCode 2.0.14 keeps its saved logins (the `credential` and `account` tables) in opencode.db,
 # the database its sessions live in, and the only ways to move that file -- OPENCODE_DB and
 # XDG_DATA_HOME -- move both: a login of an account's own would strand every conversation
@@ -30,7 +35,7 @@ set -uo pipefail
 if [ -n "${AGENTKIT_ACCOUNT:-}" ]; then
   why="opencode: account $AGENTKIT_ACCOUNT refused; OpenCode keeps logins and sessions in one opencode.db, so a login of its own cannot resume a conversation"
   # a usage probe fails in its own shape, which only an exit 0 keeps
-  [ "${1:-}" = usage ] && { printf '{"provider":"mimo","meters":[],"error":"unknown: %s"}\n' "$why"; exit 0; }
+  [ "${1:-}" = usage ] && { printf '{"provider":"%s","meters":[],"error":"unknown: %s"}\n' "${PROVIDERS%% *}" "$why"; exit 0; }
   echo "$why" >&2; exit 1
 fi
 command -v opencode >/dev/null || PATH="$HOME/.opencode/bin${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
@@ -54,26 +59,30 @@ CFGDIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 CFG="$CFGDIR/opencode.json"
 cmd=${1:-}; shift 2>/dev/null || true
 
-# 0 when a non-blank provider apiKey is configured, 1 when none is, 2 when the question cannot
-# be answered for want of jq: a blank file is not a login, and a guess is not an answer.
+# 0 when a non-blank apiKey is configured for provider $1, or for any provider where $1 is
+# empty; 1 when none is, 2 when the question cannot be answered for want of jq: a blank file
+# is not a login, and a guess is not an answer.
 have_key() {
   [ -r "$CFG" ] || return 1
   command -v jq >/dev/null || return 2
-  jq -e '.. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0)' \
+  jq -e --arg p "${1:-}" '(if $p == "" then . else [.provider[$p]?, .providers[$p]?] end)
+      | .. | objects | select(has("apiKey")) | .apiKey | strings | select(length > 0)' \
       "$CFG" >/dev/null 2>&1
 }
 
-# 0 when the auth store holds a MiMo login: what `opencode auth login` keeps beside the config.
-# Slow -- it boots a private server -- so the config check runs first and this only on its
-# `no`.  `--standalone` is load-bearing: without it the call waits on the shared background
-# service instead of answering.  The list names every provider with a saved login, one
-# `"id": "<provider>"` each; another provider's -- an Anthropic key -- cannot run a `mimo/`
-# turn.  Matched as text, since a saved login is a yes even where jq is missing.
-store_key() {
-  listed=$(command -v opencode >/dev/null \
-    && opencode auth list --standalone --format json 2>/dev/null) || listed=""
-  case "${listed//[[:space:]]/}" in *'"id":"mimo"'*) return 0 ;; esac
-  return 1
+# 0 when OpenCode lists provider $1 as enabled -- where $1 is empty, any provider but its own
+# free `opencode` one: a key in its config, a saved login or one in the environment, whichever
+# OpenCode itself reads.  Asked of the background service, which `opencode api` starts where
+# none runs: a private `--standalone` server lists no provider at all (2.0.24).  Slow on a cold
+# start, so the config check runs first and this only on its `no`.  The list carries each
+# provider's settings, keys among them: it is read here and never printed.  Without jq it is a
+# no: the list names disabled providers too, and only jq tells them apart.
+enabled() {
+  command -v opencode >/dev/null && command -v jq >/dev/null || return 1
+  bound=""; command -v timeout >/dev/null && bound="timeout 20"
+  $bound opencode api provider.list 2>/dev/null | jq -e --arg p "${1:-}" '.data[]?
+      | select(.activation == "enabled" and (if $p == "" then .id != "opencode" else .id == $p end))' \
+      >/dev/null 2>&1
 }
 
 # MiMo's API has one reasoning control, `thinking` on or off, and it is on by default.  OpenCode
@@ -199,12 +208,23 @@ interactive)
   printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %sopencode %s--standalone --auto\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "$resume" ;;
 usage)
-  # No login is a failed probe, not a missing meter: without one an unauthenticated MiMo
+  # No login is a failed probe, not a missing meter: without one an unauthenticated provider
   # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for
   # the turn to fail authentication.  usage.py prefers an error over none, and asks the
   # harness's `auth` verb -- what puts `no login` on the menu row -- only when the probe
-  # ran and said something.
-  have_key; rc=$?
+  # ran and said something.  MiMo's plan has a meter, read below; OpenCode reads no other
+  # provider's, so a logged-in one is [usage] none and stays neutral.
+  p=${PROVIDERS%% *}
+  if [ "$p" != mimo ]; then
+    if [ -z "$p" ]; then why="unknown: no provider named in AGENTKIT_PROVIDER"
+    elif have_key "$p" || enabled "$p"; then
+      printf '{"provider":"%s","meters":[],"error":null,"none":"no meter: OpenCode reads none for %s"}\n' "$p" "$p"
+      exit 0
+    else why="unknown: no login for $p; run opencode auth login $p"; fi
+    printf '{"provider":"%s","meters":[],"error":"%s"}\n' "$p" "$why"
+    exit 0
+  fi
+  have_key mimo; rc=$?
   if [ "$rc" -ne 0 ]; then
     if [ "$rc" -eq 2 ]; then why="could not be checked without jq"
     else why="is missing"; fi
@@ -454,25 +474,33 @@ install)
   command -v curl >/dev/null || { echo "opencode.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://opencode.ai/v2/install | bash ;;   # v2: the v1 channel's latest rejects --standalone
 login)
+  # The provider named, through OpenCode's own login for it; none named is OpenCode's own
+  # list of every provider it can log in to.
   command -v opencode >/dev/null || { echo "opencode.sh login: opencode is not installed" >&2; exit 2; }
-  { have_key || store_key; } && { echo "opencode: already logged in"; exit 0; }
-  [ -t 0 ] || { echo "opencode: not logged in; run \`opencode auth login\` in a terminal" >&2; exit 1; }
-  opencode auth login ;;
+  p=${PROVIDERS%% *}
+  { have_key "$p" || enabled "$p"; } && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
+  [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
+  opencode auth login ${p:+"$p"} ;;
 auth)
   # Can a headless turn authenticate right now?  Exit 0 and say so, or exit 1 with one line
   # saying why not; anything else is no answer, and the caller carries on as before.  The
   # key is the whole answer -- a file holding only a blank is not a login, and one that is
   # not JSON at all is a `no` and never a login nobody looked inside.  `seat` asks about
   # the interactive login, which on OpenCode is the same key a headless turn uses -- there
-  # is no second credential here to tell apart -- so it is accepted and ignored.
-  have_key; rc=$?
-  [ $rc -eq 0 ] && { echo "opencode: a provider key is configured in $CFG"; exit 0; }
-  # jq missing is not the end of the question: `login` asks the auth store too, and a
-  # saved login there is a yes whether or not the config file can be parsed.
-  store_key && { echo "opencode: a login is saved in the auth store"; exit 0; }
-  [ $rc -eq 2 ] && { echo "opencode: $CFG cannot be read without jq" >&2; exit 2; }
-  echo "opencode: no provider key in $CFG and none saved; run \`opencode auth login\`" >&2
-  exit 1 ;;
+  # is no second credential here to tell apart -- so it is accepted and ignored.  Each
+  # provider named must have its own: a DeepSeek key cannot run a `zai/` turn.
+  set -f; set -- $PROVIDERS; set +f; [ $# -gt 0 ] || set -- ""
+  said=""
+  for p in "$@"; do
+    have_key "$p"; rc=$?
+    if [ $rc -eq 0 ]; then said="${said:+$said; }a key for ${p:-a provider} is configured in $CFG"
+    elif enabled "$p"; then said="${said:+$said; }OpenCode lists ${p:-a provider} as logged in"
+    elif [ $rc -eq 2 ]; then echo "opencode: $CFG cannot be read without jq" >&2; exit 2
+    else echo "opencode: no login for ${p:-any provider}; run \`opencode auth login${p:+ $p}\`" >&2; exit 1
+    fi
+  done
+  echo "opencode: $said"
+  exit 0 ;;
 hooks)
   # OpenCode 2.0.13 takes its hooks as a plugin, and this harness's plugin is installed per
   # launch: `interactive` names hooks/opencode-seat in OPENCODE_CONFIG_CONTENT, beside the
