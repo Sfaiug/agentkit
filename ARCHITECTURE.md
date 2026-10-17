@@ -121,11 +121,11 @@
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
-- `matrix.py`: the public boards' model rows (Artificial Analysis, Arena Agent, LiveBench), each
-  asked once a day into `state/matrix.json`, and the matrix: a row per model and effort the
-  installed harnesses offer, matched to the boards and scored per role (`ROLES`), one row
-  recommended per role, and ak's own numbers per model and role beside (`live`, off history);
-  `ak models`. Offers `collect`, `rows`, `scored`, `recommended`, `live`. For bin/ak.
+- `matrix.py`: the public boards' model rows (Artificial Analysis, Arena Agent, LiveBench), a day's
+  cache in `state/matrix.json`, and the matrix: a row per model and effort the installed harnesses
+  offer, matched to the boards, scored per role (`ROLES`), one recommended per role, ak's own
+  numbers beside (`live`); `ak models`. Offers `collect`, `rows`, `scored`, `recommended`, `live`.
+  For bin/ak.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`. Used by run, job, orch, watch, menu. Leak: calls
   up into menu, run, watch and orch.
@@ -134,7 +134,7 @@
   on failure. For the orchestrator stop hook.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
-- `history.py`: SQLite `history.db` of runs, their steps and waits as columns and as one `phases` row each (`phase`, `phases`), and their finished reviews with round and verdict; `ended_runs`, `merged`, `parks` (`leases.park`'s `parked_at`), `owner` and `dones` for the scoreboard, `reviewed_runs` with them for the matrix; the owner's moments naming no seat (`owner_time`) and dones by conversation (`done`), one row each, which notify writes.
+- `history.py`: SQLite `history.db`: runs, their steps and waits (`phase`, `phases`), reviews with round and verdict, the owner's seatless moments (`owner_time`) and dones by conversation (`done`) from notify; `ended_runs`, `merged`, `parks` (`leases.park`'s `parked_at`), `owner`, `dones` for the scoreboard, `reviewed_runs` for the matrix.
   For run, gate, harness. Leak: parses harness event logs.
 - `scoreboard.py`: two weeks of work, ak's cost, committed size, the merged changes that broke after review (`broke`), who built them (`built`), what the park held (`parks`), the tokens that bought no merge (`sunk`), the owner's time (`owner`) and wait to done (`intent`), the week's largest loss in the vision's order (`loss`), words and wrapping.
   `compute`, `render` for run history.
