@@ -5,6 +5,7 @@ Offline: real Git and checks, sandbox records, fake processes and wakes.
 
 from contextlib import contextmanager
 import fcntl
+import json
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -458,6 +459,41 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         rebuilt, files = self.trees[-1]
         self.assertNotIn(rebuilt, checked)
         self.assertNotIn("broken.txt", files)
+        self.assertIn(self.wait(red)["fix"]["log"], [entry["log"] for entry in failures.values()])
+        self.assertIn("land", self.wait(head))
+        self.assert_cleaned()
+
+    def test_another_commits_evidence_answers_once_this_commit_passed_the_line(self):
+        # an ak update that checks as before re-proves nothing its predecessor's lander saw
+        self.assert_another_commits_evidence_answers(same_tree=False)
+
+    def test_another_commits_evidence_answers_once_this_commit_passed_its_tree_again(self):
+        # this commit's pass of the head replaces the predecessor's, which still proves it
+        self.assert_another_commits_evidence_answers(same_tree=True)
+
+    def assert_another_commits_evidence_answers(self, same_tree):
+        head = self.member("head")
+        red = self.member("red", joined=2, **{"broken.txt": "x\n"})
+        self.member("later", joined=3, **{"later.txt": "later\n"})
+        self.advance()
+        with patch.object(land, "_code", return_value="another-commit"), \
+                patch.object(record, "record", side_effect=RuntimeError("crash before verdicts")):
+            with self.assertRaisesRegex(RuntimeError, "crash before verdicts"):
+                land.check_line(self.turn)
+        # as an ak from before the `passed` record left it
+        path = land._trees(self.turn)[0]
+        kept = json.loads(path.read_text())
+        kept.pop("passed", None)
+        path.write_text(json.dumps(kept))
+        failures = land._trees(self.turn, "red_stacks")[1]
+        ((tree, evidence),) = land._trees(self.turn)[1].items()
+        passed = tree if same_tree else run.git(self.repo, "rev-parse", "origin/main^{tree}")
+        self.checks.clear()
+        with patch.object(land, "_code", return_value="this-commit"):
+            land.note(self.turn, [passed], head.name, checks=evidence["checks"])
+            land.check_line(self.turn)
+        self.assertEqual(len(self.checks), 1)
+        self.assertNotIn("broken.txt", self.trees[-1][1])
         self.assertIn(self.wait(red)["fix"]["log"], [entry["log"] for entry in failures.values()])
         self.assertIn("land", self.wait(head))
         self.assert_cleaned()

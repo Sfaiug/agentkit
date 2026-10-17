@@ -49,7 +49,8 @@ def passed(turn, tree):
 
 @functools.cache
 def _code():
-    """The ak commit this lander checks under: a pass another commit's lander saw may not hold."""
+    """The ak commit this lander checks under: what another commit's lander saw holds only once
+    both commits passed a check of the line (`_answering`)."""
     from . import run
     try:
         return run.git(config.REPO, "rev-parse", "HEAD")
@@ -57,14 +58,29 @@ def _code():
         return None
 
 
+def _answering(turn, kind):
+    """The evidence of `kind` that answers this lander: its own commit's, and another's once
+    that commit and this one each passed a check of the line -- an ak update that breaks the
+    checks themselves passes none, so nothing seen before it or under it is trusted."""
+    passing = ({entry.get("code") for entry in _trees(turn)[1].values()}
+               | set(_trees(turn, "passed")[1])) - {None}
+    return {tree: entry for tree, entry in _trees(turn, kind)[1].items()
+            if entry.get("code") == _code()
+            or {entry.get("code"), _code()} <= passing}
+
+
 def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red=None,
          red_stacks=None):
     """Keep stack evidence, with the `checks` it ran and the lander `code` that ran them,
-    separately from target probes awaiting their repair.  Evidence kept again from an
-    earlier pass (`at`) keeps that pass's code."""
+    separately from target probes awaiting their repair.  A pass a later one of the same tree
+    replaces stays on record as its code's (`passed`), as it still proves that code passed the
+    line.  Evidence kept again from an earlier pass (`at`) keeps that pass's code."""
     path, kept = _trees(turn)
     failed = {} if red_stacks == {} else _trees(turn, "red_stacks")[1]
     repairs = _trees(turn, "red")[1]
+    passes = _trees(turn, "passed")[1]
+    for old in (kept[tree] for tree in trees if kept.get(tree, {}).get("code")):
+        passes[old["code"]] = {"at": max(old["at"], passes.get(old["code"], {}).get("at", 0))}
     checked_at = time.time() if at is None else at
     kept.update({tree: {"at": checked_at, "tested": tested or tree, "leader": leader,
                         "checks": list(checks), "code": _code() if at is None else code}
@@ -81,7 +97,7 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
         failed.pop(tree, None)
     fresh = path.with_name(path.name + ".new")
     fresh.write_text(json.dumps({"trees": kept, "red": repairs,
-                                "red_stacks": failed}))
+                                "red_stacks": failed, "passed": passes}))
     fresh.replace(path)
 
 
@@ -595,9 +611,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             suite = gitcall.declared_suite(stacks[0][2], ref=tip)
             if limit is None:
                 limit = gate.whole_checks_that_fit(suite)
-            # Only this lander's ak commit answers: another's pass or failure is checked again.
-            green, red = ({tree: entry for tree, entry in _trees(turn, kind)[1].items()
-                           if entry.get("code") == _code()} for kind in ("trees", "red_stacks"))
+            green, red = (_answering(turn, kind) for kind in ("trees", "red_stacks"))
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
             if not prefix:
