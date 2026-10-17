@@ -303,7 +303,9 @@ wait on a target ref that no longer qualifies is inactive history: its row reads
 
 The daily retention pass resets failed user units named `agentkit-*` after a day in that state,
 unless an unconcluded run still names the unit as its scope. This keeps memory-cap evidence
-until the reaper can read it; other units are left alone.
+until the reaper can read it; other units are left alone. It also stops every service or scope
+in a slice named `agentkit-test…` once it has been active for a day: no test suite runs that long,
+so it was left behind, however its suite ended. Units in any other slice are never stopped.
 
 A merged run's worktree and local branch go with the merge. A stop takes both at once, or with `--keep` the checkout
 after seven days. A failed, blocked or errored checkout goes when its seat has been told or after seven days, unless a
