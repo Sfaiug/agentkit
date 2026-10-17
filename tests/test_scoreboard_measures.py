@@ -30,7 +30,7 @@ PINNED = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
     # `intent`, `owner`, `built`, `parks` and `sunk`: the owner's yes, 14 Oct 2026.
-    ("intent", "intent", ("measured", "hours")),
+    ("intent", "intent", ("measured", "hours", "live", "live_hours")),
     ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
@@ -87,7 +87,7 @@ class Measures(unittest.TestCase):
                 patch.object(scoreboard.history, "owner",
                              return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
                                            (NOW - 60, "answered", 30)]), \
-                patch.object(scoreboard.history, "dones", return_value=[(NOW - 60, NOW - 7200)]), \
+                patch.object(scoreboard.history, "dones", return_value=[(NOW - 60, NOW - 7200, None)]), \
                 patch.object(scoreboard, "_git", lambda *args, **kw: b"x\n"):
             board = scoreboard.compute(NOW)
         self.assertEqual({key: list(cells[0]) for key, cells in board.items()},

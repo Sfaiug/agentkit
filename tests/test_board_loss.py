@@ -42,8 +42,13 @@ class Loss(unittest.TestCase):
         self.assertEqual(scoreboard.loss(slower), ("hours to merge a product run", 3.0, 2.0, "h"))
         # the owner's own wait is the first speed: slower from their first message to done names
         # it ahead of the hours to merge
-        waited = {**slower, "intent": [{"measured": 2, "hours": 5.0}, {"measured": 2, "hours": 4.0}]}
+        waited = {**slower, "intent": [{"measured": 2, "hours": 5.0, "live": 1, "live_hours": 6.0},
+                                       {"measured": 2, "hours": 4.0, "live": 1, "live_hours": 9.0}]}
         self.assertEqual(scoreboard.loss(waited), ("hours from the owner's first message to done", 5.0, 4.0, "h"))
+        # and to live, right after it
+        later = {**slower, "intent": [{"measured": 2, "hours": 4.0, "live": 1, "live_hours": 9.0},
+                                      {"measured": 2, "hours": 4.0, "live": 1, "live_hours": 6.0}]}
+        self.assertEqual(scoreboard.loss(later), ("hours from the owner's first message to live", 9.0, 6.0, "h"))
         # a week four times faster and cheaper with one quality measure a shade worse is a loss
         # on that quality measure, whatever the speed: the order is the owner's (14 Oct)
         faster_but_worse = {**BOARD, "products": [{**STATS, "unmerged": .31, "hours": .5, "tokens": 200},

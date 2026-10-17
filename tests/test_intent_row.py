@@ -69,14 +69,14 @@ class IntentRow(Sandbox):
         self.harness.current = "c2"
         self.harness.said += [(650.0, "c2")]
         self.done("parser", 800.0)
-        self.assertEqual(history.dones(0, NOW), [(300.0, 50.0), (350.0, None), (500.0, 400.0),
-                                                 (700.0, 600.0), (800.0, 650.0)])
+        self.assertEqual([done[:2] for done in history.dones(0, NOW)],
+                         [(300.0, 50.0), (350.0, None), (500.0, 400.0), (700.0, 600.0), (800.0, 650.0)])
 
     def test_a_conversation_begun_before_dones_were_kept_has_no_start_for_its_first(self):
-        # a history from before dones were kept: its runs table only
+        # a history from before dones were kept: its runs table only, as its first schema made it
         config.HOME.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(history.path())) as db, db:
-            db.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY)")
+            db.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY, final_state TEXT, finished_at REAL)")
         with patch.object(history.time, "time", return_value=1000.0):
             self.assertEqual(history.last_done("claude:c1"), (None, 1000.0))
         self.harness.said = [(50.0, "c1"), (1100.0, "c1")]
@@ -87,14 +87,16 @@ class IntentRow(Sandbox):
         self.harness.current = "c2"
         self.harness.said += [(1500.0, "c2")]
         self.done("fix-api", 1600.0)
-        self.assertEqual(history.dones(0, NOW), [(1200.0, None), (1400.0, 1300.0), (1600.0, 1500.0)])
+        self.assertEqual([done[:2] for done in history.dones(0, NOW)],
+                         [(1200.0, None), (1400.0, 1300.0), (1600.0, 1500.0)])
 
     def test_a_harness_that_reads_no_messages_measures_no_intent(self):
         self.harness.user_messages = lambda *args, **kw: []
         self.done("fix-api", NOW - 2 * HOUR)
         self.done("fix-api", NOW - HOUR)
         with patch.object(scoreboard.time, "time", return_value=NOW):
-            self.assertEqual(scoreboard.compute(NOW)["intent"], [{"measured": 0, "hours": None}] * 2)
+            self.assertEqual(scoreboard.compute(NOW)["intent"],
+                             [{"measured": 0, "hours": None, "live": 0, "live_hours": None}] * 2)
             row = [line for line in scoreboard.render() if line.startswith("intent")][0]
         self.assertIn("no intent measured", row)
 
@@ -114,8 +116,9 @@ class IntentRow(Sandbox):
                           (NOW - WEEK - HOUR, NOW - WEEK - 4 * HOUR)):
             history.done("claude:c1", at, began)
         with patch.object(scoreboard.time, "time", return_value=NOW):
-            self.assertEqual(scoreboard.compute(NOW)["intent"], [{"measured": 3, "hours": 2.0},
-                                                                 {"measured": 1, "hours": 3.0}])
+            self.assertEqual(scoreboard.compute(NOW)["intent"],
+                             [{"measured": 3, "hours": 2.0, "live": 0, "live_hours": None},
+                              {"measured": 1, "hours": 3.0, "live": 0, "live_hours": None}])
             row = [line for line in scoreboard.render() if line.startswith("intent")][0]
         self.assertIn("3 intents measured, median 2.0 hours from the owner's first message to done", row)
 
