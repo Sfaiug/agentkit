@@ -49,6 +49,13 @@ class PrWaitEndsWithItsReview(Sandbox):
         self.receipt(NEWER, review_pr=PR + "/", state="running")
         self.assertEqual(self.fact(), (False, ""))
 
+    def test_newest_is_by_start_not_by_name(self):
+        # the tenth review launched in one minute is named `-10`, which sorts before `-9`
+        self.receipt(f"{OLDER}-9", review_pr=PR, state="error", verdict="FAIL",
+                     started_at=1_800_000_009, finished_at=1_800_000_600)
+        self.receipt(f"{OLDER}-10", review_pr=PR, state="running", started_at=1_800_000_010)
+        self.assertEqual(self.fact(), (False, ""))
+
     def test_a_pull_request_no_run_reviewed_waits_on_its_merge_or_close(self):
         self.receipt(NEWER, review_pr="https://github.com/acme/api/pull/27", state="error",
                      verdict="FAIL", finished_at=1_800_000_600)

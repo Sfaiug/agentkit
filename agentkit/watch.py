@@ -2711,11 +2711,15 @@ def wait_fact(wait):
     number = data.get("number")
     if data["state"] == "OPEN":
         # a review that ends without merging leaves it open, and its ending may reach no seat
-        # (a run launched outside one records none): the newest review run decides
+        # (a run launched outside one records none): the newest review run decides, by start,
+        # as a name's `-10` for a tenth launch in one minute sorts before its `-9`
         key = transitions.pr_key(on)
-        reviews = [d.name for d in run_record.run_dirs() if key is not None and key ==
-                   transitions.pr_key((run_record.read_state(d) or {}).get("review_pr"))]
-        return wait_fact({"kind": "run", "on": reviews[-1]}) if reviews else (False, "")
+        reviews = []
+        for directory in run_record.run_dirs():
+            state = run_record.read_state(directory) or {}
+            if key is not None and key == transitions.pr_key(state.get("review_pr")):
+                reviews.append((state.get("started_at") or 0, directory.name))
+        return wait_fact({"kind": "run", "on": max(reviews)[1]}) if reviews else (False, "")
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
         return True, f"PR #{number} merged" + (f" as {sha}" if sha else "")
