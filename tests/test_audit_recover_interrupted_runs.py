@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from agentkit import config, gc, gitcall, handback, job as jobs, menu, notify, orch, run, status, terminal, transitions, watch
-from agentkit import host, record as run_record
+from agentkit import host, matrix, record as run_record
 
 
 class InterruptedRuns(unittest.TestCase):
@@ -63,6 +63,7 @@ sys.exit(1)
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord call")))
+        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.notified = self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.seats = []
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: self.seats))

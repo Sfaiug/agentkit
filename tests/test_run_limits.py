@@ -26,7 +26,7 @@ from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
 from agentkit import config, deliver, gate, gc, gitcall, host, notify, orch, roundloop, run, status, transitions, turns, usage, watch, worker
-from agentkit import record as run_record
+from agentkit import matrix, record as run_record
 from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -157,6 +157,7 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "shaped",
                                               side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
+        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(gc, "schedule_gc"))
