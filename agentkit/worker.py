@@ -603,27 +603,40 @@ def limited(cmd, limit, *, silence=None, activity=None, output=None, on_timeout=
     return (TIMEOUT if killed else proc.returncode), out or "", killed
 
 
-def boxed(cmd, limit, *, env, cwd, cpu=None, **kwargs):
+def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, **kwargs):
     """The check watchdog and status, with worker walls and throwaway HOME writes.
 
-    `cpu`, a list, gets the CPU seconds the command's processes spent, where the box says."""
-    with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir, \
-            box.command(cmd, env, out_dir, cwd=cwd,
-                        home_overlay=True, drain=True) as (cmd, env, spawn):
-        code, text, killed = limited(cmd, limit, env=env, cwd=cwd, **spawn, **kwargs)
-        if cpu is not None and (spent := box.cpu_seconds(out_dir)) is not None:
-            cpu.append(spent)
-        if not killed:
-            # Bubblewrap exits 1 when it cannot build the box. Without the supervisor's
-            # report that is no exit of the command: it never started, the shell's 126.
-            code = box.returncode(out_dir, 126 if code == 1 else code)
-            if code == 126 and not (Path(out_dir) / box.PROCESSES).exists():
-                message = box.launch_error(out_dir, env)
-                if kwargs.get("output") is not None:
-                    kwargs["output"].write(message.encode())
-                    kwargs["output"].flush()
-                else:
-                    text += message
+    `cpu`, a list, gets the CPU seconds the command's processes spent, where the box says.
+    `failed`, a list, gets the tests a command that ran to its end named as failed, one per
+    line in the file `AK_FAILED` names; `only`, test names, go one per line into the file
+    `AK_ONLY` names, for a command that runs just those."""
+    with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir:
+        named, listed = Path(out_dir) / "failed-tests", Path(out_dir) / "only-tests"
+        if failed is not None:
+            env = {**env, "AK_FAILED": str(named)}
+        if only is not None:
+            listed.write_text("".join(f"{test}\n" for test in only))
+            env = {**env, "AK_ONLY": str(listed)}
+        with box.command(cmd, env, out_dir, cwd=cwd,
+                         home_overlay=True, drain=True) as (cmd, env, spawn):
+            code, text, killed = limited(cmd, limit, env=env, cwd=cwd, **spawn, **kwargs)
+            if cpu is not None and (spent := box.cpu_seconds(out_dir)) is not None:
+                cpu.append(spent)
+            if not killed:
+                # Bubblewrap exits 1 when it cannot build the box. Without the supervisor's
+                # report that is no exit of the command: it never started, the shell's 126.
+                code = box.returncode(out_dir, 126 if code == 1 else code)
+                if code == 126 and not (Path(out_dir) / box.PROCESSES).exists():
+                    message = box.launch_error(out_dir, env)
+                    if kwargs.get("output") is not None:
+                        kwargs["output"].write(message.encode())
+                        kwargs["output"].flush()
+                    else:
+                        text += message
+        # Read outside the box, a link could reach a file the box masked, a credential.
+        if failed is not None and not killed and named.is_file() and not named.is_symlink():
+            failed.extend(dict.fromkeys(line.strip() for line in named.read_text(
+                errors="replace").splitlines() if line.strip()))
     return code, text, killed
 
 
