@@ -34,15 +34,17 @@ FIXTURES = REPO / "tests/fixtures"
 
 STUB = """#!/usr/bin/env bash
 # canned opencode for tests/test_opencode.py: run cats $STUB_EVENTS and exits $STUB_RC,
-# session export cats $STUB_EXPORT, auth list prints $STUB_AUTH_LIST, models cats
-# $STUB_MODELS (and fails without one).  Every argv lands in $STUB_ARGV_LOG for the assertions.
+# session export cats $STUB_EXPORT, auth list prints $STUB_AUTH_LIST, `api model.list` cats
+# $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one).  Every argv lands in
+# $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
-case "$1" in
-  run) cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
-  models) cat -- "$STUB_MODELS" ;;
-  session) cat -- "$STUB_EXPORT" ;;
-  auth) printf '%s' "${STUB_AUTH_LIST:-[]}" ;;
-  --version) echo "opencode v9.9.9-test" ;;
+case "$1 ${2:-}" in
+  run*) [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$OPENCODE_CONFIG_CONTENT" >"$STUB_ARGV_LOG.content"
+        cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
+  "api model.list") cat -- "$STUB_MODEL_LIST" && exit "${STUB_LIST_RC:-0}" ;;
+  session*) cat -- "$STUB_EXPORT" ;;
+  auth*) printf '%s' "${STUB_AUTH_LIST:-[]}" ;;
+  --version*) echo "opencode v9.9.9-test" ;;
   *) echo "stub opencode: $*" >&2; exit 2 ;;
 esac
 """
@@ -279,15 +281,21 @@ cat "$dir/bridge-eval"
         self.assertNotIn('"type": "result"', logged)
         self.assertIsNone(history.event_tokens(out / "events.jsonl"))
 
-    def test_run_at_none_passes_the_bare_model_and_any_other_effort_its_variant(self):
+    def test_the_effort_is_a_variant_and_none_one_the_turn_defines(self):
         prompt = self.root / "prompt.md"
         prompt.write_text("hi\n")
         events = self.root / "events.jsonl"
         events.write_text(EVENTS_OK)
-        # MiMo's `none` is a variant of its own, thinking off (tests/test_effort_step.py)
-        for name, effort, model in (("acme/big", "none", "acme/big"),
-                                    ("acme/big", "high", "acme/big#high"),
-                                    ("mimo/mimo-v2.6-pro", "none", "mimo/mimo-v2.6-pro#none")):
+        # `none` is defined empty, which OpenCode merges into a model's own `none` by name and
+        # which runs any other bare; MiMo's is thinking off (tests/test_effort_step.py)
+        off = {"none": {"extraBody": {"thinking": {"type": "disabled"}}},
+               "high": {"extraBody": {"thinking": {"type": "enabled"}}}}
+        for name, effort, model, variants in (
+                ("acme/big", "none", "acme/big#none", {"none": {}}),
+                ("acme/big", "high", "acme/big#high", {"none": {}}),
+                ("mimo/mimo-v2.6-pro", "none", "mimo/mimo-v2.6-pro#none", off)):
+            defined = {"provider": {name.split("/")[0]: {"models": {
+                name.split("/")[1]: {"variants": variants}}}}}
             self.argv_log.unlink(missing_ok=True)
             proc = self.adapter("run", name, effort, str(self.root),
                                 str(prompt), str(self.root / f"out-{effort}"),
@@ -296,12 +304,13 @@ cat "$dir/bridge-eval"
             self.assertEqual(proc.returncode, 0, proc.stderr)
             words = self.argv_log.read_text().splitlines()[0].split()
             self.assertEqual(words[words.index("-m") + 1], model)
-            # and the seat is pinned to the same model
+            self.assertEqual(json.loads(Path(f"{self.argv_log}.content").read_text()), defined)
+            # and the seat is pinned to the same model and variants
             proc = self.adapter("interactive", name, effort)
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            content = next(word for word in shlex.split(proc.stdout)
-                           if word.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
-            self.assertEqual(json.loads(content)["model"], model)
+            content = json.loads(next(word for word in shlex.split(proc.stdout)
+                                      if word.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1])
+            self.assertEqual((content["model"], content["provider"]), (model, defined["provider"]))
 
     # --- interactive ---------------------------------------------------------
     def test_interactive_rulebook_is_byte_identical_to_claude(self):
@@ -963,14 +972,19 @@ stop();
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return [line.split("\t") for line in proc.stdout.splitlines()]
 
-    def test_a_live_listing_gives_mimo_its_thinking_and_leaves_an_unknown_id_unsaid(self):
-        listing = self.root / "models.txt"
-        listing.write_text("mimo/mimo-v2.6-flash\nmimo/mimo-v2.6-pro\nopencode/big-pickle\n")
-        self.assertEqual(self.models(STUB_MODELS=str(listing)), [
-            ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
+    def test_a_live_listing_gives_mimo_its_thinking_and_any_other_model_its_variants(self):
+        listing = str(FIXTURES / "opencode-model-list.json")
+        rows = self.models(STUB_MODEL_LIST=listing)
+        self.assertEqual(rows[-3:], [
+            ["opencode/big-pickle", "Big Pickle", "none"],
             ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none high"],
-            ["opencode/big-pickle", "opencode/big-pickle", ""],
+            ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
         ])
+        self.assertIn(["opencode/nemotron-3.5-super-vl-free", "Nemotron 3.5 Super VL Free",
+                       "none minimal low medium high xhigh"], rows)
+        # a list OpenCode printed and then failed is no list
+        self.assertEqual(self.models(STUB_MODEL_LIST=listing, STUB_LIST_RC="1"),
+                         self.models())
 
     def test_a_failed_listing_gives_the_table_the_same_answer(self):
         self.assertEqual(self.models(), [

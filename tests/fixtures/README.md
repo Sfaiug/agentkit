@@ -270,12 +270,15 @@ turn that ran one command and answered `done` (working directory normalised), an
 `antigravity-error-events.jsonl` the stream of a turn refused for an unknown model. The auth
 signatures are the stderr lines a headless turn printed with no login, under a temporary HOME.
 
-`antigravity-models.txt`, `opencode-models.txt` and `grok-models.txt` are the unedited stdout
-of `agy models` (agy 1.2.9, signed in), `opencode models` (OpenCode 2.0.14, against its
-background service, with the `mimo` provider configured) and `grok models` (grok 1.0.40, logged
-in with grok.com), captured on 2026-09-24. agy prints one tab-separated id and label per model
-and effort; OpenCode one `provider/model` id a line; grok a greeting, its default, and one
-`* id` or `- id` line per model. `codex-models.json` is the stdout of `codex debug models`
+`antigravity-models.txt` and `grok-models.txt` are the unedited stdout of `agy models` (agy
+1.2.9, signed in) and `grok models` (grok 1.0.40, logged in with grok.com), captured on
+2026-09-24. agy prints one tab-separated id and label per model and effort; grok a greeting,
+its default, and one `* id` or `- id` line per model. `opencode-model-list.json` is the stdout
+of `opencode api model.list` (OpenCode 2.0.24, against its background service, with the `mimo`
+provider configured and OpenCode's own free one), captured on 2026-10-17 with its `location`
+and every model's `settings` taken out, since those hold the home directory and the provider's key,
+and one model to a line.
+`codex-models.json` is the stdout of `codex debug models`
 (codex 0.153.4, a ChatGPT login, the same day) cut to each model's `slug`, `display_name`,
 `visibility` and `supported_reasoning_levels`, the fields the adapter reads.
 tests/test_catalog.py replays them through stub binaries.

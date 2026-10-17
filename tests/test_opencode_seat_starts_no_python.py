@@ -42,10 +42,11 @@ class NoPython(Sandbox):
         return json.loads(next(word for word in shlex.split(line.stdout)
                                if word.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1])
 
-    def test_the_document_is_whole_for_a_model_with_no_variants_of_its_own(self):
+    def test_the_document_is_whole_for_any_other_model_with_its_none_beside_it(self):
         self.assertEqual(self.document("acme/big", "high"),
                          {"model": "acme/big#high", "agents": {"build": {"system": RULES}},
-                          "plugins": [str(REPO / "hooks/opencode-seat")]})
+                          "plugins": [str(REPO / "hooks/opencode-seat")],
+                          "provider": {"acme": {"models": {"big": {"variants": {"none": {}}}}}}})
 
     def test_a_mimo_model_s_variants_are_beside_it(self):
         thinking = {"none": {"extraBody": {"thinking": {"type": "disabled"}}},

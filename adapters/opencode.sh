@@ -18,8 +18,9 @@
 #                                  accepted and ignored
 #                     hooks        -> says where this harness's hooks come from; writes nothing
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
-#                                  `opencode models`, labelled and given efforts by the
-#                                  [catalog] table of adapters/opencode.toml, else that table
+#                                  OpenCode's own list, with the label and efforts of the
+#                                  [catalog] table of adapters/opencode.toml where it has
+#                                  them, else that table
 #                     $AGENTKIT_PROVIDER names the providers a call is about, by OpenCode's own
 #                     ids (config.provider_env); none named is any provider with a login
 #                     $AGENTKIT_ACCOUNT naming one of the provider's `accounts` is refused by
@@ -93,19 +94,18 @@ store_key() {
   return 1
 }
 
-# MiMo's API has one reasoning control, `thinking` on or off, and it is on by default.  OpenCode
-# 2.0.14 names no variant for it and fails a turn handed a variant the model does not define
-# (`Variant unavailable`); a `thinking` option in the model's `options`, or in a variant's own
-# keys, never reaches the request, while a variant's `extraBody` is sent as it is.  So a
-# `mimo/` model takes two efforts, each a variant of this layered config document -- which
-# merges into the owner's own provider and writes nothing -- `none` with thinking off and
-# `high` with it on.  Any other model is handed its own variants.
-mimo_variants() {  # <model>: the document for a MiMo model, nothing for another
-  case $1 in mimo/*) ;; *) return 0 ;; esac
-  m=${1#mimo/}
-  printf '{"provider":{"mimo":{"models":{"%s":{"variants":{%s,%s}}}}}}' "${m%%#*}" \
-    '"none":{"extraBody":{"thinking":{"type":"disabled"}}}' \
-    '"high":{"extraBody":{"thinking":{"type":"enabled"}}}'
+# The effort is OpenCode's model variant, `provider/model#variant` its `-m` spelling.  OpenCode
+# fails a turn handed a variant the model does not define (`Variant unavailable`) and merges
+# the variants of this layered config document -- which writes nothing -- into the model's own
+# by name (2.0.24).  So `none`, a model that runs at no effort, is always a variant defined
+# here empty: a model with a `none` of its own keeps its settings, any other runs bare.  MiMo's
+# API has one reasoning control, `thinking`, on by default; a `thinking` option in the model's
+# `options`, or in a variant's own keys, never reaches the request, while a variant's
+# `extraBody` is sent as it is.  So a `mimo/` model's `none` turns it off and its `high` on.
+turn_variants() {  # <model>: the document defining its variants for this turn
+  p=${1%%/*} m=${1#*/} v='"none":{}'
+  [ "$p" = mimo ] && v='"none":{"extraBody":{"thinking":{"type":"disabled"}}},"high":{"extraBody":{"thinking":{"type":"enabled"}}}'
+  printf '{"provider":{"%s":{"models":{"%s":{"variants":{%s}}}}}}' "$p" "${m%%#*}" "$v"
 }
 
 case "$cmd" in
@@ -117,14 +117,10 @@ run)
   [ -d "$ws" ] || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
   command -v opencode >/dev/null || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
   cd -- "$ws" || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
-  # The effort is OpenCode's model variant: `provider/model#variant` is the `-m` spelling, and
-  # a model already carrying one keeps its own.  `none` is a model that runs at no effort and
-  # is handed bare, as adapters/antigravity.sh hands it -- except MiMo's, which is a variant
-  # like its `high` (mimo_variants).
+  # the effort as the model's variant (turn_variants); a model already carrying one keeps it
   tagged="$model#$effort"
-  case $model:$effort in *#*) tagged=$model;; mimo/*) ;; *:none) tagged=$model;; esac
-  variants=$(mimo_variants "$model")
-  [ -n "$variants" ] && export OPENCODE_CONFIG_CONTENT="$variants"
+  case $model in *#*) tagged=$model;; esac
+  export OPENCODE_CONFIG_CONTENT="$(turn_variants "$model")"
   # The session is titled for the run it belongs to: <run>/round-N/<role> reads as
   # `<run-id>/<role>` in `opencode session list`, anything else as its own directory.
   title=$(basename -- "$out")
@@ -202,14 +198,13 @@ interactive)
   # rules it was asked for is worse than one that does not open.
   rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  tagged="$1#$2"   # as `run` hands it, and with MiMo's variants beside it
-  case $1:$2 in *#*) tagged=$1;; mimo/*) ;; *:none) tagged=$1;; esac
+  tagged="$1#$2"   # as `run` hands it, and with its variants beside it
+  case $1 in *#*) tagged=$1;; esac
   # jq writes the document, the rulebook read as one string: a Python started for it was more
   # than half of what a launch waited on this adapter.  ASCII out, as that Python wrote it, so
   # the command line stays plain whatever the rulebook says.
-  variants=$(mimo_variants "$1")
   content=$(jq -acRs --arg model "$tagged" --arg plugin "$REPO/hooks/opencode-seat" \
-      --argjson more "${variants:-{\}}" \
+      --argjson more "$(turn_variants "$1")" \
       '{model: $model, agents: {build: {system: .}}, plugins: [$plugin]} + $more' <"$rb") || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
@@ -515,16 +510,21 @@ hooks)
   # user's own ~/.config/opencode.  There is nothing persistent to merge or back up here.
   echo "opencode: hooks are installed per launch by adapters/opencode.sh interactive (the hooks/opencode-seat plugin); nothing to write here" ;;
 models)
-  # `opencode models` prints one `provider/model` id a line and nothing else: each takes the
-  # label and efforts the [catalog] table gives it, and one the table does not know is its own
-  # label, its efforts unsaid.  Not --standalone, whose private server lists no model at all
-  # (2.0.14).  A listing that fails, outlasts ten seconds or says nothing leaves the table as
-  # it is, and so does a host with no `timeout` to bound it (stock macOS): nothing waits on a
-  # listing it cannot stop.
-  ids=$(command -v timeout >/dev/null && command -v opencode >/dev/null \
-    && timeout 10 opencode models 2>/dev/null | awk 'NF == 1 { print $1 }') || ids=""
+  # OpenCode's own list of every logged-in provider's models: each `provider/model` under the
+  # name OpenCode gives it, its variants its efforts (turn_variants), `none` for one with none.
+  # An id the [catalog] table knows takes the table's label and efforts: MiMo's thinking
+  # switch.  Not --standalone, whose private server lists no model at all (2.0.24).  A list
+  # that fails, outlasts ten seconds or says nothing leaves the table as it is, and so does a
+  # host with no `timeout` to bound it (stock macOS): nothing waits on a listing it cannot
+  # stop.  Settings, keys among them, never leave jq.
+  listed=$(command -v timeout >/dev/null && command -v opencode >/dev/null \
+    && timeout 10 opencode api model.list 2>/dev/null | jq -r '.data[]? | select(.enabled != false)
+        | ["\(.providerID)/\(.id)", .name // .id,
+           ([.variants[]?.id] | if length == 0 then "none" else join(" ") end)] | join("\t")') \
+    || listed=""
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  python3 "$REPO/tools/catalog.py" opencode $ids ;;
+  IFS=$'\n'; set -f   # one argument a line
+  python3 "$REPO/tools/catalog.py" opencode $listed ;;
 *)
   echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models" >&2
   exit 2 ;;
