@@ -17,7 +17,8 @@ import subprocess
 import sys
 import time
 
-from . import config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, turns, worktrees
+from . import (config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention,
+               run, stop, transitions, turns, watch, worktrees)
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -553,6 +554,7 @@ def gc_candidates(now=None):
     age = retention.PRESSURE_AGE if pressure else GC_AGE
     paths = retention.process_paths()
     left = leftovers()
+    yield from gone_jobs(now)
     for directory in retention.children(config.RUNS):
         candidates = []
         state = retention.read_json(directory / "run.json")
@@ -916,6 +918,14 @@ def gc(report, automatic=False):
                             done = not directory.exists()
                     elif "run" not in item and "job" not in item:
                         done = retention.remove_ephemeral(item)
+                    elif item["kind"] == "gone-job":
+                        # judged again under the lock a resume writes the receipt under
+                        directory = Path(item["job"])
+                        if not retention.safe(directory):
+                            continue
+                        done = stop.stop_job(
+                            directory, False, why=item["why"], say=lambda _line: None,
+                            only_if=lambda job: job_aged_out(directory, job, time.time()))
                     elif "job" in item:
                         directory = Path(item["job"])
                         if not retention.safe(directory):
@@ -966,7 +976,8 @@ def gc(report, automatic=False):
                     if done:
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
-                except (OSError, ValueError, TypeError, AttributeError, KeyError, subprocess.TimeoutExpired) as exc:
+                except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError,
+                        subprocess.TimeoutExpired) as exc:
                     report(f"gc: kept {path}: {exc}")
     except (OSError, BlockingIOError):
         pass                           # another tick owns collection, or ownership is uncertain
@@ -1118,6 +1129,35 @@ def run_aged_out(directory, state, now):
         except OSError:
             return False
     return when <= now - RUN_DIR_AGE
+
+
+def gone_jobs(now):
+    """A stop for every job `job_aged_out` says nobody is coming back for.  Planned before any
+    run goes: the old-run rule's removal of a task's run would take its last write with it."""
+    if not retention.safe(config.JOBS):
+        return
+    for directory in retention.children(config.JOBS):
+        job = jobs.read_job_safely(directory)
+        if job and isinstance(job.get("tasks"), list) and job_aged_out(directory, job, now):
+            yield {"action": "stop", "kind": "gone-job", "path": str(directory),
+                   "job": str(directory), "why": "the job's launcher gone and nothing "
+                                                 f"written for {RUN_DIR_AGE // 86400} days"}
+
+
+def job_aged_out(directory, job, now):
+    """Whether this job's launcher is gone and nothing was written for a run directory's age,
+    in its directory or that of any run of it (`jobs.job_runs`): nobody is coming back for it.
+    A save left half done is a write like any other; a lock, which the stop takes, is not.  A
+    link directly in any of those directories keeps the job: the stop writes there.
+    """
+    def quiet(top):
+        return watch.run_last_write(top, skip=(".lock",)) <= now - RUN_DIR_AGE
+    if jobs.reap_job(directory, job) or not quiet(directory):
+        return False
+    dirs = [directory, *(run_dir for run_dir, _ in jobs.job_runs(
+        directory, job, read=lambda run_dir: retention.read_json(run_dir / "run.json")))]
+    return (all(retention.safe(path) for top in dirs for path in (top, *retention.children(top)))
+            and all(map(quiet, dirs)))
 
 
 def session_lives(name):
