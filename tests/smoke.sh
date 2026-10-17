@@ -1276,8 +1276,8 @@ class Notifications(test_notify.Notifications):
         self.assertEqual(payload["username"], "agentkit")
         self.assertEqual(payload["embeds"][0]["title"], "Done · seat")
         self.assertEqual(payload["embeds"][0]["color"], 0x2ECC71)
-        self.assertNotIn("fields", payload["embeds"][0])   # the card is two words and the seat
-        self.assertNotIn("description", payload["embeds"][0])
+        self.assertNotIn("fields", payload["embeds"][0])
+        self.assertEqual(payload["embeds"][0]["description"], "Shipped")
         self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
         self.assertEqual(menu.state({"name": "seat"}), "done")
         count = len(self.requests)
@@ -4304,8 +4304,8 @@ grep -qE '^ +[0-9]+  update ' "$WORK/update-notice.log" && UPD=1
 
 # --- 21: the two notification shapes (offline) --------------------------------
 # `--dry-run` prints the payload and posts nothing; without a webhook the real form prints to
-# stderr and records the session's last message, which is what the menu shows. The card itself
-# is two words and the seat: the question lives in the record and the log line, never on it.
+# stderr and records the session's last message, which is what the menu shows. The card is two
+# words and the seat over the whole text, as it was written.
 NSH="$WORK/home-notify-shapes"
 mkdir -p -- "$NSH/.agentkit/state"
 tm kill-session -t =smoke-shape 2>/dev/null
@@ -4326,8 +4326,9 @@ NUM=$(HOME="$NSH" ak orch list 2>/dev/null | sed -e '/^\(no \)\?slice /d' | sed 
 jq -e '.content == "<@424242>" and .username == "agentkit" and (.embeds | length == 1)
   and .embeds[0].title == "Needs you · smoke-shape"
   and .embeds[0].color == 16098851
+  and .embeds[0].description == "Merge PR #7 by bob? yes/no"
   and (has("description") | not) and (has("fields") | not) and (has("footer") | not)
-  and (.embeds[0] | has("description") | not) and (.embeds[0] | has("fields") | not)
+  and (.embeds[0] | has("fields") | not)
   and (.embeds[0] | has("footer") | not)' "$WORK/needs.json" >/dev/null 2>&1 || SHAPE=1
 [ "$(cat "$WORK/needs.err")" = 'terminal notice: Needs you · smoke-shape: Merge PR #7 by bob? yes/no' ] || SHAPE=1
 [ -e "$NSH/.agentkit/state/notify-smoke-shape.json" ] && SHAPE=1   # and records nothing
@@ -4337,7 +4338,7 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify 
 [ "$(cat "$WORK/done.err")" = 'terminal notice: Done · smoke-shape: Parser fixed' ] || SHAPE=1
 jq -e '.username == "agentkit"
   and .embeds[0].title == "Done · smoke-shape" and .embeds[0].color == 3066993
-  and (.embeds[0] | has("description") | not) and (.embeds[0] | has("fields") | not)
+  and .embeds[0].description == "Parser fixed" and (.embeds[0] | has("fields") | not)
   and (.embeds[0] | has("footer") | not)
   and (has("content") | not)' "$WORK/done.json" >/dev/null 2>&1 || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify done "FAIL: tests red" --dry-run \
@@ -4364,7 +4365,7 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/sh
 # the freeform message went with the attachments: needs, done or --check
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify "plain old message" >"$WORK/plain.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
-[ "$SHAPE" = 0 ] && ok "21 ak notify: needs is amber, done is green and red on FAIL, every card two words and the seat, --dry-run posts nothing, the record reaches the menu row" \
+[ "$SHAPE" = 0 ] && ok "21 ak notify: needs is amber, done is green and red on FAIL, every card two words and the seat over its whole text, --dry-run posts nothing, the record reaches the menu row" \
                || { no "21 ak notify shapes"; head -c 600 "$WORK/needs.json" | sed 's/^/      /'; sed 's/^/      /' "$WORK/menu-shape.log" | head -5; }
 
 # --- 22: ak orch rename follows the old name (offline, a real tmux seat) ------
@@ -4873,7 +4874,7 @@ grep -qE '^\[[0-9:]*\] the orchestrator session orch-x this run was launched fro
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1
 jq -e '.username == "agentkit"
   and .embeds[0].title == "Needs you · orch-x" and .embeds[0].color == 16098851
-  and (.embeds[0] | has("description") | not)
+  and (.embeds[0].description | startswith("Its orchestrator session orch-x is gone."))
   and ((.embeds[0].fields // []) | length == 0)' "$WORK/hook-posts.txt" >/dev/null 2>&1 || FB=1
 jq -e '.session == "orch-x" and .kind == "needs" and (.text | startswith("Its orchestrator session orch-x is gone."))' \
   "$FBH/.agentkit/state/notify-orch-x.json" >/dev/null 2>&1 || FB=1
