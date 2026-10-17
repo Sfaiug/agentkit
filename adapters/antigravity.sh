@@ -13,8 +13,8 @@
 #                                  one that does not, so an Antigravity seat is given no id
 #                     install      -> Google's installer, unless agy is already here
 #                     login [again] -> `agy` in the terminal (a URL, then the code pasted back),
-#                                  unless already logged in; `again` signs in afresh over a
-#                                  login that still stands
+#                                  unless already logged in; `again` clears a login that still
+#                                  stands, as agy's own `/logout` does, and signs in afresh
 #                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since a
 #                                  Google refresh token ends only when revoked
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
@@ -233,6 +233,9 @@ login)
   command -v agy >/dev/null || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }
   [ "${1:-}" != again ] && logged_in && { echo "agy: already logged in"; exit 0; }
   [ -t 0 ] || { echo "agy: not logged in; run \`$SIGNIN\` in a terminal, open the URL it prints and paste the code back" >&2; exit 1; }
+  # agy opens on a saved login and offers its sign-in over one only after the TUI's `/logout`,
+  # which print mode refuses: `again` clears it here, as `/logout` does, for agy's chooser
+  [ "${1:-}" = again ] && rm -f -- "$TOKEN"
   echo "agy: choose Google OAuth, open the URL, paste the code back, then leave with /exit"
   agy ${DATA:+"$DATA"} ;;
 login-end)
