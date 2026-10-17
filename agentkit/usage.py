@@ -1,11 +1,12 @@
 """Subscription meters, budget, and the model pick order.
 
 budget = fraction left / fraction of the window left, taking the minimum across the model's
-non-session gate meters. Above 1 means slack to spend; below 1 means ahead of pace. The workers
-rank highest budget first, unknown last. A provider the harness reports no meter for at all
-(`[usage] none`) is neutral at 1.0, ranked by the same rules and never last; only a failed probe
-is unknown. A usage-limit reset in hand adds nothing to budget or headroom: ak never spends one
-by itself, and one nobody spends is not usage ak can run on.
+non-session gate meters. Above 1 means slack to spend; below 1 means ahead of pace. Among
+workers the matrix ranks alike, the highest budget goes first, unknown last. A provider the
+harness reports no meter for at all (`[usage] none`) is neutral at 1.0, ranked by the same
+rules and never last; only a failed probe is unknown. A usage-limit reset in hand adds nothing
+to budget or headroom: ak never spends one by itself, and one nobody spends is not usage ak can
+run on.
 
 pace = used% - elapsed% of the meter's window.  Positive means burning faster than the window
 refills.  A provider's pace is the max over its meters.  It no longer ranks anything: pace_margin
