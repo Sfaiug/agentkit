@@ -96,6 +96,14 @@ def cgroup_path(relative="", cgroup_root=None):
     return Path(root) / relative.lstrip("/")
 
 
+def cgroup_pids(relative):
+    """The pids the kernel holds in that cgroup itself, or [] where it cannot be read."""
+    try:
+        return [int(pid) for pid in (cgroup_path(relative) / "cgroup.procs").read_text().split()]
+    except (OSError, ValueError):
+        return []
+
+
 def memory_mb(name, meminfo=None, *, whole=False):
     """One host memory counter in MiB, or None when missing or unreadable."""
     path = Path(meminfo) if meminfo else PROC / "meminfo"
