@@ -2683,7 +2683,8 @@ def waiting_on(name):
 def wait_fact(wait):
     """(whether what that wait names is over, the one line saying how): a run once it is no
     longer going, or the run its task was started again as, a pull request once it is merged
-    or closed.  (None, why) where nothing can say yet: `wait_over` leaves the wait as it is
+    or closed, or while open, once the newest run reviewing it is over as a wait on that run
+    would be.  (None, why) where nothing can say yet: `wait_over` leaves the wait as it is
     while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
@@ -2709,7 +2710,16 @@ def wait_fact(wait):
         return None, why or "GitHub did not answer"
     number = data.get("number")
     if data["state"] == "OPEN":
-        return False, ""
+        # a review that ends without merging leaves it open, and its ending may reach no seat
+        # (a run launched outside one records none): the newest review run decides, by start,
+        # as a name's `-10` for a tenth launch in one minute sorts before its `-9`
+        key = transitions.pr_key(on)
+        reviews = []
+        for directory in run_record.run_dirs():
+            state = run_record.read_state(directory) or {}
+            if key is not None and key == transitions.pr_key(state.get("review_pr")):
+                reviews.append((state.get("started_at") or 0, directory.name))
+        return wait_fact({"kind": "run", "on": max(reviews)[1]}) if reviews else (False, "")
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
         return True, f"PR #{number} merged" + (f" as {sha}" if sha else "")
