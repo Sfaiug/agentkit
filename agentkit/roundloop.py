@@ -1390,7 +1390,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         lp.state["round_summaries"].append(
             {"round": lp.rnd, "verdict": verdict, "done_when": ok,
              "finding_count": len(submitted.findings),
-             "summary": summary.strip()[-4000:], **validation, **passed})
+             "summary": summary.strip(), **validation, **passed})
     lp.log(f"round {lp.rnd} verdict: {verdict}")
     lp.state["verdict"] = verdict
     lp.state["review"] = {"executor": lp.executor, "executor_provider": exec_provider,
