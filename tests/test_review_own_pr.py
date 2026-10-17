@@ -100,6 +100,15 @@ class OwnPr(unittest.TestCase):
         lp.save()
         return "FAIL"
 
+    def checkout_patches(self):
+        """The PR's checkout, fetch and Git reads, which preflight's size check makes too."""
+        return [
+            patch.object(run, "checkout_for", return_value=self.repo),
+            patch.object(run, "fetch", return_value=(0, "")),
+            patch.object(run, "git", return_value=""),
+            patch.object(gitcall, "git", return_value=""),
+        ]
+
     def base_patches(self, author=LOGIN, reviewer="PASS"):
         """Every review_pr dependency but the verdict, the posting, the checks and the merge."""
         faces = {
@@ -109,9 +118,7 @@ class OwnPr(unittest.TestCase):
         return [
             patch.object(run, "pr_view", side_effect=[info(author), info(author, state="CLOSED")]),
             patch.object(run, "viewer_login", return_value=LOGIN),
-            patch.object(run, "checkout_for", return_value=self.repo),
-            patch.object(run, "git", return_value=""),
-            patch.object(gitcall, "git", return_value=""),
+            *self.checkout_patches(),
             patch.object(run, "make_worktree", return_value=(self.wt, "ak/pr-7")),
             patch.object(gitcall, "declared", return_value=None),
             patch.object(run, "exclude_junk", return_value=None),
@@ -120,7 +127,6 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "review", side_effect=faces[reviewer]),
             patch.object(run, "restore_review_checkout", return_value=None),
             patch.object(handback, "launcher_world", side_effect=lambda *a, **k: nullcontext(False)),
-            patch.object(run, "fetch", return_value=(0, "")), 
             patch.object(run, "commit_identity", return_value={"head_sha": HEAD, "tree_sha": "c" * 40}),
             patch.object(gitcall, "commit_identity", return_value={"head_sha": HEAD, "tree_sha": "c" * 40}),
         ]
@@ -610,8 +616,11 @@ class OwnPr(unittest.TestCase):
                 with patch.dict(os.environ, {"AGENTKIT_SESSION": session}):
                     run.capture_launch(run_dir, {"--review-pr": URL})
                 lines = []
-                with patch.object(run, "pr_view", return_value=info(author)), \
-                        patch.object(run, "viewer_login", return_value=LOGIN):
+                with ExitStack() as mocks:
+                    for m in self.checkout_patches():
+                        mocks.enter_context(m)
+                    mocks.enter_context(patch.object(run, "pr_view", return_value=info(author)))
+                    mocks.enter_context(patch.object(run, "viewer_login", return_value=LOGIN))
                     run.preflight(run_dir, {"--review-pr": URL}, lines.append)
                 saved = record.read_state(run_dir)
                 self.assertEqual(bool(saved.get("own_pr")), want_own)
@@ -644,8 +653,12 @@ class OwnPr(unittest.TestCase):
                 run_dir = self.launch_dir(f"20261013-captured-{name}")
                 record.save_state(run_dir, {**record.read_state(run_dir), "own_pr": True,
                                             "own_orchestrator": "opus"})
-                with patch.object(run, "pr_view", return_value=info()), \
-                        patch.object(run, "viewer_login", side_effect=AssertionError("login")):
+                with ExitStack() as mocks:
+                    for m in self.checkout_patches():
+                        mocks.enter_context(m)
+                    mocks.enter_context(patch.object(run, "pr_view", return_value=info()))
+                    mocks.enter_context(patch.object(
+                        run, "viewer_login", side_effect=AssertionError("login")))
                     with patch.object(config, "load", **failure), \
                             self.assertRaises(config.Error):
                         run.preflight(run_dir, {"--review-pr": URL}, lambda line: None)
