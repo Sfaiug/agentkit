@@ -1,6 +1,8 @@
 """Finding 16: public help and parser contracts, with only repo-local offline fixtures."""
 
+import compileall
 from contextlib import ExitStack, nullcontext
+import gc
 import importlib
 import io
 import json
@@ -8,7 +10,9 @@ import os
 from pathlib import Path
 import re
 import runpy
+import selectors
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -79,9 +83,48 @@ MATRIX = [
 ]
 
 
-def probe():
+def serve():
+    """Forks one probe per request line and answers with its exit and output. This parent
+    imports only the standard library, so each probe still imports agentkit fresh and
+    alone, without paying an interpreter start-up of its own."""
+    # Probes may not write bytecode, so without this each one compiles agentkit again.
+    compileall.compile_dir(REPO / "agentkit", quiet=2)
+    # Collections in a probe then skip this parent's objects, leaving their pages shared.
+    gc.freeze()
+    for line in sys.stdin:
+        request = json.loads(line)
+        (out, out_w), (err, err_w) = os.pipe(), os.pipe()
+        pid = os.fork()
+        if not pid:
+            null = os.open(os.devnull, os.O_RDONLY)
+            for fd, target in ((null, 0), (out_w, 1), (err_w, 2)):
+                os.dup2(fd, target)
+            for fd in (null, out, out_w, err, err_w):
+                os.close(fd)
+            os.environ.update(request.pop("env"))
+            signal.alarm(15)
+            return request
+        os.close(out_w)
+        os.close(err_w)
+        output = {out: b"", err: b""}
+        with selectors.DefaultSelector() as pending:
+            for fd in output:
+                pending.register(fd, selectors.EVENT_READ)
+            while pending.get_map():
+                for key, _ in pending.select():
+                    chunk = os.read(key.fd, 65536)
+                    output[key.fd] += chunk
+                    if not chunk:
+                        pending.unregister(key.fd)
+                        os.close(key.fd)
+        print(json.dumps({"returncode": os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]),
+                          "stdout": output[out].decode(), "stderr": output[err].decode()}),
+              flush=True)
+    sys.exit()
+
+
+def probe(request):
     """Fresh imports against a private HOME, including guards inside the CLI process."""
-    request = json.load(sys.stdin)
     args, mode = request["args"], request["mode"]
     root = Path(os.environ["HELP_FIXTURE"])
     from agentkit import config
@@ -229,12 +272,14 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
             "AGENTKIT_TMUX_SOCKET": "agentkit-test", "TMUX_TMPDIR": str(sockets),
             "AGENTKIT_ADAPTER_DIR": str(adapters), "AGENTKIT_DISCORD_WEBHOOK": "off",
         }
+        self.server = self.enterContext(subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--probe"], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, cwd=self.root, env=self.env, text=True))
 
     def cli(self, args, mode="help", env=None, **kwargs):
-        result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--probe"],
-                                input=json.dumps({"args": args, "mode": mode, **kwargs}),
-                                cwd=self.root, env={**self.env, **(env or {})},
-                                capture_output=True, text=True, timeout=15)
+        print(json.dumps({"args": args, "mode": mode, "env": env or {}, **kwargs}),
+              file=self.server.stdin, flush=True)
+        result = subprocess.CompletedProcess(args, **json.loads(self.server.stdout.readline()))
         self.assertFalse((self.root / "command-spy").exists(), result.stderr)
         return result
 
@@ -420,5 +465,5 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--probe"]:
-        sys.exit(probe())
+        sys.exit(probe(serve()))
     unittest.main()
