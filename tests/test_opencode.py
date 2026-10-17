@@ -47,6 +47,13 @@ case "$1" in
 esac
 """
 
+def listed(*ids):
+    """`opencode auth list` as 2.0.24 prints it: every provider holding a saved login."""
+    return json.dumps([{"id": i, "name": i.title(), "connections": [
+        {"type": "credential", "id": f"cred_{i}", "label": i.title(), "method": "key"}]}
+        for i in ids], indent=4)
+
+
 EVENTS_OK = """\
 {"type": "step_start", "timestamp": 1, "sessionID": "ses_first", "part": {"type": "step-start"}}
 {"type": "text", "timestamp": 2, "sessionID": "ses_first", "part": {"type": "text", "text": "hello"}}
@@ -75,8 +82,9 @@ class OpenCode(unittest.TestCase):
         self.bin.mkdir()
         (self.bin / "opencode").write_text(STUB)
         (self.bin / "opencode").chmod(0o755)
+        # every verb here is asked about MiMo, as ak names the provider of a mimo/ model
         self.env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
-                    "AGENTKIT_SESSION": "fakesession"}
+                    "AGENTKIT_SESSION": "fakesession", "AGENTKIT_PROVIDER": "mimo"}
         self.cfgdir = self.home / ".config" / "opencode"
         self.argv_log = self.root / "argv.log"
 
@@ -351,13 +359,9 @@ cat "$dir/bridge-eval"
         proc = self.adapter("auth", env={"PATH": bare})
         self.assertEqual(proc.returncode, 2)
 
-    def test_auth_store_counts_only_a_mimo_login(self):
-        # `auth list` names every provider holding a saved login, the way 2.0.14 prints it;
-        # only MiMo's serves a turn here, so a store holding another provider's alone is a no
-        def listed(*ids):
-            return json.dumps([{"id": i, "name": i.title(), "connections": [
-                {"type": "credential", "id": f"cred_{i}", "label": i.title(), "method": "key"}]}
-                for i in ids], indent=4)
+    def test_only_the_named_provider_s_login_counts(self):
+        # `auth list` names every provider holding a saved login; only MiMo's serves a
+        # `mimo/` turn, so a store holding another provider's alone is a no
         proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic")})
         self.assertEqual(proc.returncode, 1, proc.stdout)
         proc = self.adapter("login", env={"STUB_AUTH_LIST": listed("anthropic")},
@@ -367,6 +371,38 @@ cat "$dir/bridge-eval"
         proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic", "mimo")})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("auth store", proc.stdout)
+        # none named is any provider with a saved login
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed(),
+                                         "AGENTKIT_PROVIDER": ""})
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        proc = self.adapter("auth", env={"STUB_AUTH_LIST": listed("anthropic"),
+                                         "AGENTKIT_PROVIDER": ""})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_each_provider_named_needs_its_own_login(self):
+        # a key in OpenCode's config is that provider's login and no other's, the auth store
+        # answers for the rest, and several named each need their own
+        self.write_config("tp-dummy")
+        acme = {"STUB_AUTH_LIST": listed("acme")}
+        for named, rc in (("mimo", 0), ("acme", 0), ("zeta", 1), ("mimo acme", 0), ("acme zeta", 1)):
+            proc = self.adapter("auth", env={**acme, "AGENTKIT_PROVIDER": named})
+            self.assertEqual(proc.returncode, rc, (named, proc.stdout, proc.stderr))
+        self.assertEqual(proc.stderr.strip(),
+                         "opencode: no login for zeta; run `opencode auth login zeta`")
+        proc = self.adapter("login", env={**acme, "AGENTKIT_PROVIDER": "zeta"},
+                            stdin=subprocess.DEVNULL)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("`opencode auth login zeta`", proc.stderr)
+
+    def test_a_provider_with_no_meter_is_none_once_logged_in(self):
+        acme = {"STUB_AUTH_LIST": listed("acme")}
+        out = json.loads(self.adapter("usage", env={**acme, "AGENTKIT_PROVIDER": "acme"}).stdout)
+        self.assertEqual((out["provider"], out["meters"], out["error"]), ("acme", [], None))
+        self.assertIn("no meter", out["none"])
+        out = json.loads(self.adapter("usage", env={**acme, "AGENTKIT_PROVIDER": "zeta"}).stdout)
+        self.assertEqual((out["provider"], out["meters"]), ("zeta", []))
+        self.assertIn("no login for zeta", out["error"])
+        self.assertNotIn("none", out)
 
     def test_usage_reports_none_with_reason(self):
         # no key is a failed probe: an unauthenticated account must not rank neutral
@@ -654,6 +690,11 @@ cat "$dir/bridge-eval"
         self.assertFalse(out.exists())
         self.assertEqual([p.relative_to(self.home) for p in self.home.rglob("*") if p.is_file()],
                          [Path(".config/opencode/opencode.json")])
+        # with no provider named, `usage` still answers in its own shape
+        unnamed = {k: v for k, v in {**self.env, **named}.items() if k != "AGENTKIT_PROVIDER"}
+        proc = subprocess.run([ADAPTER, "usage"], capture_output=True, text=True, env=unnamed)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("account second refused", json.loads(proc.stdout)["error"])
         # `default` is the empty name, and the usual login is today's
         proc = self.adapter("auth", env={"AGENTKIT_ACCOUNT": ""})
         self.assertEqual(proc.returncode, 0, proc.stderr)
