@@ -382,7 +382,7 @@ The script implements the verbs: `run <model> <effort>
 token, ending `; logged in as <who>` where it can tell, or 1 with why not; never a network call), `interactive <model> <effort> [<session> [new]]` (the TUI command line, at the model's `effort`,
 with the harness's own bypass flag), `hooks` (install its lifecycle hooks idempotently), `models` (an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for a model that runs at no effort, empty
 where the harness does not say, which `c` then offers at its harness's `[effort]` vocabulary: live where the harness lists them (Claude's models API, Muse's `muse serve` `model/list`),
-else its `[catalog]`, which also stands in for a listing that fails, takes ten seconds or has no `timeout` to stop it), `install` and `login` for a fresh box, `login-end`
+else its `[catalog]`, which also stands in for a listing that fails, takes ten seconds or has no `timeout` to stop it), `install` and `login` for a fresh box (`login again` signs in afresh over a login that still stands, for one about to end; not yet Antigravity's: agy restores a login from the desktop keyring that only its own `/logout` clears), `login-end`
 (one JSON object, `email` whose login it is and `ends` the epoch second it stops serving, null where the harness writes no
 end down: only Claude does, the refresh token's `refreshTokenExpiresAt`, some thirty days after a login, which no renewal
 moves; the tick asks each subscription hourly at most and keeps the answers in `state/logins.json`), and

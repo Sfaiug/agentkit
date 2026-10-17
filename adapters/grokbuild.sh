@@ -22,7 +22,8 @@
 #                                  trusted, as the claude and codex plugins' seat
 #                                  preparation does for theirs
 #                     install      -> the x.ai installer, unless grok is already here
-#                     login        -> `grok login`, unless already logged in
+#                     login [again] -> `grok login`, unless already logged in; `again` signs
+#                                  in afresh over a login that still stands
 #                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since grok
 #                                  writes down no day its refresh token ends
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why: a
@@ -321,7 +322,7 @@ install)
   curl -fsSL https://x.ai/cli/install.sh | bash ;;
 login)
   command -v grok >/dev/null || { echo "grokbuild.sh login: grok is not installed" >&2; exit 2; }
-  if grep -q '[^[:space:]]' "$AUTH" 2>/dev/null; then echo "grok: already logged in"; exit 0; fi
+  if [ "${1:-}" != again ] && grep -q '[^[:space:]]' "$AUTH" 2>/dev/null; then echo "grok: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "grok: not logged in; run \`grok login\` in a terminal" >&2; exit 1; }
   share || exit 2
   grok login ;;
@@ -434,6 +435,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" grokbuild $ids ;;
 *)
-  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login | grokbuild.sh login-end | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
+  echo "usage: grokbuild.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | grokbuild.sh usage | grokbuild.sh interactive <model> <effort> [session-id [new]] | grokbuild.sh install | grokbuild.sh login [again] | grokbuild.sh login-end | grokbuild.sh auth [seat] | grokbuild.sh hooks | grokbuild.sh models" >&2
   exit 2 ;;
 esac

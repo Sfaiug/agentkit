@@ -6,7 +6,8 @@
 #                                  next session under an id of the caller's -- exits 3: the TUI
 #                                  rejects `--session-id`, so a Muse seat is given no id at all
 #                     install      -> Meta's installer, unless muse is already here
-#                     login        -> `muse login`, unless already logged in
+#                     login [again] -> `muse login`, unless already logged in; `again` signs
+#                                  in afresh over a login that still stands
 #                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since Muse's
 #                                  auth file records no expiry
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
@@ -244,7 +245,7 @@ install)
   curl -fsSL https://dev.meta.ai/install.sh | bash ;;
 login)
   command -v muse >/dev/null || { echo "muse.sh login: muse is not installed" >&2; exit 2; }
-  if [ -s "$AUTH" ]; then echo "muse: already logged in"; exit 0; fi
+  if [ "${1:-}" != again ] && [ -s "$AUTH" ]; then echo "muse: already logged in"; exit 0; fi
   [ -t 0 ] || { echo "muse: not logged in; run \`$LOGIN\` in a terminal" >&2; exit 1; }
   home || exit 2
   MUSE_NO_AUTO_UPDATE=1 muse login ;;
@@ -309,6 +310,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" muse ;;
 *)
-  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login | muse.sh login-end | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
+  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh login-end | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
   exit 2 ;;
 esac
