@@ -41,22 +41,23 @@ API=https://daily-cloudcode-pa.googleapis.com/v1internal   # the host agy's own 
 # call made for it carries that flag.  Its conversations/ and brain/ are the usual ones,
 # linked before agy can make its own, so a conversation begun on one account is resumed on
 # the next -- verified by a `--conversation` turn that answered out of the other's first.
-# Nothing of the usual login answers for it: agy's API-key sign-ins are dropped, and agy asks
-# the desktop keyring ahead of the file, so the session bus is closed and it reads and writes
-# the file alone.  How a person signs it in by hand is $SIGNIN.
+# Nothing of the usual login answers for it: agy's API-key sign-ins are dropped.
 ACCOUNT=${AGENTKIT_ACCOUNT:-}
-DATA="" SIGNIN=agy
+DATA=""
 if [ -n "$ACCOUNT" ]; then
   DATA="--app_data_dir=antigravity-cli-$ACCOUNT"
   TOKEN="$HOME/.gemini/antigravity-cli-$ACCOUNT/antigravity-oauth-token"
-  SIGNIN="DBUS_SESSION_BUS_ADDRESS=disabled: agy $DATA"
   unset GEMINI_API_KEY GOOGLE_API_KEY AGY_ADC_AUTH
-  export DBUS_SESSION_BUS_ADDRESS=disabled:
   for store in conversations brain; do
     mkdir -p -- "$HOME/.gemini/antigravity-cli/$store" "${TOKEN%/*}" 2>/dev/null
     [ -e "${TOKEN%/*}/$store" ] || ln -s -- "../antigravity-cli/$store" "${TOKEN%/*}/$store" 2>/dev/null
   done
 fi
+# agy asks a desktop keyring ahead of the file, and a login there only its TUI's `/logout`
+# clears: the session bus is closed for every login, so agy reads and writes the file alone,
+# the one every verb here reads.  How a person signs a login in by hand is $SIGNIN.
+export DBUS_SESSION_BUS_ADDRESS=disabled:
+SIGNIN="DBUS_SESSION_BUS_ADDRESS=disabled: agy${DATA:+ $DATA}"
 cmd=${1:-}; shift 2>/dev/null || true
 
 # jq is the tool most likely to be missing, so build the error object with printf
@@ -156,10 +157,10 @@ interactive)
   # runs at no effort (`claude-sonnet-4-6`, effort `none`) is its own full id.
   case $1 in *-"$2") model=$1 ;; *) model="$1-$2" ;; esac
   [ "$2" = none ] && model=$1
-  # A named account's seat carries what this file set above for it: the command runs later,
-  # outside this adapter's environment.
-  acct=""
-  [ -n "$ACCOUNT" ] && acct="-u GEMINI_API_KEY -u GOOGLE_API_KEY -u AGY_ADC_AUTH DBUS_SESSION_BUS_ADDRESS=disabled: "
+  # A seat carries what this file set above for its login: the command runs later, outside
+  # this adapter's environment.
+  acct="DBUS_SESSION_BUS_ADDRESS=disabled: "
+  [ -n "$ACCOUNT" ] && acct="-u GEMINI_API_KEY -u GOOGLE_API_KEY -u AGY_ADC_AUTH $acct"
   # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
   # screen comes to rest, starts moving or agy exits.
   printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions\n' \

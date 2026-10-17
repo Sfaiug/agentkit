@@ -83,8 +83,13 @@ class LoginAgain(unittest.TestCase):
                 self.assertEqual(calls, [sign_in])
 
     def test_c_agy_signs_in_with_no_saved_login_to_open_on(self):
-        # agy opens on a saved login instead of its sign-in; only its TUI's `/logout` clears one
-        self.login("antigravity", "again")
+        # agy opens on a saved login, in its file or a desktop keyring, instead of its sign-in,
+        # and only its TUI's `/logout` clears one: the file is gone and the keyring's bus closed
+        (self.home / "fake-bin/agy").write_text(
+            '#!/bin/sh\necho "[\\"$DBUS_SESSION_BUS_ADDRESS\\"]" >>"$FAKE_CALLS"\n')
+        self.env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/run/acme-bus"
+        _, calls = self.login("antigravity", "again")
+        self.assertEqual(calls, [["disabled:"]])
         self.assertFalse((self.home / HARNESSES["antigravity"][2]).exists())
 
 

@@ -186,7 +186,7 @@ outages = ["(code 500)", "(code 502)", "(code 503)", "(code 504)"]
 # signed-out screen is the asking.signin rule above.
 [auth]
 title = "Gemini"
-remedy = "exit agy, run `agy` in the host shell and sign in (open the URL, paste the code), then reopen the session"
+remedy = "exit agy, run `DBUS_SESSION_BUS_ADDRESS=disabled: agy` in the host shell and sign in (open the URL, paste the code), then reopen the session"
 signatures = [
   "Authentication required. Please visit the URL to log in:",
   "authentication failed or timed out",

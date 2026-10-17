@@ -228,7 +228,8 @@ class Antigravity(unittest.TestCase):
         self.assertEqual(words[:5], ["python3", str(REPO / "tools/idle-compact.py"),
                                      "--harness", "antigravity", "--"])
         words = words[5:]
-        self.assertEqual(words[:3], ["env", "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
+        self.assertEqual(words[:4], ["env", "DBUS_SESSION_BUS_ADDRESS=disabled:",
+                                     "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
         self.assertEqual(words[words.index("--agent") + 1], "agentkit")
         # the id agy's own alias resolution makes of the model and the effort
         self.assertEqual(words[words.index("--model") + 1], "gemini-3.8-flash-high")
@@ -416,7 +417,7 @@ class Antigravity(unittest.TestCase):
         self.assertIn("already installed (1.2.9-test)", proc.stdout)
         proc = self.adapter("login", stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("run `agy` in a terminal", proc.stderr)
+        self.assertIn("run `DBUS_SESSION_BUS_ADDRESS=disabled: agy` in a terminal", proc.stderr)
         self.write_token("dummy-refresh")
         proc = self.adapter("login", stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 0)
@@ -491,10 +492,12 @@ class Antigravity(unittest.TestCase):
         proc, out = self.turn(EVENTS_CONTINUED, "c-two", **usual)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("--app_data_dir", self.argv_log.read_text())
-        self.assertEqual(env_log.read_text().splitlines(), ["unix:path=/run/usual-bus|"])
+        # the keyring's session bus is closed for it too: its login is its file alone
+        self.assertEqual(env_log.read_text().splitlines(), ["disabled:|"])
         words = shlex.split(self.adapter("interactive", "gemini-3.8-flash", "high",
                                          env=usual).stdout)[5:]
-        self.assertEqual(words[:3], ["env", "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
+        self.assertEqual(words[:4], ["env", "DBUS_SESSION_BUS_ADDRESS=disabled:",
+                                     "AGY_CLI_DISABLE_AUTO_UPDATE=1", "agy"])
         self.assertNotIn("--app_data_dir", " ".join(words))
         self.assertEqual([p.name for p in self.token.parent.iterdir()], ["antigravity-oauth-token"])
         self.assertEqual([p.name for p in own.parent.iterdir()], ["antigravity-oauth-token"])
