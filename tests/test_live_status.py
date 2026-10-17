@@ -286,10 +286,10 @@ class LiveStatus(unittest.TestCase):
         self.assertIn("● working", rows[1][0])          # the recorded word
         self.assertIn("● working", rows[2][0])
 
-    def test_an_open_menu_moves_a_row_s_tasks_bar_within_two_seconds_of_a_run_s_step(self):
-        # the seat stays `working` while its run goes from building to review: the bar moves at
-        # once, and the row must too, though the seat's word, reason and since stay as they were
-        # -- a legacy seat's as well, whose bar no tmux job of ak's ever writes
+    def test_an_open_menu_is_woken_within_two_seconds_of_a_run_s_step(self):
+        # the seat stays `working` while its run goes from building to review: the menu reads it
+        # again at once, though the seat's word, reason and since stay as they were -- a legacy
+        # seat's as well, whose bar no tmux job of ak's ever writes
         self.seat["legacy"] = True
         self.plan(4, 8)
         self.hook("UserPromptSubmit")
@@ -336,8 +336,9 @@ class LiveStatus(unittest.TestCase):
         building, reviewing = ([line for line in screen.splitlines() if " herdr " in line][0]
                                for screen in screens)
         self.assertIn("● working", reviewing)
-        # the run's slot fills from a quarter to three quarters, as the bar's did
-        self.assertGreater(reviewing.count("▒"), building.count("▒"), (building, reviewing))
+        # the row's line is how much of the plan is done, which a step does not change
+        self.assertIn(" 4 of 8", building)
+        self.assertIn(" 4 of 8", reviewing)
         self.assertEqual(menu.seat_runs("herdr")[0]["step"], "review")
 
     def test_an_older_look_never_lands_on_the_bar_after_a_newer_one(self):
@@ -535,7 +536,7 @@ class LiveStatus(unittest.TestCase):
                 # the bar is the row's own values, word and last column alike
                 self.assertEqual(bar, statusbar.lines(
                     "herdr", "opus", statusbar.company(self.cfg, "opus"), info["word"],
-                    menu.last_column(info["word"], info["sentence"], *info["bar"], info["runs"],
+                    menu.last_column(info["word"], info["sentence"], *info["bar"],
                                      statusbar.CELLS, tmux=True))[:2])
                 self.assertEqual(self.options["set-titles-string"], f"herdr · {word}")
 
@@ -543,11 +544,11 @@ class LiveStatus(unittest.TestCase):
 
     def test_the_bar_names_who_orchestrates(self):
         claude = statusbar.company(self.cfg, "opus")
-        tasks = menu.last_column("working", "", 4, 8, (), statusbar.CELLS, tmux=True)
+        tasks = menu.last_column("working", "", 4, 8, statusbar.CELLS, tmux=True)
         self.assertEqual(
             drawn(statusbar.lines("ak-verification", "opus", claude, "working", tasks)[0]),
             f" ▐● working▌  ak-verification  opus orchestrates   {drawn(tasks)}")
-        self.assertIn(" 4/8 ", drawn(tasks))
+        self.assertTrue(drawn(tasks).endswith(" 4 of 8"), drawn(tasks))
         # through the one writer, from the session record's orchestrator
         self.plan(4, 8)
         statusbar.redress(dict(self.seat, repo=self.repo),

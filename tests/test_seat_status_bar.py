@@ -118,7 +118,7 @@ class Bar(Sandbox):
         shown = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.TOP}}}"))
         self.assertIn("herdr  fable orchestrates", shown)
         self.assertIn("working", shown)
-        self.assertIn(" 1/3 ▏", shown)       # the count's chip, then the next task's tick
+        self.assertIn("─ 1 of 3", shown)     # the line, then its count
         key = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.KEY}}}"))
         self.assertEqual(key.strip(), "Ctrl-b m  menu")
         title = tmux("show-options", "-t", "herdr", "-v", "set-titles-string")
