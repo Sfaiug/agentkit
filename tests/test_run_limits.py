@@ -25,8 +25,9 @@ from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import fork_turn
+from fixtures.tick import only_passes
 from agentkit import config, deliver, gate, gc, gitcall, host, notify, orch, roundloop, run, status, transitions, turns, usage, watch, worker
-from agentkit import matrix, record as run_record
+from agentkit import record as run_record
 from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
@@ -157,7 +158,6 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "shaped",
                                               side_effect=AssertionError("notification")))
         self.stack.enter_context(patch.object(usage, "collect", return_value={}))
-        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.stack.enter_context(patch.object(usage, "pick_order", return_value=["opus", "astra"]))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(gc, "schedule_gc"))
@@ -432,9 +432,10 @@ class Limits(unittest.TestCase):
         self.stack.enter_context(patch.object(
             watch, "launch_resume",
             side_effect=lambda run_id, log=lambda _: None: resumed.append(run_id) or True))
-        for name, where in (("retry_pending", notify), ("resume_after_boot", watch),
-                            ("health", watch), ("stamp", orch), ("sweep", orch)):
-            self.stack.enter_context(patch.object(where, name))
+        # the resume, and the stall ladder and reap after it that would have told someone
+        self.stack.enter_context(only_passes(self.root, "the dead-loop pass did not run",
+                                             "the stall pass did not run",
+                                             "the ending pass did not run"))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
         self.stack.enter_context(patch.object(orch, "find", return_value=None))
 

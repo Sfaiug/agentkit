@@ -17,8 +17,9 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
+from fixtures.tick import only_passes
 from agentkit import config, gate, gc, gitcall, handback, job as jobs, menu, notify, orch, run, status, terminal, transitions, watch
-from agentkit import host, matrix, record as run_record
+from agentkit import host, record as run_record
 
 
 class InterruptedRuns(unittest.TestCase):
@@ -65,7 +66,6 @@ sys.exit(1)
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
         self.stack.enter_context(patch.object(gitcall, "gh", side_effect=AssertionError("GitHub call")))
         self.stack.enter_context(patch.object(notify, "post", side_effect=AssertionError("Discord call")))
-        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.notified = self.stack.enter_context(patch.object(notify, "shaped", return_value=0))
         self.seats = []
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: self.seats))
@@ -411,8 +411,9 @@ if role == "reviewer" and (root / "fail-review").exists():
         workspace.mkdir(parents=True)         # a running run always has one to go back to
         directory = self.receipt("unattended", worktree=str(workspace), scratch=True)
         resumed = []
-        with patch.object(watch, "health"), patch.object(watch, "gh_json", return_value=(None, "offline")), \
-                patch.object(gc, "schedule_gc"), \
+        with only_passes(self.root, "the dead-loop pass did not run", "the stall pass did not run",
+                         "the ending pass did not run"), \
+                patch.object(watch, "gh_json", return_value=(None, "offline")), \
                 patch.object(watch, "launch_resume",
                              side_effect=lambda run_id, log=lambda _: None: resumed.append(run_id) or True), \
                 redirect_stdout(io.StringIO()) as said:

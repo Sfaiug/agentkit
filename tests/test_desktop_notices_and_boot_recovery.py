@@ -17,6 +17,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.tick import only_passes
 from agentkit import config, menu, notify, orch, watch
 from agentkit.harness import codex as codex_plugin
 
@@ -229,7 +230,9 @@ class DesktopAndBoot(Sandbox):
         self.save_seat("unowned-claude", conversation="guessed", id_source="discovered")
         menu.run_records()      # the pass that first reads a record keeps it; a dry run adds nothing
         before = self.snapshot()
-        with patch.object(watch, "gh_json", return_value=({"login": "fixture"}, "")), \
+        with only_passes(self.root, "the boot resume pass did not run",
+                         "the session health pass did not run"), \
+                patch.object(watch, "gh_json", return_value=({"login": "fixture"}, "")), \
                 patch.object(watch, "incoming"), patch.object(watch, "outgoing"), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(watch.main(["--dry-run"]), 0)

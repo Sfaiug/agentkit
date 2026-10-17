@@ -1,8 +1,8 @@
 """The three-minute tick looks after itself: one at a time, a bounded log, no traceback on gh.
 
-Offline: every pass of the tick is stubbed, the crontab is a shim on PATH over a temporary
-directory, and the log under test is this test's own file -- the real crontab and the real
-~/.agentkit/tmp/watch.log are never read or written here.
+Offline: the tick runs only the passes a test names (`fixtures.tick`), the crontab is a shim on
+PATH over a temporary directory, and the log under test is this test's own file -- the real
+crontab and the real ~/.agentkit/tmp/watch.log are never read or written here.
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stdout
@@ -21,8 +21,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, gc, handback, job as jobs, notify, orch, run, usage, watch
-from agentkit import logins, matrix, record
+from agentkit import config, job as jobs, orch, record, run, watch
+from fixtures.tick import only_passes
 
 
 class TickHealth(unittest.TestCase):
@@ -43,18 +43,9 @@ class TickHealth(unittest.TestCase):
         self.stack.enter_context(patch.object(watch, "LOG_OWNED", set()))
         config.ensure_dirs()
 
-    def stub_tick(self):
-        """Every pass of the tick except the ones a test is about, so nothing leaves the box."""
-        for where, name in ((notify, "retry_pending"), (notify, "tick_cards"),
-                            (watch, "resume_after_boot"), (watch, "health"),
-                            (watch, "finish_own_lines"), (watch, "tell_audit"),
-                            (watch, "recover_runs"), (watch, "resume_exhausted"),
-                            (watch, "revive_seats"), (gc, "schedule_gc"),
-                            (orch, "stamp"), (orch, "sweep"), (usage, "collect"),
-                            (logins, "remind"), (matrix, "refresh")):
-            self.stack.enter_context(patch.object(where, name))
-        self.stack.enter_context(patch.object(handback, "reap", lambda _dir, state: state))
-        self.tidy = self.stack.enter_context(patch.object(browser, "tidy"))
+    def stub_tick(self, *named):
+        """The tick with only the passes a test is about, so nothing leaves the box."""
+        self.reached = self.stack.enter_context(only_passes(self.root, *named))
         self.incoming = self.stack.enter_context(patch.object(watch, "incoming"))
         self.outgoing = self.stack.enter_context(patch.object(watch, "outgoing"))
         self.gh = self.stack.enter_context(
@@ -157,10 +148,8 @@ class TickHealth(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("tick already running (pid 4242, for 7 min)", said)
         self.assertNotIn("WARN", said)
-        notify.retry_pending.assert_not_called()
-        watch.health.assert_not_called()
+        self.assertEqual(self.reached, [])
         self.gh.assert_not_called()
-        self.tidy.assert_not_called()
 
     def test_a_tick_holding_the_lock_past_thirty_minutes_is_warned_about_too(self):
         self.stub_tick()
@@ -335,11 +324,9 @@ class TickHealth(unittest.TestCase):
         self.assertIn("gh is not logged in; PR checks skipped", said)
         self.incoming.assert_not_called()
         self.outgoing.assert_not_called()
-        # everything else on the tick still ran, the browser tidy included
-        self.tidy.assert_called_once()
-        watch.health.assert_called_once()
-        watch.recover_runs.assert_called_once()
-        gc.schedule_gc.assert_called_once()
+        # everything else on the tick still ran
+        self.assertEqual(self.reached,
+                         [what for what, _, _ in watch.local_passes({}, False, print)])
         # and the seat whose run is waiting to push is told why, once gh is asked for
         self.assertEqual(watch.load_state()["gh_out"]["seats"], ["atoll"])
         blocked = self.seat_state("atoll")
@@ -473,7 +460,7 @@ class TickHealth(unittest.TestCase):
     # --- a job whose launcher died --------------------------------------------
 
     def test_a_tick_relaunches_a_job_whose_launcher_died_once_and_a_dry_run_only_names_it(self):
-        self.stub_tick()
+        self.stub_tick("the dead-job pass did not run")
         cfg = config.load()
         workers = cfg["defaults"]["workers"]
         config.save_session(cfg, "atoll", workers[0], workers[:1])

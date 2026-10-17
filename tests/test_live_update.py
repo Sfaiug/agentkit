@@ -7,8 +7,8 @@ origin commit, by `ak update` and in the tick's log alike.  A fetch that fails i
 next tick fetches again.
 
 Offline throughout: origin is a throwaway bare repository, ~/agentkit is its clone under a
-temporary HOME, install.sh is a fake committed there, and every other pass of the tick is a
-stub.  The real ~/agentkit, its origin and the crontab are never read or written here.
+temporary HOME, install.sh is a fake committed there, and the tick runs only its go-live pass.
+The real ~/agentkit, its origin and the crontab are never read or written here.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -23,8 +23,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import browser, config, gc, job as jobs, notify, orch, run, update, usage, watch
-from agentkit import matrix, record
+from agentkit import config, update, watch
+from fixtures.tick import only_passes
 
 INSTALL = '#!/bin/sh\necho installed >>"$(dirname "$0")/../installs"\n'
 
@@ -53,7 +53,6 @@ class LiveUpdate(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         self.stack.enter_context(patch.object(watch, "LOG_OWNED", set()))
-        self.stack.enter_context(patch.object(matrix, "refresh"))
         config.ensure_dirs()
         self.cfg = config.load()   # off this checkout's defaults, before REPO is the clone's
         # the tick moves only the checkout it runs from; here that is the throwaway clone
@@ -98,23 +97,10 @@ class LiveUpdate(unittest.TestCase):
         return code, out.getvalue()
 
     def tick(self):
-        """One `ak watch` with every other pass stubbed: what it said about agentkit."""
-        with ExitStack() as stack:
-            for where, name in ((notify, "retry_pending"), (notify, "tick_cards"),
-                                (watch, "resume_after_boot"), (watch, "health"),
-                                (watch, "resume_dead_loops"), (watch, "recover_runs"),
-                                (watch, "resume_exhausted"), (watch, "resume_waiting_login"),
-                                (watch, "resume_errored"), (watch, "resume_waiting"),
-                                (watch, "sweep_preexisting"), (watch, "revive_seats"),
-                                (jobs, "deliver_job_handbacks"), (gc, "schedule_gc"),
-                                (orch, "stamp"), (orch, "sweep"), (usage, "collect"),
-                                (browser, "tidy"), (watch, "incoming"), (watch, "outgoing"),
-                                (update, "keep_current"), (watch, "tell_audit")):
-                stack.enter_context(patch.object(where, name))
-            stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
-            stack.enter_context(patch.object(config, "load", return_value=self.cfg))
-            stack.enter_context(patch.object(watch, "gh_json",
-                                             return_value=(None, "offline fixture")))
+        """One `ak watch` that only goes live: what it said about agentkit."""
+        with only_passes(self.root, "agentkit did not go live"), \
+                patch.object(config, "load", return_value=self.cfg), \
+                patch.object(watch, "gh_json", return_value=(None, "offline fixture")):
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(watch.main([]), 0)

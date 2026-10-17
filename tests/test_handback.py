@@ -23,8 +23,9 @@ from urllib.parse import unquote_to_bytes
 
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.hand_in import records, scripted, stateful
-from agentkit import browser, config, deliver, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, prompts, roundloop, run, status, terminal, transitions, watch, worktrees
-from agentkit import matrix, record
+from fixtures.tick import only_passes
+from agentkit import config, deliver, gate, gc, gitcall, handback, host, job as jobs, land, menu, notify, orch, prompts, roundloop, run, status, terminal, transitions, watch, worktrees
+from agentkit import record
 
 SEAT = "seat"
 TYPE_CHECKED = watch.type_checked   # the real confirmed send, for the tests that drive it
@@ -157,7 +158,6 @@ class HandBack(Sandbox):
             notify, "shaped",
             side_effect=lambda kind, text, **kw: self.cards.append((kind, text, kw)) or 0))
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
-        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.stack.enter_context(patch.object(
             orch, "ensure",
             side_effect=lambda cfg, name, log=print, saved=False:
@@ -195,12 +195,13 @@ class HandBack(Sandbox):
                               "- b.py:2 - two - why\n"))
 
     def tick(self):
-        """One real `ak watch` pass, with GitHub unavailable so it stops before its PR passes."""
-        with patch.object(watch, "health"), patch.object(watch, "recover_runs"), \
-                patch.object(watch, "gh_json", return_value=(None, "offline")), \
-                patch.object(gc, "schedule_gc"), patch.object(browser, "tidy"), \
-                patch.object(notify, "tick_cards"), \
-                patch.object(orch, "stamp"), patch.object(orch, "sweep"):
+        """One real `ak watch` of the hand-back's passes, with GitHub unavailable so it stops
+        before its PR passes."""
+        with only_passes(self.root, "the held-line Enter pass did not run",
+                         "the pre-existing sweep did not run", "the ending pass did not run",
+                         "a finished job was not handed back",
+                         "the seat revival pass did not run"), \
+                patch.object(watch, "gh_json", return_value=(None, "offline")):
             self.assertEqual(watch.main([]), 0)
 
     # --- the hand-back ------------------------------------------------------

@@ -16,24 +16,44 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, staffing, update  # noqa: E402
 from agentkit import leases, logins, matrix, usage, watch  # noqa: E402
+from fixtures.tick import only_passes  # noqa: E402
 
-# Every pass of the tick, in its order, and whether a dry run runs it too.
+# The passes of the tick this test runs, in its order: the WARN line a raise of each is told in
+# (GitHub's follow the table, under none), and whether a dry run runs it too.
 PASSES = (
-    (notify, "retry_pending", True), (watch, "resume_after_boot", True),
-    (watch, "finish_own_lines", False),
-    (watch, "continue_turns", False), (watch, "health", True),
-    (watch, "resume_dead_loops", True), (watch, "resume_dead_jobs", True),
-    (watch, "recover_runs", True), (leases, "scan_all", False), (watch, "save_state", False),
-    (usage, "collect", False), (logins, "remind", False), (matrix, "refresh", False),
-    (staffing, "_cached_providers", True), (watch, "resume_exhausted", True),
-    (watch, "resume_waiting_login", True), (watch, "resume_errored", True),
-    (watch, "resume_waiting", True), (watch, "sweep_preexisting", False),
-    (watch, "offer_endings", False), (jobs, "deliver_job_handbacks", False),
-    (watch, "wait_over", False), (watch, "tell_audit", False), (notify, "tick_cards", False),
-    (watch, "revive_seats", False), (gc, "schedule_gc", False), (orch, "stamp", False),
-    (orch, "sweep", False), (browser, "tidy", False), (update, "go_live", False),
-    (update, "keep_current", False), (watch, "incoming", True), (watch, "outgoing", True),
-    (watch, "after_merge_checks", True),
+    (notify, "retry_pending", "the notification retry did not run", True),
+    (watch, "resume_after_boot", "the boot resume pass did not run", True),
+    (watch, "finish_own_lines", "the held-line Enter pass did not run", False),
+    (watch, "continue_turns", "the mid-turn continue pass did not run", False),
+    (watch, "health", "the session health pass did not run", True),
+    (watch, "resume_dead_loops", "the dead-loop pass did not run", True),
+    (watch, "resume_dead_jobs", "the dead-job pass did not run", True),
+    (watch, "recover_runs", "the stall pass did not run", True),
+    (leases, "scan_all", "the lease scan did not run", False),
+    (watch, "save_state", "the tick's watch.json was not saved", False),
+    (usage, "collect", "the usage refresh did not finish", False),
+    (logins, "remind", "the login-end read did not run", False),
+    (matrix, "refresh", "the boards pass did not run", False),
+    (staffing, "_cached_providers", "the usage refresh did not finish", True),
+    (watch, "resume_exhausted", "the exhausted-resume pass did not run", True),
+    (watch, "resume_waiting_login", "the login-resume pass did not run", True),
+    (watch, "resume_errored", "the error-retry pass did not run", True),
+    (watch, "resume_waiting", "the waiting-resume pass did not run", True),
+    (watch, "sweep_preexisting", "the pre-existing sweep did not run", False),
+    (watch, "offer_endings", "the ending pass did not run", False),
+    (jobs, "deliver_job_handbacks", "a finished job was not handed back", False),
+    (watch, "wait_over", "the wait pass did not run", False),
+    (watch, "tell_audit", "the weekly audit pass did not run", False),
+    (notify, "tick_cards", "the card transition pass did not run", False),
+    (watch, "revive_seats", "the seat revival pass did not run", False),
+    (gc, "schedule_gc", "retention pass did not finish", False),
+    (orch, "stamp", "retention pass did not finish", False),
+    (orch, "sweep", "retention pass did not finish", False),
+    (browser, "tidy", "browser tidy did not finish", False),
+    (update, "go_live", "agentkit did not go live", False),
+    (update, "keep_current", "the harness upgrade pass did not run", False),
+    (watch, "incoming", None, True), (watch, "outgoing", None, True),
+    (watch, "after_merge_checks", None, True),
 )
 
 
@@ -41,22 +61,22 @@ class TickPasses(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-tick-passes-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        root = Path(tmp.name)
+        self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
-            self.stack.enter_context(patch.object(config, name, root / name.lower()))
+            self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
         self.stack.enter_context(patch.object(watch, "LOG_OWNED", set()))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=({"login": "me"}, "")))
         self.passes = {f"{where.__name__}.{name}": self.stack.enter_context(
             patch.object(where, name, return_value={} if name in ("collect", "_cached_providers")
-                         else None)) for where, name, _dry in PASSES}
+                         else None)) for where, name, _what, _dry in PASSES}
 
     def tick(self, *argv):
         out = io.StringIO()
-        with redirect_stdout(out):
+        with only_passes(self.root, *{what for _, _, what, _ in PASSES}), redirect_stdout(out):
             self.assertEqual(watch.main(list(argv)), 0)
         return out.getvalue()
 
@@ -78,7 +98,7 @@ class TickPasses(unittest.TestCase):
 
     def test_a_dry_run_runs_only_the_passes_that_change_nothing(self):
         self.tick("--dry-run")
-        for where, name, dry in PASSES:
+        for where, name, _what, dry in PASSES:
             with self.subTest(name=name):
                 self.assertEqual(self.passes[f"{where.__name__}.{name}"].called, dry, name)
         self.assertTrue(self.passes["agentkit.watch.health"].call_args.args[2])

@@ -13,8 +13,8 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import browser, config, gc, handback, menu, notify, orch, run, status, watch
-from agentkit import matrix, record
+from fixtures.tick import only_passes
+from agentkit import config, handback, menu, notify, orch, record, run, status, watch
 
 SEAT = "seat"
 
@@ -55,8 +55,6 @@ class NoReplay(Sandbox):
         self.stack.enter_context(patch.object(
             notify, "shaped",
             side_effect=lambda kind, text, **kw: self.cards.append((kind, text, kw)) or 0))
-        self.stack.enter_context(patch.object(notify, "tick_cards"))
-        self.stack.enter_context(patch.object(matrix, "refresh"))
         self.stack.enter_context(patch.object(watch.time, "sleep", lambda _s: None))
         self.stack.enter_context(patch.object(
             orch, "ensure",
@@ -85,10 +83,12 @@ class NoReplay(Sandbox):
         return self.ended(name, owner=SEAT, finished_at=now, started_at=now - 10, **extra)
 
     def tick(self):
-        with patch.object(watch, "health"), patch.object(watch, "recover_runs"), \
-                patch.object(watch, "gh_json", return_value=(None, "offline")), \
-                patch.object(gc, "schedule_gc"), patch.object(browser, "tidy"), \
-                patch.object(orch, "stamp"), patch.object(orch, "sweep"):
+        # the passes these tests are about: the mid-turn nudge, the endings and their sweep,
+        # and the seat's revival
+        with only_passes(self.root, "the mid-turn continue pass did not run",
+                         "the pre-existing sweep did not run", "the ending pass did not run",
+                         "the seat revival pass did not run"), \
+                patch.object(watch, "gh_json", return_value=(None, "offline")):
             self.assertEqual(watch.main([]), 0)
 
     def test_first_tick_after_upgrade_marks_old_endings_without_typing_or_reopening(self):

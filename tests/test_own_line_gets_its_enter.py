@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
-from test_tick_passes import PASSES
+from fixtures.tick import only_passes
 from agentkit import config, orch, watch
 
 SEAT = "acme-api"
@@ -41,10 +41,6 @@ class OwnLineGetsItsEnter(Sandbox):
         self.stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: self.pane))
         self.stack.enter_context(patch.object(watch, "pane_unread", side_effect=AssertionError(
             "a pending Enter completes its line without gating new text")))
-        # Run the real pass list: every other pass is outside this behavior.
-        for where, name, _dry in PASSES:
-            if name != "finish_own_lines":
-                self.stack.enter_context(patch.object(where, name, return_value={}))
         self.keys, self.locked, self.fail_enter = [], False, False
         held = watch.seat_held
 
@@ -84,9 +80,12 @@ class OwnLineGetsItsEnter(Sandbox):
         return 0, ""
 
     def tick(self, dry_run=False):
-        for _what, step, also_dry in watch.local_passes({"stalls": {}}, dry_run, lambda _line: None):
-            if not dry_run or also_dry:
-                step()
+        # the real pass list, of which only this pass runs: every other is outside this behavior
+        with only_passes(self.root, "the held-line Enter pass did not run"):
+            for _what, step, also_dry in watch.local_passes({"stalls": {}}, dry_run,
+                                                            lambda _line: None):
+                if not dry_run or also_dry:
+                    step()
 
     def test_account_line_left_after_its_mark_went_gets_only_enter(self):
         watch.seat_write(SEAT, state="working", midturn=None)

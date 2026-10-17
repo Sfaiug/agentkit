@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home, in_account_home
 from fixtures.hand_in import submitting, scripted
 from fixtures.landing import fork_turn
+from fixtures.tick import only_passes
 from agentkit import config, deliver, gitcall, notify, orch, run, turns, usage, watch
 from agentkit import record as run_record
 
@@ -412,7 +413,10 @@ sys.exit(item.get("rc", 0))
         self.incoming_fixture()
         self.reply("api user", {"login": "me"})
         self.reply("api --paginate search/issues?q=is:pr+is:open+author:@me&per_page=100", [{"items": []}])
-        with patch.object(config, "ensure_dirs", side_effect=AssertionError("write")), patch.object(
+        # the passes that would act on the dead run below, were this not a dry run
+        with only_passes(self.root, "the dead-loop pass did not run",
+                         "the stall pass did not run"), \
+                patch.object(config, "ensure_dirs", side_effect=AssertionError("write")), patch.object(
                 run, "reap", side_effect=AssertionError("reap")), patch.object(
                 watch, "launch", side_effect=AssertionError("launch")):
             with contextlib.redirect_stdout(io.StringIO()):

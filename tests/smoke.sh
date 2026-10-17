@@ -457,11 +457,14 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 from unittest.mock import patch
 
-from agentkit import config, gc, handback, logins, matrix, menu, notify, orch, terminal, usage, watch, record
+from agentkit import config, gc, handback, menu, notify, orch, terminal, usage, watch, record
 from agentkit.harness import muse_usage
+sys.path.insert(0, str(config.REPO / "tests"))
+from fixtures.tick import only_passes
 
 with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO) as tmp, ExitStack() as stack:
     root = Path(tmp)
@@ -473,10 +476,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     stack.enter_context(patch.object(usage.time, "time", side_effect=lambda: now[0]))
     # Keep the watch entry point real, including its write and GitHub-failure paths.
     passes = {}
-    for module, name in ((watch, "health"), (notify, "retry_pending"), (notify, "tick_cards"),
-                         (gc, "schedule_gc"), (orch, "stamp"), (orch, "sweep"),
-                         (watch.browser, "tidy"), (watch, "tell_audit"), (logins, "remind"),
-                         (matrix, "refresh")):
+    for module, name in ((gc, "schedule_gc"), (orch, "stamp"), (orch, "sweep")):
         passes[name] = stack.enter_context(patch.object(module, name))
     stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
     stack.enter_context(patch.object(orch, "sessions", return_value=[]))
@@ -537,7 +537,9 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
         return rows
 
     def tick(dry=False):
-        with redirect_stdout(io.StringIO()) as output:
+        # the usage refresh, and of the tick's other passes those it must never delay
+        with only_passes(root, "the usage refresh did not finish", "the ending pass did not run",
+                         "retention pass did not finish"), redirect_stdout(io.StringIO()) as output:
             assert watch.main(["--dry-run"] if dry else []) == 0
         said = output.getvalue()
         assert "offline fixture" in said, said      # the fake GitHub, skipped and named
@@ -692,18 +694,21 @@ import re
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
 import threading
 import unittest
 from unittest.mock import patch
 
-from agentkit import config, gc, logins, matrix, menu, notify, orch, run, terminal, usage, watch, record
+from agentkit import config, menu, notify, orch, run, terminal, usage, watch, record
+sys.path.insert(0, str(config.REPO / "tests"))
+from fixtures.tick import only_passes
 
 
 class SessionState(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
+        self.root = root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(
             prefix=".ak-test-session-state-", dir=config.REPO)))
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, root / name.lower()))
@@ -730,10 +735,7 @@ class SessionState(unittest.TestCase):
         self.stack.enter_context(patch.object(notify, "_attempt", side_effect=self.deliver))
         self.close_needs = notify.close_needs
         self.edits = self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
-        for module, name in ((usage, "collect"), (gc, "schedule_gc"), (orch, "stamp"),
-                             (orch, "sweep"), (watch.browser, "tidy"), (watch, "tell_audit"),
-                             (logins, "remind"), (matrix, "refresh")):
-            self.stack.enter_context(patch.object(module, name))
+        self.stack.enter_context(patch.object(usage, "collect"))    # a seat's account, to health
         self.stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
         # No command, network request or actual attach may escape this fixture.
@@ -767,7 +769,10 @@ class SessionState(unittest.TestCase):
             self.assertEqual(orch.attach(self.seat["name"], wait=True), 0)
 
     def tick(self, dry=False):
-        with redirect_stdout(io.StringIO()) as said:
+        with only_passes(self.root, "the notification retry did not run",
+                         "the session health pass did not run", "the typed-answer pass did not run",
+                         "the card transition pass did not run"), \
+                redirect_stdout(io.StringIO()) as said:
             self.assertEqual(watch.main(["--dry-run"] if dry else []), 0)
         self.assertIn("PR checks skipped", said.getvalue())
 
@@ -4399,6 +4404,7 @@ tm kill-session -t =smoke-shape-final 2>/dev/null
 # A fake `gh` answers for GitHub: this account owns the repo, one PR is somebody else's, one is
 # ours, one is a draft. The dry run names the one it would review and launches nothing, and
 # names what it would hand on about our own PR elsewhere -- to a seat or a run, never Discord.
+# Of the tick, only GitHub's passes run (tests/fixtures/tick.py).
 WH="$WORK/home-watch"; WBIN="$WORK/bin-watch"
 mkdir -p -- "$WH/.agentkit" "$WBIN" "$WH/code"
 WR=$(newrepo "home-watch/code/owned")
@@ -4424,7 +4430,7 @@ esac
 SH
 chmod +x "$WBIN/gh"
 WATCH=0
-HOME="$WH" PATH="$WBIN:$PATH" ak watch --dry-run >"$WORK/watch.log" 2>&1 || WATCH=1
+HOME="$WH" PATH="$WBIN:$PATH" python3 "$REPO/tests/fixtures/tick.py" --dry-run >"$WORK/watch.log" 2>&1 || WATCH=1
 grep -q '^would review https://github.com/me/owned/pull/3 (#3 by bob: Fix parser) at abcdef123456$' "$WORK/watch.log" || WATCH=1
 grep -q 'pull/4\|pull/5' "$WORK/watch.log" && WATCH=1
 grep -q '^would hand on: PR #8 Their thing: the maintainer requested changes (https://github.com/other/theirs/pull/8)$' "$WORK/watch.log" || WATCH=1
@@ -5334,7 +5340,8 @@ print("ok")
 PY
 # the OpenAI seat was typed at with its resets left in hand: only the owner spends one
 [ ! -e "$STALLAD/codex.calls" ] || STALL=1
-# and the pass runs from the command itself: a dry run says what it would type and types nothing
+# and the pass runs from the tick itself, alone (tests/fixtures/tick.py): a dry run says what
+# it would type and types nothing
 cat >"$STALLBIN/gh" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
@@ -5358,7 +5365,8 @@ PY
 STALLWAS=$(md5sum <"$STALLH/.agentkit/state/watch.json")
 STALLTYPEDWAS=$(cat "$STALLTYPED/$STALLSEAT.txt" 2>/dev/null || echo none)
 HOME="$STALLH" TMUX_TMPDIR="$STALLT" AGENTKIT_ADAPTER_DIR="$STALLAD" PATH="$STALLBIN:$PATH" \
-  ak watch --dry-run >"$WORK/stall-dry.log" 2>&1 || STALL=1
+  python3 "$REPO/tests/fixtures/tick.py" --dry-run "the session health pass did not run" \
+  >"$WORK/stall-dry.log" 2>&1 || STALL=1
 grep -q "^would resume $STALLSEAT, stalled on API Error, with 'continue'\$" "$WORK/stall-dry.log" || STALL=1
 [ "$(md5sum <"$STALLH/.agentkit/state/watch.json")" = "$STALLWAS" ] || STALL=1
 [ "$(cat "$STALLTYPED/$STALLSEAT.txt" 2>/dev/null || echo none)" = "$STALLTYPEDWAS" ] || STALL=1
