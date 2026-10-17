@@ -83,7 +83,8 @@ class UsageStaysOnTop(Sandbox):
                                            (30, 14, 1, None), (30, 20, 14, None),
                                            (30, 11, 1, None), (38, 10, 1, menu.OVERLAY_KEYS),
                                            (28, 13, 1, menu.OVERLAY_KEYS),
-                                           (38, 10, 14, menu.OVERLAY_KEYS)):
+                                           (38, 10, 14, menu.OVERLAY_KEYS),
+                                           (40, 15, 0, None), (100, 11, 0, None)):
             lines, _ = self.draw(width, height, seats, keys=keys)
             text = "\n".join(lines)
             self.assertLessEqual(len(lines), height - 2, text)

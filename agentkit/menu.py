@@ -1370,7 +1370,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     seat_blocks = _seat_blocks()
     blocks = [[heading(project)] + [pair for block in own for pair in block]
               for project, own in zip(ordered, seat_blocks)]
-    flat = _flat(blocks)
+    flat = _flat(blocks) or [("  no sessions; n starts one", None)]     # a row, budgeted as one
 
     # The highlighted seat's lines go under its row: as many kept on every page as the most any
     # seat opens, up to half the screen, so no page overflows or turns as the highlight moves;
@@ -1459,11 +1459,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 terminal.rule_line(width, updating or 0)]
     grid = len(out) + 1 if meters and meters is meters_full else None     # its first row
     out += meters
-    body = [("  no sessions; n starts one", None)]
     if not compact:
         out += ["", ""]       # the line under the grid, then one blank above the projects
-    if ordered:
-        body = pages[page] or body
+    body = pages[page] if ordered else flat
     top, above = len(out), None
     under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
     info = next((info for info in infos if info["name"] == cursor), None)
