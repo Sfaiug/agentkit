@@ -23,6 +23,8 @@ class EndedLoginLeftoversStopped(Sandbox):
     def setUp(self):
         super().setUp()
         self.logins, self.commands, self.lines = {}, [], []
+        self.running = {4242: (1, ["opencode", "serve", "--service"]),
+                        4343: (1, ["bash", "-c", "while sleep 60; do :; done"])}
         self.cgroups = self.root / "cgroup"
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_CGROUP_ROOT": str(self.cgroups)}))
@@ -32,12 +34,12 @@ class EndedLoginLeftoversStopped(Sandbox):
         clock.monotonic = lambda: NOW
         self.stack.enter_context(patch.object(gc, "time", clock))
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=True))
-        self.stack.enter_context(patch.object(orch, "processes", return_value={
-            4242: (1, ["opencode", "serve", "--service"])}))
+        self.stack.enter_context(patch.object(orch, "processes",
+                                              side_effect=lambda: dict(self.running)))
         self.stack.enter_context(patch.object(gc.subprocess, "run", side_effect=self.system))
         (config.STATE / "installed-at").write_text("1000\n")     # install.sh on a server
 
-    def login(self, number, state, since, pids=(4242,), uid=UID):
+    def login(self, number, state, since, pids=(4242,), uid=UID, nested=()):
         group = f"/user.slice/user-{uid}.slice/session-{number}.scope"
         self.logins[number] = {"uid": uid, "Id": f"session-{number}.scope", "SubState": state,
                                "ControlGroup": group,
@@ -45,6 +47,8 @@ class EndedLoginLeftoversStopped(Sandbox):
         scope = self.cgroups / group.lstrip("/")
         scope.mkdir(parents=True)
         (scope / "cgroup.procs").write_text("".join(f"{pid}\n" for pid in pids))
+        (scope / "workload").mkdir()              # a child: the scope's own list leaves it out
+        (scope / "workload/cgroup.procs").write_text("".join(f"{pid}\n" for pid in nested))
 
     def system(self, command, **_kw):
         self.commands.append(command)
@@ -62,12 +66,13 @@ class EndedLoginLeftoversStopped(Sandbox):
         elif command[:2] == ["loginctl", "terminate-session"]:
             self.assertEqual(len(command), 3)
             self.logins.pop(command[2])
+            self.running.clear()                       # the login's processes go with it
         else:
             self.fail(f"not a logind or systemd question: {command}")
         return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
     def tick(self):
-        step = next(step for what, step, also_dry in watch.local_passes({}, False, self.lines.append)
+        step = next(step for what, step, _ in watch.local_passes({}, False, self.lines.append)
                     if what == "the ended-login pass did not run")
         step()
 
@@ -75,13 +80,13 @@ class EndedLoginLeftoversStopped(Sandbox):
         return [command[2] for command in self.commands if command[1] == "terminate-session"]
 
     def test_a_login_ended_a_day_ago_is_stopped_through_logind(self):
-        self.login("34", "abandoned", 25 * HOUR)
+        self.login("34", "abandoned", 25 * HOUR, nested=(4343,))
         self.login("35", "abandoned", 2 * 86400, pids=())           # nothing left running
         self.login("36", "abandoned", 3 * 86400, uid=str(os.getuid() + 1))   # another user's
         self.tick()
         self.assertEqual(self.stopped(), ["34"])
-        self.assertEqual(self.lines, ["stopped login 34, ended 1d ago, "
-                                      "still running: opencode serve --service"])
+        self.assertEqual(self.lines, ["stopped login 34, ended 1d ago, still running: opencode "
+                                      "serve --service; bash -c while sleep 60; do :; done"])
 
     def test_a_login_ended_an_hour_ago_is_kept(self):
         self.login("34", "abandoned", HOUR)

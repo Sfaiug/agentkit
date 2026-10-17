@@ -97,9 +97,11 @@ def cgroup_path(relative="", cgroup_root=None):
 
 
 def cgroup_pids(relative):
-    """The pids the kernel holds in that cgroup itself, or [] where it cannot be read."""
+    """The pids, in order, the kernel holds in that cgroup and every one under it, or [] where
+    one cannot be read: a group's own `cgroup.procs` leaves out its children's."""
     try:
-        return [int(pid) for pid in (cgroup_path(relative) / "cgroup.procs").read_text().split()]
+        return sorted(int(pid) for procs in cgroup_path(relative).rglob("cgroup.procs")
+                      for pid in procs.read_text().split())
     except (OSError, ValueError):
         return []
 

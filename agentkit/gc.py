@@ -812,7 +812,8 @@ def stop_ended_logins(log):
     and left.  logind abandons a login's scope the moment the login ends, so the scope's last
     state change is that moment.  The pids read only name what ran: the stop is the whole login's.
     """
-    # install.sh stamps `installed-at` on a server and records the server's alias on a client
+    # install.sh stamps `installed-at` on a server and records the server's alias on a client;
+    # with no user manager, seats start plainly, inside the login that opened them
     if (config.server_alias() or not (config.STATE / "installed-at").exists()
             or not orch.user_manager()):
         return
@@ -835,14 +836,13 @@ def stop_ended_logins(log):
         try:
             ended = int(fields.get("StateChangeTimestampMonotonic", "0")) / 1_000_000
             if (fields.get("SubState") != "abandoned"
-                    or not retention.expired(ended, now, ENDED_LOGIN_AGE)):
+                    or not retention.expired(ended, now, ENDED_LOGIN_AGE)
+                    or not (pids := host.cgroup_pids(fields["ControlGroup"]))):
                 continue
-            pids = host.cgroup_pids(fields["ControlGroup"])
+            ran = orch.processes() or {}     # before the stop, which takes its processes along
+            commands = "; ".join(" ".join(ran[pid][1]) if pid in ran else str(pid) for pid in pids)
             login = fields["Id"].removeprefix("session-").removesuffix(".scope")
-            if pids and systemd("loginctl", "terminate-session", login).returncode == 0:
-                ran = orch.processes() or {}
-                commands = "; ".join(" ".join(ran[pid][1]) if pid in ran else str(pid)
-                                     for pid in pids)
+            if systemd("loginctl", "terminate-session", login).returncode == 0:
                 log(f"stopped login {login}, ended {orch.span(now - ended)} ago, "
                     f"still running: {commands}")
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
