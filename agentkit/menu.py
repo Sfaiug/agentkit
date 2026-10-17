@@ -1011,7 +1011,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     return {"number": str(number), "name": name, "session": session,
             "crew": seat_crew(selection), "tasks": seat_tasks(name, records, now, index),
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
-            "tone": model_colour(cfg, orchestrator) if selection else "dim",
+            "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
+                        selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
             "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
             "needs": reason if word == "needs you" else "",
             "word": word, "since": found["since"], "repo": session.get("repo")}
@@ -1191,14 +1192,14 @@ def v5o_column_widths(infos, term_width):
             "sent": max(10, room - fixed), "free": room - fixed}
 
 
-def _head(info, widths):
-    """A seat row's fixed columns -- number, name, orchestrator, state -- in `widths`.  Where
-    even their narrowest do not fit, the number keeps its place behind the indent the highlight's
-    `›` takes, and the rest is cut to the room as plain text."""
+def _head(info, widths, tone="dim"):
+    """A seat row's fixed columns -- number, name, orchestrator in `tone`, state -- in `widths`.
+    Where even their narrowest do not fit, the number keeps its place behind the indent the
+    highlight's `›` takes, and the rest is cut to the room as plain text."""
     number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
     rest = [terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
             _styled_cell(info.get("orchestrator") or info.get("worker") or "", widths["orch"],
-                         info.get("tone", "dim")),
+                         tone),
             _styled_cell(terminal.state_text(info["count"]), widths["count"],
                          terminal.state_colour(info["count"]))]
     head = "  ".join([number, *rest])
@@ -1457,7 +1458,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         out += [terminal.header_line("updating" if updating is not None else "",
                                      time.strftime("%H:%M"), width),
                 terminal.rule_line(width, updating or 0)]
-    grid = len(out) + 1 if meters is meters_full else None     # the grid's first row
+    grid = len(out) + 1 if meters and meters is meters_full else None     # its first row
     out += meters
     body = [("  no sessions; n starts one", None)]
     if ordered:
@@ -1498,10 +1499,34 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
         at = 0
+    # the subscription the pointer is on, of those on the grid; a question under a row has the
+    # keys and the rows, and nothing is explained while it asks
+    columns = usage_columns(layout)
+    usage_spots = {grid + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
+                                         ("usage", line * columns + n + 1))
+                                        for n in range(min(columns, len(rows) - line * columns))])
+                   for line in range(len(meters)) if grid}
+    spot = terminal.Spot() if asked else terminal.pointer_spot(usage_spots)
+    pointed = spot.cell and spot.cell[1]
+    seats = {info["name"]: info for info in infos}
+    model_at = 3 + widths["num"] + 2 + widths["name"] + 2     # the orchestrator column, from 1
+    models = []     # each seat row's (screen row, model, highlighted, the subscriptions it runs on)
     for line, name in body:
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
         lit = owned and name is not None and name == cursor and not terminal.away()
+        seat = seats.get(name) if name != above else None
+        # as its block keeps it, with no trailing space (`v5o_seat_blocks`)
+        head = seat and seat.get("runs_on") and _head(seat, widths).rstrip()
+        if head and line.startswith(head):
+            provider, account = seat["runs_on"]
+            coloured = _head(seat, widths, colour(cfg, provider)).rstrip()
+            on = [number for number, (each, _, _, own) in enumerate(rows, 1)
+                  if each == provider and own in (None, account)]
+            line = coloured + line[len(head):] if pointed in on else line
+            if coloured != head:     # its model is drawn in its column, where a colour shows
+                models.append((len(out) + 1, terminal.cut(seat["orchestrator"], widths["orch"]),
+                               lit, on))
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
@@ -1524,18 +1549,23 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     spots = {top + number: ((None, [(1, layout, name)]) if isinstance(name, tuple)
                             else (name, explains.get(top + number, [])))
              for number, (_, name) in enumerate(body, 1) if name}
-    columns = usage_columns(layout)
-    spots.update({grid + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
-                                        ("usage", line * columns + n + 1)) for n in range(columns)])
-                  for line in range(len(meters)) if grid})
+    spots.update(usage_spots)
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
-    # a question under a row has the keys and the rows, and nothing is explained while it asks
-    spot = terminal.Spot() if asked else terminal.pointer_spot(spots)
-    if grid and isinstance(spot.cell, tuple) and spot.cell[0] == "usage":
-        # the one the pointer is on in its colour, and the rest of it on the line under the grid
-        number = spot.cell[1]
-        out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, number, rows)
-        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, number, layout, rows=rows)
+    washes, spans = {}, {}     # each subscription's colour and the cells that take it
+    if grid:
+        # the one the pointer is on in its colour, as every seat's model that runs on it is, and
+        # what its cell has no room for on the blank line under the grid
+        out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=pointed, rows=rows,
+                                                           spans=spans)
+        for number, (provider, *_) in enumerate(rows, 1):
+            washes[number] = colour(cfg, provider), [
+                *((grid + line, column, text, rest, False)
+                  for line, column, text, rest in spans.get(number, ())),
+                *((row, model_at, model, "dim", bright) for row, model, bright, on in models
+                  if number in on)]
+            moves.append((("sub", number), number == pointed, None, False))
+        if pointed:
+            out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows)
     out = terminal.lit(out, spots)
     moved, rising = "", False
     if clock is not None:
@@ -1548,6 +1578,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
             elif since is None:
                 continue
+            elif key[0] == "sub":     # the pointer came onto it, or left it
+                ink, cells = washes[key[1]]
+                for row, column, text, rest, bright in cells:
+                    clock.start([(row, column)], *motion.colouring(text, since, ink, shown, rest,
+                                                                   bright))
             elif shown in ("needs you", "done"):
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
@@ -2009,12 +2044,6 @@ def _note_styled(part):
     return terminal.styled(part, "dim")
 
 
-def model_colour(cfg, model):
-    """The colour `model`'s company is drawn in: its provider's (`colour`)."""
-    entry = cfg["models"].get(model) if model else None
-    return colour(cfg, entry.get("provider") if isinstance(entry, dict) else None)
-
-
 def provider_name(cfg, name):
     """This provider's name on every screen: its own `name` key -- the one its harness gives
     it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
@@ -2136,7 +2165,7 @@ def usage_columns(width):
     return max(1, min(3, width // (COLUMN + 2)))
 
 
-def usage_lines(cfg, width, lit=None, rows=None):
+def usage_lines(cfg, width, lit=None, rows=None, spans=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
@@ -2144,7 +2173,9 @@ def usage_lines(cfg, width, lit=None, rows=None):
     in its provider's (`colour`), and one whose login ends soon (`login_notes`) has its meter
     amber the rest of the time.  The rest is said under the grid (`usage_detail`).  What
     each cell says is whole: the labels give way to the longest, and a width with no room for
-    a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`)."""
+    a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`).
+    `spans`, where handed in, gets each one's cells that take its colour: {number: [(line,
+    column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
@@ -2168,6 +2199,8 @@ def usage_lines(cfg, width, lit=None, rows=None):
             ink = colour(cfg, name) if number == lit else None
             warn = ending[number - 1] and not ink    # under the pointer its line says when
             shown = terminal.cut(terminal.plain(label), label_room)
+            at = (start // columns, 3 + (number - 1) % columns * (COLUMN + 2))
+            took = [(*at, shown, None)]
             text = ((terminal.styled(shown, ink) if ink else shown)
                     + " " * (label_room - terminal.cells(shown) + 2))
             if not left:     # no meter: `empty until`, or why there is none, or the credits
@@ -2176,9 +2209,13 @@ def usage_lines(cfg, width, lit=None, rows=None):
             else:
                 filled = max(1, round(meter * left / 100))
                 fill = ink or warn and "amber"
+                took.append((at[0], at[1] + label_room + 2, full * filled,
+                             ending[number - 1] and "amber"))
                 text += ((terminal.styled(full * filled, fill) if fill else full * filled)
                          + terminal.styled(empty * (meter - filled), "dim") + "  " + said)
             cells.append(text + " " * max(0, room - terminal.cells(text)))
+            if spans is not None:
+                spans[number] = took
         lines.append(("  " + "  ".join(cells)).rstrip())
     return lines
 

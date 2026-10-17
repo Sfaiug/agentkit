@@ -86,14 +86,13 @@ class MenuLiveLine(Sandbox):
                     # one line for the prompt and one to spare, as every draw keeps
                     self.assertLessEqual(len(lines), height - 2, (name, height, width, lines))
 
-    def test_c_the_orchestrator_column_wears_its_company_s_colour(self):
+    def test_c_the_orchestrator_column_is_grey_at_rest(self):
         os.environ.pop("NO_COLOR", None)
         with patch.dict(os.environ, {"TERM": "xterm-256color", "COLORTERM": "truecolor"}):
             infos = [menu.v5o_seat_info(self.cfg, n, seat, [], {}, None, NOW)
                      for n, seat in enumerate(self.seats, 1)]
             row = menu.v5o_seat_blocks(infos, 100)[0][0]
-        self.assertIn(terminal.styled("fable", menu.model_colour(self.cfg, "fable")), row)
-        self.assertEqual(menu.model_colour(self.cfg, "fable"), menu.COLOURS["anthropic"])
+        self.assertIn(terminal.styled("fable", "dim"), row)
 
     def test_d_a_project_heading_highlighted_opens_nothing(self):
         # a project with switches has a heading the highlight can rest on; it is no seat

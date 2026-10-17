@@ -375,15 +375,13 @@ failed (for a day, unless a later run takes it up), the rest empty:
 keeps as many lines as the most any seat on screen opens, up to half the screen
 and what the headings, a row and the keys leave, a longer question cut to them with `…`, so no page overflows or turns as the
 highlight moves. From a pipe there is no highlight, so every row saying
-something opens its lines. The orchestrator column is the model in its
-company's colour, as on the seat bar, mirrored on a light background as the
-usage rows are.
+something opens its lines. The orchestrator column is the model, dim: it takes its
+company's colour only while the pointer is on the subscription it runs on.
 
 Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`, `terminal.cells`,
 `terminal.plain`, `terminal.styled`, `terminal.state_text`,
 `terminal.state_colour`, `terminal.plan_bar`, `menu.detail`,
-`menu.seat_tasks`, `menu.squares`, `menu.crew`,
-`menu.model_colour`.
+`menu.seat_tasks`, `menu.squares`, `menu.crew`.
 
 Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────── 2 of 5`.
 
@@ -428,7 +426,8 @@ give way to the longest. At rest nothing on it has a
 company's colour; a subscription whose login ends within 7 days, or has ended, has its
 meter (or its words, with none) amber. The rows run red through violet by the hue of that
 colour, the near-greys last and lightest first: Claude, MiMo, Muse, Gemini, Grok, ChatGPT.
-The pointer on one draws its name and meter in its company's own colour --
+The pointer on one washes its name and meter in its company's own colour, and
+the model of every seat that runs on it with them (Motion) --
 Claude `#D97757`, ChatGPT `#FFFFFF`, Muse `#3E9EFB`,
 Grok `#736CD3`, Gemini `#203B9B`, MiMo `#FB8046`, or the provider's
 `colour = "#RRGGBB"` in config.toml, else the accent; on a light
@@ -546,6 +545,11 @@ that turns `done` has its `✓` appear bright and settle to `done`'s colour over
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).
+
+The pointer coming onto a subscription is news the same way: its name, its meter's
+filled cells and the model of every seat that runs on it wash from their grey into
+its company's colour, left to right over 300 ms with a light riding the edge, and
+drain back right to left over 200 ms once it leaves (`motion.colouring`).
 
 A step on an effort on `c` is news too: the bar it fills rises into place over
 150 ms, and the one it empties lowers, the rest standing still; a step onto the
