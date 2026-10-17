@@ -161,7 +161,7 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         cgroup_file.write_text("0::/agentkit.slice\n")
         (slice_dir / "memory.high").write_text(str(10 * 1024 ** 3))
         (slice_dir / "memory.current").write_text(str(8 * 1024 ** 3))
-        (slice_dir / "memory.stat").write_text(f"file {1024 ** 3}\n")
+        (slice_dir / "memory.stat").write_text(f"inactive_file {1024 ** 3}\n")
         pressure = slice_dir / "memory.pressure"
         pressure.write_text("some avg10=0.03 avg60=0.02 total=10\nfull avg10=0.01\n")
         with patch.dict(os.environ), patch.object(host, "PROC", proc):

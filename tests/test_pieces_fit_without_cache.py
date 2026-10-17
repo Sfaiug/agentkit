@@ -45,20 +45,21 @@ class PiecesFitWithoutCache(unittest.TestCase):
     def holds(self, *pids):
         (self.unit / "cgroup.procs").write_text("".join(f"{pid}\n" for pid in pids))
 
-    def memory(self, directory, current, file, shmem=0, cap=None, unevictable=0):
+    def memory(self, directory, current, lists, cap=None, **counters):
+        """`lists` MB on the kernel's file lists, beside other memory.stat counters in MB."""
         (directory / "memory.current").write_text(str(current * MB))
+        stat = {"active_file": 0, "inactive_file": lists, **counters}
         (directory / "memory.stat").write_text(
-            f"anon {(current - file) * MB}\nfile {file * MB}\nshmem {shmem * MB}\n"
-            f"unevictable {unevictable * MB}\n")
+            "".join(f"{name} {value * MB}\n" for name, value in stat.items()))
         (directory / "memory.max").write_text("max" if cap is None else str(cap * MB))
         (directory / "memory.high").write_text("max")
 
     def lander_measures(self):
         """A suite of two pieces measured as a lander measures it, with no run of its own."""
         path, _, _ = gate.suite_cost(SUITE, self.root, None)
-        self.memory(self.unit, 300, 200, shmem=20)
+        self.memory(self.unit, 300, 180, file=200, shmem=20)
         measured = gate._SuiteMeasure(None)
-        self.memory(self.unit, 2300, 1200, shmem=20)
+        self.memory(self.unit, 2300, 1180, file=1200, shmem=20)
         measured.sample()
         measured.cpu.extend([10, 10])
         measured.save(path, 2)
@@ -78,11 +79,15 @@ class PiecesFitWithoutCache(unittest.TestCase):
         self.assertNotIn("mem_mb", self.lander_measures())
 
     def test_reclaimable_cache_under_a_hard_cap_is_room_for_pieces(self):
-        # tmpfs, shared memory and locked or ramfs pages are file pages no reclaim frees
-        for shmem, unevictable, pieces in ((100, 0, 7), (2600, 0, 2), (0, 2600, 2)):
-            with self.subTest(shmem=shmem, unevictable=unevictable):
-                self.memory(self.unit, 3000, 2600, shmem, 4096, unevictable)
-                self.memory(self.unit.parent, 3000, 2600, shmem, None, unevictable)
+        # tmpfs, shared memory and locked or ramfs pages are on no file list, and locked
+        # anonymous memory, counted as unevictable too, is held once
+        for lists, counters, pieces in ((2500, {"file": 2600, "shmem": 100}, 7),
+                                        (0, {"file": 2600, "shmem": 2600}, 2),
+                                        (0, {"file": 2600, "unevictable": 2600}, 2),
+                                        (2000, {"file": 2000, "unevictable": 1000}, 6)):
+            with self.subTest(lists=lists, **counters):
+                self.memory(self.unit, 3000, lists, 4096, **counters)
+                self.memory(self.unit.parent, 3000, lists, **counters)
                 with patch.dict(os.environ, {"AK_HOST_READINGS": ""}):
                     readings = {**host.host_readings(), "cpus": 64, "free_mb": 64 * 1024}
                 self.assertEqual(gate.derived_heavy_limit(

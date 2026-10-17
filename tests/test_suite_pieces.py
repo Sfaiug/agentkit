@@ -262,7 +262,7 @@ class SuitePieces(unittest.TestCase):
                                           (part, (parent_high, parent_cap, parent_used))):
                     for name, value in zip(("memory.high", "memory.max", "memory.current"), values):
                         (directory / name).write_text("max" if value == "max" else str(value * 1024**2))
-                    (directory / "memory.stat").write_text("file 0\n")
+                    (directory / "memory.stat").write_text("inactive_file 0\n")
                 with patch.dict(os.environ, {"AK_HOST_READINGS": ""}), \
                         patch.object(host, "PROC", proc), patch.object(host, "cpu_count", return_value=64):
                     readings = host.host_readings(cgroup_file=membership, cgroup_root=root,

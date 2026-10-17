@@ -235,30 +235,24 @@ def _read_number(path, *, bytes_to_mb=False):
 def _reclaimable_mb(path):
     """Reclaimable file cache in MB from a cgroup's memory.stat, or None.
 
-    The kernel reclaims file cache under pressure, before any OOM kill. Older kernels
-    name the counter inactive_file where newer ones say file. `file` counts tmpfs and
-    shared memory too, which no reclaim frees without swap, and locked or ramfs pages,
-    which none frees at all: shmem and unevictable, anonymous locked pages among it, stay
-    held, so reclaim is never overstated.
+    The kernel reclaims file cache under pressure, before any OOM kill: the pages on its
+    file lists, active_file and inactive_file. tmpfs and shared memory sit on the anon
+    lists, which no reclaim frees without swap, and locked or ramfs pages on the
+    unevictable one, so `file`, which counts them all, would overstate it.
     """
     try:
         text = path.read_text()
     except OSError:
         return None
-    values = {}
+    values = []
     for line in text.splitlines():
         key, _, rest = line.partition(" ")
-        if key in ("file", "inactive_file", "shmem", "unevictable"):
+        if key in ("active_file", "inactive_file"):
             try:
-                values[key] = float(rest.split()[0])
+                values.append(float(rest.split()[0]))
             except (ValueError, IndexError):
                 continue
-    if "file" in values:
-        held = values.get("shmem", 0.0) + values.get("unevictable", 0.0)
-        return max(0.0, values["file"] - held) / (1024 * 1024)
-    if "inactive_file" in values:
-        return values["inactive_file"] / (1024 * 1024)
-    return None
+    return sum(values) / (1024 * 1024) if values else None
 
 
 def _unit_memory_limits(cgroup_file=None, cgroup_root=None, *, all_limits=False, hard=False):

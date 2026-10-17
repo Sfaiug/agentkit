@@ -234,7 +234,7 @@ class EveryFilePool(unittest.TestCase):
                 high if high == "max" else str(int(high) * 1024 * 1024))
             (group / "memory.max").write_text(str(hard * 1024 * 1024))
             (group / "memory.current").write_text(str(used * 1024 * 1024))
-            (group / "memory.stat").write_text("file 0\n")
+            (group / "memory.stat").write_text("inactive_file 0\n")
         system = proc / "pressure/cpu"
         self.pressure_file(system, 100000)
         self.pressure_file(scope / "cpu.pressure", 200000)
