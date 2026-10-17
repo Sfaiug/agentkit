@@ -396,6 +396,15 @@ class GateTolerance(unittest.TestCase):
     def test_retry_past_cadence_that_gets_an_answer_passes(self):
         # Codex's minute with the default 60 s sleep: the retry is past the cadence, so it
         # asks again and the new answer passes. Claude's fifteen still holds its own retry.
+        # The minute passes for the probe locks, not for the test: this `sleep` ages each
+        # lock by the seconds it is asked to wait.
+        sleep = self.root / "bin/sleep"
+        sleep.write_text(
+            "#!/usr/bin/env python3\n"
+            "import pathlib, sys\n"
+            "for lock in (pathlib.Path.home() / '.agentkit/state').glob('*-probe.lock'):\n"
+            "    lock.write_text(repr(float(lock.read_text()) - float(sys.argv[1])))\n")
+        sleep.chmod(0o755)
         self.adapter("claude", meters("anthropic"))
         self.adapter("codex", refused("openai", "unknown: HTTP 503 from "
                                       "chatgpt.com/backend-api/wham/usage"),
