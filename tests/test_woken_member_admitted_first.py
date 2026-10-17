@@ -96,7 +96,6 @@ class WokenMemberAdmission(unittest.TestCase):
         self.assertEqual(gate.slot_note(record.read_state(fix)), "waiting for a slot · 1 ahead")
         self.assertFalse(self.claim(fix))
         self.assertEqual(record.read_state(fix)["slot_wait_kind"], "count")
-        self.assertFalse(self.claim(green))
         self.assertTrue(self.claim(green))
         self.assertFalse(self.claim(fix))
         self.assertTrue(self.claim(fix))
@@ -109,20 +108,23 @@ class WokenMemberAdmission(unittest.TestCase):
         green = self.receipt("green", 20, "land")
         self.assertLess(gate.slot_order(record.read_state(green)),
                         gate.slot_order(record.read_state(failed)))
-        self.assertFalse(self.claim(green))
         self.assertTrue(self.claim(green))
 
-    def test_memory_gates_still_hold_both_verdicts(self):
-        for verdict in ("land", "fix"):
-            with self.subTest(verdict=verdict), patch.dict(os.environ, {"AK_MAX_LOAD": "8"}):
-                directory = self.receipt(verdict, 10, verdict)
-                self.assertFalse(self.claim(directory, readings={**READINGS, "free_mb": 1024}))
-                self.assertEqual(record.read_state(directory)["slot_wait_kind"], "memory")
-                self.assertFalse(self.claim(directory, readings={
-                    **READINGS, "unit_memory_current_mb": 901}))
-                self.assertEqual(record.read_state(directory)["slot_wait_kind"], "unit memory")
-                self.assertFalse(self.claim(directory))
-                self.assertTrue(self.claim(directory))
+    def test_memory_gates_hold_a_fix_and_never_a_green_delivery(self):
+        short = ({**READINGS, "free_mb": 1024}, {**READINGS, "unit_memory_current_mb": 901},
+                 {**READINGS, "slice_memory_pressure": 2})
+        with patch.dict(os.environ, {"AK_MAX_LOAD": "8"}):
+            fix = self.receipt("fix", 10, "fix")
+            for readings, kind in zip(short, ("memory", "unit memory", "unit memory")):
+                self.assertFalse(self.claim(fix, readings=readings))
+                self.assertEqual(record.read_state(fix)["slot_wait_kind"], kind)
+            self.assertFalse(self.claim(fix))
+            self.assertTrue(self.claim(fix))
+            # A green delivery merges a tree the line checked: in at its first look, short or not.
+            for index, readings in enumerate(short):
+                with self.subTest(readings=readings):
+                    self.assertTrue(self.claim(self.receipt(f"green-{index}", 20, "land"),
+                                               readings=readings))
 
     def test_consuming_verdict_removes_priority(self):
         ordinary = self.receipt("ordinary", 10)
