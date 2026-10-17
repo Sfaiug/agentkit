@@ -112,7 +112,7 @@ class WokenMemberAdmission(unittest.TestCase):
 
     def test_memory_gates_hold_a_fix_and_never_a_green_delivery(self):
         short = ({**READINGS, "free_mb": 1024}, {**READINGS, "unit_memory_current_mb": 901},
-                 {**READINGS, "slice_memory_pressure": 2})
+                 {**READINGS, "slice_memory_pressure": 60})
         with patch.dict(os.environ, {"AK_MAX_LOAD": "8"}):
             fix = self.receipt("fix", 10, "fix")
             for readings, kind in zip(short, ("memory", "unit memory", "unit memory")):
