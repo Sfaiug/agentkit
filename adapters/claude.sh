@@ -5,7 +5,8 @@
 #                                    for `ak orch`; the id resumes that conversation, or with
 #                                    `new` opens the seat's next one under an id it was given
 #                       install      -> the native installer, unless claude is already here
-#                       login        -> the device-code login, unless already logged in
+#                       login [again] -> the device-code login, unless already logged in;
+#                                    `again` signs in afresh over a login that still stands
 #                       auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                    `seat` asks about the interactive login alone, never the
 #                                    worker token, because the two expire apart; a yes ends
@@ -277,8 +278,8 @@ install)
 login)
   command -v claude >/dev/null || { echo "claude.sh login: claude is not installed" >&2; exit 2; }
   # the token lives in the macOS Keychain or in ~/.claude/.credentials.json; either means logged in
-  if security find-generic-password -s "Claude Code-credentials" -w >/dev/null 2>&1 ||
-     { [ -r "$CREDS" ] && grep -q '"accessToken"' "$CREDS" 2>/dev/null; }; then
+  if [ "${1:-}" != again ] && { security find-generic-password -s "Claude Code-credentials" -w >/dev/null 2>&1 ||
+     { [ -r "$CREDS" ] && grep -q '"accessToken"' "$CREDS" 2>/dev/null; }; }; then
     echo "claude: already logged in"; exit 0
   fi
   [ -t 0 ] || { echo "claude: not logged in; run \`claude auth login\` in a terminal" >&2; exit 1; }
@@ -508,6 +509,6 @@ models)
       | @tsv' 2>/dev/null) || listed=
   printf '%s\n' "${listed:-$table}" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login | claude.sh login-end | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh login-end | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

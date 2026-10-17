@@ -12,8 +12,9 @@
 #                                  3: `--conversation` opens one that exists and nothing names
 #                                  one that does not, so an Antigravity seat is given no id
 #                     install      -> Google's installer, unless agy is already here
-#                     login        -> `agy` in the terminal (a URL, then the code pasted back),
-#                                  unless already logged in
+#                     login [again] -> `agy` in the terminal (a URL, then the code pasted back),
+#                                  unless already logged in; `again` signs in afresh over a
+#                                  login that still stands
 #                     login-end    -> {"email","ends"}: whose the login is; `ends` is null, since a
 #                                  Google refresh token ends only when revoked
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
@@ -230,7 +231,7 @@ install)
   curl -fsSL https://antigravity.google/cli/install.sh | bash ;;
 login)
   command -v agy >/dev/null || { echo "antigravity.sh login: agy is not installed" >&2; exit 2; }
-  logged_in && { echo "agy: already logged in"; exit 0; }
+  [ "${1:-}" != again ] && logged_in && { echo "agy: already logged in"; exit 0; }
   [ -t 0 ] || { echo "agy: not logged in; run \`$SIGNIN\` in a terminal, open the URL it prints and paste the code back" >&2; exit 1; }
   echo "agy: choose Google OAuth, open the URL, paste the code back, then leave with /exit"
   agy ${DATA:+"$DATA"} ;;
@@ -290,6 +291,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" antigravity ;;
 *)
-  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
+  echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh login-end | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;
 esac
