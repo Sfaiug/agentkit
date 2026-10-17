@@ -1796,6 +1796,13 @@ def smoke_run(state, resolved=None):
 class _RunRecords:
     def __init__(self, root):
         self.root, self.known, self.db = root, {}, None
+        # The cache before RUN_RECORDS: nothing reads it, and a run still on that install that
+        # writes it again loses it to the next process here.
+        for old in ("run-records.jsonl", "run-records.lock", "run-records.tmp"):
+            try:
+                (config.STATE / old).unlink(missing_ok=True)
+            except OSError:
+                pass
         try:
             self.db = sqlite3.connect(config.STATE / RUN_RECORDS, timeout=0,
                                       check_same_thread=False)
