@@ -348,10 +348,12 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
     return state
 
 
-def stop_job(job_dir, keep):
+def stop_job(job_dir, keep, *, why, owner_check=False, only_if=None, say=print):
     """End a whole job: its launcher, then every task left unfinished recorded stopped and the
     job finished, then each run of it still going as `end` ends one, so status reads it ended
-    and gc collects it as any finished job.
+    and gc collects it as any finished job.  `why`, `owner_check` and `only_if` are `end`'s,
+    for the receipt read under the lock: False where `only_if` no longer holds of it, so
+    nothing was stopped.  `say` takes the lines the command prints.
 
     The launcher is ended under the job's lock, which every write of the receipt takes
     (`jobs.save_job`): it holds the receipt in memory and starts any task still queued, so it
@@ -363,7 +365,10 @@ def stop_job(job_dir, keep):
         job = jobs.read_job(job_dir)
         if not job or not isinstance(job.get("tasks"), list):
             raise config.Error(f"{job_dir.name}: cannot read {jobs.receipt_path(job_dir)}")
-        config.check_stop_owner(job.get("seat"))
+        if only_if and not only_if(job):
+            return False
+        if owner_check:
+            config.check_stop_owner(job.get("seat"))
         stopped = bool(job.get("finished_at"))
         if stopped and all(task.get("state") != "stopped" for task in job["tasks"]):
             raise config.Error(f"{job_dir.name} is already finished; "
@@ -390,14 +395,14 @@ def stop_job(job_dir, keep):
         if not state:
             # left as it is, as `cmd_stop` leaves one: a stop written over it loses what it held
             if run_dir.name in named:
-                print(f"{run_dir.name}: cannot read {run_dir / 'run.json'}; left as it is")
+                say(f"{run_dir.name}: cannot read {run_dir / 'run.json'}; left as it is")
             continue
         if (state.get("job_id") == job_dir.name or run_dir.name in named) and stoppable(state):
-            state = end(run_dir, keep=keep, why="stopped by the user", owner_check=True)
+            state = end(run_dir, keep=keep, why=why, owner_check=owner_check)
             if state:
-                print(stop_line(run_dir.name, state.get("branch"), state.get("stop_kept", False)))
-    print(f"{job_dir.name} is already stopped" if stopped else f"stopped {job_dir.name}")
-    return 0
+                say(stop_line(run_dir.name, state.get("branch"), state.get("stop_kept", False)))
+    say(f"{job_dir.name} is already stopped" if stopped else f"stopped {job_dir.name}")
+    return True
 
 
 def cmd_stop(argv):
@@ -417,7 +422,8 @@ def cmd_stop(argv):
         raise config.Error("usage: ak run stop ID [--keep]")
     run_id = args[0]
     if jobs.receipt_path(config.JOBS / run_id).exists():
-        return stop_job(config.JOBS / run_id, keep)
+        stop_job(config.JOBS / run_id, keep, why="stopped by the user", owner_check=True)
+        return 0
     run_dir = config.RUNS / run_id
     if not (run_dir / "run.json").exists():
         raise config.Error(f"no such run: {run_id} (looked in {config.RUNS})")

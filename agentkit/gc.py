@@ -17,7 +17,8 @@ import subprocess
 import sys
 import time
 
-from . import config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention, run, transitions, turns, worktrees
+from . import (config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention,
+               run, stop, transitions, turns, watch, worktrees)
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -651,6 +652,11 @@ def gc_candidates(now=None):
         for directory in retention.children(config.JOBS):
             job = jobs.read_job_safely(directory)
             finished = (job or {}).get("finished_at")
+            if job and isinstance(job.get("tasks"), list) and job_aged_out(directory, job, now):
+                yield {"action": "stop", "kind": "gone-job", "path": str(directory),
+                       "job": str(directory), "why": "the job's launcher gone and nothing "
+                                                     f"written for {RUN_DIR_AGE // 86400} days"}
+                continue
             if (not job or not isinstance(job.get("tasks"), list) or not job["tasks"]
                     or not all(task.get("state") in jobs.JOB_TERMINAL for task in job["tasks"])
                     or not retention.expired(finished, now, age)
@@ -916,6 +922,14 @@ def gc(report, automatic=False):
                             done = not directory.exists()
                     elif "run" not in item and "job" not in item:
                         done = retention.remove_ephemeral(item)
+                    elif item["kind"] == "gone-job":
+                        # judged again under the lock a resume writes the receipt under
+                        directory = Path(item["job"])
+                        if not retention.safe(directory):
+                            continue
+                        done = stop.stop_job(
+                            directory, False, why=item["why"], say=lambda _line: None,
+                            only_if=lambda job: job_aged_out(directory, job, time.time()))
                     elif "job" in item:
                         directory = Path(item["job"])
                         if not retention.safe(directory):
@@ -966,7 +980,8 @@ def gc(report, automatic=False):
                     if done:
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
-                except (OSError, ValueError, TypeError, AttributeError, KeyError, subprocess.TimeoutExpired) as exc:
+                except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError,
+                        subprocess.TimeoutExpired) as exc:
                     report(f"gc: kept {path}: {exc}")
     except (OSError, BlockingIOError):
         pass                           # another tick owns collection, or ownership is uncertain
@@ -1118,6 +1133,16 @@ def run_aged_out(directory, state, now):
         except OSError:
             return False
     return when <= now - RUN_DIR_AGE
+
+
+def job_aged_out(directory, job, now):
+    """Whether this job's launcher is gone and nothing was written for a run directory's age,
+    in the job's directory or any of its tasks' run directories: nobody is coming back for it.
+    """
+    if jobs.reap_job(directory, job):
+        return False
+    runs = [config.RUNS / task["run_id"] for task in job["tasks"] if task.get("run_id")]
+    return max(map(watch.run_last_write, [directory, *runs])) <= now - RUN_DIR_AGE
 
 
 def session_lives(name):
