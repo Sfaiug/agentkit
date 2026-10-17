@@ -263,12 +263,15 @@ class Rule(unittest.TestCase):
 
     # --- (b, c) the hourly alerts ------------------------------------------
 
-    def test_v5d_an_hour_of_stall_on_an_idle_seat_says_nothing(self):
+    def test_v5d_an_hour_of_stall_at_its_prompt_asks_once(self):
+        # an error that ends a turn leaves the seat at its prompt: no sign anyone opened it
         state = self.stall_tick("at_prompt")
-        self.assertEqual(self.posts, [])
-        self.assertIsNone(notify.last("seat"))
-        self.assertTrue(state["stalls"]["seat"]["told"])   # and the nudging still stops
-        self.assertIn("sitting at its own prompt", " ".join(self.log))
+        self.assertEqual(len(self.posts), 1, self.posts)
+        self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
+        self.assertEqual(notify.last("seat")["kind"], "needs")
+        self.assertTrue(state["stalls"]["seat"]["told"])   # and the nudging stops
+        self.stall_tick("at_prompt")
+        self.assertEqual(len(self.posts), 1, self.posts)
 
     def test_v5d_an_hour_of_stall_on_a_working_seat_asks_once(self):
         state = self.stall_tick("working")

@@ -4359,16 +4359,10 @@ def health(cfg, state, dry_run, log):
                 now = time.time()
                 stood = now - entry["since"]
                 if stood >= GIVE_UP and not after_reset:
+                    # asked at its prompt too: an error that ends a turn leaves the harness at
+                    # its composer, which says nothing of anyone having opened the seat
                     text = (f"{name} is stalled on {mark} for an hour and typing has not moved it; "
                             "open the host, press this session's number, and get it going again.")
-                    if at_prompt:
-                        # the same words on a seat the user has opened and left at its prompt are
-                        # an error it has already finished with, not a seat that cannot get on
-                        if not dry_run:
-                            entry["told"] = now
-                        log(f"{name}: stalled on {mark} for {orch.span(stood)}, but sitting at "
-                            "its own prompt; the user is not asked")
-                        continue
                     if dry_run:
                         log(f"would notify needs: {text}")
                     else:
