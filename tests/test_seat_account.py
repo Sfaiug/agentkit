@@ -239,7 +239,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             self.assertEqual(result["settings"]["permissions"]["allow"], ["Read"])
             self.assertIs(result["global"]["hasSeenAutoDefaultNudge"], True)
             if account == "second":
-                self.assertEqual(result["settings"]["custom"], "keep")
+                self.assertEqual(os.readlink(second / "settings.json"), str(settings))
                 self.assertEqual(result["global"]["oauthAccount"]["accountUuid"], "second")
                 for name in ("CLAUDE.md", "agents", "skills", "commands", "plugins"):
                     self.assertEqual((second / name).resolve(), self.root / ".claude" / name)
