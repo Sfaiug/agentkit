@@ -10,6 +10,7 @@ the stop of a run's process tree.  The call itself, its retries and what its har
 import json
 import os
 import re
+import tempfile
 import threading
 import time
 from contextlib import nullcontext
@@ -397,6 +398,20 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
 
 
 OUT_CAP = 20 * 1024
+
+
+def kept(text, where, name):
+    """Save `text` whole in a new file under `where`: the line that names it heads any part of
+    it a model is handed, so nothing a check printed is out of its reach."""
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=where, prefix=f"{name}-whole-",
+                                     suffix=".log", delete=False) as whole:
+        whole.write(text)
+    return f"[only part of this output is shown; all of it is in {Path(whole.name).resolve()}]"
+
+
+def cut(text, where, name):
+    """`text` as a model is handed it: whole up to OUT_CAP, else its end under `kept`'s line."""
+    return text if len(text) <= OUT_CAP else f"{kept(text, where, name)}\n{text[-OUT_CAP:]}"
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session

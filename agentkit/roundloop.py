@@ -927,7 +927,7 @@ def target_fails(lp, upstream, dw_log):
     try:
         lp.repair = handback.start_followups(lp.state, lp.run_dir, lp.log, lp.cfg, repair={
             "command": cmd, "check": f"{cmd}  # once" if heavy_probe else cmd, "sha": tip,
-            "text": prompts.red_target_text(cmd, upstream, tip, output)})
+            "text": prompts.red_target_text(cmd, upstream, tip, output, lp.run_dir)})
     except run_record.StopRequested:
         raise
     except Exception as exc:  # noqa: BLE001 - the park matters, not its repair
@@ -1417,7 +1417,7 @@ def landing_fixer(lp, text, name):
         # An unrelated conflict or light check must not hide the lander's failure.
         output = Path(failure["log"]).read_text(errors="replace")
         text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
-                 f"{prompts.failing_blocks(output)}\n```")
+                 f"{prompts.failing_blocks(output, lp.run_dir)}\n```")
     summary = execute(lp, "fixer", text, name)
     if failure:
         # Save the actual fixer with its summary before a check or review can stop.
@@ -1667,7 +1667,8 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             f"Resolve every one keeping both sides' intent -- never drop the other side's work -- "
             f"then `git add` the files and {finish_it}. "
             f"Re-run the done-when commands afterwards.\n\n### Conflicted files\n"
-            + "\n".join(f"- {p}" for p in conflicts) + f"\n\n```\n{out[-turns.OUT_CAP:]}\n```")
+            + "\n".join(f"- {p}" for p in conflicts)
+            + f"\n\n```\n{turns.cut(out, lp.run_dir, f'{how}-conflict')}\n```")
     summary, landed = "", False
     for attempt in range(1, CONFLICT_ROUNDS + 1):
         lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
@@ -1889,7 +1890,7 @@ def integrate(lp, upstream):
                             lp.log(f"--- merge: re-run round {attempt + 1}/{CONFLICT_ROUNDS}: "
                                    f"fixer {lp.executor} (done-when after the {how})")
                             fix = (f"{lp.context}\n\n## The done-when commands failed. "
-                                   f"Fix the root cause.\n```\n{prompts.failing_blocks(dw_log)}\n```")
+                                   f"Fix the root cause.\n```\n{prompts.failing_blocks(dw_log, lp.run_dir)}\n```")
                             with released_gate_turn():
                                 summary = landing_fixer(lp, fix, "rerun-fixer")
                                 lp.state["review_pending"]["summary"] = summary
@@ -1926,7 +1927,7 @@ def integrate(lp, upstream):
 def fix_final_check(lp, upstream, text):
     """Repair failing landing output and re-review, without recording a task round."""
     fix = (f"{lp.context}\n\n## The final check failed. Fix the root cause.\n```\n"
-           f"{prompts.failing_blocks(text)}\n```")
+           f"{prompts.failing_blocks(text, lp.run_dir)}\n```")
     lp.state["review_pending"] = {"round": lp.rnd, "summary": "",
                                   "reason": "Re-review after the final check.",
                                   "passed_head_sha": passed_review_head(lp.state),
