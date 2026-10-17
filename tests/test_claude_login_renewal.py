@@ -40,7 +40,10 @@ grep '^Authorization:' "$hf" | cut -d' ' -f3 >>"$FAKE/asked"
 printf '{"limits":[]}\n200\n'
 """
 
-TURN = "[-p][--model][haiku][--tools][][--no-session-persistence]"
+# with what every session ak starts runs with (adapters/claude.sh's PINS)
+TURN = ("[-p][--model][haiku][--tools][][--no-session-persistence][--settings]"
+        '[{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse",'
+        '"switchModelsOnFlag":true}]')
 LAPSED = 1_000_000_000_000        # 2001, in milliseconds
 FRESH = 4_102_444_800_000         # 2100
 

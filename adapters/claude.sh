@@ -28,8 +28,8 @@ OWN_RULES_OFF="CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=
 # waits on a pull request or run through `ak wait`), and a message its safeguards flag switching
 # the conversation to another model by itself instead of pausing the seat on a dialog until the
 # owner answers.  `--settings` outranks the login's settings file, so an accepted auto-mode offer
-# or a hand edit there cannot undo them, and no launch writes them into that file.  `run` passes
-# it and `interactive` prints it.
+# or a hand edit there cannot undo them, and no launch writes them into that file.  `run` and
+# `renew` pass it and `interactive` prints it.
 PINS='{"permissions":{"defaultMode":"bypassPermissions"},"crossSessionInbound":"refuse","switchModelsOnFlag":true}'
 TMPD="$HOME/.agentkit/tmp"
 CREDS="$HOME/.claude/.credentials.json"
@@ -93,7 +93,8 @@ renew() {
     # role keeps the seat hooks quiet when the caller is a seat
     unset CLAUDE_CODE_OAUTH_TOKEN
     [ -n "$ACCOUNT" ] || unset CLAUDE_CONFIG_DIR
-    echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence 9>&-
+    echo hi | AK_RUN_ROLE=worker claude -p --model haiku --tools "" --no-session-persistence \
+      --settings "$PINS" 9>&-
   ) >/dev/null 2>&1 9>>"$TMPD/claude-login${ACCOUNT:+.$ACCOUNT}.lock"
 }
 
