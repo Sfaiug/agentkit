@@ -70,6 +70,8 @@ class SeatQuestionWhole(Sandbox):
                 [block] = blocks([seat(1, "fix-api")], width, most=4)
                 self.assertEqual(len(block), 4)
                 self.assertTrue(block[-1].endswith("…"))
+                # the cut line stays under its row, as the lines before it
+                self.assertEqual(*[len(line) - len(line.lstrip()) for line in block[-2:]])
                 self.assertTrue(QUESTION.startswith(said(block)[:-1].rstrip()))
         # a block that fits is as it is, a tasks bar among them
         rows = [seat(1, "fix-api", sentence="Merge PR #7 by bob? yes/no"),

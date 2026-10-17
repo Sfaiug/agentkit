@@ -1224,10 +1224,11 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
             block = [head] + ["    " + line for line in lines]
         block += [indent + line for line in (details or {}).get(info["name"], [])]
         if most is not None and len(block) > max(1, most):
-            # the row itself always stays: what is under it is cut, the last line ending in `…`
+            # the row itself always stays: what is under it is cut, the last line ending in `…`,
+            # indented after the cut since `cut` drops leading space
             keep = max(1, most)
-            block = block[:1] if keep == 1 else block[:keep - 1] + [terminal.cut(
-                indent + " ".join(terminal.plain(line) for line in block[keep - 1:]), room)]
+            block = block[:1] if keep == 1 else block[:keep - 1] + [indent + terminal.cut(
+                " ".join(terminal.plain(line) for line in block[keep - 1:]), room - len(indent))]
         blocks.append(block)
     return [[line.rstrip() for line in block] for block in blocks]
 
