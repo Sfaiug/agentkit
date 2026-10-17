@@ -122,6 +122,13 @@ def at(grid, text, nth=0):
     return found[nth]
 
 
+def no_frame_passes():
+    """A frame (motion.FRAME) that no reading of a flood of moves can outlast, however slow the
+    host: the draws counted are the ones for where the pointer ended, never one a frame's passing
+    adds while the flood is still read."""
+    return patch.object(terminal.motion, "FRAME", 60.0)
+
+
 def run(screen, *keys, cols=100, rows=40, depth=256):
     """`screen()` read off `keys` on a taken keyboard in `depth` colours: what it answered, each
     whole screen it wrote -- the writes from one top-left to the next -- played (`played`).
@@ -218,7 +225,7 @@ class Screens(Sandbox):
         entry = {"rows": FEATURES, "error": "", "asked": time.monotonic(), "going": True,
                  "set": 0, "flips": {}}
         with patch.object(menu, "switches", return_value=FEATURES), \
-                patch.dict(menu._SWITCHES, {str(checkout): entry}):
+                patch.dict(menu._SWITCHES, {str(checkout): entry}), no_frame_passes():
             first = run(lambda: menu.show_features(checkout), ESC)[1][0]
             dark, beta = at(first, "Dark mode"), at(first, "Beta search")
             flood = b"".join(move(*(dark if n % 2 else beta)) for n in range(499))
@@ -261,9 +268,7 @@ class Screens(Sandbox):
         rows = len(texts(first))
         flood = b"".join(move(1 + n % 60, 1 + n % rows) for n in range(499))
         label = at(first, "grok")
-        # a frame that no reading of the flood can outlast, however slow the host: what is
-        # counted is the draw for where the pointer ended, never one a frame's passing adds
-        with patch.object(terminal.motion, "FRAME", 60.0):
+        with no_frame_passes():
             screens = self.matrix(flood + move(*label) + ESC)
         self.assertEqual(len(screens), 2)               # the first draw, and the one for them
         self.assertOneHighlight(screens[-1], "grok")    # where the pointer ended
