@@ -287,20 +287,26 @@ cat "$dir/bridge-eval"
         prompt.write_text("hi\n")
         events = self.root / "events.jsonl"
         events.write_text(EVENTS_OK)
-        # MiMo's `none` is a variant of its own, thinking off (tests/test_effort_step.py)
+        # MiMo's `none` is a variant of its own, thinking off (tests/test_effort_step.py), and
+        # so is any model's that OpenCode lists with a `none` variant
+        listing = {"STUB_MODEL_LIST": str(FIXTURES / "opencode-model-list.json")}
         for name, effort, model in (("acme/big", "none", "acme/big"),
                                     ("acme/big", "high", "acme/big#high"),
-                                    ("mimo/mimo-v2.6-pro", "none", "mimo/mimo-v2.6-pro#none")):
+                                    ("mimo/mimo-v2.6-pro", "none", "mimo/mimo-v2.6-pro#none"),
+                                    ("opencode/big-pickle", "none", "opencode/big-pickle"),
+                                    ("opencode/nemotron-3.5-super-vl-free", "none",
+                                     "opencode/nemotron-3.5-super-vl-free#none")):
             self.argv_log.unlink(missing_ok=True)
             proc = self.adapter("run", name, effort, str(self.root),
                                 str(prompt), str(self.root / f"out-{effort}"),
                                 env={"STUB_EVENTS": str(events), "STUB_ARGV_LOG": str(self.argv_log),
-                                     "STUB_EXPORT": str(self.root / "missing.json")})
+                                     "STUB_EXPORT": str(self.root / "missing.json"), **listing})
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            words = self.argv_log.read_text().splitlines()[0].split()
+            words = next(line.split() for line in self.argv_log.read_text().splitlines()
+                         if line.startswith("run "))
             self.assertEqual(words[words.index("-m") + 1], model)
             # and the seat is pinned to the same model
-            proc = self.adapter("interactive", name, effort)
+            proc = self.adapter("interactive", name, effort, env=listing)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             content = next(word for word in shlex.split(proc.stdout)
                            if word.startswith("OPENCODE_CONFIG_CONTENT=")).split("=", 1)[1]
@@ -349,7 +355,7 @@ cat "$dir/bridge-eval"
         proc = self.adapter("auth", env={"STUB_PROVIDER_LIST": listed("mimo")})
         self.assertEqual(proc.returncode, 0)
         self.assertIn("OpenCode lists mimo as logged in", proc.stdout)
-        # missing jq cannot read the config, but a saved login is still a yes
+        # missing jq can read neither the config nor which provider OpenCode's list enables
         self.write_config("tp-dummy")
         # jq lives in /bin and /usr/bin. A bash on this PATH, and nothing else,
         # is what lets the adapter and the stub start without finding jq.
@@ -357,10 +363,14 @@ cat "$dir/bridge-eval"
         bare = str(self.bin)
         proc = self.adapter("auth", env={"PATH": bare,
                                          "STUB_PROVIDER_LIST": listed("mimo")})
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("OpenCode lists mimo as logged in", proc.stdout)
-        proc = self.adapter("auth", env={"PATH": bare})
-        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        (self.cfgdir / "opencode.json").unlink()
+        for named in ("mimo", ""):
+            for verb in ("auth", "login"):
+                proc = self.adapter(verb, env={"PATH": bare, "AGENTKIT_PROVIDER": named,
+                                               "STUB_PROVIDER_LIST": listed("mimo", off="mimo")},
+                                    stdin=subprocess.DEVNULL)
+                self.assertEqual(proc.returncode, 1, (named, verb, proc.stdout))
 
     def test_only_the_named_provider_s_login_counts(self):
         # OpenCode's list names every enabled provider, its free `opencode` one among them;

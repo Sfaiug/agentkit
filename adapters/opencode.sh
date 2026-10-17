@@ -77,24 +77,14 @@ have_key() {
 # OpenCode itself reads.  Asked of the background service, which `opencode api` starts where
 # none runs: a private `--standalone` server lists no provider at all (2.0.24).  Slow on a cold
 # start, so the config check runs first and this only on its `no`.  The list carries each
-# provider's settings, keys among them: it is read here and never printed.  Matched as text
-# where jq is missing, since a listed provider is a yes either way.
+# provider's settings, keys among them: it is read here and never printed.  Without jq it is a
+# no: the list names disabled providers too, and only jq tells them apart.
 enabled() {
+  command -v opencode >/dev/null && command -v jq >/dev/null || return 1
   bound=""; command -v timeout >/dev/null && bound="timeout 20"
-  listed=$(command -v opencode >/dev/null && $bound opencode api provider.list 2>/dev/null) \
-    || listed=""
-  if command -v jq >/dev/null; then
-    printf '%s' "$listed" | jq -e --arg p "${1:-}" '.data[]? | select(.activation == "enabled"
-        and (if $p == "" then .id != "opencode" else .id == $p end))' >/dev/null 2>&1
-    return
-  fi
-  listed=${listed//[[:space:]]/}
-  if [ -n "${1:-}" ]; then
-    case $listed in *"{\"id\":\"$1\""*) return 0 ;; esac
-    return 1
-  fi
-  case ${listed//'{"id":"opencode"'/} in *'{"id":"'*) return 0 ;; esac
-  return 1
+  $bound opencode api provider.list 2>/dev/null | jq -e --arg p "${1:-}" '.data[]?
+      | select(.activation == "enabled" and (if $p == "" then .id != "opencode" else .id == $p end))' \
+      >/dev/null 2>&1
 }
 
 # MiMo's API has one reasoning control, `thinking` on or off, and it is on by default.  OpenCode
@@ -112,6 +102,23 @@ mimo_variants() {  # <model>: the document for a MiMo model, nothing for another
     '"high":{"extraBody":{"thinking":{"type":"enabled"}}}'
 }
 
+# tag <model> <effort>: the `-m` spelling, OpenCode's `provider/model#variant`; a model already
+# carrying a variant keeps its own.  `none` is the model's own `none` variant where OpenCode's
+# list gives it one (asked as `models` asks), and otherwise a model that runs at no effort,
+# handed bare as adapters/antigravity.sh hands it -- except MiMo's, which is a variant like its
+# `high` (mimo_variants).
+tag() {
+  case $1:$2 in
+    *#*) printf '%s' "$1"; return ;;
+    mimo/*) ;;
+    *:none) command -v timeout >/dev/null && command -v jq >/dev/null \
+        && timeout 10 opencode api model.list 2>/dev/null | jq -e --arg m "$1" '.data[]?
+          | select("\(.providerID)/\(.id)" == $m) | .variants[]? | select(.id == "none")' \
+          >/dev/null 2>&1 || { printf '%s' "$1"; return; } ;;
+  esac
+  printf '%s#%s' "$1" "$2"
+}
+
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "opencode.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
@@ -121,12 +128,7 @@ run)
   [ -d "$ws" ] || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
   command -v opencode >/dev/null || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }
   cd -- "$ws" || { echo "opencode.sh: no such workspace: $ws" >&2; exit 2; }
-  # The effort is OpenCode's model variant: `provider/model#variant` is the `-m` spelling, and
-  # a model already carrying one keeps its own.  `none` is a model that runs at no effort and
-  # is handed bare, as adapters/antigravity.sh hands it -- except MiMo's, which is a variant
-  # like its `high` (mimo_variants).
-  tagged="$model#$effort"
-  case $model:$effort in *#*) tagged=$model;; mimo/*) ;; *:none) tagged=$model;; esac
+  tagged=$(tag "$model" "$effort")   # the effort is OpenCode's model variant
   variants=$(mimo_variants "$model")
   [ -n "$variants" ] && export OPENCODE_CONFIG_CONTENT="$variants"
   # The session is titled for the run it belongs to: <run>/round-N/<role> reads as
@@ -206,8 +208,7 @@ interactive)
   # rules it was asked for is worse than one that does not open.
   rb=${AGENTKIT_RULEBOOK:-$(python3 "$REPO/tools/rulebook.py" "${AGENTKIT_SESSION:-}")} || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
-  tagged="$1#$2"   # as `run` hands it, and with MiMo's variants beside it
-  case $1:$2 in *#*) tagged=$1;; mimo/*) ;; *:none) tagged=$1;; esac
+  tagged=$(tag "$1" "$2")   # as `run` hands it, and with MiMo's variants beside it
   # jq writes the document, the rulebook read as one string: a Python started for it was more
   # than half of what a launch waited on this adapter.  ASCII out, as that Python wrote it, so
   # the command line stays plain whatever the rulebook says.
@@ -500,8 +501,7 @@ auth)
   # not JSON at all is a `no` and never a login nobody looked inside.  `seat` asks about
   # the interactive login, which on OpenCode is the same key a headless turn uses -- there
   # is no second credential here to tell apart -- so it is accepted and ignored.  Each
-  # provider named must have its own: a DeepSeek key cannot run a `zai/` turn.  jq missing is
-  # not the end of the question: OpenCode's own list answers too, read as text.
+  # provider named must have its own: a DeepSeek key cannot run a `zai/` turn.
   set -f; set -- $PROVIDERS; set +f; [ $# -gt 0 ] || set -- ""
   said=""
   for p in "$@"; do
@@ -523,7 +523,7 @@ hooks)
 models)
   # OpenCode's own list of every logged-in provider's models, from its background service as
   # `enabled` asks it: each `<provider>/<model>` under the name OpenCode gives it, its variants
-  # its efforts, and `none` alone for one that has no variant, which `run` hands bare.  An id
+  # its efforts, and `none` alone for one that has no variant, which `tag` hands bare.  An id
   # the [catalog] table knows takes the table's label and efforts instead: MiMo's thinking
   # switch (mimo_variants).  Never `--standalone`, whose private server lists no model at all
   # (2.0.24).  A list that fails, outlasts ten seconds or says nothing leaves the table as it
