@@ -907,6 +907,16 @@ def _unsendable(event, session):
     return ""
 
 
+def _dropped(event, session, log=print):
+    """Whether a queued event about to go out late is dropped unsent instead (`_unsendable`)."""
+    why = _unsendable(event, session)
+    if why:
+        event.update(status="disabled", error=why, next_attempt=None)
+        _write_event(event)
+        log(f"notification {event['id']} dropped unsent: {why}")
+    return bool(why)
+
+
 def retry_pending(dry_run=False, log=print):
     """The existing watcher drains the outbox even when GitHub or the original seat is gone."""
     for path in sorted(outbox().glob("*.json")):
@@ -922,11 +932,7 @@ def retry_pending(dry_run=False, log=print):
             session = config.resolve_session(event["session"]) if event["session"] else None
             with session_lock(session) if session else nullcontext(session) as session, outbox_lock():
                 event = _read_event(path.stem)
-                why = _unsendable(event, session)
-                if why:
-                    event.update(status="disabled", error=why, next_attempt=None)
-                    _write_event(event)
-                    log(f"notification {event['id']} dropped unsent: {why}")
+                if _dropped(event, session, log):
                     continue
                 _attempt(event)
                 _remember_retry(event, session)
@@ -1102,8 +1108,8 @@ def _send_card(session, kind, card, answer):
 def page(key, about, text):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
     keeps the event, so no later tick or restart queues it again. One the webhook did not
-    take is tried again on a card's schedule only when asked again, so a caller asking while
-    the page is still due never has it sent once it is not.
+    take is tried again on a card's schedule and rules only when asked again, so a caller
+    asking while the page is still due never has it sent once it is not.
     It reads as a seat's question does, `about` standing where the seat's name would."""
     payload = card_payload("needs", about, text)
     key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
@@ -1115,6 +1121,8 @@ def page(key, about, text):
                      "sink": sink() is not None, "status": "pending", "attempts": 0,
                      "next_attempt": 0}
             _write_event(event)
+        elif event["status"] not in ("delivered", "disabled") and _dropped(event, None):
+            return 0
         return _attempt(event)
 
 

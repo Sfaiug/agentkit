@@ -120,6 +120,12 @@ class Reminder(unittest.TestCase):
         self.assertEqual(len(self.tick(local(25, 11, 1))), 1)     # asked again: renewed
         self.assertEqual(len(self.tick(local(25, 12))), 1)
 
+    def test_d_a_page_not_taken_before_this_install_is_never_sent_after_it(self):
+        self.sink.refuse = 1
+        self.assertEqual(self.tick(local(24, 10)), [])
+        (config.STATE / "installed-at").write_text(str(local(24, 10, 1)))
+        self.assertEqual(self.tick(local(24, 10, 2)), [])
+
 
 if __name__ == "__main__":
     unittest.main()
