@@ -914,6 +914,8 @@ def retry_pending(dry_run=False, log=print):
             event = _read_event(path.stem)
             if not event or event["status"] in ("delivered", "disabled", "held"):
                 continue    # a hold is released by a run ending, never by a retry
+            if not event["session"]:
+                continue    # a page is retried by asking for it again (`page`)
             if dry_run:
                 log(f"would retry notification {event['id']} ({event['status']})")
                 continue
@@ -1099,17 +1101,20 @@ def _send_card(session, kind, card, answer):
 
 def page(key, about, text):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
-    keeps the event, so no later tick or restart queues it again, and retries it as a card's.
+    keeps the event, so no later tick or restart queues it again. One the webhook did not
+    take is tried again on a card's schedule only when asked again, so a caller asking while
+    the page is still due never has it sent once it is not.
     It reads as a seat's question does, `about` standing where the seat's name would."""
     payload = card_payload("needs", about, text)
     key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
     with outbox_lock():
-        if _read_event(key) is not None:
-            return 0
-        event = {"id": key, "session": None, "kind": "needs", "text": text, "payload": payload,
-                 "message": text, "created_at": time.time(), "sink": sink() is not None,
-                 "status": "pending", "attempts": 0, "next_attempt": 0}
-        _write_event(event)
+        event = _read_event(key)
+        if event is None:
+            event = {"id": key, "session": None, "kind": "needs", "text": text,
+                     "payload": payload, "message": text, "created_at": time.time(),
+                     "sink": sink() is not None, "status": "pending", "attempts": 0,
+                     "next_attempt": 0}
+            _write_event(event)
         return _attempt(event)
 
 

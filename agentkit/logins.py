@@ -87,7 +87,8 @@ def remind(cfg, now=None):
     """Refresh, then page the owner once per subscription and local calendar day while its
     login ends within REMIND_WITHIN or has ended: `Claude II login owner@acme.test ends Mon 26
     Oct 04:47 (in 2 days). Log in again from ak.`  The day is in the page's key, so no tick or
-    restart pages twice; a new login moves `ends` past the window, or to null, and it stops."""
+    restart pages twice; a new login moves `ends` past the window, or to null, and it stops,
+    a page the webhook has not taken yet with it, since only asking again retries one."""
     now = time.time() if now is None else now
     day = date.fromtimestamp(now)
     for provider, accounts in refresh(cfg, now).items():

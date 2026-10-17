@@ -2,7 +2,7 @@
 
 The tick's login pass on a temporary HOME, with a fake adapter, a clock the test sets, local
 time five hours behind UTC so a local day is not UTC's, and $AK_NOTIFY_SINK on a loopback
-server that keeps what Discord would have been sent.
+server that keeps what Discord would have been sent, or refuses it as a Discord that is down.
 """
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -28,8 +28,13 @@ cat "$FAKE/answer-${AGENTKIT_ACCOUNT:-default}"
 
 class Sink(BaseHTTPRequestHandler):
     def do_POST(self):
-        self.server.posts.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
-        self.send_response(204)
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if self.server.refuse:
+            self.server.refuse -= 1
+            self.send_response(503)
+        else:
+            self.server.posts.append(body)
+            self.send_response(204)
         self.end_headers()
 
     def log_message(self, *_):
@@ -56,6 +61,8 @@ class Reminder(unittest.TestCase):
             self.addCleanup(patcher.stop)
         sink = HTTPServer(("127.0.0.1", 0), Sink)
         sink.posts = self.posts = []
+        sink.refuse = 0
+        self.sink = sink
         threading.Thread(target=sink.serve_forever, daemon=True).start()
         self.addCleanup(sink.server_close)
         self.addCleanup(sink.shutdown)
@@ -80,6 +87,7 @@ class Reminder(unittest.TestCase):
         passes = {what: run for what, run, _ in watch.local_passes({}, False, print)}
         with patch.object(config, "load", return_value=self.cfg), \
                 patch.object(time, "time", return_value=at):
+            passes["the notification retry did not run"]()
             passes["the login-end read did not run"]()
         return [post["embeds"][0]["description"] for post in self.posts]
 
@@ -101,6 +109,16 @@ class Reminder(unittest.TestCase):
         self.assertEqual(len(self.tick(local(25, 10))), 1)
         self.answer("second", local(26, 4, 47) + 30 * 86400)
         self.assertEqual(len(self.tick(local(26, 10))), 1)
+
+    def test_c_a_page_not_taken_is_retried_while_due_and_never_once_renewed(self):
+        self.sink.refuse = 1
+        self.assertEqual(self.tick(local(24, 10)), [])
+        self.assertEqual(len(self.tick(local(24, 10, 2))), 1)     # its minute's retry
+        self.sink.refuse = 1
+        self.assertEqual(len(self.tick(local(25, 10))), 1)
+        self.answer("second", local(26, 4, 47) + 30 * 86400)
+        self.assertEqual(len(self.tick(local(25, 11, 1))), 1)     # asked again: renewed
+        self.assertEqual(len(self.tick(local(25, 12))), 1)
 
 
 if __name__ == "__main__":
