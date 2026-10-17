@@ -3946,8 +3946,9 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p`: the seats you stopped, each with its number, its project and how
     long ago, for the one you want back.  ↑/↓, k/j and the wheel move the highlight; Enter or a
     click reopens one where it stopped (`open_session`, what its number does on the main screen)
-    and the menu is back; `x` removes the highlighted one at once (`close_seat`, the second
-    stop), the rest staying up; Esc goes back.  From a pipe a number reopens, `x` asks which to
+    and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
+    (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
+    while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
     remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
     """
     here, top = None, 0
@@ -3995,7 +3996,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             open_session(cfg, next(session for _, session in past if session["name"] == here),
                          dry_run)
             return
-        if act == "x":
+        if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
             close_seat(here, dry_run)
             keyboard.take()
