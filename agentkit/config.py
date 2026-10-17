@@ -1183,6 +1183,17 @@ def live_host():
     return alias or None
 
 
+def suite_helper():
+    """The ssh alias of the machine that runs suite pieces beside this one (agentkit/helper.py),
+    from `suite_helper` in config.toml, or None when the owner has named none."""
+    try:
+        with (HOME / CONFIG_NAME).open("rb") as fh:
+            alias = tomllib.load(fh).get("suite_helper")
+    except (OSError, ValueError):
+        return None
+    return alias if isinstance(alias, str) and alias else None
+
+
 def workers(cfg):
     """The session's selection, else the default workers."""
     session = active_session(cfg)
