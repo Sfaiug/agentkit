@@ -2380,13 +2380,14 @@ def model_heading(cfg, provider):
     return terminal.styled(provider_name(cfg, provider), "accent")
 
 
-def advice(cfg):
-    """What `ak models` recommends per role off the matrix as last computed: {role: (its row's
-    label, the configured model that runs it in that role or None)}; {} while nothing is
-    computed.  The model is read off the config as it stands (matrix.runs), not the row as
-    stored: one removed on this screen is `(not configured)`."""
+def advice(cfg, held):
+    """What `ak models` recommends per role off `held`, the matrix as last computed
+    (matrix.stored): {role: (its row's label, the configured model that runs it in that role or
+    None)}; {} while nothing is computed.  The model is read off `cfg` as it stands
+    (matrix.runs), not the row as stored, so the same matrix is read against the config each
+    draw: a model removed on this screen is `(not configured)` at once."""
     found = {}
-    for role, row in matrix.recommended(matrix.stored().get("rows") or []).items():
+    for role, row in matrix.recommended(held.get("rows") or []).items():
         name = matrix.runs(cfg, row, role)
         found[role] = (matrix.row_label({**row, "name": name}), name)
     return found
@@ -2929,8 +2930,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
     here, column, top, clock = None, columns[1], 0, motion.Clock()
-    found = advice(cfg) if selected else None       # read once a visit: the tick keeps the file
+    held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
+        found = advice(cfg, held) if selected else None   # against the config as it stands
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
@@ -3614,7 +3616,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
                        config_body(cfg, version, selected=selected, providers=providers,
-                                   found=advice(cfg) if selected else None)[0],
+                                   found=advice(cfg, matrix.stored()) if selected else None)[0],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)

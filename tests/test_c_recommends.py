@@ -88,16 +88,18 @@ class Recommends(Sandbox):
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
 
-    def test_a_recommended_model_removed_from_the_config_is_not_configured(self):
-        # the matrix still names it: the config as it stands decides, and r takes the other
+    def test_a_recommended_model_removed_on_the_screen_is_not_configured_at_once(self):
+        # the matrix still names fable: the config as this screen left it decides, and r
+        # takes the other.  Its label, Enter, down to `Remove`, Enter asks, `Remove` picked.
         self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
-                    row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
-        config.save(config.remove_model(self.cfg, "fable"))
-        text = self.screen([Key("char", "r"), Key("esc")])
-        self.assertIn("exec claude-fable-5-1 @ xhigh (not configured) · review astra @ xhigh "
+                    row("claude", "claude-opus-5-5", "xhigh", "opus", review=100)])
+        text = self.screen([Key("left"), Key("enter"), *[Key("down")] * 4, Key("enter"),
+                            Key("down"), Key("enter"), Key("char", "r"), Key("esc")])
+        self.assertNotIn("fable", config.load()["models"])
+        self.assertIn("exec claude-fable-5-1 @ xhigh (not configured) · review opus @ xhigh "
                       "· r takes exec and review", text)
         record = config.load_session(self.cfg, "fix-api")
-        self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
+        self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
 
     def test_with_nothing_computed_the_line_says_so_and_r_is_no_key(self):
         text = self.screen([Key("char", "r"), Key("esc")])
