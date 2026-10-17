@@ -287,7 +287,9 @@ delivery of a PASS whose push or merge did not finish. `ak run stop <id> [--keep
 is final, and `--keep` holds the branch for a task with `from: <branch>`. Given a job's id, it stops the job's launcher
 and each of its runs still going, records every unfinished task `stopped` and ends the job, which is then collected like
 any finished one; a resume of it begun before the stop stands down. After a reboot the first tick or menu brings
-back Claude and Codex seats with proven conversations, once per boot, but none you closed; the tick tells one that died
+back Claude and Codex seats with proven conversations that still owe work, once per boot, but none you closed: one
+that died in a turn or asking you, or with an open plan line, an undecided or going run of its own or an unanswered
+question; the rest stay down and reopen with their number. Runs resume as before. The tick tells one that died
 mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it,
 and tells one that was asking you, in a turn or not, by its question on screen or its own unanswered `ak notify needs`,
 to ask it again once it rests at its prompt with nothing running, asked or typed there.
