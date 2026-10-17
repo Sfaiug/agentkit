@@ -457,8 +457,9 @@ for the model, among those the harness offers, or one the config runs it at in a
 board naming no effort counts for every effort of its model, and a model no board lists at any effort is one row at
 none. A board's model is found by its letters and digits (`normal`: `claude-opus-5-5` is `Claude Opus 5.5 (max)` at
 max), else by the board's name the id extends with a version only (`muse-wonder-full` for `muse-wonder-full-1.0`;
-`found`), else, on a board where neither finds it, by `benchmark` on the config entry; at the row's effort, else the
-board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it and the
+`found`), else by the one board name that is the model with a qualifier in brackets (`Acme 5 (Default Fallback)` for
+`acme-5`; two such names stand for nothing), else, on a board where none of these finds it, by `benchmark` on the
+config entry; at the row's effort, else the board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it and the
 roles it runs it in (`roles`), every matched board's numbers and which board model and effort each came from.
 
 Every row is scored per role (`scored`). A column is the row's share of the best value in that column among the rows
