@@ -23,7 +23,7 @@
 #                                  the [catalog] table of adapters/opencode.toml where it has
 #                                  them, else that table
 #                     $AGENTKIT_PROVIDER names the providers a call is about, by OpenCode's own
-#                     ids (config.account_env); none named is any provider with a login
+#                     ids (config.provider_env); none named is any provider with a login
 #                     $AGENTKIT_ACCOUNT naming one of the provider's `accounts` is refused by
 #                     every verb, in one line
 set -uo pipefail
