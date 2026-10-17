@@ -469,14 +469,22 @@ def answered(session, at):
             if card.get("word") == "needs you":
                 _card_write(session, {**card, "answered_at": at})
             return
-        previous["answered_at"] = at
-        if not resolved(previous):
+        if not answer(session, previous, at):
             return
-        waited(previous, at)
-        record(session, previous["kind"], previous["text"],
-               **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     from . import watch    # here, not at the top: watch imports this module
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
+
+
+def answer(session, notice, at):
+    """That standing question is answered at `at`, once its owner's words came after it was
+    asked; whether they did.  The caller holds the notice lock."""
+    notice["answered_at"] = at
+    if not resolved(notice):
+        return False
+    waited(notice, at)
+    record(session, notice["kind"], notice["text"],
+           **{k: v for k, v in notice.items() if k not in ("session", "kind", "text")})
+    return True
 
 
 def waited(notice, at):
@@ -1540,6 +1548,33 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     return previous
 
 
+def conversation_of(name):
+    """(harness plugin, record, checkout, conversation) of that seat, or None where it has no
+    record or its harness cannot say which conversation is its."""
+    from . import orch
+    record = config.session_records().get(name)
+    if not record:
+        return None
+    plugin, cwd = orch.seat_plugin(record), record.get("cwd")
+    try:
+        return plugin, record, cwd, plugin.conversation(record, cwd)
+    except (OSError, ValueError):
+        return None
+
+
+def owner_said(name, seat=None):
+    """When the owner wrote each of his messages in that seat's conversation, oldest first
+    (`user_messages` leaves ak's own lines out); none where it cannot be read."""
+    seat = seat or conversation_of(name)
+    if seat is None or not seat[3]:
+        return []
+    plugin, record, cwd, conversation = seat
+    try:
+        return [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)]
+    except (OSError, ValueError):
+        return []
+
+
 def _intent(name, done_at):
     """Record that seat's done with where the owner's intent it ends began: their first message
     in its conversation since that conversation's previous done (`user_messages` leaves ak's own
@@ -1549,23 +1584,14 @@ def _intent(name, done_at):
     the harness reads no messages or cannot read them now, and for the first done of a
     conversation begun before dones were kept: its earlier dones were never recorded, and a
     notice keeps only a seat's latest."""
-    from . import orch
-    record = config.session_records().get(name)
-    if not record:
+    seat = conversation_of(name)
+    if seat is None:
         return
-    plugin, cwd = orch.seat_plugin(record), record.get("cwd")
-    try:
-        conversation = plugin.conversation(record, cwd)
-    except (OSError, ValueError):
-        return
+    plugin, conversation = seat[0], seat[3]
     known = history.last_done(f"{plugin.name}:{conversation}") if conversation else None
     if known is None:
         return
-    try:
-        asked = [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)
-                 if message["at"] <= done_at]
-    except (OSError, ValueError):
-        asked = []
+    asked = [at for at in owner_said(name, seat) if at <= done_at]
     last, since = known
     fresh = [at for at in asked if last is None or at > last]
     unknown = not fresh or (last is None and min(asked) < since)
@@ -1574,7 +1600,8 @@ def _intent(name, done_at):
 
 def ask_kept(name, ended=False):
     """The turn that seat asked in has ended: the questions it kept back become its notice,
-    as the command would have recorded them, dated at that end (`watch.turn_ended`).
+    as the command would have recorded them, dated at that end (`watch.turn_ended`), or
+    answered already where the owner wrote into that turn after them.
 
     The caller holds `session_lock(name)`.  With `ended` it asks only those whose turn's end
     is already on record, which are the first kept: the caller has not looked at the seat
@@ -1588,9 +1615,18 @@ def ask_kept(name, ended=False):
     if not kept:
         return False
     stamps = [question.get("ended") for question in kept]
+    # What the owner types while the turn runs goes into that turn, and no prompt hook hears
+    # it: his first message after the last question was kept answers them, as his next prompt
+    # would, and they were asked when the seat asked them.
+    kept_at = [question.get("at") for question in kept]
+    reply = None if None in kept_at else next(
+        (at for at in owner_said(name) if at > max(kept_at)), None)
     _said(name, "needs", [question["text"] for question in kept],
-          at=None if None in stamps else max(stamps))
+          at=max(kept_at) if reply is not None else None if None in stamps else max(stamps))
     watch.kept_asked(name, kept)
+    notice = last(name) if reply is not None else None
+    if notice:
+        answer(name, notice, reply)
     return True
 
 
