@@ -67,6 +67,9 @@ class CrewAndSquares(Sandbox):
         with patch.object(terminal, "colour_depth", return_value=0):
             self.assertEqual(menu.squares(tasks, 40), "■□□  ■■□  ■■■")
             self.assertEqual(menu.squares(tasks * 4, 21), "■□□  ■■□  ■■■  +9")
+            # the count takes the cells its digits need, no more and no fewer
+            self.assertEqual(menu.squares(tasks[:2], 7), "■□□  +1")
+            self.assertEqual(menu.squares(tasks[:1] * 103, 8), "+103")
         with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}), \
                 patch.object(terminal, "colour_depth", return_value=0):
             self.assertEqual(menu.squares(tasks, 40), "#--  ##-  ###")

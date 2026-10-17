@@ -893,7 +893,10 @@ def squares(tasks, room):
     colour: the shapes alone; no UTF-8: `#--`."""
     full, empty = "■□" if terminal.utf8() else "#-"
     kinds = {"moving": "working", "waiting": "dim", "failed": "FAIL"}
-    fit = len(tasks) if 5 * len(tasks) - 2 <= room else max(0, (room - 3) // 5)
+    # a group takes five cells with its gutter, the count of the rest as many as its digits
+    fit = len(tasks)
+    while fit and 5 * fit - 2 + (len(f"  +{len(tasks) - fit}") if fit < len(tasks) else 0) > room:
+        fit -= 1
     drawn = [terminal.styled(full * (stage + 1), kinds[state])
              + terminal.styled(empty * (2 - stage), "dim") for stage, state in tasks[:fit]]
     rest = len(tasks) - fit
