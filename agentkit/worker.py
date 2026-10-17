@@ -403,12 +403,24 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
     started.  One sweep ends the run's sub-marked processes too (`<marker>/suite`), so no sweep
     of a run can miss its suite; `exact` sweeps only the marker itself, for a failed turn's
     cleanup while the suite beside it keeps running.  Polls for the exits and returns
-    early; True when nothing marked is left.  Never raises: a cleanup that fails leaves
-    the next one to act.
+    early; True when nothing marked is left.  An exiting process drops its environment
+    before it exits, so one seen marked is left until its stat reads exited or its pid
+    names another process.  Never raises: a cleanup that fails leaves the next one to act.
     """
     if not run_id:
         return True
-    marked = marked_pids(run_id, exact=exact)
+    seen = {}
+
+    def left():
+        for pid in marked_pids(run_id, exact=exact):
+            stat = host.proc_stat(pid)
+            if stat is not None:
+                seen[pid] = stat.start
+        return [pid for pid, start in seen.items()
+                if (stat := host.proc_stat(pid)) is not None
+                and not stat.exited and stat.start == start]
+
+    marked = left()
     if not marked:
         return True
     for pid in marked:
@@ -418,7 +430,7 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
             pass
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
-        marked = marked_pids(run_id, exact=exact)
+        marked = left()
         if not marked:
             return True
         time.sleep(0.2)
@@ -429,7 +441,7 @@ def kill_marked(run_id, grace=MARK_KILL_GRACE, log=None, exact=False):
             pass
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        marked = marked_pids(run_id, exact=exact)
+        marked = left()
         if not marked:
             return True
         time.sleep(0.2)

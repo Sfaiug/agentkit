@@ -454,6 +454,25 @@ class RunTree(unittest.TestCase):
         for pid in found:
             self.assertTrue(wait_gone(pid))
 
+    def test_sweep_waits_for_a_killed_process_to_exit(self):
+        # Exiting, a process drops its environment before it exits: the marker scan
+        # misses it while its stat still reads running. The sweep reports nothing left
+        # only once that stat reads exited. A fake table: one read running, then a zombie.
+        state = ["S"]
+
+        def stat(pid):
+            read = state[0]
+            if read == "R":
+                state[0] = "Z"
+            return worker.host.ProcStat(read, 1, 7)
+
+        with patch.object(worker, "marked_pids",
+                          lambda *_a, **_kw: [4242] if state[0] == "S" else []), \
+                patch.object(worker.os, "kill", lambda pid, sig: state.__setitem__(0, "R")), \
+                patch.object(worker.host, "proc_stat", stat):
+            self.assertTrue(worker.kill_marked(self.marker, grace=1))
+        self.assertEqual(state, ["Z"])
+
     def _leave_marked_sleep(self, left, marker=None):
         kid = subprocess.Popen(
             ["setsid", "sleep", "100"], start_new_session=True,
