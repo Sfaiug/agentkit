@@ -5289,8 +5289,9 @@ time.sleep(1.0)
 assert typed_into("stall-muse") == "continue\n", typed_into("stall-muse")
 assert watch.seat_read("stall-muse")["usage_wait"] is None
 
-# an hour of the same stall on seats at their prompts: nobody is asked, and nothing more
-# is typed -- an idle seat sends nothing, however long its stall line stands
+# an hour of the same stall on seats at their prompts: the user is asked once, and nothing more
+# is typed -- an error that ends a turn leaves its seat at the prompt, which is no sign anyone
+# opened it
 before = {name: typed_into(name) for name in stalled}
 for entry in state["stalls"].values():
     entry["since"] -= watch.GIVE_UP
@@ -5299,11 +5300,11 @@ said = []
 watch.health(cfg, state, False, said.append)
 time.sleep(0.5)
 assert all(typed_into(name) == before[name] for name in stalled), "nudged after the hour was up"
-assert not (config.STATE / f"notify-{CLAUDE}.json").exists(), "asked an idle seat"
-assert state["stalls"][CLAUDE]["told"], state    # the hour is latched, not asked
+assert (notify.last(CLAUDE) or {}).get("kind") == "needs", "an hour of it asked nobody"
+assert state["stalls"][CLAUDE]["told"], state
 said = []
 watch.health(cfg, state, False, said.append)
-assert not [line for line in said if "asked the user" in line], said    # silent, and stays silent
+assert not [line for line in said if "asked the user" in line], said    # once, and stays silent
 
 # The user takes over this watcher-authored capacity alert; orchestrator questions
 # retain their separate open-plus-progress contract, exercised by check 32.
@@ -5322,9 +5323,7 @@ assert any("fine-seat: moving again" in line for line in said), said
 assert typed_into("fine-seat") == "", "typed into a seat that is working"
 
 # Pruning the old name after a rename must leave the live seat's stall latch intact.
-# (The seat is idle, so there is no needs-you record: nothing was ever asked.)
 watch.save_state(state)
-assert not config.notify_path("stall-codex-goal").exists()
 told = state["stalls"]["stall-codex-goal"]["told"]
 renamed = orch.rename("stall-codex-goal", "stall-codex-renamed")
 assert config.resolve_session("stall-codex-goal") == renamed

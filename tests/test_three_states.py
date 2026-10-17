@@ -576,8 +576,9 @@ class ThreeStates(Sandbox):
 
     def test_m_the_tick_asks_about_this_pass_screen_and_never_the_last_ones(self):
         # A run of its own answers the ladder at its second rung, before any screen is
-        # read. The hourly gates still have to be looking at the pane this pass captured:
-        # asking about a seat that has been at its own prompt since is the bug this pins.
+        # read. The hourly gate for no progress still has to be looking at the pane this pass
+        # captured: asking about a seat that has been at its own prompt since is the bug this
+        # pins.
         self.receipt("20260101-0900-going", state="running", finished_at=None,
                      started_at=NOW - 600, title="Going")
         watch.seat_write("atoll", state="working", began=NOW - 7200)   # what a past pass saw
@@ -587,7 +588,7 @@ class ThreeStates(Sandbox):
                                     "changed_at": now - watch.GIVE_UP - 1,
                                     "stall_line": "",
                                     "stall_at": now - watch.GIVE_UP - 1}
-        with patch.object(watch, "stalled_on", return_value="API Error"), \
+        with patch.object(watch, "stalled_on", return_value=None), \
                 patch.object(watch, "stuck_on", return_value=True), \
                 patch.object(watch, "type_into", return_value=True), \
                 patch.object(notify, "progress", return_value=False), \
