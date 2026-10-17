@@ -96,6 +96,19 @@ def cgroup_path(relative="", cgroup_root=None):
     return Path(root) / relative.lstrip("/")
 
 
+def cgroup_pids(relative):
+    """The pids, in order, the kernel holds in that cgroup and every one under it: a group's own
+    `cgroup.procs` leaves out its children's.  A list that cannot be read adds none; a threaded
+    child's never can, and its processes are on its thread root's."""
+    pids = []
+    for procs in cgroup_path(relative).rglob("cgroup.procs"):
+        try:
+            pids += [int(pid) for pid in procs.read_text().split()]
+        except (OSError, ValueError):
+            continue
+    return sorted(pids)
+
+
 def memory_mb(name, meminfo=None, *, whole=False):
     """One host memory counter in MiB, or None when missing or unreadable."""
     path = Path(meminfo) if meminfo else PROC / "meminfo"

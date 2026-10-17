@@ -17,8 +17,8 @@ import subprocess
 import sys
 import time
 
-from . import (config, gitcall, handback, job as jobs, land, orch, proc_snapshot, record, retention,
-               run, stop, transitions, turns, watch, worktrees)
+from . import (config, gitcall, handback, host, job as jobs, land, orch, proc_snapshot, record,
+               retention, run, stop, transitions, turns, watch, worktrees)
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -30,6 +30,7 @@ VAR_TMP_BASE = Path("/var/tmp")  # a repository's TMPDIR is swept only directly 
 TMP_AGE = 2 * 86400             # a /tmp entry nothing changed for two days goes
 DISK_LIMIT = 85                 # pressure shortens retention, never below one day
 TEST_UNIT_AGE = 86400           # no suite runs a day: a test-slice unit this old was left
+ENDED_LOGIN_AGE = 86400         # what a login still runs a day after it ended was forgotten
 
 
 def disk_pressure():
@@ -712,10 +713,13 @@ def record_gc(message):
         output.write(line)
 
 
-def systemctl(*args):
-    return subprocess.run(["systemctl", "--user", *args],
-                          stdin=subprocess.DEVNULL, capture_output=True,
+def systemd(tool, *args):
+    return subprocess.run([tool, *args], stdin=subprocess.DEVNULL, capture_output=True,
                           encoding="utf-8", errors="replace", env=orch.bus_env(), timeout=5)
+
+
+def systemctl(*args):
+    return systemd("systemctl", "--user", *args)
 
 
 def forget_failed_units(report):
@@ -796,6 +800,51 @@ def stop_test_units(report):
             # --no-block: a unit ignoring SIGTERM holds a blocking stop past the timeout.
             if systemctl("stop", "--no-block", fields["Id"]).returncode == 0:
                 report(f"gc: stopped {fields['Id']}, a test suite's unit a day old")
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            continue
+
+
+def stop_ended_logins(log):
+    """Have logind stop every login of ak's user that ended a day ago and still runs something.
+
+    Only on ak's server with a user manager: there ak's own tmux server and seats live in
+    `agentkit.slice`, never in a login, so what an ended login still runs was started by hand
+    and left.  logind abandons a login's scope the moment the login ends, so the scope's last
+    state change is that moment.  The pids read only name what ran: the stop is the whole login's.
+    """
+    # install.sh stamps `installed-at` on a server and records the server's alias on a client;
+    # with no user manager, seats start plainly, inside the login that opened them
+    if (config.server_alias() or not (config.STATE / "installed-at").exists()
+            or not orch.user_manager()):
+        return
+    try:
+        listed = systemd("loginctl", "list-sessions", "--no-legend")
+        logins = [words[0] for words in map(str.split, listed.stdout.splitlines())
+                  if len(words) > 1 and words[1] == str(os.getuid())]
+        if listed.returncode or not logins:
+            return
+        shown = systemd("systemctl", "show", "-p", "Id", "-p", "SubState", "-p", "ControlGroup",
+                        "-p", "StateChangeTimestampMonotonic",
+                        *(f"session-{login}.scope" for login in logins))
+    except (OSError, subprocess.SubprocessError):
+        return
+    if shown.returncode:
+        return
+    now = time.monotonic()
+    for block in shown.stdout.split("\n\n"):
+        fields = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        try:
+            ended = int(fields.get("StateChangeTimestampMonotonic", "0")) / 1_000_000
+            if (fields.get("SubState") != "abandoned"
+                    or not retention.expired(ended, now, ENDED_LOGIN_AGE)
+                    or not (pids := host.cgroup_pids(fields["ControlGroup"]))):
+                continue
+            ran = orch.processes() or {}     # before the stop, which takes its processes along
+            commands = "; ".join(" ".join(ran[pid][1]) if pid in ran else str(pid) for pid in pids)
+            login = fields["Id"].removeprefix("session-").removesuffix(".scope")
+            if systemd("loginctl", "terminate-session", login).returncode == 0:
+                log(f"stopped login {login}, ended {orch.span(now - ended)} ago, "
+                    f"still running: {commands}")
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             continue
 

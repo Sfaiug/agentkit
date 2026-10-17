@@ -307,6 +307,14 @@ until the reaper can read it; other units are left alone. It also stops every se
 in a slice named `agentkit-test…` once it has been active for a day: no test suite runs that long,
 so it was left behind, however its suite ended. Units in any other slice are never stopped.
 
+On ak's server, with a user systemd manager, each tick stops every login of ak's user that ended
+over a day ago and still runs something, such as a detached mosh-server or an `opencode serve` an
+ssh login started. logind abandons a login's scope the moment the login ends, so that scope's last
+change says when; the stop is logind's, of the whole login (`loginctl terminate-session`). The
+tick's log names the login and what it still ran, and nobody is paged. ak's own tmux server and
+seats live in `agentkit.slice`, never in a login. A login still in use, a client, and a host ak
+was never installed on are left alone.
+
 A merged run's worktree and local branch go with the merge. A stop takes both at once, or with `--keep` the checkout
 after seven days. A failed, blocked or errored checkout goes when its seat has been told or after seven days, unless a
 resume can take it; its local branch stays until the 30-day removal, because a run that never pushed holds its only copy
