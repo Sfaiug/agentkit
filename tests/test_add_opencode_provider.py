@@ -15,7 +15,7 @@ import unittest
 
 from test_config_matrix import DOWN, ENTER, ESC, Screen
 from test_add_model import listed
-from test_provider_screen import GIVE, ONE, SHIPPED, TAKE, open_providers, pick, title
+from test_provider_screen import GIVE, ONE, SHIPPED, TAKE, open_providers, pick, providers, title
 
 FAKE = r"""#!/usr/bin/env bash
 echo "opencode $1 ${AGENTKIT_PROVIDER-}" >> "$HOME/verbs.log"
@@ -96,10 +96,13 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(listed(lines), [["Comet 2", "zeta/comet-2"]])   # its own models only
         lines = screen.press(ENTER, lambda lines: "  effort" in lines)
         self.assertEqual(listed(lines), [["none"]])
-        screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        # by the name OpenCode gives it, on its row and over its models
+        self.assertEqual(providers(lines), ["Providers      Claude  Zeta Cloud  + add  − remove"])
+        self.assertIn("Zeta Cloud", [line.strip() for line in lines])
         saved = screen.saved()
         # priced by OpenCode: pay as you go, used only once every subscription runs ahead
-        self.assertEqual(saved["providers"]["zeta"], {"mode": "payg"})
+        self.assertEqual(saved["providers"]["zeta"], {"mode": "payg", "name": "Zeta Cloud"})
         self.assertEqual(saved["models"]["comet"], {"harness": "opencode", "model": "zeta/comet-2",
                                                     "effort": "none", "provider": "zeta"})
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
@@ -113,7 +116,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertNotIn("opencode login acme", verbs(screen))
         saved = screen.saved()
-        self.assertEqual(saved["providers"]["acme"], {"mode": "subscription"})
+        self.assertEqual(saved["providers"]["acme"], {"mode": "subscription", "name": "Acme Plan"})
         self.assertEqual(saved["models"]["rocket"]["effort"], "max")
         # MiMo is shipped: its table as it ships, whose mode its endpoint says
         lines = through(screen)

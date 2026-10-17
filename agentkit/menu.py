@@ -151,7 +151,7 @@ STATE_ORDER = ("needs you", "working", "done", "idle")
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
 # Each company's own name, on its usage row and over its models on `c` and `n`; any other
-# provider is its own name, capitalised.
+# provider is its own `name` key (provider_name), else its key capitalised.
 NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
          "google": "Gemini", "mimo": "MiMo"}
 TICK = 10.0              # the longest the main screen waits for a key before drawing itself again
@@ -2069,6 +2069,15 @@ def model_colour(cfg, model):
     return colour(cfg, entry.get("provider") if isinstance(entry, dict) else None)
 
 
+def provider_name(cfg, name):
+    """This provider's name on every screen: its own `name` key -- the one its harness gives
+    it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
+    capitalised."""
+    entry = cfg["providers"].get(name)
+    own = entry.get("name") if isinstance(entry, dict) else None
+    return own.strip() if isinstance(own, str) and own.strip() else NAMES.get(name, name.title())
+
+
 def colour(cfg, name):
     """This provider's colour: its own `colour` key, else the shipped one, else the accent."""
     entry = cfg["providers"].get(name)
@@ -2110,7 +2119,7 @@ def usage_rows(cfg):
         top = providers.get(name)
         top = top if isinstance(top, dict) else {}
         found = top.get("accounts") if isinstance(top.get("accounts"), dict) else {}
-        shown = NAMES.get(name, name.title())
+        shown = provider_name(cfg, name)
         for account in config.accounts(cfg, name) or [None]:
             rec = top if account is None else found.get(account)
             rows.append((name, shown if account is None else
@@ -2450,9 +2459,9 @@ def model_label(name, width):
     return terminal.cut(name, width)
 
 
-def model_heading(provider):
+def model_heading(cfg, provider):
     """The same provider heading over the models on `c` and `n`."""
-    return terminal.styled(NAMES.get(provider, provider.title()), "accent")
+    return terminal.styled(provider_name(cfg, provider), "accent")
 
 
 def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
@@ -2503,7 +2512,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
-        lines.append(model_heading(provider))
+        lines.append(model_heading(cfg, provider))
         for name in (name for name in names if models[name]["provider"] == provider):
             texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
             texts += (efforts[name],)
@@ -2614,7 +2623,7 @@ def providers_lines(cfg, wide, room, chosen=None):
     (act 1) and, while a subscription holds a reset, `↻ spend a reset` (act 2), wrapped at an
     item under themselves in `room`.  `chosen` is the act the highlight is on, the last past
     them, reversed, or bracketed with no colour to reverse."""
-    items = [(terminal.cut(NAMES.get(name, name.title()), room), colour(cfg, name),
+    items = [(terminal.cut(provider_name(cfg, name), room), colour(cfg, name),
               ("account", name)) for name in cfg["providers"]]
     acts = provider_acts(cfg)
     for number, texts in enumerate(acts):
@@ -3043,7 +3052,7 @@ def _add_choices(cfg, picked, screen):
         return f"{terminal.glyph('done')} {', '.join(names)}" if names else ""
 
     if not picked:
-        return [((harness, provider), [harness, NAMES.get(provider, provider.title())])
+        return [((harness, provider), [harness, provider_name(cfg, provider)])
                 for provider in cfg["providers"]
                 for harness in config.provider_harnesses(cfg, provider)]
     harness, provider = picked[0]
@@ -3212,9 +3221,9 @@ def config_add(cfg, keyboard=None, through=None):
             name, before = _short_name(cfg, model["label"]), copy.deepcopy(cfg)
             if provider not in cfg["providers"]:     # only `through` lists one the config has not
                 tables = config.shipped().get("providers") or {}
+                row = next(row for row in listed if row[0] == provider)
                 cfg["providers"][provider] = (copy.deepcopy(tables[provider]) if provider in tables
-                                              else {"mode": next(row[2] for row in listed
-                                                                 if row[0] == provider)})
+                                              else {"mode": row[2], "name": row[1]})
             cfg["models"][name] = {"harness": harness, "model": model["id"], "effort": effort,
                                    "provider": provider}
             note = _saved(cfg, cfg, before)
@@ -3311,7 +3320,7 @@ def config_add_provider(cfg, keyboard):
     through = {label: harness for harness, label in hosts.items() if label not in labels}
     more = {}
     for text, name in _by_label(list(cfg["providers"]),
-                                lambda name: NAMES.get(name, name.title())).items():
+                                lambda name: provider_name(cfg, name)).items():
         # A random name, never the next free one: a removed subscription's login stays on
         # disk, and a `login` under its old name would find it and call the new one logged in.
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), os.urandom(3).hex()]
@@ -3405,7 +3414,7 @@ def config_remove_provider(cfg):
     """
     labels = {}
     for text, name in _by_label(list(cfg["providers"]),
-                                lambda name: NAMES.get(name, name.title())).items():
+                                lambda name: provider_name(cfg, name)).items():
         if len(cfg["providers"]) > 1:
             labels[text] = (name, None)
         listed = config.accounts(cfg, name)
