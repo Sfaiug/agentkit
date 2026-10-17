@@ -168,6 +168,10 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(through(screen)[-1], "  ↑↓ move   ⏎ choose   / find   esc back")
         lines = screen.press(b"/zz", lambda lines: "nothing here holds zz" in lines[-3])
         self.assertEqual(listed(lines), [])
+        lines = screen.press(ESC, lambda lines: "  provider" in lines and "/ find" in lines[-1])
+        # a click on `/ find` finds as `/` does
+        screen.click(lines[-1].index("/ find") + 1, len(lines),
+                     lambda lines: "  provider  /" in lines)
         screen.press(ESC, lambda lines: "  provider" in lines and "/ find" in lines[-1])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.path.read_bytes(), before)
