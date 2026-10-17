@@ -26,7 +26,8 @@ def path():
 
 
 def read():
-    """The stall last written, its line, how far its delivery got, and the stalls told."""
+    """The stall last written, its line, how far its delivery got, and the stalls told that
+    still run."""
     try:
         data = json.loads(path().read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
@@ -78,12 +79,14 @@ def scan(cfg, log, now=None):
     state = read()
     if state.get("line") and not state.get("delivered"):
         return setting, state
-    told = state.get("told") or []
-    for key, what, line in stalls(now):
+    found = {key: (what, line) for key, what, line in stalls(now)}
+    # a pass stays a stall until it ends: its key is kept while it is found, and no longer
+    told = [key for key in state.get("told") or [] if key in found]
+    for key, (what, line) in found.items():
         if key in told:
             continue
         state = {"about": what, "line": line, "typed": None, "delivered": None,
-                 "told": [*told, key][-20:]}
+                 "told": [*told, key]}
         write(state)
         log(f"stuck: {line}")
         return setting, state

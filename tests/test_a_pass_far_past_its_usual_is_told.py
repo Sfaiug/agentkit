@@ -92,6 +92,31 @@ class PassFarPastItsUsual(unittest.TestCase):
         self.assertEqual(stuck.read(), {})
         self.assertIn("ak stalled: the acme landing line", self.tick(NOW + 60)[-1])
 
+    def test_a_stall_s_line_waiting_for_its_enter_is_sent_before_a_new_week_s(self):
+        def typed(_seat, line, _log, typed=None, receipt=None, **_kw):
+            if typed is None:
+                receipt({"line": line})     # in the composer, and its Enter failed
+            return typed is not None
+        self.typed.side_effect = typed
+        self.passes(NOW - 3000)
+        stall, week = self.tick()[-1], NOW + 7 * 86400
+        self.assertEqual(self.tick(week)[-1], stall)
+        self.assertEqual((stuck.read()["delivered"], audit.read()["week"]),
+                         (week, audit.week_of(NOW)))
+        self.assertIn(f"ak's week {audit.week_of(week)}", self.tick(week)[-1])
+
+    def test_a_running_stall_is_told_once_however_many_others_are_told_meanwhile(self):
+        self.passes(NOW - 3000)
+        self.tick()
+        for index in range(20):
+            other = deliver.merge_lock_path(f"https://github.com/acme/api-{index}", "main")
+            land._keep_passes(other, {"took": [600, 700, 800], "started": NOW - 3000, **LIVE})
+            self.tick(NOW + index)
+            land._keep_passes(other, {"took": [600, 700, 800]})    # that pass ended
+        told = self.tick(NOW + 60)
+        self.assertEqual((len(told), sum("the acme landing line" in line for line in told)),
+                         (21, 1))
+
     def test_a_lander_keeps_the_time_of_its_passes_that_checked_something(self):
         clock = [1000.0, 1120.0, 2000.0, 2005.0]
         with patch.object(land, "time", SimpleNamespace(time=lambda: clock.pop(0))):

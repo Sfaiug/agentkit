@@ -385,7 +385,10 @@ def tell_audit(cfg, log, now=None):
     exception to "only a person opens a seat" (AGENTS.md, Owner rules, 14 Oct, 17 Oct)."""
     from . import audit, stuck
     now = time.time() if now is None else now
-    found, write = audit.weekly(cfg, log, now), audit.write
+    pending = stuck.read()
+    # a stall's line in the composer is sent before a new week's is written to go after it
+    found, write = (None if pending.get("typed") and not pending.get("delivered")
+                    else audit.weekly(cfg, log, now)), audit.write
     if not found:
         found, write = stuck.scan(cfg, log, now), stuck.write
     if not found:
