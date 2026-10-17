@@ -465,7 +465,7 @@ class Screens(Sandbox):
             self.assertGreaterEqual(clock.now - began, 0.04)
             # moves on and on within one spot keep to the read's time
             terminal.lit((), {3: ("a", []), 4: ("b", [])})
-            os.write(write, move(5, 4) * 1000)                 # sent faster than they are read
+            os.write(write, move(5, 4) * 300)     # faster than read, in a page every pipe holds
             began, clock.step = clock.now, 0.001
             self.assertIsNone(terminal.read_key(0.05))
             self.assertLess(clock.now - began, 0.1)
