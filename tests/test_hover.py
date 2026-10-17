@@ -423,15 +423,29 @@ class Screens(Sandbox):
     def test_a_move_is_answered_at_once_and_one_within_its_spot_never(self):
         read, write = os.pipe()
         self.addCleanup(os.close, write)
+        clock = types.SimpleNamespace(now=1000.0, step=0.0)
+
+        def monotonic():
+            """The test's own clock, which a busy host never moves: each look finds `step` gone."""
+            clock.now += clock.step
+            return clock.now
+
+        def wait(ready, _write, _error, timeout):
+            """`select` on that clock: what is sent is there at once, and when nothing is the
+            clock goes on by `timeout`."""
+            found = select.select(ready, [], [], 0)[0]
+            clock.now += 0 if found else timeout
+            return found, [], []
         with open(read, "rb", buffering=0) as stdin, patch.object(sys, "stdin", stdin), \
                 patch.multiple(terminal, _TAKEN=types.SimpleNamespace(again=(None, None)),
                                _KEYED=b"", _POINTER=None, _POINTED=terminal.Spot(), _MOVED=0.0,
-                               _NEXT=None):
+                               _NEXT=None, select=types.SimpleNamespace(select=wait),
+                               time=types.SimpleNamespace(monotonic=monotonic)):
             terminal.lit((), {3: ("a", []), 4: ("b", [])})
             os.write(write, move(2, 3))
-            began = time.monotonic()
+            began = clock.now
             self.assertEqual(terminal.read_key(1).name, "point")
-            self.assertLess(time.monotonic() - began, 0.1)
+            self.assertLess(clock.now - began, 0.1)
             terminal.lit((), {3: ("a", []), 4: ("b", [])})     # drawn: a is highlighted
             os.write(write, move(9, 3))
             self.assertIsNone(terminal.read_key(0.2))
@@ -441,29 +455,20 @@ class Screens(Sandbox):
             self.assertIsNone(terminal._POINTER)                # and hands the highlight back
             # a move a frame has not come for is answered by a later read, once it has
             terminal.lit((), {3: ("a", []), 4: ("b", [])})
-            time.sleep(0.06)                                    # a frame since the last move
+            clock.now += 0.06                                   # a frame since the last move
             os.write(write, move(2, 3))
             self.assertEqual(terminal.read_key(0).name, "point")
-            began = time.monotonic()
+            began = clock.now
             os.write(write, move(2, 4))
             self.assertIsNone(terminal.read_key(0))
             self.assertEqual(terminal.read_key(1), terminal.Key("point", "", 2, 4))
-            self.assertGreaterEqual(time.monotonic() - began, 0.04)
+            self.assertGreaterEqual(clock.now - began, 0.04)
             # moves on and on within one spot keep to the read's time
             terminal.lit((), {3: ("a", []), 4: ("b", [])})
-            going = threading.Event()
-
-            def stream():
-                while not going.is_set():
-                    os.write(write, move(5, 4))
-                    time.sleep(0.001)
-            streamer = threading.Thread(target=stream, daemon=True)
-            streamer.start()
-            began = time.monotonic()
+            os.write(write, move(5, 4) * 1000)                 # sent faster than they are read
+            began, clock.step = clock.now, 0.001
             self.assertIsNone(terminal.read_key(0.05))
-            self.assertLess(time.monotonic() - began, 0.1)
-            going.set()
-            streamer.join()
+            self.assertLess(clock.now - began, 0.1)
 
 
 class MainMenu(unittest.TestCase):
