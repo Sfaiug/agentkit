@@ -471,11 +471,11 @@ def boot_id():
 def reboot_line(cfg, name):
     """What that seat is told once it is back, by what it was doing when its process went.
 
-    In the middle of a turn: the ladder's own test on its last look -- a hook's prompt with no
+    Its last look, unless its hook has spoken since, which is then the newest word.  Asking
+    the owner, in a turn or not: its question on the screen, or its own unanswered `ak notify
+    needs`.  Else in the middle of a turn: the ladder's own test -- a hook's prompt with no
     `Stop` after it, or a screen positively `working`, as it is once a question the turn asked
-    was answered -- unless its hook has spoken since that look, which is then the newest word.
-    Else asking the owner: its question on the screen, or its own unanswered `ak notify needs`.
-    None for a seat that was idle or done.
+    was answered.  None for a seat that was idle or done.
     """
     harness = seat_model(cfg, name)[0]
     if not harness:
@@ -487,10 +487,10 @@ def reboot_line(cfg, name):
         return None
     if when is not None and when != looked.get("hooked_at"):
         looked = {"state": hooked, "hooked": hooked, "hooked_at": when}
-    if _turn_in_flight(harness, looked)[0]:
-        return MIDTURN_LINE
     if looked.get("state") == "asking" or owner_question(notify.last(name)):
         return ASKED_LINE
+    if _turn_in_flight(harness, looked)[0]:
+        return MIDTURN_LINE
     return None
 
 
@@ -571,7 +571,8 @@ def continue_turns(cfg, log, accounts=False):
     has been prompted since it came back -- by the line, or by him, finished or not -- need
     no line at all, and that is read under the send's own lock, just before each keystroke.
     A question the seat put to the owner holds no line back: that turn went on after asking.
-    Every other line waits for a quiet prompt: no question on the screen and no draft.
+    The re-ask is a new prompt and waits, sparing its tries, for a quiet one, read under that
+    lock too: nothing running, asked or typed there.
     A seat renamed since loses its mark: its harness stamps prompts under the name it was
     started with.
     """
@@ -588,20 +589,29 @@ def continue_turns(cfg, log, accounts=False):
             if wait > 0:
                 time.sleep(min(wait, INBOX_WARMUP))   # the TUI has to be listening first
             harness, found = look_at(session, cfg=cfg)
-            if line != MIDTURN_LINE and found.get("state") in ("draft", "asking"):
+            if accounts and found.get("state") in ("draft", "asking"):
                 continue
             flight, began = _turn_in_flight(harness, found) if harness else (False, None)
             if not (flight and isinstance(began, (int, float)) and began > at):
                 tries = (mark.get("tries") or 0) + 1
+                quiet = []     # the re-ask's screen, read before its text goes in
 
                 def taken(held):
                     return held != mark.get("name") or prompted_since(held, at)
-                sent = type_into(session, line, log, taken, asked=True)
+
+                def stale(held):
+                    if line == ASKED_LINE and not quiet:
+                        now = observed(held, harness, pane_text(session), seat_read(held),
+                                       time.time())
+                        quiet.append(now["state"] == "at_prompt"
+                                     and not _turn_in_flight(harness, now)[0])
+                    return quiet == [False] or taken(held)
+                sent = type_into(session, line, log, stale, asked=True)
                 if sent:
                     log(f"told {name}: {line}")
                 elif taken(config.resolve_session(name)):
                     log(f"{name} was prompted or renamed since it came back: no line")
-                elif sent is None:
+                elif sent is None or quiet == [False]:
                     continue
                 elif tries < MIDTURN_TRIES:
                     seat_write(name, midturn={**mark, "tries": tries})
@@ -615,7 +625,9 @@ def continue_turns(cfg, log, accounts=False):
 def finish_own_lines(cfg, log):
     """Finish a fixed ak line left in its composer, even after its retries were spent.
 
-    The screen decides, without a mark: only that line alone gets its locked Enter.
+    The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
+    `continue_turns` mark is the one exception: its line was typed past an open question, so
+    its Enter is too, and once it lands the mark comes off, as that pass's own send takes it.
     Delivery remains at least once, as it does for every line ak types.
     """
     for session in orch.sessions():
@@ -627,16 +639,20 @@ def finish_own_lines(cfg, log):
             continue
         resume = config.manifest(harness).get("resume")
         key = resume.get("key") if isinstance(resume, dict) else None
+        mark = seat_read(name).get("midturn")
+        marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
         for line in (ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
             if not line or not alone(name):
                 continue
-            type_checked(session, line, log, harness, pending=True,
-                         guard=lambda: seat_held(name),
-                         veto=lambda held: owner_question(notify.last(held)),
-                         ready=alone)
+            if (type_checked(session, line, log, harness, pending=True,
+                             guard=lambda: seat_held(name),
+                             veto=lambda held: line != marked
+                             and owner_question(notify.last(held)),
+                             ready=alone) and line == marked):
+                seat_write(name, midturn=None)
             break
 
 

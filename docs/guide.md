@@ -289,8 +289,8 @@ and each of its runs still going, records every unfinished task `stopped` and en
 any finished one; a resume of it begun before the stop stands down. After a reboot the first tick or menu brings
 back Claude and Codex seats with proven conversations, once per boot, but none you closed; the tick tells one that died
 mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it,
-and tells one that was asking you, by its question on screen or its own unanswered `ak notify needs`, to ask it again
-once it rests at its prompt with no question or draft.
+and tells one that was asking you, in a turn or not, by its question on screen or its own unanswered `ak notify needs`,
+to ask it again once it rests at its prompt with nothing running, asked or typed there.
 
 ### When a run goes silent
 
