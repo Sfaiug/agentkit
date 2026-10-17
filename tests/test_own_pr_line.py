@@ -152,15 +152,17 @@ class OwnPrLineFixture(LanderFixture):
 class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
     def test_wording_the_target_carries_onto_code_goes_back_for_review(self):
         original = "".join(f"# Deployment example {i}\n" for i in range(30)) + "RETENTION_DAYS = 30\n"
-        self.on_main(lambda: (self.repo / "example.md").write_text(original), "document retention")
+        self.on_main(lambda: ((self.repo / "docs").mkdir(),
+                             (self.repo / "docs/example.md").write_text(original)),
+                     "document retention")
         directory, url = self.own_pr("README", 1)
         run.git(self.repo, "rm", "-q", "README.txt")
-        (self.repo / "example.md").write_text(original.replace("= 30", "= 0"))
+        (self.repo / "docs/example.md").write_text(original.replace("= 30", "= 0"))
         self.pushed(url, "change the documented retention")
         state = self.review(directory, url)
         self.assertTrue(state["review"]["skipped"])
         # the target renames the prose file to code while the wording waits in the line
-        self.on_main(lambda: run.git(self.repo, "mv", "example.md", "app.py"), "run the example")
+        self.on_main(lambda: run.git(self.repo, "mv", "docs/example.md", "app.py"), "run the example")
         land.check_line(self.turn)
         handed_back = []
 
@@ -235,17 +237,19 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         for name, setup in (("a name git mangles", lambda: (
                                 self.repo / ".gitattributes").write_text("*.md diff\n")),
                             ("a linked AGENTS.md", lambda: (
-                                run.git(self.repo, "mv", "AGENTS.md", "rules.md"),
-                                (self.repo / "AGENTS.md").symlink_to("rules.md")))):
+                                (self.repo / "docs").mkdir(),
+                                run.git(self.repo, "mv", "AGENTS.md", "docs/rules.md"),
+                                (self.repo / "AGENTS.md").symlink_to("docs/rules.md")))):
             with self.subTest(case=name):
                 self.doCleanups()
                 self.setUp()
                 self.on_main(setup, name)
                 directory, url = self.own_pr("README", 1)
                 if name == "a name git mangles":
-                    (self.repo / "binary\r.md").write_bytes(b"words\0binary\n")
+                    (self.repo / "docs").mkdir()
+                    (self.repo / "docs/binary\r.md").write_bytes(b"words\0binary\n")
                 else:
-                    (self.repo / "rules.md").write_text("---\nusers: none\ntests: true\n---\n")
+                    (self.repo / "docs/rules.md").write_text("---\nusers: none\ntests: true\n---\n")
                 self.pushed(url, name)
                 state = self.review(directory, url)
                 self.assertFalse(state["review"].get("skipped", False))

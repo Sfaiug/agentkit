@@ -8,8 +8,8 @@ The loop derives a review's verdict from its checked hand-in records.
 
 `ak run --review-pr <url>` is the same reviewer with no executor: a PR checked out at
 its head, judged against the repo and posted back as a GitHub review. The seat's own
-PR merges on PASS with green checks; anyone else's asks the inbox. The seat's own text and
-translation PRs skip review and join the line like any passed review.
+PR merges on PASS with green checks; anyone else's asks the inbox. The seat's own PRs of
+documents alone skip review and join the line like any passed review.
 """
 
 import os
@@ -2413,7 +2413,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if text_only:
         # The seat's own wording needs no reviewer: it joins the line like a passed review,
         # where the repository's suite and CI still check it.
-        summary = "Text and translation files only; review skipped."
+        summary = "Documents only; review skipped."
         # this head's verdict replaces the last one's findings: a later failure is its own
         state.update(verdict="PASS", review_posted=True, findings="",
                      review={**commit_identity(wt), "verdict": "PASS", "skipped": True})
