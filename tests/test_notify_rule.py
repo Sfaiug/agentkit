@@ -494,6 +494,18 @@ class Rule(unittest.TestCase):
             self.assertEqual(notify.main(["needs", long_text, "--dry-run"]), 0)
         self.assertEqual(json.loads(out.getvalue())["embeds"][0]["description"], long_text)
 
+    def test_v5d_a_needs_card_never_carries_what_the_owner_left_unsent(self):
+        config.save_session(config.load(), "seat", "fable", ["opus"], {})
+        question = "Which branch?\n- staging\n- production"
+        notify.record("seat", "needs", question, time=100)
+        watch.seat_write("seat", state="draft", evidence="Use staging", began=100)
+        seat = {"name": "seat", "attached": False}
+        with patch.object(orch, "listing", return_value=[seat]):
+            self.assertEqual(notify.transition("seat", now=160, seat=seat), 0)
+        self.assertEqual(len(self.posts), 1, self.posts)
+        self.assertEqual(self.posts[0]["embeds"][0]["description"], question)
+        self.assertNotIn("Use staging", json.dumps(self.posts[0]))
+
     def test_v5d_a_done_with_no_runs_going_posts_at_once(self):
         self.assertEqual(notify.main(["done", "Quick answer"]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)

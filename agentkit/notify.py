@@ -1005,7 +1005,10 @@ def _remember_card(event, previous=None):
 def _send_card(session, kind, card, answer):
     """Queue once under the session lock; the outbox owns any further attempts."""
     previous = last(session, include_seen=True)
+    # what the owner typed and never sent is the row's to show, never Discord's
     text = answer["reason"]
+    if answer.get("unsent"):
+        text = text.removesuffix(answer["unsent"]).removesuffix(" · ")
     # the seat's word shows its notice on one line; the card carries the notice as written
     if previous and (kind == "done" or " ".join(str(previous["text"]).split()) == text):
         text = previous["text"]
