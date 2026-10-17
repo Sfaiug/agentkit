@@ -42,6 +42,14 @@ def proof_failed(proof):
             and not proof.get("killed"))
 
 
+def plan_check(command, root=None):
+    """Whether `command` can check a follow-up: its seat's plan line and its fix run's done-when
+    run it on a fresh checkout of the default branch, as one shell command on one line, without
+    backticks or this checkout's path (`root`)."""
+    return (len(command.strip().splitlines()) == 1 and "`" not in command
+            and not (root and str(root) in command))
+
+
 def item_text(row):
     text = (item_text(row["finding"]) + "\nDispute: " + row["why"] if row["kind"] == "dispute"
             else f"{row['path']}:{row['line']} - {row['what']} - {row['why']}")
@@ -97,9 +105,12 @@ class Review:
 
     @property
     def followup_checks(self):
-        """Each follow-up's failing command by its text: the check of its seat's plan line."""
+        """Each follow-up's failing command by its text: the check of its seat's plan line.  A
+        finding ak made a follow-up, its defect older than the task, may carry a proof that
+        cannot be one (`plan_check`): its fix run writes a regression test of its own instead."""
         return {item_text(row): row["evidence"]["run"] for row in self.records
-                if row["kind"] == "follow-up" and "run" in row["evidence"]}
+                if row["kind"] == "follow-up" and "run" in row["evidence"]
+                and plan_check(row["evidence"]["run"])}
 
     @property
     def followup_commits(self):
@@ -250,9 +261,7 @@ def checked(argv, workspace, role="reviewer", findings=()):
         root = Path(workspace).resolve()
         path, line = root / listed["path"], int(listed["line"])
     command = flags.get("--run")
-    # A follow-up's command becomes a plan check, run on a fresh checkout of the default branch.
-    if kind == "follow-up" and command and (len(command.strip().splitlines()) != 1
-                                            or "`" in command or str(root) in command):
+    if kind == "follow-up" and command and not plan_check(command, root):
         raise config.Error("write a follow-up's --run as one shell command, without backticks, "
                            "line breaks or this checkout's path: it becomes a plan check")
     if "--quote" in flags:
