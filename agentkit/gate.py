@@ -1191,7 +1191,7 @@ class _SuiteMeasure:
                       Path(relative).name in turns._scope_units(state["scope"])
                       else host.own_cgroup())
         self.cpu = []     # each box's CPU seconds (`worker.boxed`)
-        self.quiet = []   # and the longest each went without output (`worker.limited`)
+        self.quiet = []   # and the longest each go went without output (`worker.limited`)
         self.baseline = host.held_mb(self.group) if self.group is not None else None
         self.peak = self.baseline
         self.lock = threading.Lock()
@@ -1221,11 +1221,21 @@ class _SuiteMeasure:
                 if (previous.get("run_id") == self.run_id and type(seconds) in (int, float)
                         and math.isfinite(seconds)):
                     cost["wall_seconds"] = max(elapsed, seconds)
-                if len(self.quiet) == pieces:
-                    cost["quiet"] = (quiet_runs(previous) + [max(self.quiet)])[-QUIET_RUNS:]
                 write_suite_cost(path, cost)
         except OSError:
             pass    # a missing measurement keeps the initial estimate
+
+    def paced(self, path, pieces):
+        """Once each of a run's `pieces` ran to its end, the longest any of its goes went
+        without output joins the suite's pace, a retry's too: a pace it outgrew retires."""
+        if len(self.quiet) < pieces:
+            return
+        try:
+            with watch.state_lock():
+                quiet = quiet_runs(read_suite_cost(path)) + [max(self.quiet)]
+                write_suite_cost(path, {"quiet": quiet[-QUIET_RUNS:]})
+        except OSError:
+            pass
 
 
 def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
@@ -1279,6 +1289,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                               quiet=measured.quiet if measured else None, **kwargs)
         if measured and not result[2] and result[0] != SUITE_BUSY:
             measured.save(path, 1)
+            measured.paced(path, 1)
         return result
     with gate_turn(run_dir, activity, log, command, cwd):
         hold = getattr(_GATE_HELD, "hold", None)
@@ -1353,6 +1364,10 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     cancel.set()
                     return worker.TIMEOUT, piece, True, []
                 stream, tests = Output(), []
+                own = {**env, "AK_SHARD": shard if only is None else "1/1"}
+                if own.get(worker.RUN_MARKER):
+                    # A stop ends this piece's own processes, never a sibling's that runs on.
+                    own[worker.RUN_MARKER] += f"/piece-{shard.replace('/', '-')}"
                 try:
                     here = {} if away else {"cpu": measure.cpu, "quiet": measure.quiet,
                                             "only": only, "failed": tests}
@@ -1360,7 +1375,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         helper.piece(away, shard, PINNED_PIECE.format(shlex.quote(command)))
                         if away else ["bash", "-c", command],
                         left, cwd=str(cwd), activity=Path(piece.name), output=stream,
-                        env={**env, "AK_SHARD": shard if only is None else "1/1"}, abort=abort,
+                        env=own, abort=abort,
                         on_timeout=stopped, silence=silence if first else later or silence,
                         **here, **kwargs)
                 finally:
@@ -1383,12 +1398,11 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if not away and not any(killed or code == SUITE_BUSY for code, _, killed, _ in results):
                 measure.save(path, count)
             again = [index for index, (code, _, killed, _) in enumerate(results)
-                     if away and not cancel.is_set()
-                     and (code and not killed or f"{index + 1}/{count}" in silenced)]
-            silenced -= {f"{index + 1}/{count}" for index in again}
-            away = None
-            if again:
-                # What the helper lost or failed runs again here, on this host's own turns.
+                     if away and code and not killed and not cancel.is_set()]
+            helped, away = away, None
+            if again or helped and silenced and not cancel.is_set():
+                # What the helper lost, failed or stopped runs again here, on this host's own
+                # turns; a stopped piece alone, below.
                 for index in (index for index in again if results[index][0] != helper.LOST):
                     if log is not None:
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper")
@@ -1399,7 +1413,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if on_wait is not None:
                     on_wait(queued)
                 env = suite_env()
-                attempts(again, len(hold.slots) if hold else len(again))
+                if again:
+                    attempts(again, len(hold.slots) if hold else len(again))
             hold = getattr(_GATE_HELD, "hold", None)
             if hold is not None:
                 hold.alone()
@@ -1454,6 +1469,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 # Existing failure diagnostics read the last output; leave a red piece last.
                 (red if code else chunks).append(f"--- AK_SHARD={shard} ---\n"
                     f"[{'killed at the limit' if killed else f'exit {code}'}]\n{text}".rstrip())
+            if not helped and not any(killed for _, _, killed, _ in results):
+                measure.paced(path, count)
             text = "\n\n".join(chunks + red + flakes)
             output.write(("\n" + text + "\n").encode())
             output.flush()

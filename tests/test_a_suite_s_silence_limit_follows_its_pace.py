@@ -23,7 +23,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, helper, record, worker
+from agentkit import config, gate, gitcall, helper, record, worker
 
 ROOM = {"cpus": 4, "load": 0, "free_mb": 820,
         "slice_cpu_quota": 4, "slice_cpu_used": 0,
@@ -61,14 +61,19 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         and whose second go, if any, says `second`: the calls, the stops the caller was told
         of, the result, and whether 2/2 saw its siblings cancelled once 1/2 had stopped."""
         calls, told, cancelled, stopped = [], [], [], threading.Event()
+        self.markers = {}
 
-        def boxed(cmd, limit, env, output, silence=None, on_timeout=None, abort=None, **_kw):
+        def boxed(cmd, limit, env, output, silence=None, on_timeout=None, abort=None, quiet=None,
+                  **_kw):
             shard = env["AK_SHARD"]
             calls.append((shard, silence))
+            self.markers[shard] = env.get(worker.RUN_MARKER)
             output.write(f"piece {shard}\n".encode())
             if shard == "2/2":
                 stopped.wait(10)
                 cancelled.append(abort())
+                if quiet is not None:
+                    quiet.append(100)
                 return 0, "", False
             said = first if len([c for c in calls if c[0] == "1/2"]) == 1 else second
             if said == "silence":
@@ -76,6 +81,8 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
                 stopped.set()
                 return worker.TIMEOUT, "", True
             stopped.set()
+            if quiet is not None:
+                quiet.append(350)
             return said, "", False
 
         with patch.object(worker, "boxed", side_effect=boxed), \
@@ -93,15 +100,55 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         self.assertEqual((code, killed, told, cancelled), (0, False, [], [False]))
         self.assertIn(f"flaky: {SUITE} (AK_SHARD=1/2) was stopped after 5 min of silence, then "
                       "passed on its re-run", text)
+        # the second go's quiet joins the pace, so a pace the suite outgrew retires
+        path = gate.suite_cost(SUITE, self.root, self.run_dir)[0]
+        self.assertEqual(gate.read_suite_cost(path)["quiet"], [350])
 
     def test_a_piece_its_pace_stopped_on_the_helper_goes_again_here_on_a_turn(self):
         turns = []
         with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=2), create=True), \
                 patch.object(gate._GATE_HELD, "home", lambda: turns.append(1), create=True), \
+                patch.object(gitcall, "_RUN_CONTEXT", SimpleNamespace(state={"run_id": "fixture"})), \
                 patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]):
-            calls, told, (code, _, killed), _ = self.pieces("silence", 0)
+            calls, told, (code, text, killed), _ = self.pieces("silence", 0)
         self.assertEqual((calls[2:], turns, code, killed, told),
                          ([("1/2", 900)], [1], 0, False, []))
+        self.assertIn(f"flaky: {SUITE} (AK_SHARD=1/2) was stopped after 5 min of silence", text)
+        # a piece's stop ends its own processes, never its running sibling's; the run's end, all
+        run = worker.run_marker("fixture") + "/"
+        self.assertNotEqual(self.markers["1/2"], self.markers["2/2"])
+        self.assertTrue(all(marker.startswith(run) for marker in self.markers.values()))
+
+    def test_pieces_stopped_on_the_helper_go_again_here_one_at_a_time_and_that_go_decides(self):
+        calls, running, together = [], set(), []
+
+        def limited(cmd, limit, env, output, on_timeout, **_kw):
+            output.write(b"stopped on the helper\n")
+            on_timeout("silence", NOBODY)
+            return worker.TIMEOUT, "", True
+
+        def boxed(cmd, limit, env, output, silence=None, **_kw):
+            shard = env["AK_SHARD"]
+            running.add(shard)
+            together.append(len(running))
+            calls.append((shard, silence))
+            output.write(b"second go\n")
+            running.discard(shard)
+            return (1 if shard == "1/2" else 0), "", False
+
+        hold = SimpleNamespace(slots=[1, 2], alone=lambda: None)
+        with patch.object(gate._GATE_HELD, "away", SimpleNamespace(count=2), create=True), \
+                patch.object(gate._GATE_HELD, "hold", None, create=True), \
+                patch.object(gate._GATE_HELD, "home", lambda: hold, create=True), \
+                patch.object(helper, "piece", lambda _away, _shard, _command: ["true"]), \
+                patch.object(worker, "limited", side_effect=limited), \
+                patch.object(worker, "boxed", side_effect=boxed):
+            code, text, killed = gate.run_suite(
+                SUITE, 3600, cwd=self.root, activity=self.run_dir / "live.log", output=BytesIO(),
+                run_dir=self.run_dir, silence=300, later=900)
+        self.assertEqual((calls, together, code, killed),
+                         ([("1/2", 900), ("2/2", 900)], [1, 1], 1, False))
+        self.assertIn(f"flaky: {SUITE} (AK_SHARD=2/2) was stopped after 5 min of silence", text)
 
     def test_a_piece_silent_on_its_second_go_too_stops_the_suite(self):
         calls, told, (code, text, killed), _ = self.pieces("silence", "silence")
@@ -161,11 +208,11 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         path = self.paced(SUITE, list(range(25)))
         measured = gate._SuiteMeasure(self.run_dir)
         measured.quiet.extend([4.5, 9.5])
-        measured.save(path, 2)
+        measured.paced(path, 2)
         self.assertEqual(gate.read_suite_cost(path)["quiet"], list(range(6, 25)) + [9.5])
         measured = gate._SuiteMeasure(self.run_dir)
         measured.quiet.append(60)       # one piece measured of two: no pace from it
-        measured.save(path, 2)
+        measured.paced(path, 2)
         self.assertEqual(gate.read_suite_cost(path)["quiet"][-1], 9.5)
 
     def test_the_watchdog_measures_the_longest_a_command_went_quiet(self):
