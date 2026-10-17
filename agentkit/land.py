@@ -582,6 +582,15 @@ def _landing_checks(directory, state, scratch, tip):
     return tuple(task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1])
 
 
+def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
+    """Whether just `tests` of `suite`'s `piece` pass on `scratch`, run alone, as a red is
+    narrowed: a pass, each named as run (`gate.run_suite(only=)`), moves the narrowing deeper
+    and answers for nothing else.  Anything else proves nothing -- a test a later member added
+    is not there -- so that stack gets its whole check."""
+    return _check(directory, state, scratch, [suite], directory / f"lander-{tree}-tests.log",
+                  log, shard=piece, only=list(tests))[0]
+
+
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
     log_path = directory / f"lander-{tree}.log"
     ok, text, red, tests = _check(directory, state, scratch, list(checks), log_path, log,
@@ -698,6 +707,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                          and positions.get(entry.get("tested"), -1) >= positions[tree]
                          and checked(entry, commands(positions[entry["tested"]])))}
             answers = {}
+            alone = {}      # (index, tests): whether just those tests passed run alone there
             for _, _, _, tree, checks in stacks:
                 if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
@@ -722,7 +732,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         cover(index, evidence["checks"], evidence["tested"], evidence["at"],
                               evidence.get("code"))
 
-            def answer_tree(index, checks, check):
+            def answer_tree(index, checks, check, tests=None):
+                if tests is not None:
+                    alone[index, tests] = check.result()
+                    return
                 tree, own = stacks[index][3:]
                 answer = check.result()
                 if "land" in answer:
@@ -795,31 +808,58 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     while not rebuild and not target_red and not stopped():
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
+                        narrowing = None
                         if batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
                             red_index = next((index for index in range(unchecked[0], len(stacks))
                                               if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
-                            unchecked = [(unchecked[0] - 1 + red_index) // 2
+                            low = unchecked[0] - 1
+                            if red_index is not None:
+                                # Where its suite piece named the tests that failed again alone,
+                                # each step runs just those first, from the deepest stack they
+                                # passed in; a stack they do not pass in gets its whole check.
+                                failing = answers[tuple(stacks[red_index][3:])]
+                                narrowing = tuple(failing["fix"].get("tests") or ()) or None
+                                low = max([low] + [index for (index, tests), ok in alone.items()
+                                                   if ok and tests == narrowing
+                                                   and index < red_index])
+                            if narrowing and low + 1 == red_index:
+                                # They pass alone on the stack just ahead and fail on its own:
+                                # its change turned them red, whatever the stacks ahead hold.
+                                member = stacks[red_index][0]
+                                if member not in verdicts:
+                                    verdicts[member] = failing
+                                    ready({member: failing})
+                                pending = [(m, s) for m, s in pending
+                                           if m not in verdicts or "land" in verdicts[m]]
+                                rebuild = True
+                                break
+                            unchecked = [(low + red_index) // 2
                                          if red_index is not None else unchecked[-1]]
-                        active = {tuple(stacks[index][3:]) for index, _ in running.values()}
+                        active = {tuple(stacks[index][3:]) for index, *_ in running.values()}
                         for index in unchecked:
                             member, saved, scratch, tree, own = stacks[index]
                             if (tree, own) in active or len(running) >= limit:
                                 continue
-                            checks = commands(index) if batched else own
-                            running[pool.submit(_check_tree, member, saved, scratch, tree, checks, log,
-                                                suite)] = index, checks
+                            if narrowing and (index, narrowing) not in alone:
+                                job = pool.submit(_check_tests, member, saved, scratch, tree, suite,
+                                                  failing["fix"]["piece"], narrowing, log)
+                                running[job] = index, None, narrowing
+                            else:
+                                checks = commands(index) if batched else own
+                                running[pool.submit(_check_tree, member, saved, scratch, tree,
+                                                    checks, log, suite)] = index, checks, None
                             active.add((tree, own))
                         if not running:
                             break
                         check = next(as_completed(running))
-                        index, checks = running.pop(check)
-                        answer_tree(index, checks, check)
+                        index, checks, tests = running.pop(check)
+                        answer_tree(index, checks, check, tests)
                         decide()
                 finally:
                     # Keep suffix evidence even if a wake or verdict write crashes.
-                    for check, (index, checks) in running.items():
-                        answer_tree(index, checks, check)
+                    for check, (index, checks, tests) in running.items():
+                        answer_tree(index, checks, check, tests)
             if target_red or stale or not rebuild:
                 break
     return verdicts
