@@ -89,6 +89,9 @@
   the board with its largest loss (`scoreboard.loss`) and the line the `audit` seat is told
   (`weekly`); `audit.json` and `audit/<week>.md` under STATE. For watch, whose `tell_audit`
   opens or resumes the seat and types the line.
+- `stuck.py`: work nothing moves while it waits, told to the `audit` seat once per stall
+  (`scan`, after the week's line): a landing line's check pass three times its line's median
+  (`land.passes`); `stuck.json` under STATE. For watch's `tell_audit`.
 - `orch.py`: seats: tmux server, names, models/accounts, launch/resume, picker and systemd placement.
   `main`, `sessions`, `listing`, `ensure`, `resume`, `rename` for menu, watch, run, job,
   notify, usage, update. Sweep saves tagged auxiliary sessions' screens and closes them

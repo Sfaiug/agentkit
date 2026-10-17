@@ -177,8 +177,8 @@ class Weekly(unittest.TestCase):
         state = self.tick(NOW + 360)
         self.tick(NOW + 540)
         self.assertEqual((self.ensure.call_count, self.typed.call_count, state["held"]), (1, 0, True))
-        self.assertEqual(self.log.count("audit: the audit seat was closed by the owner; week "
-                                        "2027-W02's line waits for them to open it"), 1)
+        self.assertEqual(self.log.count("audit: the audit seat was closed by the owner; its "
+                                        "line about week 2027-W02 waits for them to open it"), 1)
 
     def test_off_or_unreadable_runs_nothing(self):
         default = (REPO / config.DEFAULT_CONFIG_NAME).read_text()

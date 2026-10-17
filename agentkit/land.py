@@ -8,7 +8,7 @@ gets one repair. The lander never owns a member's process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import fcntl
 import functools
 import json
@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from . import config, gitcall, prompts, record, transitions, turns
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
+CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
@@ -82,6 +83,43 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
     fresh = path.with_name(path.name + ".new")
     fresh.write_text(json.dumps({"trees": kept, "red": repairs,
                                 "red_stacks": failed}))
+    fresh.replace(path)
+
+
+@contextmanager
+def _pass(turn):
+    """The line's singleton flock, True while this process holds it, and the time each held
+    pass takes: its start and process while it runs, then the last 20 that checked something."""
+    with turn.with_suffix(".lander.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        took = passes(turn).get("took") or []
+        started = time.time()
+        _keep_passes(turn, {"took": took, "started": started, **record.process_owner()})
+        try:
+            yield True
+        finally:
+            spent = time.time() - started
+            _keep_passes(turn, {"took": (took + [spent])[-20:] if spent >= CHECKED else took})
+
+
+def passes(turn):
+    """The line's passes (`_pass`): `took`, the seconds of its last passes that checked
+    something, and while one runs its `started` and process."""
+    try:
+        data = json.loads(turn.with_suffix(".passes").read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _keep_passes(turn, data):
+    path = turn.with_suffix(".passes")
+    fresh = path.with_name(path.name + ".new")
+    fresh.write_text(json.dumps(data))
     fresh.replace(path)
 
 
@@ -265,10 +303,8 @@ def check_line(turn, log=lambda _: None):
     from . import handback, roundloop, run, watch
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
-    with turn.with_suffix(".lander.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+    with _pass(turn) as held:
+        if not held:
             return
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
         members = line(turn)
