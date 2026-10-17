@@ -1511,39 +1511,40 @@ def _said(name, kind, text, pr=None, event_id=None, at=None):
     for _ in range(fresh):
         history.owner_time("asked", time.time() if at is None else at)
     if kind == "done":
-        _intent(name, time.time() if at is None else at, mine, previous)
+        _intent(name, time.time() if at is None else at, mine)
     return previous
 
 
-def _intent(name, done_at, mine, previous):
+def _intent(name, done_at, mine):
     """Record the owner's intent that seat's done ends, read from its conversation itself: from
-    the owner's first message there since its last done (the conversation's last intent, or the
-    done notice this one replaces, a done from before intents were kept among them) to this one,
-    with the runs the seat started in between (`mine`, its run records).  `user_messages` leaves
-    ak's own lines out.  A done with no message of theirs since ends none; one in a
-    conversation ak cannot read counts, with no start.  Read here, from facts already decided,
-    never stamped by a prompt's hook: hook order, renames and reused names moved such stamps
-    after they were written."""
+    the owner's first message there since the conversation's last done to this one, with the
+    runs the seat started in between (`mine`, its run records).  `user_messages` leaves ak's
+    own lines out.  A done with no message of theirs since ends none.  One whose start ak
+    cannot tell, in a conversation it cannot read or one older than every done kept, is kept
+    with no start: it may or may not have ended an intent.  Read here, from facts already
+    decided, never stamped by a prompt's hook: hook order, renames and reused names moved such
+    stamps after they were written."""
     from . import orch
     record = config.session_records().get(name)
     if not record:
         return
     plugin, cwd = orch.seat_plugin(record), record.get("cwd")
+    key = said = None
     try:
         conversation = plugin.conversation(record, cwd)
-        key = f"{plugin.name}:{conversation}" if conversation else None
-        if not (key and plugin.keeps_owner_messages):
-            history.intent(key, None, done_at, [])
-            return
-        since = history.last_done(key)
-        if since is None:
-            return
-        if previous and previous["kind"] == "done":
-            since = max(since, previous["time"])
-        asked = [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)
-                 if since < message["at"] <= done_at]
+        if conversation and plugin.keeps_owner_messages:
+            key = f"{plugin.name}:{conversation}"
+            said = [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)
+                    if message["at"] <= done_at]
     except (OSError, ValueError):
+        pass
+    if said == []:
         return
+    since = history.last_done(key, min(said)) if said else None
+    if since is None:
+        history.intent(key, None, done_at, [])
+        return
+    asked = [at for at in said if at > since]
     if asked:
         began = min(asked)
         history.intent(key, began, done_at,

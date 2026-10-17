@@ -367,12 +367,13 @@ def compute(now=None):
             intent.append(None)
         else:
             done = [each for each in intents if in_week(each["done_at"], end)]
-            # one with no start (its conversation unread) has no runs, so no live time either
-            to_done = [(each["done_at"] - each["began_at"]) / 3600 for each in done
-                       if each["began_at"] is not None]
-            to_live = [(each["live_at"] - each["began_at"]) / 3600 for each in done
+            # a done with no start may or may not have ended an intent: the count is unknown
+            begun = [each for each in done if each["began_at"] is not None]
+            to_done = [(each["done_at"] - each["began_at"]) / 3600 for each in begun]
+            to_live = [(each["live_at"] - each["began_at"]) / 3600 for each in begun
                        if each["live_at"] is not None]
-            intent.append({"done": len(done), "hours": median(to_done) if to_done else None,
+            intent.append({"done": len(done) if len(begun) == len(done) else None,
+                           "hours": median(to_done) if to_done else None,
                            "live_hours": median(to_live) if to_live else None})
         for label in board:
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
@@ -522,9 +523,9 @@ def render(board=None):
     def intent(stats):
         if stats is None:
             return "not recorded"
-        if not stats["done"]:
+        if stats["done"] == 0:
             return "no intent done"
-        text = f"{stats['done']} intents done"
+        text = "count not recorded" if stats["done"] is None else f"{stats['done']} intents done"
         if stats["hours"] is not None:
             text += f"; median {stats['hours']:.1f} hours from the first message to done"
         if stats["live_hours"] is not None:

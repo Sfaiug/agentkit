@@ -402,20 +402,26 @@ def owner(since, until):
 
 
 def intent(conversation, began_at, done_at, runs, *, log=None):
-    """An intent its seat said done to: from the owner's first message for it (None where the
-    seat's harness keeps no messages ak reads) to the done, with the runs the seat started in
-    between."""
+    """An intent its seat said done to: from the owner's first message for it (None where ak
+    cannot tell it) to the done, with the runs the seat started in between."""
     _write(lambda connection: connection.execute(
         "INSERT INTO intents (conversation, began_at, done_at, runs) VALUES (?, ?, ?, ?)",
         (conversation, began_at, done_at, json.dumps(runs))), log)
 
 
-def last_done(conversation):
-    """When that conversation's last intent was done, 0 with none yet; None where the database
-    cannot answer, so no intent is taken back to a conversation's first message."""
-    return _write(lambda connection: connection.execute(
-        "SELECT COALESCE(MAX(done_at), 0) FROM intents WHERE conversation=?",
-        (conversation,)).fetchone()[0])
+def last_done(conversation, first):
+    """When that conversation's last done was: its last one kept; 0 with none, where `first`, the
+    owner's first message there, came after the earliest done kept, so no done before can have
+    ended it; None where unknown: a conversation older than every done kept, or a database that
+    cannot answer."""
+    def read(connection):
+        last, = connection.execute("SELECT MAX(done_at) FROM intents WHERE conversation=?",
+                                   (conversation,)).fetchone()
+        if last is not None:
+            return last
+        kept, = connection.execute("SELECT MIN(done_at) FROM intents").fetchone()
+        return 0 if kept is not None and first > kept else None
+    return _write(read)
 
 
 def intents_done(since, until):

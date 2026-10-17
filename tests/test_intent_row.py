@@ -1,10 +1,11 @@
 """The scoreboard shows each week's intents: those whose seat said done that week, the median
 hours from the owner's first message to that done, and to live, when the last of the runs the
 seat started in between went live.  The done records its intent from the seat's conversation
-itself (`user_messages`, which leaves ak's own lines out): its first message since its last
-done, that conversation's last intent or the done notice it replaces.  A rename keeps the
-conversation; a name opened anew is a conversation of its own.  A done in a conversation ak
-cannot read counts with no hours.  A new install, with no database, shows `not recorded`.
+itself (`user_messages`, which leaves ak's own lines out): its first message since that
+conversation's last done.  A rename keeps the conversation; a name opened anew is a
+conversation of its own.  A done whose start ak cannot tell, in a conversation it cannot read
+or one older than every done kept, leaves its week's count not recorded.  A new install, with
+no database, shows `not recorded`.
 
 Offline: a sandbox HOME with its own history database, a fake seat harness, git answering
 nothing.
@@ -57,9 +58,15 @@ class IntentRow(Sandbox):
             notify._said(name, "done", "shipped", at=at)
 
     def intents(self):
-        return [(each["began_at"], each["done_at"]) for each in history.intents_done(0, NOW)]
+        return [(each["began_at"], each["done_at"]) for each in history.intents_done(1, NOW)]
+
+    def kept_from_0(self):
+        """History holds a done from 0, before those `intents` reads: a conversation begun
+        after it had no done before."""
+        history.intent("claude:c0", None, 0, [])
 
     def test_a_done_ends_the_intent_from_the_owner_s_first_message_since_the_last_done(self):
+        self.kept_from_0()
         self.harness.said = [(50.0, "c1"), (60.0, "c1")]
         self.runs = [("r-before", "fix-api", 40.0), ("r1", "fix-api", 70.0), ("r-other", "parser", 80.0)]
         self.done("fix-api", 300.0)
@@ -67,7 +74,7 @@ class IntentRow(Sandbox):
         self.assertEqual(self.intents(), [(50.0, 300.0)])
         history.start_run("r1", repo="acme", session="fix-api", started_at=70.0, change="r1")
         history.update_run("r1", live_at=320.0)
-        self.assertEqual(history.intents_done(0, NOW)[0]["live_at"], 320.0)
+        self.assertEqual(history.intents_done(1, NOW)[0]["live_at"], 320.0)
         # renamed, the seat keeps its conversation, and its next intent begins after 300
         self.seats = {"parser": self.seats.pop("fix-api")}
         self.harness.said += [(400.0, "c1")]
@@ -79,19 +86,24 @@ class IntentRow(Sandbox):
         self.done("parser", 700.0)
         self.assertEqual(self.intents(), [(50.0, 300.0), (400.0, 500.0), (550.0, 700.0)])
 
-    def test_a_done_from_before_intents_were_kept_still_ends_the_one_before(self):
+    def test_a_conversation_older_than_every_done_kept_ends_its_next_done_with_no_start(self):
+        # a done from before intents were kept, the notice since replaced, may have ended 50
         self.harness.said = [(50.0, "c1"), (150.0, "c1")]
         notify.record("fix-api", "done", "shipped", time=100.0)
+        notify.record("fix-api", "needs", "Which format?", time=160.0, answered_at=180.0)
         self.done("fix-api", 200.0)
-        self.done("fix-api", 250.0)
-        self.assertEqual(self.intents(), [(150.0, 200.0)])
+        self.harness.said += [(220.0, "c1")]
+        self.done("fix-api", 300.0)
+        self.assertEqual(self.intents(), [(None, 200.0), (220.0, 300.0)])
 
-    def test_a_done_in_a_conversation_ak_cannot_read_counts_with_no_hours(self):
+    def test_a_done_ak_cannot_read_leaves_its_week_s_count_not_recorded(self):
+        history.intent("claude:c1", NOW - 3 * HOUR, NOW - 2 * HOUR, [])
         self.harness.keeps_owner_messages = False
         self.done("fix-api", NOW - HOUR)
-        self.assertEqual(self.intents(), [(None, NOW - HOUR)])
-        self.assertEqual(scoreboard.compute(NOW)["intent"][0], {"done": 1, "hours": None, "live_hours": None})
-        self.assertIn("intent    1 intents done ", "\n".join(scoreboard.render()))
+        self.done("fix-api", NOW - HOUR + 60)      # none of the owner's input can be read between
+        self.assertEqual(scoreboard.compute(NOW)["intent"][0], {"done": None, "hours": 1.0, "live_hours": None})
+        self.assertIn("intent    count not recorded; median 1.0 hours from the first message to done",
+                      "\n".join(scoreboard.render()))
 
     def test_live_is_when_the_last_run_to_start_went_live(self):
         history.start_run("first", repo="acme", started_at=20)
@@ -121,7 +133,7 @@ class IntentRow(Sandbox):
         self.assertIsNone(history.intents_done(NOW - WEEK, NOW))
         self.assertEqual(scoreboard.compute(NOW)["intent"], [None, None])
         self.assertIn("intent    not recorded", "\n".join(scoreboard.render()))
-        self.assertEqual(history.last_done("claude:c1"), 0)      # a database, but no intent done
+        self.assertIsNone(history.last_done("claude:c1", 50.0))     # a database, but no done kept
         self.assertEqual(scoreboard.compute(NOW)["intent"],
                          [{"done": 0, "hours": None, "live_hours": None}] * 2)
         self.assertIn("intent    no intent done", "\n".join(scoreboard.render()))
