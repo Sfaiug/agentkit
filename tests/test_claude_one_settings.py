@@ -10,6 +10,7 @@ that writes down the settings it was started with, and the real `account_config`
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,18 @@ from agentkit.harness.claude import account_config
 
 FAKE = """#!/bin/sh
 cat "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" >"$AK_TEST_STARTED"
+"""
+# An `ln` that, once it has made a settings link, waits until both launches have made theirs
+LN = """#!{python}
+import os, pathlib, subprocess, sys, time
+done = subprocess.run([{ln!r}, *sys.argv[1:]])
+marks = pathlib.Path(os.environ["AK_TEST_MARKS"])
+if done.returncode == 0 and os.path.basename(sys.argv[-1]).startswith("settings.json"):
+    (marks / os.environ["AK_TEST_SIDE"]).touch()
+    deadline = time.monotonic() + 30
+    while len(list(marks.iterdir())) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+sys.exit(done.returncode)
 """
 
 
@@ -118,6 +131,42 @@ class OneSettings(unittest.TestCase):
                 self.assertEqual(self.turn("harbor"), {"autoCompactWindow": 300000})
                 self.assertEqual((os.readlink(self.usual), os.readlink(own)),
                                  (str(usual_to), str(own_to)))
+
+    def test_a_usual_file_linked_to_a_login_s_file_not_there_yet_stays_linked_to_it(self):
+        own = self.own("harbor")
+        own.parent.mkdir()
+        self.usual.symlink_to(own)
+        self.seat("harbor")
+        self.assertFalse(own.is_symlink())
+        own.write_text(json.dumps({"theme": "dark"}))     # /config on either login
+        for account in ("harbor", ""):
+            self.assertEqual(self.turn(account), {"theme": "dark"})
+
+    def test_two_first_turns_on_one_login_each_in_its_own_pid_namespace_both_start(self):
+        # agentkit/box.py starts every worker in a PID namespace of its own, so both adapters
+        # have the same $$
+        self.usual.write_text("{}")
+        own = self.own("harbor")
+        own.parent.mkdir()
+        own.write_text("{}")
+        (self.root / "bin/ln").write_text(LN.format(python=sys.executable, ln=shutil.which("ln")))
+        (self.root / "bin/ln").chmod(0o755)
+        marks = self.root / "marks"
+        marks.mkdir()
+        launches = [subprocess.Popen(
+            ["bwrap", "--unshare-user", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/",
+             "--bind", str(self.root), str(self.root), "--dev", "/dev", "--proc", "/proc", "--",
+             str(REPO / "adapters/claude.sh"), "run", "m-1", "high", str(self.workspace),
+             str(self.prompt), str(self.root / f"out-{side}")],
+            env={**self.env, "AGENTKIT_ACCOUNT": "harbor", "AK_TEST_SIDE": side,
+                 "AK_TEST_MARKS": str(marks), "AK_TEST_STARTED": str(self.root / f"started-{side}")},
+            stderr=subprocess.PIPE, text=True) for side in ("a", "b")]
+        for launch in launches:
+            _, stderr = launch.communicate(timeout=60)
+            self.assertEqual(launch.returncode, 0, stderr)
+        self.assertEqual(os.readlink(own), str(self.usual))
+        self.assertEqual(sorted(path.name for path in own.parent.glob("settings.json*")),
+                         ["settings.json"])
 
 
 if __name__ == "__main__":

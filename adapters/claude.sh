@@ -105,15 +105,19 @@ renew() {
 # resumed on the next, and a change made in any session on any login -- a seat's /config, a
 # model asked to set one -- is every Claude session's, since every login reads one settings.json
 # (Claude Code 2.1.292 saves through the link and keeps it).  A login whose settings already are
-# the usual file, through whatever links, keeps them.  Otherwise its own file is replaced, and
-# what only it held goes with it: carrying that over means rewriting the shared file, and a
-# session saving it in that instant loses its save, as Claude Code takes no lock.
+# the usual file, through whatever links, there yet or not, keeps them.  Otherwise its own file
+# is replaced, and what only it held goes with it: carrying that over means rewriting the shared
+# file, and a session saving it in that instant loses its save, as Claude Code takes no lock.
+# The new link starts under a random name: every worker has the same $$, in its own PID namespace.
 share() {
-  local usual="$HOME/.claude/settings.json" own="$CLAUDE_CONFIG_DIR/settings.json"
+  local usual="$HOME/.claude/settings.json" own="$CLAUDE_CONFIG_DIR/settings.json" tmp
   mkdir -p -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR" || exit 2
   [ -e "$CLAUDE_CONFIG_DIR/projects" ] ||
     ln -s -- "$HOME/.claude/projects" "$CLAUDE_CONFIG_DIR/projects" || exit 2
-  [ "$own" -ef "$usual" ] || { ln -sf -- "$usual" "$own.$$" && mv -f -- "$own.$$" "$own"; } || exit 2
+  [ "$own" -ef "$usual" ] ||
+    python3 -c 'import os, sys; sys.exit(os.path.realpath(sys.argv[1]) != os.path.realpath(sys.argv[2]))' \
+      "$own" "$usual" ||
+    { tmp=$(mktemp "$own.XXXXXX") && ln -sf -- "$usual" "$tmp" && mv -f -- "$tmp" "$own"; } || exit 2
 }
 
 case "$cmd" in
