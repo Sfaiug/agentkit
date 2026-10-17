@@ -69,7 +69,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("suite_wait_seconds", "REAL"), ("merge_wait_seconds", "REAL"),
               ("lander_wait_seconds", "REAL"), ("rules_bytes", "INTEGER"), ("change", "TEXT"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
-              ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"))
+              ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
+              ("own_orchestrator", "TEXT"))
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAIT_COLUMNS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -97,6 +98,9 @@ CREATE TABLE IF NOT EXISTS reviews (
     PRIMARY KEY (run_id, review_id)
 )
 """
+# One finished review per row: the identity that ran it, its weighed counts, and since these
+# columns its round and the round's verdict (`record_review`).
+REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"))
 
 # The owner's time, one row per moment and no seat named: each is whole when written, so no
 # rename, reused name or order of hooks can change it later.
@@ -148,10 +152,11 @@ def _connect(*, readonly=False):
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
-    have = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
-    for name, kind in MIGRATIONS:
-        if name not in have:
-            connection.execute(f"ALTER TABLE runs ADD COLUMN {name} {kind}")
+    for table, migrations in (("runs", MIGRATIONS), ("reviews", REVIEW_MIGRATIONS)):
+        have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        for name, kind in migrations:
+            if name not in have:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     return connection
 
 
@@ -272,7 +277,7 @@ def _update(connection, run_id, fields):
                "reviewer_seconds", "merge_seconds", "total_seconds", "executor_tokens",
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
-               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge"}
+               "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -353,17 +358,19 @@ def add_tokens(run_id, role, tokens, *, log=None):
         (int(tokens), run_id)), log)
 
 
-def record_review(run_id, review_id, *, harness, model, blocking, followup, note, log=None):
-    """Keep one finished review's weighed counts, including landing reviews in the same round.
+def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
+                  log=None):
+    """Keep one finished review's weighed counts, its round and the round's verdict (the
+    review's, after ak's overrides), including landing reviews in the same round.
 
     Its output directory identifies it, so recording it again cannot count it twice; only
     runs already recorded in history can contribute.
     """
     _write(lambda connection: connection.execute(
-        "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note) "
-        "SELECT run_id, ?,?,?,?,?,? FROM runs WHERE run_id=? "
+        "INSERT INTO reviews (run_id, review_id, harness, model, blocking, followup, note, "
+        "round, verdict) SELECT run_id, ?,?,?,?,?,?,?,? FROM runs WHERE run_id=? "
         "ON CONFLICT(run_id, review_id) DO NOTHING",
-        (review_id, harness, model, blocking, followup, note, run_id)), log)
+        (review_id, harness, model, blocking, followup, note, round, verdict, run_id)), log)
 
 
 def review_counts(harness, model):
@@ -380,6 +387,35 @@ def review_counts(harness, model):
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return (0, 0, 0, 0)
+
+
+def reviewed_runs(harness, model):
+    """Of the runs the identity finished a review of, in whichever round and whatever became of
+    the run since (its decision stood once given; a stopped run's never counts, `REAL_WORK`):
+    how many, and how many it let through in round 1 (a round-1 review of its ended PASS).  A
+    review from before its round was recorded counts for nothing."""
+    _ensure_migrated()
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute(
+                    "SELECT COUNT(DISTINCT run_id), "
+                    "COUNT(DISTINCT CASE WHEN reviews.round=1 AND reviews.verdict='PASS' "
+                    "THEN run_id END) FROM reviews JOIN runs USING (run_id) "
+                    f"WHERE harness=? AND model=? AND reviews.round IS NOT NULL AND {REAL_WORK}",
+                    (harness, model)).fetchone()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return (0, 0)
+
+
+def merged(row):
+    """Whether the run merged: its size (`changed_lines`) survives run cleanup, an older merge
+    needs its record."""
+    return row.get("changed_lines") is not None or bool(
+        (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged"))
 
 
 def parks(since, until):
@@ -487,17 +523,19 @@ def close_step(run_id, at=None, *, keep=False, log=None):
 def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
-               changed_lines=None, rules_bytes=None, log=None):
+               changed_lines=None, rules_bytes=None, own_orchestrator=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
-    No reader sees an ending without the run time it closes.
+    No reader sees an ending without the run time it closes.  `own_orchestrator` names the
+    model whose seat wrote the pull request the run reviewed (`run.pr_writer`), none for
+    another's or a task.
     """
     finished_at = time.time() if finished_at is None else finished_at
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
-              "rules_bytes": rules_bytes}
+              "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 

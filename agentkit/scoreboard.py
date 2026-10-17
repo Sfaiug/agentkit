@@ -149,11 +149,6 @@ def compute(now=None):
     now = time.time() if now is None else now
     week = 7 * 86400
 
-    def delivered(row):
-        """Whether the run merged: its size survives run cleanup, an older merge needs its record."""
-        return row.get("changed_lines") is not None or bool(
-            (record.read_state(config.RUNS / row["run_id"]) or {}).get("merged"))
-
     def per_change(ended):
         """The median hours a change merged this week spent in model turns, in ak's own work,
         waiting, and with its seat between its runs (the wall time from its first run's start to
@@ -165,7 +160,7 @@ def compute(now=None):
         for row in rows:
             if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]:
                 by_change.setdefault(row.get("change") or row["run_id"], []).append(row)
-        merged = {row.get("change") or row["run_id"] for row in ended if delivered(row)}
+        merged = {row.get("change") or row["run_id"] for row in ended if history.merged(row)}
         splits = []
         for key in merged:
             runs = by_change.get(key) or []
@@ -195,7 +190,7 @@ def compute(now=None):
         it (`history.add_landing_break`, `watch.broke_after_merge`); a row from before breaks
         were recorded is unknown until one is recorded on it.  A rewrite later is no break: it
         may be the next feature.  None with no merged run."""
-        merged = [row for row in ended if delivered(row)]
+        merged = [row for row in ended if history.merged(row)]
         if not merged:
             return None
         known = [row for row in merged
@@ -213,7 +208,7 @@ def compute(now=None):
         with no run ended."""
         if not ended:
             return None
-        merged = [(by_seat(row), row) for row in ended if delivered(row)]
+        merged = [(by_seat(row), row) for row in ended if history.merged(row)]
         stats = {}
         for kind, seat in (("seat", True), ("worker", False)):
             rounds = [row["rounds_used"] for by, row in merged if by is seat]
@@ -271,7 +266,7 @@ def compute(now=None):
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         # the week's tokens that bought no merge: every ended run that delivered nothing
-        wasted = sum((row.get(role + "_tokens") or 0) for row in ended if not delivered(row)
+        wasted = sum((row.get(role + "_tokens") or 0) for row in ended if not history.merged(row)
                      for role in ("executor", "reviewer"))
         sunk.append({"share": wasted / total_tokens, "tokens": wasted} if total_tokens else None)
         # the owner's time: what the seats asked them, what reached them, how long they were waited on
@@ -290,7 +285,7 @@ def compute(now=None):
             if not group:
                 board[label].append(None)
                 continue
-            merged = [row for row in group if delivered(row)]
+            merged = [row for row in group if history.merged(row)]
             hours = [(row["finished_at"] - row["started_at"]) / 3600 for row in merged
                      if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]]
             tokens = [row["executor_tokens"] + row["reviewer_tokens"] for row in merged

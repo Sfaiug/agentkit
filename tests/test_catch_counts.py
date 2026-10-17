@@ -120,9 +120,9 @@ class CatchCounts(unittest.TestCase):
         self.assertEqual(self.review(lp, self.records()), "FAIL")
         self.assert_counts(1, 1, 1, 1)
         with closing(sqlite3.connect(history.path())) as db:
-            rows = db.execute("SELECT run_id, harness, model, blocking, followup, note "
-                              "FROM reviews").fetchall()
-        self.assertEqual(rows, [("fix-api", "test", "judge-1", 1, 1, 1)])
+            rows = db.execute("SELECT run_id, harness, model, blocking, followup, note, round, "
+                              "verdict FROM reviews").fetchall()
+        self.assertEqual(rows, [("fix-api", "test", "judge-1", 1, 1, 1, 1, "FAIL")])
         self.assertEqual(history.path(), self.root / ".agentkit/history.db")
         # The run row changes reviewer; its earlier review still belongs to judge-1.
         lp.rnd = 2
@@ -207,6 +207,7 @@ class CatchCounts(unittest.TestCase):
         self.assertFalse(history.path().exists())
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
+            db.execute(history.REVIEWS_SCHEMA)       # from before a review kept its round
             columns = ",".join(row[1] for row in db.execute("PRAGMA table_info(runs)"))
             db.execute("INSERT INTO runs (run_id, repo, reviewer) VALUES ('old', 'acme', 'reviewer')")
             before = db.execute(f"SELECT {columns} FROM runs WHERE run_id='old'").fetchone()

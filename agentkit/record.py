@@ -26,6 +26,7 @@ RECOVERY_LOCK = "recovery.lock"
 ACTIVE = ("queued", "running")              # a loop is working the run, or is about to
 FAILED = ("fail", "error", "blocked")       # ended with nothing delivered, and not by choice
 ENDED = ("pass", *FAILED, "stopped", "not_needed")
+JUDGED = ("pass", "fail", "blocked")        # ended with a verdict on the work itself
 GOING = (*ACTIVE, "waiting", "exhausted", "stalled", "waiting_login")   # resumes itself
 
 
