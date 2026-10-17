@@ -13,6 +13,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from agentkit import host
+
 DEFAULT_BUDGET = 45.0
 DEADLINE_ENV = "AGENTKIT_MUSE_USAGE_DEADLINE"
 WORK_DEADLINE_ENV = "AGENTKIT_MUSE_USAGE_WORK_DEADLINE"
@@ -106,12 +109,14 @@ def supervise(argv):
                 if sys.platform == "linux":
                     # A launcher may detach a child into another session. Once its parent
                     # exits the subreaper adopts it; kill those children too, then reap them.
-                    children = Path(f"/proc/{os.getpid()}/task/{os.getpid()}/children")
-                    for child in children.read_text().split():
-                        try:
-                            os.kill(int(child), signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+                    # Each process names its parent: not every kernel lists a process's children.
+                    for entry in host.PROC.iterdir():
+                        stat = host.proc_stat(entry.name) if entry.name.isdigit() else None
+                        if stat is not None and stat.ppid == os.getpid():
+                            try:
+                                os.kill(int(entry.name), signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
                 try:
                     pid, _ = os.waitpid(-1 if sys.platform == "linux" else -proc.pid, os.WNOHANG)
                 except ChildProcessError:
