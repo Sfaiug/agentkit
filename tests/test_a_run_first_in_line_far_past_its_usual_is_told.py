@@ -24,6 +24,7 @@ from agentkit import audit, config, gate, land, orch, record, stuck, watch
 NOW = 1_800_000_000.0
 LIVE = record.process_owner()
 GONE = {"pid": 2 ** 22 + 1, "process_identity": {"boot": "gone", "ticks": 0}}
+STOPPED = {"state": "stopped", "slot_waiting": False}     # its owner, a job's scheduler, lives on
 
 
 class FirstInLineFarPastItsUsual(unittest.TestCase):
@@ -102,11 +103,12 @@ class FirstInLineFarPastItsUsual(unittest.TestCase):
             "again, through the line, and ak notify done once it is live."])
         self.assertEqual(self.log[-1], "audit: told the audit seat about the stall of the slot "
                                        "queue")
-        # another stall told while the first goes unpolled a while leaves the first told
+        # another stall told while the first goes unpolled, its owner gone, leaves it told
+        record.save_state(config.RUNS / first["run_id"], {**first, **GONE})
         land._keep_passes(config.RUNS / ".merge-acme.lock",
                           {"started": NOW - 3000, "took": [60, 60, 60], **LIVE})
         self.assertEqual(len(self.tick(NOW + 600)), 2)
-        self.poll(first, NOW + 650)
+        self.poll(first, NOW + 650)     # recovered: a new owner waits on in its place
         self.assertEqual(len(self.tick(NOW + 660)), 2)
         # let in, it hands first place on: the next run's wait there starts from naught
         self.held.discard(first["run_id"])
@@ -114,12 +116,12 @@ class FirstInLineFarPastItsUsual(unittest.TestCase):
         self.poll(behind, NOW + 710)
         self.assertEqual(len(self.tick(NOW + 720)), 2)
 
-    def test_a_first_within_the_usual_or_gone_is_no_stall(self):
-        for waits, since, owner in (((60, 60, 60), NOW - 1700, LIVE),     # under half an hour
-                                    ((700, 700, 700), NOW - 2000, LIVE),  # under 3 times 700s
-                                    ((60, 60, 60), NOW - 3000, GONE),     # the first is gone
-                                    ((60, 60), NOW - 3000, LIVE)):        # no pace yet
-            with self.subTest(waits=waits, since=since, owner=owner):
+    def test_a_first_within_the_usual_or_waiting_no_more_is_no_stall(self):
+        for waits, since, end in (((60, 60, 60), NOW - 1700, {}),     # under half an hour
+                                  ((700, 700, 700), NOW - 2000, {}),  # under 3 times 700s
+                                  ((60, 60, 60), NOW - 3000, STOPPED),  # it waits no more
+                                  ((60, 60), NOW - 3000, {})):        # no pace yet
+            with self.subTest(waits=waits, since=since, end=end):
                 shutil.rmtree(config.RUNS)
                 config.ensure_dirs()
                 self.firsts(waits)
@@ -127,7 +129,7 @@ class FirstInLineFarPastItsUsual(unittest.TestCase):
                 self.held.add(first["run_id"])
                 self.poll(first, since)
                 self.poll(first, NOW - 10)
-                record.save_state(config.RUNS / first["run_id"], {**first, **owner})
+                record.save_state(config.RUNS / first["run_id"], {**first, **end})
                 self.assertEqual(self.tick(), [])
                 self.assertEqual(stuck.read(), {})
 

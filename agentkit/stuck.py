@@ -4,8 +4,8 @@ per stall, for that seat to fix ak through the line as it fixes the week's loss 
 A stall is a landing line's check pass that has run more than three times the median of the
 line's last passes (`land.passes`), and half an hour at least, while its lander lives: red
 stacks narrowed with whole suites, a suite that hangs, or a cause nobody has met yet.  The run
-first in line for a slot is one the same way against the firsts before it while it lives
-(`gate.first_in_line`): a gate that never opens, or a waiter older than its rule.  The seat
+first in line for a slot is one the same way against the firsts before it while its record
+waits there (`gate.first_in_line`): a gate that never opens, or a waiter older than its rule.  The seat
 is told one stall at a time, each once (`told`); `state/stuck.json` keeps the line being told
 and how far its delivery got, as `state/audit.json` does the week's, which goes first
 (`watch.tell_audit`).
