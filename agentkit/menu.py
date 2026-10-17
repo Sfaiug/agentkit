@@ -2207,7 +2207,7 @@ def usage_detail(cfg, number, width=None, now=None, rows=None):
     (`scoped_notes`), its 5-hour window (`session_note`), why its last probe failed (`fault`)
     and how old the reading is (`usage.as_of`); for one with no week to draw, why (`unread`).
     In `width` cells the notes give way one by one, the least worth keeping first (`fitting`),
-    and the label too, past the notes; `rows` as `usage_cells`'."""
+    and the label too, past the notes but before the login; `rows` as `usage_cells`'."""
     now = time.time() if now is None else now
     rows = usage_rows(cfg) if rows is None else rows
     if not 0 < number <= len(rows):
@@ -2221,7 +2221,10 @@ def usage_detail(cfg, number, width=None, now=None, rows=None):
     login = login_notes(rows[number - 1:number], now)[0]
     notes = [note for note in [(-2, login), *notes] if note[1]]
     room = 10 ** 6 if width is None else width - 4
-    label = terminal.cut(label, room)     # a label too long for the line gives way, as in its cell
+    # a login ending is kept before the label, which the lit cell above already shows; a label
+    # too long for the line gives way, as in its cell
+    held = terminal.cells(login or "")
+    label = terminal.cut(label, room - (held if held <= room else 0))
     room -= terminal.cells(label)
     return (terminal.styled(label, colour(cfg, name)) + "  " + terminal.styled(" · ", "dim")
             .join(terminal.styled(part, "amber") if part == login else _note_styled(part)

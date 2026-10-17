@@ -68,6 +68,12 @@ class LoginMeter(Sandbox):
         for label in ("Claude I", "ChatGPT"):
             self.assertNotIn("login", terminal.plain(
                 menu.usage_detail(self.cfg, number(self.cfg, label), 120)))
+        # on a phone the label gives way before the login does
+        narrow = terminal.plain(menu.usage_detail(self.cfg, number(self.cfg, "Claude II"), 60),
+                                True)
+        self.assertTrue(narrow.endswith("  login two@acme.test ends Sun 04 Jan 02:46 (in 3 days)"),
+                        narrow)
+        self.assertLessEqual(terminal.cells(narrow), 58)
 
 
 if __name__ == "__main__":
