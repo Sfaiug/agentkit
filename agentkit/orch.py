@@ -2783,23 +2783,29 @@ def unread_question(name):
 def sweep_finished(found, log):
     """Save and close a seat's auxiliary sessions after every pane has been dead for a day."""
     rc, out = tmux_out("list-panes", "-a", "-F",
-                       f"#{{session_id}}\t#{{session_name}}\t#{{{guard.TMUX_OWNER}}}\t"
+                       f"#{{session_id}}\t#{{session_name}}\t"
                        f"#{{{MARK}}}\t#{{pane_id}}\t#{{pane_dead}}\t#{{pane_dead_time}}\t.")
     if rc:
         return
     grouped = {}
     for line in out.splitlines():
         parts = line.split("\t")
-        if len(parts) != 8 or not re.fullmatch(r"\$[0-9]+", parts[0]):
+        if len(parts) != 7 or not re.fullmatch(r"\$[0-9]+", parts[0]):
             return                      # an incomplete snapshot cannot prove all panes dead
         grouped.setdefault(parts[0], []).append(parts[1:-1])
     cutoff = time.time() - 86400
     for sid, panes in grouped.items():
-        name, owner, mark = panes[0][:3]
-        if not owner or mark == "1" or name in found or guard.seat(name):
+        name, mark = panes[0][:2]
+        if mark == "1" or name in found or guard.seat(name):
             continue
-        if any(not re.fullmatch(r"%[0-9]+", p[3]) or p[4] != "1"
-               or not p[5].isdigit() or not 0 < int(p[5]) <= cutoff for p in panes):
+        if any(not re.fullmatch(r"%[0-9]+", p[2]) or p[3] != "1"
+               or not p[4].isdigit() or not 0 < int(p[4]) <= cutoff for p in panes):
+            continue
+        # The session's own environment: a format's #{} falls back to the server's, which holds
+        # the tag whenever a process in a tagged pane started this server.
+        rc, tag = tmux_out("show-environment", "-t", sid, guard.TMUX_OWNER)
+        owner = tag.removeprefix(f"{guard.TMUX_OWNER}=")
+        if rc or owner in (tag, ""):
             continue
         try:
             config.TMP.mkdir(parents=True, exist_ok=True)
@@ -2813,28 +2819,31 @@ def sweep_finished(found, log):
                 with os.fdopen(fd, "w", encoding="utf-8") as screen:
                     screen.write(f"{name} (started by {owner})\n")
                     for pane in panes:
-                        screen.write(f"{pane[3]}\n")
+                        screen.write(f"{pane[2]}\n")
                         screen.flush()
                         captured = subprocess.run(tmux_argv(socket_name(), "capture-pane", "-p",
-                                                           "-t", pane[3]), stdout=screen,
+                                                           "-t", pane[2]), stdout=screen,
                                                   stderr=subprocess.PIPE, env=tmux_env(), timeout=5)
                         if captured.returncode:
-                            raise OSError(f"could not capture {pane[3]}")
+                            raise OSError(f"could not capture {pane[2]}")
             finally:
                 os.close(directory)
         except (OSError, subprocess.TimeoutExpired) as exc:
             log(f"WARN could not save the finished session {name}: {exc}")
             continue
         # Recheck every window and pane inside tmux's kill command: a pane respawned, added
-        # or moved during capture must survive, as must a session renamed into a seat.
-        snapshot = name + "/" + "".join(f"{p[3]}/{p[4]}/{p[5]};" for p in panes)
+        # or moved during capture must survive, as must a session renamed into a seat or whose
+        # own tag was cleared or changed. #{} reads the session's value while it holds one;
+        # once it holds none, show-environment fails and tmux skips the rest of the list.
+        snapshot = f"{owner}/{name}/" + "".join(f"{p[2]}/{p[3]}/{p[4]};" for p in panes)
         snapshot = snapshot.replace("#", "##").replace(",", "#,").replace("}", "#}")
-        condition = (f"#{{&&:#{{!=:#{{{guard.TMUX_OWNER}}},}},"
-                     f"#{{&&:#{{!=:#{{{MARK}}},1}},"
-                     f"#{{==:#{{session_name}}/#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
-                     f"{snapshot}}}}}}}")
+        condition = (f"#{{&&:#{{!=:#{{{MARK}}},1}},"
+                     f"#{{==:#{{{guard.TMUX_OWNER}}}/#{{session_name}}/"
+                     f"#{{W:#{{P:#{{pane_id}}/#{{pane_dead}}/#{{pane_dead_time}};}}}},"
+                     f"{snapshot}}}}}")
         if not guard.seat(name):
-            tmux_out("if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")
+            tmux_out("show-environment", "-t", sid, guard.TMUX_OWNER, ";",
+                     "if-shell", "-F", "-t", sid, condition, f"kill-session -t '{sid}'")
 
 
 def sweep(log):
