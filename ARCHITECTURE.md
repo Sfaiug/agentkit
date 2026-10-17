@@ -91,8 +91,9 @@
   opens or resumes the seat and types the line.
 - `stuck.py`: work nothing moves while it waits, told to the `audit` seat once per stall
   (`scan`, after the week's line): a landing line's check pass three times its line's median
-  (`land.passes`), or the run first in line for a slot half an hour (`gate.first_in_line`);
-  `stuck.json` under STATE. For watch's `tell_audit`.
+  (`land.passes`), or the run first in line for a slot three times the median wait there of the
+  last firsts let in (`gate.first_in_line`), each half an hour at least; `stuck.json` under
+  STATE. For watch's `tell_audit`.
 - `orch.py`: seats: tmux server, names, models/accounts, launch/resume, picker and systemd placement.
   `main`, `sessions`, `listing`, `ensure`, `resume`, `rename` for menu, watch, run, job,
   notify, usage, update. Sweep saves tagged auxiliary sessions' screens and closes them
