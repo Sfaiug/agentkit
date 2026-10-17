@@ -97,6 +97,16 @@ class InboxQuestionPages(unittest.TestCase):
         self.prompt(self.typed[0], notify.last(SEAT)["time"] + 1)
         self.assert_open_and_paged_until_the_owner_answers()
 
+    def test_its_own_line_asking_again_in_other_spelling_answers_nothing(self):
+        """The notice keeps a question's first words; the PR retitled at its new head asks
+        the same one."""
+        self.assertEqual(watch.ask_inbox({}, QUESTION, PR, SHA, lambda _: None), 0)
+        again = QUESTION.replace("api", "API")
+        self.assertEqual(watch.ask_inbox({}, again, PR, "def456abc1237890", lambda _: None), 0)
+        self.assertEqual(notify.last(SEAT)["text"], QUESTION)
+        self.prompt(self.typed[-1], notify.last(SEAT)["time"] + 1)
+        self.assert_open_and_paged_until_the_owner_answers()
+
     def test_its_own_line_heard_before_the_record_answers_nothing(self):
         shaped = notify.shaped
 

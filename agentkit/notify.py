@@ -552,7 +552,8 @@ def ak_prompt(session, said, notice):
     since = (notice or {}).get("time")
     if not isinstance(since, (int, float)) or not said:
         return False
-    asking = any(question in said for question in questions(notice))
+    # by its key: asked again in other spelling, a question keeps its first words (`_said`)
+    asking = any(question_key(question) in question_key(said) for question in questions(notice))
     return any(sent.get("text") == said and (asking or sent["at"] >= since)
                for sent in typed_since(session, 0))
 
