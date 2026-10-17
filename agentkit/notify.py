@@ -487,8 +487,8 @@ def waited(notice, at):
 
 
 def job_done(notice):
-    """A job's `all N tasks finished`: done to its card, the way it always was, and no word of
-    the seat's, which only the seat says of itself."""
+    """A job's `all N tasks finished`, as a job loop of an earlier install still records it:
+    no word of the seat's, which only the seat says of itself."""
     return bool(notice) and notice["kind"] == "done" and str(
         notice.get("source") or "").startswith("job:")
 
@@ -1176,12 +1176,11 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             # A screen may have observed an intervening episode since our last tick, but
             # not while a job's done stands: the screens read no notice there, and their
             # `needs you` is not the card's.
-            if card and ((previous.get("word_since") or 0) <= card.get("since", 0)
-                         or job_done(declared)):
+            if card and (previous.get("word_since") or 0) <= card.get("since", 0):
                 previous = {"word": card["word"], "word_since": card["since"]}
             current = watch.session_state(name, now=time.time() if answer is not None else at,
                                           session=seat, records=records,
-                                          previous=previous, jobs=True)
+                                          previous=previous)
             # A newer declaration or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.
@@ -1432,10 +1431,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # event re-records nothing, but the latch is still evaluated: the first
         # attempt may have recorded without ever queueing the card.
         stamp = time.time()
-        # While a job's done stood the screens' record was not the card's, as in `transition`.
-        card = _card_read(name) if job_done(previous) else {}
-        answer = watch.session_state(name, now=stamp, jobs=True, previous={
-            "word": card["word"], "word_since": card["since"]} if card else None)
+        answer = watch.session_state(name, now=stamp)
         if answer["word"] == "needs you":
             since = answer.get("since")
             if not (isinstance(since, (int, float)) and math.isfinite(since)
