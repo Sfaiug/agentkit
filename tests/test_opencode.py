@@ -430,16 +430,22 @@ cat "$dir/bridge-eval"
             {"providerID": "zeta", "id": "comet-1", "cost": [free]},
             {"providerID": "zeta", "id": "comet-2", "cost": [priced]},
             {"providerID": "vega", "id": "star-1", "cost": []}]}))
-        env = {"STUB_PROVIDER_LIST": listed("acme", "zeta", "vega"), "STUB_MODEL_LIST": str(models),
+        # a key in the config is acme's login, a saved one zeta's and vega's; nova's entry
+        # holds no key, which OpenCode enables all the same, and is no login
+        self.cfgdir.mkdir(parents=True, exist_ok=True)
+        (self.cfgdir / "opencode.json").write_text(json.dumps({"provider": {
+            "acme": {"options": {"apiKey": "acme-dummy"}}, "nova": {"options": {}}}}))
+        env = {"STUB_AUTH_LIST": listed("zeta", "vega"), "STUB_MODEL_LIST": str(models),
                "STUB_INTEGRATION_LIST": json.dumps({"data": [
-                   {"id": name, "name": name.title()} for name in ("acme", "nova", "zeta", "opencode")]})}
+                   {"id": name, "name": name.title()}
+                   for name in ("vega", "nova", "zeta", "opencode", "acme")]})}
         proc = self.adapter("providers", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # a plan or a free provider prices every model at nothing; one priced, or not priced at
         # all (MiMo's), is pay as you go; the rest have no login, so no mode
         self.assertEqual([line.split("\t") for line in proc.stdout.splitlines()], [
-            ["opencode", "Opencode", "subscription"], ["acme", "Acme", "subscription"],
-            ["zeta", "Zeta", "payg"], ["vega", "Vega", "payg"], ["nova", "Nova", ""]])
+            ["acme", "Acme", "subscription"], ["zeta", "Zeta", "payg"], ["vega", "Vega", "payg"],
+            ["nova", "Nova", ""], ["opencode", "Opencode", ""]])
         self.assertNotIn("dummy", proc.stdout + proc.stderr)
         proc = self.adapter("providers", env={**env, "STUB_INTEGRATION_LIST": ""})
         self.assertEqual((proc.returncode, proc.stdout), (1, ""))
