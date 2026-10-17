@@ -1,10 +1,11 @@
 """The `c` screen shows what `ak models` recommends beside a seat's marks, and `r` takes it.
 
 Under a seat's models one dim line names the recommended row per role, read off the matrix as
-last computed (`matrix.stored`, `matrix.recommended`); `r` makes the recommended executor and reviewer the seat's marks
-where they are configured models, saved to its record at once, and says why when it cannot;
-the orchestrator is only said, since moving the seat asks first.  With nothing computed the
-line says so and `r` is no key.
+last computed (`matrix.stored`, `matrix.recommended`) and wrapped to the screen; `r` makes the
+recommended executor and reviewer the seat's marks where they are configured models in the config
+as it stands (`matrix.runs`), saved to its record at once, and says why when it cannot; the
+orchestrator is only said, since moving the seat asks first.  With nothing computed the line says
+so and `r` is no key.
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked.
 """
@@ -57,7 +58,10 @@ class Recommends(Sandbox):
         drawn = io.StringIO()
         with patch.object(terminal, "read_key", side_effect=keys), redirect_stdout(drawn):
             menu.show_config(False, Keyboard(), "fix-api")
-        return " ".join(terminal.plain(drawn.getvalue()).split())      # one space between words
+        lines = [terminal.plain(line) for line in drawn.getvalue().splitlines()]
+        self.assertEqual([line for line in lines if terminal.cells(line) > 100], [],
+                         "a line runs past the screen")
+        return " ".join(" ".join(lines).split())      # one space between words
 
     def test_the_line_names_each_role_s_row_and_r_takes_the_configured_ones(self):
         self.store([row("claude", "claude-opus-5-5", "max", orchestrate=100, execute=50),
@@ -65,7 +69,7 @@ class Recommends(Sandbox):
                     row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         text = self.screen([Key("esc")])
         self.assertIn("ak recommends orch claude-opus-5-5 @ max (not configured) · exec fable @ xhigh "
-                      "· review astra @ xhigh r takes exec and review", text)
+                      "· review astra @ xhigh · r takes exec and review", text)
         self.assertIn("⏎ mark r recommended esc back", text)
         self.screen([Key("char", "r"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
@@ -81,6 +85,17 @@ class Recommends(Sandbox):
         # one of the two configured: that one is taken, the other mark stays
         self.store([row("claude", "claude-opus-5-5", "max", execute=100), row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         self.screen([Key("char", "r"), Key("esc")])
+        record = config.load_session(self.cfg, "fix-api")
+        self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
+
+    def test_a_recommended_model_removed_from_the_config_is_not_configured(self):
+        # the matrix still names it: the config as it stands decides, and r takes the other
+        self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
+                    row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
+        config.save(config.remove_model(self.cfg, "fable"))
+        text = self.screen([Key("char", "r"), Key("esc")])
+        self.assertIn("exec claude-fable-5-1 @ xhigh (not configured) · review astra @ xhigh "
+                      "· r takes exec and review", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
 
