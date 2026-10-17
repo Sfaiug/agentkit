@@ -5,6 +5,7 @@ Offline: real Git and checks, sandbox records, fake processes and wakes.
 
 from contextlib import contextmanager
 import fcntl
+import json
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -479,6 +480,11 @@ class MergeTrain(LanderFixture, unittest.TestCase):
                 patch.object(record, "record", side_effect=RuntimeError("crash before verdicts")):
             with self.assertRaisesRegex(RuntimeError, "crash before verdicts"):
                 land.check_line(self.turn)
+        # as an ak from before the `passed` record left it
+        path = land._trees(self.turn)[0]
+        kept = json.loads(path.read_text())
+        del kept["passed"]
+        path.write_text(json.dumps(kept))
         failures = land._trees(self.turn, "red_stacks")[1]
         ((tree, evidence),) = land._trees(self.turn)[1].items()
         passed = tree if same_tree else run.git(self.repo, "rev-parse", "origin/main^{tree}")
