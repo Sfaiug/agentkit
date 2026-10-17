@@ -77,5 +77,11 @@ class TickRunsOnlyTheNamedPasses(unittest.TestCase):
         self.assertFalse({"CLAUDE_CONFIG_DIR", "CODEX_HOME"} & config.state_env_names())
         self.tick()
 
+    def test_a_checkout_of_the_tests_own_with_no_adapters_leaves_no_login_of_the_callers(self):
+        # test_live_update's tick runs in a clone of its own that holds no adapters
+        self.stack.enter_context(patch.object(config, "REPO", self.root / "checkout"))
+        self.assertFalse(config.state_env_names())
+        self.tick()
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

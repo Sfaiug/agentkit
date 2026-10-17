@@ -26,8 +26,9 @@ CREDENTIAL = re.compile(r"(?:^|_)(?:TOKEN|KEY|SECRET|PASSWORD|AUTH)$")
 def logins():
     """The caller's variables a pass could reach a login of theirs by."""
     names = config.state_env_names() | {config.ACCOUNT_ENV, config.PROVIDER_ENV}
-    # a test's fake adapters replace the declarations of ak's own, never the caller's logins
-    with patch.dict(os.environ):
+    # a test's fake adapters or checkout of its own replace the declarations of the adapters ak
+    # ships, never the caller's logins: those are read from this checkout
+    with patch.dict(os.environ), patch.object(config, "REPO", REPO):
         os.environ.pop(config.ADAPTER_DIR_ENV, None)
         names |= config.state_env_names()
     return names | {name for name in os.environ if CREDENTIAL.search(name)}

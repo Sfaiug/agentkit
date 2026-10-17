@@ -61,11 +61,11 @@ class TickPasses(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-tick-passes-", dir=REPO)
         self.addCleanup(tmp.cleanup)
-        self.root = root = Path(tmp.name)
+        self.root = Path(tmp.name)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
-            self.stack.enter_context(patch.object(config, name, root / name.lower()))
+            self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_TMUX_SOCKET": "agentkit-test"}))
         self.stack.enter_context(patch.object(watch, "LOG_OWNED", set()))
         config.ensure_dirs()
@@ -73,11 +73,10 @@ class TickPasses(unittest.TestCase):
         self.passes = {f"{where.__name__}.{name}": self.stack.enter_context(
             patch.object(where, name, return_value={} if name in ("collect", "_cached_providers")
                          else None)) for where, name, _what, _dry in PASSES}
-        self.stack.enter_context(only_passes(root, *{what for _, _, what, _ in PASSES}))
 
     def tick(self, *argv):
         out = io.StringIO()
-        with redirect_stdout(out):
+        with only_passes(self.root, *{what for _, _, what, _ in PASSES}), redirect_stdout(out):
             self.assertEqual(watch.main(list(argv)), 0)
         return out.getvalue()
 
