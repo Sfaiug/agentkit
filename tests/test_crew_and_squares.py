@@ -47,6 +47,20 @@ class CrewAndSquares(Sandbox):
             (0, "moving"), (0, "waiting"), (1, "moving"), (1, "failed"),
             (2, "moving"), (2, "waiting")])
 
+    def test_a_running_loop_that_only_waits_is_waiting(self):
+        """Its pid on a transient wait not yet over, a suite turn or another delivery's turn."""
+        records = [
+            run("g1-retry", state="running", step="executor", pid=42,
+                transient_wait={"until": NOW + 60, "pid": 42}),
+            run("g2-retried", state="running", step="executor", pid=42,
+                transient_wait={"until": NOW - 1, "pid": 42}),
+            run("g3-suite", state="running", step="done-when", pid=42,
+                gate_turn={"pid": 42, "of": "acme", "since": NOW}),
+            run("g4-delivery", state="running", step="merge", pid=42, delivery_wait=42),
+        ]
+        self.assertEqual(menu.seat_tasks(SEAT, records, NOW),
+                         [(0, "moving"), (0, "waiting"), (0, "waiting"), (2, "waiting")])
+
     def test_squares_fill_the_stages_reached_and_count_what_does_not_fit(self):
         tasks = [(0, "moving"), (1, "waiting"), (2, "failed")]
         with patch.object(terminal, "colour_depth", return_value=0):
@@ -79,6 +93,12 @@ class CrewAndSquares(Sandbox):
         with patch.object(terminal, "colour_depth", return_value=0):
             self.assertTrue(menu.detail(self.cfg, info, 80)[0].startswith(
                 "opus builds · fable and spark review"))
+        # a narrow line cuts the crew, never the squares
+        info["crew"] = (["astra", "opus"], ["fable", "spark"])
+        info["tasks"] = [(0, "moving")]
+        with patch.object(terminal, "colour_depth", return_value=0):
+            self.assertEqual(menu.detail(self.cfg, info, 39),
+                             ["astra and opus build · fable and…   ■□□"])
 
 
 if __name__ == "__main__":

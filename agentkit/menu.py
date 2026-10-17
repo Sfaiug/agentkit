@@ -861,7 +861,7 @@ def seat_tasks(name, records=None, now=None, index=None):
     line, for the live check -- or `failed` once it ended with nothing delivered, until a later
     run takes it up or FAILED_FOR has passed.  A run merged and live is done, and one not
     started is no task in flight.  `index` is the draw's `transitions.supersession_index`."""
-    from . import watch   # here, not at the top: watch imports this module
+    from . import gate, watch   # here, not at the top: watch imports this module
     now = time.time() if now is None else now
     records = run_records() if records is None else records
     index = transitions.supersession_index(records) if index is None else index
@@ -873,7 +873,12 @@ def seat_tasks(name, records=None, now=None, index=None):
         if transitions.landing_line(state):
             found.append((2, "waiting"))
         elif state.get("state") == "running":
-            found.append((stage, "moving"))
+            # its loop marks, with its own pid, sleeping out a provider's transient wait and
+            # waiting for a heavy suite turn or another delivery's turn at its repository
+            pid, wait = state.get("pid"), state.get("transient_wait") or {}
+            paused = (gate.gate_turn_note(state) or (pid and state.get("delivery_wait") == pid)
+                      or (wait.get("pid") == pid and (wait.get("until") or 0) > now))
+            found.append((stage, "waiting" if paused else "moving"))
         elif transitions.going(state, now=now):
             found.append((stage, "waiting"))
         elif watch.awaiting_live(state, now=now):
@@ -1189,10 +1194,12 @@ def detail(cfg, info, room, now=None):
     said = "" if word == "working" else terminal.plain(info.get("sentence") or "")
     if said or word in ("needs you", "done"):
         return terminal.wrap(said, room) if said else []
-    who = terminal.cut(crew(info), room)
     tasks = info.get("tasks") or []
+    # the crew gives way to the least the squares say: one task's squares, or their count
+    least = 3 + terminal.cells(squares(tasks, 3)) if tasks else 0
+    who = terminal.cut(crew(info), room - least)
     left = room - terminal.cells(who) - 3
-    line = who + ("   " + squares(tasks, left) if tasks and left >= 3 else "")
+    line = who + ("   " + squares(tasks, left) if tasks and left >= least - 3 else "")
     return [line] if terminal.plain(line) else []
 
 
