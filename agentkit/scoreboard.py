@@ -193,12 +193,13 @@ def compute(now=None):
         """The merged changes of the week that broke after review passed them: their tests red
         at landing, or main's checks or live health after their merge, as each run's row records
         it (`history.add_landing_break`, `watch.broke_after_merge`); a row from before breaks
-        were recorded is unknown.  A rewrite later is no break: it may be the next feature.
-        None with no merged run."""
+        were recorded is unknown until one is recorded on it.  A rewrite later is no break: it
+        may be the next feature.  None with no merged run."""
         merged = [row for row in ended if delivered(row)]
         if not merged:
             return None
-        known = [row for row in merged if row.get("landing_breaks") is not None]
+        known = [row for row in merged
+                 if row.get("landing_breaks") is not None or row.get("broke_after_merge") is not None]
         return {"merged": len(known),
                 "after_merge": sum(1 for row in known if row.get("broke_after_merge")),
                 "landing": sum(1 for row in known if row["landing_breaks"]),

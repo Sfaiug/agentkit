@@ -56,20 +56,22 @@ class BrokeAfterReview(unittest.TestCase):
         self.merged("broke-live", NOW - 2 * DAY, after="health")
         self.merged("broke-main", NOW - 9 * DAY, landing=1, after="checks")
         self.merged("old", NOW - 10 * DAY)
-        # a row from before breaks were recorded: unknown, never unbroken
+        self.merged("resumed", NOW - 10 * DAY)
+        # a row from before breaks were recorded: unknown, never unbroken, until one is recorded
         with sqlite3.connect(history.path()) as db:
             db.execute("UPDATE runs SET landing_breaks=NULL, broke_after_merge=NULL "
-                       "WHERE run_id='old'")
+                       "WHERE run_id IN ('old', 'resumed')")
+        history.update_run("resumed", broke_after_merge="checks")
         history.start_run("failed", repo="widget", started_at=NOW - 7200, change="failed")
         history.finish_run("failed", final_state="fail", finished_at=NOW - 3600)
         [this_week, before] = scoreboard.compute(NOW)["broke"]
         self.assertEqual(this_week, {"merged": 3, "unknown": 0, "landing": 1, "after_merge": 1})
-        self.assertEqual(before, {"merged": 1, "unknown": 1, "landing": 1, "after_merge": 1})
+        self.assertEqual(before, {"merged": 2, "unknown": 1, "landing": 1, "after_merge": 2})
         with patch.object(scoreboard.terminal, "content_width", return_value=400):
             board = "\n".join(scoreboard.render())
         self.assertIn("broke     1 of 3 merged changes broke main or live after merge; 1 went red "
                       "at landing", board)
-        self.assertIn("1 of 1 merged changes broke main or live after merge; 1 went red at "
+        self.assertIn("2 of 2 merged changes broke main or live after merge; 1 went red at "
                       "landing; 1 merged before breaks were recorded", board)
 
     def test_a_week_with_no_merged_change_says_so(self):
