@@ -61,6 +61,16 @@ class PlanBar(Sandbox):
         self.assertNotEqual(inks[0], tip)
         self.assertTrue(terminal.plain(line).endswith(" 4 of 8"))
 
+    def test_eight_colours_draw_the_whole_line_in_the_words_own_tone(self):
+        # they hold no tone between the word's and the background, so nothing fades
+        for light in (False, True):
+            with self.subTest(light=light), patch.object(terminal, "_LIGHT", light), \
+                    patch.object(terminal, "colour_depth", return_value=8):
+                line = terminal.plan_bar(4, 8, 28, 8, "working")
+            self.assertEqual(set(re.findall(r"\x1b\[(\d+)m[━╸]", line)),
+                             {terminal.STATE_STYLES["working"][3]})
+            self.assertTrue(terminal.plain(line).endswith(" 4 of 8"))
+
     def test_without_colour_or_utf8_it_reads_in_plain_characters(self):
         self.assertEqual(menu.last_column("working", "", 3, 7, 20), "━━━━━╸─────── 3 of 7")
         with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}):

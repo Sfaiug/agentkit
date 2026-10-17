@@ -498,13 +498,13 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     """A seat's progress in `room` cells, its count included: a smooth line of how much of its
     plan is done, then `done of total` -- never under `least` cells of line, which a row too
     short for it then draws under itself.  The done part is `━` in `word`'s colour, on a
-    terminal fading in from half way to its background at the line's start to the colour at
-    its tip, with a half cell `╸` where the share ends inside one; the rest is a dim `─`.  It
-    says nothing of the tasks in flight, which the line under a highlighted row has.  Without
-    colour the shapes carry it, and without UTF-8 it is `===------ 3 of 8`.  With no `least`, a
-    room too small for a cell of line beside the count draws the count alone.  `tmux` draws it
-    as a tmux format, in `word`'s colour throughout: the tick that writes a bar knows no
-    terminal's background to fade toward."""
+    terminal of more than eight colours fading in from half way to its background at the
+    line's start to the colour at its tip, with a half cell `╸` where the share ends inside one;
+    the rest is a dim `─`.  It says nothing of the tasks in flight, which the line under a
+    highlighted row has.  Without colour the shapes carry it, and without UTF-8 it is
+    `===------ 3 of 8`.  With no `least`, a room too small for a cell of line beside the count
+    draws the count alone.  `tmux` draws it as a tmux format, in `word`'s colour throughout: the
+    tick that writes a bar knows no terminal's background to fade toward."""
     total = max(0, int(total or 0))
     if not total:
         return ""
@@ -523,8 +523,8 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
         return ((f"#[fg=#{colour}]" + "".join(cells) if cells else "")
                 + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
                 + f"#[default] {count}")
-    if not colour_depth():
-        return "".join(cells) + rest + f" {count}"
+    if colour_depth() <= 8:   # no tone between the word's colour and the background
+        return styled("".join(cells), word) + styled(rest, "dim") + f" {count}"
     tip = max(1, ends - 1)
     line = "".join(styled(char, faded(word, 0.5 * (1 - n / tip) if ends > 1 else 0))
                    for n, char in enumerate(cells))
