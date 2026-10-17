@@ -54,7 +54,7 @@ if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, cr
     menu.usage.collect = lambda cfg, **kwargs: json.loads(os.environ["SCREEN_PROVIDERS"])
     orch.job_notices = lambda: []
     orch.listing = lambda reconcile=True: []
-    menu.usage_lines = lambda cfg, width: []
+    menu.usage_lines = lambda cfg, width, **_kw: []
     menu.Live.probe = lambda self, now=None: False
     orch.create, menu.open_session = create, open_session
 sys.exit(menu.loop(config.load(), dry_run=dry_run))

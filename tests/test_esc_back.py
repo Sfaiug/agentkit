@@ -52,7 +52,7 @@ orch.rename = lambda old, new, **_kw: print(f"<renamed {new}>", flush=True) or n
 orch.cmd_stop = lambda argv: print(f"<stopped {argv[0]}>", flush=True)
 menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "",
                                                      "since": None}
-menu.usage_lines = lambda cfg, width: []
+menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: usage.Readings({})
 menu.stop_session_runs = lambda name, dry_run=False: None

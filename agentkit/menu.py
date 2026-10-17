@@ -1325,7 +1325,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # sentence column starts at the same column under every project.
     widths = v5o_column_widths([seat for project in ordered
                                 for seat in project["seats"]], width)
-    meters_full = usage_lines(cfg, layout)
+    # one reading of the cached meters for the whole draw, so the grid the screen is laid out
+    # around is the one the pointer lights
+    rows = usage_rows(cfg)
+    meters_full = usage_lines(cfg, layout, rows=rows)
     # Height is budgeted the way width is: the frame, the usage and the keys always, and the
     # rows in what is left, a page at a time. Sized from the rows on screen, leaving one
     # line for the prompt and one to spare, exactly as the tests check.
@@ -1418,7 +1421,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # lines too (compact), and only one with no room for a seat under its heading even then
     # cuts the readings.
     least = LEAST * (2 if width < 60 else 1)
-    summary = usage_summary(cfg, layout)
+    summary = usage_summary(cfg, layout, rows=rows)
     block = meters_full or summary     # a width with no grid says the readings
     # one page before pages, the whole block before its readings, and compact last
     for meters, compact, paged in ((block, False, False), (summary, False, False),
@@ -1433,7 +1436,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     opens = max(0, opens - max(0, need - room))
     room = _room(meters, paged, compact)
     if compact and room < need and len(meters) > 1:
-        meters = usage_summary(cfg, layout, max(1, len(meters) + room - need))
+        meters = usage_summary(cfg, layout, max(1, len(meters) + room - need), rows)
         room = _room(meters, paged, compact)
     if room < 1:
         meters = meters[:max(0, len(meters) + room - 1)]      # what leaves one row
@@ -1531,8 +1534,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if grid and isinstance(spot.cell, tuple) and spot.cell[0] == "usage":
         # the one the pointer is on in its colour, and the rest of it on the line under the grid
         number = spot.cell[1]
-        out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=number)
-        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, number, layout)
+        out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, number, rows)
+        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, number, layout, rows=rows)
     out = terminal.lit(out, spots)
     moved, rising = "", False
     if clock is not None:
@@ -2065,7 +2068,7 @@ def usage_rows(cfg):
     return rows
 
 
-def usage_summary(cfg, width, most=None):
+def usage_summary(cfg, width, most=None, rows=None):
     """The usage block folded, for a screen too short for it and a few rows under it: each
     subscription's label and what it has left -- `17%`, a spent week's credits where they fit,
     else `0%`, as on its row, `0%` once spent until its reset, `—` with no reading -- whole, as
@@ -2083,7 +2086,7 @@ def usage_summary(cfg, width, most=None):
                 lines.append([])
             lines[-1].append(part)
         return [line for line in lines if line]
-    found = usage_cells(cfg)
+    found = usage_cells(cfg, rows=rows)
     lines = fill(found, width - 2)
     if most is not None and len(lines) > most:
         # the last line keeps room for ` · …`, a label giving way to it as to the width
@@ -2103,13 +2106,14 @@ def reading(cfg, name, prov, now):
         return None, "bad reading", []
 
 
-def usage_cells(cfg, now=None):
+def usage_cells(cfg, now=None, rows=None):
     """Each subscription's (provider, label, left, said), in `usage_rows`' order: `left` 1 to
     100 and `said` its `NN% left`; 0 for a spent week on credits, which count as usage left,
-    `said` them; or None, `said` its `empty until <when>`, or `—` and why (`unread`)."""
+    `said` them; or None, `said` its `empty until <when>`, or `—` and why (`unread`).  `rows`
+    is `usage_rows`' answer already in hand, read here when it is not handed in."""
     now = time.time() if now is None else now
     found = []
-    for name, label, prov, _ in usage_rows(cfg):
+    for name, label, prov, _ in usage_rows(cfg) if rows is None else rows:
         week, why, _ = reading(cfg, name, prov, now)
         if week is None:
             found.append((name, label, None, f"—  {why}"))
@@ -2132,7 +2136,7 @@ def usage_columns(width):
     return max(1, min(3, width // (COLUMN + 2)))
 
 
-def usage_lines(cfg, width, lit=None):
+def usage_lines(cfg, width, lit=None, rows=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
@@ -2140,7 +2144,7 @@ def usage_lines(cfg, width, lit=None):
     in its provider's (`colour`).  The rest is said under the grid (`usage_detail`).  What
     each cell says is whole: the labels give way to the longest, and a width with no room for
     a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`)."""
-    found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg)]   # `— why`
+    found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
         return []
     columns, room = usage_columns(width), min(COLUMN, width - 2)
@@ -2173,16 +2177,16 @@ def usage_lines(cfg, width, lit=None):
     return lines
 
 
-def usage_detail(cfg, number, width=None, now=None):
+def usage_detail(cfg, number, width=None, now=None, rows=None):
     """What the line under the usage grid says of subscription `number`, from 1, while the
     pointer is on it: its label in its provider's colour, then -- each where it applies, joined
     with ` · ` -- when its week resets, the credits it holds, the resets in hand (`in_hand`),
     each model's own cap that differs (`scoped_notes`), its 5-hour window (`session_note`), why
     its last probe failed (`fault`) and how old the reading is (`usage.as_of`); for one with no
     week to draw, why (`unread`).  In `width` cells the notes give way one by one, the least
-    worth keeping first (`fitting`)."""
+    worth keeping first (`fitting`), and the label too, past the notes; `rows` as `usage_cells`'."""
     now = time.time() if now is None else now
-    rows = usage_rows(cfg)
+    rows = usage_rows(cfg) if rows is None else rows
     if not 0 < number <= len(rows):
         return ""
     name, label, prov, _ = rows[number - 1]
@@ -2191,9 +2195,10 @@ def usage_detail(cfg, number, width=None, now=None):
         (-1, usage.credits_note(prov)), (0, resets_note(week, now)), (1, in_hand(prov)),
         *((3, note) for note in scoped_notes(cfg, name, readable, week)),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
-    label = terminal.plain(label)
     notes = [note for note in notes if note[1]]
-    room = 10 ** 6 if width is None else width - 4 - terminal.cells(label)
+    room = 10 ** 6 if width is None else width - 4
+    label = terminal.cut(label, room)     # a label too long for the line gives way, as in its cell
+    room -= terminal.cells(label)
     return (terminal.styled(label, colour(cfg, name)) + "  " + terminal.styled(" · ", "dim")
             .join(_note_styled(part) for part in fitting(notes, room)))
 

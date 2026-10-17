@@ -48,7 +48,7 @@ orch.listing = lambda reconcile=True: [{"name": "fix-api", "repo": None, "path":
 orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "",
                                                      "since": None}
-menu.usage_lines = lambda cfg, width: []
+menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 down = usage.Readings({})           # the harnesses ONE_DOWN names are not logged in
 down.harnesses = {name: f"{name} is not logged in" for name in os.environ["ONE_DOWN"].split()}
