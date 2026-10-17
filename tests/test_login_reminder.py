@@ -81,7 +81,7 @@ class Reminder(unittest.TestCase):
         with patch.object(config, "load", return_value=self.cfg), \
                 patch.object(time, "time", return_value=at):
             passes["the login-end read did not run"]()
-        return [post["embeds"][0]["title"] for post in self.posts]
+        return [post["embeds"][0]["description"] for post in self.posts]
 
     def test_a_one_page_a_local_day_naming_the_subscription_its_email_and_end(self):
         said = ("Claude II login second@acme.test ends Mon 26 Oct 04:47 (in 2 days). "

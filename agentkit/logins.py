@@ -102,5 +102,5 @@ def remind(cfg, now=None):
             days = (date.fromtimestamp(ends) - day).days
             soon = {0: "today", 1: "tomorrow"}.get(days, f"in {days} days")
             when = f"ended {at}" if ends <= now else f"ends {at} ({soon})"
-            notify.page(f"login:{provider}:{account}:{day}",
+            notify.page(f"login:{provider}:{account}:{day}", label,
                         f"{label} login{whose} {when}. Log in again from ak.")

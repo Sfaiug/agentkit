@@ -1097,16 +1097,11 @@ def _send_card(session, kind, card, answer):
     return result
 
 
-def page(key, text):
+def page(key, about, text):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
     keeps the event, so no later tick or restart queues it again, and retries it as a card's.
-    No seat names it, so the text itself is the title."""
-    payload = {"username": "agentkit", "embeds": [{
-        "title": text[:256], "color": COLORS["needs"],
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}]}
-    who = mention()
-    if who:
-        payload["content"] = who
+    It reads as a seat's question does, `about` standing where the seat's name would."""
+    payload = card_payload("needs", about, text)
     key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
     with outbox_lock():
         if _read_event(key) is not None:
