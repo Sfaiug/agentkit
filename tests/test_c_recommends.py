@@ -1,4 +1,5 @@
-"""The `c` screen shows what `ak models` recommends beside a seat's marks, and `r` takes it.
+"""The `c` screen shows what `ak models` recommends beside a seat's marks, and `r`, or a click
+on `r recommended`, takes it.
 
 Under a seat's models one dim line names the recommended row per role, read off the matrix as
 last computed (`matrix.stored`, `matrix.recommended`) and wrapped to the screen; `r` makes the
@@ -75,6 +76,25 @@ class Recommends(Sandbox):
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
                          ("opus", ["fable"], ["astra"]))
+
+    def test_a_click_on_r_recommended_does_what_r_does(self):
+        self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
+                    row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
+        spots, frame = {}, terminal.frame
+
+        def framed(*args, **kwargs):
+            drawn = frame(*args, **kwargs)
+            spots.update(drawn)
+            return drawn
+
+        def keys():         # the click lands on `r` where the drawn key line has it
+            yield next(Key("click", col=first, row=line) for line, (_, cells) in spots.items()
+                       for first, _, cell in cells if cell == "r")
+            yield Key("esc")
+        with patch.object(terminal, "frame", side_effect=framed):
+            self.screen(keys())
+        record = config.load_session(self.cfg, "fix-api")
+        self.assertEqual((record["workers"], record["reviewers"]), (["fable"], ["astra"]))
 
     def test_an_unconfigured_recommendation_is_said_and_nothing_changes(self):
         self.store([row("claude", "claude-opus-5-5", "max", execute=100), row("codex", "gpt-6-astra", "max", review=100)])
