@@ -48,11 +48,15 @@ def _ask(harness, account):
                               start_new_session=True) as proc:
             try:
                 out = proc.communicate(timeout=ASK_TIMEOUT)[0]
-            except subprocess.TimeoutExpired:
-                # Its readers (security, jq) die with it rather than pile up a tick at a time;
-                # their output closes once the last of them is gone.
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.communicate(timeout=ASK_TIMEOUT)
+            except BaseException:
+                # Hung or interrupted, its readers (security, jq) die with it rather than pile up
+                # a tick at a time: in their own session no ^C reaches them.  Their output
+                # closes once the last of them is gone.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.communicate(timeout=ASK_TIMEOUT)
+                except (ProcessLookupError, subprocess.TimeoutExpired):
+                    pass    # none was left, or one left the group still holding the output
                 raise
         data = json.loads(out) if proc.returncode == 0 else None
     except (config.Error, subprocess.TimeoutExpired, OSError, ValueError):

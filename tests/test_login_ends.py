@@ -22,13 +22,14 @@ from agentkit import config, logins
 
 # A fake adapter: counts its calls in $FAKE/calls and answers for the account it was named,
 # or fails for one named in $FAKE/fail, or hangs in a reader whose pid is $FAKE/reader for one
-# named in $FAKE/hang.
+# named in $FAKE/hang; that reader first interrupts its caller where $FAKE/interrupt exists.
 FAKE_ADAPTER = r"""#!/usr/bin/env bash
 [ "$1" = login-end ] || exit 2
 account=${AGENTKIT_ACCOUNT:-default}
 echo "$account" >>"$FAKE/calls"
 [ ! -e "$FAKE/fail-$account" ] || exit 1
-[ ! -e "$FAKE/hang-$account" ] || sh -c 'echo $$ >"$FAKE/reader"; exec sleep 30'
+[ ! -e "$FAKE/hang-$account" ] || CALLER=$PPID sh -c 'echo $$ >"$FAKE/reader"
+    [ ! -e "$FAKE/interrupt" ] || kill -INT "$CALLER"; exec sleep 30'
 cat "$FAKE/answer-$account"
 """
 
@@ -147,20 +148,35 @@ class Refresh(unittest.TestCase):
         self.assertEqual(kept["anthropic"]["default"]["ends"], 50000)
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
 
-    @unittest.skipUnless(sys.platform == "linux", "a subreaper sees the reader left behind")
-    def test_g_an_ask_that_hangs_leaves_none_of_its_readers_running(self):
+    def hang(self):
+        """The default account's adapter hangs in a reader this process adopts once orphaned."""
         import ctypes
         self.assertEqual(ctypes.CDLL(None).prctl(36, 1, 0, 0, 0), 0)  # PR_SET_CHILD_SUBREAPER
         (self.fake / "hang-default").touch()
-        with patch.object(logins, "ASK_TIMEOUT", 1):
-            kept = logins.refresh(self.cfg, now=1000)
-        self.assertEqual(kept["anthropic"]["default"], {"checked_at": 1000})
+
+    def reader_outlived_the_ask(self):
         reader = int((self.fake / "reader").read_text())
         alive = os.waitpid(reader, os.WNOHANG)[0] == 0   # orphaned, it is this process's child
         if alive:
             os.kill(reader, signal.SIGKILL)
             os.waitpid(reader, 0)
-        self.assertFalse(alive, "the hung adapter's reader outlived the ask")
+        return alive
+
+    @unittest.skipUnless(sys.platform == "linux", "a subreaper sees the reader left behind")
+    def test_g_an_ask_that_hangs_leaves_none_of_its_readers_running(self):
+        self.hang()
+        with patch.object(logins, "ASK_TIMEOUT", 1):
+            kept = logins.refresh(self.cfg, now=1000)
+        self.assertEqual(kept["anthropic"]["default"], {"checked_at": 1000})
+        self.assertFalse(self.reader_outlived_the_ask())
+
+    @unittest.skipUnless(sys.platform == "linux", "a subreaper sees the reader left behind")
+    def test_h_an_interrupted_ask_leaves_none_of_its_readers_running(self):
+        self.hang()
+        (self.fake / "interrupt").touch()
+        with self.assertRaises(KeyboardInterrupt):
+            logins.refresh(self.cfg, now=1000)
+        self.assertFalse(self.reader_outlived_the_ask())
 
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch
