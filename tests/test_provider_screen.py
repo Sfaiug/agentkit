@@ -307,10 +307,10 @@ class ProviderScreen(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="provider-state-") as state, \
                 mock.patch.object(config, "HOME", home), \
                 mock.patch.object(config, "STATE", Path(state)):
-            rows = [terminal.ANSI.sub("", line) for line in menu.usage_lines(config.load(), 100)]
-        self.assertEqual(len(rows), 1 + 5)
-        self.assertTrue(any(line[2:].startswith("ChatGPT") for line in rows), rows)
-        self.assertFalse(any("Claude" in line for line in rows), rows)
+            labels = [label for _, label, _, _ in menu.usage_cells(config.load())]
+        self.assertEqual(len(labels), 5)
+        self.assertIn("ChatGPT", labels)
+        self.assertNotIn("Claude", labels)
 
     def test_the_last_provider_stays(self):
         screen = Screen(self, child=CHILD, text=ONE)
