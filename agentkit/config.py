@@ -666,7 +666,7 @@ SAVE_HEADER = ("# agentkit's config, written by the menu's `c` screen. It is rew
 _TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin")
 _DEFAULTS_ORDER = ("orchestrator", "workers", "reviewers")
 _MODEL_ORDER = ("harness", "model", "effort", "exec_effort", "review_effort", "provider",
-                "meter")
+                "meter", "mode")
 _PROVIDER_ORDER = ("mode", "usage_model", "usage_effort")
 
 

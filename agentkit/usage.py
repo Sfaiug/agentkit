@@ -1559,7 +1559,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     list.  payg providers are the exception: they cost money, so they stay out while any
     subscription model is still below pace, and a subscription model whose meters report
     nothing counts as below it.  Where the harness's own config says what a model is paid
-    from, that outranks the provider's `mode`.
+    from, that outranks the model's own `mode`, which outranks its provider's.
 
     Each role stays within its selection. ak's own run numbers never affect the order. JSON
     output uses `quiet` because the providers already carry their unknown reasons as
@@ -1576,7 +1576,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 
     def mode(name):
         entry = config.model(cfg, name)
-        return (harness_plugin(entry["harness"]).mode(entry)
+        return (harness_plugin(entry["harness"]).mode(entry) or entry.get("mode")
                 or cfg["providers"][entry["provider"]].get("mode", "subscription"))
 
     def pace(name):

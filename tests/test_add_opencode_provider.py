@@ -8,20 +8,23 @@ Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child pro
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  OpenCode's adapter
 is a fake there: it logs each verb with the provider it was named, `install` puts an empty
 program in a bin dir of the HOME's own, `login` on the terminal marks that provider logged in,
-and `providers` lists `acme` (logged in), `zeta` and `mimo` by that mark.  The catalog is faked
+and `providers` lists `acme` (logged in), `zeta`, `mimo`, `anthropic` and `openai` by that mark.  The catalog is faked
 too.  Nothing reads or writes the owner's ~/.agentkit or OpenCode's own home.
 """
 
 import unittest
+from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, ESC, Screen
 from test_add_model import listed
 from test_provider_screen import GIVE, ONE, SHIPPED, TAKE, open_providers, pick, providers, title
+from agentkit import matrix, usage
 
 FAKE = r"""#!/usr/bin/env bash
 echo "opencode $1 ${AGENTKIT_PROVIDER-}" >> "$HOME/verbs.log"
 rows=("acme"$'\t'"Acme Plan"$'\t'"subscription" "zeta"$'\t'"Zeta Cloud"$'\t'"payg"
-      "mimo"$'\t'"MiMo"$'\t'"payg")
+      "mimo"$'\t'"MiMo"$'\t'"payg" "anthropic"$'\t'"Anthropic"$'\t'"payg"
+      "openai"$'\t'"OpenAI"$'\t'"payg")
 case $1 in
   install) : > "$HOME/bin/opencode" && chmod +x "$HOME/bin/opencode" ;;
   login) [ -t 0 ] && echo "<opencode login on the terminal>" && : > "$HOME/in-$AGENTKIT_PROVIDER" ;;
@@ -52,7 +55,9 @@ config.harness_binary = lambda name: shutil.which(name, path=str(home / "bin")) 
 config.catalog = lambda harness: [
     {"id": "acme/rocket-1", "label": "Rocket 1", "efforts": ["high", "max"]},
     {"id": "zeta/comet-2", "label": "Comet 2", "efforts": ["none"]},
-    {"id": "mimo/mimo-v2.6-pro", "label": "MiMo V2.6 Pro", "efforts": ["none", "high"]}]
+    {"id": "mimo/mimo-v2.6-pro", "label": "MiMo V2.6 Pro", "efforts": ["none", "high"]},
+    {"id": "anthropic/lyra-1", "label": "Lyra 1", "efforts": ["high"]},
+    {"id": "openai/vega-1", "label": "Vega 1", "efforts": ["high"]}]
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
 update.agentkit_newer = lambda: ""
@@ -84,7 +89,8 @@ class AddOpenCodeProvider(unittest.TestCase):
         # installed, since its program was nowhere; the logged-in provider first
         self.assertEqual(verbs(screen), ["opencode install ", "opencode providers "])
         self.assertEqual(listed(lines), [["Acme Plan", "acme", "logged in"],
-                                         ["Zeta Cloud", "zeta"], ["MiMo", "mimo"]])
+                                         ["Zeta Cloud", "zeta"], ["MiMo", "mimo"],
+                                         ["Anthropic", "anthropic"], ["OpenAI", "openai"]])
         # `/` finds in the list: what is typed after it, in a name or an id
         lines = screen.press(b"/clo", lambda lines: "  provider  /clo" in lines)
         self.assertEqual(listed(lines), [["Zeta Cloud", "zeta"]])
@@ -129,6 +135,30 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.saved()["providers"]["mimo"], SHIPPED["providers"]["mimo"])
+        screen.leave()
+
+    def test_a_model_opencode_pays_for_stays_payg_whatever_its_provider_table_says(self):
+        screen = Screen(self, child=CHILD, text=ONE)
+        for provider in ("anthropic", "openai"):          # each logged in on a paid key
+            (screen.path.parent.parent / f"in-{provider}").touch()
+        # Claude's table the config holds, then Codex's as it ships: their plans pay for no
+        # call OpenCode makes
+        for at in (1, 2):
+            through(screen)
+            screen.press(DOWN * at + ENTER, lambda lines: "  model" in lines and listed(lines))
+            screen.press(ENTER, lambda lines: "  effort" in lines)
+            screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        saved = screen.saved()
+        self.assertEqual(saved["providers"]["anthropic"], {"mode": "subscription"})
+        self.assertEqual(saved["providers"]["openai"], SHIPPED["providers"]["openai"])
+        self.assertEqual(saved["models"]["lyra"], {
+            "harness": "opencode", "model": "anthropic/lyra-1", "effort": "high",
+            "provider": "anthropic", "mode": "payg"})
+        self.assertEqual(saved["models"]["vega"]["mode"], "payg")
+        # so neither is picked while a subscription runs behind pace; no rank is read off disk
+        with mock.patch.object(matrix, "rank", return_value={}):
+            self.assertEqual(usage.pick_order(saved, {}, list(saved["models"]), quiet=True),
+                             ["opus"])
         screen.leave()
 
     def test_esc_lets_a_find_go_then_goes_back_with_nothing_added(self):

@@ -3121,7 +3121,8 @@ def config_add(cfg, keyboard=None, through=None):
     (config.listed_providers), the logged-in ones first.  One picked with no login is logged
     in on `keyboard`'s terminal, given back for it, then asked for again for its mode.  The
     model goes in with its provider's table where the config has none: the shipped one where
-    the shipped default has it, else that mode, read off what the harness prices its models.
+    the shipped default has it, else that mode, read off what the harness prices its models;
+    the model takes that mode as its own where its provider's table says another.
 
     Only a provider the config has offers its harnesses, so the new model's provider is the
     one its harness was picked with.  ↑/↓, k/j and the wheel move, and Enter or a click picks
@@ -3239,13 +3240,19 @@ def config_add(cfg, keyboard=None, through=None):
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
                 continue
             name, before = _short_name(cfg, model["label"]), copy.deepcopy(cfg)
-            if provider not in cfg["providers"]:     # only `through` lists one the config has not
-                tables = config.shipped().get("providers") or {}
-                row = next(row for row in listed if row[0] == provider)
-                cfg["providers"][provider] = (copy.deepcopy(tables[provider]) if provider in tables
-                                              else {"mode": row[2], "name": row[1]})
             cfg["models"][name] = {"harness": harness, "model": model["id"], "effort": effort,
                                    "provider": provider}
+            if through:
+                row = next(row for row in listed if row[0] == provider)
+                if provider not in cfg["providers"]:
+                    tables = config.shipped().get("providers") or {}
+                    cfg["providers"][provider] = (copy.deepcopy(tables[provider])
+                                                  if provider in tables
+                                                  else {"mode": row[2], "name": row[1]})
+                # a table that came with another harness's login: Codex's plan pays for no
+                # call OpenCode makes on an OpenAI key
+                if row[2] != cfg["providers"][provider].get("mode", "subscription"):
+                    cfg["models"][name]["mode"] = row[2]
             note = _saved(cfg, cfg, before)
             if not note:
                 return name
