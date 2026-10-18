@@ -143,20 +143,22 @@ class MenuIdleWhileAttached(Sandbox):
                                       (["acme-docs", SEAT], [(None, {"read": 2})])])
             self.assertEqual((listings, runs), ([1, 2], [1, 2]),
                              "read while the owner was in the seat")
-            live.watch(live.last)
-            self.assertEqual((listings, runs), ([1, 2, 2], [1, 2, 2]))
+            live.back()
+            until("the read back", lambda: runs[2:])
             live.close()
 
     def test_a_read_going_as_the_owner_leaves_holds_up_no_seat_and_lands_nowhere(self):
-        """The seat opens at once, whether the watcher is at its `stat` or its read, the read is
-        let go when it ends, and the one back is read behind the draw."""
-        for where in ("recorded", "v5o_groups"):
-            with self.subTest(where=where):
-                self.leave_with_a_read_going(where)
+        """The seat opens at once wherever the watcher is: past its wait, at its `stat` or in its
+        read.  Nothing is read once the owner has left, the read going is let go when it ends,
+        back by then or not, and the one back is read behind the draw."""
+        for where, returns in (("wait", False), ("recorded", False), ("v5o_groups", False),
+                               ("v5o_groups", True)):
+            with self.subTest(where=where, returns=returns):
+                self.leave_with_a_read_going(where, returns)
 
-    def leave_with_a_read_going(self, where):
-        listings, generation = [], [1]
-        blocked, release, landed = (threading.Event() for _ in range(3))
+    def leave_with_a_read_going(self, where, returns):
+        listings, generation, landed = [], [1], []
+        blocked, release, idle = (threading.Event() for _ in range(3))
         self.addCleanup(release.set)
 
         def listing(**_kw):
@@ -171,6 +173,13 @@ class MenuIdleWhileAttached(Sandbox):
                 blocked.set()
                 release.wait(30)
             return True
+
+        def wait(*args, **kw):
+            if not live.watching.is_set():
+                idle.set()                  # the watcher waits for the owner, its read let go
+            woke = waits(*args, **kw)
+            going("wait")
+            return woke
 
         def recorded():
             going("recorded")
@@ -187,15 +196,16 @@ class MenuIdleWhileAttached(Sandbox):
 
         live = menu.Live(self.cfg)
         self.addCleanup(live.close)
-        stat = live.recorded
+        stat, waits = live.recorded, live.watching.wait
         with patch.object(menu, "STIR", STIR), \
                 patch.object(orch, "listing", side_effect=listing), \
                 patch.object(menu, "run_records", return_value=[]), \
                 patch.object(orch, "file_projectless"), \
                 patch.object(menu, "v5o_groups", side_effect=groups), \
                 patch.object(menu.Live, "look", return_value=True), \
+                patch.object(live.watching, "wait", side_effect=wait), \
                 patch.object(live, "recorded", side_effect=recorded), \
-                patch.object(live, "_wake", side_effect=landed.set):
+                patch.object(live, "_wake", side_effect=lambda: landed.append(live.last[1])):
             live.watch([[], None])
             live.ask()
             self.assertTrue(blocked.wait(30), "the watcher never read")
@@ -203,15 +213,18 @@ class MenuIdleWhileAttached(Sandbox):
             leaving.start()
             leaving.join(10 * STIR)
             self.assertFalse(leaving.is_alive(), "the seat waited on a read going")
-            release.set()
-            self.assertTrue(landed.wait(30), "the read going never ended")
-            moved()
-            self.assertEqual((listings, live.last[1]), ([1, 1], 1),
-                             "the read going landed, or one was made in the seat")
+            left = list(listings)
+            if not returns:
+                release.set()
+                self.assertTrue(idle.wait(30), "the read going never ended")
+                moved()
+                self.assertEqual((listings, live.last[1]), (left, 1),
+                                 "the read going landed, or one was made in the seat")
             generation[0] = 2               # what the owner comes back to
             live.back()
+            release.set()
             until("the read back", lambda: live.last[1] == 2)
-            self.assertEqual(listings, [1, 1, 2])
+            self.assertNotIn("going", landed, "the read going landed")
             live.close()
 
 if __name__ == "__main__":

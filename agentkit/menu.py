@@ -208,6 +208,7 @@ class Live:
         self.watcher, self.done = None, threading.Event()
         self.watching = threading.Event()  # clear while the owner is away
         self.watching.set()
+        self.leaves = 0                  # how often the owner has gone away (`away`)
         self.reading = threading.Lock()  # held while a read lands and its pass is decided (`away`)
         self.seen = None                 # the records the last read was read from, as they stood
         self.looker = None               # the thread of the last pass looking at every seat
@@ -325,20 +326,25 @@ class Live:
         The one place the main screen reads them, and never between a key and its frame: a draw
         is whatever the last read left, so a key that moves the highlight costs a draw and
         nothing more, and one back from another screen, a seat among them, shows the list at
-        once, read again behind it (`back`).  A read that ends while the owner is away is let
-        go: nobody draws it, and it starts no look (`away`).  With `look`
+        once, read again behind it (`back`).  None begins while the owner is away, and one the
+        owner leaves during is let go, back by its end or not: nobody draws it, and it starts no
+        look (`away`).  With `look`
         every seat is looked at as well, behind it (`look`); and without, when one is listed
         that no pass of this menu's has looked at yet: a seat started elsewhere while the menu
         is open is drawn on what there is (`seat_row_state`), a word its bar has never been
         told, and opening it keeps every later look away for as long as its owner stays in it.
         The pass is always over every seat, each under the number it is listed by (`meet`).
         """
+        with self.reading:
+            if not self.watching.is_set():
+                return
+            leaves = self.leaves
         found = orch.listing()
         records = run_records()           # one pass over run.json a read: filing, looking, drawing
         orch.file_projectless(found, [state for _, state in records])
         groups = v5o_groups(self.cfg, found, records, look=False)
         with self.reading:
-            if not self.watching.is_set():
+            if self.leaves != leaves:
                 return
             self.read_from = found, records
             self.meet(look)
@@ -388,6 +394,7 @@ class Live:
         own once that one ends, on what was read with it (`_look`): opened, it gets no other
         look while its owner is in it."""
         with self.reading:
+            self.leaves += 1
             self.watching.clear()
 
     def back(self):
@@ -418,6 +425,8 @@ class Live:
             self.watching.wait()
             if self.done.is_set():
                 return
+            if not self.watching.is_set():
+                continue                 # away since the wait: what it would read, nobody draws
             now = self.recorded()
             if now == self.seen and not self.asked.is_set():
                 continue
