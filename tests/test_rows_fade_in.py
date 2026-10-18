@@ -74,6 +74,33 @@ class FadeIn(Sandbox):
         self.assertTrue(any(faded))
         self.assertTrue(any("acme" in lines[row - 1] for row in rows))
 
+    def test_a_highlight_move_during_a_page_fade_gets_its_full_reveal(self):
+        with patch.object(motion.time, "monotonic", return_value=10.0) as now:
+            _, drawn = self.draw("acme-01", height=14)
+            cursor = drawn["turns"][1]
+            now.return_value = 11.0
+            _, drawn = self.draw(cursor, page=1, height=14)
+            # A page turn still brings up all its rows together, including the detail.
+            for (_, column), (_, until) in self.clock.cells.items():
+                if column == 1:
+                    self.assertAlmostEqual(until, 11.15)
+            cursor = drawn["order"][drawn["order"].index(cursor) + 1]
+            now.return_value = 11.1
+            lines, _ = self.draw(cursor, page=1, height=14)
+            row = next(n for n, line in enumerate(lines, 1) if "astra builds" in line)
+            animation, until = self.clock.cells[row, 1]
+            self.assertAlmostEqual(until, 11.22)
+            self.assertEqual(animation(11.1), terminal.fade(animation(until), 1))
+            for (other, column), (_, end) in self.clock.cells.items():
+                if column == 1 and other != row:
+                    self.assertAlmostEqual(end, 11.15)
+            now.return_value = 11.15
+            self.clock.frame()
+            self.assertEqual([cell for cell in self.clock.cells if cell[1] == 1], [(row, 1)])
+            now.return_value = 11.22
+            self.clock.frame()
+            self.assertNotIn((row, 1), self.clock.cells)
+
 
 if __name__ == "__main__":
     unittest.main()
