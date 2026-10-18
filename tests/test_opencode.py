@@ -37,8 +37,9 @@ STUB = """#!/usr/bin/env bash
 # session export cats $STUB_EXPORT, auth list prints $STUB_AUTH_LIST, `api model.list` cats
 # $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one), `api integration.list`,
 # `api provider.list` and `api config.get` print $STUB_INTEGRATION_LIST, $STUB_PROVIDER_LIST
-# and $STUB_CONFIG_GET.  Every argv lands in $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT
-# in $STUB_ARGV_LOG.content.
+# and $STUB_CONFIG_GET, `api --standalone config.get` $STUB_STANDALONE_CONFIG_GET, else the
+# same.  Every argv lands in $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT in
+# $STUB_ARGV_LOG.content.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
 case "$1 ${2:-}" in
   run*) [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$OPENCODE_CONFIG_CONTENT" >"$STUB_ARGV_LOG.content"
@@ -47,6 +48,7 @@ case "$1 ${2:-}" in
   "api integration.list") printf '%s' "${STUB_INTEGRATION_LIST:-}" ;;
   "api provider.list") printf '%s' "${STUB_PROVIDER_LIST:-}" ;;
   "api config.get") printf '%s' "${STUB_CONFIG_GET:-}" ;;
+  "api --standalone") printf '%s' "${STUB_STANDALONE_CONFIG_GET:-${STUB_CONFIG_GET:-}}" ;;
   session*) cat -- "$STUB_EXPORT" ;;
   auth*) printf '%s' "${STUB_AUTH_LIST:-[]}" ;;
   --version*) echo "opencode v9.9.9-test" ;;
@@ -440,6 +442,12 @@ cat "$dir/bridge-eval"
         # a service that lists no config documents names no provider that needs none
         proc = self.adapter("auth", env={**own, "STUB_CONFIG_GET": "",
                                          "AGENTKIT_PROVIDER": "opencode"})
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        # the service's documents are the ones it started with, a turn's this environment's
+        proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": "opencode",
+                                         "STUB_STANDALONE_CONFIG_GET": json.dumps([{
+                                             "type": "document",
+                                             "info": {"providers": {"opencode": {}}}}])})
         self.assertEqual(proc.returncode, 1, proc.stdout)
         # a saved login answers before the service is asked, which may not answer at all
         proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": "zeta",
