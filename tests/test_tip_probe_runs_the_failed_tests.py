@@ -1,7 +1,8 @@
 """A first stack red on tests its piece named, failing again run alone, has just those tests run
 on the target's tip alone before anyone is blamed: passing there, the same tests alone on both
-trees make the red the member's, in a fraction of the piece's time; failing there, as one the
-member added does, the whole piece decides, as does a red only the whole piece shows.
+trees make the red the member's, in a fraction of the piece's time.  Failing there, as one the
+member added does, they keep a pause going at each step of the ladder, but the whole piece
+decides whether one begins or a repair starts, as it does for a red only the whole piece shows.
 
 Offline: local Git, the fixture's shell suite as a runner that names its failed tests and runs
 only those asked for, fake launches and wakes, a stopped clock.
@@ -46,6 +47,7 @@ class TipProbeRunsTheFailedTests(unittest.TestCase):
     wait = red_tip.RedOnTheTip.wait
     declare = red_tip.RedOnTheTip.declare
     clock = red_tip.RedOnTheTip.clock
+    flag = red_tip.RedOnTheTip.flag
     red = red_tip.RedOnTheTip.red
 
     def probes(self):
@@ -72,7 +74,7 @@ class TipProbeRunsTheFailedTests(unittest.TestCase):
         self.wake.assert_called_once_with(first.name, ANY)
         self.assertIsNone(self.red())
 
-    def test_the_tests_red_on_the_tip_too_leave_the_whole_piece_to_decide(self):
+    def test_the_tests_red_on_the_tip_too_pause_the_line_and_run_again_on_the_ladder(self):
         self.declare(BROKEN)
         first = self.member()
         self.advance(**{"broken.txt": "target breakage\n"})
@@ -81,16 +83,38 @@ class TipProbeRunsTheFailedTests(unittest.TestCase):
         said = []
         self.check_line(said)
         self.assertEqual(self.probes(), [("2/2", ["t_tax"]), ("2/2", None)])
-        self.assertEqual(self.red()["probe"]["piece"], "2/2")
+        self.assertEqual((self.red()["probe"]["piece"], self.red()["probe"]["tests"]),
+                         ("2/2", ["t_tax"]))
         self.assertIn("fails its piece AK_SHARD=2/2 alone: the line waits, nobody is blamed; "
                       "probed again in 1 min", said[-1])
         self.assert_parked({first: before})
         self.wake.assert_not_called()
         held[0] += turns.TRANSIENT_BACKOFF[0]
         self.check_line(said)
-        self.assertEqual(self.probes()[2:], [("2/2", None)])
+        self.assertEqual(self.probes()[2:], [("2/2", ["t_tax"])])
         self.assertEqual(self.red()["probes"], 2)
+        self.assertIn("fails the failed tests of its piece AK_SHARD=2/2 alone", said[-1])
         self.wake.assert_not_called()
+
+    def test_a_red_of_the_tests_alone_starts_no_repair_once_the_whole_piece_passes(self):
+        (self.repo / "t_total").write_text("test ! -f ../flake\n")
+        self.declare(FILES)
+        first = self.member(t_new="exit 1\n")
+        self.advance()
+        flake = self.flag()
+        held = self.clock()
+        self.check_line()           # the host fails the whole piece too: the line pauses
+        self.assertEqual(self.probes(), [("2/2", ["t_new", "t_total"]), ("2/2", None)])
+        flake.unlink()
+        for delay in turns.TRANSIENT_BACKOFF:
+            held[0] += delay
+            self.check_line()
+        # t_new, which the tip lacks, keeps the pause, and the last step's whole piece ends it
+        self.assertEqual(self.probes()[2:], [("2/2", ["t_new", "t_total"])] * 5 + [("2/2", None)])
+        self.assertEqual(self.prepared, [])
+        self.assertIsNone(self.red())
+        self.assertEqual(self.wait(first)["fix"]["tests"], ["t_new"])
+        self.wake.assert_called_once_with(first.name, ANY)
 
     def test_a_failing_test_the_member_added_is_the_members_whatever_the_tip_lacks(self):
         (self.repo / "t_total").write_text("exit 0\n")

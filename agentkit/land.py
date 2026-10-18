@@ -253,36 +253,42 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, reset to the
     target's tip alone, for the member in `directory`: True when it passes there, so the red is
     the member's own, and the piece joins `green`, the pieces the tip passed on this pass.  Where
-    the stack's red was its `tests` failing again alone, those run there alone first: passing,
-    the same tests alone on both trees clear the member's red; failing, the whole piece decides,
-    as the member may have added them or they may need the tests before them.  Red there is the
-    target's: the entry under `tree` counts the probe and holds the line (`paused`) until the
-    retry ladder's next step, and red through the whole ladder starts the target's one repair
-    (`_repair`)."""
+    the stack's red was its `tests` failing again alone, those run there alone first, and each
+    later step of the ladder runs them again.  Red there is the target's: the entry under `tree`
+    counts the probe and holds the line (`paused`) until the retry ladder's next step, and red
+    through the whole ladder starts the target's one repair (`_repair`)."""
     from . import run
-    run.git(scratch, "reset", "--hard", tip)
-    run.git(scratch, "clean", "-fdx")
-    ok, probe, _, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log",
-                             log, shard=piece or None, only=tests)
-    if not ok and tests:
-        return _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log,
-                          green)
+    held = _trees(turn, "red")[1].get(tree) or {}
+    probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
+    only = tests
+    while True:
+        run.git(scratch, "reset", "--hard", tip)
+        run.git(scratch, "clean", "-fdx")
+        ok, probe, _, _ = _check(directory, state, scratch, [suite],
+                                 directory / "target-probe.log", log, shard=piece or None,
+                                 only=only)
+        # Passing, the same tests alone on both trees clear the member's red.  Failing, they
+        # only keep a pause going: the member may have added them, or they may need the tests
+        # before them, so the whole piece decides whether a pause begins or a repair starts.
+        if ok or not only or 1 < probes <= len(turns.TRANSIENT_BACKOFF):
+            break
+        only = None
     if ok:
-        if not tests:   # green on just its tests says nothing of the rest of the piece
+        if not only:    # green on just its tests says nothing of the rest of the piece
             green.add(piece)
         # the pass is the piece's, or its tests', named so it covers no stack's own checks
-        label = f"AK_SHARD={piece}, its failed tests alone" if tests else f"AK_SHARD={piece}"
+        label = f"AK_SHARD={piece}, its failed tests alone" if only else f"AK_SHARD={piece}"
         note(turn, [tree], directory.name, checks=[f"{suite} ({label})" if piece else suite],
              red={tree: None})
         return True
-    held = _trees(turn, "red")[1].get(tree) or {}
-    probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
-    red = {"probe": {"command": suite, "piece": piece, "check": f"{suite}  # once", "sha": tip,
+    red = {"probe": {"command": suite, "piece": piece, **({"tests": tests} if tests else {}),
+                     "check": f"{suite}  # once", "sha": tip,
                      "text": prompts.red_target_text(suite, upstream, tip, probe, directory,
                                                      piece=piece)},
            "at": time.time(), "probes": probes}
     note(turn, [], directory.name, red={tree: red})
-    what = f"its piece AK_SHARD={piece}" if piece else "its suite"
+    what = (f"the failed tests of its piece AK_SHARD={piece}" if only else
+            f"its piece AK_SHARD={piece}" if piece else "its suite")
     if probes > len(turns.TRANSIENT_BACKOFF):
         log(f"{upstream} at {tip[:12]} fails {what} alone through the retry ladder: the "
             "target's own red, repaired")
@@ -374,7 +380,7 @@ def check_line(turn, log=lambda _: None):
                         return
                     if not _probe_tip(turn, directory, state, scratch, tip, upstream, target_tree,
                                       red["probe"]["command"], red["probe"].get("piece") or "",
-                                      log, tip_green):
+                                      log, tip_green, red["probe"].get("tests")):
                         return
                 red = None
             # a PR waits on no repair: its own tree is checked, and lands if it mends the target
