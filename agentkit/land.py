@@ -272,7 +272,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                 f"piece AK_SHARD={piece}, run alone: the red is the member's own")
             return True
         _put_back(scratch, tip)
-    ok, probe, whole, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
+    ok, probe, whole, _ = _check(directory, state, scratch, [suite], path, log, suite=suite,
+                                 shard=piece or None)
     again = again if whole else None     # a whole piece killed at its limit repeats nothing
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
