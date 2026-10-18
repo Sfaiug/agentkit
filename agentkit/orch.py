@@ -1532,8 +1532,8 @@ def listing(reconcile=True):
 
     `reconcile=False` is the reading one: deciding what a seat is may not rewrite its record
     on the way, so it takes the records exactly as they stand and infers no project for an old
-    one.  The names and their order are the same either way, which is what keeps a seat's
-    number the same on every screen.
+    one.  The names and their order (`numbered`) are the same either way, which is what keeps a
+    seat's number the same on every screen.
     """
     found = sessions()
     kept = records() if reconcile else config.session_records()
@@ -1565,7 +1565,33 @@ def listing(reconcile=True):
                 {name: record.get("repo") for name, record in kept.items()})
     for session in found:
         session["repo"] = projects.get(session["name"])
-    return sorted(found, key=lambda s: s["name"])
+    return numbered(found, kept)
+
+
+def numbered(found, kept):
+    """`found` in the order its numbers go, 1 first: the seats the owner has not stopped as the
+    menu lists them -- each project at its oldest seat, and under it its seats in the order they
+    were made -- then the stopped ones, oldest first, for the past screen.  A seat keeps its
+    place whatever its word, so its number is its place on the screen, and one made or stopped
+    moves only the ones after it.  When a seat was made is its record's, from its first launch
+    (`kept`): tmux's own is when its instance last started."""
+    made = {s["name"]: (kept.get(s["name"]) or {}).get("created") or s.get("created") or 0
+            for s in found}
+    homes = {}
+
+    def home(session):            # the project's checkout, as the menu files the seat under it
+        repo = session.get("repo")
+        if repo not in homes:
+            checkout = checkout_of(repo)
+            homes[repo] = str(checkout) if checkout else ""
+        return homes[repo]
+    live = [s for s in found if not s.get("closed")]
+    oldest = {}
+    for session in live:
+        oldest[home(session)] = min(oldest.get(home(session), math.inf), made[session["name"]])
+    live.sort(key=lambda s: (oldest[home(s)], home(s), made[s["name"]], s["name"]))
+    past = sorted((s for s in found if s.get("closed")), key=lambda s: (made[s["name"]], s["name"]))
+    return live + past
 
 
 def checkouts():

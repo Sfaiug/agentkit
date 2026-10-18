@@ -531,11 +531,11 @@ class Phone(Sandbox):
             self.addCleanup(subprocess.run, ["tmux", "-L", SOCKET, "kill-server"],
                             env={**self.env, "TMUX_TMPDIR": str(directory)}, capture_output=True)
 
-    def seat(self, name, orchestrator="astra"):
+    def seat(self, name, orchestrator="astra", made=None):
         """A seat on the seats server the way `ak orch` starts one, holding a stand-in that asks
-        the owner something."""
+        the owner something; first launched at `made`, or now."""
         config.save_session(self.cfg, name, orchestrator, ["opus"],
-                            {"cwd": str(self.home), "created": time.time()})
+                            {"cwd": str(self.home), "created": made or time.time()})
         orch.start(name, self.home, ["sh", "-c", f"echo {shlex.quote(STAND_IN)}; exec sleep 600"],
                    orchestrator)
         notify.record(name, "needs", ASKED)
@@ -716,12 +716,12 @@ class Phone(Sandbox):
         phone.until("new-2  ", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
-        phone.menu("1  new-2", "2  phone-au")
-        phone.press("2")
+        phone.menu("1  phone-au", "2  new-2")     # in the order they were made
+        phone.press("1")
         phone.until("   phone-a", absent=["esc leave"])   # its bar: line one cut on a phone
         phone.settled()
-        phone.menu("1  new-2")
-        phone.press("1")
+        phone.menu("2  new-2")
+        phone.press("2")
         phone.until("new-2  ", absent=["esc leave"])
         phone.settled()
         phone.menu()
@@ -729,29 +729,30 @@ class Phone(Sandbox):
         phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
         # the session is gone, so the attach is over: the menu is back, no box, the stopped seat
-        # off its project and on the past screen with its number, where `x` takes it off at once
-        screen = phone.until("2  phone-audit", "p past", absent=["│", "new-2"],
+        # off its project and on the past screen, numbered after every seat with a row, where
+        # `x` takes it off at once
+        screen = phone.until("1  phone-audit", "p past", absent=["│", "new-2"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
         self.assertFalse(self.has_seat("new-2"))
-        self.assertEqual(self.marked(screen), 2)
-        phone.press("p")
-        screen = phone.until("past sessions", "1  new-2", "x remove", prompt="esc back")
-        self.fits(screen, width, height)
         self.assertEqual(self.marked(screen), 1)
+        phone.press("p")
+        screen = phone.until("past sessions", "2  new-2", "x remove", prompt="esc back")
+        self.fits(screen, width, height)
+        self.assertEqual(self.marked(screen), 2)
         phone.press("x")
         screen = phone.until("1  phone-audit", "esc leave", absent=["new-2", "p past"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
-        self.assertNotIn("2  phone-audit", "\n".join(screen))
         phone.settled()
-        # eleven more seats, one named at the cap. A laptop holds all twelve on one
-        # page, the reason beside the word; a phone puts each reason on its own line,
+        # eleven more seats, one named at the cap: ten first launched before phone-audit, as
+        # seats reopened from their records are, and one after. A laptop holds all twelve on
+        # one page, the reason beside the word; a phone puts each reason on its own line,
         # so the same twelve page. The capped name is cut, never wrapped. The highlight stays
         # on phone-audit, now eleventh, and the page up is the one it is on.
         notify.record("phone-audit", "needs", ASKED)
         for n in range(2, 12):
-            self.seat(f"audit-seat-{n:02d}")
+            self.seat(f"audit-seat-{n:02d}", made=time.time() - 3600 + n)
         self.seat(LONG_NAME)
         phone.keys("F5")                     # a key that does nothing: a draw, and no more
         if narrow:
@@ -804,7 +805,7 @@ class Phone(Sandbox):
             self.assertEqual(self.numbers(screen), set(range(1, 13)))
             self.assertNotIn("j more", "\n".join(screen))
         # the popup over a seat holds fewer rows still, and pages them the same way
-        phone.press("11")                    # phone-audit, eleventh by name
+        phone.press("11")                    # phone-audit, made after the ten
         phone.until(STAND_IN, "   phone-a")
         screen = phone.menu("esc leave", "←  1 / ")
         self.every_page(phone, screen, self.popup_page, 12, 8)

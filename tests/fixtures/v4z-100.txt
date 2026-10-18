@@ -6,9 +6,9 @@ agentkit                                                                        
 
 
 ATOLL
+  1  atoll-fix   fable  ● working
   2  atoll-plan  fable  ! needs you
      waiting for you
-  1  atoll-fix   fable  ● working
 
 agentkit
   3  menu        fable  ○ idle

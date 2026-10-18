@@ -1,4 +1,4 @@
-"""The menu is projects, their sessions by state, and five keys; offline.
+"""The menu is projects, their sessions in the order they were made, and five keys; offline.
 
 Fake checkouts, seats, run records and plan files, the real renderer. Nothing
 touches a harness, tmux or the owner's own ~/.agentkit.
@@ -70,26 +70,26 @@ class MenuRows(Sandbox):
             pagination = menu.draw(self.cfg, self.seats, keys, page)
         return out.getvalue(), pagination
 
-    def test_sort_order_by_state_within_a_project(self):
+    def test_seats_keep_their_place_whatever_their_word(self):
         self.seat("apple-working", "atoll", live="working")
         self.seat("middle-done", "atoll")
         notify.record("middle-done", "done", "hero swapped and published")
         self.seat("zebra-needs", "atoll")
         notify.record("zebra-needs", "needs", "Merge the MOV helper before or after?")
         screen, _ = self.draw(100, 30)
-        self.assertLess(screen.index("zebra-needs"), screen.index("apple-working"))
         self.assertLess(screen.index("apple-working"), screen.index("middle-done"))
-        # Numbers stay global by name order in `found`, not display order.
-        self.assertRegex(screen, r"3\s+zebra-needs\s+fable\s+! needs you")
+        self.assertLess(screen.index("middle-done"), screen.index("zebra-needs"))
+        # A seat's number is its place on the screen, in `found`'s order (`orch.numbered`).
         self.assertRegex(screen, r"1\s+apple-working\s+fable\s+● working")
         self.assertRegex(screen, r"2\s+middle-done\s+fable\s+✓ done")
+        self.assertRegex(screen, r"3\s+zebra-needs\s+fable\s+! needs you")
 
-    def test_projects_with_needs_you_first(self):
+    def test_projects_in_the_order_of_their_first_seat(self):
         self.seat("atoll-work", "atoll", live="working")
         self.seat("agentkit-need", "agentkit")
         notify.record("agentkit-need", "needs", "Which schema?")
         screen, _ = self.draw(100, 30)
-        self.assertLess(screen.index("\nagentkit\n"), screen.index("\natoll\n"))
+        self.assertLess(screen.index("\natoll\n"), screen.index("\nagentkit\n"))
         # Headings are the basename in bold, no counts, no state words.
         self.assertNotIn("seats", screen)
         self.assertEqual(screen.count("needs you"), 1)

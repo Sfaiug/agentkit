@@ -179,7 +179,7 @@ class Projects(Sandbox):
         self.assertNotIn("no reading yet", folded)
         self.assertIn("Claude 21% · MiMo — · Muse 50%", folded)
         self.assertNotIn("↳", folded)
-        self.assertIn("atoll-plan", folded)
+        self.assertIn("atoll-fix", folded)
         self.assertEqual(pages[0], 0)
         collapsed, pages = self.draw(40, 12)
         # Short phones page the seats; headers stay.
