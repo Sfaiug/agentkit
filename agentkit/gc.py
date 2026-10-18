@@ -870,6 +870,7 @@ def gc(report, automatic=False):
                 config._write_json(stamp, {"started_at": time.time()})
                 forget_failed_units(report)
                 stop_test_units(report)
+            jobs.forget_owner_words(report)
             tmp_inventory = None
             for item in gc_candidates():
                 path = Path(item["path"])

@@ -71,8 +71,8 @@
   that has logind stop a login ended a day ago that still runs something, on the server.
 - `task.py`: front matter, done-when groups, size counts and round refusals; for
   run and job.
-- `job.py`: task files as jobs: `job.json` (capped `owner_words` since the seat's last
-  launch), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
+- `job.py`: task files as jobs: `job.json` (no owner's words; each gc pass removes saved
+  ones), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
   Calls `run.*`; for run, gc, watch, menu.
 - `watch.py`: tick passes (`local_passes`), watch.json, seat state, errors, recovery,
   typing receipts, PR scans, after-merge checks, `health:` probes and the weekly audit
