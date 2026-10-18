@@ -206,9 +206,9 @@ class Live:
         os.set_blocking(self.reader, False)
         os.set_blocking(self.writer, False)
         self.watcher, self.done = None, threading.Event()
-        self.watching = threading.Event()  # clear until `watch`, and while the owner is away
-        self.leaves = 0                  # how often the owner has gone away (`away`)
-        self.reading = threading.RLock()   # held for a read and its pass decided (`away`)
+        self.watching = threading.Event()  # clear while the owner is away
+        self.watching.set()
+        self.reading = threading.Lock()  # held while a read lands and its pass is decided (`away`)
         self.seen = None                 # the records the last read was read from, as they stood
         self.looker = None               # the thread of the last pass looking at every seat
         self.passing = threading.Lock()  # held while a pass is going
@@ -333,13 +333,12 @@ class Live:
         told, and opening it keeps every later look away for as long as its owner stays in it.
         The pass is always over every seat, each under the number it is listed by (`meet`).
         """
+        found = orch.listing()
+        records = run_records()           # one pass over run.json a read: filing, looking, drawing
+        orch.file_projectless(found, [state for _, state in records])
+        groups = v5o_groups(self.cfg, found, records, look=False)
         with self.reading:
-            leaves = self.leaves
-            found = orch.listing()
-            records = run_records()       # one pass over run.json a read: filing, looking, drawing
-            orch.file_projectless(found, [state for _, state in records])
-            groups = v5o_groups(self.cfg, found, records, look=False)
-            if self.leaves != leaves:
+            if not self.watching.is_set():
                 return
             self.read_from = found, records
             self.meet(look)
@@ -376,7 +375,6 @@ class Live:
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
         self.last, self.seen = last, self.recorded()
-        self.watching.set()
         self.read(look=True)
         if self.watcher is None:
             self.watcher = threading.Thread(target=self._watch, daemon=True)
@@ -385,11 +383,12 @@ class Live:
     def away(self):
         """The owner is going into a seat, or to the screen that opens one: nothing draws a read
         until the menu is back, so the watcher makes none, nor a `stat`, until `back`, and a
-        read going as the owner leaves is let go when it ends (`read`); the seat opens at once.
-        A seat listed while a pass was going still gets its own once that one ends, on what was
-        read with it (`_look`): opened, it gets no other look while its owner is in it."""
-        self.leaves += 1
-        self.watching.clear()
+        read going as the owner leaves is let go when it ends (`read`); the seat opens at once,
+        waiting at most on a read landing.  A seat listed while a pass was going still gets its
+        own once that one ends, on what was read with it (`_look`): opened, it gets no other
+        look while its owner is in it."""
+        with self.reading:
+            self.watching.clear()
 
     def back(self):
         """The owner is back: the menu draws what the last read left at once, and the watcher
@@ -417,23 +416,20 @@ class Live:
         while True:
             self.asked.wait(STIR)
             self.watching.wait()
-            with self.reading:
-                if self.done.is_set():
-                    return
-                if not self.watching.is_set():
-                    continue             # away since the wait: what it would read, nobody draws
-                now = self.recorded()
-                if now == self.seen and not self.asked.is_set():
-                    continue
-                self.asked.clear()
-                look = self.looking
-                if look:
-                    self.looking = False     # a look asked for since is this one: it starts after
-                self.seen = now
-                try:
-                    self.read(look)
-                except (config.Error, OSError, ValueError, TypeError, KeyError):
-                    pass    # what cannot be read now stays drawn as it was last read
+            if self.done.is_set():
+                return
+            now = self.recorded()
+            if now == self.seen and not self.asked.is_set():
+                continue
+            self.asked.clear()
+            look = self.looking
+            if look:
+                self.looking = False     # a look asked for since is this one: it starts after
+            self.seen = now
+            try:
+                self.read(look)
+            except (config.Error, OSError, ValueError, TypeError, KeyError):
+                pass    # what cannot be read now stays drawn as it was last read
             self._wake()
 
     def _wake(self):

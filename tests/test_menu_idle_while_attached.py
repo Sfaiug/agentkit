@@ -148,22 +148,36 @@ class MenuIdleWhileAttached(Sandbox):
             live.close()
 
     def test_a_read_going_as_the_owner_leaves_holds_up_no_seat_and_lands_nowhere(self):
-        """The seat opens at once, the read is let go when it ends, and the one back is read
-        behind the draw."""
+        """The seat opens at once, whether the watcher is at its `stat` or its read, the read is
+        let go when it ends, and the one back is read behind the draw."""
+        for where in ("recorded", "v5o_groups"):
+            with self.subTest(where=where):
+                self.leave_with_a_read_going(where)
+
+    def leave_with_a_read_going(self, where):
         listings, generation = [], [1]
-        blocked, release = threading.Event(), threading.Event()
+        blocked, release, landed = (threading.Event() for _ in range(3))
         self.addCleanup(release.set)
 
         def listing(**_kw):
             listings.append(generation[0])
             return [{"name": SEAT}]
 
-        def groups(*_args, **_kw):
-            if threading.current_thread() is live.watcher and not blocked.is_set():
+        def going(at):
+            """True in the watcher's read going as the owner leaves, held at `where` first."""
+            if threading.current_thread() is not live.watcher or generation[0] != 1:
+                return False
+            if at == where and not blocked.is_set():
                 blocked.set()
-                release.wait(30)            # the watcher's read, going as the owner leaves
-                return "going"
-            return generation[0]
+                release.wait(30)
+            return True
+
+        def recorded():
+            going("recorded")
+            return stat()
+
+        def groups(*_args, **_kw):
+            return "going" if going("v5o_groups") else generation[0]
 
         def until(what, done):
             deadline = time.monotonic() + 30
@@ -173,12 +187,15 @@ class MenuIdleWhileAttached(Sandbox):
 
         live = menu.Live(self.cfg)
         self.addCleanup(live.close)
+        stat = live.recorded
         with patch.object(menu, "STIR", STIR), \
                 patch.object(orch, "listing", side_effect=listing), \
                 patch.object(menu, "run_records", return_value=[]), \
                 patch.object(orch, "file_projectless"), \
                 patch.object(menu, "v5o_groups", side_effect=groups), \
-                patch.object(menu.Live, "look", return_value=True):
+                patch.object(menu.Live, "look", return_value=True), \
+                patch.object(live, "recorded", side_effect=recorded), \
+                patch.object(live, "_wake", side_effect=landed.set):
             live.watch([[], None])
             live.ask()
             self.assertTrue(blocked.wait(30), "the watcher never read")
@@ -187,8 +204,7 @@ class MenuIdleWhileAttached(Sandbox):
             leaving.join(10 * STIR)
             self.assertFalse(leaving.is_alive(), "the seat waited on a read going")
             release.set()
-            self.assertTrue(live.reading.acquire(timeout=30), "the read going never ended")
-            live.reading.release()
+            self.assertTrue(landed.wait(30), "the read going never ended")
             moved()
             self.assertEqual((listings, live.last[1]), ([1, 1], 1),
                              "the read going landed, or one was made in the seat")
@@ -197,7 +213,6 @@ class MenuIdleWhileAttached(Sandbox):
             until("the read back", lambda: live.last[1] == 2)
             self.assertEqual(listings, [1, 1, 2])
             live.close()
-
 
 if __name__ == "__main__":
     unittest.main()
