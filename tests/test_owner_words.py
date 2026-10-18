@@ -1,4 +1,5 @@
-"""Jobs keep original owner input; every transcript and seat here lives in a temporary HOME."""
+"""Each harness reads the owner's own prompts from a seat's record, which the scoreboard and the
+done notice time from; every transcript and seat here lives in a temporary HOME."""
 
 from contextlib import ExitStack
 from datetime import datetime, timezone
@@ -12,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, job, notify, orch, watch
+from agentkit import config, harness, notify, orch, watch
 from agentkit.harness import claude, codex, grokbuild
 
 
@@ -72,9 +73,6 @@ class OwnerWords(unittest.TestCase):
         self.path = claude.transcript_path(self.record(), "thread")
         self.path.parent.mkdir(parents=True)
         self.path.touch()
-        self.task = self.root / "fix-api.md"
-        self.task.write_text("---\nrepo: none\n---\n# Fix API\n\n## Done when\n```bash\n"
-                             "python3 -c 'assert True'\n```\n")
 
     def record(self):
         return config.session_records()[config.current_session()]
@@ -89,11 +87,6 @@ class OwnerWords(unittest.TestCase):
         plugin = orch.seat_plugin(record)
         return plugin.user_messages(record, record["cwd"], plugin.conversation(record),
                                     seat=config.current_session())
-
-    def launch(self):
-        directory, receipt = job.job_create(self.cfg, [str(self.task)], {"--anyway": True}, None)
-        self.assertEqual(job.read_job(directory), receipt)
-        return directory, receipt
 
     def type(self, text, **kwargs):
         with patch.object(orch, "tmux_out", return_value=(0, "")):
@@ -136,11 +129,10 @@ class OwnerWords(unittest.TestCase):
             {"at": 42, "text": "Please explain [Request interrupted by user]."},
             {"at": 43, "text": "Show <local-command-stdout> in the help."}]
         self.assertEqual(self.messages(), expected)
-        self.assertEqual(self.launch()[1]["owner_words"], expected)
 
     def test_claude_queued_owner_prompts_and_ak_receipts_survive_mid_turn(self):
         self.append(prompt(20, "Build the API."), queued_prompt(30, "Keep the old route names."))
-        self.assertEqual(self.launch()[1]["owner_words"], [
+        self.assertEqual(self.messages(), [
             {"at": 20, "text": "Build the API."}, {"at": 30, "text": "Keep the old route names."}])
         self.assertTrue(self.type("continue"))
         self.append(queued_prompt(100, "continue"),
@@ -148,7 +140,7 @@ class OwnerWords(unittest.TestCase):
                     queued_prompt(103, "tool finished", origin="task-notification"),
                     queued_prompt(104, "agent message", origin="agent"),
                     queued_prompt(105, "/compact", mode="command"))
-        self.assertEqual(self.launch()[1]["owner_words"], [
+        self.assertEqual(self.messages()[2:], [
             {"at": 101, "text": "Use the old schema."}, {"at": 102, "text": "continue"}])
 
     def test_codex_uses_submission_events_once_without_user_role_injections(self):
@@ -182,7 +174,6 @@ class OwnerWords(unittest.TestCase):
         self.append(codex_prompt(100, "continue"), codex_prompt(101, "continue"), path=path)
         expected = [{"at": 30, "text": "Use the API.\nExact words."}, {"at": 101, "text": "continue"}]
         self.assertEqual(self.messages(), expected)
-        self.assertEqual(self.launch()[1]["owner_words"], expected)
 
     def test_grok_durable_chunks_keep_prompts_and_owner_interjections(self):
         config.update_session("lagoon", orchestrator="grok")
@@ -255,88 +246,6 @@ class OwnerWords(unittest.TestCase):
             self.assertTrue(watch.type_at_prompt(self.seat, "Owner reply", lambda _: None, source="owner"))
             self.append(prompt(102, "Owner reply"))
         self.assertEqual(self.messages(), [{"at": 102, "text": "Owner reply"}])
-
-    def test_jobs_save_first_conversation_then_only_new_owner_words(self):
-        self.append(prompt(20, "Build the API."), prompt(30, "Keep the names."))
-        directory, first = self.launch()
-        self.assertEqual(first["owner_words"], self.messages())
-        self.assertEqual(first["tasks"][0]["run_id"], None)
-        self.assertTrue(self.type("continue"))
-        self.append(prompt(100, "continue"), prompt(100, "Use this name."))
-        # No process memory or retained job receipt is needed for the launch boundary.
-        job.receipt_path(directory).unlink()
-        _, second = self.launch()
-        self.assertEqual(second["owner_words"], [{"at": 100, "text": "Use this name."}])
-        _, third = self.launch()
-        self.assertEqual(third["owner_words"], [])
-
-    def test_rename_moves_the_receipts_and_the_job_cursor(self):
-        self.append(prompt(20, "Build the API."))
-        self.type("ak notice")
-        self.append(prompt(30, "ak notice"))
-        self.launch()
-        config.rename_session("lagoon", "quay")
-        self.seat["name"] = "quay"
-        self.append(prompt(40, "Next words."))
-        _, receipt = self.launch()
-        self.assertEqual(receipt["seat"], "quay")
-        self.assertEqual(receipt["owner_words"], [{"at": 40, "text": "Next words."}])
-        self.assertFalse(config.seat_file("input", "lagoon").exists())
-
-    def test_conversation_change_uses_the_previous_launch_time(self):
-        self.append(prompt(20, "Old request."))
-        self.type("continue")
-        self.append(prompt(30, "continue"))
-        self.launch()
-        config.update_session("lagoon", conversation="new-thread")
-        self.path = self.path.with_name("new-thread.jsonl")
-        self.path.touch()
-        self.append(prompt(80, "Old context."), prompt(101, "continue"))
-        _, receipt = self.launch()
-        self.assertEqual(receipt["owner_words"], [{"at": 101, "text": "continue"}])
-
-    def test_byte_cap_keeps_newest_unicode_words_and_exact_suffix(self):
-        self.append(prompt(20, "old" * job.OWNER_WORDS_BYTES),
-                    prompt(30, "雪\n\"" * job.OWNER_WORDS_BYTES), prompt(40, "Newest words."))
-        _, receipt = self.launch()
-        words = receipt["owner_words"]
-        self.assertLessEqual(len(json.dumps(words, ensure_ascii=False).encode("utf-8")), job.OWNER_WORDS_BYTES)
-        self.assertEqual(words[-1], {"at": 40, "text": "Newest words."})
-        self.assertEqual(words[0]["at"], 30)
-        self.assertTrue(("雪\n\"" * job.OWNER_WORDS_BYTES).endswith(words[0]["text"]))
-        self.assertGreater(len(words[0]["text"]), 0)
-        # Discarded older words never leak into the following job.
-        self.assertEqual(self.launch()[1]["owner_words"], [])
-
-    def test_no_seat_and_unsupported_seats_have_empty_owner_words(self):
-        with patch.dict(os.environ, {"AGENTKIT_SESSION": ""}):
-            self.assertEqual(self.launch()[1]["owner_words"], [])
-        config.update_session("lagoon", orchestrator="mimo")
-        self.assertEqual(self.launch()[1]["owner_words"], [])
-
-    def test_failed_job_write_does_not_consume_owner_words(self):
-        self.append(prompt(20, "Build the API."))
-        with patch.object(job, "save_job", side_effect=OSError("fake write failure")):
-            with self.assertRaises(OSError):
-                self.launch()
-        self.assertNotIn("owner_words_cursor", self.record())
-        self.assertEqual(self.launch()[1]["owner_words"], [{"at": 20, "text": "Build the API."}])
-
-    def test_receipt_recovers_a_cursor_not_yet_saved_on_the_seat(self):
-        self.append(prompt(20, "First words."))
-        self.launch()
-        config.update_session("lagoon", owner_words_cursor=None)
-        self.append(prompt(100, "New words in the same second."))
-        self.assertEqual(self.launch()[1]["owner_words"], [
-            {"at": 100, "text": "New words in the same second."}])
-
-    def test_pre_upgrade_job_is_the_previous_launch_even_after_a_rename(self):
-        directory = config.JOBS / "previous-job"
-        directory.mkdir(parents=True)
-        job.save_job(directory, {"seat": "lagoon", "started_at": 25})
-        config.rename_session("lagoon", "quay")
-        self.append(prompt(20, "Previous request."), prompt(30, "New request."))
-        self.assertEqual(self.launch()[1]["owner_words"], [{"at": 30, "text": "New request."}])
 
 
 if __name__ == "__main__":
