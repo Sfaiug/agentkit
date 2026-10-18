@@ -1535,12 +1535,12 @@ def listing(reconcile=True):
     one.  The names and their order (`numbered`) are the same either way, which is what keeps a
     seat's number the same on every screen.
     """
-    found = sessions()
-    kept = records() if reconcile else config.session_records()
+    found, cfg = sessions(), loaded()
+    kept = records(cfg=cfg) if reconcile else config.session_records()
     names = {s["name"] for s in found}
     for session in found:
         record = kept.get(session["name"], {})
-        plugin = seat_plugin(record)
+        plugin = seat_plugin(record, cfg=cfg)
         if session.get("exited") and plugin.always_offered:
             session["resumable"] = bool(plugin.conversation(record, record.get("cwd")))
             if not session["resumable"]:
@@ -1551,8 +1551,8 @@ def listing(reconcile=True):
     for name, record in kept.items():
         if name in names:
             continue
-        plugin = seat_plugin(record)
-        owned = resumable(record)
+        plugin = seat_plugin(record, cfg=cfg)
+        owned = resumable(record, cfg=cfg)
         row = ghost(name, record)
         if owned or row["closed"] or plugin.always_offered or unread_question(name):
             row["resumable"] = owned
@@ -1577,12 +1577,12 @@ def numbered(found, kept):
     its first launch (`kept`): tmux's own is when its instance last started."""
     made = {s["name"]: (kept.get(s["name"]) or {}).get("created") or s.get("created") or 0
             for s in found}
-    homes = {}
+    homes, stands = {}, listed() if found else {}
 
     def home(session):            # the project the menu files the seat under, by its heading
         repo = session.get("repo")
         if repo not in homes:
-            checkout = checkout_of(repo)
+            checkout = checkout_of(repo, stands=stands)
             homes[repo] = project_name(checkout), str(checkout or "")
         return homes[repo]
     live = sorted((s for s in found if not s.get("closed")),
@@ -1591,12 +1591,14 @@ def numbered(found, kept):
     return live + past
 
 
-def checkouts():
+def checkouts(stands=None):
     """Named checkouts directly under ~/code, including git worktrees (.git is a file), and
     agentkit's own checkout ~/agentkit, which lives beside ~/code rather than in it. A
     worktree added from another of them is not listed: `checkout_of` files it under that
-    one, and a second clone at ~/code/agentkit under agentkit's own."""
-    return sorted(set(listed().values()), key=lambda path: path.name)
+    one, and a second clone at ~/code/agentkit under agentkit's own.  `stands` is what
+    `listed` answered for the read asking."""
+    return sorted(set((listed() if stands is None else stands).values()),
+                  key=lambda path: path.name)
 
 
 def listed():
@@ -1664,7 +1666,7 @@ def git_dirs(path):
     return common, gitdir != common
 
 
-def checkout_of(repo):
+def checkout_of(repo, stands=None):
     """The checkout a repo path *is*, or None when it is none of them.
 
     A project is a named checkout under `~/code` or agentkit's own, so only a repo
@@ -1673,6 +1675,8 @@ def checkout_of(repo):
     from one of them is that one, wherever it lies.
     A path under ~/code named like agentkit's own is agentkit's own: a second clone of a
     project is that project, never another heading with the same name.
+    `stands` is what `listed` answered for a read filing many repos, so that read looks at
+    ~/code once: each look asks git about every worktree there.
     """
     if not repo:
         return None
@@ -1680,7 +1684,7 @@ def checkout_of(repo):
         path = Path(repo).resolve()
     except (OSError, ValueError):
         return None
-    found = listed()
+    found = listed() if stands is None else stands
     for checkout, project in found.items():
         try:
             if checkout.resolve() == path:
@@ -2294,31 +2298,41 @@ def opened(harness, cwd, conversation):
     return harness_plugin(harness).opened(cwd, conversation)
 
 
-def seat_harness(record):
+def seat_harness(record, cfg=None):
     try:
-        return config.model(config.load(), record.get("orchestrator"))["harness"]
+        return config.model(cfg or config.load(), record.get("orchestrator"))["harness"]
     except config.Error:
         return None
 
 
-def seat_plugin(record):
-    """The harness plugin behind that seat: every hook, defaulted where it declares none."""
-    return harness_plugin(seat_harness(record))
+def seat_plugin(record, cfg=None):
+    """The harness plugin behind that seat: every hook, defaulted where it declares none.
+    `cfg` spares a caller going over every seat a read of the config for each."""
+    return harness_plugin(seat_harness(record, cfg=cfg))
 
 
-def records():
+def loaded():
+    """The config, or None where it does not read, for a pass over every seat to read once:
+    each seat's harness is then what a read of its own would have found."""
+    try:
+        return config.load()
+    except config.Error:
+        return None
+
+
+def records(cfg=None):
     """Let each harness reconcile its own evidence before anything claims a seat is resumable."""
     kept = config.session_records()
     for name, record in kept.items():
-        fields = seat_plugin(record).reconcile(record)
+        fields = seat_plugin(record, cfg=cfg).reconcile(record)
         if fields:
             kept[name] = config.update_session(name, **fields) or record
     return kept
 
 
-def resumable(record):
+def resumable(record, cfg=None):
     """A conversation its harness owns: a launcher-issued id, or evidence of its own."""
-    plugin = seat_plugin(record)
+    plugin = seat_plugin(record, cfg=cfg)
     cwd = record.get("cwd")
     return bool(plugin.resumable(record, cwd, plugin.conversation(record, cwd)))
 

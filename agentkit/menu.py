@@ -1130,14 +1130,14 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
                                    at, index, None, look, mine))
     # Grouped by the checkout the seat's repo is, so a project can never be listed
     # twice and a run can never make one.
-    groups = {}
+    groups, stands = {}, orch.listed()       # ~/code looked at once a read
     for info in infos:
-        checkout = orch.checkout_of(info["repo"])
+        checkout = orch.checkout_of(info["repo"], stands=stands)
         project = groups.setdefault(str(checkout) if checkout else None,
                                     {"name": orch.project_name(checkout), "seats": [],
                                      "checkout": checkout})
         project["seats"].append(info)
-    for checkout in orch.checkouts():     # a project with no seat shown has no heading
+    for checkout in orch.checkouts(stands=stands):     # a project with no seat shown has no heading
         if str(checkout) in groups and switches_command(checkout):
             groups[str(checkout)]["switches"] = switches(checkout) or []
     for project in groups.values():

@@ -39,8 +39,8 @@ from agentkit import config, menu, orch
 SEATS = json.loads(Path(os.environ["CLOSE_SEATS"]).read_text())
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": "/code/acme", "path": "/", "created": 0} for name in SEATS]
-orch.checkout_of = lambda repo: Path(repo) if repo else None
-orch.checkouts = lambda: []
+orch.checkout_of = lambda repo, **_kw: Path(repo) if repo else None
+orch.checkouts = lambda **_kw: []
 orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {
     "word": SEATS[session["name"]], "reason": "", "since": None}
