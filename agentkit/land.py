@@ -248,17 +248,28 @@ def _scratch(repo, commit, opened):
     return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {commit} failed\n{out}")
 
 
-def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log,
+def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log, green,
                tests=None):
-    """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
-    alone, for the member in `directory` -- just its `tests` where the stack's red was those
-    failing again alone, the same tests alone on both trees: True when it passes there, so the
-    red is the member's own.  Red there is the target's: the entry under `tree` counts the
-    probe and holds the line (`paused`) until the retry ladder's next step, and red through the
-    whole ladder starts the target's one repair (`_repair`)."""
+    """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, reset to the
+    target's tip alone, for the member in `directory`: True when it passes there, so the red is
+    the member's own, and the piece joins `green`, the pieces the tip passed on this pass.  Where
+    the stack's red was its `tests` failing again alone, those run there alone first: passing,
+    the same tests alone on both trees clear the member's red; failing, the whole piece decides,
+    as the member may have added them or they may need the tests before them.  Red there is the
+    target's: the entry under `tree` counts the probe and holds the line (`paused`) until the
+    retry ladder's next step, and red through the whole ladder starts the target's one repair
+    (`_repair`)."""
+    from . import run
+    run.git(scratch, "reset", "--hard", tip)
+    run.git(scratch, "clean", "-fdx")
     ok, probe, _, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log",
                              log, shard=piece or None, only=tests)
+    if not ok and tests:
+        return _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log,
+                          green)
     if ok:
+        if not tests:   # green on just its tests says nothing of the rest of the piece
+            green.add(piece)
         # the pass is the piece's, or its tests', named so it covers no stack's own checks
         label = f"AK_SHARD={piece}, its failed tests alone" if tests else f"AK_SHARD={piece}"
         note(turn, [tree], directory.name, checks=[f"{suite} ({label})" if piece else suite],
@@ -266,14 +277,12 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
         return True
     held = _trees(turn, "red")[1].get(tree) or {}
     probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
-    red = {"probe": {"command": suite, "piece": piece, **({"tests": tests} if tests else {}),
-                     "check": f"{suite}  # once", "sha": tip,
+    red = {"probe": {"command": suite, "piece": piece, "check": f"{suite}  # once", "sha": tip,
                      "text": prompts.red_target_text(suite, upstream, tip, probe, directory,
                                                      piece=piece)},
            "at": time.time(), "probes": probes}
     note(turn, [], directory.name, red={tree: red})
-    what = (f"the failed tests of its piece AK_SHARD={piece}" if tests else
-            f"its piece AK_SHARD={piece}" if piece else "its suite")
+    what = f"its piece AK_SHARD={piece}" if piece else "its suite"
     if probes > len(turns.TRANSIENT_BACKOFF):
         log(f"{upstream} at {tip[:12]} fails {what} alone through the retry ladder: the "
             "target's own red, repaired")
@@ -363,12 +372,10 @@ def check_line(turn, log=lambda _: None):
                     if scratch is None:
                         log(f"WARN {text.splitlines()[-1]}")
                         return
-                    piece, tests = red["probe"].get("piece") or "", red["probe"].get("tests")
                     if not _probe_tip(turn, directory, state, scratch, tip, upstream, target_tree,
-                                      red["probe"]["command"], piece, log, tests):
+                                      red["probe"]["command"], red["probe"].get("piece") or "",
+                                      log, tip_green):
                         return
-                if not tests:   # green on just its tests says nothing of the rest of the piece
-                    tip_green.add(piece)
                 red = None
             # a PR waits on no repair: its own tree is checked, and lands if it mends the target
             if (red and (passed(turn, target_tree) or {}).get("tested") != target_tree
@@ -753,15 +760,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         if piece is not None and piece not in tip_green:
                             if stopped():
                                 return
-                            run.git(scratch, "reset", "--hard", tip)
-                            run.git(scratch, "clean", "-fdx")
-                            tests = answer["fix"].get("tests")
                             if not _probe_tip(turn, member, saved, scratch, tip, upstream,
-                                              target_tree, suite, piece, log, tests):
+                                              target_tree, suite, piece, log, tip_green,
+                                              answer["fix"].get("tests")):
                                 target_red = True
                                 return
-                            if not tests:
-                                tip_green.add(piece)
                     if member not in verdicts:
                         if "land" in answer:
                             answer = {**answer, "after": {
