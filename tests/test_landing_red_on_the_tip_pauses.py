@@ -189,6 +189,15 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.own_red({"test_tax.sh": "exit 1\n"}, silent),
                          [("2/2", ["test_tax.sh"]), ("2/2", None)])
 
+    def test_a_branch_the_tests_alone_checked_out_on_the_tip_keeps_its_commit(self):
+        run.git(self.repo, "branch", "kept")
+        kept = run.git(self.repo, "rev-parse", "kept")
+        # Run alone where test_tax.sh passes, on the tip, the tests check out `kept`.
+        moving = '[ -z "$AK_ONLY" ] || grep -q "exit 1" test_tax.sh || git checkout -q kept; '
+        self.assertEqual(self.own_red({"test_tax.sh": "exit 1\n"}, moving + NAMING),
+                         [("2/2", ["test_tax.sh"]), ("2/2", None)])
+        self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
+
     def test_a_test_the_member_added_leaves_the_tip_to_its_whole_piece_for_the_pass(self):
         (self.repo / "test_tax.sh").write_text("exit 0\n")
         self.declare(NAMING)
@@ -327,6 +336,17 @@ class RedOnTheTip(unittest.TestCase):
         land.check_line(self.turn)
         self.assertEqual(self.red()["probes"], 1)
         self.wake.assert_not_called()
+
+    def test_a_branch_the_members_check_checked_out_keeps_its_commit(self):
+        run.git(self.repo, "branch", "kept")
+        kept = run.git(self.repo, "rev-parse", "kept")
+        self.declare("test ! -f member.txt || git checkout -q kept")
+        first = self.member(**{"member.txt": "the member's\n"})
+        self.advance()
+        land.check_line(self.turn)
+        # The suite passes on the tip it was put back to: the changed checkout is the member's.
+        self.assertIn("Checkout changed during", self.wait(first)["fix"]["line"])
+        self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
 
     def test_with_no_suite_a_check_that_changes_its_checkout_is_the_members(self):
         (self.repo / "AGENTS.md").write_text("# acme\n")
