@@ -68,6 +68,38 @@ class GrowIn(Sandbox):
         self.draw()
         self.assertEqual(self.clock.cells, {})
 
+    def test_progress_effects_keep_their_cells_after_an_accented_model_name(self):
+        name = "cafe\u0301"
+        self.cfg["models"][name] = dict(self.cfg["models"]["opus"])
+        state = {"word": "needs you", "reason": "", "since": None}
+        with patch.object(config, "load", return_value=self.cfg), \
+                patch.object(menu, "seat_row_state", return_value=state):
+            for seat in self.seats:
+                config.save_session(self.cfg, seat["name"], name, ["astra"])
+            for width in (100, 50):
+                self.clock = motion.Clock()
+                for now, done, word in ((10, 1, "needs you"), (11, 3, "needs you"), (12, 4, "done")):
+                    with self.subTest(width=width, done=done), \
+                            patch.object(motion.time, "monotonic", return_value=now):
+                        state["word"] = word
+                        for seat in self.seats:
+                            config.plan_path(seat["name"]).write_text(
+                                "- [x] step\n" * done + "- [ ] step\n" * (4 - done))
+                        lines = self.draw(width)
+                        moving = {(row, column): terminal.ANSI.sub("", animation(until))
+                                  for (row, column), (animation, until) in self.clock.cells.items()
+                                  if until is not None and terminal.cells(animation(until)) == 1}
+                        self.assertTrue(moving)
+                        for (row, column), text in moving.items():
+                            expected, at = {}, 1
+                            for char in terminal.ANSI.sub("", lines[row - 1]):
+                                size = terminal.cells(char)
+                                if size:
+                                    expected[at], at = char, at + size
+                                else:
+                                    expected[max(expected)] += char
+                            self.assertEqual(text, expected.get(column), (row, column))
+
     def test_on_a_popup_each_line_grows_as_it_fades_in_and_never_shrinks(self):
         # Ctrl-b m's clock fades its first draw in from the background: the lines grow under
         # the fade, never shown at their length first
