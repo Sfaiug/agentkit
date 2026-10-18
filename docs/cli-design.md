@@ -72,9 +72,9 @@ the column, Enter, space or a click flips through the project's `set` at once
 and draws the row it answers; a failure is one dim line under the rows, the mark
 unchanged and shaking (Motion). Its `list` runs in a thread with a 20 s timeout, asked every minute
 and every ten seconds while the screen is open, so neither screen waits on it.
-Projects come in the order of their oldest seat, and under a heading seats in
-the order they were made, whatever their word: a seat's number is its place on
-the screen, 1 at the top, and a seat made or stopped moves only the ones after it
+Projects come by name, and under a heading seats in the order they were made,
+whatever their word: a seat's number is its place on the screen, 1 at the top,
+and a seat made, stopped or removed moves only the ones after it
 (`orch.numbered`). A seat's row is one line, and its last column
 is its progress line (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed

@@ -642,13 +642,14 @@ def seat_row_state(cfg, session, look=True, **facts):
     one function. Drawing writes no word of its own; the tick is what writes that down.
     Without `look` the row is the word as recorded -- what whoever looked last wrote to the
     record and the bar together -- and nothing is captured or written; a seat nobody has
-    recorded yet is decided on what there is, until a look records it.
+    recorded yet is decided on what there is, until a look records it, and so is a gone one,
+    which has no screen to look at and whose reason names the number it is listed by now.
     """
     from . import watch
     if look:
         return watch.announce_state(session, cfg=cfg, look=True, **facts)
     recorded = watch.seat_read(session["name"])
-    if recorded.get("word"):
+    if recorded.get("word") and not any(session.get(key) for key in orch.CLOSED):
         return {"word": recorded["word"], "reason": recorded.get("reason"),
                 "unsent": recorded.get("unsent"), "since": recorded.get("word_since")}
     return seat_state(cfg, session, **facts)

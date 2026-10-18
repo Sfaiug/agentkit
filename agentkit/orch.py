@@ -1570,26 +1570,23 @@ def listing(reconcile=True):
 
 def numbered(found, kept):
     """`found` in the order its numbers go, 1 first: the seats the owner has not stopped as the
-    menu lists them -- each project at its oldest seat, and under it its seats in the order they
-    were made -- then the stopped ones, oldest first, for the past screen.  A seat keeps its
-    place whatever its word, so its number is its place on the screen, and one made or stopped
-    moves only the ones after it.  When a seat was made is its record's, from its first launch
-    (`kept`): tmux's own is when its instance last started."""
+    menu lists them -- projects by name, and under each its seats in the order they were made --
+    then the stopped ones, oldest first, for the past screen.  No seat's place hangs on its word
+    or on which other seats there are, so its number is its place on the screen, and one made,
+    stopped or removed moves only the ones after it.  When a seat was made is its record's, from
+    its first launch (`kept`): tmux's own is when its instance last started."""
     made = {s["name"]: (kept.get(s["name"]) or {}).get("created") or s.get("created") or 0
             for s in found}
     homes = {}
 
-    def home(session):            # the project's checkout, as the menu files the seat under it
+    def home(session):            # the project the menu files the seat under, by its heading
         repo = session.get("repo")
         if repo not in homes:
             checkout = checkout_of(repo)
-            homes[repo] = str(checkout) if checkout else ""
+            homes[repo] = project_name(checkout), str(checkout or "")
         return homes[repo]
-    live = [s for s in found if not s.get("closed")]
-    oldest = {}
-    for session in live:
-        oldest[home(session)] = min(oldest.get(home(session), math.inf), made[session["name"]])
-    live.sort(key=lambda s: (oldest[home(s)], home(s), made[s["name"]], s["name"]))
+    live = sorted((s for s in found if not s.get("closed")),
+                  key=lambda s: (home(s), made[s["name"]], s["name"]))
     past = sorted((s for s in found if s.get("closed")), key=lambda s: (made[s["name"]], s["name"]))
     return live + past
 
@@ -1748,10 +1745,14 @@ def file_projectless(found, runs):
                 orphans.get(transitions.launched_session(state), []).append(state)
             except config.Error:
                 continue
+    filed = False
     for session in found:
         states = orphans.get(session["name"])
         if states and handback.session_vote(session["name"], states):
             session["repo"] = handback.join_session_project(session["name"], states)
+            filed = True
+    if filed:                     # a seat filed takes its number from its place in its project
+        found[:] = numbered(found, config.session_records())
 
 
 BACK = object()  # Esc at a new-seat question: back to the menu, nothing created
