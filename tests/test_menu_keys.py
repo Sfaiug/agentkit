@@ -87,7 +87,7 @@ if saved:
         config.save_session(cfg, name, cfg["defaults"]["orchestrator"], cfg["defaults"]["workers"])
 sys.exit(menu.loop(cfg, dry_run=not saved, overlay=bool(os.environ.get("MENU_KEYS_OWN"))))
 """
-DOWN, ENTER = b"\x1b[B", b"\r"
+DOWN, ENTER, ESC = b"\x1b[B", b"\r", b"\x1b"
 GIVEN = ("\x1b[?1006l", "\x1b[?1003l", "\x1b[?25h", "\x1b[?1049l")
 
 
@@ -213,29 +213,31 @@ class Menu:
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
+def born_row(lines):
+    """A main screen with the row `n` makes on it, whose keys are its own."""
+    return "tab models" in lines[-1]
+
+
 class MenuKeys(unittest.TestCase):
-    def test_one_n_typed_through_a_redraw_opens_the_new_session_screen(self):
+    def test_one_n_typed_through_a_redraw_makes_one_new_row(self):
         """The owner's report: `n` typed while the screen redraws, then `not a key: 'nn'`."""
         menu = Menu(self, ["seat-a"], tick=0.2, slow=0.3)
         menu.saw("<drawing 2>")                 # the clock's redraw, the screen being cleared
         menu.send(b"n")                         # once, no Enter, in the middle of that draw
-        menu.saw("agentkit · new", "Name (Enter: auto): ")
-        menu.saw("<lines False>")               # the question is typed on the menu's keys
+        menu.frame(born_row, tip="tab models")
         menu.send(b"q\r")                       # where `q` is a letter like any other
-        menu.saw("<answered 'q'>")
-        mark = len(menu.text())
+        menu.saw("would start q:")              # and no second `n` was typed into the name
         menu.frame(lambda lines: any("seat-a" in line for line in lines))
         menu.leave()
         self.assertNotIn("not a key", menu.text())
-        self.assertEqual(menu.text().count("agentkit · new"), 1)
-        self.assertNotIn("agentkit · new", menu.text()[mark:])
+        self.assertEqual(menu.text().count("would start"), 1)
 
     def test_keys_typed_past_a_question_are_the_menus_again_after_it(self):
-        """`n`, its answer and the menu's next key at once: the question takes only its line."""
+        """`n`, its name and the menu's next key at once: the row takes only its line."""
         menu = Menu(self, ["seat-a"])
         menu.frame()
         menu.send(b"nq\r\x1b")
-        menu.saw("<answered 'q'>")
+        menu.saw("would start q:", "<opened q>")
         self.assertEqual(menu.proc.wait(15), 0, menu.text()[-3000:])   # and that Esc leaves
 
     def test_down_and_enter_open_the_second_seat(self):
@@ -272,15 +274,15 @@ class MenuKeys(unittest.TestCase):
         keyline = len(lines)
         column = lines[-1].index("n new") + 1
         menu.click(column, keyline, held=0.1)
-        menu.saw("agentkit · new", "Name (Enter: auto): ", after=mark)
-        menu.send(b"fable\n")                  # the answer is his, with none of the click in it
-        menu.saw("<answered 'fable'>")
+        menu.frame(born_row, after=mark, tip="tab models")
+        menu.send(b"fable\n")                  # the name is his, with none of the click in it
+        menu.saw("would start fable:")
         self.assertNotIn("\x1b[<", menu.text()[mark:])
-        lines = menu.frame(lambda lines: "seat-b" in menu.highlighted(lines))
+        lines = menu.frame(after=menu.text().index("would start fable:"))
         column = lines[-1].index("esc leave") + 1
         menu.click(column, len(lines))
         self.assertEqual(menu.proc.wait(15), 0, menu.text()[-3000:])
-        self.assertEqual(menu.text().count("<opened"), 1)
+        self.assertEqual(menu.text().count("<opened"), 2)        # seat-c, then fable
 
     def test_the_highlight_stays_on_its_seat_when_a_seat_above_it_goes(self):
         menu = Menu(self, ["seat-a", "seat-b", "seat-c"], tick=0.2)
@@ -331,9 +333,10 @@ class MenuKeys(unittest.TestCase):
         self.assertGreaterEqual(time.monotonic() - began, 0.45)
         mark = len(menu.text())
         menu.send(b"1n")                    # the key read while waiting is still pressed
-        menu.saw("<opened seat-01>", "agentkit · new", after=mark)
+        menu.saw("<opened seat-01>", after=mark)
+        menu.frame(born_row, after=mark, tip="tab models")
         menu.send(b"\r")
-        menu.saw("<answered ''>", after=mark)
+        menu.saw("would start new:", after=mark)
         menu.frame(lambda lines: "seat-01" in menu.highlighted(lines))
         menu.leave()
         self.assertNotIn("<opened seat-10>", menu.text())
@@ -376,15 +379,19 @@ class MenuKeys(unittest.TestCase):
         row = next(number for number, line in enumerate(lines, 1) if "seat-b" in line)
         down, up = f"\x1b[<0;10;{row}M".encode(), f"\x1b[<0;10;{row}m".encode()
         menu.send(down + b"n")
-        menu.saw("Name (Enter: auto): ")
+        menu.frame(born_row, tip="tab models")
         time.sleep(0.3)                          # the button comes up long after the key
-        menu.send(up + b"fable\n")
-        menu.saw("<answered 'fable'>")
-        # a whole answer typed before the button comes up is that answer, and the only one
+        menu.send(up + b"fable")
+        menu.frame(lambda lines: born_row(lines) and "fable▏" in menu.highlighted(lines),
+                   tip="tab models")
+        # a whole name typed before the button comes up is that name, and the only one
         mark = len(menu.text())
+        menu.send(ESC)
         menu.frame(lambda lines: "seat-a" in menu.highlighted(lines), after=mark)
-        menu.send(down + b"nfable\n" + up)
-        menu.saw("<answered 'fable'>", after=mark)
+        menu.send(down + b"nfable" + up)
+        menu.frame(lambda lines: born_row(lines) and "fable▏" in menu.highlighted(lines),
+                   after=mark, tip="tab models")
+        menu.send(ESC)
         # a seat's session is handed what he typed after its number, and the menu none of it
         mark = len(menu.text())
         menu.frame(lambda lines: "seat-a" in menu.highlighted(lines), after=mark)
@@ -392,7 +399,7 @@ class MenuKeys(unittest.TestCase):
         menu.saw("<opened seat-c>", "<session read b'hello\\n'>", after=mark)
         menu.frame(lambda lines: "seat-c" in menu.highlighted(lines), after=mark)
         menu.leave()
-        self.assertEqual(menu.text().count("<answered"), 2)
+        self.assertNotIn("would start", menu.text())
         self.assertEqual(menu.text().count("<opened"), 1)
 
     def test_a_button_down_in_the_digit_wait_keeps_its_half_second(self):

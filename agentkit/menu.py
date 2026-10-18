@@ -138,6 +138,9 @@ KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
+BORN = " new"            # the name of the row `n` makes: none of a seat's, which holds no space
+BORN_KEYS = "⏎ start   tab models   esc back"
+BORN_HINT = ("a name, or ⏎", "a name, or enter")    # in the born row's name before a key
 PAST_KEYS = ("↑↓ move   ⏎ reopen   x remove   esc back", "j/k move   enter reopen   x remove   esc back")
 LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
@@ -1220,6 +1223,8 @@ def detail(cfg, info, room, now=None):
     them."""
     if not info:
         return []
+    if "born" in info:
+        return born_lines(info, room)
     word = info.get("word")
     said = "" if word == "working" else terminal.plain(info.get("sentence") or "")
     if said or word in ("needs you", "done"):
@@ -1243,7 +1248,8 @@ def v5o_column_widths(infos, term_width):
     """
     room = terminal.content_width(term_width)
     num_w = min(max([terminal.cells(info["number"]) for info in infos] + [1]), 4)
-    name_w = min(max([terminal.cells(info["name"]) for info in infos] + [1]), 24)
+    name_w = min(max([born_cells(info["born"]) if "born" in info else terminal.cells(info["name"])
+                      for info in infos] + [1]), 24)
     orch_w = min(max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
                       for info in infos] + [0]), 14)
     count_w = min(max([terminal.cells(terminal.state_text(info["count"]))
@@ -1268,7 +1274,8 @@ def _head(info, widths, tone="dim"):
     Where even their narrowest do not fit, the number keeps its place behind the indent the
     highlight's `›` takes, and the rest is cut to the room as plain text."""
     number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
-    rest = [terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
+    rest = [born_name(info["born"], widths["name"]) if "born" in info else
+            terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
             _styled_cell(info.get("orchestrator") or info.get("worker") or "", widths["orch"],
                          tone),
             _styled_cell(terminal.state_text(info["count"]), widths["count"],
@@ -1556,12 +1563,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     under = max(own_rows, default=0)
     info = next((info for info in infos if info["name"] == cursor), None)
     indent = " " * (2 + widths["num"] + 2)     # under the name
-    lines = (said.get(cursor, []) if opens and under and info and pointing
+    newborn = info is not None and "born" in info      # whose line is open while it is typed
+    lines = (said.get(cursor, []) if opens and under and info and (pointing or newborn)
              and not terminal.away() else [])
     if len(lines) > opens:
         lines = lines[:opens - 1] + [terminal.cut(" ".join(lines[opens - 1:]), said_room)]
     pointer = terminal.pointer()
-    if pointer and not top + min(own_rows, default=0) <= pointer.row <= top + under + len(lines):
+    if pointer and not newborn and not (top + min(own_rows, default=0) <= pointer.row
+                                        <= top + under + len(lines)):
         lines, pointing = [], False    # a line above closed and moved the row from under it
     if lines:
         body = body[:under] + [(indent + line, cursor) for line in lines] + body[under:]
@@ -1957,6 +1966,146 @@ def new_session(cfg, dry_run, keyboard=None, found=None):
                      selection=(providers, selected), unnamed=unnamed, taken=taken) is None:
         return None
     open_session(cfg, {"name": name}, dry_run)
+    return name
+
+
+def born(cursor, groups, found):
+    """What `n` makes on a terminal: a seat born in its place under the highlighted seat's
+    project, or heading's, with that seat's executors and reviewers (`orch.default_crew`),
+    named as typed (`born_key`).  Off the listing in hand and the usage cache, so the row is up
+    on the next frame; Back where Esc ends a slow read."""
+    ordered = groups[0] if groups else []
+    home = next((project for project in ordered
+                 if cursor in (project["checkout"], ("project", project["name"]))
+                 or any(info["name"] == cursor for info in project["seats"])), None)
+    like = cursor if home and isinstance(cursor, str) else None
+    cfg = config.load()           # the last creation's [defaults], whichever process made it
+    providers = waited(lambda: usage.collect(cfg), "new session", doing=LEFT)
+    default, reason = orch.choose(cfg, providers)
+    try:
+        own = config.load_session(cfg, like, required=False) if like else None
+    except config.Error:
+        own = None            # one that no longer reads: the last creation's, as with none
+    _notes, selected = orch.default_crew(cfg, providers, default, own)
+    # every model spent: launched anyway, as `orch.choose` launches its default
+    selected["orchestrator"] = selected["orchestrator"] or default
+    selected["reviewers"] = selected["reviewers"] or [selected["orchestrator"]]
+    return {"cfg": cfg, "typed": "", "like": like, "own": own, "repo": home and home["checkout"],
+            "taken": orch.taken_names(found), "providers": providers, "selected": selected,
+            "default": default, "reason": reason}
+
+
+def born_groups(groups, born):
+    """`groups` with the born seat's row last under its project -- a heading of its own, in the
+    place the projects' order gives it, where none is on the screen -- and every row numbered
+    down the screen again, as the seat will be once it is made (`orch.numbered`)."""
+    ordered, infos, *rest = groups
+    selected = born["selected"]
+    row = {"number": "", "name": BORN, "born": born, "orchestrator": selected["orchestrator"],
+           "worker": selected["orchestrator"], "count": "new", "word": "new",
+           "crew": seat_crew(selected), "tasks": [], "sentence": "", "repo": born["repo"]}
+    key = lambda checkout: (orch.project_name(checkout), str(checkout or ""))
+    ordered = [{**project, "seats": list(project["seats"])} for project in ordered]
+    home = next((project for project in ordered if project["checkout"] == born["repo"]), None)
+    if home is None:
+        home = {"name": orch.project_name(born["repo"]), "seats": [], "checkout": born["repo"],
+                "needing": 0, "has_needs": False, "word": "idle"}
+        ordered.insert(sum(key(project["checkout"]) < key(born["repo"]) for project in ordered),
+                       home)
+    home["seats"].append(row)
+    shown = []
+    for project in ordered:
+        project["seats"] = [{**info, "number": str(len(shown) + n)}
+                            for n, info in enumerate(project["seats"], 1)]
+        shown += project["seats"]
+    return (ordered, shown, *rest)
+
+
+def born_cells(born):
+    """How wide the born row's name is: what is typed and the caret, or the hint before a key."""
+    return 1 + terminal.cells(born["typed"] or BORN_HINT[not terminal.utf8()])
+
+
+def born_name(born, width):
+    """The born row's name cell in `width` cells: what is typed so far in bold -- its end, as a
+    field shows it, where it runs past -- then the caret, and before a key, dim, that Enter
+    alone lets its orchestrator name it."""
+    caret = "▏" if terminal.utf8() else "_"
+    typed = born["typed"][-(width - 1):] if width > 1 else ""
+    hint = "" if born["typed"] else terminal.cut(BORN_HINT[not terminal.utf8()], max(0, width - 1))
+    text = (terminal.styled(typed, "bold") + terminal.styled(caret, "accent")
+            + terminal.styled(hint, "dim"))
+    return text + " " * max(0, width - terminal.cells(typed) - 1 - terminal.cells(hint))
+
+
+def born_refusal(born):
+    """Why Enter makes nothing on the born row: a seat or a rename has the name typed, or its
+    crew has no pair that can run (`orch.role_refusal`, as the picker's Enter refuses); else ""."""
+    name = orch.session_name(born["typed"]) if born["typed"] else ""
+    if name in born["taken"]:
+        return f"a seat is called {name} already"
+    return orch.role_refusal(born["cfg"], born["selected"], born["providers"])
+
+
+def born_lines(info, room):
+    """What the born row opens under itself: who will build and review (`crew`) and whose they
+    are -- or, amber on lines of its own, wrapped whole for a phone, why Enter makes nothing."""
+    born, refusal = info["born"], born_refusal(info["born"])
+    if refusal:
+        return [terminal.styled(line, "amber") for line in terminal.wrap(refusal, room)]
+    line = "   ".join(part for part in (crew(info), born["like"] and terminal.styled(
+        f"as in {born['like']}", "dim")) if part)
+    return [line if terminal.cells(line) <= room else terminal.cut(line, room)]
+
+
+def born_key(born, key, drawn):
+    """One key on the born row: "start", "back" and "models" for Enter, Esc and Tab or a click
+    on their keys, "gone" for a keyboard that is gone, else None, having typed a name's
+    character -- a space as `-`, as `orch.session_name` would -- or taken the last one back."""
+    if key.name == "click":
+        item = terminal.under(key, drawn["spots"]).cell
+        key = terminal.Key({"⏎": "enter", "enter": "enter", "esc": "esc", "tab": "tab"}
+                           .get(item, "other"))
+    if key.name in ("enter", "esc", "tab", "eof"):
+        return {"enter": "start", "esc": "back", "tab": "models", "eof": "gone"}[key.name]
+    if key.name == "backspace":
+        born["typed"] = born["typed"][:-1]
+    elif key.name in ("char", "space") and len(born["typed"]) < orch.NAME_CAP:
+        char = "-" if key.name == "space" else key.char.lower()
+        if re.fullmatch(r"[a-z0-9_-]", char):
+            born["typed"] += char
+    return None
+
+
+def born_models(born):
+    """Tab on the born row: its models chosen on `orch.pick`'s screen, which starts from the
+    seat the row's crew is as -- "start" with Enter there, None with Esc, back to the row."""
+    picked = orch.pick(born["cfg"], born["providers"], born["default"], born["own"])
+    if picked is None or picked is orch.BACK:
+        return None
+    born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"), picked))
+    return "start"
+
+
+def start_born(born, dry_run):
+    """Make the born seat and open it, filed under its project: by the name typed, else one its
+    orchestrator replaces (`unnamed`); a dry run only says what it would start.  The name, or
+    None where `orch.create` made nothing.  The names taken are read again: another menu may
+    have made a seat since the row opened, and `create` would write over its record."""
+    taken = orch.taken_names()
+    unnamed = not born["typed"]
+    name = orch.unique_name("new", taken) if unnamed else orch.session_name(born["typed"])
+    selected = born["selected"]
+    if dry_run:
+        print(f"would start {name}: {selected['orchestrator']}, workers "
+              f"{' '.join(selected['workers'])}, reviewers {' '.join(selected['reviewers'])}")
+    elif orch.create(born["cfg"], name, orch.seat_cwd(), prompting=True, repo=born["repo"],
+                     selection=(born["providers"], (selected["orchestrator"], born["reason"]
+                                if selected["orchestrator"] == born["default"] else "selected",
+                                selected["workers"], selected["reviewers"])),
+                     unnamed=unnamed, taken=taken) is None:
+        return None
+    open_session(born["cfg"], {"name": name}, dry_run)
     return name
 
 
@@ -4585,14 +4734,16 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             terminal.sense()              # true colour and the background, once, before a draw
         live.watch(last)                  # read once, now: the first draw has nothing else
         back = False                      # back from a seat, or the screen that opens one
+        newborn = None                    # the seat `n` is typing the name of (`born`)
         while True:
             if back:
                 live.back()               # drawn as the last read left it, read behind it
                 back = False
             elif look:
                 live.ask(look=True)       # read and looked at again, off the draw
-            messages = orch.job_notices() + live.heard()
-            if updates:
+            # a seat being named keeps its row: notices and new code wait for it to go
+            messages = orch.job_notices() + live.heard() if newborn is None else []
+            if updates and newborn is None:
                 news = updates.pop(0)
                 if "progress" in news:
                     updating = news["progress"]
@@ -4615,10 +4766,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             actions = ("n", "x", "c", "p") if past else ("n", "x", "c")
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
-            listed = keys if drawn is None else f"{move_keys()}   {keys}"
-            page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
-                               groups=groups, clock=clock, updating=updating, pointing=pointing)
-            if drawn:                     # the seat he sees highlighted, and if he points at it
+            listed = (keys if drawn is None else BORN_KEYS if newborn
+                      else f"{move_keys()}   {keys}")
+            page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn, own,
+                               look=False, groups=born_groups(groups, newborn) if newborn
+                               else groups, clock=clock, updating=updating, pointing=pointing)
+            if drawn and not newborn:     # the seat he sees highlighted, and if he points at it
                 cursor, pointing = drawn["cursor"], drawn["pointing"]
             if start_update:
                 update_first(live, updates=updates)    # detached, after the first frame
@@ -4633,12 +4786,36 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if ahead is not None:
                 (key, shown), ahead = ahead, None
             else:
-                key, shown = moving(clock, live.reader, timeout=0 if updates else TICK), drawn
+                key, shown = moving(clock, live.reader, timeout=0 if updates and newborn is None
+                                    else TICK), drawn
             if key is None:
                 # the wait ended on the clock, which looks again, or on news already written down
                 look = not live.drain()
                 continue
             look = True
+            if newborn is not None and isinstance(key, terminal.Key):
+                act, look = born_key(newborn, key, shown), False
+                if act == "models":
+                    back = True           # the picker's screen, drawn where the menu was
+                    live.away()
+                    act = born_models(newborn)
+                if act == "back":
+                    newborn = None
+                elif act == "start" and not born_refusal(newborn):
+                    made, newborn, back = newborn, None, True
+                    keyboard.give()       # the seat has the terminal once it is made
+                    live.away()
+                    try:
+                        name = start_born(made, dry_run)
+                    except config.Error as exc:
+                        name = None
+                        pause(f"new session: {exc}")
+                    if name and overlay:
+                        return 0          # the popup's client is on the new seat
+                    cursor = name or cursor
+                if act != "gone":
+                    continue
+                newborn = None            # a keyboard that is gone leaves, as Esc on the menu
             if isinstance(key, terminal.Key):
                 order = drawn["order"]
                 if key.name == "point":
@@ -4730,6 +4907,14 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         continue
                 keyboard.give()
                 close_seat(seat, dry_run)
+                continue
+            if key == "n" and drawn is not None and cfg:
+                try:
+                    newborn = born(cursor, groups, found)     # typed where it will be
+                except Back:
+                    pass
+                except config.Error as exc:
+                    pause(f"new session: {exc}")
                 continue
             if key not in ("c", "n", "p", "r"):
                 keyboard.give()           # whatever the key opens has the terminal as it was

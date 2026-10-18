@@ -98,10 +98,8 @@ class NoteScreen(unittest.TestCase):
     def test_new_session_error_rewraps_on_resize_and_clicking_back_restores_the_menu(self):
         screen = Screen(self, cols=80)
         screen.frame()
-        screen.send(b"n")
-        screen.screen("new session")
         mark = len(screen.text())
-        screen.send(ENTER)
+        screen.send(b"n")
         message = f"new session: {FETCH_ERROR}"
         self.note(screen, message, mark, 80)
         mark = len(screen.text())

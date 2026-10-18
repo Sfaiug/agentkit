@@ -181,7 +181,7 @@ class RoleMarksScreen(unittest.TestCase):
     def test_scrolling_keeps_headings_and_clicks_use_the_scrolled_row(self):
         screen = Screen(self, rows=12, cols=40)
         screen.menu()
-        screen.send(b"n" + ENTER)
+        screen.models()
         screen.picker()
         screen.send(DOWN * 20)
         lines = screen.picker(lambda lines: "mimo" in highlighted(lines))
@@ -227,7 +227,7 @@ class RoleMarksScreen(unittest.TestCase):
     def test_new_session_copies_explicit_defaults_and_creates_with_changed_reviewers(self):
         screen = Screen(self, reviewers=["astra"])
         screen.menu()
-        screen.send(b"n" + ENTER)
+        screen.models()
         lines = screen.picker()
         self.assertEqual(marks(highlighted(lines)), "●■□")
         screen.send(RIGHT * 2 + SPACE)          # Opus joins reviewers
