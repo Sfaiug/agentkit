@@ -552,9 +552,9 @@ sleep() { :; }
             caller, notify_home = root / "caller", root / "notify"
             for home in (caller, notify_home):
                 (home / ".agentkit/state").mkdir(parents=True)
-            for name in ("a-resumable", "b-resumable"):
+            for name in ("a-resumable", "b-resumable"):   # first launched before smoke-shape
                 record = {"session": name, "orchestrator": "fable", "workers": ["opus"],
-                          "cwd": directory, "created": time.time(), "seen": time.time(),
+                          "cwd": directory, "created": 5000, "seen": time.time(),
                           "conversation": name, "id_source": "launcher", "resumable": True}
                 (caller / ".agentkit/state" / f"session-{name}.json").write_text(json.dumps(record))
             fake = root / "tmux"

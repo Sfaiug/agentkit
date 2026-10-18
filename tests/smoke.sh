@@ -4325,7 +4325,7 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_DISCORD_USER_ID=424242 AGENTKI
 # Resumable seats come from HOME too, so count the same rows as this check's notify and menu.
 # The listing's last line says which slice the agents run in; it is not a seat, so it is not
 # counted with them.
-NUM=$(HOME="$NSH" ak orch list 2>/dev/null | sed -e '/^\(no \)\?slice /d' | sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' | awk 'NR>1{print $1}' | sort | grep -n '^smoke-shape$' | cut -d: -f1)
+NUM=$(HOME="$NSH" ak orch list 2>/dev/null | sed -e '/^\(no \)\?slice /d' | sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' | awk 'NR>1{print $1}' | grep -n '^smoke-shape$' | cut -d: -f1)
 jq -e '.content == "Merge PR #7 by bob? · smoke-shape <@424242>" and .username == "agentkit"
   and .allowed_mentions == {"users": ["424242"]} and (.embeds | length == 1)
   and .embeds[0].title == "Needs you · smoke-shape"
