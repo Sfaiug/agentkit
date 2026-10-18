@@ -352,13 +352,18 @@ class Clock:
                 return out
             self.rising, self.shown = None, {}      # up, as drawn: every cell is written over it
         # what spans more than its cell -- a whole row's glow -- first, and what moves inside
-        # it written again over it in the same frame
-        drawn = [(cell, animation(now), until) for cell, (animation, until) in self.cells.items()]
-        for (row, column), text, until in sorted(drawn, key=lambda one: terminal.cells(one[1]) < 2):
+        # it written again over it in the same frame, on its background
+        drawn = sorted(((cell, text, terminal.cells(text), until)
+                        for cell, (animation, until) in self.cells.items()
+                        for text in [animation(now)]), key=lambda one: one[2] < 2)
+        wide = [(cell, text, width) for cell, text, width, _ in drawn if width > 1]
+        for (row, column), text, width, until in drawn:
+            text = next((terminal.backed_as(text, over, column - at + 1)
+                         for (above, at), over, size in wide
+                         if above == row and at < column < at + size), text)
             if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
                 out += f"\033[{row};{column}H{terminal.pointed(row, column, text)}"
-                width = terminal.cells(text)
                 for inside in [cell for cell in self.shown if cell[0] == row
                                and column < cell[1] < column + width]:
                     del self.shown[inside]

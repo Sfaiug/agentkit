@@ -1176,6 +1176,32 @@ def cell_texts(line):
     return found
 
 
+def backed_as(text, line, cell):
+    """`text` on the background `line` has at its `cell`, counted from 1, every style in it
+    kept: what is written inside a row's glow stays on it."""
+    back, at = "", 0
+    for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
+        if not token.startswith("\033"):
+            at += cells(token)
+            if at >= cell:
+                break
+        elif token.endswith("m"):
+            # the background each code leaves: none after a reset, a `48`'s colour
+            parts = token[2:-1].split(";")
+            while parts:
+                part = parts.pop(0)
+                if part in ("", "0", "49"):
+                    back = ""
+                elif part in ("38", "48") and parts[:1] in (["2"], ["5"]):
+                    size = 4 if parts[0] == "2" else 2
+                    back = ";".join([part, *parts[:size]]) if part == "48" else back
+                    parts = parts[size:]
+    if not back:
+        return text
+    return (f"\033[{back}m" + _SGR.sub(lambda code: f"\033[{code[1] or '0'};{back}m", text)
+            + "\033[49m")
+
+
 def backed(line, rgb, first, last):
     """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
     style in them kept and any past its end blank; reversed at eight colours."""

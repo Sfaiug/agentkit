@@ -175,6 +175,13 @@ class NewsMotion(Sandbox):
         self.assertTrue(all(abs(first[n] - colour[n] * 0.3) < 12 for n in range(3)), first)
         self.assertEqual(backs[-1], [])
         self.assertTrue(0.8 <= frames[-1][0] - frames[0][0] <= 1.3, frames[-1][0] - frames[0][0])
+        self.assert_on_glow(cells, row)
+
+    def assert_on_glow(self, cells, row):
+        """What moves inside `row` while it glows is written on the glow."""
+        last = max(n for n, (_, cell, _) in enumerate(cells) if cell == (row, 1))
+        inside = [text for _, (at, column), text in cells[:last] if at == row and column > 1]
+        self.assertTrue(inside and all("48;2;" in text for text in inside), inside)
 
     def assert_still(self, waits):
         """Nothing moves now: the menu was left on a wait longer than a frame."""
@@ -238,6 +245,7 @@ class NewsMotion(Sandbox):
         lines = [terminal.ANSI.sub("", line)
                  for line in screen.partition("\033[H")[2].rpartition("\033[J")[0].split("\n")]
         row = next(n for n, line in enumerate(lines, 1) if "fix-api" in line)
+        self.assert_on_glow(cells, row)     # the `✓`, and the light where it crosses the row
         row += "━" not in lines[row - 1]
         start = row, terminal.cells(lines[row - 1][:lines[row - 1].index("━")]) + 1
         light = terminal.faded("done", -motion.BRIGHTER)
