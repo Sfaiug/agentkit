@@ -586,9 +586,14 @@ def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
     """Whether just `tests` of `suite`'s `piece` pass on `scratch`, run alone, as a red is
     narrowed: a pass, each named as run (`gate.run_suite(only=)`), moves the narrowing deeper
     and answers for nothing else.  Anything else proves nothing -- a test a later member added
-    is not there -- so that stack gets its whole check."""
-    return _check(directory, state, scratch, [suite], directory / f"lander-{tree}-tests.log",
-                  log, shard=piece, only=list(tests))[0]
+    is not there -- so that stack gets its whole check, on its checkout as it was."""
+    from . import run
+    head = run.git(scratch, "rev-parse", "HEAD")
+    ok = _check(directory, state, scratch, [suite], directory / f"lander-{tree}-tests.log",
+                log, shard=piece, only=list(tests))[0]
+    run.git(scratch, "reset", "--hard", head)
+    run.git(scratch, "clean", "-fdx")
+    return ok
 
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
@@ -707,7 +712,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                          and positions.get(entry.get("tested"), -1) >= positions[tree]
                          and checked(entry, commands(positions[entry["tested"]])))}
             answers = {}
-            alone = {}      # (index, tests): whether just those tests passed run alone there
+            tests_alone = {}    # (index, tests): whether just those tests passed run alone there
             for _, _, _, tree, checks in stacks:
                 if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
@@ -734,7 +739,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
 
             def answer_tree(index, checks, check, tests=None):
                 if tests is not None:
-                    alone[index, tests] = check.result()
+                    tests_alone[index, tests] = check.result()
                     return
                 tree, own = stacks[index][3:]
                 answer = check.result()
@@ -820,7 +825,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 # passed in; a stack they do not pass in gets its whole check.
                                 failing = answers[tuple(stacks[red_index][3:])]
                                 narrowing = tuple(failing["fix"].get("tests") or ()) or None
-                                low = max([low] + [index for (index, tests), ok in alone.items()
+                                low = max([low] + [index for (index, tests), ok
+                                                   in tests_alone.items()
                                                    if ok and tests == narrowing
                                                    and index < red_index])
                             if narrowing and low + 1 == red_index:
@@ -841,7 +847,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             member, saved, scratch, tree, own = stacks[index]
                             if (tree, own) in active or len(running) >= limit:
                                 continue
-                            if narrowing and (index, narrowing) not in alone:
+                            if narrowing and (index, narrowing) not in tests_alone:
                                 job = pool.submit(_check_tests, member, saved, scratch, tree, suite,
                                                   failing["fix"]["piece"], narrowing, log)
                                 running[job] = index, None, narrowing

@@ -100,6 +100,17 @@ class RedNarrowedByItsFailedTests(test_lander.LanderFixture, unittest.TestCase):
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
 
+    def test_a_checkout_the_tests_alone_moved_is_put_back_for_its_whole_check(self):
+        checked, _ = self.narrow('[ -z "$AK_ONLY" ] || git reset -q --hard HEAD~1; ' + NAMED,
+                                 {}, 6, 4, {"broken.txt": "broken\n"})
+        self.assertEqual(checked, [
+            (on(1, 2, 3, 4, 5, 6), None),
+            (on(1, 2, 3), ["t_tax"]),           # moved its checkout: proves nothing
+            (on(1, 2, 3), None),                # on the stack itself: green
+            (on(1, 2, 3, 4), ["t_tax"]),
+            (on(1, 2, 3, 4), None),             # red, right behind green
+            (on(1, 2, 3, 5, 6), None)])
+
 
 if __name__ == "__main__":
     unittest.main()
