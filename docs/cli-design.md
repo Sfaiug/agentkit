@@ -342,29 +342,45 @@ Example: `› opus      claude   ‹ xhigh ›   97   97   97   4000`.
 
 ## The new-session screen
 
-`n` is `agentkit · new session`. First it asks `Name:`, two spaces into the content column,
-`auto` dim in the field, with a blank line and `esc back` below it. Then every model appears
-once, with the same configured name and provider heading as on `c`: `Claude`, `ChatGPT`,
-and each other provider's display name in the accent style. Each row has `orch` (`●`/`○`)
-for the one orchestrator, `exec` and `review` (`■`/`□`) for its two role groups, with its
-harness and effort dim beside it. Names are no wider than a third of the screen, a longer
-one cut. The defaults are chosen when it opens;
-a spent model reads dim with `spent · resets <day HH:MM>`, on a line of its own under the name
-where the row does not fit, and is never chosen for him. ↑/↓, k/j and the wheel move between
-models and scroll them on a short screen, the role headings kept visible; ←/→ choose the role.
-Space or a click chooses, Enter starts from anywhere -- or, with every model spent and a role
-still empty, takes the highlight to it -- Esc goes back, and reviewers keep their last
-model, its mark shaking (Motion). Executors may be left empty: the orchestrator builds
-everything, its own `exec` mark filled and dim on both `n` and `c`. At the Name question, a taken
-name asks again and Esc goes back. Enter leaves `new`, then `new-2`, unnamed until its
-orchestrator knows the job and gives it the shortest name, at most three words, with
-`ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints the current name and exits 0;
-plain `ak orch rename` still renames. A seat can take back its own former name; another seat's
-former name stays reserved, with a variant chosen for a rename from Claude. From a pipe `n`
-asks `Name (Enter: auto):`, `Orchestrator [opus]:` and `Workers [opus astra]:` a line at a time,
-Enter or EOF taking each default.
+`n` opens the new seat's row in its place on the main screen, on the next frame: last under
+the highlighted seat's project, or the highlighted heading's, with a heading of its own where
+none is shown, numbered as the seat will be once made, every row after it numbered on, its
+state `new`. Its name cell holds a caret and, dim until a key, `a name, or ⏎`: letters, digits,
+`-` and `_` type into it, lower case and at most `orch.NAME_CAP` of them, a space as `-`, and
+Backspace takes the last back. The line under it stays open while it is typed, the crew it
+starts with as a seat's crew reads (`menu.crew`): the highlighted seat's executors and
+reviewers, `as in <seat>` dim beside them, or from a heading the last creation's
+`[defaults]`, each with something left to spend (`orch.default_crew`). A taken name, or a crew
+no run could start from (`orch.role_refusal`), says why in amber alone on that line, wrapped
+whole on a phone, and Enter makes nothing until it changes. The keys read
+`⏎ start   tab models   esc back`, each clickable. Enter makes the seat, filed under that
+project, and opens it; Esc takes the row back; Tab opens the model picker, which starts from
+the row's crew: Enter there starts the seat, Esc goes back to the row. Notices and updates wait
+while the row is open. The popup's `n` makes the same row, and its client switches to the new
+seat.
 
-Helpers: `terminal.Keyboard`, `terminal.field`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`,
+The picker is `agentkit · new session`: every model appears once, with the same configured name
+and provider heading as on `c`: `Claude`, `ChatGPT`, and each other provider's display name in
+the accent style. Each row has `orch` (`●`/`○`) for the one orchestrator, `exec` and `review`
+(`■`/`□`) for its two role groups, with its harness and effort dim beside it. Names are no wider
+than a third of the screen, a longer one cut. The defaults are chosen when it opens; a spent
+model reads dim with `spent · resets <day HH:MM>`, on a line of its own under the name where the
+row does not fit, and is never chosen for the owner. ↑/↓, k/j and the wheel move between models
+and scroll them on a short screen, the role headings kept visible; ←/→ choose the role. Space or
+a click chooses, Enter starts from anywhere -- or, with every model spent and a role still
+empty, takes the highlight to it -- Esc goes back, and reviewers keep their last model, its mark
+shaking (Motion). Executors may be left empty: the orchestrator builds everything, its own
+`exec` mark filled and dim on both `n` and `c`. Enter on an empty name leaves `new`, then
+`new-2`, unnamed until its orchestrator knows the job and gives it the shortest name, at most
+three words, with `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints
+the current name and exits 0; plain `ak orch rename` still renames. A seat can take back its own
+former name; another seat's former name stays reserved, with a variant chosen for a rename from
+Claude. From a pipe `n` asks `Name (Enter: auto):`, `Orchestrator [opus]:` and
+`Workers [opus astra]:` a line at a time, Enter or EOF taking each default; a taken name asks
+again.
+
+Helpers: `menu.born`, `menu.born_groups`, `menu.born_key`, `terminal.Keyboard`,
+`terminal.field`, `terminal.read_key`, `terminal.highlight`, `terminal.key_spans`,
 `menu.model_label`, `menu.model_heading`,
 `terminal.toggle` (every mark, here, on `c` and on a project's switches).
 
