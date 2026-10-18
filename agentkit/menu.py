@@ -1650,9 +1650,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     clock.start([(row, column - 1)], *motion.nudging(
                         "".join(written[column - 1:column + 2]), since, lit))
                 elif shown[0] > before[0]:
-                    clock.start([(row, column + shown[0])], *motion.stepping(
-                        terminal.plain(written[column - 1 + shown[0]]),
-                        {"moving": "working", "waiting": "dim"}.get(shown[1], "FAIL"), since, lit))
+                    clock.start([(row, column + shown[0])], *motion.halving(
+                        written[column - 1 + shown[0]], since, motion.STEP, lit))
             elif key[0] in ("opened", "page"):    # what comes up out of the background
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
                     motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(

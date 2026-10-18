@@ -146,20 +146,13 @@ def toggled(mark, width, kind, bright, column):
     lit it (terminal.pointed).  A function of the clock, the screen row, when the news came and
     the mark before it."""
     def start(clock, row, since, before):
-        def drawn(text, first):     # as a draw shows it from column `first`
-            return terminal.pointed(row, first,
-                                    terminal.highlight(text, mark=False) if bright else text)
+        def drawn(first, at, until):     # as a draw shows it from column `first`
+            clock.start([(row, first)], lambda now: terminal.pointed(row, first, at(now)), until)
+        shown = terminal.toggle(mark, width, kind)
         if before == mark:
-            def at(now):
-                shift = (-1, 1, -1, 0)[min(3, int(4 * (now - since) / SHAKE))]
-                return drawn(" " * (1 + shift) + terminal.toggle(mark, width, kind)
-                             + " " * (1 - shift), column - 1)
-            clock.start([(row, column - 1)], at, since + SHAKE)
+            drawn(column - 1, *nudging(shown, since, bright))
         elif before in HALF and mark in HALF:
-            def at(now):
-                return drawn(terminal.toggle(HALF[mark] if now - since < TOGGLE / 2 else mark,
-                                             width, kind), column)
-            clock.start([(row, column)], at, since + TOGGLE)
+            drawn(column, *halving(shown, since, TOGGLE, bright))
     return start
 
 
@@ -196,39 +189,47 @@ def fading(line, took):
 
 
 def growing(cells, began, took=GROW, start=0, light=None):
-    """A progress line, `cells` each of its cells as the draw wrote it: its done part grows from
-    its first `start` cells to its length in `took` seconds from `began` -- from nothing as a
-    screen opens, from its old length as its plan moves, then with one cell of `light` at its
-    head -- the rest of it the empty track, and each cell is then as drawn; an animation for
-    each cell, and when it is still."""
+    """A progress line, `cells` each of its cells as the draw wrote it: its done part grows or
+    shrinks from its first `start` cells to its length in `took` seconds from `began` -- from
+    nothing as a screen opens, from its old length as its plan moves, then with one cell of
+    `light` at its head and the cells it shrinks from in `light`'s colour -- the rest of it the
+    empty track, and each cell is then as drawn; an animation for each cell, and when it is
+    still."""
     done = sum(1 for text in cells if terminal.plain(text) in ("━", "╸", "="))
-    track = terminal.styled("─" if terminal.utf8() else "-", "dim")
+    full, empty = "━─" if terminal.utf8() else "=-"
+    track = terminal.styled(empty, "dim")
 
     def cell(n, text):
+        filled = terminal.plain(text) in ("━", "╸", "=")
+
         def at(now):
             head = round(start + (done - start) * eased((now - began) / took))
+            if n >= head:
+                return track if filled else text
             if light and n == head - 1 and now < began + took:
-                return terminal.styled(terminal.plain(text), terminal.faded(light, -BRIGHTER))
-            filled = terminal.plain(text) in ("━", "╸", "=")
-            return text if n < head or not filled else track
+                return terminal.styled(terminal.plain(text) if filled else full,
+                                       terminal.faded(light, -BRIGHTER))
+            return text if filled else terminal.styled(full, light)
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + took
 
 
-def stepping(square, kind, began, bright=False):
-    """A task's square, `square` as drawn in `kind`, that its next stage just filled: through
-    its half (`▣`) for the first half of STEP seconds, then as drawn; and when it is still."""
+def halving(text, began, took, bright=False):
+    """A mark, `text` as drawn, that just filled or emptied -- a toggle set or cleared, a task's
+    next square: through its half (`□ ▣ ■`, `○ ◉ ●`) for the first half of `took` seconds from
+    `began`, then as drawn; and when it is still.  `bright` on the highlighted row."""
+    half = "".join(HALF.get(char, char) for char in text)
+
     def at(now):
-        char = HALF.get(square, square) if now - began < STEP / 2 else square
-        text = terminal.styled(char, kind)
-        return terminal.highlight(text, mark=False) if bright else text
-    return at, began + STEP
+        shown = half if now - began < took / 2 else text
+        return terminal.highlight(shown, mark=False) if bright else shown
+    return at, began + took
 
 
 def nudging(text, began, bright=False):
-    """A task's squares, `text` as drawn, from the cell before them, that just failed: they
-    nudge a cell left, right, left and back in SHAKE seconds, as a refused mark does; and when
-    it is still."""
+    """Marks, `text` as drawn, from the cell before them, whose change was refused or that just
+    failed: they nudge a cell left, right, left and back in SHAKE seconds; and when they are
+    still.  `bright` on the highlighted row."""
     def at(now):
         shift = (-1, 1, -1, 0)[min(3, int(4 * (now - began) / SHAKE))]
         moved = " " * (1 + shift) + text + " " * (1 - shift)

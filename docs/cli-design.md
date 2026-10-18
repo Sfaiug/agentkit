@@ -552,8 +552,8 @@ seat's progress line grows from empty to its length over 450 ms, each row 40 ms
 after the one above it (`motion.growing`); one whose plan moves glides to its new
 length over 700 ms, a light at its head. On the line the highlighted row opens, a
 task that reaches its next stage fills that square through its half (`□ ▣ ■`) over
-150 ms (`motion.stepping`), and one that fails nudges left, right, left and back
-over 240 ms (`motion.nudging`); a task first seen stands still. A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
+150 ms (`motion.halving`), and one that fails nudges left, right, left and back
+over 240 ms (`motion.nudging`); a task first seen stands still. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).

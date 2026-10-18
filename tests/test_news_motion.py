@@ -313,6 +313,13 @@ class NewsMotion(Sandbox):
         tip = self.cell(screen, "fix-api", "━ 4 of 4")
         self.assertLessEqual(heads[-1][1], tip[1])
 
+    def test_a_line_whose_plan_grows_glides_back_from_its_old_length(self):
+        line = terminal.cell_texts(terminal.plan_bar(1, 4, room=15).split(" 1 of 4")[0])
+        frames, until = motion.growing(line, 10, motion.GLIDE, 6, "working")
+        lengths = [sum(terminal.plain(frame(when)) == "━" for frame in frames)
+                   for when in (10, 10 + motion.GLIDE / 2, until)]
+        self.assertEqual(lengths, [6, 4, 2])
+
     def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}
 
