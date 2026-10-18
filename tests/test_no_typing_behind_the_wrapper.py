@@ -2,20 +2,18 @@
 
 Real outer and inner PTYs, the real wrapper and relay, and a fake tmux: no server or model.
 """
-import fcntl
 import json
 import os
 import select
-import struct
 import subprocess
 import sys
-import termios
 import time
 import tty
 import unittest
 from unittest.mock import Mock, patch
 
 from fixtures.seats import LINE, NOW, REPO, SEAT, Seats
+from fixtures.unread import unread
 from agentkit import config, orch, statusbar, watch
 from agentkit.pty_relay import Relay
 
@@ -94,10 +92,6 @@ with (root / 'received').open('ab', buffering=0) as received:
             break
         received.write(data)
 '''
-
-
-def unread(fd):
-    return struct.unpack('i', fcntl.ioctl(fd, termios.FIONREAD, struct.pack('i', 0)))[0]
 
 
 class WrappedPane(Seats):

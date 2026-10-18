@@ -4,25 +4,19 @@ Real pty input, a captured Claude prompt and fake tmux; no live seat or server. 
 receipt keeps a run's hand-back and its own-PR round notice pending until Enter is read.
 """
 
-import fcntl
 import os
 import select
-import struct
-import termios
 import time
 import tty
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.unread import unread
 from agentkit import config, handback, orch, record, watch, worktrees
 
 SEAT = "acme-docs"
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
-
-
-def unread(fd):
-    return struct.unpack("i", fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0)))[0]
 
 
 class ReceiptNeedsEnter(Sandbox):
