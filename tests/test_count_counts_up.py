@@ -100,6 +100,27 @@ class Counts(Sandbox):
         self.assertEqual({cell for cell in count if (self.clock.cells.get(cell) or (0, 0))[1]
                           and self.clock.cells[cell][1] > 40}, set())
 
+    def test_news_as_ak_opens_writes_a_new_total_or_fewer_done_at_once(self):
+        for after in ((17, 30), (3, 28)):
+            self.clock = motion.Clock()
+            self.plan("acme-api", 17, 28)
+            self.draw(10)
+            self.plan("acme-api", *after)
+            lines = self.draw(10.1)
+            self.assertEqual(self.shown(lines, "acme-api", 10.1)[0][2:], after)
+
+    def test_a_line_swept_done_shows_its_count_done(self):
+        self.clock.grows = {}
+        self.plan("acme-api", 27, 28)
+        self.draw(20)
+        self.plan("acme-api", 28, 28)
+        with patch.object(menu, "seat_row_state", return_value={"word": "done", "reason": "",
+                                                                 "since": None}):
+            lines = self.draw(30)
+        for now in (30, 30 + motion.GLIDE / 2):
+            filled, size, done, total = self.shown(lines, "acme-api", now)[0]
+            self.assertEqual((filled, done), (size, total))
+
 
 if __name__ == "__main__":
     unittest.main()
