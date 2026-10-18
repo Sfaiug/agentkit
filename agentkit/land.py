@@ -4,7 +4,8 @@ Green evidence names the tested tree, including for stacks it covers. A red stac
 after a green one wakes its newest member to fix; later stacks are rebuilt without it.
 A red suite piece runs again on the target's tip alone before anyone is blamed: red there
 pauses the line on the retry ladder, and red through the ladder is the target's own and
-gets one repair. The lander never owns a member's process or delivery.
+gets one repair, at once where the tests that failed it fail again there alone. The lander
+never owns a member's process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -254,20 +255,26 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     member's own, the piece then in `green`, the pieces the tip passed on this pass.  Where
     the stack's red was its `tests` failing again alone, those alone run there first: passing
     there, each named as run (`gate.run_suite(only=)`), the member's change is what fails them,
-    and the piece need not run.  Anything else proves nothing -- a test the member added is not
-    on the tip -- so the whole piece then decides, as without them.
+    and the piece need not run.  Failing there again, named as run and as failed by a run that
+    ended in a failing exit on the pinned tip (`gate.run_suite(confirmed=)`), they are a red that
+    repeats, which no step of the retry ladder would clear: the target's own, repaired at once,
+    and the piece need not run either.  Anything else proves nothing -- a test the member added
+    is not on the tip -- so the whole piece then decides, as without them.
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`)."""
     path = directory / "target-probe.log"
+    again = None
     if tests:
-        if _check(directory, state, scratch, [suite], path, log, shard=piece or None,
-                  only=tests)[0]:
+        ok, probe, _, again = _check(directory, state, scratch, [suite], path, log, suite=suite,
+                                     shard=piece or None, only=tests)
+        if ok:
             log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "
                 f"piece AK_SHARD={piece}, run alone: the red is the member's own")
             return True
         _put_back(scratch, tip)
-    ok, probe, _, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
+    if not again:       # a repeat needs no piece to say the tip is red
+        ok, probe, _, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
@@ -275,7 +282,10 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
         green.add(piece)
         return True
     held = _trees(turn, "red")[1].get(tree) or {}
-    probes = held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1
+    # A repeat is kept as the whole ladder climbed: a later pass, after a PR's fixer took the
+    # red or a crash came before its repair was noted, finds the target's own red, never a pause.
+    probes = (len(turns.TRANSIENT_BACKOFF) + 1 if again else
+              held.get("probes", 0) + 1 if (held.get("probe") or {}).get("sha") == tip else 1)
     red = {"probe": {"command": suite, "piece": piece, "check": f"{suite}  # once", "sha": tip,
                      "text": prompts.red_target_text(suite, upstream, tip, probe, directory,
                                                      piece=piece)},
@@ -283,8 +293,9 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     note(turn, [], directory.name, red={tree: red})
     what = f"its piece AK_SHARD={piece}" if piece else "its suite"
     if probes > len(turns.TRANSIENT_BACKOFF):
-        log(f"{upstream} at {tip[:12]} fails {what} alone through the retry ladder: the "
-            "target's own red, repaired")
+        how = (f"{' '.join(again)} of {what} again, run alone" if again else
+               f"{what} alone through the retry ladder")
+        log(f"{upstream} at {tip[:12]} fails {how}: the target's own red, repaired")
         _repair(turn, directory, state, tree, red, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "
@@ -491,8 +502,9 @@ def red_piece(cmds, marks, pieces, suite, ok):
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
            only=None):
     """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
-    it, the tests that piece named that failed again alone or None); with `shard` every
-    command runs as that one piece alone, on one turn, and with `only` just those tests."""
+    it, the tests that piece named that failed again alone on the pinned commit, or None); with
+    `shard` every command runs as that one piece alone, on one turn, and with `only` just those
+    tests."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -510,6 +522,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     if (not clean or gitcall.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
+        confirmed.clear()   # a test that failed on whatever it moved to says nothing of the pin
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
