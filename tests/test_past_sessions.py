@@ -178,18 +178,58 @@ class Lines(unittest.TestCase):
 
 
 class Layout(Sandbox):
+    def test_a_highlighted_past_seat_marks_only_its_first_line(self):
+        with patch.object(terminal, "width", return_value=20), \
+                patch.object(terminal, "away", return_value=False), \
+                patch.object(orch, "age", return_value="120d"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            for utf8, mark in ((True, "›"), (False, ">")):
+                for depth in (0, 24):
+                    with self.subTest(utf8=utf8, depth=depth), \
+                            patch.object(terminal, "utf8", return_value=utf8), \
+                            patch.object(terminal, "colour_depth", return_value=depth):
+                        lines, places = menu.past_body([
+                            (number, {"name": name, "repo": None, "closed": 1})
+                            for number, name in ((12, "fix-api"), (13, "fix-web"))],
+                            at="fix-api")
+                        rows = [lines[n] for n in places]
+                        plain = [terminal.plain(row, True) for row in rows]
+                        self.assertTrue(plain[0].startswith(mark), plain)
+                        self.assertEqual(sum(row.startswith(mark) for row in plain), 1, plain)
+                        self.assertEqual(plain[1], "    stopped 120d ago")
+                        if depth:
+                            self.assertTrue(all(row.startswith("\033[1m") for row in rows[:2]))
+                            self.assertFalse(any(row.startswith("\033[1m") for row in rows[2:]))
+
+    def test_a_stopped_age_below_the_row_leaves_room_for_the_name(self):
+        with patch.object(terminal, "width", return_value=20), \
+                patch.object(orch, "age", return_value="120d"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            for number, model in ((1, None), (12, None), (12, "astra"), (1234, None)):
+                with self.subTest(number=number, model=model):
+                    lines, places = menu.past_body([
+                        (number, {"name": "fix-api", "repo": None, "closed": 1})],
+                        models={"fix-api": model})
+                    rows = [terminal.plain(lines[n]) for n in places]
+                    self.assertIn("fix-api", rows[0])
+                    self.assertEqual(rows[1:], ["stopped 120d ago"])
+                    self.assertEqual(list(places.values()), [(("row", "fix-api"), [])] * 2)
+                    self.assertTrue(all(terminal.cells(line) <= 20 for line in lines))
+
     def test_the_stopped_age_stays_whole_on_small_terminals(self):
         with patch.object(orch, "age", return_value="120d"), \
                 patch.object(orch, "listed", dict), \
                 patch.object(orch, "checkout_of", return_value=None):
-            for width in (24, 25, 26, 27, 28, 40, 100):
+            for width in (20, 21, 22, 23, 24, 25, 26, 27, 28, 40, 100):
                 for number in (1, 12, 123, 1234):
                     with self.subTest(width=width, number=number), \
                             patch.object(terminal, "width", return_value=width):
                         lines, places = menu.past_body([
                             (number, {"name": "fix-api", "repo": None, "closed": 1})])
-                        row = lines[next(iter(places))]
-                        self.assertIn("stopped 120d ago", terminal.plain(row))
+                        rows = [terminal.plain(lines[n]) for n in places]
+                        self.assertTrue(any("stopped 120d ago" in row for row in rows), rows)
                         self.assertTrue(all(terminal.cells(line) <= width for line in lines))
 
     def test_past_rows_match_the_main_screens_rows(self):
@@ -203,8 +243,8 @@ class Layout(Sandbox):
                 with self.subTest(width=width), \
                         patch.object(terminal, "width", return_value=width):
                     lines, places = menu.past_body([(12, session)], models={"fix-api": "astra"})
-                    main_row = menu.v5o_seat_blocks([info], width)[0][0]
-                    self.assertEqual(lines[next(iter(places))], main_row)
+                    main_rows = menu.v5o_seat_blocks([info], width)[0]
+                    self.assertEqual([lines[n] for n in places], main_rows)
 
 
 if __name__ == "__main__":

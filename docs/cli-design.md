@@ -392,7 +392,8 @@ Fixed columns with two-space gutters, sized once per draw from the rows on
 screen: number, name, orchestrator, state (glyph and word in the state's
 colour), and one last column. Those before the last always fit the screen: the
 name and the orchestrator share what the number and the state leave, the longer
-giving way first, then the state. The last column, the progress line, takes all
+giving way first. If even their shortest columns cannot fit beside the state,
+the state moves below and the labels take the freed space. The last column, the progress line, takes all
 the remaining width; a row with fewer than ten cells left puts it on the indented
 line under the row, so no line runs past the screen.
 Columns use gutters, never ` · `. Never cut inside a
@@ -445,7 +446,7 @@ Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────�
 Under 60 columns a seat row is two lines or more (number, name, orchestrator
 and state, then the last column indented under it). The progress line takes that
 line's room and never more; a line too short for a cell of it beside its count
-shows the count alone. No column ever lands alone on a line.
+shows the count alone.
 
 Example at 40 columns:
 `  1  atoll-fix  fable  ● working`
