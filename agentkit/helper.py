@@ -19,6 +19,7 @@ import tempfile
 from . import config, gitcall, orch
 
 LOST = 255            # ssh's own failure, and tools/helper/mac.sh's for each failure of its own
+LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
 TOOLS = config.REPO / "tools" / "helper"
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
 
@@ -107,13 +108,15 @@ def start(piece_cpus, piece_mem_mb, cwd, log):
                 "" if named else default.removeprefix("origin/"), " ".join(sorted(programs)))
     sent, known = LOST, _known(alias, repo)
     try:
-        if known is not None:
+        while known is not None:
             with tempfile.TemporaryFile() as parcel:
                 _parcel(cwd, away.default, known, parcel)
                 parcel.seek(0)
                 # a new recipe's build fetches packages, a first suite sends the whole history
                 sent = _remote(alias, "prepare", away.key, image(), repo, stdin=parcel,
                                timeout=1800).returncode
+            # The copy went since `known` answered: the whole history, once.
+            known = [] if known and sent == LACKS else None
     except (OSError, subprocess.SubprocessError):
         sent = LOST
     if sent:

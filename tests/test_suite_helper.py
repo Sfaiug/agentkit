@@ -5,6 +5,7 @@ or fails runs again here, and decides. Offline: a fake `ssh` plays the helper, f
 from contextlib import ExitStack
 import io
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -281,6 +282,28 @@ class HelperMac(unittest.TestCase):
         self.git("-C", str(mirror), "gc", "-q", "--prune=now")
         self.assertNotEqual(subprocess.run(["git", "-C", str(mirror), "cat-file", "-e", tested],
                                            capture_output=True).returncode, 0)
+
+    def test_a_suite_whose_history_there_went_since_known_sends_it_all(self):
+        (self.fake / f"has-{helper.image()}").touch()
+        self.git("-C", str(self.repo), "symbolic-ref", "refs/remotes/origin/HEAD",
+                 "refs/remotes/origin/main")
+        known, logs = helper._known, []
+
+        def gone(alias, repo):    # another suite deletes the copy once it has answered
+            answer = known(alias, repo)
+            shutil.rmtree(self.root / "mirrors" / repo, ignore_errors=True)
+            return answer
+
+        with patch.object(helper.config, "suite_helper", return_value="acme-mac"), \
+                patch.object(helper, "room", return_value=(1, 2, 512)), \
+                patch.object(helper.orch, "agent_programs", return_value=[]), \
+                patch.object(helper, "_known", side_effect=gone):
+            for _ in range(2):
+                away = helper.start(1, 512, self.repo, logs.append)
+                self.assertIsNotNone(away, logs)
+                helper.finish(away)
+                self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "merged")
+                self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
 
     def test_a_piece_waits_while_another_suite_holds_the_mac(self):
         (self.root / "mirrors" / "acme").mkdir(parents=True)

@@ -22,13 +22,12 @@ probe)
   echo "free_percent $(memory_pressure -Q | awk -F': *' '/free percentage/ {print $2 + 0}')" ;;
 known)     # REPO: the commit its history here reaches, if any. A suite asks just before its
   # `prepare`, so this marks the history in use: no other suite's `prepare` deletes it for a week.
-  [ ! -d "$MIRRORS/$2" ] || touch "$MIRRORS/$2"
+  touch -c "$MIRRORS/$2"
   git -C "$MIRRORS/$2" rev-parse -q --verify refs/known/base 2>/dev/null; exit 0 ;;
 prepare)   # KEY IMAGE REPO, the parcel on stdin
   mkdir -p "$ROOT/$2" && tar -x -C "$ROOT/$2" || exit 255
-  # Dead callers' trees go after a day, a repository's history unused (`known`) for a week.
+  # Dead callers' trees go after a day.
   find "$ROOT" -mindepth 1 -maxdepth 1 ! -name mirrors -mtime +1 -exec rm -rf {} + 2>/dev/null
-  find "$MIRRORS" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} + 2>/dev/null
   container image inspect "$3" >/dev/null 2>&1 || {
     cd "$ROOT/$2/image" || exit 255
     base=$(awk '$1 == "FROM" {print $2; exit}' Containerfile)
@@ -45,9 +44,12 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
     [ "$built" = 0 ] || exit 255
   }
   claim "$2" held || exit 255
-  # The history arrives once the suite holds the Mac, so one suite writes it at a time. Only
-  # what refs reach stays, git's gc dropping the rest two weeks on: each suite's own commits'
-  # while its directory lives, and the last suite's origin branch's, for `known`.
+  # The history arrives once the suite holds the Mac, so one suite writes the copies at a time;
+  # one unused (`known`) for a week goes. Refs keep each suite's own commits while its directory
+  # lives and the last suite's origin branch, for `known`; git's gc drops the rest two weeks on.
+  # A copy gone since `known` answered lacks what the parcel left out: exit 3, and helper.py
+  # sends the whole history.
+  find "$MIRRORS" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} + 2>/dev/null
   M="$MIRRORS/$4"
   read -r tree base <"$ROOT/$2/heads" &&
     { [ -d "$M" ] || git init -q --bare "$M"; } &&
@@ -56,7 +58,7 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
     rm -f "$ROOT/$2/repo.bundle" && git -C "$M" cat-file -e "$tree^{commit}" &&
     git -C "$M" update-ref "refs/suites/$2/tree" "$tree" &&
     { [ -z "$base" ] || { git -C "$M" update-ref "refs/suites/$2/base" "$base" &&
-      git -C "$M" update-ref refs/known/base "$base"; }; } || exit 255
+      git -C "$M" update-ref refs/known/base "$base"; }; } || exit 3
   git -C "$M" for-each-ref --format='%(refname:lstrip=2)' refs/suites | while read -r ref; do
     [ -d "$ROOT/${ref%/*}" ] || git -C "$M" update-ref -d "refs/suites/$ref"; done
   git -C "$M" -c gc.autoDetach=false gc --auto --quiet >/dev/null 2>&1 ;;
