@@ -1,6 +1,7 @@
 """Run the static checks, then both landing parts and the gate's contract together, keeping
 progress live and outputs separate. Each test that fails is named in the file AK_FAILED names;
-with AK_ONLY set only the tests its file lists run, whatever the share (suite_shares.listed)."""
+with AK_ONLY set only the tests its file lists run, whatever the share (suite_shares.listed),
+each named in the file AK_RAN names."""
 
 import os
 import shutil
@@ -19,7 +20,9 @@ if only is not None:
 
 def part(*command):
     """`command`, whose last word is its test's ID, or one that runs nothing when AK_ONLY lists
-    tests and not that one."""
+    tests and not that one; a listed one is named as run."""
+    if only is not None and command[-1] in only:
+        name_failed([command[-1]], "AK_RAN")
     return command if only is None or command[-1] in only else (sys.executable, "-c", "")
 
 
