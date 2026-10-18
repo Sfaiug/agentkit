@@ -197,7 +197,7 @@ class SessionModels(Sandbox):
     def test_off_the_models_the_line_keeps_its_place_empty(self):
         name = menu.config_models(self.cfg)[0]
         on, on_places = self.body(("model", name))
-        off, off_places = self.body(("row", "Discord"), ("model", name))
+        off, off_places = self.body(("row", "Discord"), (("model", name),))
         opened = [n for n, (at, cells) in on_places.items() if at == ("model", name) and not cells]
         self.assertTrue(opened and all(terminal.plain(on[n]) for n in opened))
         self.assertEqual([off[n] for n in opened], [""] * len(opened))

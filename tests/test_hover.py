@@ -229,14 +229,16 @@ class Screens(Sandbox):
         last = self.matrix(move(*providers) + ESC)[-1]
         self.assertOneHighlight(last, "Providers")
         self.assertEqual(at(last, "Providers"), providers)
-        # and while the pointer brings it to a model under it: a click where the pointer found
-        # astra's execute mark flips that mark
+        # and while the pointer brings it to a model under it: that model opens its line where
+        # it is, and a click where the pointer found astra's execute mark flips that mark
         label = at(first, "astra")
         mark = (texts(first)[label[1] - 1].index("□", label[0]) + 1, label[1])
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*mark).encode()
         with patch.object(menu, "session_mark", return_value="") as flip:
-            self.matrix(move(*mark), click + ESC)
+            last = self.matrix(move(*mark), click + ESC)[-1]
         flip.assert_called_once_with(self.cfg, "fix-api", self.selected, "astra", 1, {})
+        self.assertEqual(at(last, "astra"), label)
+        self.assertEqual(texts(last)[label[1]].strip(), "runs on ChatGPT")
 
     def test_moves_sent_while_the_rule_glides_are_one_draw(self):
         checkout = self.root / "code" / "ACME"

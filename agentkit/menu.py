@@ -3065,9 +3065,9 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     A model `providers` read as spent is dim, its reset note beside it or, on a
     phone, under it.  The highlighted model opens one line under its row (`model_said`),
     coming up as the highlight comes to it (`motion.fading`): what it runs on, as many lines as
-    the tallest any model opens.  `opened`, a row, is the model whose line is open
-    (config_matrix): with the highlight off it the line keeps its place, empty, so nothing
-    under it moves.  Under them `+ add a model`, `Providers`
+    the tallest any model opens.  `opened` are the rows of the models whose lines are drawn
+    (config_matrix): each but the highlighted one's keeps its place, empty, so nothing under it
+    moves.  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
@@ -3111,7 +3111,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     # the lines each model opens once highlighted, wrapped on a phone, every model's as many as
     # the tallest's: the rows under them stay where they are as the line goes from model to model
     opening = {name: terminal.wrap(model_said(cfg, name), room - 4) for name in names}
-    opens, opened = max(map(len, opening.values())), opened or at
+    opens, opened = max(map(len, opening.values())), opened or (at,)
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(cfg, provider))
         for name in (name for name in names if models[name]["provider"] == provider):
@@ -3160,8 +3160,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 places[len(lines)] = (("model", name), cells if number == 0 else [])
                 lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
                              else part)
-            said = opening[name] if at == opened else []      # off the models: empty, in place
-            for part in (said + [""] * opens)[:opens] if opened == ("model", name) else ():
+            said = opening[name] if at == ("model", name) else []    # the rest: empty, in place
+            for part in (said + [""] * opens)[:opens] if ("model", name) in opened else ():
                 places[len(lines)] = (("model", name), [])
                 lines.append(("    " + terminal.styled(part, "dim")).rstrip())
                 if moves is not None:
@@ -3564,18 +3564,21 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top, clock, opened, was = None, columns[1], 0, motion.Clock(), None, None
+    here, column, top, clock, opened, was = None, columns[1], 0, motion.Clock(), (), None
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
-        # the line keeps its place, empty, off the models, while the highlight stays on its row
-        # and on a row under it the pointer brought it to, so no row moves from under the pointer
-        kept = opened in rows and (here[0] == "row" or here == was or terminal.pointer()
-                                   is not None and rows.index(opened) < rows.index(here))
-        opened = opened if kept else here if here[0] == "model" else None
+        # the highlighted model's line opens under it; those above it stay, empty, where the
+        # pointer left them or the highlight stays on its row, and all of them off the models,
+        # so no row moves from under the pointer: the keys bringing it to another row close them
+        opened = tuple(row for row in opened if row in rows)
+        if here[0] == "model":
+            keyed = terminal.pointer() is None and here != was
+            opened = tuple(row for row in opened if not keyed
+                           and rows.index(row) < rows.index(here)) + (here,)
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # up from Providers' acts onto a row without marks
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
