@@ -842,15 +842,21 @@ def _paint(text, kind, tmux=False):
     return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
-def tips(text, info):
-    """Where, in `text`, a line of a working seat's block drawn plain, what breathes while it
-    works: the tip of its progress line, on its row or the one under it (`v5o_seat_blocks`), and
-    on the line its row opens each moving task's square of the stage it is at (`seat_tasks`), in
-    the order `squares` draws them.  Without UTF-8 nothing does."""
-    tip = max(text.rfind("━"), text.rfind("╸"))
-    return ([tip] if info.get("bar") and tip >= 0 else []) + [
-        group.start() + stage for group, (stage, state)
-        in zip(re.finditer("[■□]{3}", text), info.get("tasks") or []) if state == "moving"]
+def tips(line):
+    """Plain-text offsets of the rendered progress tip and moving task-stage squares.
+
+    Read their working-colour spans before highlighting or provider colouring: draft glyphs
+    are plain, and waiting or failed squares have other colours. At 256 colours several bar
+    cells can share the tip's colour, so only the last one breathes.
+    """
+    if terminal.colour_depth() <= 8:
+        return []
+    tip = max(line.rfind(terminal.styled(char, "working")) for char in ("━", "╸"))
+    found = [(tip, 0)] if tip >= 0 else []
+    for filled in ("■", "■■", "■■■"):
+        found += [(group.start(), len(filled) - 1)
+                  for group in re.finditer(re.escape(terminal.styled(filled, "working")), line)]
+    return [len(terminal.ANSI.sub("", line[:start])) + offset for start, offset in found]
 
 
 def squares(tasks, room=float("inf"), tmux=False, most=None):
@@ -1508,6 +1514,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
         lit = owned and name is not None and name == cursor and not terminal.away()
+        text, word = terminal.ANSI.sub("", line), words.get(name)
+        if word == "working":
+            for tip in tips(line):
+                breaths.append(((len(out) + 1, terminal.cells(text[:tip]) + 1), text[tip], lit))
         seat = seats.get(name) if name != above else None
         # as its block keeps it, with no trailing space (`v5o_seat_blocks`)
         head = seat and seat.get("runs_on") and _head(seat, widths).rstrip()
@@ -1523,12 +1533,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
-        text, word = terminal.ANSI.sub("", line), words.get(name)
-        if word == "working":
-            # what moves while a model works: the tip of its line, and on the line its row
-            # opens each moving task's square, all breathing in the dot's phase
-            for tip in tips(text, seats[name]):
-                breaths.append(((len(out), terminal.cells(text[:tip]) + 1), text[tip], lit))
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
             moves.append((("word", name), word, (len(out), first), lit))
