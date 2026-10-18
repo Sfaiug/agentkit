@@ -61,9 +61,9 @@ class AsWritten(Sandbox):
         for word in ("needs you", "done"):
             line_two = statusbar.whys({"crew": ([SAID], []), "tasks": []})
             statusbar._write("fix-api", SAID, word, None, self.cfg, line_two)
-            top, bottom = self.screen(SAID + " builds")
+            top, bottom = self.screen(SAID + " ⚒")
             self.assertIn("   " + SAID, top, word)
-            self.assertIn("  " + SAID + " builds", bottom, word)
+            self.assertIn("  " + SAID + " ⚒", bottom, word)
 
     def test_b_a_tasks_bar_keeps_every_cell(self):
         for lang in ("C.UTF-8", "C"):
