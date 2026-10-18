@@ -1,8 +1,9 @@
-"""`idle` is a seat's fourth word: drawn quiet, sorted last in its project, counted nowhere.
+"""`idle` is a seat's fourth word: drawn quiet, keeping its place, counted nowhere.
 
 A seat with nothing running, asked or owed reads `idle` (the owner's rule of 14 Oct 2026).
 Here: every screen that draws a word draws it, as `○ idle` in the dim tone (`o idle` without
-UTF-8); a project's seats sort it last; the top line and the seat bars' tallies leave it out;
+UTF-8); a seat keeps its place in its project whatever its word, so its number stays; the top
+line and the seat bars' tallies leave it out;
 and the hover sentence every word has is there for it too, so nothing that looks a word up
 raises on it.  Offline, no tmux.
 """
@@ -26,7 +27,7 @@ class IdleWord(unittest.TestCase):
             self.assertEqual(terminal.state_text("idle"), "o idle")
         self.assertEqual(terminal.state_colour("idle"), "dim")
 
-    def test_it_sorts_last_and_no_top_line_counts_it(self):
+    def test_it_keeps_its_place_and_no_top_line_counts_it(self):
         words = {"acme-a": "idle", "acme-b": "done", "acme-c": "needs you", "acme-d": "working"}
 
         def info(cfg, number, session, *args):
@@ -39,7 +40,7 @@ class IdleWord(unittest.TestCase):
             ordered, _, needing, _ = menu.v5o_groups(None, [{"name": name} for name in words],
                                                      records=[], now=1000)
         self.assertEqual([seat["word"] for seat in ordered[0]["seats"]],
-                         ["needs you", "working", "done", "idle"])
+                         ["idle", "done", "needs you", "working"])
         self.assertEqual(needing, 1)
         self.assertEqual(menu.rollup(["idle", "done"]), "done")
         self.assertEqual(menu.rollup(["idle"]), "idle")

@@ -1532,8 +1532,8 @@ def listing(reconcile=True):
 
     `reconcile=False` is the reading one: deciding what a seat is may not rewrite its record
     on the way, so it takes the records exactly as they stand and infers no project for an old
-    one.  The names and their order are the same either way, which is what keeps a seat's
-    number the same on every screen.
+    one.  The names and their order (`numbered`) are the same either way, which is what keeps a
+    seat's number the same on every screen.
     """
     found = sessions()
     kept = records() if reconcile else config.session_records()
@@ -1565,7 +1565,30 @@ def listing(reconcile=True):
                 {name: record.get("repo") for name, record in kept.items()})
     for session in found:
         session["repo"] = projects.get(session["name"])
-    return sorted(found, key=lambda s: s["name"])
+    return numbered(found, kept)
+
+
+def numbered(found, kept):
+    """`found` in the order its numbers go, 1 first: the seats the owner has not stopped as the
+    menu lists them -- projects by name, and under each its seats in the order they were made --
+    then the stopped ones, oldest first, for the past screen.  No seat's place hangs on its word
+    or on which other seats there are, so its number is its place on the screen, and one made,
+    stopped or removed moves only the ones after it.  When a seat was made is its record's, from
+    its first launch (`kept`): tmux's own is when its instance last started."""
+    made = {s["name"]: (kept.get(s["name"]) or {}).get("created") or s.get("created") or 0
+            for s in found}
+    homes = {}
+
+    def home(session):            # the project the menu files the seat under, by its heading
+        repo = session.get("repo")
+        if repo not in homes:
+            checkout = checkout_of(repo)
+            homes[repo] = project_name(checkout), str(checkout or "")
+        return homes[repo]
+    live = sorted((s for s in found if not s.get("closed")),
+                  key=lambda s: (home(s), made[s["name"]], s["name"]))
+    past = sorted((s for s in found if s.get("closed")), key=lambda s: (made[s["name"]], s["name"]))
+    return live + past
 
 
 def checkouts():
@@ -1722,10 +1745,14 @@ def file_projectless(found, runs):
                 orphans.get(transitions.launched_session(state), []).append(state)
             except config.Error:
                 continue
+    filed = False
     for session in found:
         states = orphans.get(session["name"])
         if states and handback.session_vote(session["name"], states):
             session["repo"] = handback.join_session_project(session["name"], states)
+            filed = True
+    if filed:                     # a seat filed takes its number from its place in its project
+        found[:] = numbered(found, config.session_records())
 
 
 BACK = object()  # Esc at a new-seat question: back to the menu, nothing created

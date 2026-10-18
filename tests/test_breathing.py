@@ -161,10 +161,10 @@ class Breathing(Sandbox):
         answered = next(at for _, at, _ in waits if at > pressed["at"])
         self.assertLess(answered - pressed["at"], 0.1)
         self.assertTrue(all(timeout <= motion.FRAME for timeout, _, _ in waits[1:]))
-        # and the frame it answers with is the highlight moved: `›` on the first working seat
+        # and the frame it answers with is the highlight moved: `›` a row down, on the second seat
         screen = waits[-1][2]
         lit = [terminal.ANSI.sub("", line) for line in screen.split("\n") if "›" in line]
-        self.assertIn(" fix-api ", lit[0])
+        self.assertIn(" tidy-docs ", lit[0])
 
     def test_the_second_digit_and_the_stop_question_wait_breathing(self):
         self.words.update({f"zz-{n}": "done" for n in range(7)})     # ten seats: `1` may be 1x

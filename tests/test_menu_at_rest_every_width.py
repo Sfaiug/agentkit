@@ -146,13 +146,13 @@ class V5oMenu(Sandbox):
             pagination = menu.draw(self.cfg, self.seats, keys, page)
         return out.getvalue(), pagination
 
-    def test_v5o_a_needs_line_and_needing_first(self):
+    def test_v5o_a_each_needing_row_says_so_in_its_place(self):
         screen, _ = self.draw(100, 30)
         # Each needing row says its own word, and no other line counts them.
         self.assertEqual(len(re.findall(r"need you|needs you", screen)), 2)
-        # Needing rows first: the needing projects sort before the quiet one.
-        self.assertLess(screen.index("\nagentkit\n"), screen.index("\natoll\n"))
-        self.assertLess(screen.index("\nno project\n"), screen.index("\natoll\n"))
+        # Projects keep the order of their first seat, needing or not.
+        self.assertLess(screen.index("\natoll\n"), screen.index("\nagentkit\n"))
+        self.assertLess(screen.index("\nagentkit\n"), screen.index("\nno project\n"))
         # Each needing row carries its number and its one-line reason.
         self.assertRegex(screen, r"3\s+herdr-quiet\s+fable\s+! needs you\s+session closed: press 3")
         self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+fable\s+● working\s*$", re.M))
@@ -265,7 +265,7 @@ class V5oMenu(Sandbox):
         # Only the checkouts under ~/code, and the fallback for a seat with no repo.
         headings = [line for line in screen.splitlines()
                     if line in ("atoll", "agentkit", "no project")]
-        self.assertEqual(headings, ["agentkit", "no project", "atoll"])
+        self.assertEqual(headings, ["atoll", "agentkit", "no project"])
 
     def test_v5o_f_forbidden_words_absent(self):
         for width in (40, 100, 170):

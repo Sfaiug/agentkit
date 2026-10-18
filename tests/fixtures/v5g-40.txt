@@ -9,9 +9,9 @@ agentkit                           14:02
 
 
 atoll
+  1  atoll-fix    fable  ○ idle
   2  atoll-proxy  fable  ! needs you
      session closed: press 2 to reopen
-  1  atoll-fix    fable  ○ idle
 
 agentkit
   3  herdr        fable  ● working

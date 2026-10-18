@@ -209,9 +209,9 @@ class CloseAndInfo(unittest.TestCase):
         self.assertEqual(menu.text().count("<stopped"), 1)
 
     def test_x_on_a_working_seat_asks_under_its_row_and_esc_keeps(self):
-        menu = Menu(self, {"alpha": "working", "beta": "needs you", "omega": "done"})
+        menu = Menu(self, {"beta": "needs you", "alpha": "working", "omega": "done"})
         lines = menu.frame()
-        self.assertIn("beta", menu.highlighted(lines))      # needs you sorts first
+        self.assertIn("beta", menu.highlighted(lines))      # the first seat, where it starts
         mark = menu.mark()
         menu.send(b"x")
         asked = menu.frame(keys="esc back", after=mark)

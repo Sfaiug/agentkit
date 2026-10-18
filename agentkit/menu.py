@@ -642,13 +642,14 @@ def seat_row_state(cfg, session, look=True, **facts):
     one function. Drawing writes no word of its own; the tick is what writes that down.
     Without `look` the row is the word as recorded -- what whoever looked last wrote to the
     record and the bar together -- and nothing is captured or written; a seat nobody has
-    recorded yet is decided on what there is, until a look records it.
+    recorded yet is decided on what there is, until a look records it, and so is a gone one,
+    which has no screen to look at and whose reason names the number it is listed by now.
     """
     from . import watch
     if look:
         return watch.announce_state(session, cfg=cfg, look=True, **facts)
     recorded = watch.seat_read(session["name"])
-    if recorded.get("word"):
+    if recorded.get("word") and not any(session.get(key) for key in orch.CLOSED):
         return {"word": recorded["word"], "reason": recorded.get("reason"),
                 "unsent": recorded.get("unsent"), "since": recorded.get("word_since")}
     return seat_state(cfg, session, **facts)
@@ -1082,7 +1083,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
 
 
 def v5o_groups(cfg, found, records=None, now=None, look=True):
-    """The projects and their seats, needing projects first, seats by state within.
+    """The projects and their seats, in the order their numbers go (`orch.numbered`).
 
     A project is a checkout under ~/code, or agentkit's own at ~/agentkit -- one of
     `orch.checkouts()` -- and a seat is filed under the one its repo *is* (`orch.checkout_of`):
@@ -1093,14 +1094,12 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     A run makes no project and no row: no worktree, no throwaway repo under
     ~/.agentkit/tmp and no run id is ever a heading. A project with no offered seat is not
     listed, whatever its AGENTS.md says; one whose AGENTS.md names its feature switches carries
-    `switches`, the rows its `list` last answered ([] before any). Under a heading seats sort
-    needs you, then working, then
-    done, then idle, then by name; numbers stay global by name.
+    `switches`, the rows its `list` last answered ([] before any).
 
     `found` is what `orch.listing` offers -- live seats and gone ones with a
-    conversation to resume into -- and every one of them keeps its global number; a seat
-    the owner stopped (`closed`, `orch.ghost`) keeps it on the past screen (`show_past`) and
-    has no row under its project.
+    conversation to resume into -- in its order, so every seat's number is its place on the
+    screen; a seat the owner stopped (`closed`, `orch.ghost`) comes after them, numbered on
+    the past screen (`show_past`), and has no row under its project.
     """
     at = time.time() if now is None else now
     records = run_records() if records is None else list(records)
@@ -1116,7 +1115,7 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     mine = transitions.runs_by_seat(records)
     for number, session in enumerate(found, 1):
         if session.get("closed"):
-            continue          # stopped: its number is kept for the past screen
+            continue          # stopped: numbered after every seat with a row, on the past screen
         infos.append(v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache,
                                    at, index, None, look, mine))
     # Grouped by the checkout the seat's repo is, so a project can never be listed
@@ -1132,12 +1131,10 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
         if str(checkout) in groups and switches_command(checkout):
             groups[str(checkout)]["switches"] = switches(checkout) or []
     for project in groups.values():
-        project["seats"].sort(key=lambda info: (STATE_ORDER.index(info["word"]), info["name"]))
         project["needing"] = sum(1 for info in project["seats"] if info["word"] == "needs you")
         project["has_needs"] = bool(project["needing"])
         project["word"] = rollup([info["word"] for info in project["seats"]])
-    ordered = sorted(groups.values(),
-                     key=lambda project: (not project["has_needs"], project["name"]))
+    ordered = list(groups.values())       # each where its first seat is
     total_needing = sum(project["needing"] for project in ordered)
     # The top line counts the seats whose word is `needs you`, each once, and says so once.
     return ordered, infos, total_needing, silent_map
@@ -1146,10 +1143,9 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
 def v5o_header(project, term_width):
     """`<project>`, the checkout's basename in bold.
 
-    How many need the owner is said by their rows, and needing projects sort first, which is what
-    carries the eye down to one.  A project naming its feature switches says how many are
-    hidden -- off for everyone -- dim at the right, `23 hidden features`, and leaves room for
-    the highlight's mark in front of it.
+    How many need the owner is said by their rows.  A project naming its feature switches says
+    how many are hidden -- off for everyone -- dim at the right, `23 hidden features`, and leaves
+    room for the highlight's mark in front of it.
     """
     room = terminal.layout_width(term_width)
     hidden = sum(1 for row in project.get("switches", ()) if not row.get("everyone"))
