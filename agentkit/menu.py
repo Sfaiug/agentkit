@@ -842,16 +842,15 @@ def _paint(text, kind, tmux=False):
     return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
-def tips(text, info, head):
-    """Where, in `text`, a working seat's line drawn plain, what breathes while it works: on its
-    row (`head`), the tip of its progress line; on the line its row opens, each moving task's
-    square of the stage it is at (`seat_tasks`), in the order `squares` draws them.  Without
-    UTF-8 nothing does."""
-    if head:
-        tip = max(text.rfind("━"), text.rfind("╸"))
-        return [tip] if info.get("bar") and tip >= 0 else []
-    return [group.start() + stage for group, (stage, state)
-            in zip(re.finditer("[■□]{3}", text), info.get("tasks") or []) if state == "moving"]
+def tips(text, info):
+    """Where, in `text`, a line of a working seat's block drawn plain, what breathes while it
+    works: the tip of its progress line, on its row or the one under it (`v5o_seat_blocks`), and
+    on the line its row opens each moving task's square of the stage it is at (`seat_tasks`), in
+    the order `squares` draws them.  Without UTF-8 nothing does."""
+    tip = max(text.rfind("━"), text.rfind("╸"))
+    return ([tip] if info.get("bar") and tip >= 0 else []) + [
+        group.start() + stage for group, (stage, state)
+        in zip(re.finditer("[■□]{3}", text), info.get("tasks") or []) if state == "moving"]
 
 
 def squares(tasks, room=float("inf"), tmux=False, most=None):
@@ -1525,9 +1524,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         above = name
         text, word = terminal.ANSI.sub("", line), words.get(name)
         if word == "working":
-            # what moves while a model works: the tip of its row's line, and on the line its
-            # row opens each moving task's square, all breathing in the dot's phase
-            for tip in tips(text, seats[name], seat is not None):
+            # what moves while a model works: the tip of its line, and on the line its row
+            # opens each moving task's square, all breathing in the dot's phase
+            for tip in tips(text, seats[name]):
                 breaths.append(((len(out), terminal.cells(text[:tip]) + 1), text[tip], lit))
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1

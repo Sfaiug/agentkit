@@ -43,9 +43,9 @@ class Breathes(Sandbox):
                         run("g2", "acme-api", state="queued"),
                         run("g3", "acme-docs", state="running", step="executor")]
 
-    def drawn(self, cursor):
+    def drawn(self, cursor, width=100):
         clock = motion.Clock()
-        with patch.object(terminal, "width", return_value=100), \
+        with patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
             menu.draw(self.cfg, self.seats, menu.KEYS, 0, cursor, {}, look=False,
@@ -74,6 +74,14 @@ class Breathes(Sandbox):
         # a seat that needs you holds its line still
         still = self.cell(lines, lambda line: " acme-docs " in line, "━")
         self.assertNotIn(still, clock.cells)
+
+    def test_a_tip_on_the_line_under_a_narrow_row_breathes(self):
+        for width, tip in ((59, "━"), (40, "╸")):
+            lines, clock = self.drawn("acme-api", width)
+            row = self.cell(lines, lambda line: " acme-api " in line, "●")[0] + 1
+            line = lines[row - 1]
+            self.assertRegex(line, f"^ +━*{tip}─+ 2 of 4$")
+            self.assertIn((row, terminal.cells(line[:line.rfind(tip)]) + 1), clock.cells)
 
     def test_each_breathes_in_the_dots_phase(self):
         lines, clock = self.drawn("acme-api")
