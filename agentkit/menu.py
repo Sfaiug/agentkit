@@ -2156,20 +2156,21 @@ def smoke_run(state, resolved=None):
             continue
         if value not in resolved:
             try:
-                real = os.path.realpath(os.path.expanduser(value))
+                path = os.path.expanduser(value)
+                real = os.path.realpath(path)
             except (OSError, ValueError):
                 real = ""
             resolved[value] = (real.startswith(resolved[None])
                                and real[len(resolved[None]):].startswith("smoke-")
-                               and not looped(real))
+                               and not looped(path) and not looped(real))
         if resolved[value]:
             return True
     return False
 
 
 def looped(path):
-    """Whether `path` is a link that loops, which `os.path.realpath` leaves half resolved: no
-    path at all, so no run of the suite's (`smoke_run`), as pathlib's resolve said."""
+    """Whether stat finds a loop: `realpath` can erase `loop/..` or cross a missing `gone/..`,
+    so `smoke_run` checks both spellings before calling a run the suite's."""
     try:
         os.stat(path)
     except OSError as error:

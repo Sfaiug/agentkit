@@ -57,10 +57,26 @@ class SkipsKnownWork(Sandbox):
         self.assertEqual(resolve.call_count, 1 + 20 + 1 + 2)    # the sandbox, then each path
 
     def test_a_link_that_loops_in_the_sandbox_names_no_run_of_the_suite_s(self):
-        (config.TMP / "smoke-3").mkdir(parents=True)
-        (config.TMP / "smoke-3" / "loop").symlink_to("loop")
-        self.assertFalse(menu.smoke_run({"task": str(config.TMP / "smoke-3" / "loop"),
-                                         "repo": "/c/acme"}))
+        smoke = config.TMP / "smoke-3"
+        smoke.mkdir(parents=True)
+        (smoke / "loop").symlink_to("loop")
+        for path in (smoke / "loop", smoke / "gone" / ".." / "loop"):
+            for key in ("task", "repo"):
+                with self.subTest(path=path, key=key):
+                    self.assertFalse(menu.smoke_run({key: str(path)}))
+
+    def test_a_parent_step_cannot_erase_a_loop_in_an_owner_s_task_link(self):
+        smoke = config.TMP / "smoke-3"
+        smoke.mkdir(parents=True)
+        (smoke / "task.md").write_text("# acme\n")
+        (smoke / "loop").symlink_to("loop")
+        target = str(smoke / "loop") + "/../task.md"
+        task = self.root / "task.md"
+        task.symlink_to(target)
+        for value in (target, str(task), "~/task.md"):
+            for key in ("task", "repo"):
+                with self.subTest(path=value, key=key):
+                    self.assertFalse(menu.smoke_run({key: value}))
 
     def test_filing_follows_each_seat_s_renames_once(self):
         runs = [{"launched_session": name, "repo": "/c/acme"}
