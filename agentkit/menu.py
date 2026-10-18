@@ -1348,7 +1348,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     under the grid says the rest of it (`usage_detail`).  The highlighted seat's line opens
     under it only while the owner points at it (`pointing`: the pointer on it, or ↑/↓ moved
     there since the pointer last was), and closes once the pointer is on no row
-    (`terminal.away`) or the row moves from under it (`terminal.pointer`).
+    (`terminal.away`) or the row moves from under it (`terminal.pointer`), and stays closed
+    until the pointer or ↑/↓ moves onto a row (`drawn["pointing"]`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
     `x close` while that seat is done; `p past` is on it while a seat the owner stopped is
@@ -1545,7 +1546,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         out.append(standing)
     body = pages[page] if ordered else flat
     top, above = len(out), None
-    under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
+    own_rows = [number for number, (_, name) in enumerate(body, 1) if name == cursor]
+    under = max(own_rows, default=0)
     info = next((info for info in infos if info["name"] == cursor), None)
     indent = " " * (2 + widths["num"] + 2)     # under the name
     lines = (said.get(cursor, []) if opens and under and info and pointing
@@ -1553,8 +1555,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if len(lines) > opens:
         lines = lines[:opens - 1] + [terminal.cut(" ".join(lines[opens - 1:]), said_room)]
     pointer = terminal.pointer()
-    if pointer and not top + under <= pointer.row <= top + under + len(lines):
-        lines = []      # a line above closed and moved the row from under the pointer
+    if pointer and not top + min(own_rows, default=0) <= pointer.row <= top + under + len(lines):
+        lines, pointing = [], False    # a line above closed and moved the row from under it
     if lines:
         body = body[:under] + [(indent + line, cursor) for line in lines] + body[under:]
     opened = range(top + under + 1, top + under + 1 + len(lines))   # the rows they are on
@@ -1727,7 +1729,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         before.update(name for _, name in lines)
     logins = {number: (name, account) for number, ((name, _, _, account), note)
               in enumerate(zip(rows, ending), 1) if note}
-    drawn.update(order=order, cursor=cursor, words=words, rule=not compact,
+    drawn.update(order=order, cursor=cursor, pointing=pointing, words=words, rule=not compact,
                  ask=top + at + 1 if at else None, spots=spots, turns=turns, logins=logins)
     return page, (len(pages) if ordered else 1)
 
@@ -4322,7 +4324,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             listed = keys if drawn is None else f"{move_keys()}   {keys}"
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
                                groups=groups, clock=clock, updating=updating, pointing=pointing)
-            cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
+            if drawn:                     # the seat he sees highlighted, and if he points at it
+                cursor, pointing = drawn["cursor"], drawn["pointing"]
             if start_update:
                 update_first(live, updates=updates)    # detached, after the first frame
                 start_update = False
@@ -4389,6 +4392,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                             page, pages = draw(cfg, found, listed, page, cursor, drawn, own,
                                                look=False, groups=groups, clock=clock,
                                                updating=updating, pointing=pointing)
+                            pointing = drawn["pointing"]
                     if isinstance(more, terminal.Key) and "0" <= more.char[:1] <= "9":
                         key += more.char
                     elif more is not None:

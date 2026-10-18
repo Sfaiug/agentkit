@@ -80,9 +80,23 @@ class OpensOnlyWhilePointed(unittest.TestCase):
         mark = len(menu.text())
         menu.send(move(20, below))                  # its question closes, and acme-web moves up
         lines = menu.frame(after=mark)
-        menu.leave()
         self.assertEqual(lines[below - 1].strip(), "")
         self.assertNotIn(ASKED, "\n".join(lines))
+        mark = len(menu.text())
+        menu.send(b"i")                             # nor does a key that opens nothing
+        lines = menu.frame(after=mark)
+        menu.leave()
+        self.assertNotIn(ASKED, "\n".join(lines))
+
+    def test_the_pointer_on_the_name_of_a_seat_with_a_plan_opens_its_line(self):
+        # at 50 columns its progress line is under its name, and the line opens under both
+        menu = Menu(self, ["acme-plan", "acme-web"], cols=50, asks={"acme-plan": "Deploy?"},
+                    plans={"acme-plan": "- [x] done\n- [ ] todo\n"})
+        lines = menu.frame()
+        self.assertIn("1 of 2", lines[row(lines, "acme-plan")])
+        menu.send(move(20, row(lines, "acme-plan")))
+        menu.frame(lambda lines: "Deploy?" in "\n".join(lines))
+        menu.leave()
 
 
 def keyline(lines):

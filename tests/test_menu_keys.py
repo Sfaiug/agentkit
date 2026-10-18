@@ -77,6 +77,9 @@ orch.taken_names = lambda: set()
 menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
 menu.close_seat = close_seat
 cfg = config.load()
+for name, plan in json.loads(os.environ.get("MENU_KEYS_PLANS") or "{}").items():  # {seat: plan}
+    config.ensure_dirs()
+    config.plan_path(name).write_text(plan)
 saved = os.environ.get("MENU_KEYS_SAVED") == "1"
 if saved:
     config.ensure_dirs()
@@ -92,7 +95,7 @@ class Menu:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
     def __init__(self, case, seats, tick=10.0, slow=0.0, rows=40, cols=100, session_reads=False,
-                 saved=False, own=None, asks=None):
+                 saved=False, own=None, asks=None, plans=None):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix=".ak-test-menu-keys-", dir=REPO)
         case.addCleanup(home.cleanup)
@@ -109,6 +112,7 @@ class Menu:
                     "MENU_KEYS_TICK": str(tick), "MENU_KEYS_SLOW": str(slow),
                     "MENU_KEYS_SAVED": "1" if saved else "0", "MENU_KEYS_OWN": own or "",
                     "MENU_KEYS_ASKS": json.dumps(asks or {}),
+                    "MENU_KEYS_PLANS": json.dumps(plans or {}),
                     "AGENTKIT_SESSION": own or "",
                     "MENU_KEYS_SESSION_READS": "1" if session_reads else "0"})
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
