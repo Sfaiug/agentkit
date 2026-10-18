@@ -38,7 +38,8 @@ from agentkit import config, terminal
 CHILD = r"""
 import os, sys
 sys.path.insert(0, os.environ["ONE_REPO"])
-from agentkit import config, menu, orch, run, usage
+from agentkit import config, menu, motion, orch, run, usage
+motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
 
 cfg = config.load()
 config.save_session(cfg, "fix-api", "opus", ["opus", "astra"],
