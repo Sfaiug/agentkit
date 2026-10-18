@@ -404,14 +404,15 @@ class Clock:
         """A draw's frame: every cell it wrote over still, then each of its `moves` -- (line,
         key, value, start) -- that is news (`look`) started on the screen row `row(line)` puts
         it on, by `start(clock, row, since, before)`, None where it is not shown; the first
-        frame, at the clock's phase so nothing jumps -- or, as it opens, coming up (`rise`)."""
+        frame, at the clock's phase so nothing jumps, and whether the screen up comes up in it
+        as it opens (`rise`)."""
         self.clear()
-        self.rise(terminal.on_screen())
+        rising = self.rise(terminal.on_screen())
         news = self.look({key: value for _, key, value, _ in moves})
         for line, key, _, start in moves:
             if key in news and row(line) is not None:
                 start(self, row(line), *news[key])
-        return self.frame()
+        return self.frame(), rising
 
     def start(self, cells, animation, until=None, effect=None):
         """Animate `cells` by `animation`, a function of the clock's time to what a cell shows,
@@ -449,8 +450,10 @@ class Clock:
         self.cells, self.effects, self.shown, self.rising = {}, {}, {}, None
 
     def forget(self):
-        """Nothing seen: the next draw's values are drawn as they are, no news in them."""
+        """Nothing seen: the next draw's values are drawn as they are, no news in them, and a
+        screen that has opened is up (`rise`)."""
         self.seen, self.touched = None, {}
+        self.opened = None if self.opened is None else -math.inf
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""

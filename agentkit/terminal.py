@@ -578,7 +578,7 @@ def is_sequence(answer):
     return isinstance(answer, str) and answer.startswith(ESC) and answer != ESC
 
 
-def frame(name, body=(), keyline="esc back", filled=0, places=None):
+def frame(name, body=(), keyline="esc back", filled=0, places=None, drawn=None):
     """One sub-screen in the shared frame: the landed docs/cli-design.md chrome,
     then the caller's prompt.
 
@@ -589,14 +589,15 @@ def frame(name, body=(), keyline="esc back", filled=0, places=None):
     so every screen ends the same way.  Over a screen read with the keys it is written over
     in place, the way the menu is (`show`).  `filled` is the rule's (rule_line).  `places`
     are what is where on the body, {its line, from 0: (what, [(first, last, cell)])}: the
-    screen's spots (`under`), the key line's items among them, are what it returns.
+    screen's spots (`under`), the key line's items among them, are what it returns.  `drawn` is
+    a clock's on the screen read with the keys (`show`).
     """
     keys = key_line(keyline)
     lines = [header_line(name, time.strftime("%H:%M")), rule_line(filled=filled), *body, "", *keys]
     spots = {3 + line: place for line, place in (places or {}).items()}
     spots.update(key_spots(keys, 4 + len(body)))
     if taken():
-        show(lines, spots)
+        show(lines, spots, drawn)
         return spots
     if (sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
             and "NO_COLOR" not in os.environ):
@@ -1256,14 +1257,18 @@ def relight(spots=None):
         sys.stdout.flush()
 
 
-def show(lines, spots):
+def show(lines, spots, drawn=None):
     """Write `lines` over the screen up, from its first row, in one write, so moving through it
     never flickers; the cell under the pointer lit (`lit`).  Each line is cleared before it is
     written, never after: a line filling the last column leaves the cursor on it, and a clear
     there erases that column -- the clock's last digit on any terminal no wider than the layout.
+    `drawn()`, a clock's frame over them and whether they come up in it (`motion.Clock.drawn`),
+    goes in the same write: lines that come up are the frame's to write, never first as they are.
     """
-    sys.stdout.write("\033[H" + "".join(f"\033[K{line}\n"
-                                         for line in lit(lines, spots)) + "\033[J")
+    lines = lit(lines, spots)
+    moved, rising = drawn() if drawn else ("", False)
+    sys.stdout.write("\033[H" + ("" if rising else "".join(f"\033[K{line}\n" for line in lines))
+                     + "\033[J" + moved)
     sys.stdout.flush()
 
 

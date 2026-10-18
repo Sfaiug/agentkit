@@ -3505,11 +3505,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     top, room = matrix_page(body, places, here, top, said, keys)
     shown = body[top:top + room]
     spots = terminal.frame(title, shown + said, keys, places={
-        line - top: place for line, place in places.items() if top <= line < top + room})
-    if clock is not None:
-        sys.stdout.write(clock.drawn(moves, lambda line: 3 + line - top
-                                     if top <= line < top + room else None))
-        sys.stdout.flush()
+        line - top: place for line, place in places.items() if top <= line < top + room},
+        drawn=clock and (lambda: clock.drawn(moves, lambda line: 3 + line - top
+                                             if top <= line < top + room else None)))
     began = fetched and fetched()
     if began is not None:     # on the screen's own clock, so what else moves goes on with it
         clock = motion.fetching(clock or motion.Clock(), began)
@@ -4666,6 +4664,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             return
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
+            clock.forget()        # another screen: the page back from it is drawn as it is
             close_seat(here, dry_run)
             keyboard.take()
             found = [session for session in found if session["name"] != here]

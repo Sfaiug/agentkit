@@ -4151,9 +4151,9 @@ def _picking(cfg, providers, notes, selected):
         spots = {4 + line - top: (hit, cells[hit] if line == drawn.start else [])
                  for hit, drawn in enumerate(rows) for line in drawn if top <= line < top + room}
         spots.update(terminal.key_spots(terminal.key_line(keys), len(lines) + 1))
-        terminal.show(lines + terminal.key_line(keys), spots)
-        sys.stdout.write(clock.drawn(moves, lambda line: 4 + line - top
-                                     if top <= line < top + room else None))
+        terminal.show(lines + terminal.key_line(keys), spots,
+                      lambda: clock.drawn(moves, lambda line: 4 + line - top
+                                          if top <= line < top + room else None))
         while True:               # the clock's frames while it moves and no key is waiting
             sys.stdout.flush()
             key = terminal.read_key(clock.wait())

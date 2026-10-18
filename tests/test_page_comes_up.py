@@ -15,7 +15,7 @@ import re
 import sys
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
@@ -95,13 +95,35 @@ class PageComesUp(Sandbox):
 
     def test_past_comes_up_under_its_header_as_it_opens(self):
         seat = {"name": "fix-api", "repo": None, "path": "/", "created": 9000, "closed": 9500}
+        output = io.StringIO()
         with patch.object(terminal, "taken", return_value=True), \
                 patch.object(terminal, "read_key", return_value=terminal.Key("esc")), \
-                redirect_stdout(io.StringIO()):
+                redirect_stdout(output):
             menu.show_past({"fixture": True}, [seat], keyboard=None)
         clock, = self.made
+        self.assertNotIn("\033[Kagentkit", output.getvalue())     # never first drawn as it is
         self.assertIn("fix-api", terminal.plain("".join(clock.rising[0])))
         self.assert_comes_up(clock, "past sessions")
+
+    def test_a_page_gone_back_to_is_drawn_as_it_is(self):
+        """`x` on the past screen as it opens: the stop's own screen, and the page back as it is,
+        as `c` is back from its models."""
+        seats = [{"name": name, "repo": None, "path": "/", "created": 9000, "closed": 9500}
+                 for name in ("fix-api", "fix-web")]
+        keys = iter([terminal.Key("char", "x"), terminal.Key("esc")])
+
+        def read_key(*_args, **_kwargs):
+            self.time.now += motion.FADE / 6        # each key well inside the opening
+            return next(keys)
+        output = io.StringIO()
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "read_key", side_effect=read_key), \
+                patch.object(menu, "close_seat"), redirect_stdout(output):
+            menu.show_past({"fixture": True}, seats, keyboard=Mock())
+        back = output.getvalue().rsplit("\033[H", 1)[-1]
+        self.assertTrue(back.startswith("\033[Kagentkit · past sessions"), repr(back[:120]))
+        clock, = self.made
+        self.assertIsNone(clock.rising)
 
 
 if __name__ == "__main__":
