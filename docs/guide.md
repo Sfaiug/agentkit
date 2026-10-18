@@ -237,9 +237,10 @@ test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you
 
 Session records and `[defaults]` may list `reviewers` beside `workers`; new seats copy explicit default reviewers.
 With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
-Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by the matrix's score for its role (`ak models`, the matrix the
-tick last computed, `matrix.rank`: the measures the score rests on, then the score, read off the row at the effort the
-config runs the model at in the role; a model no board has, or a matrix nobody computed yet, after every ranked one), then by budget: the fraction of allowance left divided by the fraction
+Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by the matrix (`ak models`, the one the tick last computed, `matrix.rank`, read off
+the row at the effort the config runs the model at in the role): the models within `within` of the best of them, the
+cheapest first, then the others by quality; a model no board has, or a matrix nobody computed yet, after every ranked
+one; then by budget: the fraction of allowance left divided by the fraction
 of window left, using the smallest provider non-session meter. The pair is the best by reviewer -- another model, from the executor's company as readily as from another, before the executor's own -- then the executor's place in its group's order, then the reviewer's; models equal on all of it keep list order, and ak's own run numbers never rank. A self-review is marked `self-reviewed` on the launch line, in `ak run status` and in `ak usage`. A model's own
 `meter` still gates it. A meter at 100% used excludes a worker unless its provider or account has `credits` left, which rank it after every one with window left (seats and their accounts too) and show as `62,469 credits left`, or `$12.40 credits left` in money, on its usage row and under `ak usage`; so does a harness not installed or not logged in (no adapter or program, or
 its `auth` verb says no for every subscription its provider lists, asked at every pick), with one `skipped <model>: <harness> is not logged in` line in the run's
@@ -492,24 +493,32 @@ max), else by the board's name the id extends with a version only (`muse-wonder-
 config entry; at the row's effort, else the board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it and the
 roles it runs it in (`roles`), every matched board's numbers and which board model and effort each came from.
 
-Every row is scored per role (`scored`). A column is the row's share of the best value in that column among the rows
-(100 for the best; 0 at zero or below, still counted: Arena's net improvement can be negative); a role's score is the
-mean of the role's measures the row has, kept with how many it rests on; a row with none of a role's measures has no
-score for it. `ROLES` names each role's measures and why, pinned by `tests/test_matrix_measures.py` so they change only
+Every row is scored per role (`scored`), on quality and cost alone: speed is ak's own to fix, and the subscriptions
+follow the choice. A column is the row's share of the best value in that column among the rows (100 for the best; 0 at
+zero or below, still counted: Arena's net improvement can be negative). A model's score for a role is the mean share
+over the role's measures on its row holding the most of them, kept with how many it rests on, and it needs at least
+half of them, else no score; a row's quality is that times what its effort keeps of it (`kept`): its mean share over
+the role's measures whose values differ between the model's efforts, else over the intelligence index, against the
+model's best effort, 1 where nothing tells the efforts apart, and a row lacking what tells the others apart has no
+score (a board naming no effort counts for every effort of its model, so LiveBench's numbers never tell efforts apart;
+Artificial Analysis's indexes do). `ROLES` names each role's measures and why, pinned by `tests/test_matrix_measures.py` so they change only
 with a visible test change and the owner's yes: orchestrate is Arena Agent's net improvement and steerability, Artificial
 Analysis's agentic index and LiveBench's long-horizon suite; execute is Artificial Analysis's coding and agentic indexes,
 LiveBench's coding and long-horizon suites; review, with no public review board exporting its numbers, is the
 intelligence and coding indexes and LiveBench's reasoning suite (Artificial Analysis's free endpoint carries its indexes,
-never one benchmark's score, which is Pro only). One row is recommended per role (`recommended`), among the rows with
-a score for it: the row resting on the most of the role's measures, then the highest score (exact; the table rounds
-it), then the faster (`tok/s`), then the cheaper (`$/task`), an unknown speed or cost after every measured one, then
-the row the config runs in the role, then the higher effort (`effort_rank`), then the first by harness and model name,
-so a row the boards cannot tell from the one you run never recommends a change and the table and `--json` name the same
-row. The table lists the best rows first: model, harness, id and effort, `orch`, `exec` and `review` as `97 of 3`,
-`tok/s` (Artificial Analysis's median output speed) and `$/task` (LiveBench's cost of a successful coding task); under
-it the recommendation per role, or that no board has a row ak can run, what each role is scored on, one line per board
-with how many rows, when and its note, and the rows no board has. `--json` is the scored rows, the recommendation, ak's
-own numbers (`live`) and the boards' notes.
+never one benchmark's score, which is Pro only). A row within `within` points of the best for the role counts as as
+good as it (`WITHIN`, 5: the three boards disagree with each other about the differences between the top models by
+more; `within` in config.toml, a number 0 or more, overrides it), and the cheapest of those is recommended
+(`recommended`), the others beside it, one per model at its cheapest such effort: by `cost`, what Artificial Analysis's
+index run cost on the row, then `$/task`, LiveBench's cost of a successful coding task, for a row Artificial Analysis
+has not run, unpriced last, then the higher quality (exact; the table rounds it), then the row the config runs in the
+role, then the higher effort (`effort_rank`), then the first by harness and model name, so the pick is the same however
+the table is ordered and the table and `--json` name the same rows. The table lists the best rows first: model,
+harness, id and effort, `orch`, `exec` and `review` as `97 of 3`, `cost` and `$/task`; under it the recommendation per
+role with the rows as good beside it, or that no board has a row ak can run, how a row is scored, what each role is
+scored on, one line per board with how many rows, when and its note, and the rows no board has. `--json` is the scored
+rows, `within`, the recommendation (per role its rows as good, the recommended first), ak's own numbers (`live`) and
+the boards' notes.
 
 ak's own numbers (`live`) stand under the scores, per configured model, the effort it ran at and role, and never rank
 (AGENTS.md, Owner rules): over the history's runs that ended with a verdict of the work (`pass`, `fail`, `blocked`; a stopped, not needed or

@@ -134,19 +134,23 @@ class ModelRows(Sandbox):
         self.assertEqual(lines[0].split()[:3], ["model", "harness", "id"])
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
         # the configured xhigh row inherits LiveBench's numbers, which name no effort
-        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +100 of 1 +95 +4\.05$")
-        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +100 of 1 +100 of 3 +100 of 1 +- +4\.05$")
-        self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +81 of 1 +97 of 1 +- +- +-\n")
+        # the model's score for a role is its best-covered row's: xhigh holds one orchestrate
+        # measure, max three, and nothing tells the two efforts apart; review has one of three
+        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +- +4 +-$")
+        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +100 of 3 +100 of 3 +- +4 +-$")
+        self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +- +- +- +- +-\n")
+        self.assertIn("recommended: orchestrate opus @ xhigh (100 of 3) · execute opus @ xhigh (100 of 3)", text)
         self.assertRegex(text, r"no board row: .*claude-opus-4-7")
         self.assertIn("arena.ai: 2 rows as of", text)
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)
         data = json.loads(out.getvalue())
-        self.assertEqual(sorted(data), ["boards", "live", "recommended", "rows"])
+        self.assertEqual(sorted(data), ["boards", "live", "recommended", "rows", "within"])
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         rows = {matrix.row_label(row): row for row in data["rows"]}
-        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 1})
+        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"], {"score": 100.0, "measures": 3})
+        self.assertIsNone(rows["claude-opus-5-5 @ max"]["scores"]["review"])     # one of three measures
 
     def test_a_board_row_s_effort_is_kept_apart_from_a_bracket_of_its_name(self):
         # a bracket naming no effort stays on the board's name: `Acme Pro (0813)` is at none

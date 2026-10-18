@@ -4,10 +4,11 @@ then what their providers have left; the writer's own model last.
 The matrix every pick reads is the one `ak models` or the tick last computed and stored beside
 the boards in `state/matrix.json` (`matrix.refresh`), computed again only once a board answered
 anew or the config's models or the harnesses installed changed; `matrix.rank` reads each
-configured model's place for a role off it, (measures, score), None where the boards have
-nothing on it.  `usage.pick_order` puts the ranked models first, the most measures then the
-highest score, budget only among models ranked alike or by nothing, a model on credits after
-every one with a window left, and a spent model out; the reviewer's rank is the review score's.
+configured model's place for a role off it, None where the boards have nothing on it.
+`usage.pick_order` puts the ranked models first: those within `within` of the best of them, the
+cheapest first, then the others by quality, budget only among models ranked alike or by nothing,
+a model on credits after every one with a window left, and a spent model out; the reviewer's
+rank is the review score's.
 
 Offline: the boards answered by bytes, the catalogs and installed harnesses faked
 (tests/test_model_rows.py), fake meters, a throwaway HOME.
@@ -63,7 +64,8 @@ class PickByRank(Sandbox):
         boards, table = matrix.refresh(self.cfg, now=10000)
         held = json.loads(matrix.cache_path().read_text())["matrix"]
         self.assertEqual(held["computed_at"], 10000)
-        self.assertEqual(matrix.row_label(matrix.recommended(held["rows"])["execute"]), "claude-opus-5-5 @ max")
+        self.assertEqual(matrix.row_label(matrix.recommended(held["rows"])["execute"][0]),
+                         "claude-opus-5-5 @ max")
         self.assertEqual(matrix.stored()["config"], matrix.config_key(self.cfg))
         with patch.object(matrix, "rows", side_effect=AssertionError("computed again")):
             again = matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR - 1)
@@ -101,27 +103,29 @@ class PickByRank(Sandbox):
                          {name: None for name in config.offered(self.cfg)})   # nothing computed yet
         matrix.refresh(self.cfg, now=10000)
         ranks = matrix.rank(self.cfg, "execute")
-        self.assertEqual(ranks["opus"], (4, 100.0))           # opus @ xhigh: four measures, all best
-        self.assertEqual(ranks["astra"][0], 3)                # astra @ max: three
+        scores = {(row["model"], row["effort"]): row["scores"]["execute"] for row in matrix.stored()["rows"]}
+        # opus @ xhigh is as good as the best: first by cost, then its quality; astra @ max is
+        # under the best by more than `within`: after every row as good, by quality
+        self.assertEqual(ranks["opus"], (0, 0, 4.05, -scores[("claude-opus-5-5", "xhigh")]["score"]))
+        self.assertEqual(ranks["astra"], (1, 0, 0.0, -scores[("gpt-6-astra", "max")]["score"]))
+        self.assertLess(scores[("gpt-6-astra", "max")]["score"], 100 - matrix.within(self.cfg))
         self.assertIsNone(ranks["fable"])                     # no board has Fable 5.1
         self.assertIsNone(ranks["gemini"])
-        self.assertEqual(matrix.rank(self.cfg, "review")["opus"][0], 2)
+        self.assertEqual(matrix.rank(self.cfg, "review")["opus"][0], 0)
         # the row at the effort the config runs the model at in that role
         self.cfg["models"]["opus"]["review_effort"] = "max"
         matrix.refresh(self.cfg, now=10001)
         scores = {(row["model"], row["effort"]): row["scores"]["review"] for row in matrix.stored()["rows"]}
         self.assertNotEqual(scores[("claude-opus-5-5", "max")], scores[("claude-opus-5-5", "xhigh")])
-        self.assertEqual(matrix.rank(self.cfg, "review")["opus"],
-                         (scores[("claude-opus-5-5", "max")]["measures"],
-                          scores[("claude-opus-5-5", "max")]["score"]))
+        self.assertEqual(matrix.rank(self.cfg, "review")["opus"][3], -scores[("claude-opus-5-5", "max")]["score"])
 
     def test_the_pick_follows_the_rank_then_the_budget_and_skips_the_spent(self):
         providers = meters(anthropic=80, openai=10, meta=10, google=10, xai=10, mimo=10)
         # nothing computed yet: budget order, as before
         self.assertEqual(usage.pick_order(self.cfg, providers, quiet=True), ["astra", "opus", "fable"])
         matrix.refresh(self.cfg, now=10000)
-        # ranked models first, the most measures then the score, whatever the budget;
-        # fable, which no board has, after them
+        # ranked models first, as good as the best before the rest, whatever the budget; fable,
+        # which no board has, after them
         self.assertEqual(usage.pick_order(self.cfg, providers, quiet=True), ["opus", "astra", "fable"])
         self.assertEqual(usage.pick_order(self.cfg, providers, role="reviewer", quiet=True),
                          ["opus", "astra", "fable"])

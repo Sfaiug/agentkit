@@ -379,6 +379,9 @@ def load():
     defaults = cfg.setdefault("defaults", {})
     if not isinstance(defaults, dict):
         raise Error(f"{path}: [defaults] must be a table")
+    if "within" in cfg and (isinstance(cfg["within"], bool) or not isinstance(cfg["within"], (int, float))
+                            or cfg["within"] < 0):
+        raise Error(f"{path}: within must be a number of points, 0 or more (got {cfg['within']!r})")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
@@ -663,7 +666,8 @@ def _ordered(items, first):
 SAVE_HEADER = ("# agentkit's config, written by the menu's `c` screen. It is rewritten whole on "
                "every change,",
                "# so a comment left here would not survive it; unknown keys are kept as they are.")
-_TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin")
+_TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin",
+              "within")
 _DEFAULTS_ORDER = ("orchestrator", "workers", "reviewers")
 _MODEL_ORDER = ("harness", "model", "effort", "exec_effort", "review_effort", "provider",
                 "meter", "mode")

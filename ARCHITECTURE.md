@@ -133,9 +133,9 @@
   `adapters/muse-usage.sh`). Leak: Muse's names.
 - `matrix.py`: the public boards' model rows (Artificial Analysis, Arena Agent, LiveBench), a day's
   cache in `state/matrix.json`, and the matrix: a row per model and effort the installed harnesses
-  offer, matched to the boards, scored per role (`ROLES`), one recommended per role, ak's own
-  numbers beside (`live`); `ak models`. Offers `collect`, `rows`, `scored`, `recommended`, `live`.
-  For bin/ak.
+  offer, matched to the boards, scored per role (`ROLES`) on quality, the rows as good as the best
+  (`within`) cheapest first and one recommended per role, ak's own numbers beside (`live`);
+  `ak models`. Offers `collect`, `rows`, `scored`, `recommended`, `rank`, `live`. For bin/ak.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`, `page` (about no seat). Used by run, job, orch,
   watch, menu, logins. Leak: calls
