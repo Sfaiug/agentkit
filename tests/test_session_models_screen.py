@@ -171,6 +171,26 @@ class SessionModels(Sandbox):
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         self.assertTrue(any("spent · resets" in terminal.plain(line) for line in lines))
 
+    def test_the_models_line_names_the_provider_once_and_is_as_tall_as_the_tallest(self):
+        rows = [("anthropic", "Claude " + number, {}, number) for number in ("I", "II", "III")]
+        rows.append(("openai", "ChatGPT", {}, ""))
+        names = menu.config_models(self.cfg)
+        claude = next(name for name in names if self.cfg["models"][name]["provider"] == "anthropic")
+        chatgpt = next(name for name in names if self.cfg["models"][name]["provider"] == "openai")
+
+        def body(at, width):
+            with patch.object(menu, "usage_rows", return_value=rows), \
+                    patch.object(terminal, "layout_width", return_value=width):
+                return menu.config_body(self.cfg, "fixture", at, 0, self.selected("fix-api"))
+        lines, _ = body(("model", claude), 100)
+        self.assertIn(f"{claude} runs on Claude I, II, III", map(terminal.plain, lines))
+        # on a phone Claude's wraps to two lines and ChatGPT's takes one: two lines either way
+        claudes, places = body(("model", claude), 28)
+        chatgpts, other = body(("model", chatgpt), 28)
+        self.assertEqual(len(claudes), len(chatgpts))
+        self.assertEqual({n: at for n, (at, _) in places.items() if at[0] == "row"},
+                         {n: at for n, (at, _) in other.items() if at[0] == "row"})
+
     def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_only_efforts(self):
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 patch.object(usage, "collect", return_value=usage.Readings({})), \

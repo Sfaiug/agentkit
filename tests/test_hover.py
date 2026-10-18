@@ -220,6 +220,35 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[4], "astra")
         self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
 
+    def test_the_highlighted_model_says_what_it_runs_on_under_the_models_and_nothing_moves(self):
+        self.stack.enter_context(patch.object(terminal, "height", return_value=40))  # one page
+        first = self.matrix()[0]
+        names = menu.config_models(self.cfg)
+        rows = {text: at(first, text) for text in (*names, *menu.CONFIG_ROWS)}
+        line = at(first, f"{names[0]} runs on")[1]         # one line, under every model
+        self.assertGreater(line, max(rows[name][1] for name in names))
+        for name in names:
+            said = f"{name} {menu.model_said(self.cfg, name)}"
+            for keys in (move(*rows[name]) + ESC, move(*rows[name]) + RIGHT + ESC):
+                last = self.matrix(keys)[-1]
+                self.assertOneHighlight(last, name)
+                self.assertEqual(texts(last)[line - 1].strip(), said)
+                self.assertEqual({text: at(last, text) for text in rows}, rows)
+        # off the models it keeps its place, empty
+        last = self.matrix(move(*rows["Discord"]) + ESC)[-1]
+        self.assertEqual(texts(last)[line - 1], "")
+        self.assertEqual({text: at(last, text) for text in rows}, rows)
+        # on a screen too short for them all, a click where the pointer found the last model
+        # opens it, the page as it was
+        self.stack.enter_context(patch.object(terminal, "height", return_value=21))
+        first = self.matrix()[0]
+        label = at(first, names[-1])
+        click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()
+        with patch.object(menu, "config_model") as opened:
+            screens = self.matrix(move(*label), click + ESC)
+        self.assertEqual(at(screens[1], names[-1]), label)
+        opened.assert_called_once()
+
     def test_moves_sent_while_the_rule_glides_are_one_draw(self):
         checkout = self.root / "code" / "ACME"
         entry = {"rows": FEATURES, "error": "", "asked": time.monotonic(), "going": True,

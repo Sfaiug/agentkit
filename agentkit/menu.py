@@ -2830,6 +2830,17 @@ def advice_lines(found):
             for number, part in enumerate(terminal.wrap(said, room - wide - 2))]
 
 
+def model_said(cfg, name):
+    """What `c` says of the highlighted model on the line under the models: the subscriptions
+    it runs on, its provider's (`usage_rows`), the provider's name said once (`runs on Claude
+    I, II`); "" where it has none."""
+    provider = cfg["models"][name]["provider"]
+    on = [terminal.plain(label) for each, label, _, _ in usage_rows(cfg) if each == provider]
+    head = on[0].rsplit(" ", 1)[0] + " " if len(on) > 1 else ""
+    on = on[:1] + [label.removeprefix(head) for label in on[1:]]
+    return "runs on " + ", ".join(on) if on else ""
+
+
 def take_advice(cfg, name, selected, providers, found):
     """`r`: the seat's executors and reviewers become the recommended rows' models, each at
     the row's effort as its entry's own for that role (`exec_effort`, `review_effort`; a row
@@ -3091,7 +3102,10 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim, its reset note beside it or, on a
-    phone, under it.  Under them `+ add a model`, `Providers`
+    phone, under it.  Under them the highlighted model's own line (`model_said`), coming up as
+    the highlight comes to it (`motion.fading`): one place, as many lines as the tallest any
+    model's, empty while the highlight is off the models, so no row moves as the highlight
+    goes.  Then `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
@@ -3180,6 +3194,16 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 places[len(lines)] = (("model", name), cells if number == 0 else [])
                 lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
                              else part)
+    # under the models, not under its row: a line that opened there would move every row
+    # below it from under the pointer that brought the highlight to one of them
+    said = {name: terminal.wrap(f"{name} {text}", room - 4) if (text := model_said(cfg, name))
+            else [] for name in names}
+    shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
+    for part in (shown + [""] * tallest)[:tallest]:
+        lines.append(("    " + terminal.styled(part, "dim")).rstrip())
+        if moves is not None:
+            moves.append((len(lines) - 1, ("said",), at[1] if shown else None,
+                          motion.fading(lines[-1], motion.OPEN)))
     if selected is not None and found is not None:
         lines.extend(advice_lines(found))
     lines.append("")

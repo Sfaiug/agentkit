@@ -257,7 +257,8 @@ with closing(""", 1)
         lines = screen.frame()
         down = sum(1 for line in lines[3:next(n for n, line in enumerate(lines)
                                               if "+ add a model" in line)]
-                   if line.startswith(("  ", "›")) and "ak recommends" not in line)
+                   if line.startswith(("  ", "›")) and not line.startswith("    ")
+                   and "ak recommends" not in line)
         screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› + add a model"))
         for step in ("harness", "model", "effort"):     # claude, its haiku, at none
             screen.press(ENTER, lambda lines, step=step: f"  {step}" in lines)
