@@ -3321,7 +3321,7 @@ def config_add(cfg, keyboard=None, through=None):
             if through and listed is None:
                 listed = waited(lambda: config.listed_providers(through), *screen)
             choices = ([((through, provider), [name, "" if name == provider else provider,
-                                               "logged in" if mode else ""])
+                                               "ready" if mode else ""])
                         for provider, name, mode in listed] if through and not picked
                        else _add_choices(cfg, [value for value, _ in picked], screen))
         except config.Error as exc:

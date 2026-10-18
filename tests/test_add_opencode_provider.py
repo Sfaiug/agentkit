@@ -88,7 +88,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         lines = through(screen)
         # installed, since its program was nowhere; the logged-in provider first
         self.assertEqual(verbs(screen), ["opencode install ", "opencode providers "])
-        self.assertEqual(listed(lines), [["Acme Plan", "acme", "logged in"],
+        self.assertEqual(listed(lines), [["Acme Plan", "acme", "ready"],
                                          ["Zeta Cloud", "zeta"], ["MiMo", "mimo"],
                                          ["Anthropic", "anthropic"], ["OpenAI", "openai"]])
         # `/` finds in the list: what is typed after it, in a name or an id
@@ -130,7 +130,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(saved["models"]["rocket"]["effort"], "max")
         # MiMo is shipped: its table as it ships, whose mode its endpoint says
         lines = through(screen)
-        self.assertEqual(listed(lines)[0], ["Acme Plan", "acme", "logged in"])
+        self.assertEqual(listed(lines)[0], ["Acme Plan", "acme", "ready"])
         screen.press(DOWN * 2 + ENTER, lambda lines: "  model" in lines and listed(lines))
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)
