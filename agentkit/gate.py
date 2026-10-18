@@ -1265,13 +1265,15 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
 
 def helper_failure(piece, log_path, run_dir):
     """What a piece the suite helper failed printed, its last line and the file keeping it
-    whole: its go here takes its place in the suite's output. Never read whole: a piece can
-    print more than the run's memory holds."""
+    whole: its go here takes its place in the suite's output. Read a line at a time: a piece
+    can print more than the run's memory holds."""
     piece.seek(0)
     saved = _kept(piece, log_path, run_dir, "helper-failed")
-    piece.seek(max(0, piece.tell() - turns.OUT_CAP))
-    last = next((line.strip() for line in reversed(piece.read().decode("utf-8", "replace")
-                                                    .splitlines()) if line.strip()), "no output")
+    piece.seek(0)
+    last = "no output"
+    for line in piece:
+        last = next((part.strip() for part in reversed(line.decode("utf-8", "replace").splitlines())
+                     if part.strip()), last)
     return f"{last} (whole output: {saved})"
 
 
