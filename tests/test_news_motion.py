@@ -320,6 +320,18 @@ class NewsMotion(Sandbox):
                    for when in (10, 10 + motion.GLIDE / 2, until)]
         self.assertEqual(lengths, [6, 4, 2])
 
+    def test_a_shrinking_line_keeps_its_half_cell_at_the_head(self):
+        self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=24))
+        line = terminal.cell_texts(terminal.plan_bar(1, 3, room=15).split(" 1 of 3")[0])
+        frames, until = motion.growing(line, 10, motion.GLIDE, 6, "working")
+        snapshots = ["".join(terminal.plain(frame(10 + step / 20)) for frame in frames)
+                     for step in range(15)]
+        self.assertEqual(snapshots[0], "━━━━━━──")
+        for text in snapshots:
+            self.assertRegex(text, r"^━*╸?─*$")
+        self.assertEqual(snapshots[-2], "━━╸─────")
+        self.assertEqual([frame(until) for frame in frames], line)
+
     def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}
 
