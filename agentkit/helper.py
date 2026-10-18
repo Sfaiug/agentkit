@@ -1,15 +1,18 @@
 """A Mac that runs a sharded suite's pieces while it is awake and on power: `suite_helper` in
 config.toml names it by ssh alias. Each piece runs in a Linux VM of Apple's `container`, built
-from tools/helper/Containerfile, with only the tree under test and its repository's history
-mounted, read-only, and nothing beyond loopback: the Mac's own files, keys and logins never
-reach it. The Mac keeps each repository's history between suites, so a suite sends only the
-commits it lacks. A piece the Mac lost -- it left its charger or slept, the connection or the
-VM broke -- exits `LOST`.
+from the recipe the repository's `suite_image:` names, else its tools/helper/Containerfile (ak's
+own), with only the tree under test and its repository's history mounted, read-only, and nothing
+beyond loopback: the Mac's own files, keys and logins never reach it. A repository with neither
+runs its suite here. The Mac keeps each repository's history between suites, so a suite sends
+only the commits it lacks. A piece the Mac lost -- it left its charger or slept, the connection
+or the VM broke -- exits `LOST`.
 """
 
 from collections import namedtuple
 import hashlib
 import io
+import posixpath
+import re
 import secrets
 import shlex
 import subprocess
@@ -21,13 +24,14 @@ from . import config, gitcall, orch
 LOST = 255            # ssh's own failure, and tools/helper/mac.sh's for each failure of its own
 LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
 TOOLS = config.REPO / "tools" / "helper"
+RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
 
 
 # A suite on the helper: `key` names its directory there and its VMs, `repo` the history it
-# keeps there, `default` the branch origin/HEAD names, `programs` the harness programs this host
-# has, stand-ins there.
-Away = namedtuple("Away", "alias key repo count cpus memory_mb branch default programs")
+# keeps there, `image` its pieces' image, `default` the branch origin/HEAD names, `programs` the
+# harness programs this host has, stand-ins there.
+Away = namedtuple("Away", "alias key repo image count cpus memory_mb branch default programs")
 
 
 def _remote(alias, verb, *args, **kwargs):
@@ -36,9 +40,46 @@ def _remote(alias, verb, *args, **kwargs):
     return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
 
 
-def image():
-    """Named by its recipe's hash, so a changed recipe builds anew and the old image goes."""
-    return "ak-helper:" + hashlib.sha256((TOOLS / "Containerfile").read_bytes()).hexdigest()[:12]
+def _recipe(cwd, repo):
+    """(image, {name in the parcel: (mode, bytes)}) the suite's pieces run in, or None: the
+    repository has no recipe. The recipe, `image/Containerfile`, is the file `suite_image:` names,
+    else RECIPE; its build's context, under `context/`, each file it copies, as HEAD has them.
+    Tagged by their hash, so a changed recipe or copied file builds anew and the image it
+    replaces goes. ValueError: the recipe copies something other than files HEAD tracks, named
+    by plain path, which ak cannot send."""
+    path = gitcall.declared(cwd, "suite_image")
+    if not path:
+        if gitcall.git_out(cwd, "cat-file", "-e", f"HEAD:{RECIPE}")[0]:
+            return None
+        path = RECIPE
+    files = {"image/Containerfile": _tracked(cwd, path)}
+    for line in re.sub(r"\\\n", " ", files["image/Containerfile"][1].decode()).splitlines():
+        words = line.split()
+        if not words or words[0].upper() not in ("COPY", "ADD"):
+            continue
+        sources = [word for word in words[1:-1] if not word.startswith(("--chown=", "--chmod="))]
+        if words[0].upper() == "ADD" or not sources or any(
+                word.startswith(("-", "/", "[")) or set(word) & set("*?[$<") or
+                ".." in word.split("/") for word in sources):
+            raise ValueError(f"`{line.strip()}` copies something other than tracked files")
+        files.update((f"context/{source}", _tracked(cwd, source)) for source in sources)
+    digest = hashlib.sha256()
+    for name in sorted(files):
+        mode, data = files[name]
+        digest.update(f"{name}\0{mode}\0{len(data)}\0".encode() + data)
+    return f"ak-helper-{repo}:{digest.hexdigest()[:12]}", files
+
+
+def _tracked(cwd, path):
+    """(mode, bytes) of the file HEAD has at `path`; ValueError: none there, or a link."""
+    entry = subprocess.run(["git", "-C", str(cwd), "ls-tree", "-z", "HEAD", "--", path],
+                           capture_output=True, text=True).stdout
+    info, _, name = entry.partition("\t")
+    mode, _, blob = info.partition(" blob ")
+    if name != posixpath.normpath(path) + "\0" or mode not in ("100644", "100755"):
+        raise ValueError(f"{path} is not a file HEAD tracks")
+    return int(mode[3:], 8), subprocess.run(["git", "-C", str(cwd), "cat-file", "blob", blob],
+                                            capture_output=True, check=True).stdout
 
 
 def room(alias, piece_cpus, piece_mem_mb):
@@ -70,22 +111,22 @@ def _known(alias, repo):
     return None if reply.returncode else reply.stdout.split()
 
 
-def _parcel(cwd, default, known, parcel):
-    """Writes to the file `parcel` the recipe, the piece's script, `heads` (HEAD, then the origin
-    branch the suite compares against) and a bundle of their history the helper lacks: the
-    whole history the first time, which can outgrow memory."""
+def _parcel(cwd, default, known, recipe, parcel):
+    """Writes to the file `parcel` the recipe's files, the piece's script, `heads` (HEAD, then the
+    origin branch the suite compares against) and a bundle of their history the helper lacks:
+    the whole history the first time, which can outgrow memory."""
     revs = ["HEAD", *([f"refs/remotes/origin/{default}"] if default else [])]
     heads = subprocess.run(["git", "-C", str(cwd), "rev-parse", *revs], capture_output=True,
                            text=True, check=True).stdout.split()
     have = [sha for sha in known
             if not gitcall.git_out(cwd, "cat-file", "-e", sha + "^{commit}")[0]]
     with tarfile.open(fileobj=parcel, mode="w") as tar, tempfile.TemporaryFile() as bundle:
-        tar.add(TOOLS / "Containerfile", "image/Containerfile")
         tar.add(TOOLS / "piece.sh", "piece.sh")
-        text = (" ".join(heads) + "\n").encode()
-        info = tarfile.TarInfo("heads")
-        info.size = len(text)
-        tar.addfile(info, io.BytesIO(text))
+        for name, (mode, data) in [*recipe.items(),
+                                   ("heads", (0o644, (" ".join(heads) + "\n").encode()))]:
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(data), mode
+            tar.addfile(info, io.BytesIO(data))
         # `git bundle` refuses one with nothing in it: the helper has every commit already.
         if not subprocess.run(["git", "-C", str(cwd), "bundle", "create", "-", *revs, "--not",
                                *have], stdout=bundle, stderr=subprocess.DEVNULL).returncode:
@@ -96,24 +137,33 @@ def _parcel(cwd, default, known, parcel):
 def start(piece_cpus, piece_mem_mb, cwd, log):
     """The suite at `cwd` sent to the helper, or None to run it here."""
     alias = config.suite_helper()
-    fit = room(alias, piece_cpus, piece_mem_mb) if alias else None
+    if not alias:
+        return None
+    # A checkout's repository is the one its main checkout has, wherever the suite runs.
+    repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
+    try:
+        image, recipe = _recipe(cwd, repo) or (None, None)
+    except ValueError as exc:
+        log(f"WARN the suite helper cannot build suite_image: {exc}; the suite runs here")
+        return None
+    if not image:
+        return None
+    fit = room(alias, piece_cpus, piece_mem_mb)
     if fit is None:
         return None
     code, branch = gitcall.git_out(cwd, "symbolic-ref", "-q", "--short", "HEAD")
     named, default = gitcall.git_out(cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
     programs = {program for program in orch.agent_programs() if config.harness_binary(program)}
-    # A checkout's repository is the one its main checkout has, wherever the suite runs.
-    repo = hashlib.sha256(str(gitcall.main_checkout(cwd)).encode()).hexdigest()[:12]
-    away = Away(alias, secrets.token_hex(6), repo, *fit, "" if code else branch,
+    away = Away(alias, secrets.token_hex(6), repo, image, *fit, "" if code else branch,
                 "" if named else default.removeprefix("origin/"), " ".join(sorted(programs)))
     sent, known = LOST, _known(alias, repo)
     try:
         while known is not None:
             with tempfile.TemporaryFile() as parcel:
-                _parcel(cwd, away.default, known, parcel)
+                _parcel(cwd, away.default, known, recipe, parcel)
                 parcel.seek(0)
                 # a new recipe's build fetches packages, a first suite sends the whole history
-                sent = _remote(alias, "prepare", away.key, image(), repo, stdin=parcel,
+                sent = _remote(alias, "prepare", away.key, image, repo, stdin=parcel,
                                timeout=1800).returncode
             # The copy went since `known` answered: the whole history, once.
             known = [] if known and sent == LACKS else None
@@ -129,9 +179,9 @@ def start(piece_cpus, piece_mem_mb, cwd, log):
 
 def piece(away, shard, command):
     """The argv of one piece on the helper: it exits as the piece did, or `LOST`."""
-    return _remote(away.alias, "run", away.key, image(), f"ak-{away.key}-{shard.replace('/', '-')}",
-                   away.cpus, away.memory_mb, away.repo, shard, away.branch, away.default,
-                   away.programs, command)
+    return _remote(away.alias, "run", away.key, away.image,
+                   f"ak-{away.key}-{shard.replace('/', '-')}", away.cpus, away.memory_mb,
+                   away.repo, shard, away.branch, away.default, away.programs, command)
 
 
 def finish(away):
