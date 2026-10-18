@@ -36,14 +36,15 @@ STUB = """#!/usr/bin/env bash
 # canned opencode for tests/test_opencode.py: run cats $STUB_EVENTS and exits $STUB_RC,
 # session export cats $STUB_EXPORT, auth list prints $STUB_AUTH_LIST, `api model.list` cats
 # $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one), `api integration.list`
-# prints $STUB_INTEGRATION_LIST.  Every argv lands in $STUB_ARGV_LOG, and run's
-# OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
+# and `api provider.list` print $STUB_INTEGRATION_LIST and $STUB_PROVIDER_LIST.  Every argv
+# lands in $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
 case "$1 ${2:-}" in
   run*) [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$OPENCODE_CONFIG_CONTENT" >"$STUB_ARGV_LOG.content"
         cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
   "api model.list") cat -- "$STUB_MODEL_LIST" && exit "${STUB_LIST_RC:-0}" ;;
   "api integration.list") printf '%s' "${STUB_INTEGRATION_LIST:-}" ;;
+  "api provider.list") printf '%s' "${STUB_PROVIDER_LIST:-}" ;;
   session*) cat -- "$STUB_EXPORT" ;;
   auth*) printf '%s' "${STUB_AUTH_LIST:-[]}" ;;
   --version*) echo "opencode v9.9.9-test" ;;
@@ -421,6 +422,25 @@ cat "$dir/bridge-eval"
         self.assertIn("no login for zeta", out["error"])
         self.assertNotIn("none", out)
 
+    def test_a_provider_opencode_runs_on_its_own_needs_no_login(self):
+        # OpenCode enables its own free provider with no entry in its config and no saved
+        # login; an entry alone enables one too, key or not, and is no login
+        self.cfgdir.mkdir(parents=True, exist_ok=True)
+        (self.cfgdir / "opencode.json").write_text(json.dumps({"provider": {"nova": {"options": {}}}}))
+        own = {"STUB_PROVIDER_LIST": json.dumps({"data": [
+            {"id": "opencode", "activation": "enabled"}, {"id": "nova", "activation": "enabled"},
+            {"id": "zeta", "activation": "auto"}]})}
+        for named, rc in (("opencode", 0), ("nova", 1), ("zeta", 1), ("opencode nova", 1)):
+            proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": named})
+            self.assertEqual(proc.returncode, rc, (named, proc.stdout, proc.stderr))
+        proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": "opencode"})
+        self.assertEqual(proc.stdout.strip(), "opencode: OpenCode runs opencode with no login")
+        out = json.loads(self.adapter("usage", env={**own, "AGENTKIT_PROVIDER": "opencode"}).stdout)
+        self.assertEqual((out["meters"], out["error"]), ([], None))
+        proc = self.adapter("login", env={**own, "AGENTKIT_PROVIDER": "opencode"},
+                            stdin=subprocess.DEVNULL)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
     def test_providers_lists_the_logged_in_first_with_the_mode_their_prices_say(self):
         free, priced = {"input": 0, "output": 0}, {"input": 0.15, "output": 0.6}
         models = self.root / "model-list.json"
@@ -435,17 +455,20 @@ cat "$dir/bridge-eval"
         self.cfgdir.mkdir(parents=True, exist_ok=True)
         (self.cfgdir / "opencode.json").write_text(json.dumps({"provider": {
             "acme": {"options": {"apiKey": "acme-dummy"}}, "nova": {"options": {}}}}))
+        # and OpenCode runs its own free one, enabled with no entry in its config, with none
         env = {"STUB_AUTH_LIST": listed("zeta", "vega"), "STUB_MODEL_LIST": str(models),
                "STUB_INTEGRATION_LIST": json.dumps({"data": [
                    {"id": name, "name": name.title()}
-                   for name in ("vega", "nova", "zeta", "opencode", "acme")]})}
+                   for name in ("vega", "nova", "zeta", "opencode", "acme")]}),
+               "STUB_PROVIDER_LIST": json.dumps({"data": [
+                   {"id": name, "activation": "enabled"} for name in ("acme", "nova", "opencode")]})}
         proc = self.adapter("providers", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # a plan or a free provider prices every model at nothing; one priced, or not priced at
         # all (MiMo's), is pay as you go; the rest have no login, so no mode
         self.assertEqual([line.split("\t") for line in proc.stdout.splitlines()], [
             ["acme", "Acme", "subscription"], ["zeta", "Zeta", "payg"], ["vega", "Vega", "payg"],
-            ["nova", "Nova", ""], ["opencode", "Opencode", ""]])
+            ["opencode", "Opencode", "subscription"], ["nova", "Nova", ""]])
         self.assertNotIn("dummy", proc.stdout + proc.stderr)
         proc = self.adapter("providers", env={**env, "STUB_INTEGRATION_LIST": ""})
         self.assertEqual((proc.returncode, proc.stdout), (1, ""))

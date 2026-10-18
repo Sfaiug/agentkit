@@ -97,6 +97,21 @@ store_key() {
   return 1
 }
 
+# 0 when OpenCode runs provider $1 with no login at all -- its own free models, `opencode`'s
+# (2.0.24) -- which its provider list calls `enabled` while its config has no entry for it: an
+# entry alone would enable one, key or not.  Asked of the background service, bounded, and cut
+# to the two fields read: settings, keys among them, never leave jq.
+own_login() {
+  [ -n "${1:-}" ] && command -v jq >/dev/null && command -v opencode >/dev/null || return 1
+  jq -e --arg p "$1" '.provider[$p]? // .providers[$p]? // empty' "$CFG" >/dev/null 2>&1 && return 1
+  bound=""; command -v timeout >/dev/null && bound="timeout 20"
+  $bound opencode api provider.list 2>/dev/null \
+    | jq -e --arg p "$1" 'any(.data[]?; .id == $p and .activation == "enabled")' >/dev/null 2>&1
+}
+
+# A login for provider $1, or none needed: a key in the config, OpenCode's own, a saved one.
+logged_in() { have_key "${1:-}" || own_login "${1:-}" || store_key "${1:-}"; }
+
 # The effort is OpenCode's model variant, `provider/model#variant` its `-m` spelling.  OpenCode
 # fails a turn handed a variant the model does not define (`Variant unavailable`) and merges
 # the variants of this layered config document -- which writes nothing -- into the model's own
@@ -223,7 +238,7 @@ usage)
   p=${PROVIDERS%% *}
   if [ "$p" != mimo ]; then
     if [ -z "$p" ]; then why="unknown: no provider named in AGENTKIT_PROVIDER"
-    elif have_key "$p" || store_key "$p"; then
+    elif logged_in "$p"; then
       printf '{"provider":"%s","meters":[],"error":null,"none":"no meter: OpenCode reads none for %s"}\n' "$p" "$p"
       exit 0
     else why="unknown: no login for $p; run opencode auth login $p"; fi
@@ -483,7 +498,7 @@ login)
   # list of every provider it can log in to.
   command -v opencode >/dev/null || { echo "opencode.sh login: opencode is not installed" >&2; exit 2; }
   p=${PROVIDERS%% *}
-  { have_key "$p" || store_key "$p"; } && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
+  logged_in "$p" && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
   [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
   opencode auth login ${p:+"$p"} ;;
 auth)
@@ -499,6 +514,7 @@ auth)
   for p in "$@"; do
     have_key "$p"; rc=$?
     if [ $rc -eq 0 ]; then said="${said:+$said; }a key for ${p:-a provider} is configured in $CFG"
+    elif own_login "$p"; then said="${said:+$said; }OpenCode runs $p with no login"
     elif store_key "$p"; then said="${said:+$said; }a login for ${p:-a provider} is saved in the auth store"
     elif [ $rc -eq 2 ]; then echo "opencode: $CFG cannot be read without jq" >&2; exit 2
     else echo "opencode: no login for ${p:-any provider}; run \`opencode auth login${p:+ $p}\`" >&2; exit 1
@@ -530,7 +546,8 @@ models)
   python3 "$REPO/tools/catalog.py" opencode $listed ;;
 providers)
   # Every provider OpenCode can log in to, for `+ add` on Providers: the ones with a login
-  # first -- a key in its config or one saved in its auth store, as `auth` reads them -- each
+  # first -- a key in its config, one saved in its auth store or none needed, as `auth` reads
+  # them -- each
   # `subscription` where OpenCode prices every one of its models at nothing (a plan's, or its
   # own free ones) and `payg` where it prices one or says nothing of one (MiMo's), which never
   # spends money unasked; then the rest, with no mode, in OpenCode's own order.  Its
@@ -545,8 +562,11 @@ providers)
     keyed=$(jq -c '[(.provider, .providers) | objects | to_entries[]
         | select([.value | .. | objects | .apiKey? | strings | select(length > 0)] != []) | .key]' \
         "$CFG" 2>/dev/null)
+    configured=$(jq -c '[(.provider, .providers) | objects | keys[]]' "$CFG" 2>/dev/null) || configured='[]'
+    own=$(ask provider.list 'select(.activation == "enabled") | .id' \
+        | jq -c --argjson c "$configured" '[.[] | select(IN($c[]) | not)]' 2>/dev/null)
     costs=$(ask model.list '{id: .providerID, cost}') || costs='[]'
-    jq -rn --argjson all "$all" --argjson in "[${keyed:-[]}, ${saved:-[]}]" --argjson costs "$costs" '
+    jq -rn --argjson all "$all" --argjson in "[${keyed:-[]}, ${saved:-[]}, ${own:-[]}]" --argjson costs "$costs" '
       (reduce ($in | add // [])[] as $p ([]; if index([$p]) then . else . + [$p] end)) as $in
       | ([$all[] | {(.id): .name}] | add // {}) as $names
       | ($in[] | . as $p | [$costs[] | select(.id == $p) | .cost] as $priced
