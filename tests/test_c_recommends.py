@@ -80,7 +80,7 @@ class Recommends(Sandbox):
         self.assertIn("⏎ mark r recommended esc back", text)
         found = menu.advice(config.load(), matrix.stored())
         self.assertEqual(menu.model_said(config.load(), "astra", None, found)[-1],
-                         terminal.styled("recommended to review", "dim"))
+                         ("recommended to review", "dim"))
         self.assertEqual(found["orchestrate"][1], None)       # not configured: no model says it
         # r opens the models screen and takes nothing by itself
         text = self.screen([Key("char", "r"), Key("esc"), Key("esc")])

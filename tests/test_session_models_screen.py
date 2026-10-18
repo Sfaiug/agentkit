@@ -172,6 +172,21 @@ class SessionModels(Sandbox):
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         self.assertTrue(any("spent · resets" in terminal.plain(line) for line in lines))
 
+    def test_the_opened_line_names_the_provider_once_and_wraps_on_a_phone(self):
+        rows = [("anthropic", "Claude " + number, {}, number) for number in ("I", "II", "III")]
+        found = {role: ("opus", "opus", "xhigh") for role in ("orchestrate", "execute", "review")}
+        with patch.object(menu, "usage_rows", return_value=rows):
+            self.assertEqual(menu.model_said(self.cfg, "opus", None, found),
+                             [("runs on Claude I, II, III", "dim"),
+                              ("recommended to orchestrate, build and review", "dim")])
+            with patch.object(terminal, "layout_width", return_value=36):
+                lines, places = menu.config_body(self.cfg, "fixture", ("model", "opus"), 0,
+                                                 self.selected("fix-api"), None, None, found)
+        row = next(n for n, (at, cells) in places.items() if at == ("model", "opus") and cells)
+        self.assertEqual([terminal.ANSI.sub("", line) for line in lines[row + 1:row + 5]],
+                         ["    runs on Claude I, II, III", "    recommended to orchestrate,",
+                          "    build and review", "ChatGPT"])
+
     def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_only_efforts(self):
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 patch.object(usage, "collect", return_value=usage.Readings({})), \

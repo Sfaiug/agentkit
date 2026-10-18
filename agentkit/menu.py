@@ -2606,18 +2606,23 @@ def advice(cfg, held):
 
 
 def model_said(cfg, name, providers, found):
-    """What the line the highlighted model opens on `c` says, each part in its own tone: the
-    subscriptions it runs on, its provider's (`usage_rows`); why it is spent, in amber
-    (orch.spent_note); and the roles `ak models` recommends it for (`found`, `advice`)."""
+    """What the line the highlighted model opens on `c` says, (text, tone) a part: the
+    subscriptions it runs on, its provider's (`usage_rows`), the provider's name said once
+    (`Claude I, II`); why it is spent, in amber (orch.spent_note); and the roles `ak models`
+    recommends it for (`found`, `advice`)."""
     provider = cfg["models"][name]["provider"]
     on = [terminal.plain(label) for each, label, _, _ in usage_rows(cfg) if each == provider]
+    head = on[0].rsplit(" ", 1)[0] + " " if len(on) > 1 else ""
+    on = on[:1] + [label[len(head):] if head and label.startswith(head) else label
+                   for label in on[1:]]
     picked = [verb for role, verb in zip(matrix.ROLES, PICKED)
               if (found or {}).get(role, (None, None))[1] == name]
     spent = orch.spent_note(cfg, name, providers) if providers else ""
-    parts = [terminal.styled("runs on " + ", ".join(on), "dim") if on else "",
-             terminal.styled(spent, "amber") if spent else "",
-             terminal.styled("recommended to " + " and ".join(
-                 filter(None, (", ".join(picked[:-1]), picked[-1]))), "dim") if picked else ""]
+    parts = [("runs on " + ", ".join(on), "dim") if on else None,
+             (spent, "amber") if spent else None,
+             ("recommended to " + " and ".join(filter(None, (", ".join(picked[:-1]),
+                                                             picked[-1]))), "dim")
+             if picked else None]
     return [part for part in parts if part]
 
 
@@ -2957,11 +2962,15 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
             said = model_said(cfg, name, providers, found) if at == ("model", name) else []
-            joined = terminal.styled(" · ", "dim").join(said)
-            # the line the highlighted model opens, a line a part where a phone has no room
-            for part in said and ([joined] if terminal.cells(joined) <= room - 4 else said):
+            fits = terminal.cells(" · ".join(text for text, _ in said)) <= room - 4
+            # the line the highlighted model opens; where a phone has no room for it, a part a
+            # line, each wrapped
+            parts = ([terminal.styled(" · ", "dim").join(terminal.styled(*each) for each in said)]
+                     if said and fits else [terminal.styled(piece, tone) for text, tone in said
+                                            for piece in terminal.wrap(text, room - 4)])
+            for part in parts:
                 places[len(lines)] = (("model", name), [])
-                lines.append("    " + terminal.cut(part, room - 4))
+                lines.append("    " + part)
                 if moves is not None:
                     moves.append((len(lines) - 1, ("opened",), name,
                                   motion.fading(lines[-1], motion.OPEN)))
