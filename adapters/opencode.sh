@@ -104,9 +104,9 @@ store_key() {
 # The list is the background service's, whose documents are the ones it started with, while
 # a turn's private server (`--standalone`) reads this environment's: a provider either names
 # is excluded.  The service fills that list from the plugins it activates in the background,
-# `opencode`'s among them, and answers it before they are active, so a fresh service's first
-# list comes back empty (2.0.24); integration.list alone waits for them, so it is asked first
-# and its answer dropped.  All four answers come within one 10-second bound, which leaves
+# `opencode`'s among them, and answers it before they are active, so a fresh service lists
+# none at first (2.0.24); of its lists integration.list alone waits for them, so it is asked
+# first and its answer dropped.  All four answers come within one 10-second bound, which leaves
 # `auth` inside its caller's cap, and a missing or stopped one is no provider.  Settings, keys
 # among them, never leave jq.
 own_providers() {
