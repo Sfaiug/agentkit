@@ -1,4 +1,5 @@
-"""`n` asks for a name, then shows selectors; Enter takes each default.
+"""`n` makes the new seat's row, where its name is typed, and Tab there shows the selectors;
+Enter takes each default.
 
 Each test runs `menu.loop` in a child process on a pty of its own, with the seat listing, the
 usage rows, the meters and the probe faked, and the create step reduced to a line saying what
@@ -14,7 +15,6 @@ import json
 import os
 from pathlib import Path
 import shlex
-import signal
 import struct
 import subprocess
 import sys
@@ -60,7 +60,7 @@ if not dry_run:     # a dry run keeps the real listing, rows, probe, notices, cr
 sys.exit(menu.loop(config.load(), dry_run=dry_run))
 """
 RIGHT, LEFT = b"\x1b[C", b"\x1b[D"
-DOWN, ENTER, ESC, SPACE = b"\x1b[B", b"\r", b"\x1b", b" "
+DOWN, ENTER, ESC, SPACE, TAB = b"\x1b[B", b"\r", b"\x1b", b" ", b"\t"
 SPENT = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
                                    "resets_at": time.time() + 3 * 86400}]}}
 # every provider at 100%, openai's week with no reset anybody knows
@@ -174,6 +174,14 @@ class Screen:
     def menu(self, after=0):
         return self.drawn("esc leave", after=after)
 
+    def born(self, after=0):
+        return self.drawn("tab models", after=after)
+
+    def models(self):
+        self.send(b"n")
+        self.born()
+        self.send(TAB)
+
     def send(self, keys):
         os.write(self.master, keys)
 
@@ -195,36 +203,10 @@ def marks(line):
 
 
 class NewSessionScreen(unittest.TestCase):
-    def test_name_sits_in_the_content_column_above_the_keys_and_keeps_its_draft_on_resize(self):
-        screen = Screen(self)
-        screen.menu()
-        screen.send(b"n")
-        lines = screen.drawn("Name: auto")
-        self.assertEqual(lines[2], "  Name: auto")
-        self.assertEqual(lines[-2:], ["", "  esc back"])
-        self.assertRegex(screen.text(), r"  Name: \x1b\[[0-9;]*mauto\x1b\[0m")
-        screen.send(b"fix-api")
-        screen.drawn("  Name: fix-api")
-        mark = len(screen.text())
-        fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 12, 40, 0, 0))
-        os.kill(screen.proc.pid, signal.SIGWINCH)
-        lines = screen.drawn("  Name: fix-api", after=mark)
-        self.assertEqual(lines[2], "  Name: fix-api")
-        self.assertEqual(lines[-1], "  esc back")
-        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
-        mark = len(screen.text())
-        row = len(lines)
-        screen.send(f"\x1b[<0;3;{row}M\x1b[<0;3;{row}m".encode())
-        screen.menu(after=mark)
-        screen.leave()
-        self.assertNotIn("<created", screen.text())
-
     def test_n_then_enter_starts_a_session_with_the_defaults(self):
         screen = Screen(self)
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
         self.assertIn("opus", highlighted(lines))                 # the cursor starts there
@@ -245,9 +227,7 @@ class NewSessionScreen(unittest.TestCase):
     def test_down_and_space_change_the_orchestrator(self):
         screen = Screen(self)
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         screen.picker()
         screen.send(DOWN)
         screen.picker(lambda lines: "astra" in highlighted(lines))
@@ -262,9 +242,7 @@ class NewSessionScreen(unittest.TestCase):
     def test_all_workers_may_be_toggled_off(self):
         screen = Screen(self)
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         screen.picker()
         screen.send(RIGHT + SPACE)             # Opus's executor mark
         screen.picker(lambda lines: marks(highlighted(lines)) == "●□■")
@@ -288,9 +266,7 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self, providers=SPENT)
         screen.menu()
         mark = len(screen.text())
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         lines = screen.picker()
         opus = [row for row in lines if "opus" in row]
         self.assertEqual(len(opus), 1)
@@ -306,9 +282,7 @@ class NewSessionScreen(unittest.TestCase):
     def test_with_everything_spent_nothing_is_chosen_and_enter_waits_for_a_choice(self):
         screen = Screen(self, providers=EVERYTHING_SPENT)
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         lines = screen.picker()
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
@@ -326,12 +300,13 @@ class NewSessionScreen(unittest.TestCase):
         screen = Screen(self, providers=SPENT, cols=40, models=f'[models.{long}]\nharness = "codex"\n'
                         'model = "x"\neffort = "xhigh"\nprovider = "openai"\n')
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         lines = screen.picker()
         self.assertEqual(len([line for line in lines if "mmmmmmmmmmmm…" in line]), 1)
         self.assertEqual([line for line in lines if terminal.cells(line) > 40], [])
+        mark = len(screen.text())
+        screen.send(ESC)
+        screen.born(after=mark)               # back on the row, its name as typed
         mark = len(screen.text())
         screen.send(ESC)
         screen.menu(after=mark)
@@ -340,10 +315,11 @@ class NewSessionScreen(unittest.TestCase):
     def test_esc_goes_back_and_creates_nothing(self):
         screen = Screen(self)
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         screen.picker()
+        mark = len(screen.text())
+        screen.send(ESC)
+        screen.born(after=mark)
         mark = len(screen.text())
         screen.send(ESC)
         screen.menu(after=mark)
@@ -353,9 +329,7 @@ class NewSessionScreen(unittest.TestCase):
     def test_the_dry_run_shows_the_same_screen_and_creates_no_session(self):
         screen = Screen(self, providers=SPENT, dry_run=True)
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
         self.assertIn("astra", highlighted(lines))

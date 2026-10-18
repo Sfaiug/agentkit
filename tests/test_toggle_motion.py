@@ -296,9 +296,7 @@ class NewSessionScreen(Screens):
     def picker(self):
         screen = new_session.Screen(self)
         screen.menu()
-        screen.send(b"n")
-        screen.saw("Name: ")
-        screen.send(ENTER)
+        screen.models()
         screen.picker()
         mark = len(screen.text())
         screen.send(RIGHT)                              # Opus's exec

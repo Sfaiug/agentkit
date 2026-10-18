@@ -4070,35 +4070,24 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     return lines, rows, cells
 
 
-def pick(cfg, providers, default):
-    """(orchestrator, workers, reviewers) off one screen, BACK, or None with no terminal.
-
-    `agentkit · new session`, `n` on a terminal: what Enter takes is chosen before a key is
-    pressed -- `default`, which is `choose()`'s, and both default groups with something left
-    to spend. A group whose defaults are all spent falls back by tier -- a fresh model that is
-    not the other group's own before its own -- among the fresh models a run could start from,
-    else among all fresh models. A
-    spent model is still a choice, only never a preselected one, so with every model spent
-    nothing is chosen and Enter takes the highlight to the column that still wants a choice.
-    ↑/↓, k/j and the wheel move through models, ←/→ through roles; space or a click chooses,
-    Enter starts from anywhere, Esc goes back. Reviewers keep one model; executors may be empty.
-
-    On the menu's keyboard where the menu has one; None where there is no terminal to take --
-    a pipe, a file, the smoke suite -- and the caller asks its two questions a line at a time.
-    """
+def default_crew(cfg, providers, default, like=None):
+    """(each offered model's spent note, what a new seat starts from): `default` orchestrating,
+    and `like`'s executors and reviewers -- a seat's saved selection, else [defaults] -- each
+    with something left to spend.  A group all spent falls back by tier -- a fresh model not
+    the other group's own first -- among those a run could start from, else any fresh one."""
     names = config.offered(cfg)
     notes = {name: spent_note(cfg, name, providers) for name in names}
     fresh = [name for name in names if not notes[name]]
     model = next((name for name in [default, *names] if name in fresh), None)
+    base = like or cfg["defaults"]
     selected = {"orchestrator": model,
-                "workers": [name for name in cfg["defaults"]["workers"] if name in fresh],
-                "reviewers": [name for name in cfg["defaults"].get("reviewers",
-                                                                    cfg["defaults"]["workers"])
+                "workers": [name for name in base["workers"] if name in fresh],
+                "reviewers": [name for name in base.get("reviewers", base["workers"])
                               if name in fresh]}
     for role, other in (("workers", "reviewers"), ("reviewers", "workers")):
         if not selected[role]:
             # executors left empty on purpose stay empty: the orchestrator builds everything
-            if not fresh or role == "workers" and not cfg["defaults"]["workers"]:
+            if not fresh or role == "workers" and not base["workers"]:
                 continue
             peers = selected[other] or ([model] if role == "reviewers" and model else fresh)
             permitting = [name for name in fresh if not role_refusal(
@@ -4115,6 +4104,20 @@ def pick(cfg, providers, default):
                 return min(tiers) if tiers else 3
 
             selected[role] = [min(pool, key=lambda name: (tier(name), fresh.index(name)))]
+    return notes, selected
+
+
+def pick(cfg, providers, default, like=None):
+    """(orchestrator, workers, reviewers) off one screen, BACK, or None with no terminal.
+
+    `agentkit · new session`, Tab on the menu's new row: Enter takes `default_crew`'s before a
+    key is pressed, so with every model spent nothing is chosen and Enter takes the highlight
+    to the column that still wants a choice.  ↑/↓, k/j and the wheel move through models, ←/→
+    through roles; space or a click chooses, Enter starts from anywhere, Esc goes back.
+    Reviewers keep one model; executors may be empty.  On the menu's keyboard where it has one;
+    None with no terminal to take -- a pipe, the smoke suite -- and the caller asks a line at a
+    time."""
+    notes, selected = default_crew(cfg, providers, default, like)
     with closing(terminal.Keyboard()) as keyboard:
         if not (terminal.taken() or keyboard.take()):
             return None

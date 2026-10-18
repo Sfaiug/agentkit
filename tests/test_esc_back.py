@@ -82,7 +82,7 @@ def mark_return(module, name):
 for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
                      (menu, "config_add_provider"), (menu, "config_remove_provider"),
                      (menu, "config_discord"), (menu, "config_audit"), (menu, "show_features"),
-                     (menu, "new_session"),
+                     (menu, "new_session"), (orch, "pick"),
                      (menu, "pause"), (terminal, "choose")):
     mark_return(module, name)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
@@ -308,21 +308,19 @@ class EscBack(unittest.TestCase):
         menu_.back("config_matrix", config_)
         menu_.leave()
 
-    def test_n_goes_back_from_its_name_and_from_its_models(self):
+    def test_n_goes_back_from_its_row_and_from_its_models(self):
         menu_ = Menu(self)
         menu_.screen()
+        born = lambda lines: "tab models" in lines[-1]
+        lines = menu_.press(b"nq", lambda lines: born(lines) and any("q▏" in line for line in lines))
+        self.assertTrue(lines[-1].endswith("esc back"), lines)    # q is a letter of its name
+        menu_.press(ESC)
+        menu_.press(b"n", born)
         mark = len(menu_.text())
-        menu_.send(b"n")
-        menu_.back("new_session", title("new session"))
-        # the name Enter takes is in the field, dim, until a key replaces it
-        typed = menu_.text()[mark:]
-        self.assertRegex(typed, r"  Name: \x1b\[[\d;]*mauto\x1b\[0m")
-        self.assertRegex(typed, r"  Name: q\r?\n")
-        mark = len(menu_.text())
-        menu_.press(b"n", title("new session"))
-        menu_.send(ENTER)                           # auto: the models, on the same keys
-        menu_.back("new_session", lambda lines: title("new session")(lines)
-                   and "start" in lines[-1])
+        menu_.send(b"\t")
+        menu_.back("pick", lambda lines: title("new session")(lines) and "start" in lines[-1])
+        menu_.screen(born, after=mark)          # back on its row, and Esc takes that down
+        menu_.press(ESC)
         menu_.leave()
         self.assertNotIn("<opened", menu_.text())
 

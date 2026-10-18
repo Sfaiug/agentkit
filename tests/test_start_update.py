@@ -54,7 +54,7 @@ sys.path.insert(0, str(Path.home() / "agentkit"))
 from agentkit import BUILD, config, macbridge, menu, orch, run, terminal, watch
 
 cfg = {"defaults": {"orchestrator": "acme", "workers": ["acme"]},
-       "models": {"acme": {"harness": "claude", "model": "acme-model",
+       "models": {"acme": {"harness": "claude", "model": "acme-model", "effort": "high",
                            "provider": "anthropic"}}, "providers": {"anthropic": {}}}
 config.load = lambda *args, **_kw: cfg
 config.server_alias = lambda: "acme-server" if os.environ.get("START_CLIENT") else None
@@ -294,13 +294,13 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.wait_for(lambda: (self.root / "install.started").exists())
         screen.key(b"\x1b[B", "<draw old tidy-docs>")
         os.write(screen.master, b"n")
-        screen.when("Name:")
+        screen.when("a name, or")
         os.write(screen.master, b"acme-draft")
-        screen.when("Name: acme-draft")
+        screen.when("acme-draft")
         self.release("install")
         self.wait_for(lambda: self.updaters() and not running(self.updaters()[0]))
         os.write(screen.master, b"-kept")
-        screen.when("Name: acme-draft-kept")
+        screen.when("acme-draft-kept")
         self.assertNotIn("<start new>", screen.text())
         self.assertEqual(self.git(self.clone, "rev-parse", "HEAD"), self.new)
         os.write(screen.master, b"\x1b")

@@ -203,6 +203,13 @@ class Menu:
         return self.screen(lambda lines: any("space choose" in line for line in lines)
                            and (where is None or where(lines)), after)
 
+    def models(self):
+        """`n`, then Tab on the row it makes: the selectors."""
+        self.press(b"n", born)
+        mark = len(self.text())
+        os.write(self.master, b"\t")
+        return self.picker(after=mark)
+
     def record(self, name="fix-api"):
         return json.loads((self.home / ".agentkit/state" / f"session-{name}.json").read_text())
 
@@ -215,6 +222,11 @@ class Menu:
         calls = self.tmux_calls.read_text().split("\n") if self.tmux_calls.exists() else []
         self.case.assertEqual([call for call in calls if call and "list-sessions" not in call],
                               [])     # tmux was asked what it holds, and nothing else
+
+
+def born(lines):
+    """A main screen with the row `n` makes on it, whose keys are its own."""
+    return "tab models" in lines[-1]
 
 
 class OneConfigScreen(unittest.TestCase):
@@ -336,23 +348,18 @@ class OneConfigScreen(unittest.TestCase):
                          "max")
         self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before
         menu.press(ESC)
-        mark = len(menu.text())
-        os.write(menu.master, b"n")
-        menu.saw("Name: ", after=mark)
-        os.write(menu.master, ENTER)
-        lines = menu.picker(after=mark)
+        lines = menu.models()                 # a heading's new seat: the last creation's crew
         rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
         self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●□□", "○■□", "○□■"))
+        menu.press(ESC, born)                 # Esc on the selectors is back on the row
         menu.press(ESC)
         menu.leave()
 
     def test_n_starts_from_what_the_last_session_was_created_with(self):
         menu = Menu(self)
         menu.screen()
-        os.write(menu.master, b"n")
-        menu.saw("Name: ")
-        os.write(menu.master, ENTER)
-        lines = menu.picker()
+        menu.press(b"k", lambda lines: "ACME" in highlighted(lines))
+        lines = menu.models()
         self.assertIn("opus", highlighted(lines))     # the shipped defaults, the first time
         self.assertEqual(marks(highlighted(lines)), "●■■")
         menu.press(DOWN + SPACE, lambda lines: "astra" in highlighted(lines)
@@ -368,14 +375,19 @@ class OneConfigScreen(unittest.TestCase):
         self.assertEqual({key: record[key] for key in chosen}, chosen)
         self.assertEqual(menu.defaults(), chosen)         # written by the creation
         menu.screen(after=mark)
-        mark = len(menu.text())
-        os.write(menu.master, b"n")
-        menu.saw("Name: ", after=mark)
-        os.write(menu.master, ENTER)
-        lines = menu.picker(after=mark)
+        menu.press(b"k", lambda lines: "ACME" in highlighted(lines))
+        lines = menu.models()
         self.assertIn("astra", highlighted(lines))
         rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
         self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○■□", "○■■"))
+        # a seat's new seat is as that seat: fix-api's executors and its one reviewer
+        menu.press(ESC, born)
+        menu.press(ESC)
+        menu.press(b"j", lambda lines: "fix-api" in highlighted(lines))
+        lines = menu.models()
+        rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
+        self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○□□", "○■□"))
+        menu.press(ESC, born)                 # Esc on the selectors is back on the row
         menu.press(ESC)
         menu.leave()
 
