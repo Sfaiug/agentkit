@@ -197,8 +197,11 @@ class RedOnTheTip(unittest.TestCase):
         self.advance()
         with patch.object(gate, "derived_heavy_limit", return_value=2):
             land.check_line(self.turn)
-        # the whole piece passing on the tip answers for the later member's red in it too
-        self.assertEqual(self.probes(), [("2/2", ["test_new.sh"]), ("2/2", None)])
+        # the narrowing first runs the deeper red's tests alone on the first stack: red there,
+        # they prove nothing, and its whole check follows; the whole piece passing on the tip
+        # answers for the later member's red in it too
+        self.assertEqual(self.probes(), [("2/2", ["test_later.sh", "test_new.sh"]),
+                                         ("2/2", ["test_new.sh"]), ("2/2", None)])
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [first.name, later.name])
         self.assertIsNone(self.red())
