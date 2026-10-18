@@ -2,8 +2,8 @@
 
 The owner's design (14 Oct 2026): 450 ms a line, each row 40 ms after the one above it, the
 done part growing over the empty track and ending exactly as drawn, through the draw the read
-landing as ak opens makes; a draw once they have grown grows nothing.  Offline: a temporary
-HOME, fake seats, the motion clock read, no terminal.
+landing as ak opens makes, each from its own start till news moves it; a draw once they have
+grown grows nothing.  Offline: a temporary HOME, fake seats, the motion clock read, no terminal.
 """
 
 from contextlib import redirect_stdout
@@ -105,6 +105,31 @@ class GrowIn(Sandbox):
                                 else:
                                     expected[max(expected)] += char
                             self.assertEqual(text, expected.get(column), (row, column))
+
+    def test_each_line_keeps_its_own_start_till_news_moves_it(self):
+        # the read landing as ak opens may give a row above a line its own, or turn the line's
+        # seat done: the line keeps the start it had, one drawn only since grows nothing, and one
+        # done grows no more once the light that crossed it has
+        words = {"acme-api": "idle", "acme-docs": "needs you"}
+
+        def growing(now):     # each seat's line -> until when its cells move
+            with patch.object(menu, "seat_row_state", side_effect=lambda cfg, s, **_kw:
+                              {"word": words[s["name"]], "reason": "", "since": None}), \
+                    patch.object(motion.time, "monotonic", return_value=now):
+                lines = [terminal.ANSI.sub("", line) for line in self.draw()]
+            rows = {name: next(n for n, line in enumerate(lines, 1) if f" {name} " in line)
+                    for name in words}
+            return {name: {until for (at, column), (_, until) in self.clock.cells.items()
+                           if at == row and column > terminal.cells(
+                               lines[row - 1][:lines[row - 1].find("━")])}
+                    for name, row in rows.items()}
+
+        growing(10)
+        words["acme-api"] = "needs you"
+        self.assertEqual(growing(10.02), {"acme-api": set(), "acme-docs": {10 + motion.GROW}})
+        words["acme-docs"] = "done"
+        growing(10.03)
+        self.assertEqual(growing(10.03 + motion.SWEEP + 0.01)["acme-docs"], set())
 
     def test_on_a_popup_each_line_grows_as_it_fades_in_and_never_shrinks(self):
         # Ctrl-b m's clock fades its first draw in from the background: the lines grow under

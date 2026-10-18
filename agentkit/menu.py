@@ -1673,14 +1673,18 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             clock.asked[question] = asked
         typed = asked is not None and time.monotonic() < asked + motion.WRITE
         news = clock.look({key: shown for key, shown, _, _ in moves})
-        # As it opens each seat's line grows to its length, row after row, and through every
-        # draw until it has: the read that lands as it opens draws the screen again at once.
-        clock.began = time.monotonic() if clock.began is None else clock.began
-        if time.monotonic() < clock.began + motion.GROW + len(bars) * motion.STAGGER:
-            for n, (row, span) in enumerate(bars.values()):
+        # As it opens each seat's line grows to its length, row after row, and on through the
+        # draws until it has -- the read that lands as it opens draws the screen again at once --
+        # each from its own start, until news moves the line instead.
+        if clock.grows is None:
+            clock.grows = {name: time.monotonic() + n * motion.STAGGER
+                           for n, name in enumerate(bars)}
+        for name, began in clock.grows.items():
+            if name in bars:
+                row, span = bars[name]
                 written = terminal.cell_texts(out[row - 1])
                 clock.span(row, terminal.cells("".join(written[:span.start])) + 1, *motion.growing(
-                    written[span], clock.began + n * motion.STAGGER))
+                    written[span], began))
         # Older effects must not overwrite newer news at a shared cell.
         for key, shown, cell, lit in sorted(moves, key=lambda move: news.get(move[0], (0,))[0]):
             since, before = news.get(key, (None, None))
@@ -1689,6 +1693,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             elif since is None:
                 continue
             elif key[0] == "bar" and before:    # the plan moved: its line glides there
+                clock.grows.pop(key[1], None)
                 row, span = cell
                 written = terminal.cell_texts(out[row - 1])
                 cells = written[span]
@@ -1723,6 +1728,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
                 if shown == "done" and key[1] in bars:
+                    clock.grows.pop(key[1], None)
                     row, span = bars[key[1]]
                     written = terminal.cell_texts(out[row - 1])
                     clock.span(row, terminal.cells("".join(written[:span.start])) + 1, *motion.sweeping(
