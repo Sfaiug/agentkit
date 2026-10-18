@@ -312,7 +312,7 @@ screen), `terminal.state_text`.
 `r recommended` on `c` -- the key stands while a matrix is computed and the seat has a
 record -- opens `agentkit · models · <seat>`: every model the installed harnesses offer
 against the public boards, as `ak models` scores them, with nothing typed. Its first row is
-the one knob, `as good as the best: up to ‹ 5 › under it`: ←/→ step `within` a point, never
+the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
 under 0, saved to config.toml at once, and the lines under it follow. Then `recommended`,
 the row per role (`orch opus @ xhigh · exec astra @ xhigh · review astra @ xhigh`), `as
 good`, dim, the rows within the knob of the best per role, and, dim, what quality and cost
@@ -321,7 +321,9 @@ name, or its id where the config does not run it (dim where no board scores it),
 harness (dim), its effort between the arrows that step it (`‹ xhigh ›`; the word alone with
 one effort), its quality per role at that effort out of 100 -- the recommended row's in
 `done`'s colour, one as good in the accent, `-` without a score -- and what Artificial
-Analysis's index run cost it, in dollars. ↑/↓, k/j and the wheel move between the knob and
+Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
+column gives way, then the cost, then the label is cut: a 40-cell phone shows the model, its
+effort and its three numbers. ↑/↓, k/j and the wheel move between the knob and
 the models; ←/→ on a model step the effort its row shows through its own efforts (the
 catalog's, and any the boards or the config have it at), the numbers and the cost following,
 nothing saved: the effort a model runs at is set on `c`. `r`, or a click on `r take
