@@ -1650,12 +1650,23 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
         news = clock.look({key: shown for key, shown, _, _ in moves})
-        if clock.first:       # as it opens each seat's line grows to its length, row after row
-            clock.first, began = False, time.monotonic()
-            for n, (row, span) in enumerate(bars.values()):
-                text = terminal.ANSI.sub("", out[row - 1])
+        def counted(row, span, since, took, before, light=None, bright=False):
+            """The count after a line, counting with it (`motion.rolling`)."""
+            text = terminal.ANSI.sub("", out[row - 1])
+            count = re.match(r" \d+ of \d+", text[span.stop:]).group()
+            first = terminal.cells(text[:span.stop]) + 2
+            clock.span(row, first, *motion.rolling(terminal.cell_texts(out[row - 1])[
+                span.stop + 1:span.stop + len(count)], before, since, took, light, bright))
+
+        # As it opens each seat's line grows to its length, row after row, and through every
+        # draw until it has: the read that lands as it opens draws the screen again at once.
+        clock.began = time.monotonic() if clock.began is None else clock.began
+        if time.monotonic() < clock.began + motion.GROW + len(bars) * motion.STAGGER:
+            for n, (name, (row, span)) in enumerate(bars.items()):
+                text, began = terminal.ANSI.sub("", out[row - 1]), clock.began + n * motion.STAGGER
                 clock.span(row, terminal.cells(text[:span.start]) + 1, *motion.growing(
-                    terminal.cell_texts(out[row - 1])[span], began + n * motion.STAGGER))
+                    terminal.cell_texts(out[row - 1])[span], began))
+                counted(row, span, began, motion.GROW, (0, (seats[name].get("bar") or (0, 0))[1]))
         # Older effects must not overwrite newer news at a shared cell.
         for key, shown, cell, lit in sorted(moves, key=lambda move: news.get(move[0], (0,))[0]):
             since, before = news.get(key, (None, None))
@@ -1663,13 +1674,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
             elif since is None:
                 continue
-            elif key[0] == "bar" and before:    # the plan moved: its line glides there
+            elif key[0] == "bar" and before:    # the plan moved: its line glides, its count rolls
                 row, span = cell
                 cells = terminal.cell_texts(out[row - 1])[span]
                 clock.span(row, terminal.cells(terminal.ANSI.sub("", out[row - 1])[
                     :span.start]) + 1, *motion.growing(
                     cells, since, motion.GLIDE, round(len(cells) * before[0] / max(1, before[1])),
                     words.get(key[1]) or "working"))
+                counted(row, span, since, motion.GLIDE, before, words.get(key[1]) or "working",
+                        lit)
             elif key[0] == "task" and before:    # a task moved on a stage, or failed
                 row, column = cell
                 written = terminal.cell_texts(out[row - 1])

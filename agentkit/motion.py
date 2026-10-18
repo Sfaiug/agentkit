@@ -6,7 +6,7 @@ a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles f
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
 opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
-a task's next square fills through its half and one that failed nudges; an
+its count counting with it, a task's next square fills through its half and one that failed nudges; an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
@@ -44,6 +44,7 @@ TURN = 0.15         # ... and the rows of a page turned to
 GROW = 0.45         # ... a seat's progress line takes to grow to its length as ak opens
 STAGGER = 0.04      # ... and each row after the one above it
 GLIDE = 0.7         # ... and to glide to a new length as its plan moves, a light at its head
+ROLL = 0.3          # ... a digit of its count that changed takes from the line's colour to as drawn
 STEP = 0.15         # ... a task's next square takes to fill, through its half
 HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
@@ -214,6 +215,45 @@ def growing(cells, began, took=GROW, start=0, light=None):
     return [cell(n, text) for n, text in enumerate(cells)], began + took
 
 
+def rolling(cells, before, began, took=GROW, light=None, bright=False):
+    """A progress line's count, `cells` each of its cells as the draw wrote it -- `3 of 8` --
+    counting from `before`, a (done, total), to what it says, in `took` seconds from `began`,
+    eased as the line grows (`growing`) so the count says what the line shows at every frame:
+    each digit that changes in `light`'s colour and easing to as drawn in ROLL seconds, or
+    with no light changing as it is; an animation for each cell, and when it is still.  A
+    number that will not fit the count's cells is skipped, and one narrower stands at their
+    right.  `bright` on the highlighted row."""
+    drawn = [terminal.ANSI.sub("", text) for text in cells]
+    after = [int(n) for n in "".join(drawn).split(" of ")]
+    start = terminal.faded(light, 0) if light else None
+    rest = terminal.faded("dim", -1)        # the foreground a plain cell takes
+
+    def text(x):
+        shown = " of ".join(str(round(old + (new - old) * eased(x)))
+                            for old, new in zip(before, after))
+        return shown.rjust(len(drawn)) if len(shown) <= len(drawn) else None
+
+    # what the count shows at each frame, from the first: each a step a frame long
+    steps = [text(n * FRAME / took) or "".join(drawn) for n in range(math.ceil(took / FRAME) + 1)]
+    until = began + took + (ROLL if start else 0)       # the last digit to change settles
+
+    def cell(n, written):
+        def at(now):
+            step = min(len(steps) - 1, max(0, int((now - began) / FRAME)))
+            if now >= until:
+                return written
+            changed = next((k for k in range(step, 0, -1) if steps[k][n] != steps[k - 1][n]),
+                           None)
+            age = now - began - (changed or 0) * FRAME
+            if steps[step][n] == drawn[n] and (start is None or changed is None or age >= ROLL):
+                return written
+            shown = (steps[step][n] if start is None or changed is None or age >= ROLL else
+                     terminal.styled(steps[step][n], mixed(start, rest, eased(age / ROLL))))
+            return terminal.highlight(shown, mark=False) if bright else shown
+        return at
+    return [cell(n, text) for n, text in enumerate(cells)], until
+
+
 def halving(text, began, took, bright=False):
     """A mark, `text` as drawn, that just filled or emptied -- a toggle set or cleared, a task's
     next square: through its half (`□ ▣ ■`, `○ ◉ ●`) for the first half of `took` seconds from
@@ -264,11 +304,6 @@ def colouring(text, began, colour, into, rest=None, bright=False):
     start, end = terminal.faded(rest or "dim", 0 if rest else -1), terminal.faded(colour, 0)
     lift = terminal.faded("dim", -1)
 
-    def mixed(one, other, amount):
-        return "#" + "".join(
-            f"{round(int(one[i:i + 2], 16) * (1 - amount) + int(other[i:i + 2], 16) * amount):02x}"
-            for i in (1, 3, 5))
-
     def letter(char, p):
         p = min(1, max(0, p))
         kind = (rest if p <= 0 else colour if p >= 1 else
@@ -283,6 +318,13 @@ def colouring(text, began, colour, into, rest=None, bright=False):
                         for n, char in enumerate(text))
         return terminal.highlight(drawn, mark=False) if bright else drawn
     return at, began + took
+
+
+def mixed(one, other, amount):
+    """`#RRGGBB` `amount` (0 to 1) of the way from the colour `one` to `other`."""
+    return "#" + "".join(
+        f"{round(int(one[i:i + 2], 16) * (1 - amount) + int(other[i:i + 2], 16) * amount):02x}"
+        for i in (1, 3, 5))
 
 
 def fetching(clock, began):
@@ -323,7 +365,7 @@ class Clock:
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.opened = None  # ... from its first draw
         self.rising = None  # ... the lines drawn, top down, and that time, while they come up
-        self.first = True   # the screen's first draw is still to come: its lines grow into it
+        self.began = None   # when the screen's first draw was: its lines grow into it from then
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since

@@ -301,17 +301,15 @@ class NewsMotion(Sandbox):
             lambda: self.tasks.update({"fix-api": (4, 4)}))])
         screen, cells = self.written(waits, at)
         self.assertIn("4 of 4", terminal.ANSI.sub("", screen))     # the draw says it at once
-        start = self.cell(screen, "fix-api", "━")
+        start, tip = self.cell(screen, "fix-api", "━"), self.cell(screen, "fix-api", "━ 4 of 4")
         light = terminal.faded("working", -motion.BRIGHTER)
         light = tuple(int(light[n:n + 2], 16) for n in (1, 3, 5))
-        heads = [(when, column) for when, (row, column), text in cells
-                 if row == start[0] and painted(text)[0][1] == light]
+        heads = [(when, column) for when, (row, column), text in cells     # the count's lit too
+                 if row == start[0] and column <= tip[1] and painted(text)[0][1] == light]
         # the head moves right, from a quarter of the line to its end, in about 700 ms
         self.assertGreater(len({column for _, column in heads}), 3, heads)
         self.assertEqual([column for _, column in heads], sorted(column for _, column in heads))
         self.assertTrue(0.4 <= heads[-1][0] - heads[0][0] <= 0.9, heads[-1][0] - heads[0][0])
-        tip = self.cell(screen, "fix-api", "━ 4 of 4")
-        self.assertLessEqual(heads[-1][1], tip[1])
 
     def test_a_line_whose_plan_grows_glides_back_from_its_old_length(self):
         line = terminal.cell_texts(terminal.plan_bar(1, 4, room=15).split(" 1 of 4")[0])

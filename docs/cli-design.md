@@ -595,7 +595,9 @@ the highlight comes to it comes up out of the background over 120 ms, and the
 rows of a page turned to over 150 ms (`motion.fading`). As the menu opens, each
 seat's progress line grows from empty to its length over 450 ms, each row 40 ms
 after the one above it (`motion.growing`); one whose plan moves glides to its new
-length over 700 ms, a light at its head. On the line the highlighted row opens, a
+length over 700 ms, a light at its head. Its count counts with it, from 0 as it
+grows and from where it was as it glides, each digit that changes there in the
+line's colour and easing back over 300 ms (`motion.rolling`). On the line the highlighted row opens, a
 task that reaches its next stage fills that square through its half (`□ ▣ ■`) over
 150 ms (`motion.halving`), and one that fails nudges left, right, left and back
 over 240 ms (`motion.nudging`); a task first seen stands still. Only a change seen while the

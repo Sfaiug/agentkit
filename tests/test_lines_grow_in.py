@@ -1,8 +1,8 @@
 """As ak opens, every seat's progress line grows from empty to its length, row after row.
 
 The owner's design (14 Oct 2026): 450 ms a line, each row 40 ms after the one above it, the
-done part growing over the empty track and ending exactly as drawn; a draw after the first
-grows nothing.  Offline: a temporary HOME, fake seats, the motion clock read, no terminal.
+done part growing over the empty track and ending exactly as drawn, through the draw the read
+landing as ak opens makes; a draw once they have grown grows nothing.  Offline: a temporary HOME, fake seats, the motion clock read, no terminal.
 """
 
 from contextlib import redirect_stdout
@@ -64,9 +64,15 @@ class GrowIn(Sandbox):
                                  drawn[column - 1], (name, column))
             ends[name] = until
         self.assertAlmostEqual(ends["acme-docs"] - ends["acme-api"], motion.STAGGER, places=3)
-        # and the next draw grows nothing
+        # a draw again at once -- the read landing as ak opens -- grows them on from where they
+        # were, and one once they have grown grows nothing
+        growing = dict(self.clock.cells)
         self.draw()
-        self.assertEqual(self.clock.cells, {})
+        self.assertEqual({cell: until for cell, (_, until) in self.clock.cells.items()},
+                         {cell: until for cell, (_, until) in growing.items()})
+        with patch.object(motion.time, "monotonic", return_value=max(ends.values()) + 0.01):
+            self.draw()
+        self.assertEqual({cell for cell, (_, until) in self.clock.cells.items() if until}, set())
 
     def test_on_a_popup_each_line_grows_as_it_fades_in_and_never_shrinks(self):
         # Ctrl-b m's clock fades its first draw in from the background: the lines grow under
