@@ -6,8 +6,9 @@ whatever pass the target has on record; red through the whole ladder is the targ
 gets its one repair as before.  A piece that named the tests failing it, red again alone, has
 those alone run there first: passing, each named as run, the red is the member's own; anything
 else proves nothing, and the piece runs.  Red there too, with those tests run and failing again
-alone, is a red that repeats and gets its repair at once.  Offline: local Git, the fixture's
-shell suites, fake launches and wakes, a stopped clock.
+alone on the pinned tip, the piece and they each run to their end, is a red that repeats: kept
+as the ladder climbed, it gets its repair at once.  Offline: local Git, the fixture's shell
+suites, fake launches and wakes, a stopped clock.
 """
 
 from pathlib import Path
@@ -18,7 +19,7 @@ from unittest.mock import ANY, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander as fixture
 import test_lander_red_main as red_main
-from agentkit import config, gate, land, record, run, turns
+from agentkit import config, gate, handback, land, record, run, turns
 
 FLAKY = "test ! -f ../flake"     # red on every checkout while the host holds the flag
 # Piece 2/2 runs each test_*.sh, or those AK_ONLY lists that it holds, naming each it runs and
@@ -255,6 +256,51 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.red()["probes"], 2)
         self.assertEqual(self.prepared, [])
         self.wake.assert_not_called()
+
+    def test_a_repeat_whose_repair_did_not_start_gets_it_next_pass_unprobed(self):
+        self.declare(NAMING)
+        self.member()
+        self.advance(**{"test_tax.sh": "exit 1\n"})
+        self.clock()
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            with patch.object(handback, "start_followups", side_effect=RuntimeError("refused")):
+                land.check_line(self.turn)
+            # kept as the ladder climbed, as one a PR's fixer was handed is: no pause holds it
+            self.assertFalse(land.paused(self.red()))
+            land.check_line(self.turn)
+        self.assertEqual(len(self.probes()), 2)
+        self.assertEqual(self.red()["run"], self.prepared[0][0].name)
+
+    def ladder_holds(self, suite, silence=None):
+        """The member's probe of a tip where test_tax.sh fails, by `suite`, which there confirms
+        no repeat: the line waits on the ladder and no repair starts."""
+        self.declare(suite)
+        first = self.member()
+        if silence:
+            with record.record(first) as state:
+                state["silence_minutes"] = silence
+        self.advance(**{"test_tax.sh": "exit 1\n"})
+        self.clock()
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn)
+        self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"]), ("2/2", None)])
+        self.assertTrue(land.paused(self.red()))
+        self.assertEqual(self.prepared, [])
+        return first
+
+    def test_failed_tests_a_signal_ended_on_the_tip_wait_on_the_ladder(self):
+        self.ladder_holds(NAMING.replace(
+            "exit $code", '[ -z "$AK_ONLY" ] || [ -f work.txt ] || kill -9 $$; exit $code'))
+
+    def test_failed_tests_on_a_checkout_their_run_moved_wait_on_the_ladder(self):
+        moving = ('[ -z "$AK_ONLY" ] || [ -f work.txt ] || git -c user.name=acme '
+                  '-c user.email=acme@example.com commit -q --allow-empty -m moved; ')
+        self.ladder_holds(moving + NAMING)
+
+    def test_a_whole_piece_killed_at_its_limit_on_the_tip_waits_on_the_ladder(self):
+        waiting = '[ -n "$AK_ONLY" ] || [ -f work.txt ] || [ "$AK_SHARD" != 2/2 ] || sleep 30; '
+        first = self.ladder_holds(waiting + NAMING, silence=0.05)
+        self.assertIn("[killed at the limit]", (first / "target-probe.log").read_text())
 
     def test_the_red_piece_is_read_from_its_exit_never_from_what_a_piece_printed(self):
         # piece 1 prints a red piece's record lines and passes; piece 2 fails on every checkout

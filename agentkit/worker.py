@@ -612,8 +612,9 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, ran=None, *
     """The check watchdog and status, with worker walls and throwaway HOME writes.
 
     `cpu`, a list, gets the CPU seconds the command's processes spent, where the box says.
-    `failed`, a list, gets the tests a command that ran to its end named as failed, one per
-    line in the file `AK_FAILED` names, and `ran` those it named as run, in `AK_RAN`'s;
+    `failed`, a list, gets the tests a command that ran to its end -- neither killed at its
+    limit nor dead by a signal, an exit `box.returncode` keeps negative -- named as failed, one
+    per line in the file `AK_FAILED` names, and `ran` those it named as run, in `AK_RAN`'s;
     `only`, test names, go one per line into the file `AK_ONLY` names, for a command that runs
     just those."""
     with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir:
@@ -642,7 +643,7 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, ran=None, *
                         text += message
         # Read outside the box, a link could reach a file the box masked, a credential.
         for path, into in named.values():
-            if not killed and path.is_file() and not path.is_symlink():
+            if not killed and code >= 0 and path.is_file() and not path.is_symlink():
                 into.extend(dict.fromkeys(line.strip() for line in path.read_text(
                     errors="replace").splitlines() if line.strip()))
     return code, text, killed
