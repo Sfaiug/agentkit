@@ -1594,7 +1594,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
         news = clock.look({key: shown for key, shown, _, _ in moves})
-        for key, shown, cell, lit in moves:
+        # Older effects must not overwrite newer news at a shared cell.
+        for key, shown, cell, lit in sorted(moves, key=lambda move: news.get(move[0], (0,))[0]):
             since, _ = news.get(key, (None, None))
             if shown == "working":
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
@@ -1602,10 +1603,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 continue
             elif key[0] in ("opened", "page"):    # what comes up out of the background
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
-                    # A later highlight starts its own reveal on a page still fading.
-                    if (key[0] == "page" and row in opened
-                            and news.get(("opened",), (since, None))[0] > since):
-                        continue
                     motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
                         clock, row, since, None)
             elif key[0] == "sub":     # the pointer came onto it, or left it

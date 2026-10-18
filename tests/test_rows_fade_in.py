@@ -101,6 +101,31 @@ class FadeIn(Sandbox):
             self.clock.frame()
             self.assertNotIn((row, 1), self.clock.cells)
 
+    def test_news_during_a_page_fade_gets_its_full_glow(self):
+        for word in ("needs you", "done"):
+            with self.subTest(word=word), \
+                    patch.object(motion.time, "monotonic", return_value=10.0) as now:
+                self.clock = motion.Clock()
+                _, drawn = self.draw("acme-01", height=14)
+                cursor = drawn["turns"][1]
+                now.return_value = 11.0
+                self.draw(cursor, page=1, height=14)
+                now.return_value = 11.1
+                with patch.object(menu, "seat_row_state", return_value={
+                        "word": word, "reason": "Status changed.", "since": None}):
+                    lines, _ = self.draw(cursor, page=1, height=14)
+                self.assertEqual(self.clock.seen[("page",)][1], 11.0)
+                row = next(n for n, line in enumerate(lines, 1) if f" {cursor} " in line)
+                animation, until = self.clock.cells[row, 1]
+                self.assertAlmostEqual(until, 12.1)
+                self.assertIn("48;2;", animation(11.1))
+                now.return_value = 11.15
+                self.clock.frame()
+                self.assertIn((row, 1), self.clock.cells)
+                now.return_value = 12.1
+                self.clock.frame()
+                self.assertNotIn((row, 1), self.clock.cells)
+
 
 if __name__ == "__main__":
     unittest.main()
