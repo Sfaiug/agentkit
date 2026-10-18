@@ -58,7 +58,7 @@ MAC_TOOLS = {
                  '  sleep 1; ls "$FAKE" | grep "^vm-" >>"$FAKE/overlap"; touch "$FAKE/vm-$2"\n'
                  '  while [ -e "$FAKE/vm-$2" ]; do sleep 0.1; done;;\n'
                  '"stop "*) rm "$FAKE/vm-$2";; esac',
-    "ssh": 'exec bash -c "$2"',
+    "ssh": 'umask 077; exec bash -c "$2"',    # the strictest umask a Mac's shell may have
 }
 
 
@@ -163,7 +163,7 @@ class SuiteHelper(unittest.TestCase):
                 return warned
             with tarfile.open(self.fake / "parcel.tar") as tar:
                 image = {member.name: (member.mode, tar.extractfile(member).read())
-                         for member in tar if member.name.startswith(("image/", "Containerfile"))}
+                         for member in tar if member.name.startswith(("image/", "context/"))}
             return (self.fake / "images").read_text().split()[-1], image
 
         # a repository with no recipe runs its suite here, asking the helper nothing
@@ -180,11 +180,11 @@ class SuiteHelper(unittest.TestCase):
                               "ci/suite.Containerfile": recipe, "requirements.txt": "acme==1\n",
                               "ci/pins.txt": "pin\n", "Containerfile": "FROM acme/app\n",
                               "setup.sh": "true\n"})
-        self.assertEqual(image, {"Containerfile": (0o644, recipe.encode()),
-                                 "image/requirements.txt": (0o644, b"acme==1\n"),
-                                 "image/ci/pins.txt": (0o644, b"pin\n"),
-                                 "image/Containerfile": (0o644, b"FROM acme/app\n"),
-                                 "image/setup.sh": (0o755, b"true\n")})
+        self.assertEqual(image, {"image/Containerfile": (0o644, recipe.encode()),
+                                 "context/requirements.txt": (0o644, b"acme==1\n"),
+                                 "context/ci/pins.txt": (0o644, b"pin\n"),
+                                 "context/Containerfile": (0o644, b"FROM acme/app\n"),
+                                 "context/setup.sh": (0o755, b"true\n")})
         self.assertRegex(name, r"^ak-helper-[0-9a-f]{12}:[0-9a-f]{12}$")
         # a changed copied file, or its mode, names a new image of the same repository
         changed = commit({"requirements.txt": "acme==2\n"})[0]
@@ -235,7 +235,8 @@ class HelperMac(unittest.TestCase):
         answer (asked now when None): (its exit, the commits its bundle needs the Mac to have
         already, or None when it sends no bundle)."""
         known = helper._known("acme-mac", repo) if known is None else known
-        recipe = {"Containerfile": (0o644, (helper.TOOLS / "Containerfile").read_bytes())}
+        recipe = {"image/Containerfile": (0o644, (helper.TOOLS / "Containerfile").read_bytes()),
+                  "context/setup.sh": (0o755, b"true\n")}
         with tempfile.TemporaryFile() as parcel:
             helper._parcel(self.repo, "main", known, recipe, parcel)
             parcel.seek(0)
@@ -274,6 +275,7 @@ class HelperMac(unittest.TestCase):
         (self.fake / "broken").unlink()
         (self.fake / "deleted").unlink()
         self.assertEqual(prepare("first"), 0)
+        self.assertEqual((self.root / "first/context/setup.sh").stat().st_mode & 0o777, 0o755)
         self.assertEqual((self.fake / "deleted").read_text(),
                          "ak-helper:old\ndocker.io/library/debian:trixie-slim\n")
         self.assertIsNone(helper.room("acme-mac", 1.0, 500))

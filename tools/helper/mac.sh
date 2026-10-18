@@ -25,7 +25,8 @@ known)     # REPO: the commit its history here reaches, if any. A suite asks jus
   touch -c "$MIRRORS/$2"
   git -C "$MIRRORS/$2" rev-parse -q --verify refs/known/base 2>/dev/null; exit 0 ;;
 prepare)   # KEY IMAGE REPO, the parcel on stdin
-  mkdir -p "$ROOT/$2" && tar -x -C "$ROOT/$2" || exit 255
+  # -p: the recipe's files keep HEAD's modes, whatever umask the Mac's shell has.
+  mkdir -p "$ROOT/$2" && tar -x -p -C "$ROOT/$2" || exit 255
   # Dead callers' trees go after a day.
   find "$ROOT" -mindepth 1 -maxdepth 1 ! -name mirrors -mtime +1 -exec rm -rf {} + 2>/dev/null
   # The repository's copy, empty at first, comes before its image, so the collection below finds
@@ -34,10 +35,10 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   [ -d "$M" ] || git init -q --bare "$M" || exit 255
   container image inspect "$3" >/dev/null 2>&1 || {
     # The recipe stays outside its build's context, which holds only the files it copies.
-    cd "$ROOT/$2" && mkdir -p image || exit 255
-    base=$(awk '$1 == "FROM" {print $2; exit}' Containerfile)
+    cd "$ROOT/$2" && mkdir -p context || exit 255
+    base=$(awk '$1 == "FROM" {print $2; exit}' image/Containerfile)
     container image inspect "$base" >/dev/null 2>&1 && base=
-    container build --progress plain -t "$3" -f "$PWD/Containerfile" image </dev/null \
+    container build --progress plain -t "$3" -f "$PWD/image/Containerfile" context </dev/null \
       >build.log 2>&1
     built=$?
     container builder stop >/dev/null 2>&1

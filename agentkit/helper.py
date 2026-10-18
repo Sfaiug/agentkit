@@ -42,18 +42,18 @@ def _remote(alias, verb, *args, **kwargs):
 
 def _recipe(cwd, repo):
     """(image, {name in the parcel: (mode, bytes)}) the suite's pieces run in, or None: the
-    repository has no recipe. The recipe, `Containerfile`, is the file `suite_image:` names, else
-    RECIPE; its build's context, under `image/`, each file it copies, as HEAD has them. Tagged by
-    their hash, so a changed recipe or copied file builds anew and the image it replaces goes.
-    ValueError: the recipe copies something other than files HEAD tracks, named by plain path,
-    which ak cannot send."""
+    repository has no recipe. The recipe, `image/Containerfile`, is the file `suite_image:` names,
+    else RECIPE; its build's context, under `context/`, each file it copies, as HEAD has them.
+    Tagged by their hash, so a changed recipe or copied file builds anew and the image it
+    replaces goes. ValueError: the recipe copies something other than files HEAD tracks, named
+    by plain path, which ak cannot send."""
     path = gitcall.declared(cwd, "suite_image")
     if not path:
         if gitcall.git_out(cwd, "cat-file", "-e", f"HEAD:{RECIPE}")[0]:
             return None
         path = RECIPE
-    files = {"Containerfile": _tracked(cwd, path)}
-    for line in re.sub(r"\\\n", " ", files["Containerfile"][1].decode()).splitlines():
+    files = {"image/Containerfile": _tracked(cwd, path)}
+    for line in re.sub(r"\\\n", " ", files["image/Containerfile"][1].decode()).splitlines():
         words = line.split()
         if not words or words[0].upper() not in ("COPY", "ADD"):
             continue
@@ -62,7 +62,7 @@ def _recipe(cwd, repo):
                 word.startswith(("-", "/", "[")) or set(word) & set("*?[$<") or
                 ".." in word.split("/") for word in sources):
             raise ValueError(f"`{line.strip()}` copies something other than tracked files")
-        files.update((f"image/{source}", _tracked(cwd, source)) for source in sources)
+        files.update((f"context/{source}", _tracked(cwd, source)) for source in sources)
     digest = hashlib.sha256()
     for name in sorted(files):
         mode, data = files[name]
