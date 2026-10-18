@@ -277,7 +277,8 @@ drawn at once, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). The highlighted model opens one line under
 its row, coming up as the highlight comes to it: the subscriptions it runs on (dim), why it is
 spent (amber) and, on a seat, the roles `ak models` recommends it for (`recommended to build`);
-on a phone a line a part. `r recommended` opens the models screen (The models screen).
+on a phone a line a part, each model's as many as the tallest, so the row the pointer
+brought the highlight to stays under it. `r recommended` opens the models screen (The models screen).
 Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none

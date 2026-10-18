@@ -2886,13 +2886,14 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim.  The highlighted model opens one line under its
     row (`model_said`), coming up as the highlight comes to it (`motion.fading`): what it runs
-    on, why it is spent and what `ak models` recommends it for (`found`, `advice`).  Under them `+ add a model`, `Providers` (providers_lines), `Discord`
-    and `Version` with their values.  A row is `("model", name)` or `("row", one of
-    CONFIG_ROWS)`, so a model that happens to be called `Discord` is still a model; `at` is the
-    highlighted one and `column` the cell on it the keys act on, -1 its label, and on Providers
-    0 or less `+ add`, 1 `− remove` and 2 or more the last act it offers.  `cells` are a model
-    row's (first, last, column), or Providers' acts, for a click, counted from 1 as the
-    terminal counts.  On a phone the cells give way, then the label.
+    on, why it is spent and what `ak models` recommends it for (`found`, `advice`), as many
+    lines as the tallest any model opens.  Under them `+ add a model`, `Providers`
+    (providers_lines), `Discord` and `Version` with their values.  A row is `("model", name)` or
+    `("row", one of CONFIG_ROWS)`, so a model that happens to be called `Discord` is still a
+    model; `at` is the highlighted one and `column` the cell on it the keys act on, -1 its label,
+    and on Providers 0 or less `+ add`, 1 `− remove` and 2 or more the last act it offers.
+    `cells` are a model row's (first, last, column), or Providers' acts, for a click, counted
+    from 1 as the terminal counts.  On a phone the cells give way, then the label.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -2923,6 +2924,18 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
+    # the line each model opens once highlighted, where a phone has no room for it a part a
+    # line, each wrapped; every one as tall as the tallest, so a pointer that brought the
+    # highlight down past one that closed is still on the row's own
+    opened = {}
+    for name in names:
+        said = model_said(cfg, name, providers, found)
+        fits = terminal.cells(" · ".join(text for text, _ in said)) <= room - 4
+        opened[name] = ([terminal.styled(" · ", "dim").join(terminal.styled(*each)
+                                                             for each in said)]
+                        if said and fits else [terminal.styled(piece, tone) for text, tone in said
+                                               for piece in terminal.wrap(text, room - 4)])
+    opens = max(len(parts) for parts in opened.values())
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(cfg, provider))
         for name in (name for name in names if models[name]["provider"] == provider):
@@ -2961,16 +2974,9 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             places[len(lines)] = (("model", name), cells)
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
-            said = model_said(cfg, name, providers, found) if at == ("model", name) else []
-            fits = terminal.cells(" · ".join(text for text, _ in said)) <= room - 4
-            # the line the highlighted model opens; where a phone has no room for it, a part a
-            # line, each wrapped
-            parts = ([terminal.styled(" · ", "dim").join(terminal.styled(*each) for each in said)]
-                     if said and fits else [terminal.styled(piece, tone) for text, tone in said
-                                            for piece in terminal.wrap(text, room - 4)])
-            for part in parts:
+            for part in (opened[name] + [""] * opens)[:opens] if at == ("model", name) else ():
                 places[len(lines)] = (("model", name), [])
-                lines.append("    " + part)
+                lines.append(("    " + part).rstrip())
                 if moves is not None:
                     moves.append((len(lines) - 1, ("opened",), name,
                                   motion.fading(lines[-1], motion.OPEN)))

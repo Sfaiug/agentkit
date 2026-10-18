@@ -187,6 +187,17 @@ class SessionModels(Sandbox):
                          ["    runs on Claude I, II, III", "    recommended to orchestrate,",
                           "    build and review", "ChatGPT"])
 
+    def test_the_row_the_pointer_brings_the_highlight_down_to_stays_under_it(self):
+        found = {role: ("fable", "fable", "xhigh") for role in ("orchestrate", "execute", "review")}
+        with patch.object(terminal, "layout_width", return_value=36):
+            fable, opus = (menu.config_body(self.cfg, "fixture", ("model", name), 0,
+                                            self.selected("fix-api"), None, None, found)[1]
+                           for name in ("fable", "opus"))
+        # fable's line wraps to three, opus's to one: the three close, and opus opens as many, so
+        # where its row was the pointer is on its own line, never the row below
+        row = next(n for n, (at, cells) in fable.items() if at == ("model", "opus") and cells)
+        self.assertEqual(opus[row], (("model", "opus"), []))
+
     def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_only_efforts(self):
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 patch.object(usage, "collect", return_value=usage.Readings({})), \
