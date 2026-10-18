@@ -272,7 +272,9 @@ lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
-so under the rows, its mark shaking (Motion). Under the models `+ add a model`, `Providers` (the config's
+so under the rows, its mark shaking (Motion). Under a seat's models one dim line names the row `ak models`
+recommends per role, and `r recommended` opens the models screen (The models screen).
+Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none
 past `− remove`, each a list opening in the frame where it has a choice),
@@ -302,6 +304,36 @@ token's expiry is 14 days away or less, or past, it stands under the rows
 
 Helpers: `terminal.frame` (written over in place while a keyboard has the
 screen), `terminal.state_text`.
+
+## The models screen
+
+`r recommended` on `c` -- the key stands while a matrix is computed and the seat has a
+record -- opens `agentkit · models · <seat>`: every model the installed harnesses offer
+against the public boards, as `ak models` scores them, with nothing typed. Its first row is
+the one knob, `as good as the best: up to ‹ 5 › under it`: ←/→ step `within` a point, never
+under 0, saved to config.toml at once, and the lines under it follow. Then `recommended`,
+the row per role (`orch opus @ xhigh · exec astra @ xhigh · review astra @ xhigh`), `as
+good`, dim, the rows within the knob of the best per role, and, dim, what quality and cost
+are. Under them one model a row, the scored ones first by their best quality: its config
+name, or its id where the config does not run it (dim where no board scores it), its
+harness (dim), its effort between the arrows that step it (`‹ xhigh ›`; the word alone with
+one effort), its quality per role at that effort out of 100 -- the recommended row's in
+`done`'s colour, one as good in the accent, `-` without a score -- and what Artificial
+Analysis's index run cost it, in dollars. ↑/↓, k/j and the wheel move between the knob and
+the models; ←/→ on a model step the effort its row shows through its own efforts (the
+catalog's, and any the boards or the config have it at), the numbers and the cost following,
+nothing saved: the effort a model runs at is set on `c`. `r`, or a click on `r take
+recommended`, takes the recommendation: the seat's executors and reviewers become the
+recommended rows' models at their efforts, the orchestrator only said, and what it could not
+do stands under the rows until the next key. The pointer lights the knob's and an effort's
+arrows, and a click on one steps it. A screen too short shows the part the highlight is on.
+Esc returns to `c`, whose marks show the change. The key line reads `↑↓ move   ←→ effort
+r take recommended   esc back`, `←→ as good` on the knob and no arrows on a model with one
+effort.
+
+Helpers: `menu.models_body`, `menu.models_screen`, `menu.matrix_key`, `terminal.frame`.
+
+Example: `› opus      claude   ‹ xhigh ›   97   97   97   4000`.
 
 ## The new-session screen
 
