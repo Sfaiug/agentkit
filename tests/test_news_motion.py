@@ -68,11 +68,12 @@ class NewsMotion(Sandbox):
             "COLORTERM": "truecolor"}))
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
-        self.words, self.tasks, self.notices, self.live = {}, {}, [], None
+        self.words, self.tasks, self.notices, self.live, self.reasons = {}, {}, [], None, {}
         self.cache(used=20)
 
         def row_state(cfg, session, look=True, **facts):
-            return {"word": self.words[session["name"]], "reason": "", "since": None}
+            return {"word": self.words[session["name"]],
+                    "reason": self.reasons.get(session["name"], ""), "since": None}
 
         def watch(live, last):              # read once, now, and again only when news says so
             self.live, live.last = live, last
@@ -239,8 +240,9 @@ class NewsMotion(Sandbox):
 
     def crossed(self):
         self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (4, 4)}
-        waits, at = self.run_menu([None] * 3 + [self.news(
-            lambda: self.words.update({"fix-api": "done"}))])
+        # what got done, on the line its row opens, may hold the line's glyphs too
+        waits, at = self.run_menu([None] * 3 + [self.news(lambda: (
+            self.words.update({"fix-api": "done"}), self.reasons.update({"fix-api": "redrew ━"})))])
         screen, cells = self.written(waits, at)
         lines = [terminal.ANSI.sub("", line)
                  for line in screen.partition("\033[H")[2].rpartition("\033[J")[0].split("\n")]
