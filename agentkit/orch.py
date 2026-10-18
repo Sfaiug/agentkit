@@ -2300,7 +2300,8 @@ def opened(harness, cwd, conversation):
 
 def seat_harness(record, cfg=None):
     try:
-        return config.model(cfg or config.load(), record.get("orchestrator"))["harness"]
+        return config.model(config.load() if cfg is None else cfg,
+                            record.get("orchestrator"))["harness"]
     except config.Error:
         return None
 
@@ -2312,12 +2313,12 @@ def seat_plugin(record, cfg=None):
 
 
 def loaded():
-    """The config, or None where it does not read, for a pass over every seat to read once:
-    each seat's harness is then what a read of its own would have found."""
+    """The config, or one naming no model where it does not read, for a pass over every seat to
+    read once: each seat's harness is then what a read of its own would have found."""
     try:
         return config.load()
     except config.Error:
-        return None
+        return {"models": {}}
 
 
 def records(cfg=None):

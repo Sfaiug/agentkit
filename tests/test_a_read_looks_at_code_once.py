@@ -55,6 +55,17 @@ class LooksOnce(Sandbox):
         self.assertEqual([seat["name"] for seat in orch.listing(reconcile=False)], SEATS)
         self.assertEqual((loads.call_count, self.asked.call_count), (1, 1))
 
+    def test_a_config_that_does_not_read_is_read_once_too(self):
+        self.stack.enter_context(patch.object(orch, "sessions", return_value=[
+            {"name": name, "created": 9000, "exited": False} for name in SEATS]))
+        (config.HOME / config.CONFIG_NAME).write_text("[models\n")
+        for reconcile in (False, True):
+            with self.subTest(reconcile=reconcile), \
+                    patch.object(config, "load", wraps=config.load) as loads:
+                self.assertEqual([seat["name"] for seat in orch.listing(reconcile)],
+                                 sorted(SEATS))
+                self.assertEqual(loads.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
