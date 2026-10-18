@@ -1,8 +1,9 @@
-"""`+ add` on Providers offers OpenCode, then any provider OpenCode can log in to: the logged-in
-ones first, a picked one with no login logged in on the terminal, then one of its models and an
-effort, added with the provider's table -- the shipped one where the shipped default has it,
-else the mode OpenCode's prices say, under the name OpenCode gives it -- so nothing is typed
-into ak but what `/` finds in a list.
+"""`+ add` on Providers offers OpenCode, then every model OpenCode runs now, as its own `/models`
+lists them, and after them every provider it can log in to; a picked provider is logged in on
+the terminal and its models join the list.  A model and an effort picked are added with the
+provider's table -- the shipped one where the shipped default has it, else the mode OpenCode's
+prices say, under the name OpenCode gives it -- so nothing is typed into ak but what `/` finds
+in a list.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  OpenCode's adapter
@@ -15,7 +16,7 @@ too.  Nothing reads or writes the owner's ~/.agentkit or OpenCode's own home.
 import unittest
 from unittest import mock
 
-from test_config_matrix import DOWN, ENTER, ESC, Screen
+from test_config_matrix import DOWN, ENTER, ESC, Screen, highlighted
 from test_add_model import listed
 from test_provider_screen import GIVE, ONE, SHIPPED, TAKE, open_providers, pick, providers, title
 from agentkit import matrix, usage
@@ -54,6 +55,7 @@ os.environ["AGENTKIT_ADAPTER_DIR"] = str(home / "adapters")
 config.harness_binary = lambda name: shutil.which(name, path=str(home / "bin")) or ""
 config.catalog = lambda harness: [
     {"id": "acme/rocket-1", "label": "Rocket 1", "efforts": ["high", "max"]},
+    {"id": "acme/zeta-free", "label": "Zeta Free", "efforts": ["none"]},
     {"id": "zeta/comet-2", "label": "Comet 2", "efforts": ["none"]},
     {"id": "mimo/mimo-v2.6-pro", "label": "MiMo V2.6 Pro", "efforts": ["none", "high"]},
     {"id": "anthropic/lyra-1", "label": "Lyra 1", "efforts": ["high"]},
@@ -70,12 +72,12 @@ THROUGH = "agentkit · config · add a provider · OpenCode"
 
 
 def through(screen):
-    """`+ add`, then OpenCode: the screen once its providers are listed."""
+    """`+ add`, then OpenCode: the screen once its models and providers are listed."""
     open_providers(screen)
     _, offered = pick(screen, ENTER, ADD, 6)
     screen.case.assertEqual(offered[4], "  OpenCode")
     return screen.press(DOWN * 4 + ENTER, lambda lines: title(lines) == THROUGH
-                        and "  provider" in lines and listed(lines))
+                        and "  model" in lines and listed(lines))
 
 
 def verbs(screen):
@@ -86,25 +88,29 @@ class AddOpenCodeProvider(unittest.TestCase):
     def test_a_provider_is_logged_in_then_its_model_added_at_its_own_mode(self):
         screen = Screen(self, child=CHILD, text=ONE)
         lines = through(screen)
-        # installed, since its program was nowhere; the logged-in provider first
+        # installed, since its program was nowhere; the models it runs now, then the rest
         self.assertEqual(verbs(screen), ["opencode install ", "opencode providers "])
-        self.assertEqual(listed(lines), [["Acme Plan", "acme", "ready"],
-                                         ["Zeta Cloud", "zeta"], ["MiMo", "mimo"],
-                                         ["Anthropic", "anthropic"], ["OpenAI", "openai"]])
+        self.assertEqual(listed(lines), [["Rocket 1", "Acme Plan"], ["Zeta Free", "Acme Plan"],
+                                         ["Zeta Cloud", "zeta", "log in"],
+                                         ["MiMo", "mimo", "log in"],
+                                         ["Anthropic", "anthropic", "log in"],
+                                         ["OpenAI", "openai", "log in"]])
         # `/` finds in the list: what is typed after it, in a name or an id
-        lines = screen.press(b"/clo", lambda lines: "  provider  /clo" in lines)
-        self.assertEqual(listed(lines), [["Zeta Cloud", "zeta"]])
+        lines = screen.press(b"/clo", lambda lines: "  model  /clo" in lines)
+        self.assertEqual(listed(lines), [["Zeta Cloud", "zeta", "log in"]])
         mark = len(screen.text())
-        lines = screen.press(ENTER, lambda lines: "  model" in lines and listed(lines))
-        # logged in on the terminal given back for it, then asked again for its mode
+        lines = screen.press(ENTER, lambda lines: "  model" in lines and "Comet 2" in str(lines))
+        # logged in on the terminal given back for it, then asked again: its model joins the
+        # list, highlighted
         self.assertEqual(verbs(screen)[2:], ["opencode login zeta", "opencode providers "])
         said = screen.text()[mark:]
         login = said.index("<opencode login on the terminal>")
         self.assertLess(said.index(GIVE), login)
         self.assertLess(login, said.index(TAKE, login))
-        self.assertIn("  provider  Zeta Cloud · zeta", lines)
-        self.assertEqual(listed(lines), [["Comet 2", "zeta/comet-2"]])   # its own models only
+        self.assertEqual(listed(lines)[2], ["Comet 2", "Zeta Cloud"])
+        self.assertTrue(highlighted(lines).startswith("›   Comet 2"), lines)
         lines = screen.press(ENTER, lambda lines: "  effort" in lines)
+        self.assertIn("  model   Comet 2 · Zeta Cloud", lines)
         self.assertEqual(listed(lines), [["none"]])
         lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         # by the name OpenCode gives it, on its row and over its models
@@ -118,20 +124,30 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
         screen.leave()
 
-    def test_a_logged_in_provider_needs_no_login_and_a_shipped_one_keeps_its_table(self):
+    def test_a_model_it_runs_now_is_added_with_no_login_and_a_shipped_one_keeps_its_table(self):
         screen = Screen(self, child=CHILD, text=ONE)
         through(screen)
-        screen.press(ENTER, lambda lines: "  model" in lines and listed(lines))
+        # a model's name finds it first, before the provider of that name that needs a login:
+        # OpenCode's own free DeepSeek beside DeepSeek's paid one
+        lines = screen.press(b"/zeta", lambda lines: "  model  /zeta" in lines)
+        self.assertEqual(listed(lines), [["Zeta Free", "Acme Plan"],
+                                         ["Zeta Cloud", "zeta", "log in"]])
+        screen.press(ENTER, lambda lines: "  effort" in lines)
+        screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        through(screen)
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertNotIn("opencode login acme", verbs(screen))
         saved = screen.saved()
         self.assertEqual(saved["providers"]["acme"], {"mode": "subscription", "name": "Acme Plan"})
+        self.assertEqual(saved["models"]["zeta-free"], {
+            "harness": "opencode", "model": "acme/zeta-free", "effort": "none",
+            "provider": "acme"})
         self.assertEqual(saved["models"]["rocket"]["effort"], "max")
         # MiMo is shipped: its table as it ships, whose mode its endpoint says
         lines = through(screen)
-        self.assertEqual(listed(lines)[0], ["Acme Plan", "acme", "ready"])
-        screen.press(DOWN * 2 + ENTER, lambda lines: "  model" in lines and listed(lines))
+        self.assertEqual(listed(lines)[1][:2], ["Zeta Free", "Acme Plan"])   # marked as added
+        screen.press(DOWN * 3 + ENTER, lambda lines: "MiMo V2.6 Pro" in str(lines))
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.saved()["providers"]["mimo"], SHIPPED["providers"]["mimo"])
@@ -143,10 +159,9 @@ class AddOpenCodeProvider(unittest.TestCase):
             (screen.path.parent.parent / f"in-{provider}").touch()
         # Claude's table the config holds, then Codex's as it ships: their plans pay for no
         # call OpenCode makes
-        for at in (1, 2):
+        for at in (2, 3):
             through(screen)
-            screen.press(DOWN * at + ENTER, lambda lines: "  model" in lines and listed(lines))
-            screen.press(ENTER, lambda lines: "  effort" in lines)
+            screen.press(DOWN * at + ENTER, lambda lines: "  effort" in lines)
             screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         saved = screen.saved()
         self.assertEqual(saved["providers"]["anthropic"], {"mode": "subscription"})
@@ -168,11 +183,11 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(through(screen)[-1], "  ↑↓ move   ⏎ choose   / find   esc back")
         lines = screen.press(b"/zz", lambda lines: "nothing here holds zz" in lines[-3])
         self.assertEqual(listed(lines), [])
-        lines = screen.press(ESC, lambda lines: "  provider" in lines and "/ find" in lines[-1])
+        lines = screen.press(ESC, lambda lines: "  model" in lines and "/ find" in lines[-1])
         # a click on `/ find` finds as `/` does
         screen.click(lines[-1].index("/ find") + 1, len(lines),
-                     lambda lines: "  provider  /" in lines)
-        screen.press(ESC, lambda lines: "  provider" in lines and "/ find" in lines[-1])
+                     lambda lines: "  model  /" in lines)
+        screen.press(ESC, lambda lines: "  model" in lines and "/ find" in lines[-1])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()

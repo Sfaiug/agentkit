@@ -3219,11 +3219,8 @@ def _add_choices(cfg, picked, screen):
     config_model_id offers them (_offered), each id beside its label where the two differ;
     then that model's efforts.
     A model the config runs already, or an effort it runs it at, is marked with the names it
-    runs under.  `screen` is what waits on a catalog (`waited`).
+    runs under (_marked).  `screen` is what waits on a catalog (`waited`).
     """
-    def mark(names):
-        return f"{terminal.glyph('done')} {', '.join(names)}" if names else ""
-
     if not picked:
         return [((harness, provider), [harness, provider_name(cfg, provider)])
                 for provider in cfg["providers"]
@@ -3231,11 +3228,34 @@ def _add_choices(cfg, picked, screen):
     harness, provider = picked[0]
     if len(picked) == 1:
         return [(model, [model["label"], "" if model["id"] == model["label"] else model["id"],
-                         mark(_runs(cfg, harness, model["id"]))])
+                         _marked(_runs(cfg, harness, model["id"]))])
                 for model in _offered(harness, *screen, provider=provider)]
     model = picked[1]["id"]
-    return [(effort, [effort, mark(_runs(cfg, harness, model, effort))])
+    return [(effort, [effort, _marked(_runs(cfg, harness, model, effort))])
             for effort in picked[1]["efforts"]]
+
+
+def _marked(names):    # the names a model or effort runs under already, after a tick
+    return f"{terminal.glyph('done')} {', '.join(names)}" if names else ""
+
+
+def _through_choices(cfg, harness, listed, screen):
+    """`add a provider`'s first list for `harness`, as OpenCode's own `/models` lists them:
+    every model its catalog lists (_offered) of a provider in `listed` with a mode, which it
+    runs now, beside that provider's name; then each provider it lists with none, to log in
+    to.  Each is ((harness, provider), the model, or None for a login) and the columns it
+    shows, so typing a model's name after `/` finds it before a provider that shares it."""
+    ready = {provider: name for provider, name, mode in listed if mode}
+    choices = []
+    for model in _offered(harness, *screen):
+        provider = model["id"].partition("/")[0]
+        if provider in ready:
+            choices.append((((harness, provider), model),
+                            [model["label"], ready[provider],
+                             _marked(_runs(cfg, harness, model["id"]))]))
+    return choices + [(((harness, provider), None),
+                       [name, "" if name == provider else provider, "log in"])
+                      for provider, name, mode in listed if not mode]
 
 
 def _short_name(cfg, label):
@@ -3290,9 +3310,10 @@ def config_add(cfg, keyboard=None, through=None):
     or None.
 
     With `through`, a harness that runs any provider it can log in to (config.provider_hosts),
-    `config · add a provider` instead, whose first list is every provider it lists
-    (config.listed_providers), the logged-in ones first.  One picked with no login is logged
-    in on `keyboard`'s terminal, given back for it, then asked for again for its mode.  The
+    `config · add a provider` instead, whose first list is every model it runs now, then every
+    provider it lists with no login (_through_choices).  One of those picked is logged in on
+    `keyboard`'s terminal, given back for it, then asked for again, its first model
+    highlighted once it has a mode.  The
     model goes in with its provider's table where the config has none: the shipped one where
     the shipped default has it, else that mode, read off what the harness prices its models;
     the model takes that mode as its own where its provider's table says another.
@@ -3308,19 +3329,20 @@ def config_add(cfg, keyboard=None, through=None):
     """
     picked, ats, top, note = [], [0], 0, ""   # (value, texts) of each step chosen; its highlight
     finding = None                    # typed after `/`: the open list shows only what holds it
-    steps = ("provider", *ADD_STEPS[1:]) if through else ADD_STEPS
+    steps = ADD_STEPS[1:] if through else ADD_STEPS
     title = (f"config · add a provider · {config.provider_hosts().get(through, through)}"
              if through else "config · add a model")
     screen = (title, lambda: add_body(picked, [], 0, steps)[0])
     listed = pending = None           # `through`'s providers, as (id, name, mode); one logged in
     while True:
+        # what is picked as _add_choices takes it: `through`'s one pick is (harness, provider)
+        # and a model at once
+        values = [*picked[0][0]] if through and picked else [value for value, _ in picked]
         try:
             if through and listed is None:
                 listed = waited(lambda: config.listed_providers(through), *screen)
-            choices = ([((through, provider), [name, "" if name == provider else provider,
-                                               "ready" if mode else ""])
-                        for provider, name, mode in listed] if through and not picked
-                       else _add_choices(cfg, [value for value, _ in picked], screen))
+            choices = (_through_choices(cfg, through, listed, screen) if through and not picked
+                       else _add_choices(cfg, values, screen))
         except config.Error as exc:
             choices, note, listed = [], f"config: {exc}", listed or []
         except Back:                  # Esc while a list was asked: back one list
@@ -3329,21 +3351,23 @@ def config_add(cfg, keyboard=None, through=None):
             picked.pop()
             ats.pop()
             continue
-        if pending and not picked:    # just logged in to: on to its models once it has a mode
-            found = [number for number, row in enumerate(listed) if row[0] == pending[0]]
-            if found and listed[found[0]][2]:
-                ats[-1], pending, finding = found[0], None, None
-                picked.append(choices[found[0]])
-                ats.append(0)
-                continue
-            note, pending = f"{pending[1]} is not logged in; nothing added", None
+        if pending and not picked:    # just logged in to: its first model, once it has a mode
+            found = [number for number, (((_, provider), model), _) in enumerate(choices)
+                     if provider == pending[0] and model]
+            if found:
+                ats[-1], finding = found[0], None
+            else:
+                ready = any(row[0] == pending[0] and row[2] for row in listed)
+                note = (f"{pending[1]} {'lists no model' if ready else 'is not logged in'};"
+                        " nothing added")
+            pending = None
         if finding:
             choices = [choice for choice in choices
                        if finding.lower() in " ".join(choice[1]).lower()]
         if not choices and not note:
             note = (f"nothing here holds {finding}" if finding
-                    else f"the {picked[0][0][0]} catalog names no model" if picked
-                    else f"{through} lists no provider" if through
+                    else f"the {values[0][0]} catalog names no model" if picked
+                    else f"{through} lists no model or provider" if through
                     else "no provider the config has names a harness")
         adding = len(picked) == len(steps) - 1
         keys = ADD_KEYS["add" if adding else "choose"][0 if terminal.utf8() else 1] + "   esc back"
@@ -3394,9 +3418,8 @@ def config_add(cfg, keyboard=None, through=None):
             ats[-1] = min(max(at + terminal.step(key), 0), max(0, len(choices) - 1))
         elif act in ("enter", "space") and choices:
             ats[-1] = at
-            row = (next(row for row in listed if row[0] == choices[at][0][1])
-                   if through and not picked else None)
-            if row and not row[2]:
+            if through and not picked and choices[at][0][1] is None:     # a provider to log in to
+                row = next(row for row in listed if row[0] == choices[at][0][0][1])
                 note = _adapter_verbs(keyboard, through, ("login",), row[1], provider=row[0])
                 if not note:
                     config.forget_catalog(through)       # its models are listed now
@@ -3407,7 +3430,7 @@ def config_add(cfg, keyboard=None, through=None):
                 ats.append(0)
                 finding = None
                 continue
-            ((harness, provider), _), (model, _) = picked
+            (harness, provider), model = values
             effort, taken = choices[at][0], _runs(cfg, harness, model["id"], choices[at][0])
             if taken:
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
