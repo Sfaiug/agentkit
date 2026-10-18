@@ -22,6 +22,7 @@ in a popup over whatever is running.
 """
 
 import atexit
+import contextvars
 import difflib
 import fnmatch
 import json
@@ -1518,6 +1519,22 @@ def ghost(name, record):
             "closed": watch.seat_stopped_at(name)}
 
 
+_ASKED = contextvars.ContextVar("asked", default=None)   # {a `.git`: git's answer} (`asking_once`)
+
+
+@contextmanager
+def asking_once():
+    """Within it, git is asked about each checkout once (`git_dirs`): a pass over every seat
+    asks `checkout_of` once a seat, and each asking git would cost it a subprocess per seat.
+    The answers end with the pass, so the next one reads whatever changed on disk."""
+    token = _ASKED.set({} if _ASKED.get() is None else _ASKED.get())
+    try:
+        yield
+    finally:
+        _ASKED.reset(token)
+
+
+@asking_once()
 def listing(reconcile=True):
     """Every seat the menu offers: the ones tmux holds, and the ones only their record does.
 
@@ -1635,34 +1652,14 @@ def git_in(path, *args, env=None):
     return proc.returncode, proc.stdout
 
 
-_ASKED = {}      # {a `.git` git was asked about: (what its answer was read from, the answer)}
-
-
-def _read_from(dot, named=()):
-    """What git reads to answer `git_dirs` for the checkout whose `.git` is `dot`, as it stands
-    now: that entry and what it leads to, then for each directory git named, which directory
-    it is and its `commondir`.  None stands for a path that is gone."""
-    def stamp(path, follow):
-        try:
-            info = os.stat(path) if follow else os.lstat(path)
-        except OSError:
-            return None
-        return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
-    found = [stamp(dot, False), stamp(dot, True)]
-    for directory in named:
-        found += [(stamp(directory, True) or ())[:2], stamp(Path(directory) / "commondir", False)]
-    return found
-
-
 def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
 
     A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
     else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
-    no higher than `path`, so every layout and path it accepts reads the same here.  Its
-    answer is kept while what it was read from stands as it did (`_read_from`): a listing asks
-    `checkout_of` once a seat, and each asking git would cost the menu a subprocess per seat.
+    no higher than `path`, so every layout and path it accepts reads the same here, once a
+    pass (`asking_once`).
     """
     dot = Path(path) / ".git"
     try:
@@ -1672,10 +1669,9 @@ def git_dirs(path):
             return dot.resolve(), False
     except OSError:
         return None
-    kept = _ASKED.get(dot)
-    if kept is not None and _read_from(dot, kept[1]) == kept[0]:
-        return kept[2]
-    before = _read_from(dot)                # before git reads it: a change meanwhile asks again
+    asked = _ASKED.get()
+    if asked is not None and dot in asked:
+        return asked[dot]
     def ask(*flags):
         code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
         return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
@@ -1683,13 +1679,13 @@ def git_dirs(path):
     if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
         lines = [b"\n".join(answer) if answer is not None else None
                  for answer in (ask("--git-dir"), ask("--git-common-dir"))]
-    if lines is None or None in lines:
-        return None
-    gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
-    # a worktree's `commondir` is written before the `.git` that leads to it, and never again
-    _ASKED[dot] = before + _read_from(dot, (gitdir, common))[2:], (gitdir, common), (
-        common, gitdir != common)
-    return common, gitdir != common
+    answer = None
+    if lines is not None and None not in lines:
+        gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
+        answer = common, gitdir != common
+    if asked is not None:
+        asked[dot] = answer
+    return answer
 
 
 def checkout_of(repo):

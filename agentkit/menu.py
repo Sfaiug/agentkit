@@ -1082,6 +1082,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
 
+@orch.asking_once()
 def v5o_groups(cfg, found, records=None, now=None, look=True):
     """The projects and their seats, in the order their numbers go (`orch.numbered`).
 

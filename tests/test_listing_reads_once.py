@@ -3,9 +3,9 @@
 The owner's report (18 Oct 2026): new sessions and the past screen were slow.  Every listing
 asked git again about each worktree under ~/code, once per seat filed under a project, and read
 the config once per seat record: a third of a second a listing on the host, paid by the menu
-before its name question and on every read.  Git's answer is now kept while what it was read
-from stands as it did, and a listing reads the config once.  Offline: a temporary HOME, git in
-a temporary directory, no tmux.
+before its name question and on every read.  A listing is now one pass: it asks git about each
+checkout once and reads the config once, and the next listing asks again.  Offline: a temporary
+HOME, git in a temporary directory, no tmux.
 """
 
 from pathlib import Path
@@ -25,7 +25,6 @@ GIT = ["git", "-c", "user.name=acme", "-c", "user.email=acme@example.com"]
 class Asked(Sandbox):
     def setUp(self):
         super().setUp()
-        self.stack.enter_context(patch.dict(orch._ASKED, clear=True))
         self.asked = self.stack.enter_context(patch.object(orch, "git_in", wraps=orch.git_in))
 
     def repo(self, name):
@@ -41,23 +40,43 @@ class Asked(Sandbox):
                         str(directory)], check=True)
         return directory
 
-    def test_a_worktree_is_asked_about_once_while_nothing_it_was_read_from_changes(self):
+    def test_a_pass_asks_about_a_worktree_once(self):
         acme = self.repo("acme")
         added = self.worktree(acme, "fix-api")
         answer = (acme.resolve() / ".git", True)
-        self.assertEqual(orch.git_dirs(added), answer)
-        self.assertEqual(orch.git_dirs(added), answer)
+        with orch.asking_once():
+            self.assertEqual(orch.git_dirs(added), answer)
+            self.assertEqual(orch.git_dirs(added), answer)
         self.assertEqual(self.asked.call_count, 1)
 
-    def test_a_worktree_led_elsewhere_or_gone_is_asked_about_again(self):
+    def test_the_next_pass_reads_a_worktree_led_elsewhere_or_gone(self):
         acme, docs = self.repo("acme"), self.repo("docs")
         added, other = self.worktree(acme, "fix-api"), self.worktree(docs, "fix-docs")
-        self.assertEqual(orch.git_dirs(added), (acme.resolve() / ".git", True))
+        with orch.asking_once():
+            self.assertEqual(orch.git_dirs(added), (acme.resolve() / ".git", True))
         (added / ".git").write_text((other / ".git").read_text())
-        self.assertEqual(orch.git_dirs(added), (docs.resolve() / ".git", True))
+        with orch.asking_once():
+            self.assertEqual(orch.git_dirs(added), (docs.resolve() / ".git", True))
         shutil.rmtree(docs / ".git" / "worktrees" / "fix-docs")
-        self.assertIsNone(orch.git_dirs(added))
+        with orch.asking_once():
+            self.assertIsNone(orch.git_dirs(added))
         self.assertEqual(self.asked.call_count, 3)
+
+    def test_a_listing_asks_about_the_worktree_under_code_once(self):
+        acme = self.repo("code/acme")
+        self.repo("code/docs")
+        self.worktree(acme, "code/fix-api")
+        names = ("acme-api", "docs-site")
+        for name, repo in zip(names, ("acme", "docs")):
+            config.save_session(self.cfg, name, "fable", ["opus"],
+                                {"cwd": str(self.root), "repo": str(config.CODE / repo)})
+        self.stack.enter_context(patch.object(orch, "sessions", return_value=[
+            {"name": name, "path": str(self.root), "created": 9000, "attached": False,
+             "exited": False, "legacy": False} for name in names]))
+        self.assertEqual([seat["name"] for seat in orch.listing()], list(names))
+        self.assertEqual(self.asked.call_count, 1)
+        orch.listing()          # the next listing reads ~/code as it stands then
+        self.assertEqual(self.asked.call_count, 2)
 
 
 class Listing(Sandbox):
