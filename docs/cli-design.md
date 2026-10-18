@@ -65,7 +65,8 @@ but for a project naming its switches: how many are hidden, dim at the right,
 `23 hidden features` (off for everyone; omitted when none or too narrow to fit beside the name),
 a row the highlight lands on, drawn `› ACME`.
 Enter or a click on it opens `agentkit · ACME`, every feature once with a
-`you` and an `everyone` column, `●` on and `○` (dim) off, `—` under `you` where
+`you` and an `everyone` column, `●` on (blue under `you`, green under `everyone`)
+and `○` (dim) off, `—` under `you` where
 the project does not let you switch it, and one on for everyone on for you too.
 It is read with the `c` matrix's keys (`menu.matrix_key`): ↑/↓ move, ←/→ choose
 the column, Enter, space or a click flips through the project's `set` at once

@@ -3943,8 +3943,9 @@ def _list_switches(checkout, entry):
 def features_body(rows, at=None, column=0, moves=None):
     """A project's switches' lines, and where its features sit on them: {line: (row, cells)}.
 
-    Every feature once, its name, then a mark under `you` and under `everyone`: `●` on and `○`
-    (dim) off.  One on for everyone is on for you too, and one the project does not let you
+    Every feature once, its name, then a mark under `you` and under `everyone`: `●` on, in
+    working's blue under `you` and done's green under `everyone`, and `○` (dim) off -- the
+    owner's pick of 18 Oct 2026.  One on for everyone is on for you too, and one the project does not let you
     switch for yourself has `—` under `you`.  `at` is the highlighted feature's id and `column`
     its cell the keys act on; `cells` are config_body's, for a click, and `moves` is handed its
     marks as config_body hands its own.
@@ -3968,7 +3969,7 @@ def features_body(rows, at=None, column=0, moves=None):
         cells, first = [], 2 + label + 1
         for number, (text, width) in enumerate(zip(texts, widths)):
             kind = ("reverse" if at == row["id"] and number == column else
-                    "dim" if text in (off, fixed) else None)
+                    "dim" if text in (off, fixed) else ("accent", "ok")[number])
             line += "  " + terminal.toggle(text, width, kind)
             if moves is not None:
                 moves.append((len(lines), ("mark", row["id"], number), text, motion.toggled(
