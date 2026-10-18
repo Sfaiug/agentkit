@@ -209,7 +209,9 @@ def growing(cells, began, took=GROW, start=0, light=None):
             if light and n == head - 1 and now < began + took:
                 return terminal.styled(terminal.plain(text) if filled else full,
                                        terminal.faded(light, -BRIGHTER))
-            return text if filled else terminal.styled(full, light)
+            if filled:
+                return text.replace("╸", full) if n < head - 1 else text
+            return terminal.styled(full, light)
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + took
 
