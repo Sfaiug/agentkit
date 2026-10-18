@@ -503,8 +503,9 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     the rest is a dim `─`.  It says nothing of the tasks in flight, which the line under a
     highlighted row has.  Without colour the shapes carry it, and without UTF-8 it is
     `===------ 3 of 8`.  With no `least`, a room too small for a cell of line beside the count
-    draws the count alone.  `tmux` draws it as a tmux format, in `word`'s colour throughout: the
-    tick that writes a bar knows no terminal's background to fade toward."""
+    draws the count alone.  `tmux` draws it as a tmux format, a seat's bar's, the same line: its
+    fade is a dark terminal's whichever process writes the bar, as the bar's colours are, so
+    the menu's draws and the tick's never disagree."""
     total = max(0, int(total or 0))
     if not total:
         return ""
@@ -518,16 +519,18 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     ends = (halves + 1) // 2
     cells = [full if n < halves // 2 else half for n in range(ends)]
     rest = empty * (size - ends)
+    tip = max(1, ends - 1)
+    fades = [0.5 * (1 - n / tip) if ends > 1 else 0 for n in range(ends)]
     if tmux:
         colour = STATE_STYLES[word][2]
-        return ((f"#[fg=#{colour}]" + "".join(cells) if cells else "")
-                + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
+        line = "".join("#[fg=#{}]{}".format("".join(
+            f"{round(int(colour[at:at + 2], 16) * (1 - amount)):02x}" for at in (0, 2, 4)), char)
+            for amount, char in zip(fades, cells))
+        return (line + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
                 + f"#[default] {count}")
     if colour_depth() <= 8:   # no tone between the word's colour and the background
         return styled("".join(cells), word) + styled(rest, "dim") + f" {count}"
-    tip = max(1, ends - 1)
-    line = "".join(styled(char, faded(word, 0.5 * (1 - n / tip) if ends > 1 else 0))
-                   for n, char in enumerate(cells))
+    line = "".join(styled(char, faded(word, amount)) for amount, char in zip(fades, cells))
     return line + styled(rest, "dim") + f" {count}"
 
 

@@ -1,8 +1,8 @@
 """A seat's progress is a smooth line of how much of its plan is done, and its count.
 
 The done share is `━` in the word's colour, a half cell `╸` where it ends inside one, then a dim
-`─` for the rest and `done of total`; on a terminal the line fades in from half way to the
-background at its start to the colour at its tip.  It says nothing of the tasks in flight, which
+`─` for the rest and `done of total`; on a terminal and on a seat's bar alike the line fades in
+from half way to the background at its start to the colour at its tip.  It says nothing of the tasks in flight, which
 the line under a highlighted row has, and no screen says when the work will finish.  The rows
 draw it in the room they have, never wrapped or cut, and without colour or UTF-8 it reads in
 plain characters.  Offline: a throwaway HOME, fake plans and run records, the real renderer.
@@ -46,11 +46,23 @@ class PlanBar(Sandbox):
         self.assertEqual(len(drawn), 30 - len(" 3 of 8"))
         # 23 cells, three eighths of them done: eight and a half
         self.assertEqual("".join(char for char, _ in drawn), "━" * 8 + "╸" + "─" * 14)
-        self.assertEqual({ink for char, ink in drawn if char in "━╸"}, {WORKING})
         self.assertEqual({ink for char, ink in drawn if char == "─"}, {DIM})
-        # a seat that needs the owner draws it in its own word's colour
-        needing, _ = cells(terminal.plan_bar(3, 8, 30, 8, "needs you", tmux=True))
-        self.assertEqual({ink for char, ink in needing if char == "━"}, {AMBER})
+
+    def test_a_seat_s_bar_draws_the_line_its_row_draws(self):
+        # cell for cell the row's inks on a dark terminal, fading in to the word's own colour at
+        # the tip, whichever process writes the bar
+        for word, colour in (("working", WORKING), ("needs you", AMBER)):
+            with patch.object(terminal, "colour_depth", return_value=24):
+                row = terminal.plan_bar(3, 8, 30, 8, word)
+            screen = ["".join(f"{int(part):02x}" for part in ink.split(";"))
+                      for ink in re.findall(r"38;2;([\d;]+)m[━╸]", row)]
+            self.assertEqual(screen[-1], colour)
+            self.assertNotEqual(screen[0], colour)
+            for light in (False, True):
+                with self.subTest(word=word, light=light), \
+                        patch.object(terminal, "_LIGHT", light):
+                    bar, _ = cells(terminal.plan_bar(3, 8, 30, 8, word, tmux=True))
+                    self.assertEqual([ink for char, ink in bar if char in "━╸"], screen)
 
     def test_on_a_terminal_the_line_fades_in_toward_its_tip(self):
         with patch.object(terminal, "colour_depth", return_value=24):
