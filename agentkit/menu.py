@@ -1430,11 +1430,18 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # a question longer than that is cut to them, ending in `…`.
     opens = (min(max(map(len, said.values()), default=0), max(1, height // 2))
              if owned and not asked else 0)
+    # a worker login that ends soon, or has, stands under the usage on every screen, grid or
+    # folded, keyboard or not, while no pointer is there; a compact screen gives it a row
+    from . import watch    # here, not at the top: the menu draws without the tick
+    token = watch.token_standing()
+    standing = ("  " + terminal.styled(terminal.cut(token, layout - 2),
+                                       "amber" if "expired" in token else "dim")
+                if token else "")
 
     def _room(meters, paged, compact=False):
         keys = (k_paged if paged else k_single) + opens
         if compact:
-            return height - 2 - (keys + len(meters))
+            return height - 2 - (keys + len(meters) + bool(standing))
         chrome = 2 + len(meters) + 2 + 1 + keys
         return height - 2 - chrome
 
@@ -1514,13 +1521,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     grid = len(out) + 1 if meters and meters is meters_full else None     # its first row
     out += meters
     if not compact:
-        # the line under the usage, then one blank above the projects: a worker login that ends
-        # soon, or has, stands on it, grid or folded, keyboard or not, while no pointer is there
-        from . import watch    # here, not at the top: the menu draws without the tick
-        token = watch.token_standing()
-        out += ["  " + terminal.styled(terminal.cut(token, layout - 2),
-                                       "amber" if "expired" in token else "dim")
-                if token else "", ""]
+        out += [standing, ""]       # the line under the usage, then one blank above the projects
+    elif standing:
+        out.append(standing)
     body = pages[page] if ordered else flat
     top, above = len(out), None
     under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)

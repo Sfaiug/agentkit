@@ -129,8 +129,9 @@ class TokenExpiry(unittest.TestCase):
             return next(line for line in lines if "worker token" in line)
         self.write_token(352)
         self.assertEqual(under(), "  " + terminal.styled(watch.token_standing(), "dim"))
-        # the grid folded to its readings, and a pipe with no keyboard, say it the same
-        for height, owned in ((10, True), (30, False)):
+        # the grid folded to its readings, a screen too short for its frame, and a pipe with no
+        # keyboard say it the same
+        for height, owned in ((10, True), (9, True), (30, False)):
             with self.subTest(height=height, owned=owned):
                 self.assertEqual(under(height, owned),
                                  "  " + terminal.styled(watch.token_standing(), "dim"))
