@@ -25,10 +25,12 @@ def listed():
     return {line.strip() for line in Path(path).read_text().splitlines()} - {""} if path else None
 
 
-def name_failed(tests):
-    """Append the failed tests' IDs to the file AK_FAILED names, one per line, if it names one."""
-    if os.environ.get("AK_FAILED"):
-        with open(os.environ["AK_FAILED"], "a") as fh:
+def name_failed(tests, file="AK_FAILED"):
+    """Append the failed tests' IDs to the file AK_FAILED names, one per line, if it names one;
+    with `file` "AK_RAN", the IDs of the listed tests it runs: a run of AK_ONLY's tests counts
+    for none it does not name, as an ID it does not know runs nothing."""
+    if os.environ.get(file):
+        with open(os.environ[file], "a") as fh:
             fh.writelines(f"{test}\n" for test in tests)
 
 

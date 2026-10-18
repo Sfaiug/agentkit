@@ -20,7 +20,8 @@ checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the gram
 reads by the running interpreter's rules), and import only from the standard library or this
 repository, including files smoke.sh already ran. A file failing again is also named in the
 file AK_FAILED names; with AK_ONLY set only the files its file lists run, whatever the share,
-smoke.sh's among them, and the imports go unchecked: they are no listed test.
+smoke.sh's among them, each named in the file AK_RAN names, and the imports go unchecked: they
+are no listed test.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -284,6 +285,8 @@ def main(root, others=None):
     print(f"test files: {passed}, {len(failed)} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
     name_failed(failed)
+    if only is not None:
+        name_failed((str(path.relative_to(root)) for path in todo), "AK_RAN")
     return 1 if failed else 0
 
 
