@@ -9,9 +9,9 @@ or the VM broke -- exits `LOST`.
 """
 
 from collections import namedtuple
+import fcntl
 import hashlib
 import io
-import os
 import posixpath
 import re
 import secrets
@@ -197,10 +197,13 @@ def short(away):
     least = (away.memory_mb * away.count // (away.count - 1) if away.count > 1
              else 2 * away.memory_mb)
     path = config.STATE / f"helper-memory-{away.repo}"
-    temp = path.with_name(f".{path.name}.{os.getpid()}")
-    least = max(least, _least(away.repo))
-    temp.write_text(f"{least}\n")
-    temp.replace(path)
+    # Suites of one repository's stacks end at once: each reads, raises and replaces it whole.
+    with path.with_name(f".{path.name}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        least = max(least, _least(away.repo))
+        temp = path.with_name(f".{path.name}.tmp")
+        temp.write_text(f"{least}\n")
+        temp.replace(path)
     return least
 
 

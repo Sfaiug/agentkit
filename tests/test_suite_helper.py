@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -152,6 +153,36 @@ class SuiteHelper(unittest.TestCase):
                          [f"{524288 // 3 * 3 // 2}\n"])
         self.assertIn("helper ran 2/2", self.check({})[0])
         self.assertEqual((self.fake / "calls").read_text().split().count("run"), 2)
+
+    def test_a_vm_that_ran_out_of_memory_counts_when_a_sibling_runs_out_of_time(self):
+        def limited(argv, _left, on_timeout, **_kw):
+            if argv == ["1/3"]:
+                return helper.SHORT, "", False
+            on_timeout("ceiling", 0)
+            return worker.TIMEOUT, "", True
+        with patch.object(helper, "piece", side_effect=lambda _away, shard, _command: [shard]), \
+                patch.object(worker, "limited", side_effect=limited):
+            gate.run_suite(SUITE, 30, cwd=self.repo, activity=self.root / "live.log",
+                           output=io.BytesIO())
+        self.assertEqual([path.read_text() for path in config.STATE.glob("helper-memory-*")],
+                         [f"{524288 // 3 * 3 // 2}\n"])
+
+    def test_suites_that_ran_out_of_memory_at_once_never_lower_the_floor(self):
+        away = helper.Away("acme-mac", "k", "acme", "img", 3, 2, 1000, "", "", "")
+        read, newer = helper._least, threading.Thread(
+            target=helper.short, args=(away._replace(memory_mb=2000),))
+
+        def least(repo):
+            # the larger suite's floor lands while the smaller one is between read and write
+            floor = read(repo)
+            if newer.ident is None:
+                newer.start()
+                newer.join(0.5)
+            return floor
+        with patch.object(helper, "_least", side_effect=least):
+            helper.short(away)
+            newer.join()
+        self.assertEqual(read("acme"), 3000)
 
     def test_a_piece_that_changes_its_checkout_there_fails_there(self):
         (self.repo / "tracked").write_text("committed\n")
