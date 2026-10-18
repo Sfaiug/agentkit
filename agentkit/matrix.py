@@ -518,8 +518,12 @@ def cell(found):
 
 
 def stored():
-    """The matrix as last computed, {"computed_at", "config", "harnesses", "rows"}, or {}."""
-    return _held().get("matrix") or {}
+    """The matrix as last computed, {"computed_at", "config", "harnesses", "rows"}, or {}, its
+    rows scored afresh: the catalogs `rows` asks are what the file saves, and scoring is cheap,
+    so a scoring rule changed since the matrix was computed holds at once."""
+    held = _held().get("matrix") or {}
+    scored(held.get("rows") or [])
+    return held
 
 
 def refresh(cfg, *, refresh=False, now=None):

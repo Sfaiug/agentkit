@@ -67,6 +67,12 @@ class PickByRank(Sandbox):
         self.assertEqual(matrix.row_label(matrix.recommended(held["rows"])["execute"][0]),
                          "claude-opus-5-5 @ max")
         self.assertEqual(matrix.stored()["config"], matrix.config_key(self.cfg))
+        # scores stored under another scoring rule are read scored afresh, by a pick as well
+        stale = json.loads(matrix.cache_path().read_text())
+        for held in stale["matrix"]["rows"]:
+            held["scores"] = {role: {"score": 100.0, "measures": 1} for role in matrix.ROLES}
+        matrix.cache_path().write_text(json.dumps(stale))
+        self.assertEqual(matrix.rank(self.cfg, "execute")["astra"][0], 1)
         with patch.object(matrix, "rows", side_effect=AssertionError("computed again")):
             again = matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR - 1)
         self.assertEqual([(matrix.row_label(row), row["scores"]) for row in again[1]],
