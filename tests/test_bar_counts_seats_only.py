@@ -114,8 +114,8 @@ class NoAgentNoSeat(Sandbox):
         self.assertEqual(statusbar.seats(), [("$0", "fix-api", "working"),
                                              ("$2", "by-hand", "needs you")])
         statusbar.dress("fix-api", "opus")
-        self.assertEqual(drawn(self.options["fix-api"][statusbar.SEATS]), "! by-hand needs you ")
-        self.assertEqual(drawn(self.options["by-hand"][statusbar.SEATS]), "● 1 working ")
+        self.assertEqual(drawn(self.options["fix-api"][statusbar.NEED]), "! 1 other seat needs you ")
+        self.assertEqual(self.options["by-hand"][statusbar.NEED], "")
         self.assertNotIn("acme-watch", self.options)     # and no bar is written on it either
 
 

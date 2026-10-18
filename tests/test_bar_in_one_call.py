@@ -46,7 +46,7 @@ class BarInOneCall(Sandbox):
         self.assertEqual([args[0] for args in self.calls], ["list-sessions", "set-option"])
         # every seat's bar counts the new one again, and its own bar is whole, in that write
         told = {command[2] for command in commands(self.calls[-1])
-                if command[0] == "set-option" and command[3] == statusbar.SEATS}
+                if command[0] == "set-option" and command[3] == statusbar.NEED}
         self.assertEqual(told, {f"={name}:" for name in self.seats})
         self.assertIn("set-titles-string", self.calls[-1])
 
@@ -112,7 +112,7 @@ class SeatGoneMidWrite(Sandbox):
         with patch.object(statusbar, "seats", return_value=listed):
             statusbar.dress("acme", "opus")
         for name in ("acme", "zeta"):
-            self.assertEqual(self.tmux("show-options", "-t", f"={name}:", statusbar.SEATS)[0], 0,
+            self.assertEqual(self.tmux("show-options", "-t", f"={name}:", statusbar.NEED)[0], 0,
                              name)
         self.assertEqual(self.tmux("show-options", "-v", "-t", "=acme:", "set-titles-string"),
                          (0, "acme"))

@@ -102,8 +102,8 @@
   loads `state/run-records.db` once per process and reads and writes only changed runs, and
   `tally`) and a seat's last column, crew and task squares (`seat_tasks`), for watch, run,
   orch, notify, statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
-- `statusbar.py`: a seat's two tmux status lines, line one ending in the owner's other seats
-  and the click that switches to one; for orch, watch.
+- `statusbar.py`: a seat's two tmux status lines, line one ending in how many other seats
+  need the owner and the click that switches to the first; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
   manifests, seat records, rename chain, `SEAT_FILES`, child env, the weekly audit's setting
   (`audit`). Used by nearly everything.
