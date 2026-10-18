@@ -4,10 +4,10 @@ letter.  Every key line drawn names `esc`.
 
 The screen tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_close_and_info.py does, with the seat listing, each seat's word, the usage rows, the
-probe, the stop and the rename faked; each screen marks its return.  The decoder's wait stays
-under 100 ms, checked with select faked: a busy host can deschedule either process.  The
-line-mode test drives `menu.loop` in-process with `menu.wait_key` and `menu.read` mocked
-(AGENTS.md).  Nothing here starts a seat or a tmux server, and the only process signalled is
+probe, the stop and the rename faked; each screen marks its return.  The decoder waits for
+nothing after a lone Esc, checked with select faked: a busy host can deschedule either
+process.  The line-mode test drives `menu.loop` in-process with `menu.wait_key` and
+`menu.read` mocked (AGENTS.md).  Nothing here starts a seat or a tmux server, and the only process signalled is
 the test's own child.
 """
 
@@ -96,7 +96,7 @@ print(json.dumps([{"id": "dark", "name": "Dark mode", "you": False, "everyone": 
                    "you_switchable": True}]))
 """
 ESC, UP, DOWN, LEFT, RIGHT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[D", b"\x1b[C", b"\r"
-ESC_WAIT = 0.1       # the decoder's wait budget, independent of host scheduling
+ESC_WAIT = 0.1       # longer than a lone Esc's read, independent of host scheduling
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
@@ -259,14 +259,12 @@ class EscBack(unittest.TestCase):
         menu_.back("config_matrix", title("config · alpha"))
         menu_.leave()
 
-    def test_esc_decoder_waits_less_than_100_ms_for_another_byte(self):
+    def test_esc_decoder_waits_for_nothing_after_a_lone_esc(self):
+        # a terminal writes a key's sequence whole: what follows an Esc came with it, or is none
         with patch.object(terminal, "_KEYED", ESC), \
                 patch.object(terminal.select, "select", return_value=([], [], [])) as wait:
             self.assertEqual(terminal._key(42), terminal.Key("esc"))
-        self.assertEqual(wait.call_count, 1)
-        self.assertEqual(wait.call_args.args[:3], ([42], [], []))
-        self.assertGreater(wait.call_args.args[3], 0)
-        self.assertLess(wait.call_args.args[3], ESC_WAIT)
+        self.assertEqual(wait.call_args_list, [(([42], [], [], 0),)])
 
     def test_every_screen_under_the_menu_goes_back_on_esc_and_never_on_q(self):
         menu_ = Menu(self)
