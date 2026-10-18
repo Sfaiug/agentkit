@@ -1589,7 +1589,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if clock is not None:
         clock.clear()
         rising = clock.rise(out)
-        moves += [(("opened",), ("seat", cursor) if opened else None, None, False),
+        # keyed on the highlight alone: a line opening under a row already highlighted, as a
+        # seat turns done, is news of that seat and stays still
+        moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
         news = clock.look({key: shown for key, shown, _, _ in moves})
         for key, shown, cell, lit in moves:
