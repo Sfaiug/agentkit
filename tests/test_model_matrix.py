@@ -107,7 +107,7 @@ class ModelBoards(Sandbox):
         self.assertEqual(live["claude-opus-5.5"]["release"], "2026-09-02")   # the newest that answers
         self.assertEqual(live["claude-opus-5.5"]["values"],
                          {"livebench.coding": 96.3, "livebench.long_horizon": 85.0,
-                          matrix.COST: round(113 / (29 * .963), 2)})
+                          matrix.TASK_COST: round(113 / (29 * .963), 2)})
         self.assertEqual(live["gpt-6-astra"]["values"], {"livebench.coding": 93.7})
         self.assertTrue(any(u.endswith("table_2026_10_13.csv") for u, _ in self.boards.asked))
         self.assertEqual(matrix.split_effort("GPT 5 (Non-reasoning)"), ("GPT 5", "none"))

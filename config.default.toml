@@ -9,9 +9,11 @@ max_runs = 0              # no count cap; host memory and ak's CPU pressure are 
 # Set either to 0 to disable that one resource check.
 # run_memory_max_mb, when set, is one run's memory cap in MiB. Unset, the cap is
 # 40% of the slice's MemoryMax (4 GB where there is no ceiling), and swap is capped the same.
-pace_margin = 10          # the one knob: a subscription more than this far ahead of pace no
-                          # longer keeps a payg provider out; workers rank on budget, not on
-                          # pace, and the orchestrator choice reads neither
+pace_margin = 10          # a subscription more than this far ahead of pace no longer keeps a
+                          # payg provider out; workers rank on budget, not on pace, and the
+                          # orchestrator choice reads neither
+within = 5                # a model this many points under the best (`ak models`) counts as as
+                          # good; the cheapest of those is recommended and picked first
 # live_host = "<alias>" is the ssh alias of your live/deploy host a seat may not scp/rsync/sftp a file
 # onto (it reaches the live host through the repo). ak ships with none set, so no transfer is guarded
 # until you name your own host here; your deploy host is yours, and ak does not guess it.
@@ -20,8 +22,9 @@ pace_margin = 10          # the one knob: a subscription more than this far ahea
 # [defaults] is what a new seat takes with Enter, and what anything outside a seat works with.
 # Orchestrator = the default while none of its meters reads 100% used, else the first model in
 # this file's order that can still be spent, else the default anyway with a WARN.
-# Executor = the worker the matrix ranks first for executing (`ak models`: the measures its
-# score rests on, then the score), budget only among workers ranked alike or by nothing.
+# Executor = the worker the matrix ranks first for executing (`ak models`: of the workers within
+# `within` of the best of them, the cheapest; then the others by quality), budget only among
+# workers ranked alike or by nothing.
 # Budget = minimum fraction left / fraction of the window left across non-session limits;
 # a usage-limit reset in hand counts for nothing, since ak never spends one by itself.
 # Reviewer = the other model ranked first the same way for reviewing, whatever its provider,

@@ -2559,7 +2559,8 @@ def advice(cfg, held):
     harness, which `r` sets the row's effort on; a model removed on this screen is `(not
     configured)` at once."""
     found = {}
-    for role, row in matrix.recommended(held.get("rows") or []).items():
+    for role, rows in matrix.recommended(held.get("rows") or [], matrix.within(cfg)).items():
+        row = rows[0]
         name = matrix.runs(cfg, row, role) or next(
             (name for name in config.offered(cfg)
              if (cfg["models"][name]["harness"], cfg["models"][name]["model"])

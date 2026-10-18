@@ -24,15 +24,20 @@ id with a qualifier in brackets (`Acme 5 (Default Fallback)`); `benchmark` on a 
 names the board's model on a board where none fits.  A board's row at another effort never
 stands in.
 
-Every row is scored per role: a column is the row's share of the best value among the rows
+Every row is scored per role, on quality and cost alone: speed is ak's own to fix, and the
+subscriptions follow the choice.  A column is the row's share of the best value among the rows
 (100 for the best; zero or below is 0 and still counts: Arena's net improvement can be
-negative), a role's score is the mean of the role's measures the row has, said with how many
-it rests on (`97 of 3`), and `ROLES` names each role's measures and why.  One row is
-recommended per role: the row resting on the most of the role's measures, then the highest
-score, then the faster, then the cheaper (an unknown speed or cost after every measured one),
-then the row the config runs in the role, then the higher effort, then the first by harness and
-model name.  ak's own run numbers stand beside, per configured model, the effort its runs
-recorded and role, with their count, and never rank (AGENTS.md, Owner rules).
+negative).  A model's score for a role is the mean share over the role's measures on its row
+holding the most of them, and it needs at least half of them; a row's quality is that times what
+its effort keeps of it, read off the role's measures that see efforts, else the intelligence
+index, which every model has per effort; it is said with the measures the model's score rests on
+(`97 of 3`), and `ROLES` names each role's measures and why.  A row within `within` of the best
+counts as as good as it, and the cheapest of those is recommended, the others beside it: by what
+Artificial Analysis's index run cost on the row, which is its price times how much it talks at
+that effort, a row it has not run by LiveBench's cost of a coding task after every priced one,
+unpriced last, then the higher quality, the row the config runs in the role, the higher effort,
+the first by harness and model name.  ak's own run numbers stand beside, per configured model,
+the effort its runs recorded and role, with their count, and never rank (AGENTS.md, Owner rules).
 Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 """
 
@@ -41,7 +46,6 @@ import csv
 import fcntl
 import io
 import json
-import math
 import re
 import sys
 import time
@@ -58,8 +62,14 @@ ARENA_URL = ("https://datasets-server.huggingface.co/rows?dataset=lmarena-ai/lea
 ARENA_CONFIGS = ("agent", "agent_steerability")
 LIVEBENCH = "https://livebench.ai/"
 BOARDS = ("artificialanalysis.ai", "arena.ai", "livebench.ai")
-SPEED = "aa.performance.median_output_tokens_per_second"
-COST = "livebench.cost_coding"           # dollars per successful coding task
+INTEL = "aa.evaluations.artificial_analysis_intelligence_index"   # every model has it per effort
+COST = "aa.artificial_analysis_intelligence_index_cost.total_cost"   # dollars its index run cost
+TASK_COST = "livebench.cost_coding"       # dollars per successful coding task, at one effort
+# A row this many points under the best counts as as good: the three boards disagree with each
+# other about differences between the top models by more (a median of 6 to 10 points, 17 Oct
+# 2026), so no row the boards agree is worse gets in.  `within` in config.toml overrides it;
+# it goes to 0 the day the boards publish their intervals.
+WITHIN = 5
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own
 EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none"}
@@ -83,7 +93,7 @@ ROLES = {
 }
 # the config's word for each role ak scores: `config.ROLE_EFFORTS` keys its efforts by these
 CONFIG_ROLES = {"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
-HEADERS = ("model", "harness", "id", "orch", "exec", "review", "tok/s", "$/task")
+HEADERS = ("model", "harness", "id", "orch", "exec", "review", "cost", "$/task")
 
 
 def fetch_bytes(url, headers=None):
@@ -197,7 +207,7 @@ def livebench():
         try:          # the suite's spend over the tasks it passed
             passed = float(line["nq_coding"]) * row["values"]["livebench.coding"] / 100
             if passed > 0:
-                row["values"][COST] = round(float(line["coding"]) / passed, 2)
+                row["values"][TASK_COST] = round(float(line["coding"]) / passed, 2)
         except (KeyError, TypeError, ValueError):
             continue
     return list(rows.values())
@@ -359,39 +369,84 @@ def effort_rank(effort):
 
 
 def scored(table):
-    """Each row's `scores`: per role, {"score", "measures"}, or None where the row has none of
-    the role's measures.  A column is a share of the best value among the rows: 100 for the
-    best, 0 at zero or below (still a measure)."""
+    """Each row's `scores`: per role, {"score", "measures"}, or None where its model has under
+    half the role's measures or nothing tells its effort apart while another of the model's is.
+    A column is a share of the best value among the rows: 100 for the best, 0 at zero or below
+    (still a measure).  The model's score is the mean share over the role's measures on its row
+    holding the most of them (then the highest); the row's is that times what its effort keeps
+    (`kept`), said with the measures the model's rests on."""
     best = {}
     for row in table:
         for column, value in row["values"].items():
             best[column] = max(best.get(column, 0), value)
-    for row in table:
-        shares = {column: 100 * max(value, 0) / best[column] if best[column] > 0 else 0.0
-                  for column, value in row["values"].items()}
+    shares = [{column: 100 * max(value, 0) / best[column] if best[column] > 0 else 0.0
+               for column, value in row["values"].items()} for row in table]
+    models = {}
+    for number, row in enumerate(table):
         row["scores"] = {}
-        for role, columns in ROLES.items():
-            have = [shares[column] for column, _ in columns if column in shares]
-            row["scores"][role] = ({"score": sum(have) / len(have), "measures": len(have)}
-                                   if have else None)
+        models.setdefault((row["harness"], row["model"]), []).append(number)
+    for role, columns in ROLES.items():
+        columns = [column for column, _ in columns]
+        for siblings in models.values():
+            own = [[shares[number][c] for c in columns if c in shares[number]]
+                   for number in siblings]
+            top = max(((len(have), sum(have) / len(have)) for have in own
+                       if 2 * len(have) >= len(columns)), default=None)
+            keeps = kept([shares[number] for number in siblings], columns)
+            for number, keep in zip(siblings, keeps):
+                table[number]["scores"][role] = (
+                    {"score": top[1] * keep, "measures": top[0]}
+                    if top is not None and keep is not None else None)
     return table
 
 
-def recommended(table):
-    """One row per role among the scored rows with a score for it, none for a role no row has
-    a measure of: the row resting on the most of the role's measures, then the highest score,
-    then the faster, then the cheaper (an unknown speed or cost after every measured one), then
-    the row the config runs in the role, then the higher effort, then the first by harness and
-    model name, so the pick is the same however the table is ordered."""
+def kept(shares, columns):
+    """What each of one model's rows (their shares, one dict per effort) keeps of the model's
+    best effort, 0 to 1: its mean share over the `columns` whose values differ between its
+    efforts, else over the intelligence index, against the highest among them; 1 where nothing
+    tells them apart, None for a row that lacks what tells the others apart."""
+    basis = [c for c in columns if len({row[c] for row in shares if c in row}) > 1] or [INTEL]
+    each = [([row[c] for c in basis if c in row] or None) for row in shares]
+    means = [sum(have) / len(have) if have else None for have in each]
+    top = max((mean for mean in means if mean is not None), default=None)
+    return [1.0 if top is None else None if mean is None else mean / top if top > 0 else 1.0
+            for mean in means]
+
+
+def within(cfg):
+    """How many points under the best still counts as as good: `within` in the config, else
+    `WITHIN`."""
+    return cfg.get("within", WITHIN)
+
+
+def cost_key(row):
+    """What ordering by cost sorts a row on: Artificial Analysis's index run cost, a row it has
+    not run after every priced one, by LiveBench's cost of a coding task, unpriced last."""
+    values = row["values"]
+    return ((0, values[COST]) if COST in values else (1, values[TASK_COST])
+            if TASK_COST in values else (2, 0.0))
+
+
+def recommended(table, within=WITHIN):
+    """Per role, the rows as good as the best, cheapest first (`cost_key`), one per model at its
+    cheapest such effort, the first the recommendation; {} for a role no row has a score for.
+    Rows alike on cost go by the higher quality, then the row the config runs in the role, then
+    the higher effort, then the first by harness and model name, so the pick is the same however
+    the table is ordered."""
     picks = {}
     for role in ROLES:
-        ranked = [row for row in table if row["scores"][role]]
-        if ranked:
-            picks[role] = min(ranked, key=lambda row: (
-                -row["scores"][role]["measures"], -row["scores"][role]["score"],
-                -row["values"].get(SPEED, -math.inf), row["values"].get(COST, math.inf),
-                role not in row["roles"], -effort_rank(row["effort"]),
-                row["harness"], row["model"]))
+        found = [row for row in table if row["scores"][role]]
+        if not found:
+            continue
+        best = max(row["scores"][role]["score"] for row in found)
+        seen, picks[role] = set(), []
+        for row in sorted((row for row in found if row["scores"][role]["score"] >= best - within),
+                          key=lambda row: (*cost_key(row), -row["scores"][role]["score"],
+                                           role not in row["roles"], -effort_rank(row["effort"]),
+                                           row["harness"], row["model"])):
+            if (row["harness"], row["model"]) not in seen:
+                seen.add((row["harness"], row["model"]))
+                picks[role].append(row)
     return picks
 
 
@@ -496,19 +551,23 @@ def _at(entry, role):
     return (entry["harness"], entry["model"], config.role_effort(entry, CONFIG_ROLES[role]))
 
 
-def rank(cfg, role):
-    """Each configured model's place for `role` off the matrix as last computed, at the effort
-    the config runs it at in that role: (the measures its score rests on, the score), None for
-    a model the boards have nothing on or a matrix nobody computed yet.  A pick reads this and
-    never the boards."""
+def rank(cfg, role, names=None):
+    """Each of the configured models `names` (all of them unless given) sorted on this for
+    `role`, off the matrix as last computed, at the effort the config runs it at in that role:
+    those within `within` of the best of them first, the cheaper first (`cost_key`), then the
+    others by quality; None for a model the boards have nothing on or a matrix nobody computed
+    yet.  A pick reads this and never the boards."""
     held = stored()
     rows_by = {(row["harness"], row["model"], row["effort"]): row for row in held.get("rows") or []}
     found = {}
-    for name in config.offered(cfg):
+    for name in config.offered(cfg) if names is None else names:
         row = rows_by.get(_at(cfg["models"][name], role))
         score = (row.get("scores") or {}).get(role) if row else None
-        found[name] = (score["measures"], score["score"]) if score else None
-    return found
+        found[name] = (score["score"], cost_key(row)) if score else None
+    best = max((place[0] for place in found.values() if place), default=None)
+    return {name: None if place is None else (0, *place[1], -place[0])
+            if place[0] >= best - within(cfg) else (1, 0, 0.0, -place[0])
+            for name, place in found.items()}
 
 
 def runs(cfg, row, role):
@@ -541,10 +600,10 @@ def boards_lines(boards):
     return lines
 
 
-def render(table, boards, own=None):
-    """The scored rows as a table, the best first, the recommendation per role, what each role
-    is scored on, ak's own numbers per configured model (`own`), then what each board said and
-    when."""
+def render(table, boards, own=None, band=WITHIN):
+    """The scored rows as a table, the best first, the recommendation per role and the rows as
+    good as it, what each role is scored on, ak's own numbers per configured model (`own`),
+    then what each board said and when."""
     def best(row):
         return max((found["score"] for found in row["scores"].values() if found), default=-1)
     table = sorted(table, key=lambda row: (-best(row), row["harness"], row["model"]))
@@ -552,7 +611,7 @@ def render(table, boards, own=None):
         (row["name"] or "-", row["harness"],
          row["model"] + (f" @ {row['effort']}" if row["effort"] else ""),
          *(cell(row["scores"][role]) for role in ROLES),
-         _num(row["values"].get(SPEED)), _num(row["values"].get(COST), 2))
+         _num(row["values"].get(COST)), _num(row["values"].get(TASK_COST), 2))
         for row in table]
     width = terminal.width()
 
@@ -563,15 +622,21 @@ def render(table, boards, own=None):
     lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
              for line in lines_of]
     lines[0] = terminal.styled(lines[0], "dim")
-    picks = recommended(table)
+    picks = recommended(table, band)
     lines.append("recommended: " + " · ".join(
-        f"{role} {row_label(row)} ({cell(row['scores'][role])})" for role, row in picks.items())
+        f"{role} {row_label(rows[0])} ({cell(rows[0]['scores'][role])})"
+        + (f", as good: {', '.join(row_label(row) for row in rows[1:])}" if rows[1:] else "")
+        for role, rows in picks.items())
         if picks else "no recommendation yet: no board has a row ak can run")
-    notes = ["a score is the mean share of the best row over the measures the boards give that "
-             "row, `97 of 3`; a board naming no effort counts for every effort of its model; "
-             "recommended is the row with the most of the role's measures, then the highest "
-             "score, then the faster, then the cheaper, then the one the config runs in the "
-             "role, then the higher effort, then the first by name",
+    notes = ["a row's quality is its model's score for the role, the mean share of the best row "
+             "over the role's measures on the model's row holding the most of them (half of "
+             "them at least), times what its effort keeps of it on the measures that see "
+             "efforts, else the intelligence index; a board naming no effort counts for every "
+             f"effort of its model; a row within {band:g} of the best counts as as good "
+             "(`within` in config.toml), and the cheapest of those is recommended: by `cost`, "
+             "what Artificial Analysis's index run cost on it, then `$/task`, LiveBench's cost "
+             "of a coding task, unpriced last, then the higher quality, the one the config runs "
+             "in the role, the higher effort, the first by name",
              *(f"{role}, {len(columns)} measures: "
                + ", ".join(f"{column} ({why})" for column, why in columns)
                for role, columns in ROLES.items())]
@@ -596,12 +661,13 @@ def main(argv):
     boards, table = refresh(cfg, refresh="--refresh" in flags)
     own = live(cfg)
     if "--json" in flags:
-        json.dump({"rows": table,
-                   "recommended": {role: row_label(row) for role, row in recommended(table).items()},
+        json.dump({"rows": table, "within": within(cfg),
+                   "recommended": {role: [row_label(row) for row in rows]
+                                   for role, rows in recommended(table, within(cfg)).items()},
                    "live": own,
                    "boards": {board: {k: v for k, v in held.items() if k != "rows"}
                               for board, held in boards.items()}}, sys.stdout, indent=2)
         print()
     else:
-        print(render(table, boards, own))
+        print(render(table, boards, own, within(cfg)))
     return 0

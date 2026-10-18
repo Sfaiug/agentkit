@@ -131,10 +131,10 @@
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.
-- `matrix.py`: the public boards' model rows (Artificial Analysis, Arena Agent, LiveBench), a day's
-  cache in `state/matrix.json`, and the matrix: a row per model and effort the installed harnesses
-  offer, matched to the boards, scored per role (`ROLES`), one recommended per role, ak's own
-  numbers beside (`live`); `ak models`. Offers `collect`, `rows`, `scored`, `recommended`, `live`.
+- `matrix.py`: the public boards' rows (Artificial Analysis, Arena Agent, LiveBench), a day's cache
+  (`state/matrix.json`), and the matrix: a row per model and effort the installed harnesses offer,
+  scored per role (`ROLES`), the cheapest as good as the best (`within`) recommended, ak's own
+  numbers (`live`); `ak models`. Offers `collect`, `rows`, `scored`, `recommended`, `rank`, `live`.
   For bin/ak.
 - `notify.py`: Discord webhook, test sink, outbox, a seat's needs/done card and last notice.
   Offers `shaped`, `record`, `transition`, `page` (about no seat). Used by run, job, orch,

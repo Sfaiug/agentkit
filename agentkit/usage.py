@@ -1550,9 +1550,10 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     """The workers for a role, the one the matrix ranks first for it first.
 
     The rank is `matrix.rank`'s for the role (`execute` for an executor, `review` for a
-    reviewer): the measures a score rests on, then the score, off the matrix as `ak models`
-    or the tick last computed it; a model the boards have nothing on, or a matrix nobody
-    computed yet, ranks after every ranked model.  Among models ranked alike, budget decides:
+    reviewer) among the candidates: those within `within` of the best of them, the cheapest
+    first, then the others by quality, off the matrix as `ak models` or the tick last computed
+    it; a model the boards have nothing on, or a matrix nobody computed yet, ranks after every
+    ranked model.  Among models ranked alike, budget decides:
     the fraction unspent over the fraction of the window still to go, unknown readings after
     every known one; a model on credits (`on_credits`) after every one with a window left;
     equal on all of it keeps list order.  The one exclusion is a gate meter at 100% used with
@@ -1600,11 +1601,10 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
             reason = reason.removeprefix("unknown: ")
             print(f"pick {role}: {name} ({provider}) budget {budget:g} unknown: {reason}; "
                   "after every known budget of its rank", file=sys.stderr)
-    ranks = matrix.rank(cfg, "review" if role == "reviewer" else "execute")
+    ranks = matrix.rank(cfg, "review" if role == "reviewer" else "execute", candidates)
     return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers),
-                                             ranks.get(n) is None, *(
-                                                 (-ranks[n][0], -ranks[n][1]) if ranks.get(n)
-                                                 else (0, 0)),
+                                             ranks.get(n) is None,
+                                             *(ranks.get(n) or (0, 0, 0.0, 0.0)),
                                              budgets[n][1] is not None, -budgets[n][0]))
 
 
