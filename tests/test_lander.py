@@ -261,6 +261,15 @@ class Lander(LanderFixture, unittest.TestCase):
                 drive.assert_called_once()
                 self.assertEqual(drive.call_args.kwargs["prior"], current)
 
+    def test_a_member_whose_rules_fail_once_a_red_ahead_is_removed_is_told(self):
+        head = self.member("red-head", **{"broken.txt": "broken\n"})
+        tail = self.member("bad-rules", joined=2,
+                           **{"AGENTS.md": f"---\ntests: {SUITE}\nunread-key: true\n---\n"})
+        self.advance()
+        land.check_line(self.turn)
+        self.assertIn("fix", self.wait(head))
+        self.assertIn("unread-key", self.wait(tail)["fix"]["line"])
+
     def test_conflict_wakes_a_fix_without_a_gate_or_a_fixer(self):
         directory = self.member(**{"base.txt": "branch\n"})
         original = record.read_state(directory)
