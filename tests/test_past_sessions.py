@@ -100,7 +100,9 @@ class Lines(unittest.TestCase):
         self.closed = self.stack.enter_context(patch.object(menu, "close_seat"))
         self.paused = self.stack.enter_context(patch.object(menu, "pause"))
         self.stopped = self.stack.enter_context(patch.object(orch, "cmd_stop"))
-        self.stack.enter_context(patch.object(orch, "checkout_of", lambda repo: repo and Path(repo)))
+        self.stack.enter_context(patch.object(orch, "listed", dict))
+        self.stack.enter_context(patch.object(orch, "checkout_of",
+                                              lambda repo, **_kw: repo and Path(repo)))
         self.stack.enter_context(patch.object(menu, "selection_of", lambda cfg, name: {
             "orchestrator": "opus"} if name == "omega" else None))
 
@@ -139,6 +141,20 @@ class Lines(unittest.TestCase):
         self.paused.assert_called_once_with("no session to stop")
         self.stopped.assert_not_called()
         self.assertNotIn("stop omega", self.out.getvalue())
+
+    def test_more_than_a_page_keeps_each_row_under_its_projects_heading(self):
+        # with the keys, on a screen with room for four lines between the frame and the keys
+        seats = [dict(OMEGA, name=f"fix-api-{n}") for n in range(8)]
+        drawn = []
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "height", return_value=10), \
+                patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
+                             drawn.append([terminal.plain(line) for line in body]) or {}), \
+                patch.object(terminal, "read_key",
+                             side_effect=[terminal.Key("down")] * 7 + [terminal.Key("esc")]):
+            menu.show_past(CFG, seats, keyboard=None)
+        self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 8)
+        self.assertRegex(drawn[-1][-1], r"^›\s+8\s+fix-api-7\s+-\s+stopped 2h ago$")
 
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):
