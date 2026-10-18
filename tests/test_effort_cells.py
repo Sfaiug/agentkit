@@ -1,11 +1,11 @@
-"""A model's effort on `c` reads as signal bars, and its highest level shimmers.
+"""A model's effort on `c` reads as a cell a level before its word, and its highest shimmers.
 
-Beside each effort word stands a bar for every level that model offers, rising in height
-(`▂▃▅▆█` for five), filled up to its effort and the rest dim; a model with one effort is its
-word alone, with neither bars nor arrows.  A step raises the one bar it fills into place, or
-lowers the one it empties, on the menu's animation clock, and a step onto the model's highest
-level sends one light through the word, once.  Without UTF-8 each filled level is a `|`, and
-under NO_COLOR nothing moves.
+Before each effort word stands a cell for every level that model offers, full up to its effort
+and the rest open and dim (`▰▰▰▱▱` for high of five, the owner's pick of 18 Oct 2026), the
+words in one column; a model with one effort is its word alone.  A step lights each cell it
+fills and dims each it empties, in turn from the level before it, on the menu's animation clock,
+and a step onto the model's highest level sends one light through the word, once.  Without
+UTF-8 a full cell is `#` and an open one `-`, and under NO_COLOR nothing moves.
 
 Each screen is `menu.show_config` in a child on a pty of its own, through
 tests/test_config_matrix.py's Screen: a temporary HOME whose config is the shipped default plus
@@ -27,8 +27,8 @@ from test_config_matrix import DOWN, ENTER, EFFORT_KEYS, RIGHT, UP, Screen, row
 from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
-BAR = re.compile(rf"(\x1b\[[0-9;]*m)?[{terminal.SIGNAL}]")
-LIT = "38;"     # a colour of its own: a dim bar's, or the light's on a letter
+CELL = re.compile(r"(\x1b\[[0-9;]*m)?([▰▱])")
+LIT = "38;"     # a colour of its own: a dim cell's, or the light's on a letter
 
 
 def drawn(screen):
@@ -38,10 +38,10 @@ def drawn(screen):
 
 
 def filled(screen, name):
-    """How many of `name`'s bars are drawn in the foreground, with no colour of their own."""
+    """How many of `name`'s cells are drawn full in the foreground, with no colour of their own."""
     line = next(line for line in drawn(screen)
                 if terminal.ANSI.sub("", line)[2:].split(" ")[0] == name)
-    return BAR.findall(line).count("")
+    return sum(1 for codes, cell in CELL.findall(line) if cell == "▰" and LIT not in codes)
 
 
 def shone(written):
@@ -68,26 +68,26 @@ def moved(screen, keys):
 
 
 def places(lines, name):
-    """`name`'s row on the terminal, the column of its effort word and of its first bar."""
+    """`name`'s row on the terminal, the column of its effort word and of its first cell."""
     number, line = row(lines, name)
-    return (number, line.index("‹") + 3,
-            next(at for at, cell in enumerate(line) if cell in terminal.SIGNAL) + 1)
+    return number, line.rindex(" ") + 2, line.index(next(c for c in line if c in "▰▱")) + 1
 
 
-class EffortBars(unittest.TestCase):
-    def test_each_model_has_a_bar_a_level_filled_to_its_effort(self):
+class EffortCells(unittest.TestCase):
+    def test_each_model_has_a_cell_a_level_full_to_its_effort_and_its_word_after(self):
         screen = Screen(self)
         lines = screen.frame()
         # Claude's five, Codex's and Muse's six, Grok's four, Gemini Flash's three and MiMo's
-        # two, each filled to its effort in the shipped default
-        for name, effort, bars, lit in (
-                ("fable", "xhigh", "▂▃▅▆█", 4), ("opus", "xhigh", "▂▃▅▆█", 4),
-                ("astra", "xhigh", "▁▃▄▅▇█", 4), ("spark", "xhigh", "▁▃▄▅▇█", 5),
-                ("grok", "xhigh", "▂▄▆█", 4), ("gemini", "high", "▃▅█", 3),
-                ("mimo", "high", "▄█", 2)):
+        # two, each full to its effort in the shipped default
+        for name, effort, cells in (
+                ("fable", "xhigh", "▰▰▰▰▱"), ("opus", "xhigh", "▰▰▰▰▱"),
+                ("astra", "xhigh", "▰▰▰▰▱▱"), ("spark", "xhigh", "▰▰▰▰▰▱"),
+                ("grok", "xhigh", "▰▰▰▰"), ("gemini", "high", "▰▰▰"), ("mimo", "high", "▰▰")):
             with self.subTest(name=name):
-                self.assertEqual(row(lines, name)[1].split()[-4:], ["‹", effort, "›", bars])
-                self.assertEqual(filled(screen, name), lit)
+                self.assertEqual(row(lines, name)[1].split()[-2:], [cells, effort])
+                self.assertEqual(filled(screen, name), cells.count("▰"))
+        # every word in one column, after the most cells any model has
+        self.assertEqual(len({places(lines, name)[1] for name in ("fable", "astra", "mimo")}), 1)
         screen.leave()
 
     def test_a_model_with_one_effort_is_its_word_alone(self):
@@ -95,6 +95,8 @@ class EffortBars(unittest.TestCase):
         lines = screen.frame()
         self.assertEqual(row(lines, "haiku")[1].split(), ["haiku", "claude", "○", "□", "□",
                                                           "xhigh"])
+        # its word still in the column the others' stand in
+        self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "fable")[1].rindex(" "))
         screen.press(DOWN * 2 + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         cells = moved(screen, ENTER)                    # onto none, its only effort
         lines = screen.frame()
@@ -104,34 +106,37 @@ class EffortBars(unittest.TestCase):
         self.assertEqual(screen.saved()["models"]["haiku"]["effort"], "none")
         screen.leave()
 
-    def test_a_step_moves_its_one_bar_and_the_highest_shimmers_once(self):
+    def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
         screen = Screen(self)
         lines = screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
-        number, word, bars = places(lines, "opus")
-        # down from xhigh: its fourth bar lowers from its height to nothing, then stands dim
-        cells = moved(screen, f"\x1b[<0;{word - 2};{number}M\x1b[<0;{word - 2};{number}m"
+        number, word, first = places(lines, "opus")
+        # a click on its second cell, down from xhigh: its fourth cell, then its third, stay
+        # full but dim and then stand open and dim
+        cells = moved(screen, f"\x1b[<0;{first + 1};{number}M\x1b[<0;{first + 1};{number}m"
                       .encode())
-        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
-        self.assertEqual({(at, column) for at, column, _, _ in cells}, {(number, bars + 3)})
-        heights = [(" " + terminal.SIGNAL).index(text) for _, _, text, _ in cells]
-        self.assertEqual(heights[:-1], sorted(heights[:-1], reverse=True))
-        self.assertLess(min(heights), 5, "lowered")
-        self.assertEqual(cells[-1][2], "▆")
-        self.assertIn(LIT, cells[-1][3])                # and dim
-        self.assertEqual(filled(screen, "opus"), 3)
-        # up again: the same bar rises from nothing into place, in the foreground
+        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
+        self.assertEqual({(at, column) for at, column, _, _ in cells},
+                         {(number, first + 3), (number, first + 2)})
+        self.assertEqual([column for _, column, text, _ in cells if text == "▱"],
+                         [first + 3, first + 2], "in turn from the level before it")
+        self.assertEqual({column for _, column, text, written in cells
+                          if text == "▰" and LIT in written}, {first + 3, first + 2},
+                         "each full but dim first")
+        self.assertTrue(all(LIT in written for _, _, text, written in cells if text == "▱"))
+        self.assertEqual(filled(screen, "opus"), 2)
+        # up again: its third lights and settles into the foreground
         cells = moved(screen, ENTER)
-        self.assertEqual({(at, column) for at, column, _, _ in cells}, {(number, bars + 3)})
-        heights = [(" " + terminal.SIGNAL).index(text) for _, _, text, _ in cells]
-        self.assertEqual(heights, sorted(heights))
-        self.assertLess(heights[0], 5, "risen")
-        self.assertEqual(cells[-1][2], "▆")
+        self.assertEqual({(at, column) for at, column, _, _ in cells}, {(number, first + 2)})
+        self.assertEqual({text for _, _, text, _ in cells}, {"▰"})
+        self.assertIn(LIT, cells[0][3])
         self.assertNotIn(LIT, cells[-1][3])
-        # up onto max, Opus's highest: its fifth bar rises, and one light crosses the word,
-        # written whole from its first cell
-        cells = moved(screen, ENTER)
+        # up onto max, Opus's highest, from the word: its last two fill, and one light crosses
+        # the word, written whole from its first cell
+        moved(screen, ENTER)
+        cells = moved(screen, f"\x1b[<0;{word};{number}M\x1b[<0;{word};{number}m".encode())
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
-        self.assertEqual({column for at, column, _, _ in cells if at == number}, {bars + 4, word})
+        self.assertEqual({column for at, column, _, _ in cells if at == number},
+                         {first + 4, word})
         words = [cell for cell in cells if cell[1] == word]
         self.assertEqual({text for _, _, text, _ in words}, {"max"})
         self.assertEqual([n for *_, written in words for n in shone(written)], [0, 1, 2],
@@ -143,41 +148,44 @@ class EffortBars(unittest.TestCase):
             self.assertEqual([cell for cell in cells if cell[0] == number], [])
         screen.leave()
 
-    def test_without_utf8_a_filled_level_is_a_bar_and_nothing_else_is(self):
+    def test_without_utf8_a_full_cell_is_a_hash_and_an_open_one_a_dash(self):
         screen = Screen(self, env={"LANG": "C", "LC_ALL": ""})
         lines = screen.frame()
-        self.assertEqual(row(lines, "opus")[1].split()[-4:], ["<", "xhigh", ">", "||||"])
-        self.assertEqual(row(lines, "gemini")[1].split()[-4:], ["<", "high", ">", "|||"])
+        self.assertEqual(row(lines, "opus")[1].split()[-2:], ["####-", "xhigh"])
+        self.assertEqual(row(lines, "gemini")[1].split()[-2:], ["###", "high"])
         self.assertEqual(row(lines, "haiku")[1].split()[-1], "xhigh")
-        self.assertNotIn("<", row(lines, "haiku")[1])
+        self.assertNotIn("#", row(lines, "haiku")[1])
         screen.leave()
 
     def test_under_no_color_nothing_moves(self):
         screen = Screen(self, env={"NO_COLOR": "1"})
         lines = screen.frame()
-        self.assertEqual(row(lines, "opus")[1].split()[-1], "▂▃▅▆")   # nothing to dim the rest
+        self.assertEqual(row(lines, "opus")[1].split()[-2:], ["▰▰▰▰▱", "xhigh"])
         screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         self.assertEqual(moved(screen, ENTER), [])
-        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["›", "▂▃▅▆█"])
+        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "max"])
         screen.leave()
 
-    def test_a_bar_takes_about_150_ms_and_the_light_about_600(self):
-        with patch.object(terminal, "colour_depth", return_value=256):
-            rise, until = motion.rising("█", True, 10.0)
+    def test_a_cell_takes_about_150_ms_and_the_light_about_600(self):
+        with patch.object(terminal, "colour_depth", return_value=256), \
+                patch.object(terminal, "utf8", return_value=True):
+            fill, until = motion.filling(True, 10.0)
             self.assertEqual(until, 10.15)
-            self.assertEqual([rise(10.0 + t) for t in (0, 0.075)], [" ", "▄"])
-            self.assertEqual(rise(10.15), "█")
-            lower, _ = motion.rising("█", False, 10.0)
-            self.assertEqual(lower(10.0), "█")
-            self.assertEqual(lower(10.15), terminal.styled("█", "dim"))
+            self.assertEqual(fill(9.9), terminal.styled("▱", "dim"))      # its turn to come
+            self.assertIn(LIT, fill(10.0))
+            self.assertEqual(terminal.ANSI.sub("", fill(10.0)), "▰")
+            self.assertEqual(fill(10.15), "▰")
+            empty, _ = motion.filling(False, 10.0)
+            self.assertEqual(empty(10.0), terminal.styled("▰", "dim"))
+            self.assertEqual(empty(10.15), terminal.styled("▱", "dim"))
             shimmer, until = motion.shimmering("max", 10.0)
             self.assertEqual(until, 10.6)
             for t, lit in ((0.1, [0]), (0.3, [1]), (0.5, [2]), (0.65, [])):
                 self.assertEqual(shone(shimmer(10.0 + t)), lit)
 
-    def test_the_bars_count_the_catalog_last_listed_whoever_asked(self):
+    def test_the_cells_count_the_catalog_last_listed_whoever_asked(self):
         # a harness of the test's own, whose listing says its one model runs at no effort
-        adapters = Path(tempfile.mkdtemp(prefix="effort-bars-"))
+        adapters = Path(tempfile.mkdtemp(prefix="effort-cells-"))
         self.addCleanup(shutil.rmtree, adapters)
         (adapters / "acme.sh").write_text("#!/usr/bin/env bash\n"
                                           "printf 'acme-fast\\tAcme Fast\\tnone\\n'\n")

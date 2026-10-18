@@ -2634,8 +2634,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
 
     Every offered model once, under its provider's name: label, harness (dim), the three role
     marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
-    its effort between the arrows that step it, then its strength, a bar a level it offers
-    (terminal.signal, effort_levels); a model with one effort is its word alone.  With no
+    its effort: a cell for each level it offers, full up to its effort (terminal.effort_cells,
+    effort_levels), then its word; a model with one effort is its word alone.  With no
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
@@ -2648,29 +2648,33 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     last act it offers.  Under a session's models, `found` (`advice`) is what `ak models`
     recommends per role, dim lines (advice_lines) that are no row.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
-    the terminal counts. On a phone the harness gives way, then the bars, then the label.
+    the terminal counts. On a phone the harness gives way, then the cells, then the label.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
     names, models = config_models(cfg), cfg["models"]
     levels = {name: effort_levels(models[name]) for name in names}
-    efforts, signals = {}, {}
+    efforts, levelled = {}, {}
     for name in names:
         effort, taken = models[name].get("effort", "?"), levels[name]
-        # one effort is nothing to step to and no strength to show
-        arrows = ("‹ {} ›" if utf else "< {} >") if len(taken) > 1 else "{}"
-        efforts[name] = arrows.format(effort)
-        signals[name] = terminal.signal(len(taken), taken.index(effort) + 1 if effort in taken
-                                        else 0) if len(taken) > 1 else []
+        efforts[name] = effort
+        # one effort is nothing to step to and no level to show
+        levelled[name] = terminal.effort_cells(len(taken), taken.index(effort) + 1 if effort
+                                               in taken else 0) if len(taken) > 1 else []
     label = max(terminal.cells(name) for name in names)
     harness = max(terminal.cells(str(models[name].get("harness", ""))) for name in names)
     heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
     widths = [terminal.cells(head) for head in heads[:-1]]
-    widths.append(max(terminal.cells(text) for text in (heads[-1], *efforts.values())))
-    rest = sum(2 + width for width in widths)
-    tall = max(len(bars) for bars in signals.values())    # the bars, a cell past the efforts
-    tall = tall if 2 + label + rest + 1 + tall <= room else 0
-    rest += 1 + tall if tall else 0
+    word = max(terminal.cells(text) for text in efforts.values())
+    rest = sum(2 + width for width in widths) + 2
+    tall = max(len(cells) for cells in levelled.values())    # the cells, before every word
+    tall = tall if 2 + label + rest + tall + 2 + word <= room else 0
+    # the words in one column after the most cells any model has, a cell-less one's too
+    leads = {name: "".join(levelled[name]) + " " * (tall + 2 - len(levelled[name]))
+             if tall else "" for name in names}
+    widths.append(max(terminal.cells(heads[-1]),
+                      *(terminal.cells(leads[name] + efforts[name]) for name in names)))
+    rest += widths[-1]
     label = min(label, max(1, room - 2 - rest))
     harness = min(harness, max(0, room - 2 - label - 2 - rest))
     left = 2 + label + (2 + harness if harness else 0)     # the columns before the marks
@@ -2695,23 +2699,26 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
                         else None)
+                if number == 3:   # the keys' effort is its word reversed, its cells before it
+                    lead = leads[name]
+                    lead = terminal.styled(terminal.plain(lead, True), kind) if (
+                        kind == "dim" and lead) else lead
+                    text = lead + (terminal.styled(text, kind) if kind else text)
                 line += "  " + (terminal.toggle(text, width, kind) if number < 3 else
-                                (terminal.styled(text, kind) if kind else text)
-                                + " " * (width - terminal.cells(text)))
+                                text + " " * (width - terminal.cells(text)))
                 if number < 3 and moves is not None:
                     moves.append((len(lines), ("mark", name, number), text, motion.toggled(
                         text, width, kind, at == ("model", name), first + 2)))
-                # a mark is its whole column; an effort is its own text, arrows and all
+                # a mark is its whole column; an effort is its own text, cells and all
                 cells.append((first + 2, first + 1 + (width if number < 3
                                                       else terminal.cells(text)), number))
                 if number == 3 and moves is not None and len(levels[name]) > 1:
                     moves.append((len(lines), ("effort", name), models[name].get("effort"),
                                   _effort_moves(levels[name], models[name].get("effort"), kind,
-                                                at == ("model", name), first + 4,
-                                                first + 3 + width if tall and utf else None)))
+                                                at == ("model", name),
+                                                first + 2 + terminal.cells(leads[name]),
+                                                first + 2 if leads[name] and not note else None)))
                 first += 2 + width
-            if tall and signals[name]:
-                line += " " + "".join(signals[name])
             parts = [line.rstrip()]
             if note and terminal.cells(parts[0]) + 2 + terminal.cells(note) <= room:
                 parts[0] += "  " + terminal.styled(note, "dim")
@@ -2761,19 +2768,21 @@ def effort_levels(entry):
         return []
 
 
-def _effort_moves(levels, effort, kind, bright, word, bars):
+def _effort_moves(levels, effort, kind, bright, word, cells):
     """How an effort's cells move on the `c` screen's clock once a step changed it to `effort`:
-    each of its bars the step filled rises into place and each it emptied lowers
-    (motion.rising), where they stand from column `bars`, or None; and a step onto the model's
-    highest sends one light through the word from column `word` (motion.shimmering), `kind`
-    and `bright` as the draw styled it.  A function of the clock, the screen row, when the step
-    was and the effort before it."""
+    each cell the step filled or emptied, where they stand from column `cells` (or None), takes
+    its turn STAGGER seconds after the one nearer the effort before it (motion.filling); and a
+    step onto the model's highest sends one light through the word from column `word`
+    (motion.shimmering), `kind` and `bright` as the draw styled it.  A function of the clock,
+    the screen row, when the step was and the effort before it."""
     def start(clock, row, since, before):
         was, filled = (levels.index(value) + 1 if value in levels else 0
                        for value in (before, effort))
-        for n, bar in enumerate(terminal.signal(len(levels), len(levels)) if bars else ()):
-            if (n < was) != (n < filled):
-                clock.start([(row, bars + n)], *motion.rising(bar, n < filled, since, bright))
+        changed = range(min(was, filled), max(was, filled))
+        for turn, n in enumerate((changed if filled > was else reversed(changed)) if cells
+                                 else ()):
+            clock.start([(row, cells + n)], *motion.filling(
+                n < filled, since + turn * motion.STAGGER, bright))
         if effort == levels[-1]:
             clock.start([(row, word)], *motion.shimmering(effort, since, kind, bright))
     return start
@@ -2826,21 +2835,21 @@ def _saved(cfg, table, before):
     return ""
 
 
-def config_effort(cfg, name, step, wrap=False, role="orchestrator"):
+def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
-    end unless `wrap` takes it round to the other, and saved; one set to an effort it does not
-    take lands on its first, and a worker's stepped onto the effort itself is unset again
-    (_follows), while the effort's own step moves no other key.  The efforts are read `now`,
-    off the catalog already in hand (config.catalog_now): a listing never stands between the
-    key and its frame.  What to say under the matrix, or ""."""
+    end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved; one
+    set to an effort it does not take lands on its first, and a worker's stepped onto the
+    effort itself is unset again (_follows), while the effort's own step moves no other key.
+    The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
+    never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"), now=True)
     except config.Error as exc:
         return f"config: {exc}"
     current = entry.get(key, entry.get("effort"))
-    at = levels.index(current) + step if current in levels else 0
+    at = to if to is not None else levels.index(current) + step if current in levels else 0
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
@@ -3028,10 +3037,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     every row the part the highlight is on is shown, and `note` has lines of its own under it,
     whatever the height.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
-    `marks` columns and `less` or `more` on another's arrows; `column` is None where no cell was
-    clicked; a cell that only explains is none.  The pointer does the same and acts on nothing,
-    the cell it is on lit.  `act` is
-    `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
+    `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
+    no cell was clicked; a cell that only explains is none.  The pointer does the same and acts
+    on nothing, the cell it is on lit.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
     key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s.
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
@@ -3076,8 +3084,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         # a row runs its step; on Providers only a click on one of its two acts does
         act = "enter" if here[0] == "row" and here != PROVIDERS else ""
         if column is not None:
-            act = ("enter" if column < marks else "less" if key.col <= spot.first + 1
-                   else "more" if key.col >= spot.last - 1 else "")
+            act = "enter" if column < marks else key.col - spot.first
     if act in ("esc", "eof"):
         return "back", here, column, top
     if terminal.step(key) and rows:
@@ -3094,10 +3101,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  With no session there are no marks.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
-    or space on an effort steps it up, from its highest round to its lowest, and a click on its
-    arrow steps it that way: each change is saved and drawn at once, the bar it fills rising
-    into place or the one it empties lowering, and a step onto the model's highest sends a
-    light through its word (config_body, on the clock); nothing replays after another screen.
+    or space on an effort steps it up, from its highest round to its lowest, as a click on its
+    word does, and a click on one of its cells takes that level: each change is saved and drawn
+    at once, each cell it fills lighting and each it empties dimming in turn, and a step onto
+    the model's highest sends a light through its word (config_body, on the clock); nothing
+    replays after another screen.
     Enter or a click on a model's label, left of its marks, opens that model's own screen
     (config_model), and Esc there comes back to its row.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
@@ -3198,9 +3206,13 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             note = session_mark(cfg, session, selected, here[1], column, providers)
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
-        elif act in ("enter", "space", "less", "more"):     # the effort column
-            note = config_effort(cfg, here[1], -1 if act == "less" else 1,
-                                 wrap=act in ("enter", "space"))
+        elif act in ("enter", "space") or isinstance(act, int):     # the effort column
+            # a click on one of its cells takes that level, and one on its word steps it on
+            lead = next((last - first + 1 for row, cells in places.values() if row == here
+                         for first, last, at in cells if at == 3), 0) - terminal.cells(
+                cfg["models"][here[1]].get("effort", "?"))
+            note = (config_effort(cfg, here[1], 0, to=act) if isinstance(act, int) and act < lead
+                    else config_effort(cfg, here[1], 1, wrap=True))
 
 
 def _runs(cfg, harness, model, effort=None):

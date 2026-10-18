@@ -533,19 +533,12 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     return line + styled(rest, "dim") + f" {count}"
 
 
-SIGNAL = "▁▂▃▄▅▆▇█"   # a bar of an effort's strength one to eight eighths high
-
-
-def signal(count, filled):
-    """An effort's strength beside its word, a cell a level: `count` bars rising to a full one
-    (`▂▃▅▆█` for five), the first `filled` of them in the foreground and the rest dim, or blank
-    where nothing can dim them; without UTF-8 only the filled ones, `|` each."""
-    if not utf8():
-        return ["|"] * filled
-    dim = colour_depth()
-    bars = [SIGNAL[max(0, round(8 * (n + 1) / count) - 1)] for n in range(count)]
-    return [bar if n < filled else styled(bar, "dim") if dim else " "
-            for n, bar in enumerate(bars)]
+def effort_cells(count, filled):
+    """An effort's level before its word, a cell for each of the `count` its model offers: the
+    first `filled` full and the rest open and dim (`▰▰▰▱▱` for high of five, the owner's pick of
+    18 Oct 2026); without UTF-8 `#` and `-`."""
+    full, empty = "▰▱" if utf8() else "#-"
+    return [full if n < filled else styled(empty, "dim") for n in range(count)]
 
 
 def toggle(mark, width, kind=None):
