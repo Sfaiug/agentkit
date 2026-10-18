@@ -13,7 +13,7 @@ from suite_shares import STATIC_CHECKS, listed, name_failed
 
 only = listed()
 if only is not None:
-    # A listed part runs whole: smoke.sh and every_file.py would otherwise run only this share.
+    # A listed smoke.sh runs whole: it would otherwise run only this share.
     os.environ["AK_SHARD"] = "1/1"
 
 
