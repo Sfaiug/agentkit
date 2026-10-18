@@ -1742,9 +1742,10 @@ def file_projectless(found, runs):
     from . import handback
     orphans = {session["name"]: [] for session in found if not session.get("repo")}
     if orphans and runs:
+        resolved = {}                 # each seat the runs name, its renames followed once
         for state in runs:
             try:
-                orphans.get(transitions.launched_session(state), []).append(state)
+                orphans.get(transitions.launched_session(state, resolved), []).append(state)
             except config.Error:
                 continue
     filed = False

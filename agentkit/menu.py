@@ -980,6 +980,15 @@ def silent_for_run(run_dir, state, now=None):
     if state.get("state") not in record.ACTIVE:
         return None
     at = time.time() if now is None else now
+    # its record and its log are written as it goes: either within the hour is a newest file
+    # within it, and the walk through every file it holds -- a twentieth of a second for a
+    # busy run, on every read of the menu -- is left for one that went quiet
+    for name in ("run.json", "log.txt"):
+        try:
+            if at - (Path(run_dir) / name).stat().st_mtime <= 3600:
+                return None
+        except OSError:
+            continue
     try:
         from . import watch as _watch
         newest = _watch.run_last_write(Path(run_dir))
@@ -2125,19 +2134,24 @@ def start_born(born, dry_run):
 
 def smoke_run(state, resolved=None):
     """The suite's task or repo lives in its sandbox; a run's title proves nothing.  A pass over
-    every run hands each call the same `resolved`, so a path many runs name is resolved once."""
+    every run hands each call the same `resolved`, so a path many runs name, and the sandbox
+    itself, are resolved once; in strings, since pathlib's own was most of a read of a few
+    thousand runs."""
     resolved = {} if resolved is None else resolved
+    if None not in resolved:          # the sandbox, under the one key no path is
+        resolved[None] = os.path.join(os.path.realpath(config.TMP), "")
     for key in ("task", "repo"):
         value = state.get(key)
         if not isinstance(value, str) or not value:
             continue
         if value not in resolved:
             try:
-                resolved[value] = (Path(value).expanduser().resolve()
-                                   .relative_to(config.TMP.resolve()).parts)
-            except (OSError, RuntimeError, ValueError):
-                resolved[value] = ()
-        if resolved[value] and resolved[value][0].startswith("smoke-"):
+                real = os.path.realpath(os.path.expanduser(value))
+            except (OSError, ValueError):
+                real = ""
+            resolved[value] = (real.startswith(resolved[None])
+                               and real[len(resolved[None]):].startswith("smoke-"))
+        if resolved[value]:
             return True
     return False
 
