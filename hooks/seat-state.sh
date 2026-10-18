@@ -178,7 +178,8 @@ main() {
   # answers what they said; any other event, and a sub-agent's tool, says nothing of theirs.
   elif [[ $event != PostToolUse ]] ||
     "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1 ||
-    ! said=$("$jq" -er '.tool_input.answers | objects | [.. | strings] | join("\n")' \
+    ! said=$("$jq" -er '(.tool_input.answers // .tool_response.answers) | objects
+                          | [.. | strings] | join("\n")' \
       <<<"$payload" 2>/dev/null); then
     owner=false
   fi

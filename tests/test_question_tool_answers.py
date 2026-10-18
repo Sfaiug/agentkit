@@ -22,6 +22,9 @@ ASKED = {"tool_name": "AskUserQuestion", "tool_input": {
     "questions": [{"question": "Which colour do you prefer?", "header": "Colour",
                    "options": [{"label": "Red"}, {"label": "Blue"}]}],
     "answers": {"Which colour do you prefer?": "Red"}}}
+# ... and what Codex hands it as the owner answers its Plan-mode question.
+CODEX = {"tool_name": "request_user_input", "tool_use_id": "call_1",
+         "tool_response": {"answers": {"color": {"answers": ["Red"]}}}}
 PLAN = {"tool_name": "ExitPlanMode", "tool_input": {"plan": "# Plan: write hello.txt\n"}}
 
 # No command falls through to the host's tmux.
@@ -88,9 +91,11 @@ class QuestionToolAnswers(Sandbox):
         self.assertEqual(self.finished.read_text().strip(), "0")
 
     def test_the_question_tools_answer_answers_the_standing_question(self):
-        notify.record(SEAT, "needs", QUESTION)
-        self.hook(**ASKED)
-        self.assertIsNone(notify.last(SEAT))
+        for payload in (ASKED, CODEX):
+            with self.subTest(payload["tool_name"]):
+                notify.record(SEAT, "needs", QUESTION)
+                self.hook(**payload)
+                self.assertIsNone(notify.last(SEAT))
 
     def test_a_plans_approval_answers_nothing(self):
         notify.record(SEAT, "needs", QUESTION)
