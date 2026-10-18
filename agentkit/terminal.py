@@ -1163,8 +1163,8 @@ def pointed(row, column, text):
 
 
 def cell_texts(line):
-    """Each cell of `line` as a draw wrote it, alone: its character in the styles in force
-    there, so one cell can be written again without the rest."""
+    """Each cell of `line` as a draw wrote it, alone: its character and combining marks in
+    the styles in force there, so one cell can be written again without the rest."""
     found, styles = [], ""
     for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
         if token.startswith("\033"):
@@ -1173,7 +1173,11 @@ def cell_texts(line):
                 styles = ("" if params in ("", "0") else token if params.startswith("0;")
                           else styles + token)
         else:
-            found.append(f"{styles}{token}\033[0m" if styles else token)
+            text = f"{styles}{token}\033[0m" if styles else token
+            if found and not cells(token):
+                found[-1] += text
+            else:
+                found.append(text)
     return found
 
 
