@@ -1,8 +1,9 @@
 """As ak opens, every seat's progress line grows from empty to its length, row after row.
 
 The owner's design (14 Oct 2026): 450 ms a line, each row 40 ms after the one above it, the
-done part growing over the empty track and ending exactly as drawn; a draw after the first
-grows nothing.  Offline: a temporary HOME, fake seats, the motion clock read, no terminal.
+done part growing over the empty track and ending exactly as drawn, through the draw the read
+landing as ak opens makes; a draw once they have grown grows nothing.  Offline: a temporary
+HOME, fake seats, the motion clock read, no terminal.
 """
 
 from contextlib import redirect_stdout
@@ -64,9 +65,14 @@ class GrowIn(Sandbox):
                                  drawn[column - 1], (name, column))
             ends[name] = until
         self.assertAlmostEqual(ends["acme-docs"] - ends["acme-api"], motion.STAGGER, places=3)
-        # and the next draw grows nothing
+        # a draw again at once -- the read landing as ak opens -- grows them on from where they
+        # were, and one once they have grown grows nothing
+        growing = {cell: until for cell, (_, until) in self.clock.cells.items()}
         self.draw()
-        self.assertEqual(self.clock.cells, {})
+        self.assertEqual({cell: until for cell, (_, until) in self.clock.cells.items()}, growing)
+        with patch.object(motion.time, "monotonic", return_value=max(ends.values()) + 0.01):
+            self.draw()
+        self.assertEqual({cell for cell, (_, until) in self.clock.cells.items() if until}, set())
 
     def test_progress_effects_keep_their_cells_after_an_accented_model_name(self):
         name = "cafe\u0301"

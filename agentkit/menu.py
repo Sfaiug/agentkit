@@ -1673,12 +1673,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             clock.asked[question] = asked
         typed = asked is not None and time.monotonic() < asked + motion.WRITE
         news = clock.look({key: shown for key, shown, _, _ in moves})
-        if clock.first:       # as it opens each seat's line grows to its length, row after row
-            clock.first, began = False, time.monotonic()
+        # As it opens each seat's line grows to its length, row after row, and through every
+        # draw until it has: the read that lands as it opens draws the screen again at once.
+        clock.began = time.monotonic() if clock.began is None else clock.began
+        if time.monotonic() < clock.began + motion.GROW + len(bars) * motion.STAGGER:
             for n, (row, span) in enumerate(bars.values()):
                 written = terminal.cell_texts(out[row - 1])
                 clock.span(row, terminal.cells("".join(written[:span.start])) + 1, *motion.growing(
-                    written[span], began + n * motion.STAGGER))
+                    written[span], clock.began + n * motion.STAGGER))
         # Older effects must not overwrite newer news at a shared cell.
         for key, shown, cell, lit in sorted(moves, key=lambda move: news.get(move[0], (0,))[0]):
             since, before = news.get(key, (None, None))
