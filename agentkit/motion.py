@@ -185,10 +185,10 @@ def fading(line, took):
     def start(clock, row, since, _):
         lit = terminal.pointed(row, 1, line)
 
-        def at(now):
+        def at(now, text=lit):
             amount = 1 - eased((now - since) / took)
-            return lit if amount <= 0 else terminal.fade(lit, amount)
-        clock.start([(row, 1)], at, since + took)
+            return terminal.fade(text, amount)
+        clock.start([(row, 1)], at, since + took, effect=at)
     return start
 
 
@@ -283,6 +283,7 @@ class Clock:
     def __init__(self, fade=False):
         self.cells = {}     # (row, column), counted from 1 -> its animation, a time to its text,
                             # and the time it is still from, or None for as long as it is drawn
+        self.effects = {}   # cell -> how its animation transforms text written over it
         self.shown = {}     # (row, column) -> the text last written there
         self.last = None    # when the last frame was made
         self.seen = None    # key -> what the last draw showed, and since when and in place of
@@ -337,15 +338,18 @@ class Clock:
                 start(self, row(line), *news[key])
         return self.frame()
 
-    def start(self, cells, animation, until=None):
+    def start(self, cells, animation, until=None, effect=None):
         """Animate `cells` by `animation`, a function of the clock's time to what a cell shows,
         until `until` -- then its last frame is written and it is still -- or while it is drawn.
+        `effect(now, text)` also transforms animations written inside its span.
 
         Nothing moves where colour cannot: off a terminal, under NO_COLOR, at eight colours;
         and news whose time is over does not move again.
         """
         if terminal.colour_depth() > 8 and (until is None or until > time.monotonic()):
-            self.cells.update(dict.fromkeys(cells, (animation, until)))
+            for cell in cells:
+                self.cells[cell] = animation, until
+                self.effects[cell] = effect
 
     def rise(self, lines):
         """Whether `lines`, a draw's screen top down, come up out of the background, the frames
@@ -362,7 +366,7 @@ class Clock:
 
     def clear(self):
         """Nothing animates and nothing is shown: a draw has written every cell over."""
-        self.cells, self.shown, self.rising = {}, {}, None
+        self.cells, self.effects, self.shown, self.rising = {}, {}, {}, None
 
     def forget(self):
         """Nothing seen: the next draw's values are drawn as they are, no news in them."""
@@ -388,14 +392,16 @@ class Clock:
             # every cell that moves written over them again, and once they are up, as drawn
             self.shown, self.rising = {}, self.rising if amount > 0 else None
         # what spans more than its cell -- a whole row's glow -- first, and what moves inside
-        # it written again over it in the same frame, on its background
+        # it written again over it in the same frame, on its background and with its effect
         drawn = sorted(((cell, text, terminal.cells(text), until)
                         for cell, (animation, until) in self.cells.items()
                         for text in [animation(now)]), key=lambda one: one[2] < 2)
-        wide = [(cell, text, width) for cell, text, width, _ in drawn if width > 1]
+        wide = [(cell, text, width, self.effects[cell])
+                for cell, text, width, _ in drawn if width > 1]
         for (row, column), text, width, until in drawn:
-            text = next((terminal.backed_as(text, over, column - at + 1)
-                         for (above, at), over, size in wide
+            text = next((terminal.backed_as(effect(now, text) if effect else text,
+                                            over, column - at + 1)
+                         for (above, at), over, size, effect in wide
                          if above == row and at < column < at + size), text)
             if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
@@ -406,4 +412,5 @@ class Clock:
                     del self.shown[inside]
             if until is not None and now >= until:
                 del self.cells[row, column]         # its last frame is out: still from here
+                del self.effects[row, column]
         return out
