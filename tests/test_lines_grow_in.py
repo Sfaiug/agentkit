@@ -108,8 +108,8 @@ class GrowIn(Sandbox):
 
     def test_each_line_keeps_its_own_start_till_news_moves_it(self):
         # the read landing as ak opens may give a row above a line its own, or turn the line's
-        # seat done: the line keeps the start it had, one drawn only since grows nothing, and one
-        # done grows no more once the light that crossed it has
+        # seat done as its plan moves: the line keeps the start it had, one drawn only since grows
+        # nothing, and one done neither grows nor glides once the light that crossed it has
         words = {"acme-api": "idle", "acme-docs": "needs you"}
 
         def growing(now):     # each seat's line -> until when its cells move
@@ -128,6 +128,7 @@ class GrowIn(Sandbox):
         words["acme-api"] = "needs you"
         self.assertEqual(growing(10.02), {"acme-api": set(), "acme-docs": {10 + motion.GROW}})
         words["acme-docs"] = "done"
+        config.plan_path("acme-docs").write_text("- [x] a\n- [x] b\n")
         growing(10.03)
         self.assertEqual(growing(10.03 + motion.SWEEP + 0.01)["acme-docs"], set())
 

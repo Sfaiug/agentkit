@@ -1730,6 +1730,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 continue
             elif key[0] == "bar" and before:    # the plan moved: its line glides there
                 clock.grows.pop(key[1], None)
+                if words.get(key[1]) == "done" and news.get(("word", key[1]), (0,))[0] >= since:
+                    continue    # turned done as it moved: swept, and full once the light has
                 row, span = cell
                 written = terminal.cell_texts(out[row - 1])
                 cells = written[span]

@@ -598,7 +598,8 @@ shows for the first time since it opened writes itself out there instead, a cell
 at a time over a third of a second (`motion.writing`). As the menu opens, each
 seat's progress line grows from empty to its length over 450 ms, each row 40 ms
 after the one above it (`motion.growing`); one whose plan moves glides to its new
-length over 700 ms, a light at its head. On the line the highlighted row opens, a
+length over 700 ms, a light at its head, unless its seat turns done as it moves: then the
+done light crosses it, and it is full. On the line the highlighted row opens, a
 task that reaches its next stage fills that square through its half (`□ ▣ ■`) over
 150 ms (`motion.halving`), and one that fails nudges left, right, left and back
 over 240 ms (`motion.nudging`); a task first seen stands still. Only a change seen while the
