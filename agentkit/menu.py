@@ -1224,7 +1224,7 @@ def detail(cfg, info, room, now=None):
     if not info:
         return []
     if "born" in info:
-        return [born_line(info, room)]
+        return born_lines(info, room)
     word = info.get("word")
     said = "" if word == "working" else terminal.plain(info.get("sentence") or "")
     if said or word in ("needs you", "done"):
@@ -2038,22 +2038,24 @@ def born_name(born, width):
     return text + " " * max(0, width - terminal.cells(typed) - 1 - terminal.cells(hint))
 
 
-def born_taken(born):
-    """The name typed when a seat or a rename already has it, else ""."""
+def born_refusal(born):
+    """Why Enter makes nothing on the born row: a seat or a rename has the name typed, or its
+    crew has no pair that can run (`orch.role_refusal`, as the picker's Enter refuses); else ""."""
     name = orch.session_name(born["typed"]) if born["typed"] else ""
-    return name if name in born["taken"] else ""
+    if name in born["taken"]:
+        return f"a seat is called {name} already"
+    return orch.role_refusal(born["cfg"], born["selected"], born["providers"])
 
 
-def born_line(info, room):
+def born_lines(info, room):
     """What the born row opens under itself: who will build and review (`crew`) and whose they
-    are -- or, amber and alone, so a phone shows it whole, that the name typed is taken."""
-    born, taken = info["born"], born_taken(info["born"])
-    if taken:
-        line = terminal.styled(f"a seat is called {taken} already", "amber")
-    else:
-        line = "   ".join(part for part in (crew(info), born["like"] and terminal.styled(
-            f"as in {born['like']}", "dim")) if part)
-    return line if terminal.cells(line) <= room else terminal.cut(line, room)
+    are -- or, amber on lines of its own, wrapped whole for a phone, why Enter makes nothing."""
+    born, refusal = info["born"], born_refusal(info["born"])
+    if refusal:
+        return [terminal.styled(line, "amber") for line in terminal.wrap(refusal, room)]
+    line = "   ".join(part for part in (crew(info), born["like"] and terminal.styled(
+        f"as in {born['like']}", "dim")) if part)
+    return [line if terminal.cells(line) <= room else terminal.cut(line, room)]
 
 
 def born_key(born, key, drawn):
@@ -2068,7 +2070,7 @@ def born_key(born, key, drawn):
         return {"enter": "start", "esc": "back", "tab": "models", "eof": "gone"}[key.name]
     if key.name == "backspace":
         born["typed"] = born["typed"][:-1]
-    elif key.name in ("char", "space") and len(born["typed"]) < 40:
+    elif key.name in ("char", "space") and len(born["typed"]) < orch.NAME_CAP:
         char = "-" if key.name == "space" else key.char.lower()
         if re.fullmatch(r"[a-z0-9_-]", char):
             born["typed"] += char
@@ -2085,11 +2087,12 @@ def born_models(born):
     return "start"
 
 
-def start_born(born, found, dry_run):
+def start_born(born, dry_run):
     """Make the born seat and open it, filed under its project: by the name typed, else one its
     orchestrator replaces (`unnamed`); a dry run only says what it would start.  The name, or
-    None where `orch.create` made nothing."""
-    taken = orch.taken_names(found)
+    None where `orch.create` made nothing.  The names taken are read again: another menu may
+    have made a seat since the row opened, and `create` would write over its record."""
+    taken = orch.taken_names()
     unnamed = not born["typed"]
     name = orch.unique_name("new", taken) if unnamed else orch.session_name(born["typed"])
     selected = born["selected"]
@@ -4798,12 +4801,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     act = born_models(newborn)
                 if act == "back":
                     newborn = None
-                elif act == "start" and not born_taken(newborn):
+                elif act == "start" and not born_refusal(newborn):
                     made, newborn, back = newborn, None, True
                     keyboard.give()       # the seat has the terminal once it is made
                     live.away()
                     try:
-                        name = start_born(made, found, dry_run)
+                        name = start_born(made, dry_run)
                     except config.Error as exc:
                         name = None
                         pause(f"new session: {exc}")
