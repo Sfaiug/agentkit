@@ -297,6 +297,15 @@ class RedOnTheTip(unittest.TestCase):
                   '-c user.email=acme@example.com commit -q --allow-empty -m moved; ')
         self.ladder_holds(moving + NAMING)
 
+    def test_a_whole_piece_a_signal_ended_on_the_tip_waits_on_the_ladder(self):
+        self.ladder_holds(NAMING.replace(
+            "exit $code", '[ -n "$AK_ONLY" ] || [ -f work.txt ] || kill -9 $$; exit $code'))
+
+    def test_a_whole_piece_on_a_checkout_its_run_moved_waits_on_the_ladder(self):
+        moving = ('[ -n "$AK_ONLY" ] || [ -f work.txt ] || git -c user.name=acme '
+                  '-c user.email=acme@example.com commit -q --allow-empty -m moved; ')
+        self.ladder_holds(moving + NAMING)
+
     def test_a_whole_piece_killed_at_its_limit_on_the_tip_waits_on_the_ladder(self):
         waiting = '[ -n "$AK_ONLY" ] || [ -f work.txt ] || [ "$AK_SHARD" != 2/2 ] || sleep 30; '
         first = self.ladder_holds(waiting + NAMING, silence=0.05)

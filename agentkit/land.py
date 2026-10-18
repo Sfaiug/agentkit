@@ -260,8 +260,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`).  So does red where those tests failed there alone, each
-    named as run and as failed, and the whole piece ran to its end: a red that repeats, which
-    no retry would clear."""
+    named as run and as failed, and the whole piece failed there too, naming its failures: a
+    red that repeats, which no retry would clear."""
     path = directory / "target-probe.log"
     again = None
     if tests:
@@ -272,9 +272,10 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                 f"piece AK_SHARD={piece}, run alone: the red is the member's own")
             return True
         _put_back(scratch, tip)
-    ok, probe, whole, _ = _check(directory, state, scratch, [suite], path, log, suite=suite,
+    ok, probe, _, whole = _check(directory, state, scratch, [suite], path, log, suite=suite,
                                  shard=piece or None)
-    again = again if whole else None     # a whole piece killed at its limit repeats nothing
+    # the whole piece repeats them only red to its end on the pinned tip, naming its failures
+    again = again if whole else None
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
