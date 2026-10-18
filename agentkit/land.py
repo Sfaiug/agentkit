@@ -661,6 +661,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 ran = iter(entry.get("checks", ()))
                 return all(cmd in ran for cmd in checks)
 
+            def cached_red(tree):
+                return {"fix": {key: red[tree][key] for key in ("line", "log", "piece", "tests")
+                                if key in red[tree]}}
+
             def green_answer(tree, tested):
                 return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
 
@@ -682,8 +686,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
-                    answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log", "piece")
-                                                     if key in red[tree]}}
+                    answers[tree, checks] = cached_red(tree)
             batched = len({(tree, checks) for _, _, _, tree, checks in stacks
                            if (tree, checks) not in answers}) > limit
 
@@ -697,8 +700,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
             if batched:
                 for index, (_, _, _, tree, checks) in enumerate(stacks):
                     if red.get(tree, {}).get("checks") == list(commands(index)):
-                        answers[tree, checks] = {"fix": {key: red[tree][key] for key in ("line", "log", "piece")
-                                                         if key in red[tree]}}
+                        answers[tree, checks] = cached_red(tree)
                     evidence = green.get(tree)
                     if evidence and checked(evidence, commands(index)):
                         cover(index, evidence["checks"], evidence["tested"], evidence["at"],

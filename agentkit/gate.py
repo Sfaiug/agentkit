@@ -1449,7 +1449,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                  "tests that ran before them")
                         if code:
                             if confirmed is not None:
-                                confirmed[shard] = only
+                                confirmed[shard] = tests
                             break
                         only = None
                     elif not code:
