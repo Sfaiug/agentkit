@@ -251,16 +251,17 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                tests=None):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
     alone, for the member in `directory`: True when it passes there, so the red is the
-    member's own.  Where the stack's red was its `tests` failing again alone, those alone run
-    there first: passing there, the member's change is what fails them, and the piece need not
-    run.  Failing there proves nothing -- a test the member added is not on the tip, and a
-    runner may fail a name it cannot find -- so the whole piece then decides, as without them.
+    member's own.  Where the stack's red was its `tests` failing again alone and each is a
+    file the tip holds, those alone run there first: passing there, the member's change is what
+    fails them, and the piece need not run.  A test the tip lacks, one the member added, would
+    prove nothing, as a runner may run nothing for a name it does not know and pass; failing
+    there proves nothing either; either way the whole piece decides, as without them.
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`)."""
     from . import run
     path = directory / "target-probe.log"
-    if tests:
+    if tests and set(tests) <= set(run.git(scratch, "ls-files", "-z").split("\0")):
         if _check(directory, state, scratch, [suite], path, log, shard=piece or None,
                   only=tests)[0]:
             log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "

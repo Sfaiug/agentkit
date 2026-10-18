@@ -4,9 +4,9 @@ Red there pauses the line on the retry ladder: nobody is woken, no repair starts
 step the piece runs there again; green there is the change's own red and goes to its fixer,
 whatever pass the target has on record; red through the whole ladder is the target's own and
 gets its one repair as before.  A piece that named the tests failing it, red again alone, has
-those alone run there first: passing, the red is the member's own; failing, which proves
-nothing, the piece runs.  Offline: local Git, the fixture's shell suites, fake launches and
-wakes, a stopped clock.
+those alone run there first where the tip holds each: passing, the red is the member's own;
+failing, which proves nothing, the piece runs.  Offline: local Git, the fixture's shell
+suites, fake launches and wakes, a stopped clock.
 """
 
 from pathlib import Path
@@ -21,10 +21,11 @@ from agentkit import config, gate, land, record, run, turns
 
 FLAKY = "test ! -f ../flake"     # red on every checkout while the host holds the flag
 # Piece 2/2 runs each test_*.sh, or just those AK_ONLY lists, naming each that fails; 1/2 none.
+# A listed name it does not hold runs nothing and fails nothing, as agentkit's own suite does.
 NAMING = ('if [ -n "$AK_ONLY" ]; then tests=$(cat "$AK_ONLY"); else case "$AK_SHARD" in '
-          '2/*) tests=$(ls test_*.sh);; *) tests=;; esac; fi; code=0; '
-          'for t in $tests; do bash "$t" || { echo "$t" >> "${AK_FAILED:-/dev/null}"; code=1; }; '
-          'done; exit $code')
+          '2/*) tests=$(ls test_*.sh);; *) tests=;; esac; fi; code=0; for t in $tests; do '
+          '[ -f "$t" ] || continue; '
+          'bash "$t" || { echo "$t" >> "${AK_FAILED:-/dev/null}"; code=1; }; done; exit $code')
 
 
 class RedOnTheTip(unittest.TestCase):
@@ -183,8 +184,7 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.own_red({"test_tax.sh": "exit 1\n"}), [("2/2", ["test_tax.sh"])])
 
     def test_a_test_the_member_added_leaves_the_tip_to_its_whole_piece(self):
-        self.assertEqual(self.own_red({"test_new.sh": "exit 1\n"}),
-                         [("2/2", ["test_new.sh"]), ("2/2", None)])
+        self.assertEqual(self.own_red({"test_new.sh": "exit 1\n"}), [("2/2", None)])
 
     def test_the_failed_tests_red_on_the_tip_too_leave_the_whole_piece_to_decide(self):
         self.declare(NAMING)
