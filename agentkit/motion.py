@@ -10,7 +10,8 @@ progress line grows to its length as the menu opens and glides to a new one as i
 a task's next square fills through its half and one that failed nudges; an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
-row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
+row just added glows; a popup's content fades in once, as it opens, and a page's under its
+header as it opens, its name writing itself out in the header; the rule under a screen's
 header glides while its content is fetched, a spinner turning beside what ak waits on; a
 subscription the pointer comes onto washes into its company's colour, its models with it, and
 drains when it leaves -- and every motion runs on this same clock
@@ -23,6 +24,7 @@ alike are in one phase because each reads one clock.
 """
 
 import math
+import re
 import time
 
 from . import terminal
@@ -190,6 +192,18 @@ def fading(line, took):
     return start
 
 
+def titled(header, x):
+    """A screen's header, `agentkit · <its name>` and the time, with that name written out to
+    `x` of it, 0 to 1, as its page opens: the cells after it blank.  One lit by the pointer, or
+    with no name, as drawn."""
+    named = "\033" not in header and re.fullmatch(r"(agentkit)( · .*?)( +\S+)", header)
+    if not named:
+        return header
+    name = named[2]
+    shown = name[:round(len(name) * max(0, min(1, x)))]
+    return named[1] + shown + " " * (terminal.cells(name) - terminal.cells(shown)) + named[3]
+
+
 def writing(cells, began, before=0, total=None):
     """One line of a question, `cells` each of its cells as the draw wrote it, that writes itself
     out from `began` in WRITE seconds, a cell at a time as typed: after the `before` cells of the
@@ -338,7 +352,7 @@ class Clock:
     """The running animations, each cell's, what was last written in each, and what the draws
     showed that may be news."""
 
-    def __init__(self, fade=False):
+    def __init__(self, fade=False, page=False):
         self.cells = {}     # (row, column), counted from 1 -> its animation, a time to its text,
                             # and the time it is still from, or None for as long as it is drawn
         self.effects = {}   # cell -> how its animation transforms text written over it
@@ -349,6 +363,7 @@ class Clock:
         self.touched = {}   # key -> since when it is news that changed nothing (`touch`)
         self.asked = {}     # each question shown -> when it began writing itself out, or None
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
+        self.page = page    # ... or, a page opening, all under its header and rule (`titled`)
         self.opened = None  # ... from its first draw
         self.rising = None  # ... the lines drawn, top down, and that time, while they come up
         self.grows = None   # each line the screen's first draw has -> when it grows in from
@@ -389,13 +404,15 @@ class Clock:
         """A draw's frame: every cell it wrote over still, then each of its `moves` -- (line,
         key, value, start) -- that is news (`look`) started on the screen row `row(line)` puts
         it on, by `start(clock, row, since, before)`, None where it is not shown; the first
-        frame, at the clock's phase so nothing jumps."""
+        frame, at the clock's phase so nothing jumps, and whether the screen up comes up in it
+        as it opens (`rise`)."""
         self.clear()
+        rising = self.rise(terminal.on_screen())
         news = self.look({key: value for _, key, value, _ in moves})
         for line, key, _, start in moves:
             if key in news and row(line) is not None:
                 start(self, row(line), *news[key])
-        return self.frame()
+        return self.frame(), rising
 
     def start(self, cells, animation, until=None, effect=None):
         """Animate `cells` by `animation`, a function of the clock's time to what a cell shows,
@@ -417,12 +434,12 @@ class Clock:
 
     def rise(self, lines):
         """Whether `lines`, a draw's screen top down, come up out of the background, the frames
-        writing them and what moves in them until they are up: on a clock made to `fade`, where
-        colour can move, whatever is drawn in the FADE seconds from its first draw -- a key's
-        draw at once, and news -- each from where the fade has got to.
+        writing them and what moves in them until they are up: on a clock made to `fade`, or a
+        `page`'s, where colour can move, whatever is drawn in the FADE seconds from its first
+        draw -- a key's draw at once, and news -- each from where the fade has got to.
         """
         now = time.monotonic()
-        if self.fade and terminal.colour_depth() > 8:
+        if (self.fade or self.page) and terminal.colour_depth() > 8:
             self.opened = now if self.opened is None else self.opened
             if now < self.opened + FADE:
                 self.rising = (lines, self.opened)
@@ -433,8 +450,10 @@ class Clock:
         self.cells, self.effects, self.shown, self.rising = {}, {}, {}, None
 
     def forget(self):
-        """Nothing seen: the next draw's values are drawn as they are, no news in them."""
+        """Nothing seen: the next draw's values are drawn as they are, no news in them, and a
+        screen that has opened is up (`rise`)."""
         self.seen, self.touched = None, {}
+        self.opened = None if self.opened is None else -math.inf
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""
@@ -447,11 +466,12 @@ class Clock:
         or each cell whose text moved since it was last written, no other, with the pointer's
         light where it is (`terminal.pointed`)."""
         now = self.last = time.monotonic()
-        out, amount = "", 0
+        out, amount, first = "", 0, 3 if self.page else 1     # where what comes up starts
         if self.rising:
             lines, began = self.rising
             amount = 1 - eased((now - began) / FADE)
-            out = "".join(f"\033[{row};1H{terminal.fade(line, amount)}"
+            out = "".join(f"\033[{row};1H" + (terminal.fade(line, amount) if row >= first else
+                                               titled(line, 1 - amount) if row == 1 else line)
                           for row, line in enumerate(lines, 1))
             # every cell that moves written over them again, and once they are up, as drawn
             self.shown, self.rising = {}, self.rising if amount > 0 else None
@@ -470,7 +490,7 @@ class Clock:
             if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
                 lit = terminal.pointed(row, column, text)
-                out += f"\033[{row};{column}H{terminal.fade(lit, amount)}"
+                out += f"\033[{row};{column}H{terminal.fade(lit, amount if row >= first else 0)}"
                 for inside in [cell for cell in self.shown if cell[0] == row
                                and column < cell[1] < column + width]:
                     del self.shown[inside]

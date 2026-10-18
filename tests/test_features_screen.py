@@ -30,7 +30,8 @@ from agentkit import terminal
 CHILD = r"""
 import json, os, sys
 sys.path.insert(0, os.environ["FEATURES_REPO"])
-from agentkit import config, menu, orch
+from agentkit import config, menu, motion, orch
+motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
 
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": str(config.CODE / "ACME"), "path": "/", "created": 0}

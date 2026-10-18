@@ -36,7 +36,8 @@ CHILD = r"""
 import json, os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
 from contextlib import closing
-from agentkit import config, menu, orch, terminal, update, usage
+from agentkit import config, menu, motion, orch, terminal, update, usage
+motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
 
 EFFORTS = {"claude-haiku-4-5": ["none"],
            "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"]}

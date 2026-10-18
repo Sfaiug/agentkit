@@ -3050,6 +3050,7 @@ def models_screen(cfg, session, selected, providers, held):
     shown = {key: models_shown(cfg, key, rows, levels[key]) for key, rows in table.items()}
     rows = [KNOB, *(("model", *key) for key in table)]
     here, top, note, title = rows[1] if len(rows) > 1 else KNOB, 0, "", f"models · {session}"
+    clock = motion.Clock(page=True)
     while True:
         picks = matrix.recommended(held.get("rows") or [], matrix.within(cfg))
         where = ("knob" if here == KNOB else "effort" if len(levels[here[1:]]) > 1
@@ -3058,7 +3059,8 @@ def models_screen(cfg, session, selected, providers, held):
                 + f"   {MODELS_TAKE}   esc back")
         body, places = models_body(cfg, table, levels, shown,
                                    None if terminal.away() else here, picks)
-        act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0)
+        act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0,
+                                       clock=clock)
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
@@ -3503,11 +3505,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     top, room = matrix_page(body, places, here, top, said, keys)
     shown = body[top:top + room]
     spots = terminal.frame(title, shown + said, keys, places={
-        line - top: place for line, place in places.items() if top <= line < top + room})
-    if clock is not None:
-        sys.stdout.write(clock.drawn(moves, lambda line: 3 + line - top
-                                     if top <= line < top + room else None))
-        sys.stdout.flush()
+        line - top: place for line, place in places.items() if top <= line < top + room},
+        drawn=clock and (lambda: clock.drawn(moves, lambda line: 3 + line - top
+                                             if top <= line < top + room else None)))
     began = fetched and fetched()
     if began is not None:     # on the screen's own clock, so what else moves goes on with it
         clock = motion.fetching(clock or motion.Clock(), began)
@@ -3575,7 +3575,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top, clock = None, columns[1], 0, motion.Clock()
+    here, column, top, clock = None, columns[1], 0, motion.Clock(page=True)
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
@@ -4516,7 +4516,7 @@ def show_features(checkout, dry_run=False):
     rows, the mark as it was and shaking, until the next key; a `list` that failed is one too,
     for as long as the rows drawn are older than it.  A dry run draws it once.
     """
-    here, column, top, note, clock = None, 0, 0, "", motion.Clock()
+    here, column, top, note, clock = None, 0, 0, "", motion.Clock(page=True)
     keys = FEATURES_KEYS[0 if terminal.utf8() else 1] + "   esc back"
 
     flip = flipped = None   # the `set` asked from here, till its answer is drawn, and its mark
@@ -4615,7 +4615,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
     while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
     remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
     """
-    here = None
+    here, clock = None, motion.Clock(page=True)
     while True:
         past = [(number, session) for number, session in enumerate(found, 1)
                 if session.get("closed")]
@@ -4651,7 +4651,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         body, places = past_body(past, here, models, room)
         act, row, _column, _top = matrix_key("past sessions", body, places,
                                              [("row", name) for name in names], ("row", here),
-                                             0, "", keys)
+                                             0, "", keys, clock=clock)
         here = row[1]
         if act is None:
             continue              # a resize or the pointer: drawn again
@@ -4664,6 +4664,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             return
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
+            clock.forget()        # another screen: the page back from it is drawn as it is
             close_seat(here, dry_run)
             keyboard.take()
             found = [session for session in found if session["name"] != here]

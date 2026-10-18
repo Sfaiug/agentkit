@@ -39,7 +39,8 @@ from agentkit import menu, orch, terminal
 CHILD = r"""
 import os, sys
 sys.path.insert(0, os.environ["ESC_REPO"])
-from agentkit import config, menu, orch, terminal, usage
+from agentkit import config, menu, motion, orch, terminal, usage
+motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
 
 cfg = config.load()
 config.save_session(cfg, "alpha", "opus", ["opus", "astra"], {"cwd": "/", "created": 0})
