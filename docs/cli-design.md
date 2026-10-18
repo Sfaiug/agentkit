@@ -392,8 +392,9 @@ Fixed columns with two-space gutters, sized once per draw from the rows on
 screen: number, name, orchestrator, state (glyph and word in the state's
 colour), and one last column. Those before the last always fit the screen: the
 name and the orchestrator share what the number and the state leave, the longer
-giving way first. If even their shortest columns cannot fit beside the state,
-the state moves below and the labels take the freed space. The last column, the progress line, takes all
+giving way first. Each keeps at least eight cells beside the state, or its full
+width if shorter; otherwise the state moves below and the labels take the freed
+space. The last column, the progress line, takes all
 the remaining width; a row with fewer than ten cells left puts it on the indented
 line under the row, so no line runs past the screen.
 Columns use gutters, never ` · `. Never cut inside a

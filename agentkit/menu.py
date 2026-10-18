@@ -1304,10 +1304,10 @@ def v5o_column_widths(infos, term_width):
                       for info in infos] + [0]), 14)
     count_w = max([terminal.cells(terminal.state_text(info["count"]))
                    for info in infos] + [1])
-    # A state that cannot fit beside even the shortest labels goes below the row, so its
-    # space belongs to the name and orchestrator again.
+    # Keep up to eight cells of each label beside the state; otherwise it goes below the
+    # row so the name and orchestrator can use its space.
     state_w = 2 + count_w
-    if 2 + num_w + 2 + 1 + 2 + min(orch_w, 1) + state_w > room:
+    if 2 + num_w + 2 + min(name_w, 8) + 2 + min(orch_w, 8) + state_w > room:
         count_w = state_w = 0
     while 2 + num_w + 2 + name_w + 2 + orch_w + state_w > room and max(name_w, orch_w) > 1:
         if name_w >= orch_w:
