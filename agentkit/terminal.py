@@ -1158,6 +1158,11 @@ def lit(lines, spots):
     return _PAINTED
 
 
+def on_screen():
+    """The screen up, its lines top down as last drawn, with the pointer's light (`lit`)."""
+    return list(_PAINTED)
+
+
 def pointed(row, column, text):
     """`text`, written from `column` of `row` over the screen up, with the pointer's light where
     it falls on the cell `lit` lit: what moves there between draws (`motion.Clock.frame`) keeps

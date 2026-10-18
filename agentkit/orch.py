@@ -4135,7 +4135,7 @@ def _picking(cfg, providers, notes, selected):
     at, top, column, note = names.index(model) if model in names else 0, 0, 0, ""
     keys = (f"{'↑↓←→' if terminal.utf8() else 'arrows'} move   space choose   "
             f"{'⏎' if terminal.utf8() else 'enter'} start   esc back")
-    clock = motion.Clock()
+    clock = motion.Clock(page=True)
     while True:
         moves = []
         body, rows, cells = picker_lines(cfg, notes, selected, None if terminal.away() else at,

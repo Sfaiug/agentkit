@@ -651,7 +651,11 @@ ends it on its last frame and is answered within 100 ms (`terminal.toggle`,
 The popup's content fades in once, as it opens: from the background to its
 colours over 120 ms, on the same clock. Whatever is drawn or moves in that time
 -- a key's draw, at once, news, a line growing in -- comes up with it, and the
-popup closes at once, nothing fading out (`motion.Clock.rise`).
+popup closes at once, nothing fading out (`motion.Clock.rise`). A page comes up the
+same way as it opens -- `c`, `p`, a project's features, the models and the
+new-session picker -- all but its header and rule: `agentkit` stays and the
+page's name writes itself out after it over those 120 ms (`motion.titled`). A
+screen gone back to is drawn as it is.
 
 A screen whose content is still being fetched after 150 ms -- a project's feature
 switches while their `list` or a `set` is asked, a harness's model catalog on the
