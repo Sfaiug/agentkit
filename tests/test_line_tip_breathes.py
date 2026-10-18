@@ -83,6 +83,34 @@ class Breathes(Sandbox):
             self.assertRegex(line, f"^ +━*{tip}─+ 2 of 4$")
             self.assertIn((row, terminal.cells(line[:line.rfind(tip)]) + 1), clock.cells)
 
+    def test_draft_glyphs_stay_still_while_the_real_task_square_breathes(self):
+        self.seats = self.seats[:1]
+        self.records = self.records[:1]
+        for width in (100, 59, 40):
+            for draft in ("unsent: explain ━ please", "unsent: explain ■□□ please",
+                          "unsent: " + "example " * 8 + "╸ ■□□ ■■□ ■■■"):
+                with self.subTest(width=width, draft=draft), patch.object(
+                        menu, "seat_row_state", return_value={"word": "working", "reason": "",
+                                                             "unsent": draft, "since": None}):
+                    lines, clock = self.drawn("acme-api", width)
+                    dot = self.cell(lines, lambda line: " acme-api " in line, "●")
+                    square = self.cell(lines, lambda line: line.rstrip().endswith("■■□"), "■■□")
+                    self.assertEqual(set(clock.cells), {dot, (square[0], square[1] + 1)})
+
+    def test_only_the_last_bar_cell_breathes_in_each_palette(self):
+        for depth, light in ((24, False), (24, True), (256, False), (256, True)):
+            for width in (100, 59, 40):
+                with self.subTest(depth=depth, light=light, width=width), \
+                        patch.object(terminal, "colour_depth", return_value=depth), \
+                        patch.object(terminal, "_LIGHT", light):
+                    lines, clock = self.drawn("acme-docs", width)
+                    dot = self.cell(lines, lambda line: " acme-api " in line, "●")
+                    row = dot[0] + (width < 60)
+                    line = lines[row - 1]
+                    tip = max(line.rfind("━"), line.rfind("╸"))
+                    self.assertEqual(set(clock.cells),
+                                     {dot, (row, terminal.cells(line[:tip]) + 1)})
+
     def test_each_breathes_in_the_dots_phase(self):
         lines, clock = self.drawn("acme-api")
         dot = self.cell(lines, lambda line: " acme-api " in line, "●", last=False)
