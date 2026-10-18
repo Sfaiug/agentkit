@@ -1238,12 +1238,18 @@ class _SuiteMeasure:
             pass
 
 
+def _kept(data, log_path, run_dir, kind):
+    """The file beside the run's logs that holds `data` whole."""
+    with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
+                                     prefix=f"{log_path.stem}-{kind}-",
+                                     suffix=".log", delete=False) as saved:
+        saved.write(data)
+    return Path(saved.name).resolve()
+
+
 def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
     """Keep the whole failure, even when its distinguishing lines precede the output cap."""
-    with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
-                                     prefix=f"{log_path.stem}-failed-",
-                                     suffix=".log", delete=False) as saved:
-        saved.write(failed)
+    saved = _kept(failed, log_path, run_dir, "failed")
     lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
              if line.strip()]
     reran = {flaky_key(line) for line in rerun.decode("utf-8", errors="replace").splitlines()}
@@ -1251,7 +1257,17 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
     note = f"flaky: {command} {how}, then passed on its re-run"
     if log is not None:
         log(f"done-when: {note}")
-    return "\n".join([note, f"failed output: {Path(saved.name).resolve()}", *diff])
+    return "\n".join([note, f"failed output: {saved}", *diff])
+
+
+def helper_failure(piece, log_path, run_dir):
+    """What a piece the suite helper failed printed, its last line and the file keeping it
+    whole: its go here takes its place in the suite's output."""
+    piece.seek(0)
+    failed = piece.read()
+    last = next((line.strip() for line in reversed(failed.decode("utf-8", "replace").splitlines())
+                 if line.strip()), "no output")
+    return f"{last} (whole output: {_kept(failed, log_path, run_dir, 'helper-failed')})"
 
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
@@ -1423,7 +1439,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 # turns; a stopped piece alone, below.
                 for index in (index for index in again if results[index][0] != helper.LOST):
                     if log is not None:
-                        log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper")
+                        log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper: "
+                            + helper_failure(results[index][1], activity, run_dir))
                 began = time.monotonic()
                 hold = _GATE_HELD.hold = _GATE_HELD.home()
                 queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged
