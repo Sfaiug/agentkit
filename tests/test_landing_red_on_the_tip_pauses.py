@@ -5,8 +5,9 @@ step the piece runs there again; green there is the change's own red and goes to
 whatever pass the target has on record; red through the whole ladder is the target's own and
 gets its one repair as before.  A piece that named the tests failing it, red again alone, has
 those alone run there first: passing, each named as run, the red is the member's own; anything
-else proves nothing, and the piece runs.  Offline: local Git, the fixture's shell suites, fake
-launches and wakes, a stopped clock.
+else proves nothing, and the piece runs.  Red there too, with those tests run and failing again
+alone, is a red that repeats and gets its repair at once.  Offline: local Git, the fixture's
+shell suites, fake launches and wakes, a stopped clock.
 """
 
 from pathlib import Path
@@ -215,8 +216,30 @@ class RedOnTheTip(unittest.TestCase):
                          [first.name, later.name])
         self.assertIsNone(self.red())
 
-    def test_the_failed_tests_red_on_the_tip_too_leave_the_whole_piece_to_decide(self):
+    def test_the_failed_tests_red_on_the_tip_too_start_the_targets_repair_at_once(self):
         self.declare(NAMING)
+        self.member()
+        self.advance(**{"test_tax.sh": "exit 1\n"})
+        self.clock()
+        said = []
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn, said.append)
+            # alone on the tip the test runs and fails again, and the whole piece is red there:
+            # a red that repeats, which no step of the ladder would clear
+            self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"]), ("2/2", None)])
+            self.assertIn("fails its piece AK_SHARD=2/2 alone, test_tax.sh failing again there "
+                          "alone: the target's own red, repaired", "\n".join(said))
+            self.assertEqual(len(self.prepared), 1)
+            self.assertEqual(self.red()["run"], self.prepared[0][0].name)
+            land.check_line(self.turn)      # the repair holds the line from here, as before
+        self.assertEqual(len(self.probes()), 2)
+        self.assertEqual(len(self.prepared), 1)
+        self.wake.assert_not_called()
+
+    def test_the_failed_tests_red_on_the_tip_unnamed_as_run_wait_on_the_ladder(self):
+        # a runner naming no test as run: a red alone may be a test that never reached its body
+        silent = NAMING.replace('echo "$t" >> "${AK_RAN:-/dev/null}"; ', "")
+        self.declare(silent)
         first = self.member()
         self.advance(**{"test_tax.sh": "exit 1\n"})
         held = self.clock()
@@ -230,6 +253,7 @@ class RedOnTheTip(unittest.TestCase):
             land.check_line(self.turn)      # the ladder runs the piece itself
         self.assertEqual(self.probes()[2:], [("2/2", None)])
         self.assertEqual(self.red()["probes"], 2)
+        self.assertEqual(self.prepared, [])
         self.wake.assert_not_called()
 
     def test_the_red_piece_is_read_from_its_exit_never_from_what_a_piece_printed(self):

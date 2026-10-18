@@ -3,8 +3,9 @@
 Green evidence names the tested tree, including for stacks it covers. A red stack
 after a green one wakes its newest member to fix; later stacks are rebuilt without it.
 A red suite piece runs again on the target's tip alone before anyone is blamed: red there
-pauses the line on the retry ladder, and red through the ladder is the target's own and
-gets one repair. The lander never owns a member's process or delivery.
+pauses the line on the retry ladder, and red through the ladder, or with the tests that
+failed it failing again there alone, is the target's own and gets one repair. The lander
+never owns a member's process or delivery.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -258,11 +259,14 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     on the tip -- so the whole piece then decides, as without them.
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
-    target's one repair (`_repair`)."""
+    target's one repair (`_repair`).  So does red where those tests failed there alone, each
+    named as run and as failed: a red that repeats, which no retry would clear."""
     path = directory / "target-probe.log"
+    again = None
     if tests:
-        if _check(directory, state, scratch, [suite], path, log, shard=piece or None,
-                  only=tests)[0]:
+        ok, _, _, again = _check(directory, state, scratch, [suite], path, log, suite=suite,
+                                 shard=piece or None, only=tests)
+        if ok:
             log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "
                 f"piece AK_SHARD={piece}, run alone: the red is the member's own")
             return True
@@ -282,9 +286,10 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
            "at": time.time(), "probes": probes}
     note(turn, [], directory.name, red={tree: red})
     what = f"its piece AK_SHARD={piece}" if piece else "its suite"
-    if probes > len(turns.TRANSIENT_BACKOFF):
-        log(f"{upstream} at {tip[:12]} fails {what} alone through the retry ladder: the "
-            "target's own red, repaired")
+    if again or probes > len(turns.TRANSIENT_BACKOFF):
+        how = (f", {' '.join(again)} failing again there alone" if again
+               else " through the retry ladder")
+        log(f"{upstream} at {tip[:12]} fails {what} alone{how}: the target's own red, repaired")
         _repair(turn, directory, state, tree, red, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "

@@ -1271,7 +1271,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     `later`, seconds, is set where the suite's pace stops its pieces sooner (`quiet_window`):
     the silence each piece's later goes have; a piece its first go's silence stopped goes
     again, alone, after its siblings, which run on.
-    `confirmed`, a dict, gets by share the tests a red piece named that failed again alone.
+    `confirmed`, a dict, gets by share the tests a red piece named that failed again alone;
+    with `shard` and `only`, those of them it named both as run and as failed.
     """
     env = suite_env()
     if shard is not None:
@@ -1279,13 +1280,18 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         (f"{shard}, its failed tests alone", "1/1"))
         output.write(f"--- AK_SHARD={label} ---\n".encode())
         output.flush()
-        ran = None if only is None else []
+        ran, failed = (None, None) if only is None else ([], [])
         code, text, killed = worker.boxed(
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
-            env={**env, "AK_SHARD": share}, only=only, ran=ran, **kwargs)
+            env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, **kwargs)
         if not code and ran is not None and (missing := [test for test in only if test not in ran]):
             output.write(f"[not named as run (AK_RAN): {' '.join(missing)}]\n".encode())
             code = 1
+        if pieces is not None:
+            pieces[shard] = None if killed else code
+        if code and ran is not None and confirmed is not None:
+            # the re-run decides, as for any command: a test whose body never ran is no repeat
+            confirmed[shard] = [test for test in only if test in failed and test in ran]
         return code, text, killed
     if not names_shard(command):
         path = suite_cost(command, cwd, run_dir)[0] if measure else None
