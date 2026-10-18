@@ -928,7 +928,9 @@ def read_key(timeout=None, wake=None):
 
     A key is read a byte at a time and made of as few bytes as it takes, so it leaves nothing
     behind for a screen that reads a line after it.  An Esc alone is told from the start of a
-    sequence by what follows it within a twentieth of a second.  A click is read when the
+    sequence by what was sent with it: a terminal writes a key's whole sequence at once, so the
+    rest is already there when its Esc is read, and a lone Esc is answered without waiting for
+    more, as crossterm and Bubble Tea answer it.  A click is read when the
     button comes up, not when it goes down, so whatever the click opens is never handed the
     rest of it.  Waiting for it keeps to `timeout` like any other wait, and a key pressed
     while the button is down is answered at once; should that key give the terminal away,
@@ -1030,7 +1032,7 @@ def _sequence(fd):
     """What an Esc starts: Esc itself, an arrow, a click, the wheel, `other`, or the answer a
     terminal gave `sense` too late for it to read."""
     global _KEYED
-    kind = _byte(fd, 0.05)
+    kind = _byte(fd, 0)            # sent with the Esc, or none: read_key says why
     if kind == b"]":               # read to its end, BEL or ST, so none of it is a key
         body = b""
         while not body.endswith((b"\x07", b"\x1b\\")):
