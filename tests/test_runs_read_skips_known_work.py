@@ -56,6 +56,12 @@ class SkipsKnownWork(Sandbox):
                          [False] * 20 + [True, False])
         self.assertEqual(resolve.call_count, 1 + 20 + 1 + 2)    # the sandbox, then each path
 
+    def test_a_link_that_loops_in_the_sandbox_names_no_run_of_the_suite_s(self):
+        (config.TMP / "smoke-3").mkdir(parents=True)
+        (config.TMP / "smoke-3" / "loop").symlink_to("loop")
+        self.assertFalse(menu.smoke_run({"task": str(config.TMP / "smoke-3" / "loop"),
+                                         "repo": "/c/acme"}))
+
     def test_filing_follows_each_seat_s_renames_once(self):
         runs = [{"launched_session": name, "repo": "/c/acme"}
                 for name in ("acme-api", "acme-docs") * 15]
