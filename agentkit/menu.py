@@ -2669,9 +2669,9 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     rest = sum(2 + width for width in widths) + 2
     tall = max(len(cells) for cells in levelled.values())    # the cells, before every word
     tall = tall if 2 + label + rest + tall + 2 + word <= room else 0
-    # the words in one column after the most cells any model has
+    # the words in one column after the most cells any model has, a cell-less one's too
     leads = {name: "".join(levelled[name]) + " " * (tall + 2 - len(levelled[name]))
-             if tall and levelled[name] else "" for name in names}
+             if tall else "" for name in names}
     widths.append(max(terminal.cells(heads[-1]),
                       *(terminal.cells(leads[name] + efforts[name]) for name in names)))
     rest += widths[-1]

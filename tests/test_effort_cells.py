@@ -95,6 +95,8 @@ class EffortCells(unittest.TestCase):
         lines = screen.frame()
         self.assertEqual(row(lines, "haiku")[1].split(), ["haiku", "claude", "○", "□", "□",
                                                           "xhigh"])
+        # its word still in the column the others' stand in
+        self.assertEqual(row(lines, "haiku")[1].rindex(" "), row(lines, "fable")[1].rindex(" "))
         screen.press(DOWN * 2 + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         cells = moved(screen, ENTER)                    # onto none, its only effort
         lines = screen.frame()
