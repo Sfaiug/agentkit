@@ -100,19 +100,21 @@ class RedNarrowedByItsFailedTests(test_lander.LanderFixture, unittest.TestCase):
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
 
-    def test_a_checkout_the_tests_alone_moved_is_put_back_for_its_whole_check(self):
-        checked, _ = self.narrow('[ -z "$AK_ONLY" ] || git checkout -q -B moved HEAD~1; ' + NAMED,
+    def test_a_checkout_the_tests_alone_moved_is_put_back_and_moves_no_branch(self):
+        run.git(self.repo, "branch", "kept")
+        kept = run.git(self.repo, "rev-parse", "kept")
+        # Run alone on a stack ahead of the bad one, the tests check out the branch `kept`.
+        moving = '[ -z "$AK_ONLY" ] || [ -f broken.txt ] || git checkout -q kept; '
+        checked, _ = self.narrow(moving + NAMED,
                                  {}, 6, 4, {"broken.txt": "broken\n"})
         self.assertEqual(checked, [
             (on(1, 2, 3, 4, 5, 6), None),
-            (on(1, 2, 3), ["t_tax"]),           # moved its checkout to a branch: proves nothing
+            (on(1, 2, 3), ["t_tax"]),           # moved its checkout: proves nothing
             (on(1, 2, 3), None),                # on the stack itself: green
             (on(1, 2, 3, 4), ["t_tax"]),
             (on(1, 2, 3, 4), None),             # red, right behind green
             (on(1, 2, 3, 5, 6), None)])
-        # The branch keeps the commit the tests left it on, the stack ahead of the last they ran in.
-        self.assertTrue(on(1, 2, 3) <= self.stacked_files("moved"))
-        self.assertNotIn("member-4.txt", self.stacked_files("moved"))
+        self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
 
 
 if __name__ == "__main__":
