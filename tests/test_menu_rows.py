@@ -101,6 +101,19 @@ class MenuRows(Sandbox):
         self.assertRegex(screen, r"first-seat\s+fable\s+[●!✓○]")
         self.assertRegex(screen, r"second-seat\s+astra\s+[●!✓○]")
 
+    def test_narrow_rows_keep_readable_names_beside_or_above_the_state(self):
+        for word in terminal.STATES:
+            for width in range(20, 41):
+                with self.subTest(word=word, width=width):
+                    infos = [{"number": str(number), "name": name, "count": word,
+                              "orchestrator": "astra"}
+                             for number, name in ((1, "fix-api-checks"), (2, "fix-web-checks"))]
+                    for info, block in zip(infos, menu.v5o_seat_blocks(infos, width)):
+                        rows = [terminal.plain(line) for line in block]
+                        self.assertIn(info["name"][:7], rows[0])
+                        self.assertTrue(any(terminal.state_text(word) in row for row in rows), rows)
+                        self.assertTrue(all(terminal.cells(line) <= width for line in block))
+
     def test_plan_bar_from_plan_file(self):
         seat = self.seat("fix-api", "atoll", live="working")
         self.plan("fix-api", 2, 5)

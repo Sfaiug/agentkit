@@ -203,20 +203,21 @@ class Layout(Sandbox):
                             self.assertFalse(any(row.startswith("\033[1m") for row in rows[2:]))
 
     def test_a_stopped_age_below_the_row_leaves_room_for_the_name(self):
-        with patch.object(terminal, "width", return_value=20), \
-                patch.object(orch, "age", return_value="120d"), \
+        with patch.object(orch, "age", return_value="120d"), \
                 patch.object(orch, "listed", dict), \
                 patch.object(orch, "checkout_of", return_value=None):
-            for number, model in ((1, None), (12, None), (12, "astra"), (1234, None)):
-                with self.subTest(number=number, model=model):
-                    lines, places = menu.past_body([
-                        (number, {"name": "fix-api", "repo": None, "closed": 1})],
-                        models={"fix-api": model})
-                    rows = [terminal.plain(lines[n]) for n in places]
-                    self.assertIn("fix-api", rows[0])
-                    self.assertEqual(rows[1:], ["stopped 120d ago"])
-                    self.assertEqual(list(places.values()), [(("row", "fix-api"), [])] * 2)
-                    self.assertTrue(all(terminal.cells(line) <= 20 for line in lines))
+            for width in (20, 28, 32):
+                for number, model in ((1, None), (12, None), (12, "astra"), (1234, None)):
+                    with self.subTest(width=width, number=number, model=model), \
+                            patch.object(terminal, "width", return_value=width):
+                        lines, places = menu.past_body([
+                            (number, {"name": "fix-api", "repo": None, "closed": 1})],
+                            models={"fix-api": model})
+                        rows = [terminal.plain(lines[n]) for n in places]
+                        self.assertIn("fix-api", rows[0])
+                        self.assertEqual(rows[1:], ["stopped 120d ago"])
+                        self.assertEqual(list(places.values()), [(("row", "fix-api"), [])] * 2)
+                        self.assertTrue(all(terminal.cells(line) <= width for line in lines))
 
     def test_the_stopped_age_stays_whole_on_small_terminals(self):
         with patch.object(orch, "age", return_value="120d"), \

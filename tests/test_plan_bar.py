@@ -170,7 +170,7 @@ class PlanBar(Sandbox):
 
     def test_a_row_s_head_never_runs_past_the_screen(self):
         # the widest number, name, model and state at once: the name and the model share what
-        # the number and the state leave, so every head fits and the states start in one column
+        # the number and the state leave; every head fits and states align beside or below it
         narrow = {"number": "1", "name": "acme", "orchestrator": "gpt-astra", "count": "working",
                   "word": "working", "sentence": "", "bar": (3, 7), "runs": []}
         wide = {"number": "1234", "name": "acme-integration-testing",
@@ -185,9 +185,10 @@ class PlanBar(Sandbox):
                     for line in (line for blocks in rows for block in blocks for line in block):
                         self.assertLessEqual(terminal.cells(line), min(width, 100), line)
                     if width >= 30 and not depth:
-                        heads = [block[0] for block in rows[-1]]
-                        self.assertEqual(heads[0].index("● working"), heads[1].index("! needs you"),
-                                         heads)
+                        states = [next(line for line in block if label in line)
+                                  for block, label in zip(rows[-1], ("● working", "! needs you"))]
+                        self.assertEqual(states[0].index("● working"), states[1].index("! needs you"),
+                                         states)
 
     def test_a_highlighted_head_keeps_its_number_at_any_width(self):
         # below the narrowest head the rest is cut, never the indent the highlight's `›` takes
@@ -214,16 +215,17 @@ class PlanBar(Sandbox):
                         self.assertLessEqual(terminal.cells(lines[row - 1]), width)
 
     def test_a_phone_s_tasks_line_never_runs_past_the_screen(self):
-        # the line under a narrow row is all the room there is: beside `solo` and a long count
+        # the progress line keeps its room below a narrow row, even with a state line between
         for width, done, total in ((22, 127, 143), (24, 4999, 9999), (30, 3, 7), (40, 3, 7)):
             info = {"number": "1", "name": "acme", "orchestrator": "sol", "count": "working",
                     "word": "working", "sentence": "", "bar": (done, total), "solo": True}
             for depth in (0, 8, 256, 24):
                 with self.subTest(width=width, depth=depth), \
                         patch.object(terminal, "colour_depth", return_value=depth):
-                    head, tail = menu.v5o_seat_blocks([info], width)[0]
-                    self.assertLessEqual(terminal.cells(tail), width, tail)
-                    self.assertIn(f"{done} of {total}", terminal.plain(tail))
+                    block = menu.v5o_seat_blocks([info], width)[0]
+                    for line in block:
+                        self.assertLessEqual(terminal.cells(line), width, line)
+                    self.assertIn(f"{done} of {total}", terminal.plain(block[-1]))
 
     def test_a_seat_waiting_to_land_wraps_or_cuts_its_sentence_as_any_row_does(self):
         info = {"number": "1", "name": "acme-ci", "orchestrator": "fable", "count": "working",
