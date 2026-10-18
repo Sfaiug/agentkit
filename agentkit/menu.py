@@ -2830,15 +2830,17 @@ def advice_lines(found):
             for number, part in enumerate(terminal.wrap(said, room - wide - 2))]
 
 
-def model_said(cfg, name):
-    """What `c` says of the highlighted model on the line under the models: the subscriptions
-    it runs on, its provider's (`usage_rows`), the provider's name said once (`runs on Claude
-    I, II`); "" where it has none."""
+def model_said(cfg, name, providers=None):
+    """What `c` says of the highlighted model on the line under the models, (text, tone) a
+    part: the subscriptions it runs on, its provider's (`usage_rows`), the provider's name said
+    once (`runs on Claude I, II`), and why it is spent, in amber (orch.spent_note)."""
     provider = cfg["models"][name]["provider"]
     on = [terminal.plain(label) for each, label, _, _ in usage_rows(cfg) if each == provider]
     head = on[0].rsplit(" ", 1)[0] + " " if len(on) > 1 else ""
     on = on[:1] + [label.removeprefix(head) for label in on[1:]]
-    return "runs on " + ", ".join(on) if on else ""
+    spent = orch.spent_note(cfg, name, providers) if providers else ""
+    return [part for part in (("runs on " + ", ".join(on), "dim") if on else None,
+                              (spent, "amber") if spent else None) if part]
 
 
 def take_advice(cfg, name, selected, providers, found):
@@ -3094,18 +3096,18 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 found=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    Every offered model once, under its provider's name: label, harness (dim), the three role
-    marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
-    its effort: a cell for each level it offers, full up to its effort (terminal.effort_cells,
+    Every offered model once, under its provider's name: label, the three role marks of
+    `selected` -- a session's record, whose missing reviewers are its workers -- and its
+    effort: a cell for each level it offers, full up to its effort (terminal.effort_cells,
     effort_levels), then its word; a model with one effort is its word alone.  With no
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
-    A model `providers` read as spent is dim, its reset note beside it or, on a
-    phone, under it.  Under them the highlighted model's own line (`model_said`), coming up as
-    the highlight comes to it (`motion.fading`): one place, as many lines as the tallest any
-    model's, empty while the highlight is off the models, so no row moves as the highlight
-    goes.  Then `+ add a model`, `Providers`
+    A model `providers` read as spent is dim.  Under them the highlighted model's own line
+    (`model_said`), coming up as the highlight comes to it (`motion.fading`): what it runs on
+    and why it is spent, in one place, as many lines as the tallest any model's, empty while
+    the highlight is off the models, so no row moves as the highlight goes.  Then `+ add a
+    model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
@@ -3113,7 +3115,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     last act it offers.  Under a session's models, `found` (`advice`) is what `ak models`
     recommends per role, dim lines (advice_lines) that are no row.  `cells`
     are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
-    the terminal counts. On a phone the harness gives way, then the cells, then the label.
+    the terminal counts. On a phone the cells give way, then the label.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -3127,7 +3129,6 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
         levelled[name] = terminal.effort_cells(len(taken), taken.index(effort) + 1 if effort
                                                in taken else 0) if len(taken) > 1 else []
     label = max(terminal.cells(name) for name in names)
-    harness = max(terminal.cells(str(models[name].get("harness", ""))) for name in names)
     heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
     widths = [terminal.cells(head) for head in heads[:-1]]
     word = max(terminal.cells(text) for text in efforts.values())
@@ -3141,8 +3142,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                       *(terminal.cells(leads[name] + efforts[name]) for name in names)))
     rest += widths[-1]
     label = min(label, max(1, room - 2 - rest))
-    harness = min(harness, max(0, room - 2 - label - 2 - rest))
-    left = 2 + label + (2 + harness if harness else 0)     # the columns before the marks
+    left = 2 + label                                      # the columns before the marks
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
@@ -3157,9 +3157,6 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))
             cells, first = [(3, 2 + terminal.cells(shown), -1)], left + 1
-            if harness:
-                line += "  " + terminal.styled(terminal.pad(str(models[name].get("harness", "")),
-                                                            harness), "dim")
             for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
@@ -3184,23 +3181,23 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                                                 first + 2 + terminal.cells(leads[name]),
                                                 first + 2 if leads[name] and not note else None)))
                 first += 2 + width
-            parts = [line.rstrip()]
-            if note and terminal.cells(parts[0]) + 2 + terminal.cells(note) <= room:
-                parts[0] += "  " + terminal.styled(note, "dim")
-            elif note:
-                parts += [terminal.styled("    " + part, "dim")
-                          for part in terminal.wrap(note, room - 4)]
-            for number, part in enumerate(parts):
-                places[len(lines)] = (("model", name), cells if number == 0 else [])
-                lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
-                             else part)
+            places[len(lines)] = (("model", name), cells)
+            lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
+                         else line.rstrip())
     # under the models, not under its row: a line that opened there would move every row
-    # below it from under the pointer that brought the highlight to one of them
-    said = {name: terminal.wrap(f"{name} {text}", room - 4) if (text := model_said(cfg, name))
-            else [] for name in names}
+    # below it from under the pointer that brought the highlight to one of them; on a phone
+    # a part a line, each wrapped
+    said = {}
+    for name in names:
+        parts = [(f"{name} {text}" if number == 0 else text, tone)
+                 for number, (text, tone) in enumerate(model_said(cfg, name, providers))]
+        joined = terminal.styled(" · ", "dim").join(terminal.styled(*part) for part in parts)
+        said[name] = ([joined] if parts and terminal.cells(joined) <= room - 4 else
+                      [terminal.styled(piece, tone) for text, tone in parts
+                       for piece in terminal.wrap(text, room - 4)])
     shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
     for part in (shown + [""] * tallest)[:tallest]:
-        lines.append(("    " + terminal.styled(part, "dim")).rstrip())
+        lines.append(("    " + part).rstrip())
         if moves is not None:
             moves.append((len(lines) - 1, ("said",), at[1] if shown else None,
                           motion.fading(lines[-1], motion.OPEN)))

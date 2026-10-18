@@ -188,11 +188,12 @@ class Screens(Sandbox):
     def test_the_matrix_lights_the_row_and_the_cell_under_the_pointer(self):
         first = self.matrix()[0]
         self.assertOneHighlight(first, "fable")
-        label, harness = at(first, "astra"), at(first, "codex")
+        label = at(first, "astra")
+        past = (label[0] + len("astra") + 1, label[1])         # its row, past its label
         line = texts(first)[label[1] - 1]
         mark = (line.index("○", label[0]) + 1, label[1])          # its orchestrator mark
         # on its row the keys' highlight moves there, and off its cells none lights
-        last = self.matrix(move(*harness) + ESC)[-1]
+        last = self.matrix(move(*past) + ESC)[-1]
         self.assertOneHighlight(last, "astra")
         self.assertEqual(marked(last, "lit"), {})
         # its label is a cell, Enter's to open
@@ -210,7 +211,7 @@ class Screens(Sandbox):
         # off every row the row and its cell lose it, a key-line item lighting alone and
         # nothing on no item at all, and an arrow moves it on from where it was
         keys = at(first, "esc back")
-        screens = self.matrix(move(*harness), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
+        screens = self.matrix(move(*past), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
                               ESC)
         self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
@@ -228,7 +229,7 @@ class Screens(Sandbox):
         line = at(first, f"{names[0]} runs on")[1]         # one line, under every model
         self.assertGreater(line, max(rows[name][1] for name in names))
         for name in names:
-            said = f"{name} {menu.model_said(self.cfg, name)}"
+            said = f"{name} " + " · ".join(text for text, _ in menu.model_said(self.cfg, name))
             for keys in (move(*rows[name]) + ESC, move(*rows[name]) + RIGHT + ESC):
                 last = self.matrix(keys)[-1]
                 self.assertOneHighlight(last, name)

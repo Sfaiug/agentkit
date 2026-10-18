@@ -161,13 +161,13 @@ class SessionModels(Sandbox):
                                         self.selected("fix-api"), spent)
         self.assertEqual(self.rows(lines)["opus"], "●■□")
         self.assertEqual(self.rows(lines)["astra"], "○■■")
-        row = next(terminal.plain(line) for line in lines if "opus" in terminal.plain(line))
-        self.assertIn("spent · resets", row)
-        self.assertNotIn("spent", next(terminal.plain(line) for line in lines
-                                       if "astra" in terminal.plain(line)))
+        # the line under the models says why the highlighted opus is spent, and no row does
+        said = [terminal.plain(line) for line in lines if "spent" in terminal.plain(line)]
+        self.assertEqual(len(said), 1)
+        self.assertTrue(said[0].strip().startswith("opus runs on Claude · spent · resets"), said)
         with patch.object(terminal, "layout_width", return_value=40):
-            lines, _ = menu.config_body(self.cfg, "fixture", None, 0, self.selected("fix-api"),
-                                        spent)
+            lines, _ = menu.config_body(self.cfg, "fixture", ("model", "opus"), 0,
+                                        self.selected("fix-api"), spent)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         self.assertTrue(any("spent · resets" in terminal.plain(line) for line in lines))
 

@@ -202,10 +202,9 @@ class Matrix(unittest.TestCase):
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "○", "□", "□",
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "○", "□", "□",
                                                           "▰▰▰▰▱", "xhigh"])
-        self.assertEqual(row(lines, "opus")[1].split(), ["opus", "claude", "●", "■", "■",
-                                                         "▰▰▰▰▱", "xhigh"])
+        self.assertEqual(row(lines, "opus")[1].split(), ["opus", "●", "■", "■", "▰▰▰▰▱", "xhigh"])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
@@ -227,8 +226,7 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[2].split(), ["effort"])
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "▰▰▰▰▱",
-                                                          "xhigh"])
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "▰▰▰▰▱", "xhigh"])
         self.assertEqual(lines[-1], EFFORT_KEYS)          # the effort is the first cell
         self.assertFalse(any(mark in line for line in lines for mark in "●○■□"), lines)
         lines = screen.press(LEFT, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ open   esc back")

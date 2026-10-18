@@ -260,14 +260,14 @@ Example:
 `c` is a sub-screen in the same frame, headed `agentkit · config`. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, harness (dim), then `orch` (`●` on the highlighted
+accent, a row of label, then `orch` (`●` on the highlighted
 session's, `○` dim elsewhere), `exec` and `review` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A
 model with one effort shows its word alone. A click on a cell takes that level,
 and one on the word steps it as Enter does. The columns stay visible; the
-harness gives way, then the cells, then the label.
+cells give way, then the label.
 ↑/↓, k/j and the wheel move between rows,
 ←/→ between all four columns; Enter or space on an effort steps it up through
 that model's own efforts (`config.efforts`), from the highest round to the
@@ -276,9 +276,10 @@ is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). Right under the models, the highlighted one's
-own line says what it runs on (`fable runs on Claude I, II`, dim), coming up as the highlight
-comes to it: one place for every model, as many lines as the tallest, empty while the
-highlight is off the models, so no row moves from under the pointer or the keys.
+own line says what it runs on (`fable runs on Claude I, II`, dim) and why it is spent (amber),
+coming up as the highlight comes to it: one place for every model, on a phone a line a part,
+each wrapped, as many lines as the tallest, empty while the highlight is off the models, so
+no row moves from under the pointer or the keys. A spent model's row is dim.
 Under a seat's models one dim line names the row `ak models`
 recommends per role, and `r recommended` opens the models screen (The models screen).
 Under the models `+ add a model`, `Providers` (the config's
