@@ -104,9 +104,10 @@ class PickByRank(Sandbox):
         matrix.refresh(self.cfg, now=10000)
         ranks = matrix.rank(self.cfg, "execute")
         scores = {(row["model"], row["effort"]): row["scores"]["execute"] for row in matrix.stored()["rows"]}
-        # opus @ xhigh is as good as the best: first by cost, then its quality; astra @ max is
-        # under the best by more than `within`: after every row as good, by quality
-        self.assertEqual(ranks["opus"], (0, 0, 4.05, -scores[("claude-opus-5-5", "xhigh")]["score"]))
+        # opus @ xhigh is as good as the best: first by cost (LiveBench's, Artificial Analysis
+        # having priced no run), then its quality; astra @ max is under the best by more than
+        # `within`: after every row as good, by quality
+        self.assertEqual(ranks["opus"], (0, 1, 4.05, -scores[("claude-opus-5-5", "xhigh")]["score"]))
         self.assertEqual(ranks["astra"], (1, 0, 0.0, -scores[("gpt-6-astra", "max")]["score"]))
         self.assertLess(scores[("gpt-6-astra", "max")]["score"], 100 - matrix.within(self.cfg))
         self.assertIsNone(ranks["fable"])                     # no board has Fable 5.1

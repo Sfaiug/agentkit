@@ -102,8 +102,8 @@ class LiveColumn(Sandbox):
         self.assertRegex(text, r"\nfable +33% of 3 +- +-\n")
         self.assertLess(at, next(i for i, line in enumerate(lines) if line.startswith("arena.ai:")))
         # the recommendation is the boards' alone: opus's own numbers change nothing (the boards
-        # tell the two efforts apart by nothing, so the one the config runs is recommended)
-        self.assertEqual(matrix.row_label(matrix.recommended(table)["execute"][0]), "opus @ xhigh")
+        # tell the two efforts apart by nothing, and Artificial Analysis priced only the max run)
+        self.assertEqual(matrix.row_label(matrix.recommended(table)["execute"][0]), "claude-opus-5-5 @ max")
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)

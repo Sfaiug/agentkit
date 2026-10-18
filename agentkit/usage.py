@@ -1604,7 +1604,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     ranks = matrix.rank(cfg, "review" if role == "reviewer" else "execute", candidates)
     return sorted(candidates, key=lambda n: (on_credits(cfg, n, providers),
                                              ranks.get(n) is None,
-                                             *(ranks[n] or (0, 0, 0.0, 0.0)),
+                                             *(ranks.get(n) or (0, 0, 0.0, 0.0)),
                                              budgets[n][1] is not None, -budgets[n][0]))
 
 

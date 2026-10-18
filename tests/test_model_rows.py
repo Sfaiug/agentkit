@@ -82,9 +82,12 @@ class ModelRows(Sandbox):
         self.assertEqual(both["values"]["arena.agent_steerability"], 0.2)
         self.assertEqual(both["values"]["aa.pricing.price_1m_input_tokens"], 4.0)
         self.assertEqual(both["name"], None)
-        # LiveBench names no effort: its numbers count at every effort of the model
+        # LiveBench names no effort: its numbers count at every effort of the model, its cost
+        # of a task beside Artificial Analysis's cost of the run, which only max has
         self.assertEqual(rows["opus @ xhigh"]["values"]["livebench.coding"], 96.3)
-        self.assertEqual(rows["opus @ xhigh"]["values"][matrix.COST], round(113 / (29 * .963), 2))
+        self.assertEqual(rows["opus @ xhigh"]["values"][matrix.TASK_COST], round(113 / (29 * .963), 2))
+        self.assertEqual((both["values"][matrix.COST], matrix.COST in rows["opus @ xhigh"]["values"]),
+                         (20.69, False))
         # a row at another effort never stands in: the configured xhigh has no Arena numbers
         self.assertNotIn("arena.agent", rows["opus @ xhigh"]["values"])
         self.assertNotIn("arena.ai", rows["opus @ xhigh"]["matched"])
@@ -136,10 +139,12 @@ class ModelRows(Sandbox):
         # the configured xhigh row inherits LiveBench's numbers, which name no effort
         # the model's score for a role is its best-covered row's: xhigh holds one orchestrate
         # measure, max three, and nothing tells the two efforts apart; review has one of three
-        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +- +4 +-$")
-        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +100 of 3 +100 of 3 +- +4 +-$")
+        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +- +21 +4\.05$")
+        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +100 of 3 +100 of 3 +- +- +4\.05$")
         self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +- +- +- +- +-\n")
-        self.assertIn("recommended: orchestrate opus @ xhigh (100 of 3) · execute opus @ xhigh (100 of 3)", text)
+        # the run Artificial Analysis priced before the one it did not, whatever LiveBench charges
+        self.assertIn("recommended: orchestrate claude-opus-5-5 @ max (100 of 3) · "
+                      "execute claude-opus-5-5 @ max (100 of 3)", text)
         self.assertRegex(text, r"no board row: .*claude-opus-4-7")
         self.assertIn("arena.ai: 2 rows as of", text)
         out = io.StringIO()

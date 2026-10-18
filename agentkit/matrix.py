@@ -207,7 +207,7 @@ def livebench():
         try:          # the suite's spend over the tasks it passed
             passed = float(line["nq_coding"]) * row["values"]["livebench.coding"] / 100
             if passed > 0:
-                row["values"][COST] = round(float(line["coding"]) / passed, 2)
+                row["values"][TASK_COST] = round(float(line["coding"]) / passed, 2)
         except (KeyError, TypeError, ValueError):
             continue
     return list(rows.values())
