@@ -17,7 +17,7 @@ from agentkit import menu, motion, terminal  # noqa: E402
 
 
 class Spins(unittest.TestCase):
-    def wait(self, body=list, utf8=True):
+    def wait(self, body=list, utf8=True, rows=24):
         held, drawn, clocks = threading.Event(), [], []
         self.addCleanup(held.set)
 
@@ -29,6 +29,7 @@ class Spins(unittest.TestCase):
                 patch.object(terminal, "utf8", return_value=utf8), \
                 patch.object(terminal, "colour_depth", return_value=24), \
                 patch.object(terminal, "layout_width", return_value=60), \
+                patch.object(terminal, "height", return_value=rows), \
                 patch.object(terminal, "frame", lambda title, lines, keys: drawn.append(lines)), \
                 patch.object(menu, "moving", moving), self.assertRaises(menu.Back):
             menu.waited(held.wait, "config · add a model", body,
@@ -53,6 +54,14 @@ class Spins(unittest.TestCase):
         self.assertRegex(said[2], r"^  [|/\\-] reading the models acme offers$")
         spinner, _ = clock.cells[2 + len(lines), 3]
         self.assertIn(terminal.ANSI.sub("", spinner(0)), "|/-\\")
+
+    def test_left_out_where_the_screen_has_no_room_for_it_so_nothing_scrolls(self):
+        body = [f"  row {n}" for n in range(12)]
+        lines, clock = self.wait(lambda: body, rows=17)    # 16 lines fit, two more would not
+        self.assertEqual(lines, body)
+        self.assertEqual({row for row, _ in clock.cells}, {2})     # the rule glides alone
+        lines, clock = self.wait(lambda: body, rows=19)
+        self.assertEqual(len(lines), len(body) + 2)                 # with room, it is said
 
 
 if __name__ == "__main__":

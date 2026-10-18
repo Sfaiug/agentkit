@@ -573,8 +573,8 @@ LEFT = "reading what each subscription has left"     # what `usage.collect` is w
 def waited(work, title, body=list, keys="esc back", keyboard=None, doing=""):
     """What `work()` answers, asked off the drawing thread while the screen it is asked on waits
     on it: `title` over the lines `body()` lays out at the terminal's width and `keys`, as
-    terminal.frame draws it, then what it waits on in words, `doing`, a spinner turning beside
-    it (motion.spinning).
+    terminal.frame draws it, then, where the screen has room, what it waits on in words,
+    `doing`, a spinner turning beside it (motion.spinning).
 
     A fetch that lands within a frame is simply had, and so is one with no keyboard to read, as
     it always was.  Over one that takes longer, on the keyboard a screen has -- or `keyboard`,
@@ -590,13 +590,16 @@ def waited(work, title, body=list, keys="esc back", keyboard=None, doing=""):
     try:
         while fetch.is_alive() and terminal.taken():
             lines = body()            # laid out again after a resize: no line wider than it
-            if doing:
-                lines = [*lines, *([""] if lines else []), "  " + motion.spinning(fetch.began)(
-                    time.monotonic()) + " " + terminal.styled(terminal.cut(
-                        doing, terminal.layout_width() - 4), "dim")]
+            said = [*([""] if lines else []), "  " + motion.spinning(fetch.began)(
+                time.monotonic()) + " " + terminal.styled(terminal.cut(
+                    doing, terminal.layout_width() - 4), "dim")] if doing else []
+            # only on a screen it fits: one that scrolls leaves the clock writing on rows moved
+            if 3 + len(lines) + len(said) + len(terminal.key_line(keys)) >= terminal.height():
+                said = []
+            lines = [*lines, *said]
             spots = terminal.frame(title, lines, keys)
             clock = motion.fetching(motion.Clock(), fetch.began)
-            if doing:                 # under the header and its rule
+            if said:                  # under the header and its rule
                 clock.start([(2 + len(lines), 3)], motion.spinning(fetch.began))
             key = moving(clock, timeout=TICK, going=fetch.is_alive)
             while key is not None and key.name != "point":    # the rule glides on as it was

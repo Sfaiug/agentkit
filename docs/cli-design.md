@@ -643,12 +643,12 @@ screen: a flip before it answers is let go, and one Esc left behind never draws
 over a later one. Where the screen waits on the fetch itself -- a catalog, the
 usage -- it is drawn again on a resize, Esc or a click on `esc back` goes
 back from the wait, the fetch left to finish on its own, and any other key is let
-go (`motion.fetching`, `menu.matrix_key`, `menu.waited`). Such a screen also says
-under what it shows what ak waits on -- `reading the models opencode offers`,
-`reading what each subscription has left`, a provider's list, a reset spent -- a
-spinner in the accent turning beside it, a glyph every 100 ms (`⠋⠙⠹…`, `|/-\`
-without UTF-8); only ak's own waits get one, and a model at work breathes instead
-(`motion.spinning`).
+go (`motion.fetching`, `menu.matrix_key`, `menu.waited`). Such a screen also says,
+where it has room, under what it shows what ak waits on -- `reading the models
+opencode offers`, `reading what each subscription has left`, a provider's list, a
+reset spent -- a spinner in the accent turning beside it, a glyph every 100 ms
+(`⠋⠙⠹…`, `|/-\` without UTF-8); only ak's own waits get one, and a model at work
+breathes instead (`motion.spinning`).
 
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
 `motion.filling`, `motion.shimmering`, `motion.fetching`, `motion.spinning`,
