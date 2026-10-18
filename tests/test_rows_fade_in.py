@@ -17,6 +17,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
 from agentkit import config, menu, motion, terminal  # noqa: E402
+from test_news_motion import painted  # noqa: E402
 
 NAMES = [f"acme-{n:02}" for n in range(1, 13)]
 
@@ -34,13 +35,13 @@ class FadeIn(Sandbox):
             config.save_session(self.cfg, name, "opus", ["astra"])
         self.clock = motion.Clock()
 
-    def draw(self, cursor, page=0, height=40):
+    def draw(self, cursor, page=0, height=40, records=()):
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=height), \
                 redirect_stdout(io.StringIO()) as out:
             drawn = {}
             menu.draw(self.cfg, self.seats, menu.KEYS, page, cursor, drawn, look=False,
-                      records=[], clock=self.clock)
+                      records=records, clock=self.clock)
         lines = out.getvalue().split("\033[J")[0].replace("\033[K", "").split("\n")
         return [terminal.ANSI.sub("", line) for line in lines], drawn
 
@@ -73,6 +74,49 @@ class FadeIn(Sandbox):
             faded.append(animation(until - motion.TURN) != animation(until))
         self.assertTrue(any(faded))
         self.assertTrue(any("acme" in lines[row - 1] for row in rows))
+
+    def test_breathing_cells_share_their_rows_fade_and_keep_breathing_afterwards(self):
+        for name in NAMES:
+            config.plan_path(name).write_text("- [x] a\n- [ ] b\n")
+        for page, took in ((0, motion.OPEN), (1, motion.TURN)):
+            for light in (False, True):
+                with self.subTest(page=page, light=light), \
+                        patch.object(terminal, "_LIGHT", light), \
+                        patch.object(motion.time, "monotonic", return_value=10.0) as now:
+                    self.clock = motion.Clock()
+                    _, drawn = self.draw("acme-01", height=14)
+                    cursor = drawn["turns"][1] if page else "acme-02"
+                    records = [(Path("g1"), {"run_id": "g1", "launched_session": cursor,
+                                            "started_at": 9000, "task_file": "/t/g1.md",
+                                            "state": "running", "step": "reviewer"})]
+                    now.return_value = 11.0
+                    self.draw(cursor, page=page, height=14, records=records)
+                    rows = {row for row, col in self.clock.cells if col == 1}
+                    inside = {cell: at for cell, (at, _) in self.clock.cells.items()
+                              if cell[0] in rows and cell[1] > 1}
+                    glyphs = {terminal.plain(at(11.0)) for at in inside.values()}
+                    self.assertIn("■", glyphs)
+                    if page:
+                        self.assertIn("●", glyphs)
+                        self.assertTrue(glyphs & {"━", "╸"}, glyphs)
+                    for elapsed in (0, took / 2, took, took + 0.1):
+                        now.return_value = 11.0 + elapsed
+                        self.clock.frame()
+                        for cell, at in inside.items():
+                            shown = self.clock.shown[cell]
+                            if elapsed >= took:
+                                self.assertEqual(shown, at(now.return_value))
+                                self.assertIn(cell, self.clock.cells)
+                                continue
+                            colours = [rgb for char, rgb in painted(shown) if char.strip()]
+                            back = (255 if light else 0,) * 3
+                            if elapsed == 0:
+                                self.assertEqual(colours, [back])
+                            else:
+                                [(char, full)] = painted(at(now.return_value))
+                                self.assertTrue(all(min(b, c) <= v <= max(b, c)
+                                                    for v, b, c in zip(colours[0], back, full)))
+                                self.assertNotIn(colours[0], (back, full))
 
     def test_a_highlight_move_during_a_page_fade_gets_its_full_reveal(self):
         with patch.object(motion.time, "monotonic", return_value=10.0) as now:

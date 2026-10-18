@@ -42,10 +42,10 @@ OBSERVE = r'''
 from pathlib import Path
 from agentkit import motion
 start, frame, glowing = motion.Clock.start, motion.Clock.frame, motion.glowing
-def started(clock, cells, animation, until=None):
+def started(clock, cells, animation, until=None, **kwargs):
     if until is not None:
         clock.test_moving = True
-    return start(clock, cells, animation, until)
+    return start(clock, cells, animation, until, **kwargs)
 def framed(clock):
     out = frame(clock)
     if getattr(clock, "test_moving", False) and not any(
@@ -61,7 +61,7 @@ def held_glow(line):
         hold = Path.home() / ".agentkit" / "glow.hold"
         if hold.exists():
             class Held:
-                def start(self, cells, animation, until=None):
+                def start(self, cells, animation, until=None, **_kw):
                     clock.start(cells, lambda now: animation(since + float(hold.read_text())),
                                 float("inf"))
             real(Held(), row, since, before)
