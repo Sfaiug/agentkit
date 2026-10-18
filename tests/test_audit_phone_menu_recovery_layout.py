@@ -665,10 +665,11 @@ class Phone(Sandbox):
         phone = Terminal(self, width, height)
         screen = phone.until("no sessions; n starts one", "esc leave", prompt="esc leave")
         self.whole_page(screen, width, height)
-        # n asks a name, then one screen that fits: astra below opus and every worker added
+        # n adds the new seat's row, and Tab its models on one screen that fits: astra below
+        # opus and every worker added
         phone.press("n")
-        phone.until("Name: auto", prompt="esc back")
-        phone.keys("Enter")
+        phone.until("tab models", prompt="esc back")
+        phone.keys("Tab")
         screen = phone.until("agentkit · new session", "orch", "exec", "review",
                              prompt="esc back")
         self.fits(screen, width, height)
@@ -707,12 +708,8 @@ class Phone(Sandbox):
         phone.settled()                      # its screen goes before its process does
         phone.menu()
         phone.press("n")                     # the old placeholder is held by the rename alias
-        phone.until("Name: auto", prompt="esc back")
-        phone.keys("Enter")
-        # the name prompt carries the title and `esc back` too: only the picker has the marks,
-        # and an Enter sent before it is drawn is lost in its loading
-        phone.until("agentkit · new session", "orch", "exec", "review", prompt="esc back")
-        phone.keys("Enter")                  # what the last creation was given: astra
+        phone.until("tab models", prompt="esc back")
+        phone.keys("Enter")                  # the row's crew, as the last creation's: astra
         phone.until("new-2  ", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
         self.assertTrue(self.has_seat("new-2"))
