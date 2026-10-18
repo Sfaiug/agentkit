@@ -1348,7 +1348,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     under the grid says the rest of it (`usage_detail`).  The highlighted seat's line opens
     under it only while the owner points at it (`pointing`: the pointer on it, or ↑/↓ moved
     there since the pointer last was), and closes once the pointer is on no row
-    (`terminal.away`).
+    (`terminal.away`) or the row moves from under it (`terminal.pointer`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
     `x close` while that seat is done; `p past` is on it while a seat the owner stopped is
@@ -1552,6 +1552,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
              and not terminal.away() else [])
     if len(lines) > opens:
         lines = lines[:opens - 1] + [terminal.cut(" ".join(lines[opens - 1:]), said_room)]
+    pointer = terminal.pointer()
+    if pointer and not top + under <= pointer.row <= top + under + len(lines):
+        lines = []      # a line above closed and moved the row from under the pointer
     if lines:
         body = body[:under] + [(indent + line, cursor) for line in lines] + body[under:]
     opened = range(top + under + 1, top + under + 1 + len(lines))   # the rows they are on
@@ -4360,9 +4363,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     look, pointing = False, False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing
-                pointing = False
                 cell = terminal.under(key, shown["spots"]).cell if key.name == "click" else None
                 if isinstance(cell, tuple) and cell[0] == "usage" and cell[1] in shown["logins"]:
+                    pointing = False          # and opens no line
                     sign_in(cfg, keyboard, *shown["logins"][cell[1]])   # an amber meter
                     continue
                 typed, key = key, pressed(key, shown, found)
@@ -4404,6 +4407,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             seat = own if overlay else cursor
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
+            pointing = False      # the key opens something: the menu back opens no line
             if key == "x" and drawn is not None and seat in drawn["words"]:
                 # the seat it acts on: a done one closes at once, any other is asked under its row
                 if drawn["words"][seat] != "done":

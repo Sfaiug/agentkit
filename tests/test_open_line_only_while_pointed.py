@@ -47,6 +47,43 @@ class OpensOnlyWhilePointed(unittest.TestCase):
         menu.frame(lambda lines: ASKED not in "\n".join(lines))
         menu.leave()
 
+    def test_a_key_that_opens_nothing_keeps_the_line_the_arrows_opened(self):
+        menu = Menu(self, ["acme-plan", "acme-api"], asks={"acme-plan": ASKED})
+        menu.frame()
+        menu.send(DOWN)
+        menu.frame(lambda lines: "acme-api" in menu.highlighted(lines))
+        menu.send(UP)
+        menu.frame(lambda lines: ASKED in "\n".join(lines))
+        mark = len(menu.text())
+        menu.send(b"i")
+        lines = menu.frame(after=mark)
+        menu.leave()
+        self.assertIn(ASKED, "\n".join(lines))
+
+    def test_back_from_a_seat_no_line_is_open_though_the_pointer_moved_while_its_number_was_typed(
+            self):
+        menu = Menu(self, [f"acme-{n:02}" for n in range(1, 13)], asks={"acme-01": ASKED})
+        lines = menu.frame()
+        menu.send(b"1" + move(20, row(lines, "acme-01")))   # while 1 waits for a second digit
+        menu.saw("<opened acme-01>")
+        lines = menu.frame(after=menu.text().index("<opened acme-01>"))
+        menu.leave()
+        self.assertNotIn(ASKED, "\n".join(lines))
+
+    def test_a_row_moved_from_under_the_pointer_opens_no_line(self):
+        long = "Choose a schema. " + "The importer still reads the old fields and the new. " * 5
+        menu = Menu(self, ["acme-api", "acme-web"], asks={"acme-api": long, "acme-web": ASKED})
+        lines = menu.frame()
+        menu.send(move(20, row(lines, "acme-api")))
+        lines = menu.frame(lambda lines: "Choose a schema." in "\n".join(lines))
+        below = row(lines, "acme-web")
+        mark = len(menu.text())
+        menu.send(move(20, below))                  # its question closes, and acme-web moves up
+        lines = menu.frame(after=mark)
+        menu.leave()
+        self.assertEqual(lines[below - 1].strip(), "")
+        self.assertNotIn(ASKED, "\n".join(lines))
+
 
 def keyline(lines):
     """(column, row) of `n new` on the key line."""
