@@ -1535,12 +1535,12 @@ def listing(reconcile=True):
     one.  The names and their order (`numbered`) are the same either way, which is what keeps a
     seat's number the same on every screen.
     """
-    found = sessions()
-    kept = records() if reconcile else config.session_records()
+    found, cfg = sessions(), loaded()
+    kept = records(cfg) if reconcile else config.session_records()
     names = {s["name"] for s in found}
     for session in found:
         record = kept.get(session["name"], {})
-        plugin = seat_plugin(record)
+        plugin = seat_plugin(record, cfg)
         if session.get("exited") and plugin.always_offered:
             session["resumable"] = bool(plugin.conversation(record, record.get("cwd")))
             if not session["resumable"]:
@@ -1551,8 +1551,8 @@ def listing(reconcile=True):
     for name, record in kept.items():
         if name in names:
             continue
-        plugin = seat_plugin(record)
-        owned = resumable(record)
+        plugin = seat_plugin(record, cfg)
+        owned = resumable(record, cfg)
         row = ghost(name, record)
         if owned or row["closed"] or plugin.always_offered or unread_question(name):
             row["resumable"] = owned
@@ -1635,13 +1635,34 @@ def git_in(path, *args, env=None):
     return proc.returncode, proc.stdout
 
 
+_ASKED = {}      # {a `.git` git was asked about: (what its answer was read from, the answer)}
+
+
+def _read_from(dot, named=()):
+    """What git reads to answer `git_dirs` for the checkout whose `.git` is `dot`, as it stands
+    now: that entry and what it leads to, then for each directory git named, which directory
+    it is and its `commondir`.  None stands for a path that is gone."""
+    def stamp(path, follow):
+        try:
+            info = os.stat(path) if follow else os.lstat(path)
+        except OSError:
+            return None
+        return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
+    found = [stamp(dot, False), stamp(dot, True)]
+    for directory in named:
+        found += [(stamp(directory, True) or ())[:2], stamp(Path(directory) / "commondir", False)]
+    return found
+
+
 def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
 
     A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
     else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
-    no higher than `path`, so every layout and path it accepts reads the same here.
+    no higher than `path`, so every layout and path it accepts reads the same here.  Its
+    answer is kept while what it was read from stands as it did (`_read_from`): a listing asks
+    `checkout_of` once a seat, and each asking git would cost the menu a subprocess per seat.
     """
     dot = Path(path) / ".git"
     try:
@@ -1651,6 +1672,10 @@ def git_dirs(path):
             return dot.resolve(), False
     except OSError:
         return None
+    kept = _ASKED.get(dot)
+    if kept is not None and _read_from(dot, kept[1]) == kept[0]:
+        return kept[2]
+    before = _read_from(dot)                # before git reads it: a change meanwhile asks again
     def ask(*flags):
         code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
         return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
@@ -1661,6 +1686,9 @@ def git_dirs(path):
     if lines is None or None in lines:
         return None
     gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
+    # a worktree's `commondir` is written before the `.git` that leads to it, and never again
+    _ASKED[dot] = before + _read_from(dot, (gitdir, common))[2:], (gitdir, common), (
+        common, gitdir != common)
     return common, gitdir != common
 
 
@@ -2290,31 +2318,41 @@ def opened(harness, cwd, conversation):
     return harness_plugin(harness).opened(cwd, conversation)
 
 
-def seat_harness(record):
+def seat_harness(record, cfg=None):
     try:
-        return config.model(config.load(), record.get("orchestrator"))["harness"]
+        return config.model(cfg or config.load(), record.get("orchestrator"))["harness"]
     except config.Error:
         return None
 
 
-def seat_plugin(record):
-    """The harness plugin behind that seat: every hook, defaulted where it declares none."""
-    return harness_plugin(seat_harness(record))
+def seat_plugin(record, cfg=None):
+    """The harness plugin behind that seat: every hook, defaulted where it declares none.
+    `cfg` spares a caller going over every seat a read of the config for each."""
+    return harness_plugin(seat_harness(record, cfg))
 
 
-def records():
+def loaded():
+    """The config, or None where it does not read, for a pass over every seat to read once:
+    each seat's harness is then what a read of its own would have found."""
+    try:
+        return config.load()
+    except config.Error:
+        return None
+
+
+def records(cfg=None):
     """Let each harness reconcile its own evidence before anything claims a seat is resumable."""
     kept = config.session_records()
     for name, record in kept.items():
-        fields = seat_plugin(record).reconcile(record)
+        fields = seat_plugin(record, cfg).reconcile(record)
         if fields:
             kept[name] = config.update_session(name, **fields) or record
     return kept
 
 
-def resumable(record):
+def resumable(record, cfg=None):
     """A conversation its harness owns: a launcher-issued id, or evidence of its own."""
-    plugin = seat_plugin(record)
+    plugin = seat_plugin(record, cfg)
     cwd = record.get("cwd")
     return bool(plugin.resumable(record, cwd, plugin.conversation(record, cwd)))
 

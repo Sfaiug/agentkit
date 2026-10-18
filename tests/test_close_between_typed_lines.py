@@ -31,7 +31,8 @@ class CloseBetweenTypedLines(Sandbox):
                      "exited": False, "legacy": False}
         self.stack.enter_context(patch.object(orch, "find", side_effect=lambda name:
                                               self.seat if name == SEAT else None))
-        self.stack.enter_context(patch.object(orch, "records", side_effect=config.session_records))
+        self.stack.enter_context(patch.object(orch, "records",
+                                              side_effect=lambda *_a: config.session_records()))
         self.stack.enter_context(patch.object(stop, "stop_owned_runs"))
         self.stack.enter_context(patch.object(stop, "release_session"))
         self.stack.enter_context(patch.object(notify, "forget_card"))

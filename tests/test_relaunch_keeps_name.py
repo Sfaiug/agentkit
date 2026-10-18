@@ -73,8 +73,8 @@ class RelaunchKeepsName(Sandbox):
         self.title("lagoon")
         real_plugin = orch.seat_plugin
 
-        def titles(record):
-            plugin = real_plugin(record)
+        def titles(record, cfg=None):
+            plugin = real_plugin(record, cfg)
             if record.get("orchestrator") == "grok":
                 return FakeTitles(plugin, self.titles, self.at_launch)
             return plugin
