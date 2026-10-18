@@ -22,6 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_close_and_info import ENTER, Menu
+from fixtures.sandbox import Sandbox
 from agentkit import menu, orch, terminal
 
 CFG = {"fixture": True}            # handed through to the opening, and read by nothing here
@@ -161,6 +162,37 @@ class Lines(unittest.TestCase):
             menu.show_past(CFG, [ALPHA, OMEGA], dry_run=True)
         self.assertEqual(self.out.getvalue().count("past sessions"), 1)
         self.assertIn("2  omega", self.out.getvalue())
+
+
+class Layout(Sandbox):
+    def test_the_stopped_age_stays_whole_on_small_terminals(self):
+        with patch.object(orch, "age", return_value="120d"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            for width in (24, 25, 26, 27, 28, 40, 100):
+                for number in (1, 12, 123, 1234):
+                    with self.subTest(width=width, number=number), \
+                            patch.object(terminal, "width", return_value=width):
+                        lines, places = menu.past_body([
+                            (number, {"name": "fix-api", "repo": None, "closed": 1})])
+                        row = lines[next(iter(places))]
+                        self.assertIn("stopped 120d ago", terminal.plain(row))
+                        self.assertTrue(all(terminal.cells(line) <= width for line in lines))
+
+    def test_age_continuations_stay_with_their_seat_when_paging(self):
+        past = [(number, {"name": name, "repo": None, "closed": 1})
+                for number, name in ((12, "fix-api"), (13, "fix-web"))]
+        with patch.object(terminal, "width", return_value=20), \
+                patch.object(orch, "age", return_value="120d"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            lines, places = menu.past_body(past, at="fix-web", room=3)
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(terminal.plain(lines[0]), "no project")
+        self.assertTrue(terminal.plain(lines[1]).endswith("13"))
+        self.assertEqual(terminal.plain(lines[2]), "stopped 120d ago")
+        self.assertEqual(places, {1: (("row", "fix-web"), []), 2: (("row", "fix-web"), [])})
+        self.assertTrue(all(terminal.cells(line) <= 20 for line in lines))
 
 
 if __name__ == "__main__":

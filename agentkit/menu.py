@@ -4563,20 +4563,37 @@ def past_body(past, at=None, models=None, room=None):
              for number, session in past]
     width = terminal.width()
     widths = v5o_column_widths(infos, width)
-    # how long ago is wider than any state word: it takes the room the last column would
-    wider = min(max(terminal.cells(info["count"]) for info in infos),
-                widths["count"] + max(0, widths["free"]))
-    widths["free"] -= max(0, wider - widths["count"])
-    widths["count"] = max(widths["count"], wider)
+    row_room = widths["room"]
+    age_w = max(terminal.cells(info["count"]) for info in infos)
+    # Reserve the whole age; the orchestrator gives way when even the shortest names cannot fit.
+    head_room = max(2 + widths["num"], row_room - age_w - 2)
+    head_widths = [widths["num"], widths["name"], widths["orch"]]
+    if 2 + sum(head_widths) + 4 > head_room:
+        head_widths = [widths["num"]]
+        if head_room > 4 + widths["num"]:
+            head_widths.append(head_room - 4 - widths["num"])
+    inline = 2 + sum(head_widths) + 2 * len(head_widths) + age_w <= row_room
+    cell_widths = head_widths + ([age_w] if inline else [])
+    kinds = ("dim", None, "dim")[:len(head_widths)] + ("dim", "dim")
 
     def drawn(info):
-        line = _head(info, widths)
-        if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
-            line += "  " + terminal.styled(info["restart"], "dim")
+        cells = [info["number"], info["name"], info["orchestrator"]][:len(head_widths)]
+        own_widths = cell_widths
+        if inline:
+            cells.append(info["count"])
+            restart_w = terminal.cells(info["restart"])
+            if info["restart"] and 2 + sum(cell_widths) + 2 * len(cell_widths) + restart_w <= row_room:
+                cells.append(info["restart"])
+                own_widths = cell_widths + [restart_w]
+        lines = [terminal.table_row(cells, own_widths, indent="  ", kinds=kinds, right=(0,))]
+        if not inline:
+            lines += ["    " + terminal.styled(line, "dim")
+                      for line in terminal.wrap(info["count"], max(1, row_room - 4))]
         lit = at == info["name"] and not terminal.away()
-        return terminal.highlight(line.rstrip()) if lit else line.rstrip()
+        return [(terminal.highlight(line.rstrip(), mark=n == 0) if lit else line.rstrip(),
+                 info["name"]) for n, line in enumerate(lines)]
     projects = [((v5o_header(project, width), None),
-                 [[(drawn(info), info["name"])] for info in project["seats"]])
+                 [drawn(info) for info in project["seats"]])
                 for project in by_project(infos, orch.listed()).values()]
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
