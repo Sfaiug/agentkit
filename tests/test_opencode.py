@@ -38,15 +38,17 @@ STUB = """#!/usr/bin/env bash
 # $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one), `api integration.list`,
 # `api provider.list` and `api config.get` print $STUB_INTEGRATION_LIST, $STUB_PROVIDER_LIST
 # and $STUB_CONFIG_GET, `api --standalone config.get` $STUB_STANDALONE_CONFIG_GET, else the
-# same.  Every argv lands in $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT in
-# $STUB_ARGV_LOG.content.
+# same; provider.list lists none until integration.list was asked under this HOME, as a fresh
+# service lists none before its plugins are active.  Every argv lands in $STUB_ARGV_LOG, and
+# run's OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
 case "$1 ${2:-}" in
   run*) [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$OPENCODE_CONFIG_CONTENT" >"$STUB_ARGV_LOG.content"
         cat -- "$STUB_EVENTS"; exit "${STUB_RC:-0}" ;;
   "api model.list") cat -- "$STUB_MODEL_LIST" && exit "${STUB_LIST_RC:-0}" ;;
-  "api integration.list") printf '%s' "${STUB_INTEGRATION_LIST:-}" ;;
-  "api provider.list") printf '%s' "${STUB_PROVIDER_LIST:-}" ;;
+  "api integration.list") : >"$HOME/.stub-plugins-active"; printf '%s' "${STUB_INTEGRATION_LIST:-}" ;;
+  "api provider.list") [ -e "$HOME/.stub-plugins-active" ] || STUB_PROVIDER_LIST='{"data":[]}'
+                       printf '%s' "${STUB_PROVIDER_LIST:-}" ;;
   "api config.get") printf '%s' "${STUB_CONFIG_GET:-}" ;;
   "api --standalone") printf '%s' "${STUB_STANDALONE_CONFIG_GET:-${STUB_CONFIG_GET:-}}" ;;
   session*) cat -- "$STUB_EXPORT" ;;
@@ -429,7 +431,7 @@ cat "$dir/bridge-eval"
     def test_a_provider_opencode_runs_on_its_own_needs_no_login(self):
         # OpenCode enables its own free provider with no entry in any config document it merged
         # and no saved login; an entry alone enables one too, key or not, and is no login, in
-        # whichever document it is
+        # whichever document it is; the first query here is a fresh service's
         own = {"STUB_PROVIDER_LIST": json.dumps({"data": [
             {"id": "opencode", "activation": "enabled"}, {"id": "nova", "activation": "enabled"},
             {"id": "zeta", "activation": "auto"}]}), "STUB_CONFIG_GET": json.dumps([
