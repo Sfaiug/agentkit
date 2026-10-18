@@ -4,8 +4,11 @@ Real pty input, a captured Claude prompt and fake tmux; no live seat or server. 
 receipt keeps a run's hand-back and its own-PR round notice pending until Enter is read.
 """
 
+import fcntl
 import os
 import select
+import struct
+import termios
 import time
 import tty
 import unittest
@@ -16,6 +19,10 @@ from agentkit import config, handback, orch, record, watch, worktrees
 
 SEAT = "acme-docs"
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
+
+
+def unread(fd):
+    return struct.unpack("i", fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0)))[0]
 
 
 class ReceiptNeedsEnter(Sandbox):
@@ -45,8 +52,14 @@ class ReceiptNeedsEnter(Sandbox):
         self.stack.enter_context(patch.object(worktrees, "_drop_told"))
 
     def put(self, data):
+        # A kernel can hand typed bytes to the reader late, and a reader already holding input
+        # selects as ready at once: wait until these bytes are unread there too.
+        held = unread(self.slave)
         self.assertEqual(os.write(self.master, data), len(data))
-        self.assertEqual(select.select([self.slave], [], [], 5)[0], [self.slave])
+        deadline = time.monotonic() + 5
+        while unread(self.slave) < held + len(data) and time.monotonic() < deadline:
+            select.select([], [], [], .01)
+        self.assertEqual(unread(self.slave), held + len(data))
 
     def read_input(self, data):
         self.assertEqual(select.select([self.slave], [], [], 5)[0], [self.slave])
