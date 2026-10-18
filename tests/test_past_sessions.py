@@ -22,6 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_close_and_info import ENTER, Menu
+from fixtures.sandbox import Sandbox
 from agentkit import menu, orch, terminal
 
 CFG = {"fixture": True}            # handed through to the opening, and read by nothing here
@@ -161,6 +162,36 @@ class Lines(unittest.TestCase):
             menu.show_past(CFG, [ALPHA, OMEGA], dry_run=True)
         self.assertEqual(self.out.getvalue().count("past sessions"), 1)
         self.assertIn("2  omega", self.out.getvalue())
+
+
+class Layout(Sandbox):
+    def test_the_stopped_age_stays_whole_on_small_terminals(self):
+        with patch.object(orch, "age", return_value="120d"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            for width in (24, 25, 26, 27, 28, 40, 100):
+                for number in (1, 12, 123, 1234):
+                    with self.subTest(width=width, number=number), \
+                            patch.object(terminal, "width", return_value=width):
+                        lines, places = menu.past_body([
+                            (number, {"name": "fix-api", "repo": None, "closed": 1})])
+                        row = lines[next(iter(places))]
+                        self.assertIn("stopped 120d ago", terminal.plain(row))
+                        self.assertTrue(all(terminal.cells(line) <= width for line in lines))
+
+    def test_past_rows_match_the_main_screens_rows(self):
+        session = {"name": "fix-api", "repo": None, "closed": 1}
+        info = {"number": "12", "name": "fix-api", "orchestrator": "astra",
+                "count": "stopped 12000d ago"}
+        with patch.object(orch, "age", return_value="12000d"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            for width in (20, 26, 40, 100):
+                with self.subTest(width=width), \
+                        patch.object(terminal, "width", return_value=width):
+                    lines, places = menu.past_body([(12, session)], models={"fix-api": "astra"})
+                    main_row = menu.v5o_seat_blocks([info], width)[0][0]
+                    self.assertEqual(lines[next(iter(places))], main_row)
 
 
 if __name__ == "__main__":
