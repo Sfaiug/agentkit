@@ -7,8 +7,8 @@ light crosses its line, either's row glowing in its word's colour as it fades; t
 opens comes up as the highlight comes to it, a question the first time it is shown writing
 itself out, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
-a task's next square fills through its half and one that failed nudges; an
-effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
+its count counting up with it, a task's next square fills through its half and one that failed
+nudges; an effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
 header glides while its content is fetched, a spinner turning beside what ak waits on; a
@@ -229,6 +229,26 @@ def growing(cells, began, took=GROW, start=0, light=None):
             if filled:
                 return text.replace("╸", full) if n < head - 1 else text
             return terminal.styled(full, light)
+        return at
+    return [cell(n, text) for n, text in enumerate(cells)], began + took
+
+
+def counting(cells, before, began, took=GROW):
+    """A progress line's count, `cells` each of its cells as the draw wrote it -- `3 of 8` --
+    counting up from `before` done, of the same total, to what it says in `took` seconds from
+    `began`, eased as its line grows (`growing`) so that at every frame it says what the line
+    shows, a narrower number at the right of its cells, each in its cell's own style; an
+    animation for each cell, and when it is still."""
+    drawn = "".join(terminal.ANSI.sub("", text) for text in cells)
+    done, total = map(int, drawn.split(" of "))
+
+    def cell(n, text):
+        pieces, codes = terminal.ANSI.split(text), terminal.ANSI.findall(text) + [""]
+
+        def at(now):
+            shown = round(before + (done - before) * eased((now - began) / took))
+            char = f"{shown} of {total}".rjust(len(drawn))[n]
+            return "".join((char if piece else "") + code for piece, code in zip(pieces, codes))
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + took
 
