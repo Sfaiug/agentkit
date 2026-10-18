@@ -591,7 +591,8 @@ def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
     head = run.git(scratch, "rev-parse", "HEAD")
     ok = _check(directory, state, scratch, [suite], directory / f"lander-{tree}-tests.log",
                 log, shard=piece, only=list(tests))[0]
-    run.git(scratch, "reset", "--hard", head)
+    # Detached: a branch the tests checked out is shared with the repository and keeps its commit.
+    run.git(scratch, "checkout", "--force", "--detach", head)
     run.git(scratch, "clean", "-fdx")
     return ok
 
