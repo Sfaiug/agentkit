@@ -68,11 +68,11 @@ class MenuLiveLine(Sandbox):
     def test_a_the_highlighted_seat_opens_its_line_and_no_other_row_grows(self):
         lines, _ = self.draw("fix-api")
         indent = " " * (2 + 1 + 2)                     # under the name
-        self.assertEqual(self.under(lines, "fix-api"), indent + "opus builds · opus reviews   ■□□")
-        self.assertEqual(sum("builds" in line for line in lines), 1)   # web is not highlighted
+        self.assertEqual(self.under(lines, "fix-api"), indent + "opus ⚒◎   ■□□")
+        self.assertEqual(sum("⚒" in line for line in lines), 1)   # web is not highlighted
         lines, _ = self.draw("web")
-        self.assertEqual(self.under(lines, "web"), indent + "opus builds · opus reviews   ■■□")
-        self.assertEqual(sum("builds" in line for line in lines), 1)
+        self.assertEqual(self.under(lines, "web"), indent + "opus ⚒◎   ■■□")
+        self.assertEqual(sum("⚒" in line for line in lines), 1)
         # no screen names a task
         self.assertNotIn("gh2", "\n".join(lines))
         self.assertNotIn("lg1", "\n".join(lines))
@@ -100,7 +100,7 @@ class MenuLiveLine(Sandbox):
                 patch.object(menu, "switches", return_value=[]):
             lines, _ = self.draw(config.CODE / "acme")
         self.assertTrue(any(line.startswith("›") and "acme" in line for line in lines), lines)
-        self.assertFalse(any("builds" in line for line in lines), lines)
+        self.assertFalse(any("⚒" in line for line in lines), lines)
 
     def test_e_a_model_is_drawn_on_one_line_as_text(self):
         # it may be named anything, a control character or an escape among it
@@ -115,7 +115,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("\x1b[2J", out.getvalue())
         lines = screen(out.getvalue())
         self.assertEqual(self.under(lines, "fix-api").strip(),
-                         "opus fast builds · opus fast reviews   ■□□")
+                         "opus fast ⚒◎   ■□□")
 
 
 if __name__ == "__main__":

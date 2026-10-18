@@ -1,7 +1,8 @@
 """The line under a working row says who builds, who reviews, and each task as its squares.
 
 The owner's design (14 Oct 2026): pointing at a working seat opens one line under its row --
-`astra builds · fable reviews   ■□□  ■■□` -- with each task in flight as three squares
+`astra ⚒   fable ◎   ■□□  ■■□` -- each model once, ⚒ after one that builds and ◎ after one that
+reviews (their pick of 18 Oct 2026), dim as the row's orchestrator, with each task in flight as three squares
 (build, review, land), the stages it reached filled: in working's colour while a model or ak
 works on it, dim while it waits, red once it failed.  No task's name appears anywhere.
 Offline: a temporary HOME, fake run records, no tmux.
@@ -90,19 +91,23 @@ class CrewAndSquares(Sandbox):
         info["word"] = "working"
         with patch.object(terminal, "colour_depth", return_value=0):
             [line] = menu.detail(self.cfg, info, 80)
-        self.assertEqual(line, "astra builds · fable reviews   ■□□  ■■□")
+        self.assertEqual(line, "astra ⚒   fable ◎   ■□□  ■■□")
         self.assertNotIn("parser", line)
-        # a seat whose orchestrator builds alone says so
-        info["crew"] = (["opus"], ["fable", "spark"])
+        # a model that builds and reviews is named once, with both
+        info["crew"] = (["opus", "astra"], ["fable", "opus"])
         with patch.object(terminal, "colour_depth", return_value=0):
             self.assertTrue(menu.detail(self.cfg, info, 80)[0].startswith(
-                "opus builds · fable and spark review"))
+                "opus ⚒◎   astra ⚒   fable ◎   "))
+        # the names are the colour of the row's orchestrator, the icons with them
+        with patch.object(terminal, "colour_depth", return_value=24):
+            self.assertEqual(menu.crew({"crew": (["astra"], ["fable"])}),
+                             terminal.styled("astra ⚒   fable ◎", "dim"))
         # a narrow line cuts the crew, never the squares
         info["crew"] = (["astra", "opus"], ["fable", "spark"])
         info["tasks"] = [(0, "moving")]
         with patch.object(terminal, "colour_depth", return_value=0):
             self.assertEqual(menu.detail(self.cfg, info, 39),
-                             ["astra and opus build · fable and…   ■□□"])
+                             ["astra ⚒   opus ⚒   fable ◎…   ■□□"])
 
 
 if __name__ == "__main__":
