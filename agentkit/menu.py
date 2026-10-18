@@ -117,6 +117,7 @@ key uses.
 
 import colorsys
 import copy
+import errno
 import json
 import os
 import re
@@ -2158,9 +2159,20 @@ def smoke_run(state, resolved=None):
             except (OSError, ValueError):
                 real = ""
             resolved[value] = (real.startswith(resolved[None])
-                               and real[len(resolved[None]):].startswith("smoke-"))
+                               and real[len(resolved[None]):].startswith("smoke-")
+                               and not looped(real))
         if resolved[value]:
             return True
+    return False
+
+
+def looped(path):
+    """Whether `path` is a link that loops, which `os.path.realpath` leaves half resolved: no
+    path at all, so no run of the suite's (`smoke_run`), as pathlib's resolve said."""
+    try:
+        os.stat(path)
+    except OSError as error:
+        return error.errno == errno.ELOOP
     return False
 
 
