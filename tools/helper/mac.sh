@@ -3,6 +3,7 @@
 # ...`; macOS bash is 3.2. Each failure of its own exits 255, ssh's own: a lost piece.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 ROOT="$HOME/.agentkit-helper"
+MIRRORS="$ROOT/mirrors"   # each repository's history, kept between its suites
 on_power() { pmset -g batt 2>/dev/null | head -1 | grep -q "'AC Power'"; }
 # One suite at a time holds the Mac: by its claim from `prepare` until its pieces start, then by
 # each piece's mark until that piece ends. A running piece keeps touching its mark, so one whose
@@ -19,9 +20,13 @@ probe)
   echo "load $(sysctl -n vm.loadavg | awk '{print $2}')"
   echo "memory_mb $(( $(sysctl -n hw.memsize) / 1048576 ))"
   echo "free_percent $(memory_pressure -Q | awk -F': *' '/free percentage/ {print $2 + 0}')" ;;
-prepare)   # KEY IMAGE, the parcel on stdin
+known)     # REPO: the commit its history here reaches, if any
+  git -C "$MIRRORS/$2" rev-parse -q --verify refs/known/base 2>/dev/null; exit 0 ;;
+prepare)   # KEY IMAGE REPO, the parcel on stdin
   mkdir -p "$ROOT/$2" && tar -x -C "$ROOT/$2" || exit 255
-  find "$ROOT" -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null   # dead callers'
+  # Dead callers' trees go after a day, a repository's history unused for a week.
+  find "$ROOT" -mindepth 1 -maxdepth 1 ! -name mirrors -mtime +1 -exec rm -rf {} + 2>/dev/null
+  find "$MIRRORS" -mindepth 1 -maxdepth 1 ! -name "$4" -mtime +7 -exec rm -rf {} + 2>/dev/null
   container image inspect "$3" >/dev/null 2>&1 || {
     cd "$ROOT/$2/image" || exit 255
     base=$(awk '$1 == "FROM" {print $2; exit}' Containerfile)
@@ -37,11 +42,21 @@ prepare)   # KEY IMAGE, the parcel on stdin
       while read -r old; do [ -z "$old" ] || container image delete "$old" >/dev/null 2>&1; done
     [ "$built" = 0 ] || exit 255
   }
-  claim "$2" held || exit 255 ;;
-run)       # KEY IMAGE NAME CPUS MEMORY_MB, then piece.sh's arguments
-  key=$2 D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6
-  shift 6
-  on_power && [ -d "$D" ] || exit 255
+  claim "$2" held || exit 255
+  # The history arrives once the suite holds the Mac, so one suite writes it at a time. Only
+  # what the suite's commits reach stays: git's gc drops the rest two weeks on.
+  M="$MIRRORS/$4"
+  read -r tree base <"$ROOT/$2/heads" &&
+    { [ -d "$M" ] || git init -q --bare "$M"; } && touch "$M" &&
+    { [ ! -e "$ROOT/$2/repo.bundle" ] ||
+      git -C "$M" bundle unbundle "$ROOT/$2/repo.bundle" >/dev/null; } &&
+    rm -f "$ROOT/$2/repo.bundle" && git -C "$M" cat-file -e "$tree^{commit}" &&
+    { [ -z "$base" ] || git -C "$M" update-ref refs/known/base "$base"; } || exit 255
+  git -C "$M" -c gc.autoDetach=false gc --auto --quiet >/dev/null 2>&1 ;;
+run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
+  key=$2 D="$ROOT/$2" image=$3 name=$4 cpus=$5 memory=$6 M="$MIRRORS/$7"
+  shift 7
+  on_power && [ -d "$D" ] && [ -d "$M" ] || exit 255
   session=$PPID
   until [ "$session" -le 1 ] || ps -o comm= -p "$session" | grep -q sshd; do
     session=$(ps -o ppid= -p "$session" | tr -d ' ')
@@ -56,7 +71,7 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB, then piece.sh's arguments
   # psi=1: the suite sizes its pool from pressure; an unmasked /proc lets its sandbox mount one.
   caffeinate -is container run --rm --init --progress none --kernel-arg psi=1 --masked-path NONE \
     --read-only-path NONE --no-dns --cpus "$cpus" --memory "${memory}m" --name "$name" \
-    --volume "$D:/in:ro" "$image" /bin/bash /in/piece.sh "$@" &
+    --volume "$D:/in:ro" --volume "$M:/mirror:ro" "$image" /bin/bash /in/piece.sh "$@" &
   vm=$!
   # The VM stops once ak's ssh session ends or the Mac leaves its charger; the stop is repeated
   # until `container run` ends, so a VM that comes up after the first stop stops too.
