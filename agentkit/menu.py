@@ -1713,6 +1713,22 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             clock.asked[question] = asked
         typed = asked is not None and time.monotonic() < asked + motion.WRITE
         news = clock.look({key: shown for key, shown, _, _ in moves})
+
+        def line(name, moving, counted=None):
+            """Move a seat's line by `moving`, a function of its cells to their animations and
+            when they are still, and its count with it: counting up from `counted`, the done
+            before, since when and for how long (motion.counting), else as drawn.  Whatever moves
+            a line last moves its count, so the two never part."""
+            row, span = bars[name]
+            written = terminal.cell_texts(out[row - 1])
+            animations, until = moving(written[span])
+            clock.span(row, terminal.cells("".join(written[:span.start])) + 1, animations, until)
+            after = terminal.ANSI.sub("", "".join(written[span.stop:]))
+            if count := re.match(r" \d+ of \d+", after):
+                cells = written[span.stop + 1:span.stop + count.end()]
+                clock.span(row, terminal.cells("".join(written[:span.stop])) + 2, *(
+                    motion.counting(cells, *counted) if counted else
+                    ([lambda now, text=text: text for text in cells], until)))
         # As it opens each seat's line grows to its length, row after row, and on through the
         # draws until it has -- the read that lands as it opens draws the screen again at once --
         # each from its own start, until news moves the line instead.
@@ -1721,10 +1737,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                            for n, name in enumerate(bars)}
         for name, began in clock.grows.items():
             if name in bars:
-                row, span = bars[name]
-                written = terminal.cell_texts(out[row - 1])
-                clock.span(row, terminal.cells("".join(written[:span.start])) + 1, *motion.growing(
-                    written[span], began))
+                line(name, lambda cells: motion.growing(cells, began), (0, began, motion.GROW))
         # Older effects must not overwrite newer news at a shared cell.
         for key, shown, cell, lit in sorted(moves, key=lambda move: news.get(move[0], (0,))[0]):
             since, before = news.get(key, (None, None))
@@ -1736,12 +1749,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 clock.grows.pop(key[1], None)
                 if words.get(key[1]) == "done" and news.get(("word", key[1]), (0,))[0] >= since:
                     continue    # turned done as it moved: swept, and full once the light has
-                row, span = cell
-                written = terminal.cell_texts(out[row - 1])
-                cells = written[span]
-                clock.span(row, terminal.cells("".join(written[:span.start])) + 1, *motion.growing(
+                ticked = before[1] == shown[1] and before[0] < shown[0]     # its count counts on
+                line(key[1], lambda cells: motion.growing(
                     cells, since, motion.GLIDE, round(len(cells) * before[0] / max(1, before[1])),
-                    words.get(key[1]) or "working"))
+                    words.get(key[1]) or "working"), ticked and (before[0], since, motion.GLIDE))
             elif key[0] == "task" and before:    # a task moved on a stage, or failed
                 row, column = cell
                 written = terminal.cell_texts(out[row - 1])
@@ -1771,10 +1782,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     terminal.state_glyph(shown), shown, since, lit))
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
-                    row, span = bars[key[1]]
-                    written = terminal.cell_texts(out[row - 1])
-                    clock.span(row, terminal.cells("".join(written[:span.start])) + 1, *motion.sweeping(
-                        written[span], since, shown, lit))
+                    line(key[1], lambda cells: motion.sweeping(cells, since, shown, lit))
         if typed:       # line after line, a cell at a time, each at its terminal column
             written = [terminal.cell_texts(out[row - 1])[len(indent):] for row in opened]
             total, before = sum(map(len, written)), 0
