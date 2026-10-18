@@ -1119,6 +1119,12 @@ def under(key, spots):
                  if first <= key.col <= last), Spot(what))
 
 
+def pointer():
+    """The `point` or click the pointer was read at last; None while a key has the highlight,
+    or before the pointer moved."""
+    return _POINTER
+
+
 def pointer_spot(spots):
     """The `Spot` of a screen's `spots` the pointer is on; an empty one while a key has the
     highlight, or before the pointer moved."""
