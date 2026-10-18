@@ -44,8 +44,10 @@ Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
 import contextlib
 import csv
 import fcntl
+import hashlib
 import io
 import json
+import pathlib
 import re
 import sys
 import time
@@ -517,30 +519,38 @@ def cell(found):
     return "-" if found is None else f"{found['score']:.0f} of {found['measures']}"
 
 
+def rule():
+    """The code that rows and scores the matrix, this module hashed: a matrix another version
+    computed is computed again, so an upgrade's scoring reaches every pick at its next pass."""
+    return hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()[:12]
+
+
 def stored():
-    """The matrix as last computed, {"computed_at", "config", "harnesses", "rows"}, or {}."""
+    """The matrix as last computed, {"computed_at", "config", "harnesses", "rule", "rows"},
+    or {}."""
     return _held().get("matrix") or {}
 
 
 def refresh(cfg, *, refresh=False, now=None):
     """The boards (`collect`) and the matrix computed from them and the config, written beside
     the boards in `state/matrix.json` so every pick reads one computed truth; computed again
-    only once a board answered anew, the config's models changed or the harnesses installed
-    are not the ones it rowed, since the harness catalogs it asks take time.  Returns (boards,
-    the scored rows); `recommended` reads off the rows."""
+    only once a board answered anew, the config's models changed, the harnesses installed
+    are not the ones it rowed or this module changed (`rule`), since the harness catalogs it
+    asks take time.  Returns (boards, the scored rows); `recommended` reads off the rows."""
     now = time.time() if now is None else now
     boards = collect(refresh=refresh, now=now)
     held = stored()
     fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)
     harnesses = present()
     if (held.get("rows") is not None and held.get("computed_at", -1) >= fetched
-            and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses):
+            and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses
+            and held.get("rule") == rule()):
         return boards, held["rows"]
     table = scored(rows(cfg, boards, harnesses))
     with _locked():
         cache = _held()
         cache["matrix"] = {"computed_at": now, "config": config_key(cfg), "harnesses": harnesses,
-                           "rows": table}
+                           "rule": rule(), "rows": table}
         _write(cache)
     return boards, table
 
