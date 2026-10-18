@@ -202,13 +202,14 @@ class ProviderScreen(unittest.TestCase):
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
         # with every shipped provider added, OpenCode -- any provider it logs in to -- and
-        # another subscription of each are offered
+        # another subscription of each but MiMo, whose OpenCode keeps one login, are offered
         screen = Screen(self, child=CHILD)
         open_providers(screen)
-        before = screen.path.read_bytes()
-        _, offered = pick(screen, ENTER, ADD, 7)
+        before, mark = screen.path.read_bytes(), len(screen.text())
+        _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered, ["› OpenCode", "  Claude II", "  ChatGPT II", "  Muse II",
-                                   "  Grok II", "  Gemini II", "  MiMo II"])
+                                   "  Grok II", "  Gemini II"])
+        self.assertNotIn("MiMo II", screen.text()[mark:])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()

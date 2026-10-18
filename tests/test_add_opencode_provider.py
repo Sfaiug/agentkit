@@ -2,14 +2,16 @@
 lists them, and after them every provider it can log in to; a picked provider is logged in on
 the terminal and its models join the list.  A model and an effort picked are added with the
 provider's table -- the shipped one where the shipped default has it, else the mode OpenCode's
-prices say, under the name OpenCode gives it -- so nothing is typed into ak but what `/` finds
-in a list.
+prices say, under the name OpenCode gives it, but its own provider's, which is OpenCode -- so
+nothing is typed into ak but what `/` finds in a list.  No second OpenCode login is offered: it
+keeps one.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  OpenCode's adapter
 is a fake there: it logs each verb with the provider it was named, `install` puts an empty
 program in a bin dir of the HOME's own, `login` on the terminal marks that provider logged in,
-and `providers` lists `acme` (logged in), `zeta`, `mimo`, `anthropic` and `openai` by that mark.  The catalog is faked
+and `providers` lists `opencode` (OpenCode's own, which it calls OpenCode Console, logged in),
+`zeta`, `mimo`, `anthropic` and `openai` by that mark.  The catalog is faked
 too.  Nothing reads or writes the owner's ~/.agentkit or OpenCode's own home.
 """
 
@@ -23,7 +25,7 @@ from agentkit import matrix, usage
 
 FAKE = r"""#!/usr/bin/env bash
 echo "opencode $1 ${AGENTKIT_PROVIDER-}" >> "$HOME/verbs.log"
-rows=("acme"$'\t'"Acme Plan"$'\t'"subscription" "zeta"$'\t'"Zeta Cloud"$'\t'"payg"
+rows=("opencode"$'\t'"OpenCode Console"$'\t'"subscription" "zeta"$'\t'"Zeta Cloud"$'\t'"payg"
       "mimo"$'\t'"MiMo"$'\t'"payg" "anthropic"$'\t'"Anthropic"$'\t'"payg"
       "openai"$'\t'"OpenAI"$'\t'"payg")
 case $1 in
@@ -47,15 +49,15 @@ from agentkit import config, menu, terminal, update
 home = Path(os.environ["HOME"])
 (home / "bin").mkdir()
 (home / "adapters").mkdir()
-(home / "in-acme").touch()
+(home / "in-opencode").touch()
 fake = home / "adapters" / "opencode.sh"
 fake.write_text(%r)
 fake.chmod(0o755)
 os.environ["AGENTKIT_ADAPTER_DIR"] = str(home / "adapters")
 config.harness_binary = lambda name: shutil.which(name, path=str(home / "bin")) or ""
 config.catalog = lambda harness: [
-    {"id": "acme/rocket-1", "label": "Rocket 1", "efforts": ["high", "max"]},
-    {"id": "acme/zeta-free", "label": "Zeta Free", "efforts": ["none"]},
+    {"id": "opencode/rocket-1", "label": "Rocket 1", "efforts": ["high", "max"]},
+    {"id": "opencode/zeta-free", "label": "Zeta Free", "efforts": ["none"]},
     {"id": "zeta/comet-2", "label": "Comet 2", "efforts": ["none"]},
     {"id": "mimo/mimo-v2.6-pro", "label": "MiMo V2.6 Pro", "efforts": ["none", "high"]},
     {"id": "anthropic/lyra-1", "label": "Lyra 1", "efforts": ["high"]},
@@ -90,7 +92,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         lines = through(screen)
         # installed, since its program was nowhere; the models it runs now, then the rest
         self.assertEqual(verbs(screen), ["opencode install ", "opencode providers "])
-        self.assertEqual(listed(lines), [["Rocket 1", "Acme Plan"], ["Zeta Free", "Acme Plan"],
+        self.assertEqual(listed(lines), [["Rocket 1", "OpenCode"], ["Zeta Free", "OpenCode"],
                                          ["Zeta Cloud", "zeta", "log in"],
                                          ["MiMo", "mimo", "log in"],
                                          ["Anthropic", "anthropic", "log in"],
@@ -124,33 +126,45 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
         screen.leave()
 
-    def test_a_model_it_runs_now_is_added_with_no_login_and_a_shipped_one_keeps_its_table(self):
+    def test_opencode_s_own_model_adds_with_no_login_under_its_name_and_no_second_login(self):
         screen = Screen(self, child=CHILD, text=ONE)
         through(screen)
         # a model's name finds it first, before the provider of that name that needs a login:
         # OpenCode's own free DeepSeek beside DeepSeek's paid one
         lines = screen.press(b"/zeta", lambda lines: "  model  /zeta" in lines)
-        self.assertEqual(listed(lines), [["Zeta Free", "Acme Plan"],
+        self.assertEqual(listed(lines), [["Zeta Free", "OpenCode"],
                                          ["Zeta Cloud", "zeta", "log in"]])
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         through(screen)
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
-        self.assertNotIn("opencode login acme", verbs(screen))
+        self.assertNotIn("opencode login opencode", verbs(screen))
         saved = screen.saved()
-        self.assertEqual(saved["providers"]["acme"], {"mode": "subscription", "name": "Acme Plan"})
+        # OpenCode's own provider, by the harness's name rather than the one OpenCode gives it
+        self.assertEqual(saved["providers"]["opencode"], {"mode": "subscription", "name": "OpenCode"})
         self.assertEqual(saved["models"]["zeta-free"], {
-            "harness": "opencode", "model": "acme/zeta-free", "effort": "none",
-            "provider": "acme"})
+            "harness": "opencode", "model": "opencode/zeta-free", "effort": "none",
+            "provider": "opencode"})
         self.assertEqual(saved["models"]["rocket"]["effort"], "max")
         # MiMo is shipped: its table as it ships, whose mode its endpoint says
         lines = through(screen)
-        self.assertEqual(listed(lines)[1][:2], ["Zeta Free", "Acme Plan"])   # marked as added
+        self.assertEqual(listed(lines)[1][:2], ["Zeta Free", "OpenCode"])   # marked as added
         screen.press(DOWN * 3 + ENTER, lambda lines: "MiMo V2.6 Pro" in str(lines))
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.saved()["providers"]["mimo"], SHIPPED["providers"]["mimo"])
+        # one OpenCode on the Providers row; `+ add` offers it again, and no second login of a
+        # provider on it, since it keeps one
+        lines = open_providers(screen)
+        self.assertEqual(providers(lines),
+                         ["Providers      Claude  OpenCode  MiMo  + add  − remove"])
+        mark = len(screen.text())
+        _, offered = pick(screen, ENTER, ADD, 6)
+        self.assertEqual(offered[4:], ["  OpenCode", "  Claude II"])
+        for name in ("OpenCode II", "MiMo II"):
+            self.assertNotIn(name, screen.text()[mark:])
+        screen.press(ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
 
     def test_a_model_opencode_pays_for_stays_payg_whatever_its_provider_table_says(self):
