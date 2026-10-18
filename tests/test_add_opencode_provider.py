@@ -167,6 +167,21 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen.press(ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
 
+    def test_the_name_an_older_add_gave_opencode_s_own_provider_reads_and_saves_as_opencode(self):
+        older = ONE + ('\n[providers.opencode]\nmode = "subscription"\nname = "OpenCode Console"\n'
+                       '\n[models.rocket]\nharness = "opencode"\nmodel = "opencode/rocket-1"\n'
+                       'effort = "high"\nprovider = "opencode"\n')
+        screen = Screen(self, child=CHILD, text=older)
+        self.assertEqual(providers(open_providers(screen)),
+                         ["Providers      Claude  OpenCode  + add  − remove"])
+        lines = through(screen)
+        self.assertEqual(listed(lines)[1][:2], ["Zeta Free", "OpenCode"])
+        screen.press(DOWN + ENTER, lambda lines: "  effort" in lines)
+        screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        self.assertEqual(screen.saved()["providers"]["opencode"],
+                         {"mode": "subscription", "name": "OpenCode"})
+        screen.leave()
+
     def test_a_model_opencode_pays_for_stays_payg_whatever_its_provider_table_says(self):
         screen = Screen(self, child=CHILD, text=ONE)
         for provider in ("anthropic", "openai"):          # each logged in on a paid key

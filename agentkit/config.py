@@ -402,7 +402,12 @@ def load():
     # here, as a default nobody named is, and the first model takes a place it empties, so a
     # seat can still start with Enter.
     _fall_back(defaults, names, written)
+    hosts = provider_hosts()
     for name, entry in cfg["providers"].items():
+        if name in hosts and isinstance(entry, dict):
+            # the harness's own provider (listed_providers), whatever an older `+ add` named
+            # it: `OpenCode Console` reads `OpenCode`, and the next save writes it so
+            entry["name"] = hosts[name]
         listed = entry.get("accounts", []) if isinstance(entry, dict) else []
         # each name is a path component: the adapters keep that account's login under it
         if (not isinstance(listed, list)
