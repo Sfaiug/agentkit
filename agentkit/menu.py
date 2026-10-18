@@ -1299,17 +1299,15 @@ def v5o_column_widths(infos, term_width):
                       for info in infos] + [1]), 24)
     orch_w = min(max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
                       for info in infos] + [0]), 14)
-    count_w = min(max([terminal.cells(terminal.state_text(info["count"]))
-                       for info in infos] + [1]), 16)
-    # The head always fits the room, on a phone as on a wide screen, so the columns start at
-    # one offset: the name and the orchestrator share what the number and the state leave, the
-    # longer giving way first (as `terminal.seats`), then the state; `_head` cuts the rest.
+    count_w = max([terminal.cells(terminal.state_text(info["count"]))
+                   for info in infos] + [1])
+    # The name and orchestrator share what the number and the whole state leave, the longer
+    # giving way first (as `terminal.seats`); `_head` fits even narrower screens.
     while 2 + num_w + 2 + name_w + 2 + orch_w + 2 + count_w > room and max(name_w, orch_w) > 1:
         if name_w >= orch_w:
             name_w -= 1
         else:
             orch_w -= 1
-    count_w = max(1, min(count_w, room - (2 + num_w + 2 + name_w + 2 + orch_w + 2)))
     fixed = 2 + num_w + 2 + name_w + 2 + orch_w + 2 + count_w + 2
     return {"room": room, "narrow": term_width < 60, "num": num_w, "name": name_w,
             "orch": orch_w, "count": count_w, "worker": orch_w, "bar": 0,
@@ -1319,19 +1317,25 @@ def v5o_column_widths(infos, term_width):
 def _head(info, widths, tone="dim"):
     """A seat row's fixed columns -- number, name, orchestrator in `tone`, state -- in `widths`.
     Where even their narrowest do not fit, the number keeps its place behind the indent the
-    highlight's `›` takes, and the rest is cut to the room as plain text."""
+    highlight's `›` takes; the name and orchestrator give way before the state."""
     number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
+    orchestrator = info.get("orchestrator") or info.get("worker") or ""
     rest = [born_name(info["born"], widths["name"]) if "born" in info else
             terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
-            _styled_cell(info.get("orchestrator") or info.get("worker") or "", widths["orch"],
-                         tone),
+            _styled_cell(orchestrator, widths["orch"], tone),
             _styled_cell(terminal.state_text(info["count"]), widths["count"],
                          terminal.state_colour(info["count"]))]
     head = "  ".join([number, *rest])
     if terminal.cells(head) <= widths["room"]:
         return head
     left = widths["room"] - terminal.cells(number) - 2
-    return number + ("  " + terminal.cut(" ".join(rest), left) if left > 0 else "")
+    state = rest[-1]
+    if terminal.cells(state) <= left:
+        left -= terminal.cells(state) + 2
+        name = born_name(info["born"], max(0, left)) if "born" in info else info["name"]
+        label = terminal.cut(f"{name} {orchestrator}", left)
+        return number + "  " + (label + "  " if label else "") + state
+    return number + ("  " + terminal.cut(state, left) if left > 0 else "")
 
 
 def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
@@ -4563,37 +4567,15 @@ def past_body(past, at=None, models=None, room=None):
              for number, session in past]
     width = terminal.width()
     widths = v5o_column_widths(infos, width)
-    row_room = widths["room"]
-    age_w = max(terminal.cells(info["count"]) for info in infos)
-    # Reserve the whole age; the orchestrator gives way when even the shortest names cannot fit.
-    head_room = max(2 + widths["num"], row_room - age_w - 2)
-    head_widths = [widths["num"], widths["name"], widths["orch"]]
-    if 2 + sum(head_widths) + 4 > head_room:
-        head_widths = [widths["num"]]
-        if head_room > 4 + widths["num"]:
-            head_widths.append(head_room - 4 - widths["num"])
-    inline = 2 + sum(head_widths) + 2 * len(head_widths) + age_w <= row_room
-    cell_widths = head_widths + ([age_w] if inline else [])
-    kinds = ("dim", None, "dim")[:len(head_widths)] + ("dim", "dim")
 
     def drawn(info):
-        cells = [info["number"], info["name"], info["orchestrator"]][:len(head_widths)]
-        own_widths = cell_widths
-        if inline:
-            cells.append(info["count"])
-            restart_w = terminal.cells(info["restart"])
-            if info["restart"] and 2 + sum(cell_widths) + 2 * len(cell_widths) + restart_w <= row_room:
-                cells.append(info["restart"])
-                own_widths = cell_widths + [restart_w]
-        lines = [terminal.table_row(cells, own_widths, indent="  ", kinds=kinds, right=(0,))]
-        if not inline:
-            lines += ["    " + terminal.styled(line, "dim")
-                      for line in terminal.wrap(info["count"], max(1, row_room - 4))]
+        line = _head(info, widths)
+        if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
+            line += "  " + terminal.styled(info["restart"], "dim")
         lit = at == info["name"] and not terminal.away()
-        return [(terminal.highlight(line.rstrip(), mark=n == 0) if lit else line.rstrip(),
-                 info["name"]) for n, line in enumerate(lines)]
+        return terminal.highlight(line.rstrip()) if lit else line.rstrip()
     projects = [((v5o_header(project, width), None),
-                 [drawn(info) for info in project["seats"]])
+                 [[(drawn(info), info["name"])] for info in project["seats"]])
                 for project in by_project(infos, orch.listed()).values()]
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]

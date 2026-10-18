@@ -179,20 +179,19 @@ class Layout(Sandbox):
                         self.assertIn("stopped 120d ago", terminal.plain(row))
                         self.assertTrue(all(terminal.cells(line) <= width for line in lines))
 
-    def test_age_continuations_stay_with_their_seat_when_paging(self):
-        past = [(number, {"name": name, "repo": None, "closed": 1})
-                for number, name in ((12, "fix-api"), (13, "fix-web"))]
-        with patch.object(terminal, "width", return_value=20), \
-                patch.object(orch, "age", return_value="120d"), \
+    def test_past_rows_match_the_main_screens_rows(self):
+        session = {"name": "fix-api", "repo": None, "closed": 1}
+        info = {"number": "12", "name": "fix-api", "orchestrator": "astra",
+                "count": "stopped 12000d ago"}
+        with patch.object(orch, "age", return_value="12000d"), \
                 patch.object(orch, "listed", dict), \
                 patch.object(orch, "checkout_of", return_value=None):
-            lines, places = menu.past_body(past, at="fix-web", room=3)
-        self.assertEqual(len(lines), 3)
-        self.assertEqual(terminal.plain(lines[0]), "no project")
-        self.assertTrue(terminal.plain(lines[1]).endswith("13"))
-        self.assertEqual(terminal.plain(lines[2]), "stopped 120d ago")
-        self.assertEqual(places, {1: (("row", "fix-web"), []), 2: (("row", "fix-web"), [])})
-        self.assertTrue(all(terminal.cells(line) <= 20 for line in lines))
+            for width in (20, 26, 40, 100):
+                with self.subTest(width=width), \
+                        patch.object(terminal, "width", return_value=width):
+                    lines, places = menu.past_body([(12, session)], models={"fix-api": "astra"})
+                    main_row = menu.v5o_seat_blocks([info], width)[0][0]
+                    self.assertEqual(lines[next(iter(places))], main_row)
 
 
 if __name__ == "__main__":
