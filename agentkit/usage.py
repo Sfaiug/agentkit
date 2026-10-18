@@ -15,10 +15,9 @@ anything.
 
 Exhaustion is the one hard exclusion, and it is not a knob: a meter is spent at 100% used and
 not one point earlier, because a subscription is bought to be used to the end.  The worker
-pick (`pick_order`) ranks whatever is left by the matrix's score for the role (`matrix.rank`,
-off `ak models`: the measures a score rests on, then the score), budget only among models
-ranked alike or ranked by nothing; the orchestrator choice (`ak orch`) ignores every number
-and takes the default orchestrator while it still has something to spend.
+pick (`pick_order`) ranks whatever is left by `matrix.rank` for the role, budget only among
+models ranked alike or ranked by nothing; the orchestrator choice (`ak orch`) ignores every
+number and takes the default orchestrator while it still has something to spend.
 
 Credits an adapter reports (`"credits": <number left>`) are usage left past a spent window:
 such a provider is not spent, only ranked after every one with a window left (`on_credits`),
