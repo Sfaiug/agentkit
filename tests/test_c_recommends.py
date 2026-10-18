@@ -1,13 +1,12 @@
 """The `c` screen shows what `ak models` recommends beside a seat's marks, and `r`, or a click
-on `r recommended`, takes it.
+on `r recommended`, opens the models screen (tests/test_models_screen.py), where `r` takes it.
 
 Under a seat's models one dim line names the recommended row per role, read off the matrix as
-last computed (`matrix.stored`, `matrix.recommended`) and wrapped to the screen; `r` makes the
-recommended executor and reviewer the seat's marks where an entry in the config as it stands runs
-that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort), saved to its
-record at once, and says why when it cannot; the orchestrator is only said, since moving the
-seat asks first.  With nothing computed the line says
-so and `r` is no key.
+last computed (`matrix.stored`, `matrix.recommended`) and wrapped to the screen; `r` there
+makes the recommended executor and reviewer the seat's marks where an entry in the config as it
+stands runs that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort),
+saved to its record at once, and says why when it cannot; the orchestrator is only said, since
+moving the seat asks first.  With nothing computed the line says so and `r` is no key.
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked.
 """
@@ -77,14 +76,20 @@ class Recommends(Sandbox):
                     row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         text = self.screen([Key("esc")])
         self.assertIn("ak recommends orch claude-sonnet-4-6 @ max (not configured) · exec fable @ xhigh "
-                      "· review astra @ xhigh · r takes exec and review", text)
+                      "· review astra @ xhigh", text)
         self.assertIn("⏎ mark r recommended esc back", text)
-        self.screen([Key("char", "r"), Key("esc")])
+        # r opens the models screen and takes nothing by itself
+        text = self.screen([Key("char", "r"), Key("esc"), Key("esc")])
+        self.assertIn("agentkit · models · fix-api", text)
+        record = config.load_session(self.cfg, "fix-api")
+        self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
+        self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
                          ("opus", ["fable"], ["astra"]))
 
     def test_a_click_on_r_recommended_does_what_r_does(self):
+        # the click opens the models screen; r there takes
         self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
                     row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         spots, frame = {}, terminal.frame
@@ -97,6 +102,8 @@ class Recommends(Sandbox):
         def keys():         # the click lands on `r` where the drawn key line has it
             yield next(Key("click", col=first, row=line) for line, (_, cells) in spots.items()
                        for first, _, cell in cells if cell == "r")
+            yield Key("char", "r")
+            yield Key("esc")
             yield Key("esc")
         with patch.object(terminal, "frame", side_effect=framed):
             self.screen(keys())
@@ -105,13 +112,13 @@ class Recommends(Sandbox):
 
     def test_an_unconfigured_recommendation_is_said_and_nothing_changes(self):
         self.store([row("claude", "claude-sonnet-4-6", "max", execute=100), row("codex", "gpt-6-nano", "max", review=100)])
-        text = self.screen([Key("char", "r"), Key("esc")])
+        text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("nothing to take: the recommended rows are not configured models", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
         # one of the two configured: that one is taken, the other mark stays
         self.store([row("claude", "claude-sonnet-4-6", "max", execute=100), row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
-        self.screen([Key("char", "r"), Key("esc")])
+        self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
 
@@ -121,10 +128,10 @@ class Recommends(Sandbox):
         self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
                     row("claude", "claude-opus-5-5", "xhigh", "opus", review=100)])
         text = self.screen([Key("left"), Key("enter"), *[Key("down")] * 4, Key("enter"),
-                            Key("down"), Key("enter"), Key("char", "r"), Key("esc")])
+                            Key("down"), Key("enter"), Key("char", "r"), Key("char", "r"),
+                            Key("esc"), Key("esc")])
         self.assertNotIn("fable", config.load()["models"])
-        self.assertIn("exec claude-fable-5-1 @ xhigh (not configured) · review opus @ xhigh "
-                      "· r takes exec and review", text)
+        self.assertIn("exec claude-fable-5-1 @ xhigh (not configured) · review opus @ xhigh", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
 

@@ -1,5 +1,5 @@
-"""`r` on the `c` screen also sets the recommended effort for the executor and the reviewer on
-the model entry.
+"""`r` on the models screen (`r recommended` on `c`) also sets the recommended effort for the
+executor and the reviewer on the model entry.
 
 A recommended row is a model at an effort; the entry that runs that model on that harness is
 the one running it in that role (`matrix.runs`) or the first such entry, and the line names it.  `r` marks it for the role and sets
@@ -58,9 +58,8 @@ class RecommendsEffort(Sandbox):
                     row("claude", "claude-opus-5-5", "max", execute=100),
                     row("codex", "gpt-6-astra", "high", review=100)])
         text = self.screen([Key("esc")])
-        self.assertIn("ak recommends orch fable @ max · exec opus @ max · review astra @ high "
-                      "· r takes exec and review", text)
-        self.screen([Key("char", "r"), Key("esc")])
+        self.assertIn("ak recommends orch fable @ max · exec opus @ max · review astra @ high", text)
+        self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
                          ("fable", ["opus"], ["astra"]))
@@ -76,7 +75,7 @@ class RecommendsEffort(Sandbox):
         config.save(self.cfg)
         self.store([row("claude", "claude-opus-5-5", "xhigh", "opus", execute=100),
                     row("codex", "gpt-6-astra", "xhigh", review=100)])
-        self.screen([Key("char", "r"), Key("esc")])
+        self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         self.assertNotIn("exec_effort", self.entry("opus"))
         self.assertNotIn("review_effort", self.entry("astra"))
         record = config.load_session(self.cfg, "fix-api")
@@ -85,13 +84,13 @@ class RecommendsEffort(Sandbox):
         self.cfg["models"]["opus"]["exec_effort"] = "max"
         config.save(self.cfg)
         self.store([row("claude", "claude-opus-5-5", None, execute=100)])
-        self.screen([Key("char", "r"), Key("esc")])
+        self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         self.assertNotIn("exec_effort", self.entry("opus"))
 
     def test_a_config_that_cannot_be_saved_changes_no_mark(self):
         self.store([row("claude", "claude-opus-5-5", "max", execute=100)])
         with patch.object(config, "save", side_effect=OSError("read-only")):
-            text = self.screen([Key("char", "r"), Key("esc")])
+            text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("config: read-only", text)
         self.assertNotIn("exec_effort", self.entry("opus"))
         record = config.load_session(self.cfg, "fix-api")
