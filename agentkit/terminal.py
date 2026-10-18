@@ -103,14 +103,16 @@ def colour_depth():
 
 @lru_cache(maxsize=None)
 def xterm_colour(rgb):
-    """Nearest fixed xterm colour; the first sixteen depend on the user's palette."""
-    wanted = tuple(int(rgb[i:i + 2], 16) for i in (0, 2, 4))
-    colours = [(16 + 36 * r + 6 * g + b, (red, green, blue))
-               for r, red in enumerate(LEVELS) for g, green in enumerate(LEVELS)
-               for b, blue in enumerate(LEVELS)]
-    colours += [(232 + i, (8 + 10 * i,) * 3) for i in range(24)]
-    return min(colours, key=lambda item: sum((a - b) ** 2
-               for a, b in zip(wanted, item[1])))[0]
+    """Nearest fixed xterm colour, the lower number on a tie; the first sixteen depend on the
+    user's palette.  A fade asks for a new colour each frame, so none is searched for: in the
+    cube each channel is nearest on its own, and the nearest grey is the one nearest the
+    channels' mean."""
+    wanted = [int(rgb[i:i + 2], 16) for i in (0, 2, 4)]
+    steps = [min(range(6), key=lambda n: abs(LEVELS[n] - value)) for value in wanted]
+    grey = min(range(24), key=lambda n: abs(3 * (8 + 10 * n) - sum(wanted)))
+    return min((16 + 36 * steps[0] + 6 * steps[1] + steps[2], [LEVELS[n] for n in steps]),
+               (232 + grey, [8 + 10 * grey] * 3),
+               key=lambda item: sum((a - b) ** 2 for a, b in zip(wanted, item[1])))[0]
 
 
 def light_grey(rgb):
@@ -237,8 +239,15 @@ def plain(text, spaced=False):
 
 
 def cells(text):
-    return sum(0 if unicodedata.combining(c) else
-               2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in ANSI.sub("", text))
+    text = ANSI.sub("", text) if "\033" in text else text
+    return len(text) if text.isascii() else sum(map(_width, text))
+
+
+@lru_cache(maxsize=None)
+def _width(c):
+    """One character's columns: a draw counts thousands, of a few dozen characters."""
+    return (0 if unicodedata.combining(c) else
+            2 if unicodedata.east_asian_width(c) in ("W", "F") else 1)
 
 
 def cut(text, room, spaced=False):
