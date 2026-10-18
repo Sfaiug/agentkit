@@ -177,8 +177,9 @@ def forget_owner_words(report):
         except OSError:
             continue
         report(f"gc: removed the owner's saved words from job {job_dir.name}")
-    for seat, path in config.seat_files("session"):
+    for seat, _ in config.seat_files("session"):
         try:
+            path = config.session_path(seat)    # what update_session writes: the name normalized
             if (_ours(path, config.record_lock_path(path), path.with_suffix(".tmp"))
                     and "owner_words_cursor" in (retention.read_json(path) or {})):
                 config.update_session(seat, owner_words_cursor=None)

@@ -96,6 +96,7 @@ class OwnerWordsForgotten(unittest.TestCase):
         held, _ = self.saved("20261014-acme-held", owner_words=WORDS)
         config.update_session("lagoon", owner_words_cursor={"at": 30, "count": 1})
         config.session_path("lagoon").with_suffix(".tmp").symlink_to(victim)
+        (config.STATE / "session- lagoon.json").write_text(json.dumps({"owner_words_cursor": {}}))
         with patch.object(gc, "gc_candidates", return_value=[]) as planner:
             gc.gc(lambda _: None)
         self.assertEqual(victim.read_text(), "the owner's own notes\n")
