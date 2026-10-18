@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
+from test_news_motion import CELL, painted  # noqa: E402
 from agentkit import config, menu, motion, terminal  # noqa: E402
 
 
@@ -40,6 +41,7 @@ class GrowIn(Sandbox):
                 redirect_stdout(io.StringIO()) as out:
             menu.draw(self.cfg, self.seats, menu.KEYS, 0, "acme-api", {}, look=False,
                       records=[], clock=self.clock)
+        self.written = out.getvalue()
         return [line.replace("\033[K", "") for line in
                 out.getvalue().split("\033[J")[0].split("\n")]
 
@@ -65,6 +67,25 @@ class GrowIn(Sandbox):
         # and the next draw grows nothing
         self.draw()
         self.assertEqual(self.clock.cells, {})
+
+    def test_on_a_popup_each_line_grows_as_it_fades_in_and_never_shrinks(self):
+        # Ctrl-b m's clock fades its first draw in from the background: the lines grow under
+        # the fade, never shown at their length first
+        lines = {n: terminal.ANSI.sub("", line) for n, line in enumerate(self.draw(), 1)}
+        rows = [n for n, line in lines.items() if "━" in line and "acme" in line]
+        self.clock, screen, filled = motion.Clock(fade=True), {}, []
+        with patch.object(terminal, "_LIGHT", False):
+            for n, now in enumerate((10, 10.05, 10.1, 10.15, 10.3, 10.5, 10.7)):
+                with patch.object(motion.time, "monotonic", return_value=now):
+                    written = self.clock.frame() if n else (self.draw(), self.written)[1]
+                for row, column, text in CELL.findall(written):
+                    for k, cell in enumerate(painted(text)):
+                        screen[int(row), int(column) + k] = cell
+                filled.append(sum(char in "━╸" and colour != (0, 0, 0)
+                                  for (row, _), (char, colour) in screen.items() if row in rows))
+        self.assertEqual(filled, sorted(filled))
+        self.assertEqual((len(rows), filled[0]), (2, 0))
+        self.assertEqual(filled[-1], sum(lines[n].count("━") + lines[n].count("╸") for n in rows))
 
     def test_line_glyphs_in_what_got_done_never_grow(self):
         done = {"word": "done", "reason": "Deployed - 1 of 2 services; ━╸─= 3 of 4", "since": None}

@@ -349,7 +349,7 @@ class Clock:
 
     def rise(self, lines):
         """Whether `lines`, a draw's screen top down, come up out of the background, the frames
-        writing them and nothing else until they are up: on a clock made to `fade`, where
+        writing them and what moves in them until they are up: on a clock made to `fade`, where
         colour can move, whatever is drawn in the FADE seconds from its first draw -- a key's
         draw at once, and news -- each from where the fade has got to.
         """
@@ -375,18 +375,18 @@ class Clock:
         return 0 if self.last is None else max(0, self.last + FRAME - time.monotonic())
 
     def frame(self):
-        """What to write now: the lines still rising, or each cell whose text moved since it
-        was last written, no other, with the pointer's light where it is (`terminal.pointed`)."""
+        """What to write now: the lines still rising and every cell that moves, faded with them,
+        or each cell whose text moved since it was last written, no other, with the pointer's
+        light where it is (`terminal.pointed`)."""
         now = self.last = time.monotonic()
-        out = ""
+        out, amount = "", 0
         if self.rising:
             lines, began = self.rising
             amount = 1 - eased((now - began) / FADE)
             out = "".join(f"\033[{row};1H{terminal.fade(line, amount)}"
                           for row, line in enumerate(lines, 1))
-            if amount > 0:
-                return out
-            self.rising, self.shown = None, {}      # up, as drawn: every cell is written over it
+            # every cell that moves written over them again, and once they are up, as drawn
+            self.shown, self.rising = {}, self.rising if amount > 0 else None
         # what spans more than its cell -- a whole row's glow -- first, and what moves inside
         # it written again over it in the same frame, on its background
         drawn = sorted(((cell, text, terminal.cells(text), until)
@@ -399,7 +399,8 @@ class Clock:
                          if above == row and at < column < at + size), text)
             if self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
-                out += f"\033[{row};{column}H{terminal.pointed(row, column, text)}"
+                lit = terminal.pointed(row, column, text)
+                out += f"\033[{row};{column}H{terminal.fade(lit, amount)}"
                 for inside in [cell for cell in self.shown if cell[0] == row
                                and column < cell[1] < column + width]:
                     del self.shown[inside]
