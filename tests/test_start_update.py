@@ -62,7 +62,7 @@ orch.listing = lambda *args, **_kw: [
     {"name": name, "repo": None, "path": "/", "created": 0}
     for name in ("fix-api", "tidy-docs", "web-portal")]
 orch.file_projectless = lambda *args, **_kw: None
-orch.taken_names = lambda: set()
+orch.taken_names = lambda found=None: set()
 orch.job_notices = lambda: []
 menu.run_records = lambda *args, **_kw: []
 menu.seat_row_state = lambda *args, **_kw: {"word": "working", "reason": "", "since": None}

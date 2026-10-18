@@ -48,7 +48,7 @@ orch.listing = lambda reconcile=True: [   # alpha sits in ACME, whose heading ha
      "created": 0} for name in ("alpha", "omega")]
 notices = [os.environ["ESC_NOTICE"]] if os.environ.get("ESC_NOTICE") else []
 orch.job_notices = lambda: [notices.pop()] if notices else []
-orch.taken_names = lambda: {"alpha", "omega"}
+orch.taken_names = lambda found=None: {"alpha", "omega"}
 orch.rename = lambda old, new, **_kw: print(f"<renamed {new}>", flush=True) or new
 orch.cmd_stop = lambda argv: print(f"<stopped {argv[0]}>", flush=True)
 menu.seat_row_state = lambda cfg, session, **facts: {"word": "working", "reason": "",

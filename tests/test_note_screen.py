@@ -32,7 +32,7 @@ orch.listing = lambda **_kw: [
     {"name": name, "repo": None, "path": "/", "created": 0}
     for name in ("fix-api", "ship-docs")]
 orch.job_notices = lambda: []
-orch.taken_names = lambda: {"fix-api", "ship-docs"}
+orch.taken_names = lambda found=None: {"fix-api", "ship-docs"}
 
 menu.seat_row_state = lambda cfg, session, **_kw: {
     "word": "working", "reason": "", "since": None}
