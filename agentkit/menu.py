@@ -206,8 +206,10 @@ class Live:
         os.set_blocking(self.reader, False)
         os.set_blocking(self.writer, False)
         self.watcher, self.done = None, threading.Event()
-        self.watching = threading.Event()  # clear until `watch`, and while the owner is away
-        self.reading = threading.RLock()   # held for a read and its pass decided (`away`)
+        self.watching = threading.Event()  # clear while the owner is away
+        self.watching.set()
+        self.leaves = 0                  # how often the owner has gone away (`away`)
+        self.reading = threading.Lock()  # held while a read lands and its pass is decided (`away`)
         self.seen = None                 # the records the last read was read from, as they stood
         self.looker = None               # the thread of the last pass looking at every seat
         self.passing = threading.Lock()  # held while a pass is going
@@ -323,8 +325,10 @@ class Live:
 
         The one place the main screen reads them, and never between a key and its frame: a draw
         is whatever the last read left, so a key that moves the highlight costs a draw and
-        nothing more, and one back from another screen shows the list at once; back from a seat,
-        or the screen that opens one, it is read first (`away`).  With `look`
+        nothing more, and one back from another screen, a seat among them, shows the list at
+        once, read again behind it (`back`).  None begins while the owner is away, and one the
+        owner leaves during is let go, back by its end or not: nobody draws it, and it starts no
+        look (`away`).  With `look`
         every seat is looked at as well, behind it (`look`); and without, when one is listed
         that no pass of this menu's has looked at yet: a seat started elsewhere while the menu
         is open is drawn on what there is (`seat_row_state`), a word its bar has never been
@@ -332,12 +336,19 @@ class Live:
         The pass is always over every seat, each under the number it is listed by (`meet`).
         """
         with self.reading:
-            found = orch.listing()
-            records = run_records()       # one pass over run.json a read: filing, looking, drawing
-            orch.file_projectless(found, [state for _, state in records])
+            if not self.watching.is_set():
+                return
+            leaves = self.leaves
+        found = orch.listing()
+        records = run_records()           # one pass over run.json a read: filing, looking, drawing
+        orch.file_projectless(found, [state for _, state in records])
+        groups = v5o_groups(self.cfg, found, records, look=False)
+        with self.reading:
+            if self.leaves != leaves:
+                return
             self.read_from = found, records
             self.meet(look)
-            self.last[:] = found, v5o_groups(self.cfg, found, records, look=False)
+            self.last[:] = found, groups
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -354,8 +365,9 @@ class Live:
         self.asked.set()
 
     def watch(self, last):
-        """Read into `last` once, now, then again in a thread within STIR of any record
-        changing, or when asked (`ask`): the seats and their groups, for each draw to draw.
+        """Read into `last` once, now, for the first draw, then again in a thread within STIR
+        of any record changing, or when asked (`ask`): the seats and their groups, for each
+        draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
@@ -367,25 +379,29 @@ class Live:
         replaces the file -- and nothing here captures a pane.  A read on news starts a look
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
-        Called again back from a seat (`away`), it is that first read again, and the same thread
-        watching after it.
         """
         self.last, self.seen = last, self.recorded()
-        self.asked.clear()               # what was asked while the owner was away, this answers
         self.read(look=True)
         if self.watcher is None:
             self.watcher = threading.Thread(target=self._watch, daemon=True)
             self.watcher.start()
-        self.watching.set()
 
     def away(self):
         """The owner is going into a seat, or to the screen that opens one: nothing draws a read
-        until the menu is back, so the watcher makes none, nor a `stat`, until `watch` again.  A
-        read going ends first, so none lands while away or over the read back.  A seat listed
-        while a pass was going still gets its own once that one ends, on what was read with it
-        (`_look`): opened, it gets no other look while its owner is in it (`read`)."""
+        until the menu is back, so the watcher makes none, nor a `stat`, until `back`, and a
+        read going as the owner leaves is let go when it ends (`read`); the seat opens at once,
+        waiting at most on a read landing.  A seat listed while a pass was going still gets its
+        own once that one ends, on what was read with it (`_look`): opened, it gets no other
+        look while its owner is in it."""
         with self.reading:
+            self.leaves += 1
             self.watching.clear()
+
+    def back(self):
+        """The owner is back: the menu draws what the last read left at once, and the watcher
+        reads again behind it, every seat looked at, each read landing drawn as it lands."""
+        self.watching.set()
+        self.ask(look=True)
 
     def recorded(self):
         """usage.json, the runs' moved mark and every seat record: each one's name, inode and
@@ -407,23 +423,22 @@ class Live:
         while True:
             self.asked.wait(STIR)
             self.watching.wait()
-            with self.reading:
-                if self.done.is_set():
-                    return
-                if not self.watching.is_set():
-                    continue             # away since the wait: what it would read, nobody draws
-                now = self.recorded()
-                if now == self.seen and not self.asked.is_set():
-                    continue
-                self.asked.clear()
-                look = self.looking
-                if look:
-                    self.looking = False     # a look asked for since is this one: it starts after
-                self.seen = now
-                try:
-                    self.read(look)
-                except (config.Error, OSError, ValueError, TypeError, KeyError):
-                    pass    # what cannot be read now stays drawn as it was last read
+            if self.done.is_set():
+                return
+            if not self.watching.is_set():
+                continue                 # away since the wait: what it would read, nobody draws
+            now = self.recorded()
+            if now == self.seen and not self.asked.is_set():
+                continue
+            self.asked.clear()
+            look = self.looking
+            if look:
+                self.looking = False     # a look asked for since is this one: it starts after
+            self.seen = now
+            try:
+                self.read(look)
+            except (config.Error, OSError, ValueError, TypeError, KeyError):
+                pass    # what cannot be read now stays drawn as it was last read
             self._wake()
 
     def _wake(self):
@@ -824,9 +839,7 @@ def seat_tasks(name, records=None, now=None, index=None):
     records = run_records() if records is None else records
     index = transitions.supersession_index(records) if index is None else index
     found = []
-    for run_dir, state in records:
-        if transitions.launched_session(state) != name:
-            continue
+    for run_dir, state in transitions.runs_by_seat(records).get(name, []):
         stage, run = STAGES.get(state.get("step"), 0), Path(run_dir).name
         if transitions.landing_line(state):
             found.append(Task(2, "waiting", run))
@@ -1029,7 +1042,7 @@ def v5o_needs_look(state, all_states=None, index=None, now=None):
 
 
 def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, index=None,
-                  run_numbers=None, look=True):
+                  run_numbers=None, look=True, mine=None):
     """Number, name, orchestrator, state and one last column for one offered seat.
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
@@ -1041,7 +1054,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     instance is gone keeps its row and its number opens the conversation where it stopped.
     Seats with nothing to resume into never reach `found`. `jobs_cache` and `run_numbers`
     are kept for callers that still hand them down; `seat_progress` reads the jobs itself and
-    gone seats name their own number now.
+    gone seats name their own number now.  `mine` is the runs each seat launched, by its name
+    now, so a pass over every seat reads every run once (`transitions.runs_by_seat`).
     """
     name = session["name"]
     found = seat_row_state(cfg, session, look=look, records=records, now=now, number=number,
@@ -1057,7 +1071,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     reason = found["reason"] or ""
     sentence = reason
     return {"number": str(number), "name": name, "session": session,
-            "crew": seat_crew(selection), "tasks": seat_tasks(name, records, now, index),
+            "crew": seat_crew(selection),
+            "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now, index),
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
@@ -1098,11 +1113,12 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
             silent_map[run_dir.name] = age
     jobs_cache = {}
     infos = []
+    mine = transitions.runs_by_seat(records)
     for number, session in enumerate(found, 1):
         if session.get("closed"):
             continue          # stopped: its number is kept for the past screen
         infos.append(v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache,
-                                   at, index, None, look))
+                                   at, index, None, look, mine))
     # Grouped by the checkout the seat's repo is, so a project can never be listed
     # twice and a run can never make one.
     groups = {}
@@ -4215,8 +4231,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     that did more than move the highlight, and within STIR of a record changing -- and every
     draw is what the last read left, drawn again when the next one lands.  While the owner is in
     a seat it opened, or on the screen that opens one, nothing is read but by the pass a seat
-    listed was still owed, and back it reads once, at once, before it draws, as when it opened
-    (`Live.away`).  The clock and those
+    listed was still owed (`Live.away`), and back, the menu is drawn at once as it was and read
+    again behind it, what changed meanwhile coming in as news (`Live.back`).  The clock and those
     keys have every seat looked at again as well, in a thread of its own (`Live.look`), so no
     seat's capture holds up a read or a draw: the first draw is the records as they stand, and
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
@@ -4263,10 +4279,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
-        back = True                       # read before the draw: the first, and one back from
-        while True:                       # a seat (`Live.away`)
+        live.watch(last)                  # read once, now: the first draw has nothing else
+        back = False                      # back from a seat, or the screen that opens one
+        while True:
             if back:
-                live.watch(last)          # read once, now, looked at behind it
+                live.back()               # drawn as the last read left it, read behind it
                 back = False
             elif look:
                 live.ask(look=True)       # read and looked at again, off the draw

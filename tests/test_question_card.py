@@ -155,7 +155,7 @@ class QuestionCard(unittest.TestCase):
                 patch.object(record, "read_state", side_effect=lambda path: states[path.name]), \
                 patch.object(run, "launched_session",
                              side_effect=lambda state: state.get("seat", "fix-api")), patch.object(transitions, "launched_session",
-                             side_effect=lambda state: state.get("seat", "fix-api")):
+                             side_effect=lambda state, *_a: state.get("seat", "fix-api")):
             counted = [path.name for path in menu.session_runs("fix-api")]
         self.assertEqual(counted, ["going", "queued", "acknowledged", "retried"])
         self.assertEqual([menu.stop_means(runs) for runs in (None, 0, 1, 4)], [
