@@ -176,18 +176,20 @@ class HelperMac(unittest.TestCase):
         return subprocess.run(["git", "-c", "user.name=acme", "-c", "user.email=a@acme.test",
                                *args], capture_output=True, text=True, check=True).stdout.strip()
 
-    def prepare(self, key):
-        """`prepare` of the repository as `start` sends it: (its exit, the commits its bundle
-        needs the Mac to have already, or None when it sends no bundle)."""
+    def prepare(self, key, repo="acme", known=None):
+        """`prepare` of the repository as `start` sends it, as `repo` there, after `known`'s
+        answer (asked now when None): (its exit, the commits its bundle needs the Mac to have
+        already, or None when it sends no bundle)."""
+        known = helper._known("acme-mac", repo) if known is None else known
         with tempfile.TemporaryFile() as parcel:
-            helper._parcel(self.repo, "main", helper._known("acme-mac", "acme"), parcel)
+            helper._parcel(self.repo, "main", known, parcel)
             parcel.seek(0)
             with tarfile.open(fileobj=parcel) as tar:
                 names = tar.getnames()
                 header = (tar.extractfile("repo.bundle").read().split(b"\n\n")[0]
                           if "repo.bundle" in names else None)
             parcel.seek(0)
-            code = helper._remote("acme-mac", "prepare", key, "ak-helper:new", "acme",
+            code = helper._remote("acme-mac", "prepare", key, "ak-helper:new", repo,
                                   stdin=parcel).returncode
         needs = None if header is None else [line[1:].split()[0].decode()
                                              for line in header.splitlines() if line[:1] == b"-"]
@@ -236,8 +238,8 @@ class HelperMac(unittest.TestCase):
         (self.fake / "has-ak-helper:new").touch()
         mirror, other = self.root / "mirrors" / "acme", self.root / "mirrors" / "other"
 
-        def suite(key):
-            code, needs = self.prepare(key)
+        def suite(key, known=None):
+            code, needs = self.prepare(key, known=known)
             helper.finish(helper.Away("acme-mac", key, *[None] * 7))
             self.assertEqual(code, 0)
             # it has the tree under test, and history up to the origin branch it compares against
@@ -253,12 +255,32 @@ class HelperMac(unittest.TestCase):
         self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
         self.assertEqual(suite("second"), [start])    # only the commit after what it has
         self.assertIsNone(suite("third"))              # nothing it lacks: no bundle
-        # Another repository's history unused for a week goes; this one's is in use again.
+        # Another repository's history unused for a week goes, at a third one's suite; this
+        # one's stays from the moment a suite asks what it has.
         other.mkdir()
         for path in (mirror, other):
             os.utime(path, (time.time() - 9 * 86400,) * 2)
-        self.assertIsNone(suite("fourth"))
-        self.assertEqual(sorted(path.name for path in mirror.parent.iterdir()), ["acme"])
+        known = helper._known("acme-mac", "acme")
+        self.assertEqual(self.prepare("between", "new")[0], 0)
+        helper.finish(helper.Away("acme-mac", "between", *[None] * 7))
+        self.assertIsNone(suite("fourth", known))
+        self.assertEqual(sorted(path.name for path in mirror.parent.iterdir()), ["acme", "new"])
+        # A suite's commits outlive a collection while it runs, though origin's branch left
+        # them; once it finished, the next suite's collection drops them.
+        tested = self.git("-C", str(self.repo), "rev-parse", "HEAD")
+        self.git("-C", str(self.repo), "checkout", "-q", "--orphan", "rewritten")
+        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "rewritten")
+        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("-C", str(self.repo), "checkout", "-q", "--detach", tested)
+        self.assertEqual(self.prepare("fifth")[0], 0)
+        self.git("-C", str(mirror), "gc", "-q", "--prune=now")
+        self.git("-C", str(mirror), "cat-file", "-e", tested)
+        helper.finish(helper.Away("acme-mac", "fifth", *[None] * 7))
+        self.git("-C", str(self.repo), "checkout", "-q", "rewritten")
+        suite("sixth")
+        self.git("-C", str(mirror), "gc", "-q", "--prune=now")
+        self.assertNotEqual(subprocess.run(["git", "-C", str(mirror), "cat-file", "-e", tested],
+                                           capture_output=True).returncode, 0)
 
     def test_a_piece_waits_while_another_suite_holds_the_mac(self):
         (self.root / "mirrors" / "acme").mkdir(parents=True)
