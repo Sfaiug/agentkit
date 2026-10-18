@@ -4,9 +4,10 @@ Red there pauses the line on the retry ladder: nobody is woken, no repair starts
 step the piece runs there again; green there is the change's own red and goes to its fixer,
 whatever pass the target has on record; red through the whole ladder is the target's own and
 gets its one repair as before.  A piece that named the tests failing it, red again alone, has
-those alone run there first: passing, each named as run, the red is the member's own; anything
-else proves nothing, and the piece runs.  Offline: local Git, the fixture's shell suites, fake
-launches and wakes, a stopped clock.
+those alone run there first: passing, each named as run, the red is the member's own; failing
+again, each named as run and as failed by a run that ended in a failing exit, the target's own,
+repaired at once; anything else proves nothing, and the piece runs.  Offline: local Git, the
+fixture's shell suites, fake launches and wakes, a stopped clock.
 """
 
 from pathlib import Path
@@ -190,7 +191,11 @@ class RedOnTheTip(unittest.TestCase):
                          [("2/2", ["test_tax.sh"]), ("2/2", None)])
 
     def test_a_branch_the_tests_alone_checked_out_on_the_tip_keeps_its_commit(self):
-        run.git(self.repo, "branch", "kept")
+        # ... and their red there, where test_tax.sh fails, repeats nothing of the tip
+        run.git(self.repo, "checkout", "-b", "kept")
+        (self.repo / "test_tax.sh").write_text("exit 1\n")
+        self.commit("test_tax.sh fails on another branch")
+        run.git(self.repo, "checkout", "main")
         kept = run.git(self.repo, "rev-parse", "kept")
         # Run alone where test_tax.sh passes, on the tip, the tests check out `kept`.
         moving = '[ -z "$AK_ONLY" ] || grep -q "exit 1" test_tax.sh || git checkout -q kept; '
@@ -215,8 +220,31 @@ class RedOnTheTip(unittest.TestCase):
                          [first.name, later.name])
         self.assertIsNone(self.red())
 
-    def test_the_failed_tests_red_on_the_tip_too_leave_the_whole_piece_to_decide(self):
+    def test_the_failed_tests_red_on_the_tip_too_start_the_targets_repair_at_once(self):
         self.declare(NAMING)
+        self.member()
+        self.advance(**{"test_tax.sh": "exit 1\n"})
+        self.clock()
+        said = []
+        with patch.object(gate, "derived_heavy_limit", return_value=2):
+            land.check_line(self.turn, said.append)
+            # a red that repeats: no step of the ladder would clear it, nor the piece add to it
+            self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"])])
+            self.assertIn("fails test_tax.sh of its piece AK_SHARD=2/2 again, run alone: the "
+                          "target's own red, repaired", "\n".join(said))
+            self.assertEqual(len(self.prepared), 1)
+            self.assertEqual(self.red()["run"], self.prepared[0][0].name)
+            # kept as the ladder climbed, whoever takes it: a PR's fixer notes no repair run
+            self.assertEqual(self.red()["probes"], len(turns.TRANSIENT_BACKOFF) + 1)
+            land.check_line(self.turn)      # the repair holds the line from here
+        self.assertEqual((len(self.probes()), len(self.prepared)), (1, 1))
+        self.wake.assert_not_called()
+
+    def ladder(self, suite):
+        """Under `suite`, a member red on test_tax.sh, red on the tip too, where those tests
+        alone prove no repeat: the piece runs there, the line waits on the ladder, and the
+        ladder's next step runs the piece itself."""
+        self.declare(suite)
         first = self.member()
         self.advance(**{"test_tax.sh": "exit 1\n"})
         held = self.clock()
@@ -230,7 +258,15 @@ class RedOnTheTip(unittest.TestCase):
             land.check_line(self.turn)      # the ladder runs the piece itself
         self.assertEqual(self.probes()[2:], [("2/2", None)])
         self.assertEqual(self.red()["probes"], 2)
+        self.assertEqual(self.prepared, [])
         self.wake.assert_not_called()
+
+    def test_the_failed_tests_red_on_the_tip_unnamed_as_run_wait_on_the_ladder(self):
+        self.ladder(NAMING.replace('echo "$t" >> "${AK_RAN:-/dev/null}"; ', ""))
+
+    def test_the_failed_tests_dead_by_a_signal_on_the_tip_wait_on_the_ladder(self):
+        # run alone, each is named as run and as failed before the runner dies
+        self.ladder(NAMING.replace("exit $code", '[ -z "$AK_ONLY" ] || kill -9 $$; exit $code'))
 
     def test_the_red_piece_is_read_from_its_exit_never_from_what_a_piece_printed(self):
         # piece 1 prints a red piece's record lines and passes; piece 2 fails on every checkout
