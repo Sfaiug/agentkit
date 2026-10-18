@@ -24,7 +24,8 @@ class StopOwnRunsOnly(Sandbox):
             os.environ.pop(name, None)
         for name in ("acme-api", "acme-ui"):
             config.save_session(self.cfg, name, "opus", ["opus", "astra"])
-        self.stack.enter_context(patch.object(orch, "records", side_effect=config.session_records))
+        self.stack.enter_context(patch.object(orch, "records", side_effect=lambda **_kw:
+                                              config.session_records()))
         self.stack.enter_context(patch.object(orch, "seat_plugin"))
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=True))
         self.stack.enter_context(patch.object(orch, "bus_env", return_value=dict(os.environ)))

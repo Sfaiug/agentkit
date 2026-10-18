@@ -48,7 +48,7 @@ class AnswerTypedIntoTurn(Sandbox):
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_SESSION": SEAT, "AGENTKIT_DISCORD_WEBHOOK": "off", "AK_NOTIFY_SINK": "off",
             "AK_RUN_ROLE": ""}))
-        self.stack.enter_context(patch.object(orch, "seat_plugin", lambda record: self.harness))
+        self.stack.enter_context(patch.object(orch, "seat_plugin", lambda record, **_kw: self.harness))
         self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))

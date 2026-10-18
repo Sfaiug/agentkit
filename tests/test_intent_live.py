@@ -39,7 +39,7 @@ class IntentLive(Sandbox):
         self.runs = [("r-before", "fix-api", NOW - 11 * HOUR), ("r1", "fix-api", NOW - 9 * HOUR),
                      ("r2", "fix-api", NOW - 8 * HOUR), ("r-other", "parser", NOW - 8 * HOUR),
                      ("r-after", "fix-api", NOW - HOUR)]
-        for target, name, value in ((orch, "seat_plugin", lambda record: Harness()),
+        for target, name, value in ((orch, "seat_plugin", lambda record, **_kw: Harness()),
                                     (config, "session_records", lambda: self.seats),
                                     (menu, "run_records", lambda: [
                                         (Path(run), {"launched_session": seat, "started_at": at})
