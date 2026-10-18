@@ -545,7 +545,9 @@ News moves once and is then still, on the same clock. A row that turns
 that turns `done` has its `✓` appear bright and settle to `done`'s colour over
 400 ms, and one light crosses its progress line, left to right over 400 ms
 (`motion.sweeping`). Either way its whole row glows in its word's colour and fades
-into the background over a second (`motion.glowing`). A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
+into the background over a second (`motion.glowing`). The line a row opens as
+the highlight comes to it comes up out of the background over 120 ms, and the
+rows of a page turned to over 150 ms (`motion.fading`). A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).

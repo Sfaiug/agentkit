@@ -1,0 +1,79 @@
+"""What the highlight opens, and the page it turns to, come up out of the background.
+
+The owner's design (14 Oct 2026): pointing at a row, or moving to it with ↑/↓, opens the line
+under it, which fades in over 120 ms; turning a page fades its rows in over 150 ms.  Nothing
+else moves for it, and the first draw draws them as they are.  Offline: a temporary HOME, fake
+seats, the motion clock read, no terminal.
+"""
+
+from contextlib import redirect_stdout
+import io
+import os
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures.sandbox import Sandbox  # noqa: E402
+from agentkit import config, menu, motion, terminal  # noqa: E402
+
+NAMES = [f"acme-{n:02}" for n in range(1, 13)]
+
+
+class FadeIn(Sandbox):
+    def setUp(self):
+        super().setUp()
+        self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
+        self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=24))
+        self.stack.enter_context(patch.object(terminal, "_POINTER", None))
+        self.stack.enter_context(patch.object(menu, "seat_row_state", side_effect=lambda cfg, s, **_kw:
+                                              {"word": "working", "reason": "", "since": None}))
+        self.seats = [{"name": name, "repo": "", "path": "", "created": 9000} for name in NAMES]
+        for name in NAMES:
+            config.save_session(self.cfg, name, "opus", ["astra"])
+        self.clock = motion.Clock()
+
+    def draw(self, cursor, page=0, height=40):
+        with patch.object(terminal, "width", return_value=100), \
+                patch.object(terminal, "height", return_value=height), \
+                redirect_stdout(io.StringIO()) as out:
+            drawn = {}
+            menu.draw(self.cfg, self.seats, menu.KEYS, page, cursor, drawn, look=False,
+                      records=[], clock=self.clock)
+        lines = out.getvalue().split("\033[J")[0].replace("\033[K", "").split("\n")
+        return [terminal.ANSI.sub("", line) for line in lines], drawn
+
+    def test_the_line_under_a_row_the_highlight_comes_to_fades_in(self):
+        self.draw("acme-01")
+        self.assertFalse([cell for cell in self.clock.cells if cell[1] == 1])   # drawn as it is
+        lines, _ = self.draw("acme-02")
+        row = next(n for n, line in enumerate(lines, 1) if " acme-02 " in line) + 1
+        self.assertIn("astra builds", lines[row - 1])
+        # the line it opens, and no other, comes up out of the background
+        self.assertEqual([cell for cell in self.clock.cells if cell[1] == 1], [(row, 1)])
+        animation, until = self.clock.cells[row, 1]
+        began = until - motion.OPEN
+        first, last = animation(began), animation(until)
+        self.assertNotEqual(first, last)
+        self.assertEqual(terminal.plain(first), terminal.plain(last))
+        self.assertEqual(terminal.ANSI.sub("", last).rstrip(), lines[row - 1].rstrip())
+
+    def test_the_rows_of_a_page_turned_to_fade_in(self):
+        _, drawn = self.draw("acme-01", height=14)
+        self.assertGreater(len(drawn["turns"]), 1)
+        lines, _ = self.draw(drawn["turns"][1], page=1, height=14)
+        rows = sorted(row for row, column in self.clock.cells if column == 1)
+        self.assertTrue(rows, lines)
+        faded = []
+        for row in rows:
+            animation, until = self.clock.cells[row, 1]
+            # it ends as drawn, and began TURN seconds before, faded into the background
+            self.assertEqual(terminal.plain(animation(until)), terminal.plain(lines[row - 1]))
+            faded.append(animation(until - motion.TURN) != animation(until))
+        self.assertTrue(any(faded))
+        self.assertTrue(any("acme" in lines[row - 1] for row in rows))
+
+
+if __name__ == "__main__":
+    unittest.main()

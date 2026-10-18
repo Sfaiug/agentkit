@@ -3,7 +3,8 @@
 At rest only what a model works on moves, breathing: a working session's `●`, the tip of its line
 and its moving tasks' squares (`menu.tips`); news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright and a
-light crosses its line, either's row glowing in its word's colour as it fades, an
+light crosses its line, either's row glowing in its word's colour as it fades; the line a row
+opens comes up as the highlight comes to it, and a page's rows as it is turned to; an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
@@ -36,6 +37,8 @@ GLOW = 1.0          # ... a row just added takes to fade from its glow into the 
 GLOWING = 0.6       # that glow at first: the accent that far toward the background
 NEWS = 0.7          # ... and a seat's row on news: its word's colour that far toward it
 SWEEP = 0.4         # seconds a light takes across a done seat's line
+OPEN = 0.12         # ... the line under a row the highlight came to takes to come up
+TURN = 0.15         # ... and the rows of a page turned to
 HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
@@ -168,6 +171,21 @@ def glowing(line, kind="accent", amount=GLOWING):
             rgb = terminal.faded(kind, amount + (1 - amount) * x)[1:]
             return lit if x >= 1 else terminal.backed(lit, rgb, 1, terminal.cells(lit))
         clock.start([(row, 1)], at, since + GLOW)
+    return start
+
+
+def fading(line, took):
+    """How a row comes up out of the background on a screen's clock, `line` as the draw wrote
+    it: in `took` seconds from when it is news, then as drawn, the pointer's cell lit -- the line
+    a row opens as the highlight comes to it, the rows of a page turned to.  A function of the
+    clock, the screen row, since when and what it was before."""
+    def start(clock, row, since, _):
+        lit = terminal.pointed(row, 1, line)
+
+        def at(now):
+            amount = 1 - eased((now - since) / took)
+            return lit if amount <= 0 else terminal.fade(lit, amount)
+        clock.start([(row, 1)], at, since + took)
     return start
 
 
