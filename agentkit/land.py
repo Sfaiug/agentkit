@@ -259,7 +259,6 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`)."""
-    from . import run
     path = directory / "target-probe.log"
     if tests:
         if _check(directory, state, scratch, [suite], path, log, shard=piece or None,
@@ -267,8 +266,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
             log(f"{upstream} at {tip[:12]} passes the tests that failed {directory.name}'s "
                 f"piece AK_SHARD={piece}, run alone: the red is the member's own")
             return True
-        run.git(scratch, "reset", "--hard", tip)
-        run.git(scratch, "clean", "-fdx")
+        _put_back(scratch, tip)
     ok, probe, _, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None)
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
@@ -520,6 +518,14 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     return ok, text, red, (confirmed.get(suite) or {}).get(red) if red else None
 
 
+def _put_back(scratch, commit):
+    """Put `scratch` at `commit`, clean, for the next check on it: detached, as a branch a check
+    checked out there is shared with the repository and keeps its commit."""
+    from . import run
+    run.git(scratch, "checkout", "--force", "--detach", commit)
+    run.git(scratch, "clean", "-fdx")
+
+
 def _member_commit(repo, state, head):
     """One remote's line can contain private commits from separate clones."""
     from . import run
@@ -591,9 +597,7 @@ def _check_tests(directory, state, scratch, tree, suite, piece, tests, log):
     head = run.git(scratch, "rev-parse", "HEAD")
     ok = _check(directory, state, scratch, [suite], directory / f"lander-{tree}-tests.log",
                 log, shard=piece, only=list(tests))[0]
-    # Detached: a branch the tests checked out is shared with the repository and keeps its commit.
-    run.git(scratch, "checkout", "--force", "--detach", head)
-    run.git(scratch, "clean", "-fdx")
+    _put_back(scratch, head)
     return ok
 
 
@@ -784,8 +788,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         if piece is not None and piece not in tip_green:
                             if stopped():
                                 return
-                            run.git(scratch, "reset", "--hard", tip)
-                            run.git(scratch, "clean", "-fdx")
+                            _put_back(scratch, tip)
                             if not _probe_tip(turn, member, saved, scratch, tip, upstream,
                                               target_tree, suite, piece, log, tip_green,
                                               answer["fix"].get("tests")):
