@@ -35,9 +35,10 @@ FIXTURES = REPO / "tests/fixtures"
 STUB = """#!/usr/bin/env bash
 # canned opencode for tests/test_opencode.py: run cats $STUB_EVENTS and exits $STUB_RC,
 # session export cats $STUB_EXPORT, auth list prints $STUB_AUTH_LIST, `api model.list` cats
-# $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one), `api integration.list`
-# and `api provider.list` print $STUB_INTEGRATION_LIST and $STUB_PROVIDER_LIST.  Every argv
-# lands in $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT in $STUB_ARGV_LOG.content.
+# $STUB_MODEL_LIST and exits $STUB_LIST_RC (and fails without one), `api integration.list`,
+# `api provider.list` and `api config.get` print $STUB_INTEGRATION_LIST, $STUB_PROVIDER_LIST
+# and $STUB_CONFIG_GET.  Every argv lands in $STUB_ARGV_LOG, and run's OPENCODE_CONFIG_CONTENT
+# in $STUB_ARGV_LOG.content.
 [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$*" >>"$STUB_ARGV_LOG"
 case "$1 ${2:-}" in
   run*) [ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\\n' "$OPENCODE_CONFIG_CONTENT" >"$STUB_ARGV_LOG.content"
@@ -45,6 +46,7 @@ case "$1 ${2:-}" in
   "api model.list") cat -- "$STUB_MODEL_LIST" && exit "${STUB_LIST_RC:-0}" ;;
   "api integration.list") printf '%s' "${STUB_INTEGRATION_LIST:-}" ;;
   "api provider.list") printf '%s' "${STUB_PROVIDER_LIST:-}" ;;
+  "api config.get") printf '%s' "${STUB_CONFIG_GET:-}" ;;
   session*) cat -- "$STUB_EXPORT" ;;
   auth*) printf '%s' "${STUB_AUTH_LIST:-[]}" ;;
   --version*) echo "opencode v9.9.9-test" ;;
@@ -423,16 +425,28 @@ cat "$dir/bridge-eval"
         self.assertNotIn("none", out)
 
     def test_a_provider_opencode_runs_on_its_own_needs_no_login(self):
-        # OpenCode enables its own free provider with no entry in its config and no saved
-        # login; an entry alone enables one too, key or not, and is no login
-        self.cfgdir.mkdir(parents=True, exist_ok=True)
-        (self.cfgdir / "opencode.json").write_text(json.dumps({"provider": {"nova": {"options": {}}}}))
+        # OpenCode enables its own free provider with no entry in any config document it merged
+        # and no saved login; an entry alone enables one too, key or not, and is no login, in
+        # whichever document it is
         own = {"STUB_PROVIDER_LIST": json.dumps({"data": [
             {"id": "opencode", "activation": "enabled"}, {"id": "nova", "activation": "enabled"},
-            {"id": "zeta", "activation": "auto"}]})}
+            {"id": "zeta", "activation": "auto"}]}), "STUB_CONFIG_GET": json.dumps([
+                {"type": "document", "path": "opencode.json", "info": {}},
+                {"type": "document", "path": "opencode.jsonc",
+                 "info": {"providers": {"nova": {"settings": {}}}}}])}
         for named, rc in (("opencode", 0), ("nova", 1), ("zeta", 1), ("opencode nova", 1)):
             proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": named})
             self.assertEqual(proc.returncode, rc, (named, proc.stdout, proc.stderr))
+        # a service that lists no config documents names no provider that needs none
+        proc = self.adapter("auth", env={**own, "STUB_CONFIG_GET": "",
+                                         "AGENTKIT_PROVIDER": "opencode"})
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        # a saved login answers before the service is asked, which may not answer at all
+        proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": "zeta",
+                                         "STUB_AUTH_LIST": listed("zeta"),
+                                         "STUB_ARGV_LOG": str(self.argv_log)})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("provider.list", self.argv_log.read_text())
         proc = self.adapter("auth", env={**own, "AGENTKIT_PROVIDER": "opencode"})
         self.assertEqual(proc.stdout.strip(), "opencode: OpenCode runs opencode with no login")
         out = json.loads(self.adapter("usage", env={**own, "AGENTKIT_PROVIDER": "opencode"}).stdout)
@@ -461,7 +475,9 @@ cat "$dir/bridge-eval"
                    {"id": name, "name": name.title()}
                    for name in ("vega", "nova", "zeta", "opencode", "acme")]}),
                "STUB_PROVIDER_LIST": json.dumps({"data": [
-                   {"id": name, "activation": "enabled"} for name in ("acme", "nova", "opencode")]})}
+                   {"id": name, "activation": "enabled"} for name in ("acme", "nova", "opencode")]}),
+               "STUB_CONFIG_GET": json.dumps([{"type": "document", "info": json.loads(
+                   (self.cfgdir / "opencode.json").read_text())}])}
         proc = self.adapter("providers", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # a plan or a free provider prices every model at nothing; one priced, or not priced at

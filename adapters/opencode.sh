@@ -97,20 +97,26 @@ store_key() {
   return 1
 }
 
-# 0 when OpenCode runs provider $1 with no login at all -- its own free models, `opencode`'s
-# (2.0.24) -- which its provider list calls `enabled` while its config has no entry for it: an
-# entry alone would enable one, key or not.  Asked of the background service, bounded, and cut
-# to the two fields read: settings, keys among them, never leave jq.
-own_login() {
-  [ -n "${1:-}" ] && command -v jq >/dev/null && command -v opencode >/dev/null || return 1
-  jq -e --arg p "$1" '.provider[$p]? // .providers[$p]? // empty' "$CFG" >/dev/null 2>&1 && return 1
-  bound=""; command -v timeout >/dev/null && bound="timeout 20"
-  $bound opencode api provider.list 2>/dev/null \
-    | jq -e --arg p "$1" 'any(.data[]?; .id == $p and .activation == "enabled")' >/dev/null 2>&1
+# The providers OpenCode runs with no login at all -- its own free models, `opencode`'s
+# (2.0.24) -- as one JSON array: those its provider list calls `enabled` that no config
+# document it merged names, since an entry alone would enable one, key or not.  `config.get`
+# lists every such document, opencode.jsonc and $OPENCODE_CONFIG among them, already parsed.
+# Both lists come from the background service within one 10-second bound, which leaves
+# `auth` inside its caller's cap, and no answer or a stopped one is no provider.  Settings,
+# keys among them, never leave jq.
+own_providers() {
+  command -v jq >/dev/null && command -v timeout >/dev/null && command -v opencode >/dev/null || return 1
+  timeout 10 sh -c 'opencode api provider.list && opencode api config.get' 2>/dev/null | jq -cs '
+      select(length == 2 and (.[1] | type) == "array")
+      | [.[1][].info? | (.provider, .providers) | objects | keys[]] as $named
+      | [.[0].data[]? | select(.activation == "enabled") | .id | select(IN($named[]) | not)]' 2>/dev/null
 }
 
-# A login for provider $1, or none needed: a key in the config, OpenCode's own, a saved one.
-logged_in() { have_key "${1:-}" || own_login "${1:-}" || store_key "${1:-}"; }
+own_login() { [ -n "${1:-}" ] && own_providers | jq -e --arg p "$1" 'index([$p])' >/dev/null 2>&1; }
+
+# A login for provider $1, or none needed: a key in the config, a saved one, OpenCode's own --
+# the service last, so a saved login answers even while the service does not.
+logged_in() { have_key "${1:-}" || store_key "${1:-}" || own_login "${1:-}"; }
 
 # The effort is OpenCode's model variant, `provider/model#variant` its `-m` spelling.  OpenCode
 # fails a turn handed a variant the model does not define (`Variant unavailable`) and merges
@@ -514,8 +520,8 @@ auth)
   for p in "$@"; do
     have_key "$p"; rc=$?
     if [ $rc -eq 0 ]; then said="${said:+$said; }a key for ${p:-a provider} is configured in $CFG"
-    elif own_login "$p"; then said="${said:+$said; }OpenCode runs $p with no login"
     elif store_key "$p"; then said="${said:+$said; }a login for ${p:-a provider} is saved in the auth store"
+    elif own_login "$p"; then said="${said:+$said; }OpenCode runs $p with no login"
     elif [ $rc -eq 2 ]; then echo "opencode: $CFG cannot be read without jq" >&2; exit 2
     else echo "opencode: no login for ${p:-any provider}; run \`opencode auth login${p:+ $p}\`" >&2; exit 1
     fi
@@ -562,9 +568,7 @@ providers)
     keyed=$(jq -c '[(.provider, .providers) | objects | to_entries[]
         | select([.value | .. | objects | .apiKey? | strings | select(length > 0)] != []) | .key]' \
         "$CFG" 2>/dev/null)
-    configured=$(jq -c '[(.provider, .providers) | objects | keys[]]' "$CFG" 2>/dev/null) || configured='[]'
-    own=$(ask provider.list 'select(.activation == "enabled") | .id' \
-        | jq -c --argjson c "$configured" '[.[] | select(IN($c[]) | not)]' 2>/dev/null)
+    own=$(own_providers)
     costs=$(ask model.list '{id: .providerID, cost}') || costs='[]'
     jq -rn --argjson all "$all" --argjson in "[${keyed:-[]}, ${saved:-[]}, ${own:-[]}]" --argjson costs "$costs" '
       (reduce ($in | add // [])[] as $p ([]; if index([$p]) then . else . + [$p] end)) as $in
