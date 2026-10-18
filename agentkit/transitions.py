@@ -646,13 +646,36 @@ def first_queued(state):
     return state.get("first_queued_at") or state.get("queued_at") or state.get("started_at") or 0
 
 
-def launched_session(state):
+def launched_session(state, resolved=None):
     """The seat this run was launched from, by its name now, or None: it was launched from none.
 
-    `session` is what a run.json written before the field was renamed calls the same thing.
+    `session` is what a run.json written before the field was renamed calls the same thing.  A
+    pass over many runs hands each call the same `resolved`, so a seat many runs name is
+    resolved once: following a rename reads the seat's record.
     """
     name = state.get("launched_session") or state.get("session")
-    return config.resolve_session(name) if isinstance(name, str) and name else None
+    if not isinstance(name, str) or not name:
+        return None
+    if resolved is None:
+        return config.resolve_session(name)
+    if name not in resolved:
+        resolved[name] = config.resolve_session(name)
+    return resolved[name]
+
+
+def runs_by_seat(records):
+    """Each seat's runs, (run_dir, state) as `records` has them, under the name it goes by now:
+    every seat a run names resolved once (`launched_session`), and runs launched from none, or
+    from a name whose renames will not resolve, left out."""
+    resolved, mine = {}, {}
+    for run_dir, state in records:
+        try:
+            seat = launched_session(state, resolved)
+        except config.Error:
+            seat = resolved[state.get("launched_session") or state.get("session")] = None
+        if seat is not None:
+            mine.setdefault(seat, []).append((run_dir, state))
+    return mine
 
 
 def needs_recovery(state):

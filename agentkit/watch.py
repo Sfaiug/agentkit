@@ -2375,7 +2375,8 @@ def announce_state(session, cfg=None, look=False, **facts):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        unsent=answer.get("unsent", ""), word_since=answer["since"],
                        word_from=decided)
-        statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
+        statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"),
+                          index=facts.get("index"))
         if previous.get("word") != answer["word"]:
             statusbar.retell(session)
     return answer
@@ -2456,15 +2457,7 @@ def still_owed(name, mine, index, stopped):
 
 def own_runs(name, records):
     """That seat's own (run_dir, state) pairs among `records`: the runs launched from it."""
-    mine = []
-    for run_dir, state in records:
-        try:
-            owner = transitions.launched_session(state)
-        except config.Error:
-            owner = None
-        if owner == name:
-            mine.append((run_dir, state))
-    return mine
+    return transitions.runs_by_seat(records).get(name, [])
 
 
 def resumes_itself(state, at):
