@@ -1734,11 +1734,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     terminal.state_glyph(shown), shown, since, lit))
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
-                    counts.pop(key[1], None)
                     row, span = bars[key[1]]
                     written = terminal.cell_texts(out[row - 1])
-                    clock.span(row, terminal.cells("".join(written[:span.start])) + 1, *motion.sweeping(
-                        written[span], since, shown, lit))
+                    sweep, until = motion.sweeping(written[span], since, shown, lit)
+                    clock.span(row, terminal.cells("".join(written[:span.start])) + 1, sweep, until)
+                    if until > time.monotonic():    # the light crosses the line in place of a glide
+                        counts.pop(key[1], None)
         # a count moves with its line's last animation, and one whose line moves otherwise, or
         # is still, is written as it is
         for name, (before, began, took) in counts.items():

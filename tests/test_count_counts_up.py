@@ -109,17 +109,20 @@ class Counts(Sandbox):
             lines = self.draw(10.1)
             self.assertEqual(self.shown(lines, "acme-api", 10.1)[0][2:], after)
 
-    def test_a_line_swept_done_shows_its_count_done(self):
+    def test_a_line_swept_done_shows_its_count_done_and_counts_with_the_glide_after(self):
         self.clock.grows = {}
-        self.plan("acme-api", 27, 28)
         self.draw(20)
         self.plan("acme-api", 28, 28)
         with patch.object(menu, "seat_row_state", return_value={"word": "done", "reason": "",
                                                                  "since": None}):
             lines = self.draw(30)
-        for now in (30, 30 + motion.GLIDE / 2):
-            filled, size, done, total = self.shown(lines, "acme-api", now)[0]
-            self.assertEqual((filled, done), (size, total))
+            for now in (30, 30 + motion.SWEEP / 2):
+                filled, size, done, total = self.shown(lines, "acme-api", now)[0]
+                self.assertEqual((filled, done), (size, total))
+            now = 30 + motion.SWEEP + motion.FRAME      # a redraw once the light has crossed
+            filled, size, done, total = self.shown(self.draw(now), "acme-api", now)[0]
+        self.assertLess(filled, size)
+        self.assertLessEqual(abs(filled * total / size - done), 0.5 + 1.5 * total / size)
 
 
 if __name__ == "__main__":
