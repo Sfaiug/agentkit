@@ -88,9 +88,9 @@ click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
 the highlighted seat's: a done one is closed at once, and any other is asked about under its row,
 `Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  A stopped
-seat leaves its project for the past screen, `p` (`show_past`): one row a stopped seat, with its
-number, its project and how long ago, where Enter reopens it where it stopped and `x` takes it
-off at once.  `c` holds
+seat leaves its project for the past screen, `p` (`show_past`): its row there under its project,
+numbered after the live ones, says how long ago it stopped; Enter reopens it where it stopped and
+`x` takes it off at once.  `c` holds
 its orchestrator, executors and reviewers: the orchestrator moves the seat at once, the
 roles flip with the same keys and save at once.
 `ak run status` and `ak browser` stay as commands for
@@ -682,12 +682,18 @@ def state(session):
     return status(session)[0]
 
 
+def selection_of(cfg, name):
+    """The seat's saved selection -- its orchestrator, executors and reviewers -- or None
+    where it has none, or one that no longer reads."""
+    try:
+        return config.load_session(cfg, name, required=False)
+    except config.Error:
+        return None
+
+
 def row(cfg, number, session):
     """One seat's cells: number, name, worker, word, reason, age."""
-    try:
-        selection = config.load_session(cfg, session["name"], required=False)
-    except config.Error:
-        selection = None
+    selection = selection_of(cfg, session["name"])
     found = seat_row_state(cfg, session)
     text = found["reason"]
     # the word is aged from when it began, and from the seat's own start where
@@ -1074,10 +1080,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     name = session["name"]
     found = seat_row_state(cfg, session, look=look, records=records, now=now, number=number,
                            run_numbers=run_numbers, index=index, silent=silent_map)
-    try:
-        selection = config.load_session(cfg, name, required=False)
-    except config.Error:
-        selection = None
+    selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
@@ -4520,37 +4523,45 @@ def past_offered(found):
     return any(session.get("closed") for session in found)
 
 
-def past_body(past, at=None):
-    """The past screen's lines, one a stopped seat -- its number, name, project, how long ago
-    it was stopped and, where its harness starts it fresh, that -- and where each is,
-    {line: (("row", name), [])}.  `at` is the highlighted seat's name, or None while the
-    pointer is off the rows."""
-    rows = [(str(number), session["name"],
-             orch.project_name(session.get("repo"), ""),
-             f"stopped {orch.age(session['closed'])} ago", session.get("restart") or "")
-            for number, session in past]
-    widths = [max(terminal.cells(row[column]) for row in rows) for column in range(4)]
-    room = terminal.layout_width() - 4 - widths[0]
-    # the project goes where a row has no room for it beside the name and when; the name is
-    # cut, never wrapped, to what the when leaves it
-    columns = (1, 2, 3) if sum(widths[1:]) + 4 <= room else (1, 3)
-    widths[1] = min(widths[1], room - 2 - widths[3] - (widths[2] + 2 if 2 in columns else 0))
+def past_body(past, at=None, models=None):
+    """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
+    heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
+    how long ago it was stopped in the state's column and, where its harness starts it fresh
+    and the row has room, that -- and where each is, {line: (("row", name), [])}.  `at` is the
+    highlighted seat's name, or None while the pointer is off the rows."""
+    infos = [{"number": str(number), "name": session["name"],
+              "orchestrator": (models or {}).get(session["name"]) or "-",
+              "count": f"stopped {orch.age(session['closed'])} ago",
+              "restart": session.get("restart") or "", "repo": session.get("repo")}
+             for number, session in past]
+    width = terminal.width()
+    widths = v5o_column_widths(infos, width)
+    # how long ago is wider than any state word: it takes the room the last column would
+    wider = min(max(terminal.cells(info["count"]) for info in infos),
+                widths["count"] + max(0, widths["free"]))
+    widths["free"] -= max(0, wider - widths["count"])
+    widths["count"] = max(widths["count"], wider)
+    groups = {}
+    for info in infos:          # each project where its first seat is, as on the main screen
+        checkout = orch.checkout_of(info["repo"])
+        groups.setdefault(str(checkout) if checkout else None,
+                          {"name": orch.project_name(checkout), "seats": []})["seats"].append(info)
     lines, places = [], {}
-    for row in rows:
-        rest = "  ".join(terminal.pad(row[column], widths[column]) for column in columns)
-        if row[4] and terminal.cells(rest) + 2 + terminal.cells(row[4]) <= room:
-            rest += "  " + row[4]      # that it starts fresh rides only where the row has room
-        line = "  " + _styled_cell(row[0], widths[0], "dim", right=True) + "  " + terminal.cut(
-            rest, room, spaced=True)
-        places[len(lines)] = (("row", row[1]), [])
-        lines.append(terminal.highlight(line) if at == row[1] else line)
+    for project in groups.values():
+        lines += [""] * bool(lines) + [v5o_header(project, width)]
+        for info in project["seats"]:
+            line = _head(info, widths)
+            if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
+                line += "  " + terminal.styled(info["restart"], "dim")
+            places[len(lines)] = (("row", info["name"]), [])
+            lines.append(terminal.highlight(line.rstrip()) if at == info["name"] else line.rstrip())
     return lines, places
 
 
 @terminal.clicks_its_own
 def show_past(cfg, found, dry_run=False, keyboard=None):
-    """`past sessions`, `p`: the seats you stopped, each with its number, its project and how
-    long ago, for the one you want back.  ↑/↓, k/j and the wheel move the highlight; Enter or a
+    """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
+    (`past_body`), for the one you want back.  ↑/↓, k/j and the wheel move the highlight; Enter or a
     click reopens one where it stopped (`open_session`, what its number does on the main screen)
     and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
     (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
@@ -4565,9 +4576,10 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             return
         names = [session["name"] for _, session in past]
         here = here if here in names else names[0]
+        models = {name: (selection_of(cfg, name) or {}).get("orchestrator") for name in names}
         if not terminal.taken():
             keys = "x remove   esc back"
-            terminal.frame("past sessions", past_body(past)[0], keys)
+            terminal.frame("past sessions", past_body(past, models=models)[0], keys)
             if dry_run:
                 return
             line = read("> ", "")
@@ -4588,7 +4600,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 pause(f"not a key: {line!r}", keys)
             continue
         keys = PAST_KEYS[0 if terminal.utf8() else 1]
-        body, places = past_body(past, None if terminal.away() else here)
+        body, places = past_body(past, None if terminal.away() else here, models)
         act, row, _column, top = matrix_key("past sessions", body, places,
                                             [("row", name) for name in names], ("row", here),
                                             top, "", keys)

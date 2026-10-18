@@ -52,7 +52,7 @@ class Keys(unittest.TestCase):
         shown.send(b"p")
         lines = shown.frame(keys="esc back")
         self.assertIn("past sessions", lines[0])
-        self.assertRegex(shown.highlighted(lines), r"^›\s+2  omega\s+stopped \d+[smhd] ago$")
+        self.assertRegex(shown.highlighted(lines), r"^›\s+2  omega  -  stopped \d+[smhd] ago$")
         self.assertFalse(any("alpha" in line for line in lines), lines)
         self.assertRegex(lines[-1], r"⏎ reopen   x remove   esc back")
         mark = shown.mark()
@@ -100,6 +100,9 @@ class Lines(unittest.TestCase):
         self.closed = self.stack.enter_context(patch.object(menu, "close_seat"))
         self.paused = self.stack.enter_context(patch.object(menu, "pause"))
         self.stopped = self.stack.enter_context(patch.object(orch, "cmd_stop"))
+        self.stack.enter_context(patch.object(orch, "checkout_of", lambda repo: repo and Path(repo)))
+        self.stack.enter_context(patch.object(menu, "selection_of", lambda cfg, name: {
+            "orchestrator": "opus"} if name == "omega" else None))
 
     def test_a_number_reopens_a_stopped_seat_and_x_asks_which_to_remove(self):
         # `x` asks by the numbers on the screen: 3 is zeta here, as it is on the main screen
@@ -109,8 +112,9 @@ class Lines(unittest.TestCase):
         self.opened.assert_called_once_with(CFG, OMEGA, False)
         screens = self.out.getvalue().split("past sessions")[1:]
         self.assertEqual(len(screens), 2)
-        self.assertRegex(screens[0], r"\n  2  omega +atoll +stopped 2h ago\n")
-        self.assertRegex(screens[0], r"\n  3  zeta +stopped 5m ago +starts fresh\n")
+        # under their projects' headings, as on the main screen, with their orchestrators
+        self.assertRegex(screens[0], r"\natoll\n  2  omega  opus  stopped 2h ago\n\n"
+                                     r"no project\n  3  zeta   -     stopped 5m ago  starts fresh\n")
         self.assertNotIn("alpha", screens[0])
         self.assertIn("x remove   esc back", screens[0])
         self.assertIn("2 omega · 3 zeta", screens[0])
