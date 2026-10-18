@@ -10,9 +10,9 @@ a task's next square fills through its half and one that failed nudges; an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes, a
 row just added glows; a popup's content fades in once, as it opens; the rule under a screen's
-header glides while its content is fetched; a subscription the pointer comes onto washes into
-its company's colour, its models with it, and drains when it leaves -- and every motion runs on
-this same clock
+header glides while its content is fetched, a spinner turning beside what ak waits on; a
+subscription the pointer comes onto washes into its company's colour, its models with it, and
+drains when it leaves -- and every motion runs on this same clock
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news
 (`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
@@ -51,6 +51,8 @@ FADE = 0.12         # seconds a popup's content takes to come up out of the back
 WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
 LAP = 1.2           # ... the segment on that rule takes along it, and again, until it lands
 SEGMENT = 8         # cells that segment is long
+SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # cli-spinners' dots, and `|/-\` without UTF-8
 WASH = 0.3          # seconds a subscription's colour takes to wash in under the pointer
 DRAIN = 0.2         # ... and to drain once the pointer leaves it
 EDGE = 0.4          # how lit the edge of that wash is: that far toward the foreground
@@ -305,6 +307,14 @@ def fetching(clock, began):
     for n in range(size):
         clock.start([(2, 1 + n)], cell(n))
     return clock
+
+
+def spinning(began):
+    """The spinner beside what one of ak's own waits from `began` is for -- a catalog, a
+    login, a reset spent -- in the accent, a glyph each SPIN seconds: an animation, for as long
+    as it is drawn.  A model at work breathes instead (`breathing`)."""
+    glyphs = SPINNER if terminal.utf8() else "|/-\\"
+    return lambda now: terminal.styled(glyphs[int((now - began) / SPIN) % len(glyphs)], "accent")
 
 
 class Clock:

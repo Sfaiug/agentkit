@@ -567,10 +567,14 @@ class Fetch(threading.Thread):
         return self.got["answer"]
 
 
-def waited(work, title, body=list, keys="esc back", keyboard=None):
+LEFT = "reading what each subscription has left"     # what `usage.collect` is waited on for
+
+
+def waited(work, title, body=list, keys="esc back", keyboard=None, doing=""):
     """What `work()` answers, asked off the drawing thread while the screen it is asked on waits
     on it: `title` over the lines `body()` lays out at the terminal's width and `keys`, as
-    terminal.frame draws it.
+    terminal.frame draws it, then, where the screen has room, what it waits on in words,
+    `doing`, a spinner turning beside it (motion.spinning).
 
     A fetch that lands within a frame is simply had, and so is one with no keyboard to read, as
     it always was.  Over one that takes longer, on the keyboard a screen has -- or `keyboard`,
@@ -586,8 +590,17 @@ def waited(work, title, body=list, keys="esc back", keyboard=None):
     try:
         while fetch.is_alive() and terminal.taken():
             lines = body()            # laid out again after a resize: no line wider than it
+            said = [*([""] if lines else []), "  " + motion.spinning(fetch.began)(
+                time.monotonic()) + " " + terminal.styled(terminal.cut(
+                    doing, terminal.layout_width() - 4), "dim")] if doing else []
+            # only on a screen it fits: one that scrolls leaves the clock writing on rows moved
+            if 3 + len(lines) + len(said) + len(terminal.key_line(keys)) >= terminal.height():
+                said = []
+            lines = [*lines, *said]
             spots = terminal.frame(title, lines, keys)
             clock = motion.fetching(motion.Clock(), fetch.began)
+            if said:                  # under the header and its rule
+                clock.start([(2 + len(lines), 3)], motion.spinning(fetch.began))
             key = moving(clock, timeout=TICK, going=fetch.is_alive)
             while key is not None and key.name != "point":    # the rule glides on as it was
                 if (key.name in ("esc", "eof")
@@ -3093,7 +3106,8 @@ def _offered(harness, *screen, provider=None):
     `<provider>/<model>` id is that provider's, the way OpenCode names every provider's models,
     and any other id is every provider's the harness runs."""
     return [dict(model, efforts=model["efforts"] or config.efforts(harness))
-            for model in waited(lambda: config.catalog(harness), *screen)
+            for model in waited(lambda: config.catalog(harness), *screen,
+                                doing=f"reading the models {harness} offers")
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
@@ -3562,7 +3576,9 @@ def config_add(cfg, keyboard=None, through=None):
         values = [*picked[0][0]] if through and picked else [value for value, _ in picked]
         try:
             if through and listed is None:
-                listed = waited(lambda: config.listed_providers(through), *screen)
+                listed = waited(lambda: config.listed_providers(through), *screen,
+                                doing=f"asking {config.provider_hosts().get(through, through)} "
+                                      "which providers it has")
             choices = (_through_choices(cfg, through, listed, screen) if through and not picked
                        else _add_choices(cfg, values, screen))
         except config.Error as exc:
@@ -3937,7 +3953,8 @@ def config_spend_reset(cfg):
         return ""
     name, account = held[picked]
     try:
-        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account), title)
+        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account), title,
+                          doing=f"spending a reset of {picked}")
     except Back:
         return ""
     if not spent:
@@ -4056,7 +4073,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
         selected, note = None, f"{session}'s roles are not shown: {exc}"
     try:                      # what a flip is refused on, and spent; Esc while it is read
         providers = waited(lambda: usage.collect(cfg), f"config · {session}",
-                           keyboard=keyboard) if selected else {}
+                           keyboard=keyboard, doing=LEFT) if selected else {}
     except Back:
         return cfg
     # one git call a visit, not a draw; nothing about a harness and nothing over the network
