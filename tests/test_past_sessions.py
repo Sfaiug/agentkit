@@ -157,6 +157,19 @@ class Lines(unittest.TestCase):
         self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 20)
         self.assertRegex(drawn[-1][-1], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
 
+    def test_a_page_holding_two_projects_has_a_blank_line_between_them(self):
+        seats = [dict(OMEGA if n < 8 else ZETA, name=f"fix-api-{n}") for n in range(20)]
+        drawn = []
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "height", return_value=24), \
+                patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
+                             drawn.append([terminal.plain(line) for line in body]) or {}), \
+                patch.object(terminal, "read_key", side_effect=[terminal.Key("esc")]):
+            menu.show_past(CFG, seats, keyboard=None)
+        at = drawn[0].index("no project")
+        self.assertEqual((drawn[0][0], drawn[0][at - 1]), ("atoll", ""))
+        self.assertRegex(drawn[0][at - 2], r"fix-api-7\s")
+
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):
             menu.show_past(CFG, [ALPHA, OMEGA], dry_run=True)

@@ -1174,7 +1174,8 @@ def by_project(infos, stands):
 
 def project_pages(projects, room):
     """`projects`, (heading, blocks) each in order, a block one seat's lines, in pages of `room`
-    lines, the main screen's and the past screen's alike."""
+    lines, the main screen's and the past screen's alike: a blank line between two projects on
+    a page, as on the screen that holds them all."""
     # Seat blocks packed whole under their project header, so a seat's lines never split
     # across pages: one taller than a page under its header is cut to it, as the highlight
     # shows only a seat's first page. A screen without room for a row and a line under it
@@ -1182,7 +1183,8 @@ def project_pages(projects, room):
     pages, cur, cur_header = [], [], None
     for header, own in projects:
         for block in own or [[]]:     # a heading with no seat under it still has its place
-            need = block if cur and cur_header == header else [header] + block
+            need = (block if cur and cur_header == header else
+                    [("", None)] * bool(cur) + [header] + block)
             if cur and len(cur) + len(need) > room:
                 pages.append(cur)
                 cur, cur_header = [], None
