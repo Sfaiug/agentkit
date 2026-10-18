@@ -224,6 +224,15 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[4], "astra")
         self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
 
+    def test_the_rows_under_the_models_stay_under_the_pointer(self):
+        first = self.matrix()[0]
+        providers = at(first, "Providers")
+        # fable's line stays open while the highlight is off the models, so Providers is still
+        # where the pointer found it, never the row under it that a click would open
+        last = self.matrix(move(*providers) + ESC)[-1]
+        self.assertOneHighlight(last, "Providers")
+        self.assertEqual(at(last, "Providers"), providers)
+
     def test_moves_sent_while_the_rule_glides_are_one_draw(self):
         checkout = self.root / "code" / "ACME"
         entry = {"rows": FEATURES, "error": "", "asked": time.monotonic(), "going": True,

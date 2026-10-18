@@ -2874,7 +2874,7 @@ def models_screen(cfg, session, selected, providers, held):
 
 
 def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None,
-                found=None):
+                found=None, opened=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, the three role marks of
@@ -2887,7 +2887,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     A model `providers` read as spent is dim.  The highlighted model opens one line under its
     row (`model_said`), coming up as the highlight comes to it (`motion.fading`): what it runs
     on, why it is spent and what `ak models` recommends it for (`found`, `advice`), as many
-    lines as the tallest any model opens.  Under them `+ add a model`, `Providers`
+    lines as the tallest any model opens; `opened`, a row, is the model whose line is open in
+    place of `at`'s (config_matrix).  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values.  A row is `("model", name)` or
     `("row", one of CONFIG_ROWS)`, so a model that happens to be called `Discord` is still a
     model; `at` is the highlighted one and `column` the cell on it the keys act on, -1 its label,
@@ -2927,15 +2928,16 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     # the line each model opens once highlighted, where a phone has no room for it a part a
     # line, each wrapped; every one as tall as the tallest, so a pointer that brought the
     # highlight down past one that closed is still on the row's own
-    opened = {}
+    opening = {}
     for name in names:
         said = model_said(cfg, name, providers, found)
         fits = terminal.cells(" · ".join(text for text, _ in said)) <= room - 4
-        opened[name] = ([terminal.styled(" · ", "dim").join(terminal.styled(*each)
-                                                             for each in said)]
-                        if said and fits else [terminal.styled(piece, tone) for text, tone in said
-                                               for piece in terminal.wrap(text, room - 4)])
-    opens = max(len(parts) for parts in opened.values())
+        opening[name] = ([terminal.styled(" · ", "dim").join(terminal.styled(*each)
+                                                              for each in said)]
+                         if said and fits else [terminal.styled(piece, tone) for text, tone in said
+                                                for piece in terminal.wrap(text, room - 4)])
+    opens = max(len(parts) for parts in opening.values())
+    opened = opened or at
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(cfg, provider))
         for name in (name for name in names if models[name]["provider"] == provider):
@@ -2974,7 +2976,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             places[len(lines)] = (("model", name), cells)
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
-            for part in (opened[name] + [""] * opens)[:opens] if at == ("model", name) else ():
+            for part in ((opening[name] + [""] * opens)[:opens] if opened == ("model", name)
+                         else ()):
                 places[len(lines)] = (("model", name), [])
                 lines.append(("    " + part).rstrip())
                 if moves is not None:
@@ -3375,13 +3378,16 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top, clock = None, columns[1], 0, motion.Clock()
+    here, column, top, clock, opened = None, columns[1], 0, motion.Clock(), None
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
+        # off the models the last one's line stays open, so no row moves from under the pointer
+        # as it goes to the rows under them or off every row
+        opened = here if here[0] == "model" else opened if opened in rows else None
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # up from Providers' acts onto a row without marks
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
@@ -3391,7 +3397,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
         body, places = config_body(cfg, version, None if terminal.away() else here, column,
-                                   selected, providers, moves, found)
+                                   selected, providers, moves, found, opened)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         was = here
