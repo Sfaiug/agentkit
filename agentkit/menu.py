@@ -1514,7 +1514,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     grid = len(out) + 1 if meters and meters is meters_full else None     # its first row
     out += meters
     if not compact:
-        out += ["", ""]       # the line under the grid, then one blank above the projects
+        # the line under the usage, then one blank above the projects: a worker login that ends
+        # soon, or has, stands on it, grid or folded, keyboard or not, while no pointer is there
+        from . import watch    # here, not at the top: the menu draws without the tick
+        token = watch.token_standing()
+        out += ["  " + terminal.styled(terminal.cut(token, layout - 2),
+                                       "amber" if "expired" in token else "dim")
+                if token else "", ""]
     body = pages[page] if ordered else flat
     top, above = len(out), None
     under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
@@ -1610,11 +1616,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 *((row, model_at, model, "dim", bright) for row, model, bright, on in models
                   if number in on)]
             moves.append((("sub", number), number == pointed, None, False))
-        from . import watch    # here, not at the top: the menu draws without the tick
-        token = None if pointed else watch.token_standing()
-        if token:     # a worker login that ends soon, or has: under the grid, at rest
-            out[grid + len(meters) - 1] = "  " + terminal.styled(
-                terminal.cut(token, layout - 2), "amber" if "expired" in token else "dim")
         if pointed:
             out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
                                                               ending=ending)

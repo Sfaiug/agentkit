@@ -2,7 +2,7 @@
 
 `claude setup-token` mints a token that lives exactly one year from the day its
 file was written.  From fourteen days out the ak screen says when, on the line under
-its subscriptions' grid, and no session's word changes for it; past the day every
+its subscriptions' usage, and no session's word changes for it; past the day every
 session reads it with the word `needs you` -- one card per episode by the cards rule,
 the reason saying `expired` -- and the line turns amber.  Replacing the file ends the
 episode.
@@ -120,15 +120,20 @@ class TokenExpiry(unittest.TestCase):
         (config.STATE / "usage.json").write_text('{"providers": {}}')
         self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=8))
 
-        def under():
+        def under(height=30, owned=True):
             with patch.object(terminal, "width", return_value=100), \
-                    patch.object(terminal, "height", return_value=30), \
+                    patch.object(terminal, "height", return_value=height), \
                     redirect_stdout(io.StringIO()) as out:
-                menu.draw(cfg, [], drawn={}, look=False, records=[])
+                menu.draw(cfg, [], drawn={} if owned else None, look=False, records=[])
             lines = out.getvalue().split("\033[J")[0].replace("\033[K", "").split("\n")
             return next(line for line in lines if "worker token" in line)
         self.write_token(352)
         self.assertEqual(under(), "  " + terminal.styled(watch.token_standing(), "dim"))
+        # the grid folded to its readings, and a pipe with no keyboard, say it the same
+        for height, owned in ((10, True), (30, False)):
+            with self.subTest(height=height, owned=owned):
+                self.assertEqual(under(height, owned),
+                                 "  " + terminal.styled(watch.token_standing(), "dim"))
         self.write_token(400)
         self.assertEqual(under(), "  " + terminal.styled(watch.token_standing(), "amber"))
 
@@ -146,6 +151,22 @@ class TokenExpiry(unittest.TestCase):
         self.assertEqual(found["word"], "needs you")
         self.assertIn("expired", found["reason"])
         self.assertEqual(found["reason"], f"claude worker token expired: {REPLACE}")
+
+    def test_a_token_dying_between_the_daily_asks_is_dead_at_the_next_pass(self):
+        # its file's date passing asks the verb again at once, so no seat waits out the day
+        ends = watch.token_ends(self.write_token(365))
+        answers = [(True, "claude: long-lived worker token (expires in 0 days)"),
+                   (False, "claude: worker token expired")]
+        state = {}
+        with patch.object(worker, "auth_ok", side_effect=lambda *_: answers.pop(0)):
+            watch.poll_worker_token(state, now=ends - 3600)
+            tokens = watch.poll_worker_token(state, now=ends + 3600)
+            self.assertEqual(watch.poll_worker_token(state, now=ends + 7200), tokens)
+        # the episode begins with the death, not the day the line first said it
+        self.assertEqual((tokens["claude"]["expired"], tokens["claude"]["at"]), (True, ends + 3600))
+        found = self.state_of("a", tokens)
+        self.assertEqual((found["word"], found["reason"]),
+                         ("needs you", f"claude worker token expired: {REPLACE}"))
 
     # --- 4: a replaced file ends the episode ---------------------------------
 
@@ -182,13 +203,15 @@ class TokenExpiry(unittest.TestCase):
     # --- the rest of the contract --------------------------------------------
 
     def test_within_a_logins_window_the_owner_is_paged_once_a_day(self):
-        # nearer than the line under the grid alone says; a dead one is every seat's word
+        # nearer than the line under the usage alone says; a dead one is every seat's word.  The
+        # verb's days are whole, so 84 hours out reads `3 days` and is still outside the window
         pages, now = [], 400 * 86400 + 12 * 3600   # noon UTC: a minute on is the same day anywhere
         with patch.object(watch.notify, "page", lambda *page: pages.append(page)):
-            for days, expired, at in ((4, False, now), (3, False, now), (3, False, now + 60),
-                                      (2, False, now + 86400), (None, True, now)):
-                record = {"harness": "claude", "remedy": REPLACE, "days": days,
-                          "expired": expired}
+            for hours, at in ((96, now), (84, now), (72, now), (72, now + 60),
+                              (48, now + 86400), (-1, now)):
+                record = {"harness": "claude", "remedy": REPLACE, "expired": hours < 0,
+                          "days": None if hours < 0 else hours // 24,
+                          "mtime": at + hours * 3600 - watch.TOKEN_LIFE_DAYS * 86400}
                 watch.remind_worker_tokens({"claude": record}, now=at)
         self.assertEqual([text for _, _, text in pages],
                          [f"claude worker token expires in {days} days: {REPLACE}"

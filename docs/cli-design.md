@@ -447,10 +447,10 @@ stands; how old an old reading is (`menu.usage_detail`). Everything else a provi
 elapsed`, `session`, `headroom`, `budget`, `outlook` --
 belongs to `ak usage`, whose table gains a `resets` column reading the same
 shared week off the same meter, so the two views can never disagree. With the
-pointer on none of them, the line under the grid says a worker token that ends
-within 14 days, dim (`claude worker token expires 2026-10-21 (in 7 days)`), or
-one that has, in amber, which every seat then reads as `needs you`
-(`watch.token_standing`).
+pointer on none of them, the line under the usage, the grid or its folded
+readings, in a pipe as with the keyboard, says a worker token that ends within
+14 days, dim (`claude worker token expires 2026-10-21 (in 7 days)`), or one that
+has, in amber, which every seat then reads as `needs you` (`watch.token_standing`).
 
 Example: `  Claude I    ▰▰▰▰▰▱▱▱▱▱  52% left  ChatGPT     empty until Thu 20:00`.
 

@@ -909,8 +909,13 @@ def record_auth(state, harness, *, fresh=False, now=None, answers=None):
 
 
 TOKEN_LIFE_DAYS = 365    # a worker token lives exactly one year from its file's date
-TOKEN_WARN_DAYS = 14     # ... and from this many days out every session reads the warning
+TOKEN_WARN_DAYS = 14     # ... and from this many days out the ak screen says it
 TOKEN_POLL_EVERY = 86400  # the verb is asked at most once a day; a new file date asks at once
+
+
+def token_ends(mtime):
+    """When the worker token in a file dated `mtime` dies, as the `auth` verb dates it."""
+    return mtime + TOKEN_LIFE_DAYS * 86400
 
 
 def token_files():
@@ -997,7 +1002,8 @@ def remind_worker_tokens(token_out, now=None):
     day = time.strftime("%Y-%m-%d", time.localtime(now))
     for harness, record in sorted(token_out.items() if isinstance(token_out, dict) else ()):
         reason = token_warning(record)
-        if reason and not record.get("expired") and record["days"] * 86400 <= logins.REMIND_WITHIN:
+        if (reason and not record.get("expired")
+                and token_ends(record["mtime"]) - now <= logins.REMIND_WITHIN):
             notify.page(f"token:{harness}:{day}", f"{harness} worker token", reason)
 
 
@@ -1025,7 +1031,7 @@ def poll_worker_token(state, now=None):
     until then and `worker token expired` after it, and that line is what is kept here,
     per harness under `worker_tokens`.  A replaced file has a new date, which asks again
     at once rather than waiting out the day -- replacing the file is what ends the
-    episode.  A verb that did not answer moves nothing at all, not even the throttle:
+    episode -- and so does the file's date passing, which is what begins it.  A verb that did not answer moves nothing at all, not even the throttle:
     the last real answer stands, as `auth_out` does.
     """
     now = time.time() if now is None else now
@@ -1043,7 +1049,8 @@ def poll_worker_token(state, now=None):
             continue
         checked = record.get("checked_at")
         if (isinstance(checked, (int, float)) and not isinstance(checked, bool)
-                and 0 <= now - checked < TOKEN_POLL_EVERY and record.get("mtime") == mtime):
+                and 0 <= now - checked < TOKEN_POLL_EVERY and record.get("mtime") == mtime
+                and not checked < token_ends(mtime) <= now):
             kept[harness] = record
             continue
         ok, why = worker.auth_ok(harness)
@@ -1054,12 +1061,11 @@ def poll_worker_token(state, now=None):
         found = re.search(r"expires in (\d+) days", why or "")
         expired = "worker token expired" in (why or "")
         days = int(found.group(1)) if found else None
-        warns = expired or (days is not None and days <= TOKEN_WARN_DAYS)
-        # `at` stands while the warning does, so the word and its card keep one beginning
+        # `at` stands while the token is dead, so the word and its card keep one beginning
         # however many passes it lasts -- but any new file date ends the episode, even one
-        # that still warns: a replacement is a new warning, never the old one continued.
-        continued = warns and token_warning(record) and record.get("mtime") == mtime
-        since = record.get("at") if continued else (now if warns else None)
+        # still dead: a replacement is a new episode, never the old one continued.
+        continued = expired and record.get("expired") and record.get("mtime") == mtime
+        since = record.get("at") if continued else (now if expired else None)
         kept[harness] = {"harness": harness, "remedy": block["remedy"], "at": since,
                          "checked_at": now, "mtime": mtime, "days": days,
                          "expired": expired, "why": why}
@@ -1081,7 +1087,7 @@ def worker_token_note(now=None):
         except (OSError, UnicodeDecodeError):
             continue
         at = time.time() if now is None else now
-        exp = mtime + TOKEN_LIFE_DAYS * 86400
+        exp = token_ends(mtime)
         when = time.strftime("%Y-%m-%d", time.localtime(exp))
         if at >= exp:
             return f"{harness} worker token expired {when}"
@@ -2540,7 +2546,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # seat's next turn on it fails.  The tick asks the `auth` verb once a day and keeps the
     # answer; a replaced file has a new date, which is what ends the episode.  One card per
     # episode falls out of the cards rule, which keys episodes on the word.  One that only
-    # nears its day stands under the ak screen's grid instead (`token_standing`).
+    # nears its day stands under the ak screen's usage instead (`token_standing`).
     reason, since = token_alert(token_dead(token_out))
     if reason:
         return {"word": "needs you", "reason": reason, "since": since}
