@@ -1594,6 +1594,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
         news = clock.look({key: shown for key, shown, _, _ in moves})
+        if clock.first:       # as it opens each seat's line grows to its length, row after row
+            clock.first, began = False, time.monotonic()
+            for n, (row, span) in enumerate(bars.values()):
+                text = terminal.ANSI.sub("", out[row - 1])
+                frames, until = motion.growing(terminal.cell_texts(out[row - 1])[span],
+                                               began + n * motion.STAGGER)
+                for k, animation in enumerate(frames):
+                    clock.start([(row, terminal.cells(text[:span.start]) + 1 + k)], animation,
+                                until)
         # Older effects must not overwrite newer news at a shared cell.
         for key, shown, cell, lit in sorted(moves, key=lambda move: news.get(move[0], (0,))[0]):
             since, _ = news.get(key, (None, None))
@@ -1627,7 +1636,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                         clock.start([(row, terminal.cells(text[:span.start]) + 1 + n)],
                                     animation, until)
         for cell, char, bright in breaths:
-            clock.start([cell], motion.breathing(char, "working", bright))
+            breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
+            if growing:       # a tip still growing in breathes once it is there
+                breathe = (lambda now, grow=growing[0], until=growing[1], breathe=breathe:
+                           grow(now) if now < until else breathe(now))
+            clock.start([cell], breathe)
         moved = clock.frame()
     # Home and write over, each line cleared past its end and the screen below the last: one
     # write, so no draw ever shows a blank screen or a half-drawn one.  Lines that rise are

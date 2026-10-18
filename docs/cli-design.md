@@ -547,7 +547,9 @@ that turns `done` has its `✓` appear bright and settle to `done`'s colour over
 (`motion.sweeping`). Either way its whole row glows in its word's colour and fades
 into the background over a second (`motion.glowing`). The line a row opens as
 the highlight comes to it comes up out of the background over 120 ms, and the
-rows of a page turned to over 150 ms (`motion.fading`). A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
+rows of a page turned to over 150 ms (`motion.fading`). As the menu opens, each
+seat's progress line grows from empty to its length over 450 ms, each row 40 ms
+after the one above it (`motion.growing`). A seat's progress line does not glide yet: each draw shows it as it is. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).
@@ -576,9 +578,9 @@ ends it on its last frame and is answered within 100 ms (`terminal.toggle`,
 `motion.toggled`, `motion.glowing`, `motion.Clock.touch`, `settle`).
 
 The popup's content fades in once, as it opens: from the background to its
-colours over 120 ms, on the same clock. Whatever is drawn in that time -- a
-key's draw, at once, or news -- comes up with it, and the popup closes at once,
-nothing fading out (`motion.Clock.rise`).
+colours over 120 ms, on the same clock. Whatever is drawn or moves in that time
+-- a key's draw, at once, news, a line growing in -- comes up with it, and the
+popup closes at once, nothing fading out (`motion.Clock.rise`).
 
 A screen whose content is still being fetched after 150 ms -- a project's feature
 switches while their `list` or a `set` is asked, a harness's model catalog on the
