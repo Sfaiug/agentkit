@@ -1654,9 +1654,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             """A line and its count, from what the count `before` showed (`motion.rolling`)."""
             text = terminal.ANSI.sub("", out[row - 1])
             count = re.match(r" \d+ of \d+", text[span.stop:]).group()
-            clock.span(row, terminal.cells(text[:span.start]) + 1, *motion.rolling(
-                terminal.cell_texts(out[row - 1])[span.start:span.stop + len(count)], before,
-                since, took, light, bright))
+            cells = terminal.cell_texts(out[row - 1])[span.start:span.stop + len(count)]
+            moving, until = motion.rolling(cells, before, since, took, light, bright)
+            clock.span(row, terminal.cells(text[:span.start]) + 1 - (len(moving) - len(cells)),
+                       moving, until)
 
         # As it opens each seat's line grows to its length, row after row, and through every
         # draw until it has: the read that lands as it opens draws the screen again at once.

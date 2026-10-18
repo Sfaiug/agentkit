@@ -129,7 +129,6 @@ class Rolls(Sandbox):
         self.plan("- [x] a\n- [ ] b\n")
         drawn, frames = self.glided("- [x] a\n" + "- [ ] b\n" * 9)
         size = drawn.index(" ")
-        self.assertTrue(any(frame.endswith(" 1 of 6") for frame in frames), frames)
         for frame in frames:
             line, done, total = re.fullmatch(r"([━╸─]+) +(\d+) of (\d+)", frame).groups()
             filled, done, total = line.count("━") + line.count("╸") / 2, int(done), int(total)

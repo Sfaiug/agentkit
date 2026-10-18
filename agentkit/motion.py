@@ -187,13 +187,13 @@ def fading(line, took):
     return start
 
 
-def growing(cells, began, took=GROW, start=0, light=None, along=eased):
+def growing(cells, began, took=GROW, start=0, light=None):
     """A progress line, `cells` each of its cells as the draw wrote it: its done part grows or
-    shrinks from its first `start` cells to its length in `took` seconds from `began`, `along`
-    (0 to 1) of its way at each share of that time -- from nothing as a screen opens, from its
-    old length as its plan moves, then with one cell of `light` at its head and the cells it
-    shrinks from in `light`'s colour -- the rest of it the empty track, and each cell is then as
-    drawn; an animation for each cell, and when it is still."""
+    shrinks from its first `start` cells to its length in `took` seconds from `began` -- from
+    nothing as a screen opens, from its old length as its plan moves, then with one cell of
+    `light` at its head and the cells it shrinks from in `light`'s colour -- the rest of it the
+    empty track, and each cell is then as drawn; an animation for each cell, and when it is
+    still."""
     done = sum(1 for text in cells if terminal.plain(text) in ("━", "╸", "="))
     full, empty = "━─" if terminal.utf8() else "=-"
     track = terminal.styled(empty, "dim")
@@ -202,7 +202,7 @@ def growing(cells, began, took=GROW, start=0, light=None, along=eased):
         filled = terminal.plain(text) in ("━", "╸", "=")
 
         def at(now):
-            head = round(start + (done - start) * along((now - began) / took))
+            head = round(start + (done - start) * eased((now - began) / took))
             if n >= head:
                 return track if filled else text
             if light and n == head - 1 and now < began + took:
@@ -216,44 +216,44 @@ def growing(cells, began, took=GROW, start=0, light=None, along=eased):
 
 
 def rolling(cells, before, began, took=GROW, light=None, bright=False):
-    """A progress line and its count, `cells` each of their cells as the draw wrote them --
-    `━━╸─── 3 of 8` -- from the count `before`, a (done, total), to what they say in `took`
-    seconds from `began`: each number of the count eased, and the line (`growing`, with
-    `light`) at the count's share at every frame; each digit that changes in `light`'s colour
-    and easing to as drawn in ROLL seconds, or with no light changing as it is.  A count wider
-    than the one drawn stands over the line's end, and one narrower at the right.  An
-    animation for each cell, and when it is still.  `bright` on the highlighted row."""
+    """A progress line's count, `cells` each of its cells as the draw wrote it -- `3 of 8`, or
+    with its line before it, `━━╸─ 3 of 8` -- from `before`, a (done, total), to what it says in
+    `took` seconds from `began`: at each frame the share its line has grown to then
+    (`growing`, from `before`'s share, with `light`), of the total it says, so the count says
+    what the line shows; each digit that changes in `light`'s colour and easing to as drawn in
+    ROLL seconds, or with no light changing as it is.  A count wider than drawn stands over the
+    line's end, or in cells before `cells`, and one narrower at the right.  An animation for
+    each cell, those before `cells` first, and when it is still.  `bright` on the highlighted
+    row."""
     drawn = [terminal.ANSI.sub("", text) for text in cells]
-    size = drawn.index(" ")         # the line's cells, then a space and the count
-    after = [int(n) for n in "".join(drawn[size + 1:]).split(" of ")]
+    first = next(n for n, char in enumerate(drawn) if char.isdigit())
+    size = max(0, first - 1)        # the line's cells, then a space before the count
+    done, total = [int(n) for n in "".join(drawn[first:]).split(" of ")]
+    was = before[0] / max(1, before[1])
+    line, _ = growing(cells[:size], began, took, round(size * was), light)
     start = terminal.faded(light, 0) if light else None
     rest = terminal.faded("dim", -1)        # the foreground a plain cell takes
 
-    def counted(x):
-        return [old + (new - old) * eased(x) for old, new in zip(before, after)]
-
-    # the count's share, done / total, has gone eased(x) * its new total / its total at x of
-    # its way
-    line, _ = growing(cells[:size], began, took, round(size * before[0] / max(1, before[1])),
-                      light, lambda x: eased(x) * after[1] / (counted(x)[1] or 1))
-
     def text(x):
-        """Each cell's text in the count's frame `x` of its way, None on the line."""
-        shown = " " + " of ".join(str(round(n)) for n in counted(x))
-        shown = shown if len(shown) <= len(cells) else "".join(drawn[size:])
-        return [None if n < size else " " for n in range(len(cells) - len(shown))] + list(shown)
+        share = was + (done / total - was) * eased(x)
+        return " " * bool(size) + f"{round(share * total)} of {total}"
 
-    # what the count shows at each frame, from the first: each a step a frame long
-    steps = [text(n * FRAME / took) for n in range(math.ceil(took / FRAME) + 1)]
+    frames = [text(n * FRAME / took) for n in range(math.ceil(took / FRAME) + 1)]
+    extra = max(0, max(map(len, frames)) - len(cells))
+    drawn, cells = [" "] * extra + drawn, [" "] * extra + cells
+    # what each cell shows at each frame, from the first, each a frame long: None on the line
+    steps = [[None if extra <= n < extra + size else " " for n in range(len(cells) - len(frame))]
+             + list(frame) for frame in frames]
     until = began + took + (ROLL if start else 0)       # the last digit to change settles
 
     def cell(n, written):
         def at(now):
-            step = min(len(steps) - 1, max(0, int((now - began) / FRAME)))
+            # a step's own time is that step's, however the sum rounded it
+            step = min(len(steps) - 1, max(0, int(round((now - began) / FRAME, 6))))
             if now >= until:
                 return written
-            if steps[step][n] is None:
-                return line[n](now)
+            if steps[step][n] is None:      # the line at the count's frame
+                return line[n - extra](began + step * FRAME)
             changed = next((k for k in range(step, 0, -1) if steps[k][n] != steps[k - 1][n]),
                            None)
             age = now - began - (changed or 0) * FRAME
