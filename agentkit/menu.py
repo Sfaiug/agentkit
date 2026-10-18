@@ -88,9 +88,9 @@ click opens a seat, and a click on the key line does what its key does (`loop`,
 `terminal.Keyboard`).  `x` is
 the highlighted seat's: a done one is closed at once, and any other is asked about under its row,
 `Keep` or `Stop` -- so the key line says `x close` while a done seat is highlighted.  A stopped
-seat leaves its project for the past screen, `p` (`show_past`): one row a stopped seat, with its
-number, its project and how long ago, where Enter reopens it where it stopped and `x` takes it
-off at once.  `c` holds
+seat leaves its project for the past screen, `p` (`show_past`): its row there under its project,
+numbered after the live ones, says how long ago it stopped; Enter reopens it where it stopped and
+`x` takes it off at once.  `c` holds
 its orchestrator, executors and reviewers: the orchestrator moves the seat at once, the
 roles flip with the same keys and save at once.
 `ak run status` and `ak browser` stay as commands for
@@ -682,12 +682,18 @@ def state(session):
     return status(session)[0]
 
 
+def selection_of(cfg, name):
+    """The seat's saved selection -- its orchestrator, executors and reviewers -- or None
+    where it has none, or one that no longer reads."""
+    try:
+        return config.load_session(cfg, name, required=False)
+    except config.Error:
+        return None
+
+
 def row(cfg, number, session):
     """One seat's cells: number, name, worker, word, reason, age."""
-    try:
-        selection = config.load_session(cfg, session["name"], required=False)
-    except config.Error:
-        selection = None
+    selection = selection_of(cfg, session["name"])
     found = seat_row_state(cfg, session)
     text = found["reason"]
     # the word is aged from when it began, and from the seat's own start where
@@ -1074,10 +1080,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     name = session["name"]
     found = seat_row_state(cfg, session, look=look, records=records, now=now, number=number,
                            run_numbers=run_numbers, index=index, silent=silent_map)
-    try:
-        selection = config.load_session(cfg, name, required=False)
-    except config.Error:
-        selection = None
+    selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
@@ -1131,15 +1134,8 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
             continue          # stopped: numbered after every seat with a row, on the past screen
         infos.append(v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache,
                                    at, index, None, look, mine))
-    # Grouped by the checkout the seat's repo is, so a project can never be listed
-    # twice and a run can never make one.
-    groups, stands = {}, orch.listed()       # ~/code looked at once a read
-    for info in infos:
-        checkout = orch.checkout_of(info["repo"], stands=stands)
-        project = groups.setdefault(str(checkout) if checkout else None,
-                                    {"name": orch.project_name(checkout), "seats": [],
-                                     "checkout": checkout})
-        project["seats"].append(info)
+    stands = orch.listed()       # ~/code looked at once a read
+    groups = by_project(infos, stands)
     for checkout in orch.checkouts(stands=stands):     # a project with no seat shown has no heading
         if str(checkout) in groups and switches_command(checkout):
             groups[str(checkout)]["switches"] = switches(checkout) or []
@@ -1151,6 +1147,48 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     total_needing = sum(project["needing"] for project in ordered)
     # The top line counts the seats whose word is `needs you`, each once, and says so once.
     return ordered, infos, total_needing, silent_map
+
+
+def by_project(infos, stands):
+    """Seat rows grouped by the checkout each one's repo is, so a project can never be listed
+    twice and a run can never make one: {str(checkout) or None: {"name", "checkout", "seats"}},
+    each project where its first seat is.  `stands` is what `orch.listed` answered for the read
+    asking."""
+    groups = {}
+    for info in infos:
+        checkout = orch.checkout_of(info["repo"], stands=stands)
+        groups.setdefault(str(checkout) if checkout else None,
+                          {"name": orch.project_name(checkout), "seats": [],
+                           "checkout": checkout})["seats"].append(info)
+    return groups
+
+
+def project_pages(projects, room):
+    """`projects`, (heading, blocks) each in order, a block one seat's lines, in pages of `room`
+    lines, the main screen's and the past screen's alike."""
+    # Seat blocks packed whole under their project header, so a seat's lines never split
+    # across pages: one taller than a page under its header is cut to it, as the highlight
+    # shows only a seat's first page. A screen without room for a row and a line under it
+    # falls back to bare line splits so tiny screens still fit.
+    pages, cur, cur_header = [], [], None
+    for header, own in projects:
+        for block in own or [[]]:     # a heading with no seat under it still has its place
+            need = block if cur and cur_header == header else [header] + block
+            if cur and len(cur) + len(need) > room:
+                pages.append(cur)
+                cur, cur_header = [], None
+                need = [header] + block
+            if len(need) > room:
+                pages.append([header])
+                for i in range(0, len(block), room):
+                    pages.append(block[i:i + room])
+                cur_header = header
+                continue
+            cur.extend(need)
+            cur_header = header
+    if cur:
+        pages.append(cur)
+    return pages
 
 
 def v5o_header(project, term_width):
@@ -1478,32 +1516,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         chrome = 2 + len(meters) + 2 + 1 + keys
         return height - 2 - chrome
 
-    def _seat_pages(room):
-        # Seat blocks packed whole under their project header, so a seat's lines never split
-        # across pages: one taller than a page under its header is cut to it, as the highlight
-        # shows only a seat's first page. A screen without room for a row and a line under it
-        # falls back to bare line splits so tiny screens still fit.
-        pages, cur, cur_header = [], [], None
-        for project, own in zip(ordered, _seat_blocks(room - 1)):
-            header = heading(project)
-            for block in own or [[]]:     # a heading with no seat under it still has its place
-                need = block if cur and cur_header == header else [header] + block
-                if cur and len(cur) + len(need) > room:
-                    pages.append(cur)
-                    cur, cur_header = [], None
-                    need = [header] + block
-                if len(need) > room:
-                    pages.append([header])
-                    for i in range(0, len(block), room):
-                        pages.append(block[i:i + room])
-                    cur_header = header
-                    continue
-                cur.extend(need)
-                cur_header = header
-        if cur:
-            pages.append(cur)
-        return pages
-
     # The usage stays on top and the keys at the bottom, whatever the number of seats: those
     # that do not fit between them turn pages.  The block folds to its readings, each whole
     # (`usage_summary`), where that keeps every seat on one page or where the whole block
@@ -1532,7 +1544,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     if room < 1:
         meters = meters[:max(0, len(meters) + room - 1)]      # what leaves one row
     room = max(1, _room(meters, paged, compact))
-    pages = _seat_pages(room) if paged else [flat]
+    pages = (project_pages([(heading(project), own) for project, own
+                            in zip(ordered, _seat_blocks(room - 1))], room)
+             if paged else [flat])
     if owned and cursor is not None:
         page = next((number for number, lines in enumerate(pages)
                      if any(name == cursor for _, name in lines)), page)
@@ -4520,44 +4534,56 @@ def past_offered(found):
     return any(session.get("closed") for session in found)
 
 
-def past_body(past, at=None):
-    """The past screen's lines, one a stopped seat -- its number, name, project, how long ago
-    it was stopped and, where its harness starts it fresh, that -- and where each is,
-    {line: (("row", name), [])}.  `at` is the highlighted seat's name, or None while the
-    pointer is off the rows."""
-    rows = [(str(number), session["name"],
-             orch.project_name(session.get("repo"), ""),
-             f"stopped {orch.age(session['closed'])} ago", session.get("restart") or "")
-            for number, session in past]
-    widths = [max(terminal.cells(row[column]) for row in rows) for column in range(4)]
-    room = terminal.layout_width() - 4 - widths[0]
-    # the project goes where a row has no room for it beside the name and when; the name is
-    # cut, never wrapped, to what the when leaves it
-    columns = (1, 2, 3) if sum(widths[1:]) + 4 <= room else (1, 3)
-    widths[1] = min(widths[1], room - 2 - widths[3] - (widths[2] + 2 if 2 in columns else 0))
-    lines, places = [], {}
-    for row in rows:
-        rest = "  ".join(terminal.pad(row[column], widths[column]) for column in columns)
-        if row[4] and terminal.cells(rest) + 2 + terminal.cells(row[4]) <= room:
-            rest += "  " + row[4]      # that it starts fresh rides only where the row has room
-        line = "  " + _styled_cell(row[0], widths[0], "dim", right=True) + "  " + terminal.cut(
-            rest, room, spaced=True)
-        places[len(lines)] = (("row", row[1]), [])
-        lines.append(terminal.highlight(line) if at == row[1] else line)
-    return lines, places
+def past_body(past, at=None, models=None, room=None):
+    """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
+    heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
+    how long ago it was stopped in the state's column and, where its harness starts it fresh
+    and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
+    blank line between projects, where `room` lines hold them or no `room` is given; else the
+    page of `room` lines `at` is on, each row under its project's heading (`project_pages`).
+    `at` is the highlighted seat's name, lit while the pointer is on the rows (`terminal.away`)."""
+    infos = [{"number": str(number), "name": session["name"],
+              "orchestrator": (models or {}).get(session["name"]) or "-",
+              "count": f"stopped {orch.age(session['closed'])} ago",
+              "restart": session.get("restart") or "", "repo": session.get("repo")}
+             for number, session in past]
+    width = terminal.width()
+    widths = v5o_column_widths(infos, width)
+    # how long ago is wider than any state word: it takes the room the last column would
+    wider = min(max(terminal.cells(info["count"]) for info in infos),
+                widths["count"] + max(0, widths["free"]))
+    widths["free"] -= max(0, wider - widths["count"])
+    widths["count"] = max(widths["count"], wider)
+
+    def drawn(info):
+        line = _head(info, widths)
+        if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
+            line += "  " + terminal.styled(info["restart"], "dim")
+        lit = at == info["name"] and not terminal.away()
+        return terminal.highlight(line.rstrip()) if lit else line.rstrip()
+    projects = [((v5o_header(project, width), None),
+                 [[(drawn(info), info["name"])] for info in project["seats"]])
+                for project in by_project(infos, orch.listed()).values()]
+    flat = [line for number, (heading, rows) in enumerate(projects)
+            for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
+    pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
+    page = next((page for page in pages if any(name == at for _, name in page)), pages[0])
+    return ([line for line, _ in page],
+            {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
 
 @terminal.clicks_its_own
 def show_past(cfg, found, dry_run=False, keyboard=None):
-    """`past sessions`, `p`: the seats you stopped, each with its number, its project and how
-    long ago, for the one you want back.  ↑/↓, k/j and the wheel move the highlight; Enter or a
+    """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
+    (`past_body`), for the one you want back, the page the highlight is on where they fill more
+    than one.  ↑/↓, k/j and the wheel move the highlight; Enter or a
     click reopens one where it stopped (`open_session`, what its number does on the main screen)
     and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
     (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
     while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
     remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
     """
-    here, top = None, 0
+    here = None
     while True:
         past = [(number, session) for number, session in enumerate(found, 1)
                 if session.get("closed")]
@@ -4565,9 +4591,10 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             return
         names = [session["name"] for _, session in past]
         here = here if here in names else names[0]
+        models = {name: (selection_of(cfg, name) or {}).get("orchestrator") for name in names}
         if not terminal.taken():
             keys = "x remove   esc back"
-            terminal.frame("past sessions", past_body(past)[0], keys)
+            terminal.frame("past sessions", past_body(past, models=models)[0], keys)
             if dry_run:
                 return
             line = read("> ", "")
@@ -4588,10 +4615,11 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 pause(f"not a key: {line!r}", keys)
             continue
         keys = PAST_KEYS[0 if terminal.utf8() else 1]
-        body, places = past_body(past, None if terminal.away() else here)
-        act, row, _column, top = matrix_key("past sessions", body, places,
-                                            [("row", name) for name in names], ("row", here),
-                                            top, "", keys)
+        room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
+        body, places = past_body(past, here, models, room)
+        act, row, _column, _top = matrix_key("past sessions", body, places,
+                                             [("row", name) for name in names], ("row", here),
+                                             0, "", keys)
         here = row[1]
         if act is None:
             continue              # a resize or the pointer: drawn again

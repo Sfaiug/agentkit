@@ -78,6 +78,19 @@ class Numbered(Sandbox):
         self.assertEqual(rows, [("1", "acme-api"), ("2", "acme-ops"),
                                 ("3", "docs-site"), ("4", "docs-blog")])
 
+    def test_stopped_seats_go_on_down_the_past_screen_under_their_projects(self):
+        self.stop("docs-site")          # stopped first and made first, yet docs comes after acme
+        self.stop("acme-web")
+        rows, found = self.screen()
+        self.assertEqual(rows, [("1", "acme-api"), ("2", "docs-blog")])
+        past = [(number, seat) for number, seat in enumerate(found, 1) if seat.get("closed")]
+        with patch.object(terminal, "width", return_value=100):
+            lines, places = menu.past_body(past, models={"acme-web": "fable"})
+        self.assertEqual([terminal.plain(line).split() for line in lines],
+                         [["acme"], ["3", "acme-web", "fable", *"stopped 8m ago starts fresh".split()],
+                          [], ["docs"], ["4", "docs-site", "-", *"stopped 8m ago starts fresh".split()]])
+        self.assertEqual(sorted(places), [1, 4])        # a heading is no row
+
     def test_a_project_keeps_its_place_when_its_oldest_seat_stops(self):
         self.stop("acme-api")
         self.assertEqual(self.screen()[0], [("1", "acme-web"), ("2", "docs-site"),

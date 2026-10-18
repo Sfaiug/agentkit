@@ -52,7 +52,7 @@ class Keys(unittest.TestCase):
         shown.send(b"p")
         lines = shown.frame(keys="esc back")
         self.assertIn("past sessions", lines[0])
-        self.assertRegex(shown.highlighted(lines), r"^›\s+2  omega\s+stopped \d+[smhd] ago$")
+        self.assertRegex(shown.highlighted(lines), r"^›\s+2  omega  -  stopped \d+[smhd] ago$")
         self.assertFalse(any("alpha" in line for line in lines), lines)
         self.assertRegex(lines[-1], r"⏎ reopen   x remove   esc back")
         mark = shown.mark()
@@ -100,6 +100,11 @@ class Lines(unittest.TestCase):
         self.closed = self.stack.enter_context(patch.object(menu, "close_seat"))
         self.paused = self.stack.enter_context(patch.object(menu, "pause"))
         self.stopped = self.stack.enter_context(patch.object(orch, "cmd_stop"))
+        self.stack.enter_context(patch.object(orch, "listed", dict))
+        self.stack.enter_context(patch.object(orch, "checkout_of",
+                                              lambda repo, **_kw: repo and Path(repo)))
+        self.stack.enter_context(patch.object(menu, "selection_of", lambda cfg, name: {
+            "orchestrator": "opus"} if name == "omega" else None))
 
     def test_a_number_reopens_a_stopped_seat_and_x_asks_which_to_remove(self):
         # `x` asks by the numbers on the screen: 3 is zeta here, as it is on the main screen
@@ -109,8 +114,9 @@ class Lines(unittest.TestCase):
         self.opened.assert_called_once_with(CFG, OMEGA, False)
         screens = self.out.getvalue().split("past sessions")[1:]
         self.assertEqual(len(screens), 2)
-        self.assertRegex(screens[0], r"\n  2  omega +atoll +stopped 2h ago\n")
-        self.assertRegex(screens[0], r"\n  3  zeta +stopped 5m ago +starts fresh\n")
+        # under their projects' headings, as on the main screen, with their orchestrators
+        self.assertRegex(screens[0], r"\natoll\n  2  omega  opus  stopped 2h ago\n\n"
+                                     r"no project\n  3  zeta   -     stopped 5m ago  starts fresh\n")
         self.assertNotIn("alpha", screens[0])
         self.assertIn("x remove   esc back", screens[0])
         self.assertIn("2 omega · 3 zeta", screens[0])
@@ -135,6 +141,20 @@ class Lines(unittest.TestCase):
         self.paused.assert_called_once_with("no session to stop")
         self.stopped.assert_not_called()
         self.assertNotIn("stop omega", self.out.getvalue())
+
+    def test_more_than_a_page_keeps_each_row_under_its_projects_heading(self):
+        # with the keys, on a 100x24 screen: 18 lines between the frame and the keys for 20 seats
+        seats = [dict(OMEGA, name=f"fix-api-{n}") for n in range(20)]
+        drawn = []
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "height", return_value=24), \
+                patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
+                             drawn.append([terminal.plain(line) for line in body]) or {}), \
+                patch.object(terminal, "read_key",
+                             side_effect=[terminal.Key("down")] * 19 + [terminal.Key("esc")]):
+            menu.show_past(CFG, seats, keyboard=None)
+        self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 20)
+        self.assertRegex(drawn[-1][-1], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
 
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):
