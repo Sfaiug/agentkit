@@ -38,7 +38,7 @@ class TasksMove(Sandbox):
         self.seats = [{"name": "acme-api", "repo": "", "path": "", "created": 9000}]
         config.save_session(self.cfg, "acme-api", "opus", ["astra"])
         self.clock = motion.Clock()
-        self.clock.first = False
+        self.clock.grows = {}
 
     def draw(self, records, width=100):
         with patch.object(terminal, "width", return_value=width), \
@@ -63,7 +63,7 @@ class TasksMove(Sandbox):
             with self.subTest(width=width), \
                     patch.object(menu, "seat_row_state", return_value=state):
                 self.clock = motion.Clock()
-                self.clock.first = False
+                self.clock.grows = {}
                 self.draw([run("g1", state="running", step="executor")], width)
                 moved = set(self.clock.cells)
                 lines = self.draw([run("g1", state="running", step="reviewer")], width)

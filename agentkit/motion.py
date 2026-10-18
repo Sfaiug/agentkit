@@ -351,7 +351,7 @@ class Clock:
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.opened = None  # ... from its first draw
         self.rising = None  # ... the lines drawn, top down, and that time, while they come up
-        self.first = True   # the screen's first draw is still to come: its lines grow into it
+        self.grows = None   # each line the screen's first draw has -> when it grows in from
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
