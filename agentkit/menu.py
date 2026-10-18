@@ -4590,7 +4590,8 @@ def past_body(past, at=None, models=None, room=None):
         if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
             block[0] += "  " + terminal.styled(info["restart"], "dim")
         lit = at == info["name"] and not terminal.away()
-        return [terminal.highlight(line.rstrip()) if lit else line.rstrip() for line in block]
+        return [terminal.highlight(line.rstrip(), mark=number == 0) if lit else line.rstrip()
+                for number, line in enumerate(block)]
     projects = [((v5o_header(project, width), None),
                  [[(line, info["name"]) for line in drawn(info)] for info in project["seats"]])
                 for project in by_project(infos, orch.listed()).values()]

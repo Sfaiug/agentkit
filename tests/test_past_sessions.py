@@ -178,6 +178,30 @@ class Lines(unittest.TestCase):
 
 
 class Layout(Sandbox):
+    def test_a_highlighted_past_seat_marks_only_its_first_line(self):
+        with patch.object(terminal, "width", return_value=20), \
+                patch.object(terminal, "away", return_value=False), \
+                patch.object(orch, "age", return_value="120d"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            for utf8, mark in ((True, "›"), (False, ">")):
+                for depth in (0, 24):
+                    with self.subTest(utf8=utf8, depth=depth), \
+                            patch.object(terminal, "utf8", return_value=utf8), \
+                            patch.object(terminal, "colour_depth", return_value=depth):
+                        lines, places = menu.past_body([
+                            (number, {"name": name, "repo": None, "closed": 1})
+                            for number, name in ((12, "fix-api"), (13, "fix-web"))],
+                            at="fix-api")
+                        rows = [lines[n] for n in places]
+                        plain = [terminal.plain(row, True) for row in rows]
+                        self.assertTrue(plain[0].startswith(mark), plain)
+                        self.assertEqual(sum(row.startswith(mark) for row in plain), 1, plain)
+                        self.assertEqual(plain[1], "    stopped 120d ago")
+                        if depth:
+                            self.assertTrue(all(row.startswith("\033[1m") for row in rows[:2]))
+                            self.assertFalse(any(row.startswith("\033[1m") for row in rows[2:]))
+
     def test_a_stopped_age_below_the_row_leaves_room_for_the_name(self):
         with patch.object(terminal, "width", return_value=20), \
                 patch.object(orch, "age", return_value="120d"), \
