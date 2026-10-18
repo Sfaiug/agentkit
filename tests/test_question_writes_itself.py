@@ -101,20 +101,26 @@ class Writes(Sandbox):
             self.assertEqual(self.shown(lines, rows, 10.1), QUESTION)
 
     def test_each_cell_writes_itself_at_its_terminal_column(self):
-        with patch.dict(globals(), QUESTION="Ship 界 launch?"), \
-                patch.object(motion.time, "monotonic", return_value=10):
-            self.draw("acme-docs")
-            lines, rows = self.draw("acme-api")
-        columns, column = {}, 1
-        for char in terminal.ANSI.sub("", lines[rows[0] - 1]):
-            columns[column], column = char, column + terminal.cells(char)
-        moving = {column: (animation(10), terminal.ANSI.sub("", animation(until)))
-                  for (row, column), (animation, until) in self.clock.cells.items()
-                  if row == rows[0]}
-        self.assertEqual(moving, {column: (" " * terminal.cells(char), char)
-                                  for column, char in columns.items() if column in moving})
-        self.assertEqual("".join(moving[column][1] for column in sorted(moving)).strip(),
-                         "Ship 界 launch?")
+        for question in ("Ship 界 launch?", "Ship the cafe\u0301 launch?", "Ship 界\u0301\u0327 launch?"):
+            with self.subTest(question=question), patch.dict(globals(), QUESTION=question), \
+                    patch.object(motion.time, "monotonic", return_value=10):
+                self.clock = motion.Clock()
+                self.draw("acme-docs")
+                lines, rows = self.draw("acme-api")
+                columns, column = {}, 1
+                for char in terminal.ANSI.sub("", lines[rows[0] - 1]):
+                    width = terminal.cells(char)
+                    if width:
+                        columns[column], column = char, column + width
+                    else:
+                        columns[max(columns)] += char
+                moving = {column: (animation(10), terminal.ANSI.sub("", animation(until)))
+                          for (row, column), (animation, until) in self.clock.cells.items()
+                          if row == rows[0]}
+                self.assertEqual(moving, {column: (" " * terminal.cells(char), char)
+                                          for column, char in columns.items() if column in moving})
+                self.assertEqual("".join(moving[column][1] for column in sorted(moving)).strip(),
+                                 question)
 
     def test_a_question_wrapped_anew_is_the_same_question(self):
         with patch.object(motion.time, "monotonic", return_value=10):
