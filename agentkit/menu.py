@@ -2794,6 +2794,16 @@ def advice_lines(found):
             for number, part in enumerate(terminal.wrap(said, room - wide - 2))]
 
 
+def model_said(cfg, name):
+    """What the line the highlighted model opens on `c` says: the subscriptions it runs on,
+    its provider's (`usage_rows`), the provider's name said once (`runs on Claude I, II`)."""
+    provider = cfg["models"][name]["provider"]
+    on = [terminal.plain(label) for each, label, _, _ in usage_rows(cfg) if each == provider]
+    head = on[0].rsplit(" ", 1)[0] + " " if len(on) > 1 else ""
+    on = on[:1] + [label.removeprefix(head) for label in on[1:]]
+    return "runs on " + ", ".join(on) if on else ""
+
+
 def take_advice(cfg, name, selected, providers, found):
     """`r`: the seat's executors and reviewers become the recommended rows' models, each at
     the row's effort as its entry's own for that role (`exec_effort`, `review_effort`; a row
@@ -3042,7 +3052,7 @@ def models_screen(cfg, session, selected, providers, held):
 
 
 def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None,
-                found=None):
+                found=None, opened=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name: label, harness (dim), the three role
@@ -3053,7 +3063,11 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim, its reset note beside it or, on a
-    phone, under it.  Under them `+ add a model`, `Providers`
+    phone, under it.  The highlighted model opens one line under its row (`model_said`),
+    coming up as the highlight comes to it (`motion.fading`): what it runs on, as many lines as
+    the tallest any model opens.  `opened`, a row, is the model whose line is open
+    (config_matrix): with the highlight off the models it keeps its place, empty, so nothing
+    under it moves.  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
@@ -3094,6 +3108,10 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
+    # the lines each model opens once highlighted, wrapped on a phone, every model's as many as
+    # the tallest's: a pointer that brings the highlight down past one that closes is on its own
+    opening = {name: terminal.wrap(model_said(cfg, name), room - 4) for name in names}
+    opens, opened = max(map(len, opening.values())), opened or at
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(cfg, provider))
         for name in (name for name in names if models[name]["provider"] == provider):
@@ -3142,6 +3160,13 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 places[len(lines)] = (("model", name), cells if number == 0 else [])
                 lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
                              else part)
+            said = opening[name] if at == opened else []      # off the models: empty, in place
+            for part in (said + [""] * opens)[:opens] if opened == ("model", name) else ():
+                places[len(lines)] = (("model", name), [])
+                lines.append(("    " + terminal.styled(part, "dim")).rstrip())
+                if moves is not None:
+                    moves.append((len(lines) - 1, ("opened",), said and name,
+                                  motion.fading(lines[-1], motion.OPEN)))
     if selected is not None and found is not None:
         lines.extend(advice_lines(found))
     lines.append("")
@@ -3539,13 +3564,16 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top, clock = None, columns[1], 0, motion.Clock()
+    here, column, top, clock, opened = None, columns[1], 0, motion.Clock(), None
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
+        # off the models the last one's line keeps its place, so no row moves from under the
+        # pointer as it goes to the rows under them or off every row
+        opened = here if here[0] == "model" else opened if opened in rows else None
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # up from Providers' acts onto a row without marks
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
@@ -3555,7 +3583,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
         body, places = config_body(cfg, version, None if terminal.away() else here, column,
-                                   selected, providers, moves, found)
+                                   selected, providers, moves, found, opened)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         was = here

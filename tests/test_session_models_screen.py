@@ -171,6 +171,39 @@ class SessionModels(Sandbox):
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         self.assertTrue(any("spent · resets" in terminal.plain(line) for line in lines))
 
+    def body(self, at, opened=None, width=28):
+        """`c` with three Claude subscriptions and one ChatGPT, `at` highlighted."""
+        rows = [("anthropic", "Claude " + number, {}, number) for number in ("I", "II", "III")]
+        rows.append(("openai", "ChatGPT", {}, ""))
+        with patch.object(menu, "usage_rows", return_value=rows), \
+                patch.object(terminal, "layout_width", return_value=width):
+            return menu.config_body(self.cfg, "fixture", at, 0, self.selected("fix-api"),
+                                    opened=opened)
+
+    def test_the_opened_line_names_the_provider_once_and_each_is_as_tall_as_the_tallest(self):
+        names = menu.config_models(self.cfg)
+        claude = [name for name in names if self.cfg["models"][name]["provider"] == "anthropic"]
+        after = names[names.index(claude[-1]) + 1]
+        lines, places = self.body(("model", claude[-1]), width=100)
+        row = next(n for n, (at, cells) in places.items() if at == ("model", claude[-1]) and cells)
+        self.assertEqual(terminal.plain(lines[row + 1]), "runs on Claude I, II, III")
+        # on a phone Claude's wraps to two and ChatGPT's to one: the two close, and the next
+        # opens as many, so where its row was the pointer is on its own line, never the row below
+        _, last = self.body(("model", claude[-1]))
+        _, next_ = self.body(("model", after))
+        row = next(n for n, (at, cells) in last.items() if at == ("model", after) and cells)
+        self.assertEqual(next_[row], (("model", after), []))
+
+    def test_off_the_models_the_line_keeps_its_place_empty(self):
+        name = menu.config_models(self.cfg)[0]
+        on, on_places = self.body(("model", name))
+        off, off_places = self.body(("row", "Discord"), ("model", name))
+        opened = [n for n, (at, cells) in on_places.items() if at == ("model", name) and not cells]
+        self.assertTrue(opened and all(terminal.plain(on[n]) for n in opened))
+        self.assertEqual([off[n] for n in opened], [""] * len(opened))
+        self.assertEqual({n: at for n, (at, _) in off_places.items()},
+                         {n: at for n, (at, _) in on_places.items()})
+
     def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_only_efforts(self):
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 patch.object(usage, "collect", return_value=usage.Readings({})), \

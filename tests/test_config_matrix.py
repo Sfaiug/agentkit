@@ -205,6 +205,9 @@ class Matrix(unittest.TestCase):
                                                           "▰▰▰▰▱", "xhigh"])
         self.assertEqual(row(lines, "opus")[1].split(), ["opus", "claude", "●", "■", "■",
                                                          "▰▰▰▰▱", "xhigh"])
+        # the highlighted model opens one line, what it runs on; the rest open none
+        self.assertEqual(lines[row(lines, "fable")[0]].strip(), "runs on Claude")
+        self.assertEqual(row(lines, "opus")[0], row(lines, "fable")[0] + 2)
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
@@ -380,8 +383,9 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         # past every model, `+ add a model` and Providers
         models = lines[3:next(n for n, line in enumerate(lines) if "+ add a model" in line)]
-        down = sum(1 for line in models        # the advice line under them is no row
-                   if line.startswith(("  ", "›")) and "ak recommends" not in line) + 2
+        down = sum(1 for line in models        # the advice line, the line opened: no row
+                   if line.startswith(("  ", "›")) and "ak recommends" not in line
+                   and not line.startswith("    ")) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         mark = len(screen.text())

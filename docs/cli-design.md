@@ -275,7 +275,11 @@ lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
-so under the rows, its mark shaking (Motion). Under a seat's models one dim line names the row `ak models`
+so under the rows, its mark shaking (Motion). The highlighted model opens one line under
+its row, coming up as the highlight comes to it: the subscriptions it runs on (dim), on a phone
+wrapped, each model's as many lines as the tallest; with the highlight off the models the line
+keeps its place, empty, so no row moves from under the pointer or the keys.
+Under a seat's models one dim line names the row `ak models`
 recommends per role, and `r recommended` opens the models screen (The models screen).
 Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
