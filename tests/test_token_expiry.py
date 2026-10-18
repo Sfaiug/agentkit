@@ -1,15 +1,18 @@
 """The worker token warns before it expires, not after every turn starts failing.
 
 `claude setup-token` mints a token that lives exactly one year from the day its
-file was written.  From fourteen days out every session reads the warning with
-the word `needs you` -- one card per episode by the cards rule -- and past the
-day the reason says `expired`.  Replacing the file ends the episode.
+file was written.  From fourteen days out the ak screen says when, on the line under
+its subscriptions' usage, and no session's word changes for it; past the day every
+session reads it with the word `needs you` -- one card per episode by the cards rule,
+the reason saying `expired` -- and the line turns amber.  Replacing the file ends the
+episode.
 
 Offline throughout: a temporary HOME, a fake token file with a chosen mtime, and
 no real secrets directory anywhere.
 """
 
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -21,7 +24,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, watch, worker
+from agentkit import config, menu, terminal, watch, worker
 
 REPLACE = "run claude setup-token and replace ~/.agentkit/secrets/claude_oauth_token"
 
@@ -94,24 +97,46 @@ class TokenExpiry(unittest.TestCase):
         self.assertIn("expires in 265 days", said)
         self.assertEqual(worker.auth_ok("claude"), (True, said))
 
-    # --- 2: from fourteen days out every session reads the warning -----------
+    # --- 2: from fourteen days out the ak screen says it, and no word changes --
 
-    def test_thirteen_days_out_every_session_reads_the_warning(self):
+    def test_thirteen_days_out_the_ak_screen_says_it_and_no_session_reads_it(self):
         self.write_token(352)
         _, tokens = self.poll()
         self.assertEqual(tokens["claude"]["days"], 13)
-        expected = f"claude worker token expires in 13 days: {REPLACE}"
         running = [(Path("x"), {"launched_session": "w", "state": "running",
                                 "started_at": time.time(), "title": "t"})]
-        seats = [("a", {}, "claude", ()),            # a live claude seat
-                 ("b", {}, "codex", ()),             # another harness entirely
-                 ("c", {"exited": True}, "claude", ()),  # nobody in it any more
-                 ("w", {}, "claude", running)]       # working, with a run going
-        for name, session, harness, records in seats:
+        for name, session, harness, records in (("a", {}, "claude", ()),
+                                                 ("w", {}, "claude", running)):
             with self.subTest(name=name):
                 found = self.state_of(name, tokens, session, harness, records)
-                self.assertEqual(found["word"], "needs you")
-                self.assertEqual(found["reason"], expected)
+                self.assertNotIn("worker token", found["reason"])
+        self.assertEqual(self.state_of("w", tokens, {}, "claude", running)["word"], "working")
+        self.assertRegex(watch.token_standing(), r"^claude worker token expires \S+ \(in 13 days\)$")
+        self.write_token(300)        # 65 days out it says nothing yet
+        self.assertIsNone(watch.token_standing())
+
+    def test_the_line_under_the_grid_says_it_dim_then_amber_once_dead(self):
+        cfg = config.load()
+        (config.STATE / "usage.json").write_text('{"providers": {}}')
+        self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=8))
+
+        def under(height=30, owned=True):
+            with patch.object(terminal, "width", return_value=100), \
+                    patch.object(terminal, "height", return_value=height), \
+                    redirect_stdout(io.StringIO()) as out:
+                menu.draw(cfg, [], drawn={} if owned else None, look=False, records=[])
+            lines = out.getvalue().split("\033[J")[0].replace("\033[K", "").split("\n")
+            return next(line for line in lines if "worker token" in line)
+        self.write_token(352)
+        self.assertEqual(under(), "  " + terminal.styled(watch.token_standing(), "dim"))
+        # the grid folded to its readings, a screen too short for its frame, and a pipe with no
+        # keyboard say it the same
+        for height, owned in ((10, True), (9, True), (30, False)):
+            with self.subTest(height=height, owned=owned):
+                self.assertEqual(under(height, owned),
+                                 "  " + terminal.styled(watch.token_standing(), "dim"))
+        self.write_token(400)
+        self.assertEqual(under(), "  " + terminal.styled(watch.token_standing(), "amber"))
 
     # --- 3: past the day the reason says expired -----------------------------
 
@@ -128,16 +153,32 @@ class TokenExpiry(unittest.TestCase):
         self.assertIn("expired", found["reason"])
         self.assertEqual(found["reason"], f"claude worker token expired: {REPLACE}")
 
+    def test_a_token_dying_between_the_daily_asks_is_dead_at_the_next_pass(self):
+        # its file's date passing asks the verb again at once, so no seat waits out the day
+        ends = watch.token_ends(self.write_token(365))
+        answers = [(True, "claude: long-lived worker token (expires in 0 days)"),
+                   (False, "claude: worker token expired")]
+        state = {}
+        with patch.object(worker, "auth_ok", side_effect=lambda *_: answers.pop(0)):
+            watch.poll_worker_token(state, now=ends - 3600)
+            tokens = watch.poll_worker_token(state, now=ends + 3600)
+            self.assertEqual(watch.poll_worker_token(state, now=ends + 7200), tokens)
+        # the episode begins with the death, not the day the line first said it
+        self.assertEqual((tokens["claude"]["expired"], tokens["claude"]["at"]), (True, ends + 3600))
+        found = self.state_of("a", tokens)
+        self.assertEqual((found["word"], found["reason"]),
+                         ("needs you", f"claude worker token expired: {REPLACE}"))
+
     # --- 4: a replaced file ends the episode ---------------------------------
 
     def test_replacing_the_file_ends_the_episode(self):
-        self.write_token(352)
+        self.write_token(400)
         state, tokens = self.poll()
         running = [(Path("x"), {"launched_session": "w", "state": "running",
                                 "started_at": time.time(), "title": "t"})]
         found = self.state_of("w", tokens, {}, "claude", running)
         self.assertEqual((found["word"], found["reason"]),
-                         ("needs you", f"claude worker token expires in 13 days: {REPLACE}"))
+                         ("needs you", f"claude worker token expired: {REPLACE}"))
         # replaced: new bytes, today's date.  The new date asks again at once rather
         # than waiting out the day, so the warning is gone on the very next pass.
         self.write_token(0, content="sk-ant-oat01-fresh\n")
@@ -146,25 +187,6 @@ class TokenExpiry(unittest.TestCase):
         found = self.state_of("w", tokens, {}, "claude", running)
         self.assertEqual(found["word"], "working")
         self.assertNotIn("claude worker token", found["reason"])
-
-    def test_replacing_the_file_within_the_window_starts_a_new_episode(self):
-        # Any new file date ends the episode, even one that still warns: the word never
-        # leaves `needs you`, but the warning's beginning moves to the replacement.
-        self.write_token(352)
-        state = {"stalls": {}, "reviewed": {}, "own": {}, "seen_at": {}}
-        first = watch.poll_worker_token(state, now=1000)["claude"]
-        self.assertEqual((first["days"], first["at"]), (13, 1000))
-        self.write_token(355, content="sk-ant-oat01-older\n")
-        second = watch.poll_worker_token(state, now=2000)
-        self.assertEqual((second["claude"]["days"], second["claude"]["at"]), (10, 2000))
-        found = watch.session_state(
-            "a", now=2000, session={"name": "a"}, records=[], auth_out={}, gh_out={},
-            harness="claude", token_out=second,
-            previous={"word": "needs you", "word_since": 1000,
-                      "reason": f"claude worker token expires in 13 days: {REPLACE}"})
-        self.assertEqual(found["word"], "needs you")
-        self.assertEqual(found["reason"], f"claude worker token expires in 10 days: {REPLACE}")
-        self.assertEqual(found["since"], 2000)
 
     def test_a_draft_keeps_the_new_episodes_beginning(self):
         # the draft joins the reason, which is no longer the warning alone
@@ -180,6 +202,25 @@ class TokenExpiry(unittest.TestCase):
         self.assertEqual(found["since"], 2000)
 
     # --- the rest of the contract --------------------------------------------
+
+    def test_within_a_logins_window_the_owner_is_paged_once_a_day(self):
+        # nearer than the line under the usage alone says; a dead one is every seat's word.  The
+        # verb's days are whole, so 84 hours out reads `3 days` and is still outside the window
+        pages, now = [], 400 * 86400 + 12 * 3600   # noon UTC: a minute on is the same day anywhere
+        with patch.object(watch.notify, "page", lambda *page: pages.append(page)):
+            for hours, at in ((96, now), (84, now), (72, now), (72, now + 60),
+                              (48, now + 86400), (-1, now)):
+                record = {"harness": "claude", "remedy": REPLACE, "expired": hours < 0,
+                          "days": None if hours < 0 else hours // 24,
+                          "mtime": at + hours * 3600 - watch.TOKEN_LIFE_DAYS * 86400}
+                watch.remind_worker_tokens({"claude": record}, now=at)
+        self.assertEqual([text for _, _, text in pages],
+                         [f"claude worker token expires in {days} days: {REPLACE}"
+                          for days in (3, 3, 2)])
+        # one key a day: the outbox sends a key once, however often it is asked
+        keys = [key for key, _, _ in pages]
+        self.assertEqual(keys[0], keys[1])
+        self.assertNotEqual(keys[1], keys[2])
 
     def test_no_token_file_means_no_warning(self):
         self.assertFalse(self.token.exists())

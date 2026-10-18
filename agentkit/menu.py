@@ -1430,11 +1430,18 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # a question longer than that is cut to them, ending in `…`.
     opens = (min(max(map(len, said.values()), default=0), max(1, height // 2))
              if owned and not asked else 0)
+    # a worker login that ends soon, or has, stands under the usage on every screen, grid or
+    # folded, keyboard or not, while no pointer is there; a compact screen gives it a row
+    from . import watch    # here, not at the top: the menu draws without the tick
+    token = watch.token_standing()
+    standing = ("  " + terminal.styled(terminal.cut(token, layout - 2),
+                                       "amber" if "expired" in token else "dim")
+                if token else "")
 
     def _room(meters, paged, compact=False):
         keys = (k_paged if paged else k_single) + opens
         if compact:
-            return height - 2 - (keys + len(meters))
+            return height - 2 - (keys + len(meters) + bool(standing))
         chrome = 2 + len(meters) + 2 + 1 + keys
         return height - 2 - chrome
 
@@ -1514,7 +1521,9 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     grid = len(out) + 1 if meters and meters is meters_full else None     # its first row
     out += meters
     if not compact:
-        out += ["", ""]       # the line under the grid, then one blank above the projects
+        out += [standing, ""]       # the line under the usage, then one blank above the projects
+    elif standing:
+        out.append(standing)
     body = pages[page] if ordered else flat
     top, above = len(out), None
     under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
@@ -3081,10 +3090,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
     """
     from . import watch   # here, not at the top: the menu draws without the tick
-    token = watch.worker_token_note()       # a file's date, read once a visit
-    days = re.search(r"\(in (\d+) days\)", token or "")
-    standing = token if token and ("expired" in token or days and int(days.group(1))
-                                   <= watch.TOKEN_WARN_DAYS) else ""
+    standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
     here, column, top, clock = None, columns[1], 0, motion.Clock()
