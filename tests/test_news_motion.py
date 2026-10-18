@@ -68,11 +68,12 @@ class NewsMotion(Sandbox):
             "COLORTERM": "truecolor"}))
         repo = config.CODE / "acme"
         (repo / ".git").mkdir(parents=True)
-        self.words, self.tasks, self.notices, self.live = {}, {}, [], None
+        self.words, self.tasks, self.notices, self.live, self.reasons = {}, {}, [], None, {}
         self.cache(used=20)
 
         def row_state(cfg, session, look=True, **facts):
-            return {"word": self.words[session["name"]], "reason": "", "since": None}
+            return {"word": self.words[session["name"]],
+                    "reason": self.reasons.get(session["name"], ""), "since": None}
 
         def watch(live, last):              # read once, now, and again only when news says so
             self.live, live.last = live, last
@@ -165,6 +166,24 @@ class NewsMotion(Sandbox):
                 return row, terminal.cells(line[:line.index(text)]) + 1
         self.fail(f"no {text!r} on {name}'s row:\n{screen}")
 
+    def assert_glows(self, cells, row, colour):
+        """The whole of `row` on a background of `colour` at first, fading to none in about a
+        second, and as drawn at the end."""
+        frames = [(when, text) for when, cell, text in cells if cell == (row, 1)]
+        backs = [re.findall(r"48;2;(\d+);(\d+);(\d+)", text) for _, text in frames]
+        first = tuple(int(part) for part in backs[0][0])
+        # its word's colour, a third of the way up from the background
+        self.assertTrue(all(abs(first[n] - colour[n] * 0.3) < 12 for n in range(3)), first)
+        self.assertEqual(backs[-1], [])
+        self.assertTrue(0.8 <= frames[-1][0] - frames[0][0] <= 1.3, frames[-1][0] - frames[0][0])
+        self.assert_on_glow(cells, row)
+
+    def assert_on_glow(self, cells, row):
+        """What moves inside `row` while it glows is written on the glow."""
+        last = max(n for n, (_, cell, _) in enumerate(cells) if cell == (row, 1))
+        inside = [text for _, (at, column), text in cells[:last] if at == row and column > 1]
+        self.assertTrue(inside and all("48;2;" in text for text in inside), inside)
+
     def assert_still(self, waits):
         """Nothing moves now: the menu was left on a wait longer than a frame."""
         self.assertGreater(waits[-1][0], motion.FRAME)
@@ -175,7 +194,10 @@ class NewsMotion(Sandbox):
             lambda: self.words.update({"fix-api": "needs you"}))])
         screen, cells = self.written(waits, at)
         mark = self.cell(screen, "fix-api", "! needs you")
-        self.assertEqual({cell for _, cell, _ in cells}, {mark})    # the `!`, and nothing else
+        # the `!` and its row's glow, and nothing else
+        self.assertEqual({cell for _, cell, _ in cells}, {mark, (mark[0], 1)})
+        self.assert_glows(cells, mark[0], NEEDS)
+        cells = [one for one in cells if one[1] == mark]
         shades = []
         for _, _, text in cells:
             [(char, colour)] = painted(text)
@@ -198,7 +220,10 @@ class NewsMotion(Sandbox):
             lambda: self.words.update({"fix-api": "done"}))])
         screen, cells = self.written(waits, at)
         tick = self.cell(screen, "fix-api", "✓ done")
-        self.assertEqual({cell for _, cell, _ in cells}, {tick})    # web-portal's `!` is old news
+        # the `✓` and its row's glow; web-portal's `!` is old news
+        self.assertEqual({cell for _, cell, _ in cells}, {tick, (tick[0], 1)})
+        self.assert_glows(cells, tick[0], DONE)
+        cells = [one for one in cells if one[1] == tick]
         shades = [colour for _, _, text in cells for char, colour in painted(text)]
         light = [sum(colour) for colour in shades]
         # bright the moment it appears, then easing down to `done`'s colour and no further
@@ -207,6 +232,35 @@ class NewsMotion(Sandbox):
         self.assertEqual(shades[-1], DONE)
         self.assertTrue(0.35 <= cells[-1][0] - cells[0][0] <= 0.7, cells[-1][0] - cells[0][0])
         self.assert_still(waits)
+
+    def test_a_line_just_done_is_crossed_by_one_light(self):
+        for width in (100, 50):     # the line on the seat's row, or narrow on the line under it
+            with self.subTest(width=width), patch.object(terminal, "width", lambda *_: width):
+                self.crossed()
+
+    def crossed(self):
+        self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (4, 4)}
+        # what got done, on the line its row opens, may hold the line's glyphs too
+        waits, at = self.run_menu([None] * 3 + [self.news(lambda: (
+            self.words.update({"fix-api": "done"}), self.reasons.update({"fix-api": "redrew ━"})))])
+        screen, cells = self.written(waits, at)
+        lines = [terminal.ANSI.sub("", line)
+                 for line in screen.partition("\033[H")[2].rpartition("\033[J")[0].split("\n")]
+        row = next(n for n, line in enumerate(lines, 1) if "fix-api" in line)
+        self.assert_on_glow(cells, row)     # the `✓`, and the light where it crosses the row
+        row += "━" not in lines[row - 1]
+        start = row, terminal.cells(lines[row - 1][:lines[row - 1].index("━")]) + 1
+        light = terminal.faded("done", -motion.BRIGHTER)
+        light = tuple(int(light[n:n + 2], 16) for n in (1, 3, 5))
+        first = {}
+        for when, (row, column), text in cells:
+            if row == start[0] and column >= start[1] and painted(text)[0][1] == light:
+                first.setdefault(column, when)
+        # one light, from the line's start toward its end: each frame lights the cell the light
+        # has reached, so a frame passes cells by, a slow first one those at the start too
+        self.assertGreaterEqual(len(first), 2, first)
+        self.assertEqual(sorted(first), sorted(first, key=first.get))
+        self.assertLessEqual(3 * (min(first) - start[1]), max(first) - start[1], first)
 
     def test_a_tasks_bar_is_drawn_as_it_is_and_never_glides(self):
         self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (1, 4)}
