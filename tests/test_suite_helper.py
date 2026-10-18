@@ -114,7 +114,7 @@ class SuiteHelper(unittest.TestCase):
         for piece, code in codes.items():
             (self.fake / f"code-{piece}").write_text(str(code))
         self.turns.clear()
-        logs = []
+        self.logs = logs = []
         code, text, _ = gate.run_suite(suite, 30, cwd=self.repo, activity=self.root / "live.log",
                                        output=io.BytesIO(), log=logs.append,
                                        stderr=subprocess.STDOUT)
@@ -145,6 +145,15 @@ class SuiteHelper(unittest.TestCase):
                 self.assertNotIn("acme broke", text)
                 self.assertEqual(len(self.turns), 1)
                 self.assertEqual([line[:17] for line in warned], warn)
+
+    def test_the_log_says_which_pieces_the_helper_lost_or_that_every_piece_passed_there(self):
+        passed, lost = ("every piece passed on the suite helper acme-mac",
+                        "the suite helper lost AK_SHARD=2/3; it runs here")
+        for codes, said in (({}, [passed]), ({2: helper.LOST}, [lost]), ({2: 1}, []),
+                            ({2: helper.SHORT}, [])):
+            with self.subTest(codes=codes):
+                self.check(codes)
+                self.assertEqual([line for line in self.logs if line in (passed, lost)], said)
 
     def test_a_piece_failed_there_keeps_what_it_printed_there(self):
         warned = self.check({2: 1})[1]
