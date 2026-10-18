@@ -133,14 +133,15 @@ def basic_colour(rgb):
     return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
 
 
-def faded(word, amount):
+def faded(word, amount, dark=False):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
     background, or with a negative one that far toward the foreground, where it is lit; as
-    `#RRGGBB` for `styled`."""
+    `#RRGGBB` for `styled`.  `dark` takes a dark terminal's, whatever this one's background is."""
+    light = _LIGHT and not dark
     word = KINDS.get(word, word)
-    rgb = (on_background(word[1:]) if word.startswith("#") else
-           LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2])
-    to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
+    rgb = ((on_background(word[1:]) if light else word[1:]) if word.startswith("#") else
+           LIGHT.get(word, STATE_STYLES[word][2]) if light else STATE_STYLES[word][2])
+    to, amount = (255 if light else 0) if amount >= 0 else (0 if light else 255), abs(amount)
     return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
                          for i in (0, 2, 4))
 
@@ -522,10 +523,8 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     tip = max(1, ends - 1)
     fades = [0.5 * (1 - n / tip) if ends > 1 else 0 for n in range(ends)]
     if tmux:
-        colour = STATE_STYLES[word][2]
-        line = "".join("#[fg=#{}]{}".format("".join(
-            f"{round(int(colour[at:at + 2], 16) * (1 - amount)):02x}" for at in (0, 2, 4)), char)
-            for amount, char in zip(fades, cells))
+        line = "".join(f"#[fg={faded(word, amount, dark=True)}]{char}"
+                       for amount, char in zip(fades, cells))
         return (line + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
                 + f"#[default] {count}")
     if colour_depth() <= 8:   # no tone between the word's colour and the background
