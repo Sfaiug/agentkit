@@ -239,10 +239,10 @@ class Screens(Sandbox):
         lines = screen.frame()
         row = next(number for number, line in enumerate(lines, 1) if "fable" in line)
         line = lines[row - 1]
-        left = line.index("‹") + 1
-        screen.click(line.index("›", left) + 1, row,
-                     lambda lines: "‹ max ›" in lines[row - 1])
-        screen.press(move(left + 2, row))
+        word = line.index("xhigh") + 1
+        # a click on the word's last letter steps it up, to a word that ends before it
+        screen.click(word + 4, row, lambda lines: lines[row - 1].endswith(" max"))
+        screen.press(move(word, row))
         mark = screen.text().rfind("\x1b[H")
         # Let every frame land without a key or pointer move redrawing over the last one.
         time.sleep(1.0)
@@ -250,16 +250,16 @@ class Screens(Sandbox):
         updates = list(re.finditer(r"\x1b\[(\d+);(\d+)H", text[mark:]))
         frames = 0
         for number, update in enumerate(updates):
-            if tuple(map(int, update.groups())) != (row, left + 2):
+            if tuple(map(int, update.groups())) != (row, word):
                 continue
             frames += 1
             end = mark + updates[number + 1].start() if number + 1 < len(updates) else len(text)
             with self.subTest(frame=frames):
                 grid = played(text[:end])
-                self.assertEqual(marked(grid, "lit"), {row: "‹ max ›"})
+                self.assertEqual(marked(grid, "lit"), {row: "▰▰▰▰▰   max"})
                 self.assertEqual(marked(grid, "reverse"), {})
         self.assertGreaterEqual(frames, 4)       # each letter shone, then the word settled
-        self.assertEqual(marked(played(text), "lit"), {row: "‹ max ›"})
+        self.assertEqual(marked(played(text), "lit"), {row: "▰▰▰▰▰   max"})
         self.assertEqual(marked(played(text), "reverse"), {})
         screen.leave()
 

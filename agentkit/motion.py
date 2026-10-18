@@ -31,7 +31,7 @@ BREATH = 2.0        # seconds a breathing cell takes out to its dimmer tone and 
 DIMMER = 0.5        # ... that tone: half way from its colour to the background
 PULSE = 0.3         # seconds each of the two pulses of a `!` that turned `needs you` takes
 SETTLE = 0.4        # ... a `✓` that turned `done` takes from bright to its colour
-RISE = 0.15         # ... an effort's bar a step filled takes to rise into place, or to lower
+RISE = 0.15         # ... an effort's cell a step filled takes to light and settle, or to empty
 SHIMMER = 0.6       # ... the light takes through an effort's word that a step took to its highest
 TOGGLE = 0.08       # ... a mark takes to fill or to empty, half way for the first half of it
 SHAKE = 0.24        # ... a mark whose change was refused takes to nudge left, right, left and back
@@ -99,20 +99,18 @@ def settling(glyph, word, began, bright=False):
     return at, began + SETTLE
 
 
-def rising(bar, up, began, bright=False):
-    """One of an effort's bars (terminal.signal), `bar` its glyph, that a step at `began` filled
-    -- `up` -- or emptied: it rises from nothing into place in RISE seconds, or lowers from its
-    height to nothing, and is then as the draw wrote it, dim where it is empty; and when it is
+def filling(up, began, bright=False):
+    """One of an effort's cells (terminal.effort_cells) that a step filled -- `up` -- or emptied,
+    its turn at `began`: as it was until then, for the first half of RISE seconds a filled one
+    lit and an emptied one still full but dim, and then as the draw wrote it; and when it is
     still.  `bright` on the highlighted row."""
-    height = terminal.SIGNAL.index(bar) + 1
+    full, empty = terminal.effort_cells(2, 1)        # each as a draw writes it
+    shown = terminal.plain(full)
+    middle = terminal.styled(shown, terminal.faded("working", -BRIGHTER) if up else "dim")
 
     def at(now):
-        x = eased((now - began) / RISE)
-        if x >= 1:
-            text = bar if up else terminal.styled(bar, "dim")
-        else:
-            eighths = round(height * (x if up else 1 - x))
-            text = terminal.SIGNAL[eighths - 1] if eighths else " "
+        text = ((empty if up else full) if now < began else
+                middle if now < began + RISE / 2 else full if up else empty)
         return terminal.highlight(text, mark=False) if bright else text
     return at, began + RISE
 

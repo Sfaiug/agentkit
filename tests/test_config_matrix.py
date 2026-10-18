@@ -183,6 +183,11 @@ def row(lines, name):
                 if line[2:].split(" ")[0] == name)
 
 
+def effort(lines, name):
+    """The effort `name`'s model row shows: its word, after its cells."""
+    return row(lines, name)[1].split()[-1]
+
+
 def highlighted(lines):
     return next(line for line in lines if line.startswith("›"))
 
@@ -197,9 +202,9 @@ class Matrix(unittest.TestCase):
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
         self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "○", "□", "□",
-                                                          "‹", "xhigh", "›", "▂▃▅▆█"])
+                                                          "▰▰▰▰▱", "xhigh"])
         self.assertEqual(row(lines, "opus")[1].split(), ["opus", "claude", "●", "■", "■",
-                                                         "‹", "xhigh", "›", "▂▃▅▆█"])
+                                                         "▰▰▰▰▱", "xhigh"])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
@@ -221,14 +226,14 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[2].split(), ["effort"])
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "‹", "xhigh",
-                                                          "›", "▂▃▅▆█"])
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "▰▰▰▰▱",
+                                                          "xhigh"])
         self.assertEqual(lines[-1], EFFORT_KEYS)          # the effort is the first cell
         self.assertFalse(any(mark in line for line in lines for mark in "●○■□"), lines)
         lines = screen.press(LEFT, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ open   esc back")
         lines = screen.press(RIGHT + RIGHT, lambda lines: lines[-1] == EFFORT_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)
-        screen.press(DOWN + ENTER, lambda lines: "‹ max ›" in row(lines, "opus")[1])
+        screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
         self.assertEqual(screen.saved()["defaults"], tomllib.loads(before.decode())["defaults"])
         screen.leave()
@@ -299,31 +304,31 @@ class Matrix(unittest.TestCase):
     def test_enter_steps_an_effort_up_and_round_from_its_highest(self):
         screen = Screen(self)
         screen.frame()
-        effort = lambda: {name: model["effort"] for name, model in screen.saved()["models"].items()}
+        efforts = lambda: {name: model["effort"] for name, model in screen.saved()["models"].items()}
         # opus takes low to max: up from xhigh is max, and up from max is low again
-        screen.press(DOWN + RIGHT * 3 + ENTER, lambda lines: "‹ max ›" in row(lines, "opus")[1])
-        self.assertEqual(effort()["opus"], "max")
-        screen.press(ENTER, lambda lines: "‹ low ›" in row(lines, "opus")[1])
-        self.assertEqual(effort()["opus"], "low")
-        screen.press(b" ", lambda lines: "‹ medium ›" in row(lines, "opus")[1])
-        self.assertEqual(effort()["opus"], "medium")
+        screen.press(DOWN + RIGHT * 3 + ENTER, lambda lines: effort(lines, "opus") == "max")
+        self.assertEqual(efforts()["opus"], "max")
+        screen.press(ENTER, lambda lines: effort(lines, "opus") == "low")
+        self.assertEqual(efforts()["opus"], "low")
+        screen.press(b" ", lambda lines: effort(lines, "opus") == "medium")
+        self.assertEqual(efforts()["opus"], "medium")
         # haiku takes only none, its word alone: from xhigh it lands there, and none is all
         # there is
         screen.press(DOWN + ENTER, lambda lines: row(lines, "haiku")[1].endswith("  none"))
-        self.assertEqual(effort()["haiku"], "none")
+        self.assertEqual(efforts()["haiku"], "none")
         before = screen.path.read_bytes()
         lines = screen.press(ENTER)
         self.assertTrue(row(lines, "haiku")[1].endswith("  none"), row(lines, "haiku")[1])
         self.assertEqual(screen.path.read_bytes(), before)
-        self.assertEqual(effort()["fable"], "xhigh")
+        self.assertEqual(efforts()["fable"], "xhigh")
         screen.leave()
 
-    def test_a_click_on_an_effort_s_left_arrow_steps_it_down(self):
+    def test_a_click_on_an_effort_s_cell_takes_that_level(self):
         screen = Screen(self)
         lines = screen.frame()
-        number, line = row(lines, "opus")
-        lines = screen.click(line.index("‹") + 1, number,
-                             lambda lines: "‹ high ›" in row(lines, "opus")[1])
+        number, line = row(lines, "opus")                 # low, medium, high: its third
+        lines = screen.click(line.index("▰") + 3, number,
+                             lambda lines: effort(lines, "opus") == "high")
         self.assertIn("opus", highlighted(lines))
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.leave()
@@ -343,7 +348,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(lines[-1], EFFORT_KEYS)
         self.assertIn("opus", highlighted(lines))
         self.assertEqual(screen.path.read_bytes(), before)
-        screen.press(ENTER, lambda lines: "‹ max ›" in row(lines, "opus")[1])  # still the effort
+        screen.press(ENTER, lambda lines: effort(lines, "opus") == "max")  # still the effort
         screen.leave()
 
     def test_a_click_flips_a_mark(self):
@@ -359,9 +364,9 @@ class Matrix(unittest.TestCase):
                      lambda lines: "Move fix-api to spark?" in "\n".join(lines))
         lines = screen.press(DOWN + ENTER, lambda lines: "●" in row(lines, "spark")[1])
         self.assertEqual(screen.record()["orchestrator"], "spark")
-        number, line = row(lines, "opus")                 # a click on an effort's arrow steps it
-        lines = screen.click(line.index("›", 2) + 1, number,
-                             lambda lines: "‹ max ›" in row(lines, "opus")[1])
+        number, line = row(lines, "opus")                 # a click on an effort's word steps it
+        lines = screen.click(line.index("xhigh") + 1, number,
+                             lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
         column = EFFORT_KEYS.index("esc back") + 3      # and one on `esc back` leaves, where
                                                         # the effort's key line has it

@@ -296,8 +296,8 @@ class OneConfigScreen(unittest.TestCase):
                            and "ACME" in highlighted(lines))
         lines = menu.press(b"c", title("config"))
         self.assertEqual(lines[2].split(), ["effort"])
-        self.assertEqual(model(lines, "fable").split(), ["›", "fable", "claude", "‹", "xhigh",
-                                                          "›", "▂▃▅▆█"])
+        self.assertEqual(model(lines, "fable").split(), ["›", "fable", "claude", "▰▰▰▰▱",
+                                                          "xhigh"])
         self.assertFalse(any(marks(line) for line in lines), lines)
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ effort   esc back")
         menu.press(ESC)
@@ -331,7 +331,7 @@ class OneConfigScreen(unittest.TestCase):
             'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
         elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
         self.assertEqual(menu.defaults(), elsewhere)
-        menu.press(ENTER, lambda lines: "‹ max ›" in model(lines, "fable"))   # an effort saved
+        menu.press(ENTER, lambda lines: model(lines, "fable").endswith(" max"))   # an effort saved
         self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["fable"]["effort"],
                          "max")
         self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before

@@ -260,12 +260,13 @@ Example:
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, harness (dim), then `orch` (`●` on the highlighted
-session's, `○` dim elsewhere), `exec` and `review` (`■`/`□`) and `effort` (`‹ xhigh ›`),
-then its strength: a bar for each level that model offers, rising in height
-(`▂▃▅▆█` for five), filled up to its effort and the rest dim -- blank where
-nothing can dim them, and without UTF-8 a `|` for each filled one alone. A model
-with one effort shows its word alone, with no bars and no arrows. The columns
-stay visible; the harness gives way, then the bars, then the label.
+session's, `○` dim elsewhere), `exec` and `review` (`■`/`□`) and `effort`: a
+cell for each level that model offers, full up to its effort and the rest open
+and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
+column after the most cells any model has (the owner's pick of 18 Oct 2026). A
+model with one effort shows its word alone. A click on a cell takes that level,
+and one on the word steps it as Enter does. The columns stay visible; the
+harness gives way, then the cells, then the label.
 ↑/↓, k/j and the wheel move between rows,
 ←/→ between all four columns; Enter or space on an effort steps it up through
 that model's own efforts (`config.efforts`), from the highest round to the
@@ -603,11 +604,12 @@ filled cells and the model of every seat that runs on it wash from their grey in
 its company's colour, left to right over 300 ms with a light riding the edge, and
 drain back right to left over 200 ms once it leaves (`motion.colouring`).
 
-A step on an effort on `c` is news too: the bar it fills rises into place over
-150 ms, and the one it empties lowers, the rest standing still; a step onto the
-model's highest level then sends one light through the word, a letter at a time
-left to right, over 600 ms -- once for each step onto it (`motion.rising`,
-`motion.shimmering`, `terminal.signal`).
+A step on an effort on `c` is news too: each cell it fills lights and settles
+over 150 ms, and each it empties stays full but dim for half of that before it
+opens, one after another 40 ms apart from the level it left, the rest standing
+still; a step onto the model's highest level then sends one light through the
+word, a letter at a time left to right, over 600 ms -- once for each step onto
+it (`motion.filling`, `motion.shimmering`, `terminal.effort_cells`).
 
 Every mark -- on `c`, on `n` and on a project's switches -- fills when set and
 empties when cleared over two frames, 80 ms in all: `□ ▣ ■`, `○ ◉ ●` and back,
@@ -640,8 +642,8 @@ back from the wait, the fetch left to finish on its own, and any other key is le
 go (`motion.fetching`, `menu.matrix_key`, `menu.waited`).
 
 Helpers: `motion.Clock`, `motion.breathing`, `motion.pulsing`, `motion.settling`,
-`motion.rising`, `motion.shimmering`, `motion.fetching`,
-`menu.moving`, `menu.waited`, `terminal.faded`, `terminal.fade`, `terminal.signal`.
+`motion.filling`, `motion.shimmering`, `motion.fetching`,
+`menu.moving`, `menu.waited`, `terminal.faded`, `terminal.fade`, `terminal.effort_cells`.
 
 ## Ages
 

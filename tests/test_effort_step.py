@@ -78,9 +78,9 @@ class EffortStep(unittest.TestCase):
         screen.frame()
         screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)   # opus's effort
         # the manifest's table while the listing sleeps: xhigh, max, then round to low
-        drawn(screen, ENTER, "‹ max ›")
+        drawn(screen, ENTER, "▰▰▰▰▰   max")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
-        drawn(screen, ENTER, "‹ low ›")
+        drawn(screen, ENTER, "▰▱▱▱▱   low")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         # and on the model's own screen, the listing still asleep
         screen.press(LEFT * 4 + ENTER, lambda lines: "agentkit · config · opus" in lines[0])
