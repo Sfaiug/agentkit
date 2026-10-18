@@ -354,9 +354,9 @@ share is `━` in the state's colour, fading in from half way to the background 
 line's start to the colour at its tip, with a half cell `╸` where the share ends inside
 one, and the rest a dim `─` (`terminal.plan_bar`). It says nothing of the tasks in
 flight. Without colour the shapes carry it, `━━━━╸──── 3 of 8`, and without UTF-8 it is
-`====----- 3 of 8`. A seat's tmux bar draws the same line in 36 cells, in the state's
-colour throughout, narrowing to 24 and then 12 where line one is short of room, before
-anything is cut. No screen says when a seat's work will finish:
+`====----- 3 of 8`. A seat's tmux bar draws the same line, its fade included, in 36
+cells, narrowing to 24 and then 12 where line one is short of room, before anything is
+cut. No screen says when a seat's work will finish:
 its progress is its line and its count.
 
 The row the owner points at, with the pointer or ↑/↓, opens its lines under

@@ -133,14 +133,15 @@ def basic_colour(rgb):
     return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
 
 
-def faded(word, amount):
+def faded(word, amount, dark=False):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
     background, or with a negative one that far toward the foreground, where it is lit; as
-    `#RRGGBB` for `styled`."""
+    `#RRGGBB` for `styled`.  `dark` takes a dark terminal's, whatever this one's background is."""
+    light = _LIGHT and not dark
     word = KINDS.get(word, word)
-    rgb = (on_background(word[1:]) if word.startswith("#") else
-           LIGHT.get(word, STATE_STYLES[word][2]) if _LIGHT else STATE_STYLES[word][2])
-    to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
+    rgb = ((on_background(word[1:]) if light else word[1:]) if word.startswith("#") else
+           LIGHT.get(word, STATE_STYLES[word][2]) if light else STATE_STYLES[word][2])
+    to, amount = (255 if light else 0) if amount >= 0 else (0 if light else 255), abs(amount)
     return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
                          for i in (0, 2, 4))
 
@@ -503,8 +504,9 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     the rest is a dim `─`.  It says nothing of the tasks in flight, which the line under a
     highlighted row has.  Without colour the shapes carry it, and without UTF-8 it is
     `===------ 3 of 8`.  With no `least`, a room too small for a cell of line beside the count
-    draws the count alone.  `tmux` draws it as a tmux format, in `word`'s colour throughout: the
-    tick that writes a bar knows no terminal's background to fade toward."""
+    draws the count alone.  `tmux` draws it as a tmux format, a seat's bar's, the same line: its
+    fade is a dark terminal's whichever process writes the bar, as the bar's colours are, so
+    the menu's draws and the tick's never disagree."""
     total = max(0, int(total or 0))
     if not total:
         return ""
@@ -518,16 +520,16 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     ends = (halves + 1) // 2
     cells = [full if n < halves // 2 else half for n in range(ends)]
     rest = empty * (size - ends)
+    tip = max(1, ends - 1)
+    fades = [0.5 * (1 - n / tip) if ends > 1 else 0 for n in range(ends)]
     if tmux:
-        colour = STATE_STYLES[word][2]
-        return ((f"#[fg=#{colour}]" + "".join(cells) if cells else "")
-                + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
+        line = "".join(f"#[fg={faded(word, amount, dark=True)}]{char}"
+                       for amount, char in zip(fades, cells))
+        return (line + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "")
                 + f"#[default] {count}")
     if colour_depth() <= 8:   # no tone between the word's colour and the background
         return styled("".join(cells), word) + styled(rest, "dim") + f" {count}"
-    tip = max(1, ends - 1)
-    line = "".join(styled(char, faded(word, 0.5 * (1 - n / tip) if ends > 1 else 0))
-                   for n, char in enumerate(cells))
+    line = "".join(styled(char, faded(word, amount)) for amount, char in zip(fades, cells))
     return line + styled(rest, "dim") + f" {count}"
 
 
