@@ -4,7 +4,8 @@ At rest only what a model works on moves, breathing: a working session's `●`, 
 and its moving tasks' squares (`menu.tips`); news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright and a
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
-opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
+opens comes up as the highlight comes to it, a question the first time it is shown writing
+itself out, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
 a task's next square fills through its half and one that failed nudges; an
 effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
@@ -41,6 +42,7 @@ NEWS = 0.7          # ... and a seat's row on news: its word's colour that far t
 SWEEP = 0.4         # seconds a light takes across a done seat's line
 OPEN = 0.12         # ... the line under a row the highlight came to takes to come up
 TURN = 0.15         # ... and the rows of a page turned to
+WRITE = 0.33        # ... a question shown the first time takes to write itself out
 GROW = 0.45         # ... a seat's progress line takes to grow to its length as ak opens
 STAGGER = 0.04      # ... and each row after the one above it
 GLIDE = 0.7         # ... and to glide to a new length as its plan moves, a light at its head
@@ -188,6 +190,21 @@ def fading(line, took):
     return start
 
 
+def writing(cells, began, before=0, total=None):
+    """One line of a question, `cells` each of its cells as the draw wrote it, that writes itself
+    out from `began` in WRITE seconds, a cell at a time as typed: after the `before` cells of the
+    lines above it, of `total` in all; an animation for each cell, blank as wide as it until it
+    is written, and when it is still."""
+    total = total or len(cells)
+
+    def cell(n, text):
+        def at(now):
+            written = before + n < total * (now - began) / WRITE
+            return text if written else " " * terminal.cells(text)
+        return at
+    return [cell(n, text) for n, text in enumerate(cells)], began + WRITE
+
+
 def growing(cells, began, took=GROW, start=0, light=None):
     """A progress line, `cells` each of its cells as the draw wrote it: its done part grows or
     shrinks from its first `start` cells to its length in `took` seconds from `began` -- from
@@ -330,6 +347,7 @@ class Clock:
         self.seen = None    # key -> what the last draw showed, and since when and in place of
                             # what when that was news; None when no draw is to be compared with
         self.touched = {}   # key -> since when it is news that changed nothing (`touch`)
+        self.asked = {}     # each question shown -> when it began writing itself out, or None
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.opened = None  # ... from its first draw
         self.rising = None  # ... the lines drawn, top down, and that time, while they come up
@@ -365,7 +383,7 @@ class Clock:
         only what the key itself changes is news."""
         self.seen = self.seen and {key: (value, None, None)
                                    for key, (value, _, _) in self.seen.items()}
-        self.touched = {}
+        self.touched, self.asked = {}, dict.fromkeys(self.asked)
 
     def drawn(self, moves, row):
         """A draw's frame: every cell it wrote over still, then each of its `moves` -- (line,
