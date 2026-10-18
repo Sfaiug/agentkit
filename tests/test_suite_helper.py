@@ -162,8 +162,8 @@ class SuiteHelper(unittest.TestCase):
             if "helper ran" not in text:
                 return warned
             with tarfile.open(self.fake / "parcel.tar") as tar:
-                image = {member.name.removeprefix("image/"): tar.extractfile(member).read()
-                         for member in tar if member.name.startswith("image/")}
+                image = {member.name: (member.mode, tar.extractfile(member).read())
+                         for member in tar if member.name.startswith(("image/", "Containerfile"))}
             return (self.fake / "images").read_text().split()[-1], image
 
         # a repository with no recipe runs its suite here, asking the helper nothing
@@ -172,18 +172,30 @@ class SuiteHelper(unittest.TestCase):
         text, warned = self.check({})
         self.assertEqual(("helper ran" in text, warned), (False, []))
         self.assertFalse((self.fake / "calls").exists())
-        recipe = "FROM acme/base\nCOPY --chown=ak requirements.txt \\\n  ci/pins.txt /tmp/\n"
+        # a copied file named as the recipe is sent beside it, and keeps its mode
+        recipe = ("FROM acme/base\nCOPY --chown=ak requirements.txt \\\n  ci/pins.txt /tmp/\n"
+                  "COPY Containerfile setup.sh /opt/\n")
+        (self.repo / "setup.sh").touch(0o755)
         name, image = commit({"AGENTS.md": "---\nsuite_image: ci/suite.Containerfile\n---\n",
                               "ci/suite.Containerfile": recipe, "requirements.txt": "acme==1\n",
-                              "ci/pins.txt": "pin\n"})
-        self.assertEqual(image, {"Containerfile": recipe.encode(), "requirements.txt": b"acme==1\n",
-                                 "ci/pins.txt": b"pin\n"})
+                              "ci/pins.txt": "pin\n", "Containerfile": "FROM acme/app\n",
+                              "setup.sh": "true\n"})
+        self.assertEqual(image, {"Containerfile": (0o644, recipe.encode()),
+                                 "image/requirements.txt": (0o644, b"acme==1\n"),
+                                 "image/ci/pins.txt": (0o644, b"pin\n"),
+                                 "image/Containerfile": (0o644, b"FROM acme/app\n"),
+                                 "image/setup.sh": (0o755, b"true\n")})
         self.assertRegex(name, r"^ak-helper-[0-9a-f]{12}:[0-9a-f]{12}$")
-        # a changed copied file names a new image of the same repository
+        # a changed copied file, or its mode, names a new image of the same repository
         changed = commit({"requirements.txt": "acme==2\n"})[0]
-        self.assertEqual((changed.split(":")[0], changed != name), (name.split(":")[0], True))
+        (self.repo / "setup.sh").chmod(0o644)
+        names = [name, changed, commit({"setup.sh": "true\n"})[0]]
+        self.assertEqual((len({each.split(":")[0] for each in names}), len(set(names))), (1, 3))
         # what ak cannot send leaves the suite here
-        for line in ("COPY . /app", "ADD https://acme.test/x /x", "COPY *.txt /tmp/"):
+        (self.repo / "pins.link").symlink_to("ci/pins.txt")
+        subprocess.run([*self.git, "add", "pins.link"], check=True)
+        for line in ("COPY . /app", "ADD https://acme.test/x /x", "COPY *.txt /tmp/",
+                     "COPY pins.link /tmp/"):
             with self.subTest(line=line):
                 warned = commit({"ci/suite.Containerfile": f"FROM acme/base\n{line}\n"})
                 self.assertEqual([line[:46] for line in warned],
@@ -223,9 +235,9 @@ class HelperMac(unittest.TestCase):
         answer (asked now when None): (its exit, the commits its bundle needs the Mac to have
         already, or None when it sends no bundle)."""
         known = helper._known("acme-mac", repo) if known is None else known
+        recipe = {"Containerfile": (0o644, (helper.TOOLS / "Containerfile").read_bytes())}
         with tempfile.TemporaryFile() as parcel:
-            helper._parcel(self.repo, "main", known,
-                           {"Containerfile": (helper.TOOLS / "Containerfile").read_bytes()}, parcel)
+            helper._parcel(self.repo, "main", known, recipe, parcel)
             parcel.seek(0)
             with tarfile.open(fileobj=parcel) as tar:
                 names = tar.getnames()
@@ -299,8 +311,13 @@ class HelperMac(unittest.TestCase):
         self.assertEqual(suite("second"), [start])    # only the commit after what it has
         self.assertIsNone(suite("third"))              # nothing it lacks: no bundle
         # Another repository's history unused for a week goes, its image with it, at a third
-        # one's suite; this one's stays from the moment a suite asks what it has.
-        other.mkdir()
+        # one's suite, though its one suite lost the claim; this one's stays from the moment a
+        # suite asks what it has.
+        (self.root / "rival").mkdir()
+        (self.root / "rival" / "held").touch()
+        self.assertEqual(self.prepare("lost", "other")[0], helper.LOST)
+        shutil.rmtree(self.root / "rival")
+        helper.finish(helper.Away("acme-mac", "lost", *[None] * 8))
         for path in (mirror, other):
             os.utime(path, (time.time() - 9 * 86400,) * 2)
         known = helper._known("acme-mac", "acme")

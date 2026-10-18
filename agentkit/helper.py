@@ -11,6 +11,7 @@ or the VM broke -- exits `LOST`.
 from collections import namedtuple
 import hashlib
 import io
+import posixpath
 import re
 import secrets
 import shlex
@@ -40,18 +41,19 @@ def _remote(alias, verb, *args, **kwargs):
 
 
 def _recipe(cwd, repo):
-    """(image, {name: bytes}) the suite's pieces run in, or None: the repository has no recipe.
-    The recipe is the file `suite_image:` names, else RECIPE, with each file it copies, as HEAD
-    has them. Tagged by their hash, so a changed recipe or copied file builds anew and the image
-    it replaces goes. ValueError: the recipe copies something other than files HEAD tracks,
-    named by plain path, which ak cannot send."""
+    """(image, {name in the parcel: (mode, bytes)}) the suite's pieces run in, or None: the
+    repository has no recipe. The recipe, `Containerfile`, is the file `suite_image:` names, else
+    RECIPE; its build's context, under `image/`, each file it copies, as HEAD has them. Tagged by
+    their hash, so a changed recipe or copied file builds anew and the image it replaces goes.
+    ValueError: the recipe copies something other than files HEAD tracks, named by plain path,
+    which ak cannot send."""
     path = gitcall.declared(cwd, "suite_image")
     if not path:
         if gitcall.git_out(cwd, "cat-file", "-e", f"HEAD:{RECIPE}")[0]:
             return None
         path = RECIPE
     files = {"Containerfile": _tracked(cwd, path)}
-    for line in re.sub(r"\\\n", " ", files["Containerfile"].decode()).splitlines():
+    for line in re.sub(r"\\\n", " ", files["Containerfile"][1].decode()).splitlines():
         words = line.split()
         if not words or words[0].upper() not in ("COPY", "ADD"):
             continue
@@ -60,19 +62,24 @@ def _recipe(cwd, repo):
                 word.startswith(("-", "/", "[")) or set(word) & set("*?[$<") or
                 ".." in word.split("/") for word in sources):
             raise ValueError(f"`{line.strip()}` copies something other than tracked files")
-        files.update((source, _tracked(cwd, source)) for source in sources)
+        files.update((f"image/{source}", _tracked(cwd, source)) for source in sources)
     digest = hashlib.sha256()
-    for file in sorted(files):
-        digest.update(f"{file}\0{len(files[file])}\0".encode() + files[file])
+    for name in sorted(files):
+        mode, data = files[name]
+        digest.update(f"{name}\0{mode}\0{len(data)}\0".encode() + data)
     return f"ak-helper-{repo}:{digest.hexdigest()[:12]}", files
 
 
 def _tracked(cwd, path):
-    found = subprocess.run(["git", "-C", str(cwd), "cat-file", "blob", f"HEAD:{path}"],
-                           capture_output=True)
-    if found.returncode:
+    """(mode, bytes) of the file HEAD has at `path`; ValueError: none there, or a link."""
+    entry = subprocess.run(["git", "-C", str(cwd), "ls-tree", "-z", "HEAD", "--", path],
+                           capture_output=True, text=True).stdout
+    info, _, name = entry.partition("\t")
+    mode, _, blob = info.partition(" blob ")
+    if name != posixpath.normpath(path) + "\0" or mode not in ("100644", "100755"):
         raise ValueError(f"{path} is not a file HEAD tracks")
-    return found.stdout
+    return int(mode[3:], 8), subprocess.run(["git", "-C", str(cwd), "cat-file", "blob", blob],
+                                            capture_output=True, check=True).stdout
 
 
 def room(alias, piece_cpus, piece_mem_mb):
@@ -115,10 +122,10 @@ def _parcel(cwd, default, known, recipe, parcel):
             if not gitcall.git_out(cwd, "cat-file", "-e", sha + "^{commit}")[0]]
     with tarfile.open(fileobj=parcel, mode="w") as tar, tempfile.TemporaryFile() as bundle:
         tar.add(TOOLS / "piece.sh", "piece.sh")
-        for name, data in [*(("image/" + file, data) for file, data in recipe.items()),
-                           ("heads", (" ".join(heads) + "\n").encode())]:
+        for name, (mode, data) in [*recipe.items(),
+                                   ("heads", (0o644, (" ".join(heads) + "\n").encode()))]:
             info = tarfile.TarInfo(name)
-            info.size = len(data)
+            info.size, info.mode = len(data), mode
             tar.addfile(info, io.BytesIO(data))
         # `git bundle` refuses one with nothing in it: the helper has every commit already.
         if not subprocess.run(["git", "-C", str(cwd), "bundle", "create", "-", *revs, "--not",
