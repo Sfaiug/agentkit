@@ -1662,6 +1662,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         # seat turns done, is news of that seat and stays still
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
+        # a question shown the first time writes itself out under its row, but as the screen
+        # opens, when every value is drawn as it is
+        question = "\n".join(lines) if lines and words.get(cursor) == "needs you" else None
+        if question is not None and question not in clock.asked:
+            clock.asked[question] = None if clock.seen is None else time.monotonic()
+        asked = clock.asked.get(question)
+        typed = asked is not None and time.monotonic() < asked + motion.WRITE
         news = clock.look({key: shown for key, shown, _, _ in moves})
         if clock.first:       # as it opens each seat's line grows to its length, row after row
             clock.first, began = False, time.monotonic()
@@ -1692,6 +1699,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 elif shown[0] > before[0]:
                     clock.start([(row, column + shown[0])], *motion.halving(
                         written[column - 1 + shown[0]], since, motion.STEP, lit))
+            elif key[0] == "opened" and typed:
+                continue        # it writes itself out instead, below
             elif key[0] in ("opened", "page"):    # what comes up out of the background
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
                     motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
@@ -1713,6 +1722,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     text = terminal.ANSI.sub("", out[row - 1])
                     clock.span(row, terminal.cells(text[:span.start]) + 1, *motion.sweeping(
                         terminal.cell_texts(out[row - 1])[span], since, shown, lit))
+        if typed:       # line after line, a cell at a time
+            written = [terminal.cell_texts(out[row - 1])[len(indent):] for row in opened]
+            total, before = sum(map(len, written)), 0
+            for row, cells in zip(opened, written):
+                clock.span(row, len(indent) + 1, *motion.writing(cells, asked, before, total))
+                before += len(cells)
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
             if growing:       # a tip still growing in breathes once it is there
