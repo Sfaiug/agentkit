@@ -25,7 +25,7 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 
 
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features")
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image")
 
 
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "

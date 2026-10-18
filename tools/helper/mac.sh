@@ -45,11 +45,15 @@ prepare)   # KEY IMAGE REPO, the parcel on stdin
   }
   claim "$2" held || exit 255
   # The history arrives once the suite holds the Mac, so one suite writes the copies at a time;
-  # one unused (`known`) for a week goes. Refs keep each suite's own commits while its directory
-  # lives and the last suite's origin branch, for `known`; git's gc drops the rest two weeks on.
-  # A copy gone since `known` answered lacks what the parcel left out: exit 3, and helper.py
-  # sends the whole history.
-  find "$MIRRORS" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} + 2>/dev/null
+  # one unused (`known`) for a week goes, its image with it. Refs keep each suite's own commits
+  # while its directory lives and the last suite's origin branch, for `known`; git's gc drops the
+  # rest two weeks on. A copy gone since `known` answered lacks what the parcel left out: exit 3,
+  # and helper.py sends the whole history.
+  find "$MIRRORS" -mindepth 1 -maxdepth 1 -mtime +7 2>/dev/null | while read -r old; do
+    rm -rf "$old"
+    container image ls | awk -v name="ak-helper-${old##*/}" 'NR > 1 && $1 == name {print $1":"$2}' |
+      while read -r image; do container image delete "$image" >/dev/null 2>&1; done
+  done
   M="$MIRRORS/$4"
   read -r tree base <"$ROOT/$2/heads" &&
     { [ -d "$M" ] || git init -q --bare "$M"; } &&
