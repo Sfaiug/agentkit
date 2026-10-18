@@ -73,7 +73,7 @@ def ask_name(taken, auto=False, **_kw):
     print(f"<answered {menu.read('Name (Enter: auto): ', '')!r}>", flush=True)
     return orch.BACK
 
-orch.taken_names = lambda: set()
+orch.taken_names = lambda found=None: set()
 menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
 menu.close_seat = close_seat
 cfg = config.load()

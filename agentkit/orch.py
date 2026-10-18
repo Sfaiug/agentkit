@@ -1780,16 +1780,20 @@ def alias_names(names=None):
     what happens when the seat it led to is stopped or swept.  This is the one rule the menu
     and `create` both go by, so that they cannot disagree about whether a name is free.
     """
+    aliases = config.session_aliases()
+    if not aliases:
+        return set()
     names = {s["name"] for s in listing()} if names is None else names
-    kept = records()
-    return {old for old, target in config.session_aliases().items()
+    kept = config.session_records()       # which records there are: no harness need reconcile
+    return {old for old, target in aliases.items()
             if target == old or target in names or target in kept}
 
 
-def taken_names():
+def taken_names(found=None):
     """Every name a new seat may not have: one the menu lists, one a rename still leads from,
-    and one tmux holds for a session that is no seat, which `new-session` would refuse."""
-    names = {s["name"] for s in listing()}
+    and one tmux holds for a session that is no seat, which `new-session` would refuse.
+    `found` is the listing a caller has in hand, the menu's last read."""
+    names = {s["name"] for s in (listing() if found is None else found)}
     return names | alias_names(names) | held_names()
 
 

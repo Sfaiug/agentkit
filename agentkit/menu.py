@@ -1874,17 +1874,18 @@ def open_session(cfg, session, dry_run):
         pause(f"resume: {exc}")
 
 
-def new_session(cfg, dry_run, keyboard=None):
+def new_session(cfg, dry_run, keyboard=None, found=None):
     """`n`: the name, then the orchestrator and both roles on one screen (`orch.pick`), both on
     the menu's `keyboard`, or from a pipe one question at a time; Esc goes back, nothing
     created. Enter at the name leaves it for the orchestrator to choose, and a dry run only
     says what it would start: it creates no session, so neither its record nor its harness's
-    rulebook. The terminal is given back once all is chosen, for the seat to open on."""
+    rulebook. The terminal is given back once all is chosen, for the seat to open on.  `found`
+    is the menu's last listing, so the name is asked without another."""
     terminal.frame("new session")
     if not cfg:
         return None               # no configuration means no models to offer
     cfg = config.load()           # the last creation's [defaults], whichever process made it
-    taken = orch.taken_names()
+    taken = orch.taken_names(found)
     name = orch.ask_name(taken, auto=True, screen="new session")
     if name is orch.BACK:
         return None
@@ -4693,7 +4694,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     pause(f"no session {key}")
             elif key == "n":
                 try:
-                    if new_session(cfg, dry_run, keyboard) and overlay:
+                    if new_session(cfg, dry_run, keyboard, found) and overlay:
                         return 0
                 except config.Error as exc:
                     pause(f"new session: {exc}")
