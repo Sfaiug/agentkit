@@ -156,6 +156,17 @@ class Lines(unittest.TestCase):
         self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 20)
         self.assertRegex(drawn[-1][-1], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
 
+    def test_on_a_narrow_screen_how_long_ago_goes_whole_under_its_row(self):
+        seat = {"name": "fix-api", "repo": None, "closed": 1}
+        rows = {}
+        for width in (26, 100):
+            with patch.object(terminal, "width", return_value=width), \
+                    patch.object(orch, "age", return_value="120d"):
+                lines, places = menu.past_body([(12, seat)], "fix-api")
+            rows[width] = [terminal.plain(lines[n]) for n in places]
+        self.assertEqual(rows, {26: ["› 12 fix-api -", "stopped 120d ago"],
+                                100: ["› 12 fix-api - stopped 120d ago"]})
+
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):
             menu.show_past(CFG, [ALPHA, OMEGA], dry_run=True)

@@ -4551,8 +4551,9 @@ def past_offered(found):
 def past_body(past, at=None, models=None, room=None):
     """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
     heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
-    how long ago it was stopped in the state's column and, where its harness starts it fresh
-    and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
+    how long ago it was stopped in the state's column, or whole on the line under it where the
+    row has no room for it, and, where its harness starts it fresh and the row has room, that --
+    and where each is, {line: (("row", name), [])}.  Every row, a
     blank line between projects, where `room` lines hold them or no `room` is given; else the
     page of `room` lines `at` is on, each row under its project's heading (`project_pages`).
     `at` is the highlighted seat's name, lit while the pointer is on the rows (`terminal.away`)."""
@@ -4563,20 +4564,27 @@ def past_body(past, at=None, models=None, room=None):
              for number, session in past]
     width = terminal.width()
     widths = v5o_column_widths(infos, width)
-    # how long ago is wider than any state word: it takes the room the last column would
-    wider = min(max(terminal.cells(info["count"]) for info in infos),
-                widths["count"] + max(0, widths["free"]))
-    widths["free"] -= max(0, wider - widths["count"])
-    widths["count"] = max(widths["count"], wider)
+    # how long ago is wider than any state word: it takes the room the last column would, and
+    # where that is too little it goes under the row, whole, the row's columns taking its room
+    wider = max(terminal.cells(info["count"]) for info in infos)
+    under = wider > widths["count"] + max(0, widths["free"])
+    if under:
+        widths = v5o_column_widths([{**info, "count": ""} for info in infos], width)
+    else:
+        widths["free"] -= max(0, wider - widths["count"])
+        widths["count"] = max(widths["count"], wider)
+    indent = 2 + widths["num"] + 2              # under the name
 
     def drawn(info):
-        line = _head(info, widths)
+        line = _head({**info, "count": ""} if under else info, widths)
         if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
             line += "  " + terminal.styled(info["restart"], "dim")
+        lines = [line.rstrip()] + [" " * indent + terminal.styled(terminal.cut(
+            info["count"], widths["room"] - indent), terminal.state_colour(info["count"]))] * under
         lit = at == info["name"] and not terminal.away()
-        return terminal.highlight(line.rstrip()) if lit else line.rstrip()
+        return [terminal.highlight(part, n == 0) if lit else part for n, part in enumerate(lines)]
     projects = [((v5o_header(project, width), None),
-                 [[(drawn(info), info["name"])] for info in project["seats"]])
+                 [[(line, info["name"]) for line in drawn(info)] for info in project["seats"]])
                 for project in by_project(infos, orch.listed()).values()]
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
