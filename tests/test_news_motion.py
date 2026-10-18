@@ -215,7 +215,9 @@ class NewsMotion(Sandbox):
         screen, cells = self.written(waits, at)
         self.assertIn("4 of 4", terminal.ANSI.sub("", screen))     # the draw says it at once
         dot = self.cell(screen, "fix-api", "●")
-        self.assertEqual({cell for _, cell, _ in cells}, {dot})    # and only the dot breathes on
+        # and only the dot breathes on, with the tip of its line, the last of it done
+        self.assertEqual({cell for _, cell, _ in cells},
+                         {dot, self.cell(screen, "fix-api", "━ 4 of 4")})
 
     def test_nothing_is_replayed_on_opening_after_another_screen_a_notice_or_a_resize(self):
         self.words = {"fix-api": "done", "web-portal": "needs you"}
