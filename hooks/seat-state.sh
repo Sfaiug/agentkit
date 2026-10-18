@@ -32,7 +32,7 @@ set -u
 look() {
   local seat=$1 answered=${2:-} said=${3:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
-  # the prompt's words go on its stdin: on its command line, a long one would never run it
+  # the owner's words go on its stdin: on its command line, a long one would never run it
   ( printf '%s' "$said" | /usr/bin/env python3 -c '
 import os, sys
 from pathlib import Path
@@ -133,16 +133,14 @@ config.record_hook_fact(row, fact, kept)
 
   # A new prompt is a new turn: hooks/orchestrator-stop.sh judges that turn against this
   # moment, and the two blocks it is allowed start again from zero here.
-  if [[ $event != UserPromptSubmit ]]; then
-    look "$seat"
-    return 0
+  if [[ $event = UserPromptSubmit ]]; then
+    tmp="$dir/stop-$seat.json.tmp.$$"
+    "$jq" -n --arg session "$seat" --argjson turn "$ts" \
+      '{session: $session, turn: $turn, blocks: 0}' \
+      >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
+    /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   fi
-  tmp="$dir/stop-$seat.json.tmp.$$"
-  "$jq" -n --arg session "$seat" --argjson turn "$ts" \
-    '{session: $session, turn: $turn, blocks: 0}' \
-    >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-  /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
-  # The owner's prompt answers an older question, once the background look checks its pane.
+  # The owner's word answers an older question, once the background look checks its pane.
   # The launch name still resolves after a rename; main leaves harness bookkeeping alone.
   if [[ $owner = true ]]; then
     look "$seat" "$ts" "$said"
@@ -176,6 +174,14 @@ main() {
     said=$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
                      | first // ""' <<<"$payload" 2>/dev/null) || said=''
     news "$payload" "$owner" "$said"
+  # The owner's answer to the harness's own question tool is their word as a prompt is, its
+  # answers what they said; any other event, and a sub-agent's tool, says nothing of theirs.
+  elif [[ $event != PostToolUse ]] ||
+    "$jq" -e -f "${BASH_SOURCE[0]%/*}/sub-agent.jq" <<<"$payload" >/dev/null 2>&1 ||
+    ! said=$("$jq" -er '(.tool_input.answers // .tool_response.answers) | objects
+                          | [.. | strings] | join("\n")' \
+      <<<"$payload" 2>/dev/null); then
+    owner=false
   fi
   seat_state "$payload" "$jq" "$owner" "$said" >/dev/null 2>&1
   # SessionStart first captures the conversation its harness vouches for.
