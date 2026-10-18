@@ -253,8 +253,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     member's own.  Red there is the target's: the entry under `tree` counts the probe and holds
     the line (`paused`) until the retry ladder's next step, and red through the whole ladder
     starts the target's one repair (`_repair`)."""
-    ok, probe, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log", log,
-                          shard=piece or None)
+    ok, probe, _, _ = _check(directory, state, scratch, [suite], directory / "target-probe.log",
+                             log, shard=piece or None)
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
@@ -477,7 +477,8 @@ def red_piece(cmds, marks, pieces, suite, ok):
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None):
     """(whether the checks passed, their output, the red piece of `suite` as `red_piece` reads
-    it); with `shard` every command runs as that one piece alone, on one turn."""
+    it, the tests that piece named that failed again alone or None); with `shard` every
+    command runs as that one piece alone, on one turn."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -485,13 +486,13 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
                "since": state["waiting_on"]["joined"], "line": state["waiting_on"]["line"]}
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
-    marks, pieces = [], {}
+    marks, pieces, confirmed = [], {}, {}
     with gate.gate_turn(None, log_path, log, sharded, scratch, context=context):
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set(),
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
-            marks=marks, shard=shard, pieces=pieces)
+            marks=marks, shard=shard, pieces=pieces, confirmed=confirmed)
     if (not clean or gitcall.commit_identity(scratch) != identity
             or run.git_out(scratch, "diff", "--quiet", "HEAD")[0]):
         ok = False
@@ -499,7 +500,8 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
-    return ok, text, red_piece(cmds, marks, pieces, suite, ok)
+    red = red_piece(cmds, marks, pieces, suite, ok)
+    return ok, text, red, (confirmed.get(suite) or {}).get(red) if red else None
 
 
 def _member_commit(repo, state, head):
@@ -566,9 +568,10 @@ def _landing_checks(directory, state, scratch, tip):
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
     log_path = directory / f"lander-{tree}.log"
-    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
+    ok, text, red, tests = _check(directory, state, scratch, list(checks), log_path, log,
+                                  suite=suite)
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
-                                              "piece": red}}
+                                              "piece": red, **({"tests": tests} if tests else {})}}
 
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
