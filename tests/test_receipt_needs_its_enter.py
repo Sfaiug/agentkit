@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
+from fixtures.unread import unread
 from agentkit import config, handback, orch, record, watch, worktrees
 
 SEAT = "acme-docs"
@@ -45,8 +46,14 @@ class ReceiptNeedsEnter(Sandbox):
         self.stack.enter_context(patch.object(worktrees, "_drop_told"))
 
     def put(self, data):
+        # A kernel can hand typed bytes to the reader late, and a reader already holding input
+        # selects as ready at once: wait until these bytes are unread there too.
+        held = unread(self.slave)
         self.assertEqual(os.write(self.master, data), len(data))
-        self.assertEqual(select.select([self.slave], [], [], 5)[0], [self.slave])
+        deadline = time.monotonic() + 5
+        while unread(self.slave) < held + len(data) and time.monotonic() < deadline:
+            select.select([], [], [], .01)
+        self.assertEqual(unread(self.slave), held + len(data))
 
     def read_input(self, data):
         self.assertEqual(select.select([self.slave], [], [], 5)[0], [self.slave])

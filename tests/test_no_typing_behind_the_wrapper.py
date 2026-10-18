@@ -2,20 +2,18 @@
 
 Real outer and inner PTYs, the real wrapper and relay, and a fake tmux: no server or model.
 """
-import fcntl
 import json
 import os
 import select
-import struct
 import subprocess
 import sys
-import termios
 import time
 import tty
 import unittest
 from unittest.mock import Mock, patch
 
 from fixtures.seats import LINE, NOW, REPO, SEAT, Seats
+from fixtures.unread import unread
 from agentkit import config, orch, statusbar, watch
 from agentkit.pty_relay import Relay
 
@@ -94,10 +92,6 @@ with (root / 'received').open('ab', buffering=0) as received:
             break
         received.write(data)
 '''
-
-
-def unread(fd):
-    return struct.unpack('i', fcntl.ioctl(fd, termios.FIONREAD, struct.pack('i', 0)))[0]
 
 
 class WrappedPane(Seats):
@@ -333,27 +327,26 @@ class RelayBacklog(Seats):
         self.assertEqual(self.receipts(), [])
 
     def test_a_reader_that_never_reads_leaves_the_inner_tty_full_when_the_relay_queues_input(self):
-        # Keep both real tty readers open, without taking a byte from either.
-        for _ in range(200):
-            try:
-                os.write(self.outer_master, b'd' * 16384)
-            except BlockingIOError:
-                pass
-            self.relay.poll(.01)
-            if self.relay.to_child and not select.select([], [self.inner_master], [], 0)[1]:
+        # Keep both real tty readers open, without taking a byte from either. A page is typed
+        # only while the relay holds nothing, so its queue never fills and leaves the outer
+        # terminal unread: a kernel can move a terminal's bytes to its reader late, and free
+        # room in the inner terminal after the relay was refused.
+        for _ in range(2000):
+            if not self.relay.to_child:
+                try:
+                    os.write(self.outer_master, b'd' * 4096)
+                except BlockingIOError:
+                    pass
+            moved = self.relay.poll(.01)
+            if self.relay.to_child and not moved and unread(self.outer_slave) == 0:
                 break
         else:
             self.fail('the non-reading harness did not back up its terminal')
-        for _ in range(200):
-            self.relay.poll(.01)
-            if unread(self.outer_slave) == 0:
-                break
-        self.assertEqual(unread(self.outer_slave), 0)
-        self.assertTrue(self.relay.to_child)
         self.assertGreater(unread(self.inner_slave), 0)
         queued = bytes(self.relay.to_child)
         self.relay.poll(0)
-        self.assertEqual(bytes(self.relay.to_child), queued)
+        # Whatever late room took went from the front: nothing queued is lost or reordered.
+        self.assertTrue(queued.endswith(bytes(self.relay.to_child)))
         self.assertIsNone(watch._send_line(self.seat, 'Run finished.', lambda _: None))
         self.assertEqual(self.receipts(), [])
 
