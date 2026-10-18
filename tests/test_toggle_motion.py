@@ -224,7 +224,11 @@ class ConfigScreen(Screens):
 
     def test_the_last_reviewer_refused_shakes_and_nothing_is_saved(self):
         screen = Screen(self, workers=["opus"])
-        number, line = row(screen.frame(), "opus")
+        screen.frame()
+        # the highlight on opus first, as the pointer brings it there: the line under fable
+        # closes and opus's own opens under it, so the click lands where its mark now is
+        number, line = row(screen.press(DOWN, lambda lines: highlighted(lines)
+                                        .startswith("› opus")), "opus")
         before = screen.record()
         cells = moved(screen, click(mark_column(line, 2), number))
         self.assertIn("  review needs one model", screen.frame())
