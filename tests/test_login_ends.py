@@ -20,6 +20,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, logins
 
+FAR = 1000 + 30 * 86400      # a login further off than a week: its meter is grey
+
 # A fake adapter: counts its calls in $FAKE/calls and answers for the account it was named,
 # or fails for one named in $FAKE/fail, or for one named in $FAKE/hang leaves a reader behind
 # that holds its output, whose pid is $FAKE/reader.  Where $FAKE/interrupt exists that reader
@@ -91,14 +93,14 @@ class Refresh(unittest.TestCase):
             patcher = patch.object(config, name, root / name.lower())
             patcher.start()
             self.addCleanup(patcher.stop)
-        # the tick's pass pages for the login 50000 ended: nowhere, whatever webhook is set
+        # whatever the tick's pass pages goes nowhere, whatever webhook is set
         env = patch.dict(os.environ, {"FAKE": str(self.fake), config.ADAPTER_DIR_ENV: str(adapters),
                                       "AK_NOTIFY_SINK": "off"})
         env.start()
         self.addCleanup(env.stop)
         self.cfg = {"providers": {"anthropic": {"accounts": ["default", "second"]}},
                     "models": {"opus": {"harness": "claude", "provider": "anthropic"}}}
-        self.answer("default", {"email": "owner@acme.test", "ends": 50000})
+        self.answer("default", {"email": "owner@acme.test", "ends": FAR})
         self.answer("second", {"email": "two@acme.test", "ends": None})
 
     def answer(self, account, value):
@@ -111,19 +113,21 @@ class Refresh(unittest.TestCase):
     def test_a_every_subscription_is_kept_with_its_email_and_end(self):
         logins.refresh(self.cfg, now=1000)
         self.assertEqual(logins.read(), {"anthropic": {
-            "default": {"email": "owner@acme.test", "ends": 50000, "checked_at": 1000},
+            "default": {"email": "owner@acme.test", "ends": FAR, "checked_at": 1000},
             "second": {"email": "two@acme.test", "ends": None, "checked_at": 1000}}})
 
-    def test_b_each_is_asked_hourly_at_most_unless_forced(self):
+    def test_b_each_is_asked_hourly_at_most_and_one_whose_meter_is_amber_every_tick(self):
+        soon = {"email": "owner@acme.test", "ends": 1000 + 86400}
+        self.answer("default", soon)
         logins.refresh(self.cfg, now=1000)
-        self.answer("default", {"email": "owner@acme.test", "ends": 90000})
-        logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY - 1)
-        self.assertEqual(self.calls(), ["default", "second"])
-        logins.refresh(self.cfg, now=1001, force={("anthropic", "default")})
+        logins.refresh(self.cfg, now=1001)
         self.assertEqual(self.calls(), ["default", "second", "default"])
-        self.assertEqual(logins.read()["anthropic"]["default"]["ends"], 90000)
+        self.answer("default", {**soon, "ends": FAR})    # logged in again from the ak screen
+        self.assertEqual(logins.refresh(self.cfg, now=1002)["anthropic"]["default"]["ends"], FAR)
+        logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY - 1)     # grey again: hourly
+        self.assertEqual(self.calls()[3:], ["default"])
         logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
-        self.assertEqual(self.calls()[3:], ["second"])
+        self.assertEqual(self.calls()[4:], ["second"])
 
     def test_c_an_adapter_that_answers_nothing_leaves_its_last_answer_and_waits_an_hour(self):
         logins.refresh(self.cfg, now=1000)
@@ -132,7 +136,7 @@ class Refresh(unittest.TestCase):
         later = 1000 + logins.ASK_EVERY
         kept = logins.refresh(self.cfg, now=later)
         self.assertEqual(kept["anthropic"]["default"],
-                         {"email": "owner@acme.test", "ends": 50000, "checked_at": later})
+                         {"email": "owner@acme.test", "ends": FAR, "checked_at": later})
         self.assertEqual(kept["anthropic"]["second"],
                          {"email": "two@acme.test", "ends": None, "checked_at": later})
         logins.refresh(self.cfg, now=later + 1)
@@ -143,12 +147,20 @@ class Refresh(unittest.TestCase):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default"]
         self.assertEqual(list(logins.refresh(self.cfg, now=1001)["anthropic"]), ["default"])
 
-    def test_f_a_provider_whose_models_were_removed_keeps_its_logins(self):
+    def test_f_a_provider_whose_models_were_removed_is_asked_through_its_shipped_harness(self):
         logins.refresh(self.cfg, now=1000)
         self.cfg["models"] = {}
+        self.answer("default", {"email": "owner@acme.test", "ends": FAR + 1})
         kept = logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)
-        self.assertEqual(kept["anthropic"]["default"]["ends"], 50000)
+        self.assertEqual(kept["anthropic"]["default"]["ends"], FAR + 1)
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
+        # one no harness names keeps what it last said
+        self.cfg["providers"]["acme"] = {}
+        config._write_json(logins.path(),
+                           {**kept, "acme": {"default": {"ends": FAR, "checked_at": 0}}})
+        later = 1000 + 2 * logins.ASK_EVERY
+        self.assertEqual(logins.refresh(self.cfg, now=later)["acme"],
+                         {"default": {"ends": FAR, "checked_at": later}})
 
     def hang(self):
         """The default account's adapter leaves a reader that this process adopts, orphaned."""
