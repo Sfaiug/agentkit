@@ -5,6 +5,7 @@ or fails runs again here, and decides. Offline: a fake `ssh` plays the helper, f
 from contextlib import ExitStack
 import io
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -30,8 +31,8 @@ echo "$5" >>"$here/calls"
 case $5 in
 probe) printf 'cpus 6\nload 0\nmemory_mb 1048576\nfree_percent 100\n' ;;
 prepare) cat >"$here/parcel.tar" ;;
-run) [ -e "$here/code-${11%/*}" ] && exit "$(cat "$here/code-${11%/*}")"
-  echo "helper ran ${11}"; AK_SHARD=${11} exec bash -c "${15}" ;;
+run) [ -e "$here/code-${12%/*}" ] && exit "$(cat "$here/code-${12%/*}")"
+  echo "helper ran ${12}"; AK_SHARD=${12} exec bash -c "${16}" ;;
 esac
 """
 
@@ -122,8 +123,8 @@ class SuiteHelper(unittest.TestCase):
                           text)
         self.assertEqual((self.turns, warned), ([], []))
         verbs = (self.fake / "calls").read_text().split()
-        self.assertEqual((verbs[:2], verbs.count("run"), verbs[-1]),
-                         (["probe", "prepare"], 3, "finish"))
+        self.assertEqual((verbs[:3], verbs.count("run"), verbs[-1]),
+                         (["probe", "known", "prepare"], 3, "finish"))
         with tarfile.open(self.fake / "parcel.tar") as tar:
             tar.extractall(self.fake / "parcel")
         heads = subprocess.run(["git", "bundle", "list-heads", "parcel/repo.bundle"], cwd=self.fake,
@@ -162,11 +163,38 @@ class HelperMac(unittest.TestCase):
             (self.fake / name).write_text(f"#!/bin/bash\n{body}\n")
             (self.fake / name).chmod(0o755)
         self.root = self.fake / ".agentkit-helper"
+        self.repo = self.fake / "repo"
+        self.git("init", "-q", "-b", "main", str(self.repo))
+        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "start")
+        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
         for context in (patch.object(helper, "SSH", (str(self.fake / "ssh"),)), patch.dict(
                 os.environ, {"PATH": f"{self.fake}:{os.environ['PATH']}", "HOME": str(self.fake),
                              "FAKE": str(self.fake), "FAKE_AC_CALLS": "99"})):
             context.start()
             self.addCleanup(context.stop)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-c", "user.name=acme", "-c", "user.email=a@acme.test",
+                               *args], capture_output=True, text=True, check=True).stdout.strip()
+
+    def prepare(self, key, repo="acme", known=None):
+        """`prepare` of the repository as `start` sends it, as `repo` there, after `known`'s
+        answer (asked now when None): (its exit, the commits its bundle needs the Mac to have
+        already, or None when it sends no bundle)."""
+        known = helper._known("acme-mac", repo) if known is None else known
+        with tempfile.TemporaryFile() as parcel:
+            helper._parcel(self.repo, "main", known, parcel)
+            parcel.seek(0)
+            with tarfile.open(fileobj=parcel) as tar:
+                names = tar.getnames()
+                header = (tar.extractfile("repo.bundle").read().split(b"\n\n")[0]
+                          if "repo.bundle" in names else None)
+            parcel.seek(0)
+            code = helper._remote("acme-mac", "prepare", key, "ak-helper:new", repo,
+                                  stdin=parcel).returncode
+        needs = None if header is None else [line[1:].split()[0].decode()
+                                             for line in header.splitlines() if line[:1] == b"-"]
+        return code, needs
 
     def test_probe_leaves_load_half_the_free_memory_battery_and_a_held_mac(self):
         # 10 CPUs less a load of 1; half of 8 GiB free.
@@ -183,11 +211,7 @@ class HelperMac(unittest.TestCase):
         self.assertIsNone(helper.room("acme-mac", 1.0, 500))
 
     def test_one_suite_holds_the_mac_and_only_its_own_old_image_goes(self):
-        parcel = io.BytesIO()
-        with tarfile.open(fileobj=parcel, mode="w") as tar:
-            tar.add(REPO / "tools" / "helper" / "Containerfile", "image/Containerfile")
-        prepare = lambda key: helper._remote("acme-mac", "prepare", key, "ak-helper:new",
-                                             input=parcel.getvalue()).returncode
+        prepare = lambda key: self.prepare(key)[0]
         # a failed build keeps the helper's old image and drops the base it fetched
         (self.fake / "broken").touch()
         self.assertEqual(prepare("broken"), helper.LOST)
@@ -201,22 +225,95 @@ class HelperMac(unittest.TestCase):
         self.assertIsNone(helper.room("acme-mac", 1.0, 500))
         self.assertEqual(prepare("second"), helper.LOST)
         for key in ("first", "second"):
-            helper.finish(helper.Away("acme-mac", key, *[None] * 6))
+            helper.finish(helper.Away("acme-mac", key, *[None] * 7))
         self.assertEqual(prepare("third"), 0)
         # a base the owner had before the build stays
-        helper.finish(helper.Away("acme-mac", "third", *[None] * 6))
+        helper.finish(helper.Away("acme-mac", "third", *[None] * 7))
         (self.fake / "has-ak-helper:new").unlink()
         (self.fake / "has-debian:trixie-slim").touch()
         (self.fake / "deleted").unlink()
         self.assertEqual(prepare("fourth"), 0)
         self.assertEqual((self.fake / "deleted").read_text(), "ak-helper:old\n")
 
+    def test_a_suite_sends_only_the_history_the_mac_lacks(self):
+        (self.fake / "has-ak-helper:new").touch()
+        mirror, other = self.root / "mirrors" / "acme", self.root / "mirrors" / "other"
+
+        def suite(key, known=None):
+            code, needs = self.prepare(key, known=known)
+            helper.finish(helper.Away("acme-mac", key, *[None] * 7))
+            self.assertEqual(code, 0)
+            # it has the tree under test, and history up to the origin branch it compares against
+            self.git("-C", str(mirror), "cat-file", "-e",
+                     self.git("-C", str(self.repo), "rev-parse", "HEAD"))
+            self.assertEqual(self.git("-C", str(mirror), "rev-parse", "refs/known/base"),
+                             self.git("-C", str(self.repo), "rev-parse", "origin/main"))
+            return needs
+
+        start = self.git("-C", str(self.repo), "rev-parse", "HEAD")
+        self.assertEqual(suite("first"), [])          # the whole history
+        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "merged")
+        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.assertEqual(suite("second"), [start])    # only the commit after what it has
+        self.assertIsNone(suite("third"))              # nothing it lacks: no bundle
+        # Another repository's history unused for a week goes, at a third one's suite; this
+        # one's stays from the moment a suite asks what it has.
+        other.mkdir()
+        for path in (mirror, other):
+            os.utime(path, (time.time() - 9 * 86400,) * 2)
+        known = helper._known("acme-mac", "acme")
+        self.assertEqual(self.prepare("between", "new")[0], 0)
+        helper.finish(helper.Away("acme-mac", "between", *[None] * 7))
+        self.assertIsNone(suite("fourth", known))
+        self.assertEqual(sorted(path.name for path in mirror.parent.iterdir()), ["acme", "new"])
+        # A suite's commits outlive a collection while it runs, though origin's branch left
+        # them; once it finished, the next suite's collection drops them.
+        tested = self.git("-C", str(self.repo), "rev-parse", "HEAD")
+        self.git("-C", str(self.repo), "checkout", "-q", "--orphan", "rewritten")
+        self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "rewritten")
+        self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("-C", str(self.repo), "checkout", "-q", "--detach", tested)
+        self.assertEqual(self.prepare("fifth")[0], 0)
+        self.git("-C", str(mirror), "gc", "-q", "--prune=now")
+        self.git("-C", str(mirror), "cat-file", "-e", tested)
+        helper.finish(helper.Away("acme-mac", "fifth", *[None] * 7))
+        self.git("-C", str(self.repo), "checkout", "-q", "rewritten")
+        suite("sixth")
+        self.git("-C", str(mirror), "gc", "-q", "--prune=now")
+        self.assertNotEqual(subprocess.run(["git", "-C", str(mirror), "cat-file", "-e", tested],
+                                           capture_output=True).returncode, 0)
+
+    def test_a_suite_whose_history_there_went_since_known_sends_it_all(self):
+        (self.fake / f"has-{helper.image()}").touch()
+        self.git("-C", str(self.repo), "symbolic-ref", "refs/remotes/origin/HEAD",
+                 "refs/remotes/origin/main")
+        known, logs = helper._known, []
+
+        def gone(alias, repo):    # another suite deletes the copy once it has answered
+            answer = known(alias, repo)
+            shutil.rmtree(self.root / "mirrors" / repo, ignore_errors=True)
+            return answer
+
+        with patch.object(helper.config, "suite_helper", return_value="acme-mac"), \
+                patch.object(helper, "room", return_value=(1, 2, 512)), \
+                patch.object(helper.orch, "agent_programs", return_value=[]), \
+                patch.object(helper, "_known", side_effect=gone):
+            for _ in range(2):
+                away = helper.start(1, 512, self.repo, logs.append)
+                self.assertIsNotNone(away, logs)
+                helper.finish(away)
+                self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "merged")
+                self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
+
     def test_a_piece_waits_while_another_suite_holds_the_mac(self):
+        (self.root / "mirrors" / "acme").mkdir(parents=True)
+
         def start(key):
             (self.root / key).mkdir(parents=True)
             (self.root / key / "held").touch()    # its claim, as `prepare` leaves it
             return subprocess.Popen(helper._remote("acme-mac", "run", key, "ak-helper:new",
-                                                   f"ak-{key}", 1, 512), stdout=subprocess.DEVNULL)
+                                                   f"ak-{key}", 1, 512, "acme"),
+                                    stdout=subprocess.DEVNULL)
 
         def up(name):
             deadline = time.monotonic() + 30
@@ -235,10 +332,11 @@ class HelperMac(unittest.TestCase):
         self.assertEqual((self.fake / "overlap").read_text(), "")
 
     def test_a_vm_that_comes_up_after_its_charger_went_stops(self):
-        (self.root / "key").mkdir(parents=True)
+        for path in ("key", "mirrors/acme"):
+            (self.root / path).mkdir(parents=True)
         os.environ["FAKE_AC_CALLS"] = "1"
         run = helper._remote("acme-mac", "run", "key", "ak-helper:new", "ak-key-1-2", 1, 512,
-                             timeout=30)
+                             "acme", timeout=30)
         self.assertEqual(run.returncode, helper.LOST)
         self.assertEqual(list(self.fake.glob("vm-*")), [])
 

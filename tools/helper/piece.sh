@@ -1,14 +1,15 @@
 #!/bin/bash
 # piece.sh SHARD BRANCH DEFAULT PROGRAMS COMMAND, one suite piece in the helper's VM (mac.sh):
-# the host checkout's tree and refs, its harness programs as stand-ins, then offline the command.
+# the host checkout's tree and origin branch (/in/heads), its harness programs as stand-ins,
+# then offline the command. The repository's history is /mirror's, borrowed, not copied.
 shard=$1 branch=$2 default=$3 programs=$4 command=$5
 fail() { echo "ak helper: $*" >&2; exit 255; }
+read -r tree base </in/heads
 git init -q --bare ${default:+-b "$default"} /home/ak/origin.git &&
-  git -C /home/ak/origin.git fetch -q /in/repo.bundle 'refs/remotes/origin/*:refs/heads/*' \
-    'HEAD:refs/ak/tree' &&
+  echo /mirror/objects >/home/ak/origin.git/objects/info/alternates &&
+  { [ -z "$default" ] || git -C /home/ak/origin.git update-ref "refs/heads/$default" "$base"; } &&
   git clone -q --no-checkout /home/ak/origin.git /home/ak/work && cd /home/ak/work &&
-  git fetch -q origin refs/ak/tree && git checkout -q ${branch:+-B "$branch"} FETCH_HEAD ||
-  fail "the tree did not check out"
+  git checkout -q ${branch:+-B "$branch"} "$tree" || fail "the tree did not check out"
 git config --global user.name "ak helper"; git config --global user.email "helper@localhost"
 mkdir -p /home/ak/stand-ins
 for program in $programs; do   # the suite fakes every harness; it only looks for the program

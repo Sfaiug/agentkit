@@ -210,8 +210,9 @@
   `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it looks at the seat
   again when its screen comes to rest, starts moving or its harness exits; it types nothing),
   `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
-- `tools/helper/`: helper.py's Mac side: `mac.sh` (probe, prepare, run, finish), `piece.sh`
-  (one piece in the VM, offline) and the image's `Containerfile`.
+- `tools/helper/`: helper.py's Mac side: `mac.sh` (probe, known, prepare, run, finish; it
+  keeps each repository's history), `piece.sh` (one piece in the VM, offline) and the image's
+  `Containerfile`.
 - `tools/release.py`: the release kit a project copies to `deploy/release.py` and runs on its
   own host; standalone, imports nothing of agentkit.
 - `tests/`: `landing.py` runs the static checks, then offline `smoke.sh` beside
