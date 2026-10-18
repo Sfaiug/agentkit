@@ -934,21 +934,18 @@ def seat_crew(selection):
     return workers or [selection["orchestrator"]], list(selection.get("reviewers", workers))
 
 
-def crew(info, tmux=False):
-    """`astra builds · opus reviews`: who builds and who reviews a seat's work, its own
-    orchestrator where it builds alone, models in plain text and the verbs dim; `tmux` draws it
-    as tmux text."""
+def crew(info, tmux=False, room=None):
+    """`astra ⚒   opus ⚒◎   spark ◎`: each model that builds or reviews a seat's work named once,
+    in the order it first comes, ⚒ after it where it builds and ◎ where it reviews -- its own
+    orchestrator where it builds alone -- all dim, as the row's orchestrator is (the owner's pick
+    of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux` draws
+    it as tmux text."""
     builds, reviews = info.get("crew") or ((), ())
-
-    def named(models, one, many):
-        if not models:
-            return ""
-        names = " and ".join(terminal.plain(model) for model in models)
-        return ((orch.tmux_text(names) if tmux else names)
-                + _paint(f" {one if len(models) == 1 else many}", "dim", tmux))
-    parts = [part for part in (named(builds, "builds", "build"),
-                               named(reviews, "reviews", "review")) if part]
-    return _paint(" · ", "dim", tmux).join(parts)
+    build, review = ("⚒", "◎") if terminal.utf8() else ("B", "R")
+    roles = {model: (build if model in builds else "") + (review if model in reviews else "")
+             for model in (*builds, *reviews)}
+    text = "   ".join(f"{terminal.plain(model)} {icons}" for model, icons in roles.items())
+    return _paint(text if room is None else terminal.cut(text, room, spaced=True), "dim", tmux)
 
 
 def silent_for_run(run_dir, state, now=None):
@@ -1217,7 +1214,7 @@ def detail(cfg, info, room, now=None):
     tasks = info.get("tasks") or []
     # the crew gives way to the least the squares say: one task's squares, or their count
     least = 3 + terminal.cells(squares(tasks, 3)) if tasks else 0
-    who = terminal.cut(crew(info), room - least)
+    who = crew(info, room=room - least)
     left = room - terminal.cells(who) - 3
     line = who + ("   " + squares(tasks, left) if tasks and left >= least - 3 else "")
     return [line] if terminal.plain(line) else []

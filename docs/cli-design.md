@@ -400,11 +400,13 @@ screen comes up or comes back, nor once the pointer is on no row. They are
 indented under the name and lit as the row is (`menu.detail`): the
 question for `needs you`, what got done for `done` and an idle seat's way back
 in, wrapped whole at words, so a question is read whole on ak's own screen before
-its seat is opened, whatever harness it runs; for any other, who builds and who reviews and each task in
+its seat is opened, whatever harness it runs; for any other, each model that builds or
+reviews named once, dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
+it reviews (glyphs without their word, the owner's pick of 18 Oct 2026), and each task in
 flight as three squares -- build, review, land -- the stages it reached filled, in
 working's colour while a model or ak works on it, dim while it waits, red once it
 failed (for a day, unless a later run takes it up), the rest empty:
-`astra builds · opus reviews   ■□□  ■■□  ■■■` (`menu.crew`, `menu.squares`,
+`astra ⚒   opus ⚒◎   ■□□  ■■□  ■■■` (`menu.crew`, `menu.squares`,
 `menu.seat_tasks`). No screen names a task. No other row grows: every page
 keeps as many lines as the most any seat on screen opens, up to half the screen
 and what the headings, a row and the keys leave, a longer question cut to them with `…`, so no page overflows or turns as the

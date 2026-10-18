@@ -144,7 +144,7 @@ class Bar(Sandbox):
         self.assertEqual(top, f" ! needs you    {name}   fable")   # stripped
         # its question is on its own screen; line two is who builds and reviews
         why = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.WHY}}}"))
-        self.assertEqual(why, "opus builds · opus reviews")
+        self.assertEqual(why, "opus ⚒◎")
 
     def test_v5y_d_no_runs_draws_no_tally(self):
         top, why, _, _ = statusbar.lines("herdr", "fable", "working", "")
