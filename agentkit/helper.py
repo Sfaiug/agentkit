@@ -11,6 +11,7 @@ or the VM broke -- exits `LOST`.
 from collections import namedtuple
 import hashlib
 import io
+import os
 import posixpath
 import re
 import secrets
@@ -23,6 +24,7 @@ from . import config, gitcall, orch
 
 LOST = 255            # ssh's own failure, and tools/helper/mac.sh's for each failure of its own
 LACKS = 3             # mac.sh's `prepare`: the Mac's copy lacks history the parcel left out
+SHORT = 254           # piece.sh: the kernel of the piece's VM killed a process for memory
 TOOLS = config.REPO / "tools" / "helper"
 RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
 SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
@@ -82,12 +84,13 @@ def _tracked(cwd, path):
                                             capture_output=True, check=True).stdout
 
 
-def room(alias, piece_cpus, piece_mem_mb):
+def room(alias, piece_cpus, piece_mem_mb, least_mb=0):
     """(pieces, CPUs each, MiB each) the Mac fits now, or None: no answer, on battery, another
     suite holds it or no room. Its CPUs less its load; half the memory macOS calls free, so the
     Mac stays its owner's. A VM gets two CPUs or more, as a one-CPU VM's kernel hands a
     terminal's bytes over late and the suite's terminal tests read them at once, and twice the
-    piece's measured memory: it also holds its own kernel, page cache and clone."""
+    piece's measured memory, as it also holds its own kernel, page cache and clone, or
+    `least_mb` where that is more."""
     try:
         probe = _remote(alias, "probe", text=True, timeout=30)
         readings = {key: float(value) for key, value in
@@ -96,7 +99,8 @@ def room(alias, piece_cpus, piece_mem_mb):
         free_mb = readings["memory_mb"] * readings["free_percent"] / 200
     except (OSError, subprocess.TimeoutExpired, KeyError, ValueError):
         return None
-    count = min(int(spare // max(piece_cpus, 2)), int(free_mb // (2 * piece_mem_mb)))
+    count = min(int(spare // max(piece_cpus, 2)),
+                int(free_mb // max(2 * piece_mem_mb, least_mb)))
     if probe.returncode or count < 1:
         return None
     return count, int(spare // count), int(free_mb // count)
@@ -148,7 +152,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log):
         return None
     if not image:
         return None
-    fit = room(alias, piece_cpus, piece_mem_mb)
+    fit = room(alias, piece_cpus, piece_mem_mb, _least(repo))
     if fit is None:
         return None
     code, branch = gitcall.git_out(cwd, "symbolic-ref", "-q", "--short", "HEAD")
@@ -175,6 +179,29 @@ def start(piece_cpus, piece_mem_mb, cwd, log):
         return None
     log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
     return away
+
+
+def _least(repo):
+    """The MiB each VM of the repository's suites gets at least, more than one ran out of."""
+    try:
+        return int((config.STATE / f"helper-memory-{repo}").read_text())
+    except (OSError, ValueError):
+        return 0
+
+
+def short(away):
+    """A VM of the suite ran out of memory (`SHORT`): its repository's next ones each get what
+    one piece fewer would have had, or twice as much after a suite of one piece; the MiB they
+    get. Measured here, a piece's memory is its share of all the pieces' peak; there, each VM
+    holds its own piece's peak."""
+    least = (away.memory_mb * away.count // (away.count - 1) if away.count > 1
+             else 2 * away.memory_mb)
+    path = config.STATE / f"helper-memory-{away.repo}"
+    temp = path.with_name(f".{path.name}.{os.getpid()}")
+    least = max(least, _least(away.repo))
+    temp.write_text(f"{least}\n")
+    temp.replace(path)
+    return least
 
 
 def piece(away, shard, command):

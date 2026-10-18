@@ -22,4 +22,11 @@ offline() {
     'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"
 }
 offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "could not go offline"
+oom() { awk '$1 == "oom_kill" {print $2}' /proc/vmstat; }
+before=$(oom)
 offline bash -c "$command"
+code=$?
+# The kernel killed a process for memory: the VM was too small for the piece, which ak then
+# runs here and gives a larger VM next time (helper.short).
+[ "$(oom)" = "$before" ] || { echo "ak helper: the VM ran out of memory" >&2; exit 254; }
+exit "$code"

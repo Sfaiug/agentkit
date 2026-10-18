@@ -143,6 +143,16 @@ class SuiteHelper(unittest.TestCase):
                 self.assertEqual(len(self.turns), 1)
                 self.assertEqual([line[:17] for line in warned], warn)
 
+    def test_a_vm_that_ran_out_of_memory_runs_its_piece_here_and_the_next_vms_are_larger(self):
+        text, warned = self.check({2: helper.SHORT})
+        self.assertIn("--- AK_SHARD=2/3 ---\n[exit 0]\npiece 2/3", text)
+        self.assertEqual((len(self.turns), warned), (1, []))
+        # three VMs shared half of 1 TiB; the next ones each get what two would have had
+        self.assertEqual([path.read_text() for path in config.STATE.glob("helper-memory-*")],
+                         [f"{524288 // 3 * 3 // 2}\n"])
+        self.assertIn("helper ran 2/2", self.check({})[0])
+        self.assertEqual((self.fake / "calls").read_text().split().count("run"), 2)
+
     def test_a_piece_that_changes_its_checkout_there_fails_there(self):
         (self.repo / "tracked").write_text("committed\n")
         subprocess.run([*self.git, "add", "tracked"], check=True)
@@ -257,6 +267,8 @@ class HelperMac(unittest.TestCase):
         # a small piece still gets two CPUs: 9 spare make 4 VMs, not 9 of one CPU
         self.assertEqual(helper.room("acme-mac", 1.0, 100), (4, 2, 1024))
         self.assertIsNone(helper.room("acme-mac", 1.0, 2100))
+        # VMs a suite of the repository ran out of memory in: fewer, larger ones
+        self.assertEqual(helper.room("acme-mac", 1.0, 500, 1500), (2, 4, 2048))
         (self.root / "other").mkdir(parents=True)
         (self.root / "other" / "held").touch()
         self.assertIsNone(helper.room("acme-mac", 1.0, 500))

@@ -1419,9 +1419,15 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                      if away and code and not killed and not cancel.is_set()]
             helped, away = away, None
             if again or helped and silenced and not cancel.is_set():
-                # What the helper lost, failed or stopped runs again here, on this host's own
-                # turns; a stopped piece alone, below.
-                for index in (index for index in again if results[index][0] != helper.LOST):
+                # What the helper lost, failed, ran out of memory for or stopped runs again
+                # here, on this host's own turns; a stopped piece alone, below.
+                if any(results[index][0] == helper.SHORT for index in again):
+                    least = helper.short(helped)
+                    if log is not None:
+                        log(f"the suite helper's VMs of {helped.memory_mb} MiB ran out of memory: "
+                            f"those pieces run here, its next VMs get {least} MiB")
+                for index in (index for index in again
+                              if results[index][0] not in (helper.LOST, helper.SHORT)):
                     if log is not None:
                         log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper")
                 began = time.monotonic()
