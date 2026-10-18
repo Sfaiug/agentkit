@@ -143,18 +143,18 @@ class Lines(unittest.TestCase):
         self.assertNotIn("stop omega", self.out.getvalue())
 
     def test_more_than_a_page_keeps_each_row_under_its_projects_heading(self):
-        # with the keys, on a screen with room for four lines between the frame and the keys
-        seats = [dict(OMEGA, name=f"fix-api-{n}") for n in range(8)]
+        # with the keys, on a 100x24 screen: 18 lines between the frame and the keys for 20 seats
+        seats = [dict(OMEGA, name=f"fix-api-{n}") for n in range(20)]
         drawn = []
         with patch.object(terminal, "taken", return_value=True), \
-                patch.object(terminal, "height", return_value=10), \
+                patch.object(terminal, "height", return_value=24), \
                 patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
                              drawn.append([terminal.plain(line) for line in body]) or {}), \
                 patch.object(terminal, "read_key",
-                             side_effect=[terminal.Key("down")] * 7 + [terminal.Key("esc")]):
+                             side_effect=[terminal.Key("down")] * 19 + [terminal.Key("esc")]):
             menu.show_past(CFG, seats, keyboard=None)
-        self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 8)
-        self.assertRegex(drawn[-1][-1], r"^›\s+8\s+fix-api-7\s+-\s+stopped 2h ago$")
+        self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 20)
+        self.assertRegex(drawn[-1][-1], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
 
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):

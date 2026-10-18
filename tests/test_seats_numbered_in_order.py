@@ -85,7 +85,7 @@ class Numbered(Sandbox):
         self.assertEqual(rows, [("1", "acme-api"), ("2", "docs-blog")])
         past = [(number, seat) for number, seat in enumerate(found, 1) if seat.get("closed")]
         with patch.object(terminal, "width", return_value=100):
-            [(lines, places)] = menu.past_body(past, models={"acme-web": "fable"})
+            lines, places = menu.past_body(past, models={"acme-web": "fable"})
         self.assertEqual([terminal.plain(line).split() for line in lines],
                          [["acme"], ["3", "acme-web", "fable", *"stopped 8m ago starts fresh".split()],
                           [], ["docs"], ["4", "docs-site", "-", *"stopped 8m ago starts fresh".split()]])

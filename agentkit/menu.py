@@ -4535,13 +4535,13 @@ def past_offered(found):
 
 
 def past_body(past, at=None, models=None, room=None):
-    """The past screen's pages -- the main screen's rows, one a stopped seat under its project's
+    """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
     heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
     how long ago it was stopped in the state's column and, where its harness starts it fresh
-    and the row has room, that -- each (lines, {line: (("row", name), [])}).  One page, a blank
-    line between projects, where `room` lines hold every row or no `room` is given; else pages
-    of `room` lines, each row under its project's heading (`project_pages`).  `at` is the
-    highlighted seat's name, or None while the pointer is off the rows."""
+    and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
+    blank line between projects, where `room` lines hold them or no `room` is given; else the
+    page of `room` lines `at` is on, each row under its project's heading (`project_pages`).
+    `at` is the highlighted seat's name, lit while the pointer is on the rows (`terminal.away`)."""
     infos = [{"number": str(number), "name": session["name"],
               "orchestrator": (models or {}).get(session["name"]) or "-",
               "count": f"stopped {orch.age(session['closed'])} ago",
@@ -4559,16 +4559,17 @@ def past_body(past, at=None, models=None, room=None):
         line = _head(info, widths)
         if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
             line += "  " + terminal.styled(info["restart"], "dim")
-        return terminal.highlight(line.rstrip()) if at == info["name"] else line.rstrip()
+        lit = at == info["name"] and not terminal.away()
+        return terminal.highlight(line.rstrip()) if lit else line.rstrip()
     projects = [((v5o_header(project, width), None),
                  [[(drawn(info), info["name"])] for info in project["seats"]])
                 for project in by_project(infos, orch.listed()).values()]
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
-    return [([line for line, _ in page],
-             {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
-            for page in ([flat] if room is None or len(flat) <= room
-                         else project_pages(projects, room))]
+    pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
+    page = next((page for page in pages if any(name == at for _, name in page)), pages[0])
+    return ([line for line, _ in page],
+            {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
 
 @terminal.clicks_its_own
@@ -4593,7 +4594,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         models = {name: (selection_of(cfg, name) or {}).get("orchestrator") for name in names}
         if not terminal.taken():
             keys = "x remove   esc back"
-            terminal.frame("past sessions", past_body(past, models=models)[0][0], keys)
+            terminal.frame("past sessions", past_body(past, models=models)[0], keys)
             if dry_run:
                 return
             line = read("> ", "")
@@ -4615,9 +4616,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             continue
         keys = PAST_KEYS[0 if terminal.utf8() else 1]
         room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
-        body, places = next(page for page in past_body(past, None if terminal.away() else here,
-                                                       models, room)
-                            if (("row", here), []) in page[1].values())
+        body, places = past_body(past, here, models, room)
         act, row, _column, _top = matrix_key("past sessions", body, places,
                                              [("row", name) for name in names], ("row", here),
                                              0, "", keys)
