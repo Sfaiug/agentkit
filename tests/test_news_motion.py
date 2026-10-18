@@ -238,6 +238,39 @@ class NewsMotion(Sandbox):
             with self.subTest(width=width), patch.object(terminal, "width", lambda *_: width):
                 self.crossed()
 
+    def test_completion_prose_is_never_swept(self):
+        for width in (100, 50):
+            for locale, depth in (("C.UTF-8", 24), ("C", 256)):
+                for progress in ((0, 0), (0, 2), (2, 2)):
+                    with self.subTest(width=width, locale=locale, progress=progress), \
+                            patch.dict(os.environ, {"LANG": locale, "LC_ALL": locale}), \
+                            patch.object(terminal, "width", return_value=width), \
+                            patch.object(terminal, "height", return_value=30), \
+                            patch.object(terminal, "colour_depth", return_value=depth), \
+                            patch.object(motion.time, "monotonic", return_value=10.0), \
+                            patch("sys.stdout", io.StringIO()) as out:
+                        self.words, self.tasks = {"fix-api": "working"}, {"fix-api": progress}
+                        self.reasons = {}
+                        clock = motion.Clock()
+                        menu.draw(self.cfg, orch.listing(), cursor="fix-api", drawn={},
+                                  look=False, records=[], clock=clock)
+                        self.words["fix-api"] = "done"
+                        self.reasons["fix-api"] = "Deployed - 1 of 2 services updated; ━╸─= 3 of 4"
+                        out.seek(0)
+                        out.truncate()
+                        menu.draw(self.cfg, orch.listing(), cursor="fix-api", drawn={},
+                                  look=False, records=[], clock=clock)
+                        lines = terminal.ANSI.sub("", out.getvalue().partition("\033[J")[0]).split("\n")
+                        prose = next(n for n, line in enumerate(lines, 1) if "Deployed" in line)
+                        self.assertFalse([cell for cell in clock.cells if cell[0] >= prose])
+                        if progress[1]:
+                            row = next(n for n, line in enumerate(lines, 1)
+                                       if f"{progress[0]} of {progress[1]}" in line)
+                            swept = [terminal.plain(animation(10.1))
+                                     for (r, col), (animation, _) in clock.cells.items()
+                                     if r == row and col > 1]
+                            self.assertGreater(sum(char in "━╸=─-" for char in swept), 1)
+
     def crossed(self):
         self.words, self.tasks = {"fix-api": "working"}, {"fix-api": (4, 4)}
         # what got done, on the line its row opens, may hold the line's glyphs too

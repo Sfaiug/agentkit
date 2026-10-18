@@ -842,10 +842,15 @@ def _paint(text, kind, tmux=False):
     return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
-def line_at(text):
-    """Where a seat's progress line is in `text`, a row drawn plain: the match of its cells,
-    done and to do, before its `done of total`; None where it has none."""
-    return re.search("[━╸=─-]+(?= \\d+ of \\d+)", text)
+def line_at(line):
+    """Plain-text slice of the rendered progress line, before highlighting.
+
+    Its coloured spans distinguish it from completion prose holding the same glyphs.
+    """
+    match = re.search(r"(?:\033\[[\d;]+m[━╸=─-]+\033\[0m)+(?= \d+ of \d+)", line)
+    if match:
+        start = len(terminal.ANSI.sub("", line[:match.start()]))
+        return slice(start, start + len(terminal.ANSI.sub("", match.group())))
 
 
 def tips(line):
@@ -1516,7 +1521,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     model_at = 3 + widths["num"] + 2 + widths["name"] + 2     # the orchestrator column, from 1
     models = []     # each seat row's (screen row, model, highlighted, the subscriptions it runs on)
     breaths = []    # what breathes while a model works: (cell, character, highlighted)
-    bars = {}       # the screen row of each seat's progress line, its row or the one under
+    bars = {}       # each rendered progress line's screen row and plain-text slice
     for line, name in body:
         # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
@@ -1540,8 +1545,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
-        if name in seats and name not in bars and line_at(text):
-            bars[name] = len(out)
+        if name in seats and name not in bars and (span := line_at(line)):
+            bars[name] = len(out), span
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
             moves.append((("word", name), word, (len(out), first), lit))
@@ -1602,15 +1607,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 motion.glowing(out[row - 1], shown, motion.NEWS)(clock, row, since, None)
                 clock.start([cell], *(motion.pulsing if shown == "needs you" else motion.settling)(
                     terminal.state_glyph(shown), shown, since, lit))
-                row = bars.get(key[1], row)
-                text = terminal.ANSI.sub("", out[row - 1])
-                line = line_at(text)
-                if shown == "done" and line:
+                if shown == "done" and key[1] in bars:
+                    row, span = bars[key[1]]
+                    text = terminal.ANSI.sub("", out[row - 1])
                     frames, until = motion.sweeping(
-                        terminal.cell_texts(out[row - 1])[line.start():line.end()], since,
+                        terminal.cell_texts(out[row - 1])[span], since,
                         shown, lit)
                     for n, animation in enumerate(frames):
-                        clock.start([(row, terminal.cells(text[:line.start()]) + 1 + n)],
+                        clock.start([(row, terminal.cells(text[:span.start]) + 1 + n)],
                                     animation, until)
         for cell, char, bright in breaths:
             clock.start([cell], motion.breathing(char, "working", bright))
