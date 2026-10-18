@@ -59,7 +59,9 @@ class RecommendsEffort(Sandbox):
                     row("claude", "claude-opus-5-5", "max", execute=100),
                     row("codex", "gpt-6-astra", "high", review=100)])
         text = self.screen([Key("esc")])
-        self.assertIn("ak recommends orch fable @ max · exec opus @ max · review astra @ high", text)
+        self.assertIn("runs on Claude · recommended to orchestrate", text)
+        text = self.screen([Key("char", "r"), Key("esc"), Key("esc")])
+        self.assertIn("recommended orch fable @ max · exec opus @ max · review astra @ high", text)
         self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),

@@ -1,12 +1,12 @@
-"""The `c` screen shows what `ak models` recommends beside a seat's marks, and `r`, or a click
-on `r recommended`, opens the models screen (tests/test_models_screen.py), where `r` takes it.
+"""The `c` screen says what `ak models` recommends a seat's models for, and `r`, or a click on
+`r recommended`, opens the models screen (tests/test_models_screen.py), where `r` takes it.
 
-Under a seat's models one dim line names the recommended row per role, read off the matrix as
-last computed (`matrix.stored`, `matrix.recommended`) and wrapped to the screen; `r` there
+The line the highlighted model opens names the roles it is the recommended row for, read off
+the matrix as last computed (`matrix.stored`, `matrix.recommended`); `r` on the models screen
 makes the recommended executor and reviewer the seat's marks where an entry in the config as it
 stands runs that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort),
 saved to its record at once, and says why when it cannot; the orchestrator is only said, since
-moving the seat asks first.  With nothing computed the line says so and `r` is no key.
+moving the seat asks first.  With nothing computed no model is recommended and `r` is no key.
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked.
 """
@@ -75,9 +75,13 @@ class Recommends(Sandbox):
                     row("claude", "claude-fable-5-1", "xhigh", "fable", execute=90),
                     row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         text = self.screen([Key("esc")])
-        self.assertIn("ak recommends orch claude-sonnet-4-6 @ max (not configured) · exec fable @ xhigh "
-                      "· review astra @ xhigh", text)
+        self.assertIn("› fable", text)
+        self.assertIn("runs on Claude · recommended to build", text)
         self.assertIn("⏎ mark r recommended esc back", text)
+        found = menu.advice(config.load(), matrix.stored())
+        self.assertEqual(menu.model_said(config.load(), "astra", None, found)[-1],
+                         terminal.styled("recommended to review", "dim"))
+        self.assertEqual(found["orchestrate"][1], None)       # not configured: no model says it
         # r opens the models screen and takes nothing by itself
         text = self.screen([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)
@@ -131,21 +135,22 @@ class Recommends(Sandbox):
                             Key("down"), Key("enter"), Key("char", "r"), Key("char", "r"),
                             Key("esc"), Key("esc")])
         self.assertNotIn("fable", config.load()["models"])
-        self.assertIn("exec claude-fable-5-1 @ xhigh (not configured) · review opus @ xhigh", text)
+        # back on `c` no model is recommended to build; the models screen names the row
+        self.assertNotIn("recommended to build", text.split("Remove fable from")[-1])
+        self.assertIn("recommended exec claude-fable-5-1 @ xhigh · review opus @ xhigh", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
 
     def test_with_nothing_computed_the_line_says_so_and_r_is_no_key(self):
         text = self.screen([Key("char", "r"), Key("esc")])
-        self.assertIn("ak recommends nothing yet: ak models", text)
-        self.assertNotIn("r recommended", text)
+        self.assertNotIn("recommended", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))
         # without a seat no line is drawn
         with patch.object(terminal, "read_key", side_effect=[Key("esc")]), \
                 redirect_stdout(io.StringIO()) as drawn:
             menu.show_config(False, Keyboard(), None)
-        self.assertNotIn("ak recommends", terminal.plain(drawn.getvalue()))
+        self.assertNotIn("recommended", terminal.plain(drawn.getvalue()))
 
 
 if __name__ == "__main__":
