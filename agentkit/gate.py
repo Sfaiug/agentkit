@@ -7,6 +7,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -1429,7 +1430,14 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 for index in (index for index in again
                               if results[index][0] not in (helper.LOST, helper.SHORT)):
                     if log is not None:
-                        log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper")
+                        # its go here takes its place in the suite's output: a copy keeps this one
+                        handle, kept = tempfile.mkstemp(dir=run_dir or activity.parent,
+                                                        prefix=f"{activity.stem}-helper-failed-",
+                                                        suffix=".log")
+                        os.close(handle)
+                        shutil.copyfile(results[index][1].name, kept)
+                        log(f"WARN AK_SHARD={index + 1}/{count} failed on the suite helper; "
+                            f"what it printed there: {kept}")
                 began = time.monotonic()
                 hold = _GATE_HELD.hold = _GATE_HELD.home()
                 queued = time.monotonic() - began    # as busy_turn's: no ceiling is charged

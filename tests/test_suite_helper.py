@@ -7,6 +7,7 @@ import io
 import os
 import shutil
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tarfile
@@ -32,7 +33,7 @@ echo "$5" >>"$here/calls"
 case $5 in
 probe) printf 'cpus 6\nload 0\nmemory_mb 1048576\nfree_percent 100\n' ;;
 prepare) echo "$7" >>"$here/images"; cat >"$here/parcel.tar" ;;
-run) [ -e "$here/code-${12%/*}" ] && exit "$(cat "$here/code-${12%/*}")"
+run) [ -e "$here/code-${12%/*}" ] && { echo "acme broke ${12}"; exit "$(cat "$here/code-${12%/*}")"; }
   echo "helper ran ${12}"; AK_SHARD=${12} exec bash -c "${16}" ;;
 esac
 """
@@ -141,8 +142,15 @@ class SuiteHelper(unittest.TestCase):
                 text, warned = self.check(codes)
                 self.assertIn("--- AK_SHARD=2/3 ---\n[exit 0]\npiece 2/3", text)
                 self.assertIn("helper ran 1/3", text)
+                self.assertNotIn("acme broke", text)
                 self.assertEqual(len(self.turns), 1)
                 self.assertEqual([line[:17] for line in warned], warn)
+
+    def test_a_piece_failed_there_keeps_what_it_printed_there(self):
+        warned = self.check({2: 1})[1]
+        kept = re.fullmatch(r"WARN AK_SHARD=2/3 failed on the suite helper; "
+                            r"what it printed there: (.+)", warned[0])
+        self.assertEqual(Path(kept[1]).read_text(), "acme broke 2/3\n")
 
     def test_a_vm_that_ran_out_of_memory_runs_its_piece_here_and_the_next_vms_are_larger(self):
         text, warned = self.check({2: helper.SHORT})
