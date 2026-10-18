@@ -10,6 +10,8 @@ Claude Code, Codex CLI, Muse Code, Grok Build, OpenCode and Antigravity CLI. Sta
 Run listings load their shared cache once per process, then open only changed `run.json` files.
 The cache at `state/run-records.db` updates individual runs in SQLite transactions, so one
 run changing does not rewrite the history and concurrent readers see complete records.
+A task or repo path with a symlink loop does not identify a suite run, even if `..`
+follows the loop.
 
 A session is a tmux session on agentkit's own server (`tmux -L agentkit`), so it outlives the connection that made it
 and the orchestrator's process too. A bare `ak` is the menu on the server, on a client (over the ssh alias `install.sh

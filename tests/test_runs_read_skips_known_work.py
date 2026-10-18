@@ -62,6 +62,19 @@ class SkipsKnownWork(Sandbox):
         self.assertFalse(menu.smoke_run({"task": str(config.TMP / "smoke-3" / "loop"),
                                          "repo": "/c/acme"}))
 
+    def test_a_parent_step_cannot_erase_a_loop_in_an_owner_s_task_link(self):
+        smoke = config.TMP / "smoke-3"
+        smoke.mkdir(parents=True)
+        (smoke / "task.md").write_text("# acme\n")
+        (smoke / "loop").symlink_to("loop")
+        target = str(smoke / "loop") + "/../task.md"
+        task = self.root / "task.md"
+        task.symlink_to(target)
+        for value in (target, str(task), "~/task.md"):
+            for key in ("task", "repo"):
+                with self.subTest(path=value, key=key):
+                    self.assertFalse(menu.smoke_run({key: value}))
+
     def test_filing_follows_each_seat_s_renames_once(self):
         runs = [{"launched_session": name, "repo": "/c/acme"}
                 for name in ("acme-api", "acme-docs") * 15]
