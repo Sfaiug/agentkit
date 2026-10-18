@@ -53,8 +53,9 @@ class Rolls(Sandbox):
     def plan(self, text):
         config.plan_path("acme-api").write_text(text)
 
-    def counts(self, now=None):
-        """The count the clock shows at each of its moments, from what was drawn."""
+    def counts(self, whole=False):
+        """The count the clock shows at each of its moments, from what was drawn; `whole`: its
+        line and the count."""
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
@@ -64,11 +65,12 @@ class Rolls(Sandbox):
                     if "acme-api" in line)
         text = terminal.ANSI.sub("", line.replace("\033[K", ""))
         row = out.getvalue().split("\033[J")[0].split("\n").index(line) + 1
-        first = terminal.cells(text[:text.rindex(" of ")].rstrip("0123456789")) + 1
+        first = terminal.cells(text[:re.search(r"[━╸─]", text).start() if whole else
+                                    text.rindex(" of ")].rstrip("0123456789")) + 1
         columns = range(first, terminal.cells(text.rstrip()) + 1)
         moving = [self.clock.cells[row, column] for column in columns
                   if (row, column) in self.clock.cells]
-        until = max((until for _, until in moving), default=None)
+        until = max((until for _, until in moving if until), default=None)
         self.written = "".join(terminal.cell_texts(line.replace("\033[K", ""))[first - 1:columns.stop - 1])
         return text[first - 1:].rstrip(), moving, until
 
@@ -112,6 +114,39 @@ class Rolls(Sandbox):
                                         for colour in lit), (flip, lit))
         self.assertEqual(painted(self.at(moving, until - motion.FRAME / 2)),
                          painted(self.written))
+
+    def glided(self, plan):
+        """The line and its count as drawn, and at each frame as its plan moves to `plan`."""
+        self.counts()
+        self.plan(plan)
+        with self.later():
+            drawn, moving, until = self.counts(whole=True)
+        began = until - motion.GLIDE - motion.ROLL
+        return drawn, [terminal.plain(self.at(moving, began + n * motion.FRAME))
+                       for n in range(round(motion.GLIDE / motion.FRAME) + 1)]
+
+    def test_as_its_total_moves_the_line_shows_what_its_count_says(self):
+        self.plan("- [x] a\n- [ ] b\n")
+        drawn, frames = self.glided("- [x] a\n" + "- [ ] b\n" * 9)
+        size = drawn.index(" ")
+        self.assertTrue(any(frame.endswith(" 1 of 6") for frame in frames), frames)
+        for frame in frames:
+            line, done, total = re.fullmatch(r"([━╸─]+) +(\d+) of (\d+)", frame).groups()
+            filled, done, total = line.count("━") + line.count("╸") / 2, int(done), int(total)
+            # the share of a count its rounding could have said, give or take the line's cell
+            self.assertLessEqual(size * (done - 0.5) / (total + 0.5) - 1, filled, frame)
+            self.assertLessEqual(filled, size * (done + 0.5) / (total - 0.5) + 1, frame)
+
+    def test_a_count_drawn_narrower_counts_down_from_where_it_was(self):
+        self.plan("- [x] a\n" * 11 + "- [ ] l\n")
+        drawn, frames = self.glided("- [x] a\n" + "- [ ] b\n" * 11)
+        self.assertEqual(frames[-1], drawn)
+        for frame in frames:        # over the line's end while it is wider than drawn
+            self.assertRegex(frame, r"^[━╸─]+ +\d+ of 12$")
+            self.assertEqual(len(frame), len(drawn))
+        numbers = [int(frame.split()[-3]) for frame in frames]
+        self.assertEqual((numbers[0], numbers[-1]), (11, 1))
+        self.assertEqual(numbers, sorted(numbers, reverse=True))
 
     def test_a_count_that_stands_still_does_not_move(self):
         self.counts()
