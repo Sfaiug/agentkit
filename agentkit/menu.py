@@ -1663,11 +1663,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
         # a question shown the first time writes itself out under its row, but as the screen
-        # opens, when every value is drawn as it is
-        question = "\n".join(lines) if lines and words.get(cursor) == "needs you" else None
-        if question is not None and question not in clock.asked:
-            clock.asked[question] = None if clock.seen is None else time.monotonic()
-        asked = clock.asked.get(question)
+        # opens, when every value is drawn as it is; one hidden mid-way is written out by then
+        question = ((cursor, seats[cursor].get("sentence")) if lines
+                    and words.get(cursor) == "needs you" else None)
+        asked = (clock.asked.get(question, time.monotonic())
+                 if question and clock.seen is not None else None)
+        clock.asked = dict.fromkeys(clock.asked)
+        if question:
+            clock.asked[question] = asked
         typed = asked is not None and time.monotonic() < asked + motion.WRITE
         news = clock.look({key: shown for key, shown, _, _ in moves})
         if clock.first:       # as it opens each seat's line grows to its length, row after row
@@ -1722,11 +1725,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                     text = terminal.ANSI.sub("", out[row - 1])
                     clock.span(row, terminal.cells(text[:span.start]) + 1, *motion.sweeping(
                         terminal.cell_texts(out[row - 1])[span], since, shown, lit))
-        if typed:       # line after line, a cell at a time
+        if typed:       # line after line, a cell at a time, each at its terminal column
             written = [terminal.cell_texts(out[row - 1])[len(indent):] for row in opened]
             total, before = sum(map(len, written)), 0
             for row, cells in zip(opened, written):
-                clock.span(row, len(indent) + 1, *motion.writing(cells, asked, before, total))
+                animations, until = motion.writing(cells, asked, before, total)
+                column = len(indent) + 1
+                for text, animation in zip(cells, animations):
+                    clock.start([(row, column)], animation, until)
+                    column += terminal.cells(text)
                 before += len(cells)
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)

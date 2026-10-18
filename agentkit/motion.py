@@ -193,12 +193,14 @@ def fading(line, took):
 def writing(cells, began, before=0, total=None):
     """One line of a question, `cells` each of its cells as the draw wrote it, that writes itself
     out from `began` in WRITE seconds, a cell at a time as typed: after the `before` cells of the
-    lines above it, of `total` in all; an animation for each cell, and when it is still."""
+    lines above it, of `total` in all; an animation for each cell, blank as wide as it until it
+    is written, and when it is still."""
     total = total or len(cells)
 
     def cell(n, text):
         def at(now):
-            return text if before + n < total * (now - began) / WRITE else " "
+            written = before + n < total * (now - began) / WRITE
+            return text if written else " " * terminal.cells(text)
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + WRITE
 
