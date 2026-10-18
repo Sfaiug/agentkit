@@ -122,9 +122,10 @@ class RedPieceConfirmedByItsTests(unittest.TestCase):
         self.assertEqual((code, killed, failed), (1, False, []))
 
     def test_an_independent_suite_inherits_no_test_lists(self):
-        with patch.dict(os.environ, {"AK_ONLY": "only-tests", "AK_FAILED": "failed-tests"}):
+        with patch.dict(os.environ, {"AK_ONLY": "only-tests", "AK_FAILED": "failed-tests",
+                                     "AK_RAN": "ran-tests"}):
             env = gate.suite_env()
-        self.assertEqual({"AK_ONLY", "AK_FAILED"} & set(env), set())
+        self.assertEqual({"AK_ONLY", "AK_FAILED", "AK_RAN"} & set(env), set())
 
 
 if __name__ == "__main__":

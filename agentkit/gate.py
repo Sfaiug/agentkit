@@ -1038,7 +1038,7 @@ def suite_env():
     a suite holds none of that suite's turn, nor its share or test lists.
     """
     env = gitcall.run_child_env()
-    for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED"):
+    for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN"):
         env.pop(key, None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
