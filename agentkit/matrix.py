@@ -413,6 +413,12 @@ def kept(shares, columns):
             for mean in means]
 
 
+def best(row):
+    """A row's best quality in any role, -1 where no role scores it: what orders rows."""
+    return max((found["score"] for found in (row.get("scores") or {}).values() if found),
+               default=-1)
+
+
 def within(cfg):
     """How many points under the best still counts as as good: `within` in the config, else
     `WITHIN`."""
@@ -608,8 +614,6 @@ def render(table, boards, own=None, band=WITHIN):
     """The scored rows as a table, the best first, the recommendation per role and the rows as
     good as it, what each role is scored on, ak's own numbers per configured model (`own`),
     then what each board said and when."""
-    def best(row):
-        return max((found["score"] for found in row["scores"].values() if found), default=-1)
     table = sorted(table, key=lambda row: (-best(row), row["harness"], row["model"]))
     lines_of = [HEADERS] + [
         (row["name"] or "-", row["harness"],

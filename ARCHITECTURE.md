@@ -98,7 +98,8 @@
   `main`, `sessions`, `listing`, `ensure`, `resume`, `rename` for menu, watch, run, job,
   notify, usage, update. Sweep saves tagged auxiliary sessions' screens and closes them
   after a day with every pane dead. Leaks: rename rewrites watch.json/run.json; binds Claude panes by name.
-- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c`; run listing (`run_records`, which
+- `menu.py`: the `ak` screen: redraw, keys, usage bars, `c` and its models screen; run listing
+  (`run_records`, which
   loads `state/run-records.db` once per process and reads and writes only changed runs, and
   `tally`) and a seat's last column, crew and task squares (`seat_tasks`), for watch, run,
   orch, notify, statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
