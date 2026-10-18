@@ -163,7 +163,10 @@ quotas = ["provider.rate-limit", "provider.quota", "rate limit", "429", "quota"]
 # No `terminal`: a trivial turn ends on `text`, a tool turn on `step_finish`, a refused one on
 # `error` -- there is no single terminal kind, and the error record declares itself a failure.
 
+# OpenCode keeps every login in its one opencode.db, so adapters/opencode.sh refuses a named
+# account: `+ add` offers no second subscription of a provider on it.
 [auth]
+accounts = false
 title = "OpenCode"
 remedy = "paste a fresh key with `opencode auth login`"
 # The one auth failure this stack has: a wrong key and a missing key both come back 401 with

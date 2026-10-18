@@ -3748,7 +3748,8 @@ def config_add_provider(cfg, keyboard):
     """`+ add` on the Providers row: a provider the shipped default has and the config has not,
     picked from a list, then put in the way it ships, so nothing is typed; or, listed after
     them as the name it will get (`ChatGPT II`, config.account_label), another subscription
-    of a provider the config has, which is only logged in and listed (_add_subscription); or,
+    of a provider the config has, which is only logged in and listed (_add_subscription), where
+    its harness keeps more than one login (config.one_login); or,
     last, `Use <who>`, a login `− remove` left on disk (config.kept_logins) whose adapter's
     `auth` still passes, put back with no login: into its provider's `accounts` under its old
     name, or, its provider gone too, with that provider as it ships, a subscription as its one
@@ -3779,6 +3780,9 @@ def config_add_provider(cfg, keyboard):
     more = {}
     for text, name in _by_label(list(cfg["providers"]),
                                 lambda name: provider_name(cfg, name)).items():
+        harnesses = config.provider_harnesses(cfg, name)
+        if harnesses and config.one_login(harnesses[0]):
+            continue                  # _add_subscription's login would be refused
         # A random name, never the next free one: a removed subscription's login stays on
         # disk, and a `login` under its old name would find it and call the new one logged in.
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), os.urandom(3).hex()]

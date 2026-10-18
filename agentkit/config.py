@@ -402,7 +402,12 @@ def load():
     # here, as a default nobody named is, and the first model takes a place it empties, so a
     # seat can still start with Enter.
     _fall_back(defaults, names, written)
+    hosts = provider_hosts()
     for name, entry in cfg["providers"].items():
+        if name in hosts and isinstance(entry, dict):
+            # the harness's own provider (listed_providers), whatever an older `+ add` named
+            # it: `OpenCode Console` reads `OpenCode`, and the next save writes it so
+            entry["name"] = hosts[name]
         listed = entry.get("accounts", []) if isinstance(entry, dict) else []
         # each name is a path component: the adapters keep that account's login under it
         if (not isinstance(listed, list)
@@ -488,17 +493,27 @@ def provider_hosts():
     return hosts
 
 
+def one_login(harness):
+    """True where that harness keeps one login for each provider, as its manifest's `[auth]
+    accounts = false` says: no other subscription of a provider can be logged in on it."""
+    return (manifest(harness).get("auth") or {}).get("accounts") is False
+
+
 def listed_providers(harness):
     """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
     (id, name, mode), the logged-in ones first with their mode, `subscription` or `payg`, and
-    the rest with none.  Error, in the adapter's own last words, when it lists none."""
+    the rest with none.  The one with the harness's own id is the harness's own, named as `+
+    add` offers the harness (provider_hosts): OpenCode's is OpenCode, whatever OpenCode calls
+    it.  Error, in the adapter's own last words, when it lists none."""
     try:
         proc = subprocess.run([str(adapter(harness)), "providers"], capture_output=True,
                               timeout=75, stdin=subprocess.DEVNULL, encoding="utf-8",
                               errors="replace", env=child_env())
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Error(f"{harness} providers: {exc}") from exc
-    rows = [tuple(fields) for fields in (line.split("\t") for line in proc.stdout.splitlines())
+    own = provider_hosts().get(harness)
+    rows = [(fields[0], own if own and fields[0] == harness else fields[1], fields[2])
+            for fields in (line.split("\t") for line in proc.stdout.splitlines())
             if len(fields) == 3 and fields[0]]
     if proc.returncode or not rows:
         raise Error((proc.stderr.strip().splitlines() or [f"{harness} lists no provider"])[-1])
