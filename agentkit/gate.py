@@ -2,11 +2,13 @@
 
 import fcntl
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -1238,18 +1240,19 @@ class _SuiteMeasure:
             pass
 
 
-def _kept(data, log_path, run_dir, kind):
-    """The file beside the run's logs that holds `data` whole."""
+def _kept(output, log_path, run_dir, kind):
+    """The file beside the run's logs that holds `output`, a binary file from where it stands,
+    whole, copied a part at a time."""
     with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
                                      prefix=f"{log_path.stem}-{kind}-",
                                      suffix=".log", delete=False) as saved:
-        saved.write(data)
+        shutil.copyfileobj(output, saved)
     return Path(saved.name).resolve()
 
 
 def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
     """Keep the whole failure, even when its distinguishing lines precede the output cap."""
-    saved = _kept(failed, log_path, run_dir, "failed")
+    saved = _kept(io.BytesIO(failed), log_path, run_dir, "failed")
     lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
              if line.strip()]
     reran = {flaky_key(line) for line in rerun.decode("utf-8", errors="replace").splitlines()}
@@ -1262,12 +1265,14 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
 
 def helper_failure(piece, log_path, run_dir):
     """What a piece the suite helper failed printed, its last line and the file keeping it
-    whole: its go here takes its place in the suite's output."""
+    whole: its go here takes its place in the suite's output. Never read whole: a piece can
+    print more than the run's memory holds."""
     piece.seek(0)
-    failed = piece.read()
-    last = next((line.strip() for line in reversed(failed.decode("utf-8", "replace").splitlines())
-                 if line.strip()), "no output")
-    return f"{last} (whole output: {_kept(failed, log_path, run_dir, 'helper-failed')})"
+    saved = _kept(piece, log_path, run_dir, "helper-failed")
+    piece.seek(max(0, piece.tell() - turns.OUT_CAP))
+    last = next((line.strip() for line in reversed(piece.read().decode("utf-8", "replace")
+                                                    .splitlines()) if line.strip()), "no output")
+    return f"{last} (whole output: {saved})"
 
 
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
