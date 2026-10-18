@@ -1594,7 +1594,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
         news = clock.look({key: shown for key, shown, _, _ in moves})
-        for key, shown, cell, lit in moves:
+        # Older effects must not overwrite newer news at a shared cell.
+        for key, shown, cell, lit in sorted(moves, key=lambda move: news.get(move[0], (0,))[0]):
             since, _ = news.get(key, (None, None))
             if shown == "working":
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
