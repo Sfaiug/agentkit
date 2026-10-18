@@ -188,11 +188,11 @@ class SessionModels(Sandbox):
         row = next(n for n, (at, cells) in places.items() if at == ("model", claude[-1]) and cells)
         self.assertEqual(terminal.plain(lines[row + 1]), "runs on Claude I, II, III")
         # on a phone Claude's wraps to two and ChatGPT's to one: the two close, and the next
-        # opens as many, so where its row was the pointer is on its own line, never the row below
+        # opens as many, so the rows under both stay where they were
         _, last = self.body(("model", claude[-1]))
         _, next_ = self.body(("model", after))
-        row = next(n for n, (at, cells) in last.items() if at == ("model", after) and cells)
-        self.assertEqual(next_[row], (("model", after), []))
+        self.assertEqual({n: at for n, (at, _) in next_.items() if at[0] == "row"},
+                         {n: at for n, (at, _) in last.items() if at[0] == "row"})
 
     def test_off_the_models_the_line_keeps_its_place_empty(self):
         name = menu.config_models(self.cfg)[0]

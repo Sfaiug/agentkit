@@ -3066,7 +3066,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     phone, under it.  The highlighted model opens one line under its row (`model_said`),
     coming up as the highlight comes to it (`motion.fading`): what it runs on, as many lines as
     the tallest any model opens.  `opened`, a row, is the model whose line is open
-    (config_matrix): with the highlight off the models it keeps its place, empty, so nothing
+    (config_matrix): with the highlight off it the line keeps its place, empty, so nothing
     under it moves.  Under them `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
@@ -3109,7 +3109,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
     # the lines each model opens once highlighted, wrapped on a phone, every model's as many as
-    # the tallest's: a pointer that brings the highlight down past one that closes is on its own
+    # the tallest's: the rows under them stay where they are as the line goes from model to model
     opening = {name: terminal.wrap(model_said(cfg, name), room - 4) for name in names}
     opens, opened = max(map(len, opening.values())), opened or at
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
@@ -3564,16 +3564,18 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
     title = f"config · {session}" if selected else "config"
-    here, column, top, clock, opened = None, columns[1], 0, motion.Clock(), None
+    here, column, top, clock, opened, was = None, columns[1], 0, motion.Clock(), None, None
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
         rows = [*(("model", name) for name in config_models(cfg)),
                 *(("row", row) for row in CONFIG_ROWS)]
         here = here if here in rows else rows[0]      # the highlight is the row itself
-        # off the models the last one's line keeps its place, so no row moves from under the
-        # pointer as it goes to the rows under them or off every row
-        opened = here if here[0] == "model" else opened if opened in rows else None
+        # the line keeps its place, empty, off the models, while the highlight stays on its row
+        # and on a row under it the pointer brought it to, so no row moves from under the pointer
+        kept = opened in rows and (here[0] == "row" or here == was or terminal.pointer()
+                                   is not None and rows.index(opened) < rows.index(here))
+        opened = opened if kept else here if here[0] == "model" else None
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # up from Providers' acts onto a row without marks
         where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"

@@ -188,33 +188,29 @@ class Screens(Sandbox):
     def test_the_matrix_lights_the_row_and_the_cell_under_the_pointer(self):
         first = self.matrix()[0]
         self.assertOneHighlight(first, "fable")
-        gap = at(first, "astra")
-        gap = (gap[0] + len("astra") + 1, gap[1])                 # on its row, on no cell
-        # on its row the keys' highlight moves there, and off its cells none lights; the line
-        # fable opened closes, so astra's row moves up and its own line is under the pointer
-        here = self.matrix(move(*gap) + ESC)[-1]
-        self.assertOneHighlight(here, "astra")
-        self.assertEqual(marked(here, "lit"), {})
-        label = at(here, "astra")
-        line = texts(here)[label[1] - 1]
+        label, harness = at(first, "astra"), at(first, "codex")
+        line = texts(first)[label[1] - 1]
         mark = (line.index("○", label[0]) + 1, label[1])          # its orchestrator mark
+        # on its row the keys' highlight moves there, and off its cells none lights
+        last = self.matrix(move(*harness) + ESC)[-1]
+        self.assertOneHighlight(last, "astra")
+        self.assertEqual(marked(last, "lit"), {})
         # its label is a cell, Enter's to open
-        self.assertEqual(marked(self.matrix(move(*gap), move(*label) + ESC)[-1], "lit"),
-                         {label[1]: "astra"})
+        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"), {label[1]: "astra"})
         # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
-        last = self.matrix(move(*gap), move(*mark) + ESC)[-1]
+        last = self.matrix(move(*mark) + ESC)[-1]
         self.assertOneHighlight(last, "astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "○"})
         self.assertEqual(marked(last, "reverse"), {})
         # a key takes it from there: the next cell is the keys', and nothing is lit
-        last = self.matrix(move(*gap), move(*mark) + RIGHT + ESC)[-1]
+        last = self.matrix(move(*mark) + RIGHT + ESC)[-1]
         self.assertOneHighlight(last, "astra")
         self.assertEqual(marked(last, "lit"), {})
         self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
         # off every row the row and its cell lose it, a key-line item lighting alone and
         # nothing on no item at all, and an arrow moves it on from where it was
-        keys = at(here, "esc back")
-        screens = self.matrix(move(*gap), move(*keys), move(1, len(texts(here)) + 2), RIGHT,
+        keys = at(first, "esc back")
+        screens = self.matrix(move(*harness), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
                               ESC)
         self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
@@ -233,6 +229,14 @@ class Screens(Sandbox):
         last = self.matrix(move(*providers) + ESC)[-1]
         self.assertOneHighlight(last, "Providers")
         self.assertEqual(at(last, "Providers"), providers)
+        # and while the pointer brings it to a model under it: a click where the pointer found
+        # astra's execute mark flips that mark
+        label = at(first, "astra")
+        mark = (texts(first)[label[1] - 1].index("□", label[0]) + 1, label[1])
+        click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*mark).encode()
+        with patch.object(menu, "session_mark", return_value="") as flip:
+            self.matrix(move(*mark), click + ESC)
+        flip.assert_called_once_with(self.cfg, "fix-api", self.selected, "astra", 1, {})
 
     def test_moves_sent_while_the_rule_glides_are_one_draw(self):
         checkout = self.root / "code" / "ACME"

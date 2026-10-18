@@ -210,9 +210,7 @@ class RoleMarksScreen(unittest.TestCase):
         lines = screen.click(first, number,
                              lambda lines: marks(row(lines, "astra")[1]) == "○□■")
         self.assertEqual(screen.record()["reviewers"], ["opus", "astra"])
-        # Opus reviewing itself could start, so removing Astra saves.  The line the highlight
-        # opened under fable closed as it came to astra, so astra's row moved up.
-        number, line = row(lines, "astra")
+        # Opus reviewing itself could start, so removing Astra saves.
         lines = screen.click(first, number,
                              lambda lines: marks(row(lines, "astra")[1]) == "○□□")
         self.assertEqual(screen.record()["reviewers"], ["opus"])
