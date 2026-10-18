@@ -360,7 +360,9 @@ anything is cut. No screen says when a seat's work will finish:
 its progress is its line and its count.
 
 The row the owner points at, with the pointer or ↑/↓, opens its lines under
-itself, indented under the name and lit as the row is (`menu.detail`): the
+itself, and only while they point at it: no row has its lines open when the
+screen comes up or comes back, nor once the pointer is on no row. They are
+indented under the name and lit as the row is (`menu.detail`): the
 question for `needs you`, what got done for `done` and an idle seat's way back
 in, wrapped whole at words, so a question is read whole on ak's own screen before
 its seat is opened, whatever harness it runs; for any other, who builds and who reviews and each task in

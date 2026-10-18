@@ -39,9 +39,11 @@ SEATS = Path(os.environ["MENU_KEYS_SEATS"])
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0} for name in json.loads(SEATS.read_text())]
 orch.job_notices = lambda: []
+ASKS = json.loads(os.environ.get("MENU_KEYS_ASKS") or "{}")    # {seat: what it asks}
 menu.seat_row_state = lambda cfg, session, **facts: {
-    "word": "done" if session["name"].startswith("done-") else "working", "reason": "",
-    "since": None}
+    "word": "needs you" if session["name"] in ASKS else
+            "done" if session["name"].startswith("done-") else "working",
+    "reason": ASKS.get(session["name"], ""), "since": None}
 menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
@@ -90,7 +92,7 @@ class Menu:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
     def __init__(self, case, seats, tick=10.0, slow=0.0, rows=40, cols=100, session_reads=False,
-                 saved=False, own=None):
+                 saved=False, own=None, asks=None):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix=".ak-test-menu-keys-", dir=REPO)
         case.addCleanup(home.cleanup)
@@ -106,6 +108,7 @@ class Menu:
                     "MENU_KEYS_REPO": str(REPO), "MENU_KEYS_SEATS": str(self.seats),
                     "MENU_KEYS_TICK": str(tick), "MENU_KEYS_SLOW": str(slow),
                     "MENU_KEYS_SAVED": "1" if saved else "0", "MENU_KEYS_OWN": own or "",
+                    "MENU_KEYS_ASKS": json.dumps(asks or {}),
                     "AGENTKIT_SESSION": own or "",
                     "MENU_KEYS_SESSION_READS": "1" if session_reads else "0"})
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,

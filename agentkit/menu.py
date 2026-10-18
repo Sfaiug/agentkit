@@ -1322,7 +1322,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
 
 
 def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True,
-         records=None, groups=None, clock=None, updating=None):
+         records=None, groups=None, clock=None, updating=None, pointing=True):
     """The menu at rest, and (page, pages) as drawn.
 
     The frame is the header (`agentkit` at the left, the clock at the right),
@@ -1345,7 +1345,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     word.  A seat's state word, any other project's heading and a subscription of the usage
     grid are cells that only explain (`terminal.Spot`), and nothing says what any of them is on
     the key line; a subscription under the pointer is drawn in its colour and the blank line
-    under the grid says the rest of it (`usage_detail`).
+    under the grid says the rest of it (`usage_detail`).  The highlighted seat's line opens
+    under it only while the owner points at it (`pointing`: the pointer on it, or ↑/↓ moved
+    there since the pointer last was), and closes once the pointer is on no row
+    (`terminal.away`).
 
     `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
     `x close` while that seat is done; `p past` is on it while a seat the owner stopped is
@@ -1545,7 +1548,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     under = max((number for number, (_, name) in enumerate(body, 1) if name == cursor), default=0)
     info = next((info for info in infos if info["name"] == cursor), None)
     indent = " " * (2 + widths["num"] + 2)     # under the name
-    lines = said.get(cursor, []) if opens and under and info else []
+    lines = (said.get(cursor, []) if opens and under and info and pointing
+             and not terminal.away() else [])
     if len(lines) > opens:
         lines = lines[:opens - 1] + [terminal.cut(" ".join(lines[opens - 1:]), said_room)]
     if lines:
@@ -4271,6 +4275,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
     page, ahead, look, updating, updated = 0, None, False, None, False
+    pointing = False                      # the highlight is where the owner points (`draw`)
     updates = []                         # this loop's inbox, independent of the usage/read worker
     start_update = not (dry_run or overlay)
     last = [[], None]                     # what the last read left: the seats and their groups
@@ -4299,6 +4304,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 keyboard.give()           # a notice waits for its Enter, like any sub-screen
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
+                pointing = False
             if updated:
                 keyboard.give()
                 live.close()
@@ -4312,7 +4318,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             own = config.current_session() if overlay else None
             listed = keys if drawn is None else f"{move_keys()}   {keys}"
             page, pages = draw(cfg, found, listed, page, cursor, drawn, own, look=False,
-                               groups=groups, clock=clock, updating=updating)
+                               groups=groups, clock=clock, updating=updating, pointing=pointing)
             cursor = drawn["cursor"] if drawn else cursor   # the seat he sees highlighted
             if start_update:
                 update_first(live, updates=updates)    # detached, after the first frame
@@ -4336,23 +4342,25 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if isinstance(key, terminal.Key):
                 order = drawn["order"]
                 if key.name == "point":
-                    cursor = terminal.under(key, shown["spots"]).what or cursor
+                    spot = terminal.under(key, shown["spots"])
+                    cursor, pointing = spot.what or cursor, spot.what is not None
                     look = False          # the highlight moves over what is in hand
                     continue
                 if terminal.step(key):
                     if order:
                         at = order.index(cursor) + terminal.step(key)
                         cursor = order[min(max(at, 0), len(order) - 1)]
-                    look = False          # the highlight moves over what is in hand
+                    look, pointing = False, True   # the highlight moves over what is in hand
                     continue
                 # ← and →, or a click on either arrow in front of the keys, turn the page
                 turn = ({"←": -1, "<": -1, "→": 1, ">": 1}.get(pressed(key, shown, found), 0)
                         if key.name == "click" else {"left": -1, "right": 1}.get(key.name, 0))
                 if turn:
                     cursor = turned(shown.get("turns") or [], page, cursor, turn)
-                    look = False
+                    look, pointing = False, False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing
+                pointing = False
                 cell = terminal.under(key, shown["spots"]).cell if key.name == "click" else None
                 if isinstance(cell, tuple) and cell[0] == "usage" and cell[1] in shown["logins"]:
                     sign_in(cfg, keyboard, *shown["logins"][cell[1]])   # an amber meter
@@ -4370,13 +4378,14 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     while more is None and time.monotonic() < until:
                         more = moving(clock, timeout=until - time.monotonic())
                         if more is not None and more.name == "point":    # cuts no wait short
-                            cursor, more = terminal.under(more, drawn["spots"]).what or cursor, None
+                            spot, more = terminal.under(more, drawn["spots"]), None
+                            cursor, pointing = spot.what or cursor, spot.what is not None
                         if more is None and time.monotonic() < until:
                             # a resize or the pointer: drawn anew, so the dots breathe on where
                             # they now are
                             page, pages = draw(cfg, found, listed, page, cursor, drawn, own,
                                                look=False, groups=groups, clock=clock,
-                                               updating=updating)
+                                               updating=updating, pointing=pointing)
                     if isinstance(more, terminal.Key) and "0" <= more.char[:1] <= "9":
                         key += more.char
                     elif more is not None:
