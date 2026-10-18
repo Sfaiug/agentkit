@@ -114,8 +114,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         return end_on_dependency(cfg, run_dir, stamp_origin(
             {**(prior or receipt), "run_id": run_dir.name, "title": title,
              "task": str(task_path)}), log, on_dependency)
-    if gc.disk_pressure():
-        gc.gc(log)     # before this run adds a worktree of its own
+    gc.before_run(log)     # before this run adds a worktree of its own
     if prior:
         state = stamp_origin(prior)
         state.update(state="running", **run_record.process_owner(), finished_at=None, error=None,
@@ -2378,8 +2377,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     run_record.save_state(run_dir, receipt)
     owner, name, number = PR_PARTS.match(url).groups()
     repo = checkout_for(f"{owner}/{name}", log)
-    if gc.disk_pressure():
-        gc.gc(log)
+    gc.before_run(log)
     base, head = info["baseRefName"], info["headRefOid"]
     fetch_pr(repo, number, base, log)
     git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}")

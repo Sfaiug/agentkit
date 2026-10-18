@@ -10,6 +10,7 @@ Offline: the temporary HOME and seat of test_owner_words; no systemd unit is tou
 """
 
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -17,7 +18,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_owner_words as fixture
-from agentkit import config, gc, job
+from agentkit import config, gc, job, record, run
 
 KEY = "sk-acme-0000000000000000000000"
 WORDS = [{"at": 20, "text": f"Build the API. Use {KEY} for the sandbox."}]
@@ -67,6 +68,42 @@ class OwnerWordsForgotten(unittest.TestCase):
         self.assertEqual(job.receipt_path(clean).read_bytes(), untouched)
         self.assertNotIn("owner_words_cursor", self.record())
         self.assertIn(f"gc: removed the owner's saved words from job {held.name}", said)
+
+    def test_a_run_takes_them_out_before_it_starts_on_a_disk_with_room(self):
+        held, _ = self.saved("20261012-acme-held", owner_words=WORDS)
+        directory = config.RUNS / "20261018-fix-api"
+        directory.mkdir(parents=True)
+        with patch.object(gc, "disk_pressure", return_value=None), \
+                patch.object(run, "history_start"), \
+                patch.object(run, "task_repo", side_effect=StopIteration("work starts")):
+            with self.assertRaisesRegex(StopIteration, "work starts"):
+                run.loop(self.cfg, directory, self.task(), {}, lambda _: None)
+        self.assertNotIn(KEY, job.receipt_path(held).read_text())
+
+    def test_what_collection_cannot_prove_its_own_stays_and_the_rest_goes_on(self):
+        victim = self.root / "owner-notes.txt"
+        victim.write_text("the owner's own notes\n")
+        linked, _ = self.saved("20261010-acme-linked", owner_words=WORDS)
+        (linked / "job.tmp").symlink_to(victim)
+        hard, _ = self.saved("20261011-acme-hard", owner_words=WORDS)
+        os.link(victim, hard / "job.tmp")
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        job.receipt_path(elsewhere).write_text(json.dumps({"owner_words": WORDS}))
+        (config.JOBS / "20261012-acme-elsewhere").symlink_to(elsewhere, target_is_directory=True)
+        unusable, _ = self.saved("20261013-acme-unusable", owner_words=WORDS)
+        (unusable / record.RECOVERY_LOCK).mkdir()
+        held, _ = self.saved("20261014-acme-held", owner_words=WORDS)
+        config.update_session("lagoon", owner_words_cursor={"at": 30, "count": 1})
+        config.session_path("lagoon").with_suffix(".tmp").symlink_to(victim)
+        with patch.object(gc, "gc_candidates", return_value=[]) as planner:
+            gc.gc(lambda _: None)
+        self.assertEqual(victim.read_text(), "the owner's own notes\n")
+        for directory in (linked, hard, elsewhere, unusable):
+            self.assertIn(KEY, job.receipt_path(directory).read_text())
+        self.assertNotIn(KEY, job.receipt_path(held).read_text())
+        self.assertIn("owner_words_cursor", self.record())
+        planner.assert_called_once()
 
 
 if __name__ == "__main__":

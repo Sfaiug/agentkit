@@ -849,6 +849,14 @@ def stop_ended_logins(log):
             continue
 
 
+def before_run(log):
+    """A run's collection before it adds a checkout: the owner's saved words always, so an
+    install taking this removes them at its first run, and the rest on a full disk."""
+    jobs.forget_owner_words(log)
+    if disk_pressure():
+        gc(log)
+
+
 def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []

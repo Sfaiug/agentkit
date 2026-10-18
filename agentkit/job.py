@@ -160,22 +160,36 @@ def forget_owner_words(report):
     seat record that still holds them.  Receipts once saved them for a delivery check that was
     never built; nothing read them, and one held a key the owner had pasted.  Every collection
     pass runs it: a job of an older install still running saves its copy again, and the next
-    pass takes it out again."""
-    for job_dir in job_dirs():
-        with record.recovery_lock(job_dir):
-            receipt = read_job(job_dir)
-            if not receipt or not {"owner_words", "owner_words_cursor"} & receipt.keys():
+    pass takes it out again.  A record is rewritten only when retention proves it, and the lock
+    and temporary file its write opens, ours (no link, no hard link); one that cannot be read
+    or written stays as it is for the next pass, and the rest go on."""
+    for job_dir in retention.children(config.JOBS):
+        path = receipt_path(job_dir)
+        try:
+            if not _ours(path, job_dir / record.RECOVERY_LOCK, path.with_suffix(".tmp")):
                 continue
-            receipt.pop("owner_words", None)
-            receipt.pop("owner_words_cursor", None)
-            path = receipt_path(job_dir)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(receipt, indent=2, ensure_ascii=False))
-            tmp.replace(path)
+            with record.recovery_lock(job_dir):
+                receipt = read_job_safely(job_dir)
+                if not receipt or not {"owner_words", "owner_words_cursor"} & receipt.keys():
+                    continue
+                save_job(job_dir, {key: value for key, value in receipt.items()
+                                   if key not in ("owner_words", "owner_words_cursor")})
+        except OSError:
+            continue
         report(f"gc: removed the owner's saved words from job {job_dir.name}")
-    for seat, seat_record in config.session_records().items():
-        if "owner_words_cursor" in seat_record:
-            config.update_session(seat, owner_words_cursor=None)
+    for seat, path in config.seat_files("session"):
+        try:
+            if (_ours(path, config.record_lock_path(path), path.with_suffix(".tmp"))
+                    and "owner_words_cursor" in (retention.read_json(path) or {})):
+                config.update_session(seat, owner_words_cursor=None)
+        except (OSError, config.Error):
+            continue
+
+
+def _ours(path, *beside):
+    """Retention's proof that a record and whatever already stands beside it are ours."""
+    return retention.safe(path) and not any(
+        retention.present(other) and not retention.safe(other) for other in beside)
 
 
 def job_create(cfg, task_paths, opts, parallel):

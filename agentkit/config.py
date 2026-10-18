@@ -987,12 +987,17 @@ def _validate_session(cfg, name, data, prune=False):
     return {**data, "orchestrator": orchestrator, **groups}
 
 
+def record_lock_path(path):
+    """The file a seat record's writers lock (`_record_lock`)."""
+    return path.with_name(f".{path.stem}.lock")
+
+
 @contextmanager
 def _record_lock(path):
     """One writer at a time for a seat's record: each reads, merges and replaces the whole
     file, and they share the one temporary file beside it.  Always taken last, inside any
     other lock, and held only for that write, so it orders with nothing."""
-    with path.with_name(f".{path.stem}.lock").open("a") as fh:
+    with record_lock_path(path).open("a") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX)
         try:
             yield
