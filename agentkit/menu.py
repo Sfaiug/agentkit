@@ -2547,22 +2547,26 @@ def model_heading(cfg, provider):
 TAKEN = {"execute": "workers", "review": "reviewers"}
 
 
+def takes(cfg, row, role):
+    """The configured model `r` takes a recommended `row` as in `role`, read off `cfg` as it
+    stands, not the row as stored, so the same matrix is read against the config each draw:
+    the one running the row in that role (matrix.runs), else the first running that model on
+    that harness, which `r` sets the row's effort on; None, `(not configured)`, where none
+    does, a model removed on the `c` screen at once."""
+    return matrix.runs(cfg, row, role) or next(
+        (name for name in config.offered(cfg)
+         if (cfg["models"][name]["harness"], cfg["models"][name]["model"])
+         == (row["harness"], row["model"])), None)
+
+
 def advice(cfg, held):
     """What `ak models` recommends per role off `held`, the matrix as last computed
-    (matrix.stored): {role: (its row's label, the configured model that runs it or None, the
-    row's effort)}; {} while nothing is computed.  The model is read off `cfg` as it stands,
-    not the row as stored, so the same matrix is read against the config each draw: the one
-    running the row in that role (matrix.runs), else the first running that model on that
-    harness, which `r` sets the row's effort on; a model removed on this screen is `(not
-    configured)` at once."""
+    (matrix.stored): {role: (its row's label, the configured model `r` takes it as or None
+    (takes), the row's effort)}; {} while nothing is computed."""
     found = {}
     for role, rows in matrix.recommended(held.get("rows") or [], matrix.within(cfg)).items():
-        row = rows[0]
-        name = matrix.runs(cfg, row, role) or next(
-            (name for name in config.offered(cfg)
-             if (cfg["models"][name]["harness"], cfg["models"][name]["model"])
-             == (row["harness"], row["model"])), None)
-        found[role] = (matrix.row_label({**row, "name": name}), name, row.get("effort"))
+        name = takes(cfg, rows[0], role)
+        found[role] = (matrix.row_label({**rows[0], "name": name}), name, rows[0].get("effort"))
     return found
 
 
@@ -2674,23 +2678,32 @@ def models_shown(cfg, key, rows, levels):
     return best if best is not None else levels[0] if levels else None
 
 
-def _named(cfg, row):
-    """A row's label under the name the config runs its model as, whatever the effort."""
-    return matrix.row_label({**row, "name": next(iter(_runs(cfg, row["harness"],
-                                                              row["model"])), None)})
+def models_at(rows, effort):
+    """A model's row ({effort: row}, models_table) at `effort`, else the one every board it
+    matched names no effort for, at none or the config's effort, which stands at every effort
+    of the model (matrix.matching gives it at any); {} with neither."""
+    return rows.get(effort) or next(
+        (row for row in rows.values()
+         if all(hit["effort"] is None for hit in (row.get("matched") or {}).values())), {})
+
+
+def _named(cfg, row, role):
+    """A row's label under the configured model `r` takes it as in `role` (takes)."""
+    return matrix.row_label({**row, "name": takes(cfg, row, role)})
 
 
 def models_body(cfg, table, levels, shown, at, picks):
     """The models screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     First the knob, `within` between the arrows that step it (KNOB), then the recommended row
-    per role and, dim, the rows as good as it (`picks`, matrix.recommended), and what quality
-    and cost are.  Under them every model of `table` (models_table) once: its label, the
-    config's name for it or its id, dim where no board scores it, its harness (dim), its
-    effort between the arrows that step it (`shown`; a word alone with one effort, `-` with
-    none), its quality per role at that effort (`-` without a score, the recommended row's in
-    `done`'s colour, one as good in the accent) and what Artificial Analysis's index run cost
-    it; on a narrow screen the harness gives way, then the cost, then the label is cut.  `at`
+    per role and, dim, the rows as good as it (`picks`, matrix.recommended), each under the
+    configured model `r` takes it as (takes), and what quality and cost are.  Under them every
+    model of `table` (models_table) once: its label, the config's name for it or its id, dim
+    where no board scores it, its harness (dim), its effort between the arrows that step it
+    (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
+    (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
+    one as good in the accent) and what Artificial Analysis's index run cost it; on a narrow
+    screen the harness gives way, then the cost, then the label is cut.  `at`
     is the highlighted row; `cells` are the knob's and each effort's text, arrows and all, for
     a click, counted from 1 as the terminal counts.
     """
@@ -2708,10 +2721,10 @@ def models_body(cfg, table, levels, shown, at, picks):
     for number, role in enumerate(matrix.ROLES):
         rows = picks.get(role) or []
         if rows:
-            said["recommended"].append(f"{orch.ROLE_HEADS[number]} {_named(cfg, rows[0])}")
+            said["recommended"].append(f"{orch.ROLE_HEADS[number]} {_named(cfg, rows[0], role)}")
         if rows[1:]:
             said["as good"].append(f"{orch.ROLE_HEADS[number]} "
-                                   + ", ".join(_named(cfg, row) for row in rows[1:]))
+                                   + ", ".join(_named(cfg, row, role) for row in rows[1:]))
     wide = max(terminal.cells(word) for word in said)
     for word, parts in said.items():
         text = " · ".join(parts) or "none"
@@ -2724,8 +2737,7 @@ def models_body(cfg, table, levels, shown, at, picks):
                  for part in terminal.wrap(MODELS_NOTE, room - 2))
     lines.append("")
     labels = {key: next(iter(_runs(cfg, *key)), None) or key[1] for key in table}
-    # a row at none, the boards naming no effort for the model, counts at every effort of it
-    showing = {key: rows.get(shown[key]) or rows.get(None) or {} for key, rows in table.items()}
+    showing = {key: models_at(rows, shown[key]) for key, rows in table.items()}
     texts, kinds = {}, {}
     for key, row in showing.items():
         scored = any(found for other in table[key].values()

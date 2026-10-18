@@ -3,7 +3,8 @@ for against the public boards, the recommendation and the rows as good as it, an
 `as good as the best: within ‹ 5 ›`, whose ←/→ step `within` a point, never under 0, saved to
 config.toml at once, the recommended and as-good lines following.  One model a row, the
 scored ones first by their best quality: config name or id, harness, effort between arrows
-(←/→ step it through the model's own efforts, the numbers following, nothing saved), quality
+(←/→ step it through the model's own efforts, the numbers following, nothing saved; a row every
+board names no effort for stands at every effort of its model), quality
 per role at that effort (the recommended row's in `done`'s colour, one as good in the accent,
 `-` without a score) and what Artificial Analysis's index run cost it.  On a phone the harness
 and the cost give way.  `r` takes the recommendation as `c`'s line says it
@@ -67,6 +68,9 @@ class ModelsScreen(Sandbox):
             row("muse", "muse-spark-1.3-contributor", None, 0, 0, 0, 0)])
         rows[-1]["values"] = {}                       # no board has spark
         rows[-1]["scores"] = {role: None for role in matrix.ROLES}
+        self.store(rows)
+
+    def store(self, rows):
         matrix.cache_path().parent.mkdir(parents=True, exist_ok=True)
         matrix.cache_path().write_text(json.dumps({"matrix": {"computed_at": 1, "config": [],
                                                               "rows": rows}}))
@@ -121,6 +125,13 @@ class ModelsScreen(Sandbox):
                              Key("esc")])
         self.assertIn("› mimo-pro opencode ‹ high › - 51 51 100 ", text)
         self.assertIn("↑↓ move r take recommended esc back", text)
+        # so does a row at the effort the config runs its model at that every board names no
+        # effort for: the matrix would match the same board rows at any
+        one = row("claude", "claude-opus-5-5", "xhigh", 60, 70, 56, 4000, agent=0.2)
+        one["matched"] = {"artificialanalysis.ai": {"model": "Claude Opus 5.5", "effort": None}}
+        self.store(matrix.scored([one]))
+        text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")])
+        self.assertIn("› opus claude ‹ max › 100 100 100 4000 ", text)
 
     def test_the_knob_steps_within_saved_at_once_and_the_recommendation_follows(self):
         text = self.screens([Key("char", "r"), Key("up"), Key("left"), Key("esc"), Key("esc")])

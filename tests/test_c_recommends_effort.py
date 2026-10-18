@@ -2,7 +2,8 @@
 executor and the reviewer on the model entry.
 
 A recommended row is a model at an effort; the entry that runs that model on that harness is
-the one running it in that role (`matrix.runs`) or the first such entry, and the line names it.  `r` marks it for the role and sets
+the one running it in that role (`matrix.runs`) or the first such entry, and the line names it
+on both screens.  `r` marks it for the role and sets
 the row's effort as the entry's `exec_effort` or `review_effort`, unset where the row's effort
 is the entry's own, so the role runs at what the boards recommend while the entry's effort
 stays the owner's; the orchestrator's row is only said.
@@ -68,6 +69,18 @@ class RecommendsEffort(Sandbox):
         self.assertNotIn("review_effort", self.entry("opus"))
         # the orchestrator's row is only said: its entry is untouched
         self.assertEqual(self.entry("fable"), self.cfg["models"]["fable"])
+
+    def test_the_models_screen_names_the_entry_r_marks_where_two_run_the_model(self):
+        # opus-max runs opus's model at max, the recommended rows' effort: the screen names
+        # the entry running the row in the role, not the first running the model, and r marks it
+        self.cfg["models"]["opus-max"] = {**self.cfg["models"]["opus"], "effort": "max"}
+        config.save(self.cfg)
+        self.store([row("claude", "claude-opus-5-5", "max", execute=100, review=100)])
+        text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
+        self.assertIn("recommended exec opus-max @ max · review opus-max @ max", text)
+        record = config.load_session(self.cfg, "fix-api")
+        self.assertEqual((record["workers"], record["reviewers"]), (["opus-max"], ["opus-max"]))
+        self.assertNotIn("exec_effort", self.entry("opus-max"))
 
     def test_a_row_at_the_entry_s_own_effort_unsets_the_role_s_key(self):
         self.cfg["models"]["opus"]["exec_effort"] = "max"
