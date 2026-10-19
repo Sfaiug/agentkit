@@ -288,7 +288,7 @@ def held(launched, payload):
     background work and the third stop stand past a parked run as they always did, while a
     done, a run going, a merged run not yet live or an `ak wait` ends the turn only with none
     of this seat's runs parked and undecided, and nothing at all is owed with no open line in
-    the seat's plan.
+    the seat's plan.  Sending an unnamed seat back to name itself is no block the latch counts.
     """
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the
@@ -313,18 +313,20 @@ def held(launched, payload):
         completion=lambda: told(seat, turn, "done"), since=turn)
     if ends:
         return ""
-    reason = config.name_owed(seat) or (parked_reason(undecided) if undecided else REASON)
+    owed = config.name_owed(seat)
+    if owed:
+        return owed  # no third stop stands for it: one command names the seat
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        if reason == REASON:
+        if not undecided:
             asked_owner(seat, last_message(payload))
         return ""    # the third stop stands: the owner is paged with what the seat is stuck on
     kept = {"session": launched, "turn": turn, "blocks": blocks}
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
     tmp.write_text(json.dumps(kept) + "\n")
     tmp.replace(latch)
-    return reason
+    return parked_reason(undecided) if undecided else REASON
 
 
 def written(launched, kind):

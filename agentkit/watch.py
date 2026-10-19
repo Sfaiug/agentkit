@@ -3943,7 +3943,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     An unnamed seat is told to name itself instead, whatever it recorded (`config.name_owed`).
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
-    alone -- so what is left to read is the `done` on record and the runs and jobs.
+    alone, but for an unnamed seat's -- so what is left to read is the `done` on record and the
+    runs and jobs.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     `done`, as it holds the hook's.  A wait that is over is wait_over's to end, with
@@ -4016,7 +4017,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         nudged = {"notice": since,
                   "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     tail = pane_tail(pane)
-    keys = config.name_owed(name) or keystroke(harness, tail)
+    owed = config.name_owed(name)
+    keys = owed or keystroke(harness, tail)
     if dry_run:
         log(f"would resume {name}, stopped with no question, no done and no run, with {keys!r}")
         return
@@ -4024,7 +4026,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if (_decided_state(name, harness, current) != "at_prompt"
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
-    if type_into(session, keys, log):
+    if type_into(session, keys, log, asked=bool(owed)):
         seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
         log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
 
@@ -4414,6 +4416,8 @@ def health(cfg, state, dry_run, log):
                 continue        # auth is read-only on these seats; no catch-all or capacity recovery
             notice = notify.last(name)
             if owner_question(notice):
+                if config.name_owed(name):
+                    stop_nudge(session, harness, pane, notice, records, dry_run, log)
                 continue        # an unanswered owner decision is never a reason to type a resume
             if entry.get("told"):
                 continue

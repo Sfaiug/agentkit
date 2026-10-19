@@ -25,6 +25,7 @@ TYPED = {"muse": ("\n❯\n", "\n❯ {}\n"), "antigravity": ("\n>\n", "\n> {}\n")
          "opencode": ('┃  Ask anything… "What is the tech stack of this project?"',
                       "┃  {}")}
 SAID = "The parser is in place."
+QUESTION = "Which environment should I use?"
 
 
 class UnnamedSeatNamesItself(Sandbox):
@@ -72,8 +73,9 @@ class UnnamedSeatNamesItself(Sandbox):
         """What `ak orch rename --auto` leaves in the seat's record."""
         config.update_session(SEAT, unnamed=None)
 
-    def hook(self, **payload):
-        """The reason hooks/orchestrator-stop.sh sends this turn's first stop back with, or ""."""
+    def hook(self, blocks=0, **payload):
+        """The reason hooks/orchestrator-stop.sh sends a stop back with, having sent `blocks` of
+        this turn's stops back already, or ""."""
         home = self.root / "hook-home"
         for name, target in (("state", config.STATE), ("runs", config.RUNS)):
             link = home / ".agentkit" / name
@@ -81,7 +83,7 @@ class UnnamedSeatNamesItself(Sandbox):
             if not link.is_symlink():
                 link.symlink_to(target)
         (config.STATE / f"stop-{SEAT}.json").write_text(json.dumps(
-            {"session": SEAT, "turn": time.time() - 60, "blocks": 0}) + "\n")
+            {"session": SEAT, "turn": time.time() - 60, "blocks": blocks}) + "\n")
         done = hooks.run(
             ["bash", str(REPO / "hooks/orchestrator-stop.sh")], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": "Stop", "session_id": "fake", **payload}),
@@ -111,7 +113,8 @@ class UnnamedSeatNamesItself(Sandbox):
                 with self.subTest(harness=harness, case=label):
                     config.update_session(SEAT, unnamed=True)
                     recorded()
-                    self.assertEqual(self.hook(**payload), config.NAME_LINE)
+                    for blocks in range(3):     # past the two blocks a turn takes otherwise
+                        self.assertEqual(self.hook(blocks, **payload), config.NAME_LINE)
                     self.named()
                     self.assertEqual(self.hook(**payload), "")
 
@@ -123,6 +126,25 @@ class UnnamedSeatNamesItself(Sandbox):
                 self.assertEqual(self.tick(), [config.NAME_LINE])
                 self.named()
                 self.assertEqual(self.tick(), [])
+
+    def test_a_question_it_asked_leaves_the_name_owed(self):
+        """The health pass whose look finds the turn over asks the question kept back for it, and
+        once that stop has stood, types the naming line past it; the question stays open."""
+        for harness in NUDGED:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness, self.pane = harness, self.screen("working")
+                self.assertEqual(notify.main(["needs", QUESTION]), 0)
+                self.pane, now = self.screen("prompt"), time.time()
+                watch.seat_write(SEAT, state="at_prompt", turn_began=now - 7200,
+                                 stop_said_at=now - 3600)
+                with patch.object(notify, "progress", return_value=None):
+                    watch.health(self.cfg, {"stalls": {}}, False, lambda line: None)
+                    watch.seat_write(SEAT, stop_said_at=now - 3600)
+                    watch.health(self.cfg, {"stalls": {}}, False, lambda line: None)
+                self.assertEqual(self.sent, [config.NAME_LINE])
+                self.assertEqual(notify.last(SEAT)["text"], QUESTION)
+                self.assertIsNone(notify.last(SEAT).get("answered_at"))
 
     def test_the_rulebook_says_the_line_the_stop_holds_it_to(self):
         self.assertIn(config.NAME_LINE, config.seat_rulebook(SEAT))
