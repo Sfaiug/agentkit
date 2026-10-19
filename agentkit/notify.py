@@ -419,8 +419,7 @@ def record(session, kind, text, **extra):
 
 
 def last(session, include_seen=False):
-    """The last notification; resolved history stays on disk but off the menu.  A seat says
-    only that it needs the owner: a done an older install recorded reads as nothing."""
+    """The last notification; resolved history stays on disk but off the menu."""
     try:
         data = json.loads(config.notify_path(session).read_text(encoding="utf-8"))
     except (OSError, ValueError, config.Error):
@@ -1025,8 +1024,10 @@ def _done_events(session):
 
 
 def _carded(session, completion):
-    """The existing done receipt covering this work, if any: recorded identities compare the
-    checked work through later handbacks and renames."""
+    """The existing done receipt covering this work, if any.
+
+    Recorded identities compare the checked work through later handbacks and renames.
+    """
     return next((event for event in _done_events(session)
                  if event.get("completion") == completion), None)
 
@@ -1083,9 +1084,9 @@ def done_transition(session, card, answer, now, completion):
 
     Never for an episode that is history, a seat the owner closed himself, or work already
     carded -- which latches this episode as sent, so the outbox is read once.  A done that
-    covers none of the seat's verified work (`completion`: its plan holds only what runs
-    delivered, or the seat has no creation stamp) cards nothing: its first pass ends the
-    owner's intent.
+    covers none of the seat's verified work (`completion`: its plan holds only
+    what runs delivered, or the seat has no creation stamp) cards nothing: its first pass ends
+    the owner's intent.
     """
     from . import watch
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):

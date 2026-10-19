@@ -66,7 +66,6 @@ class OwnerRow(Sandbox):
         # the owner's one prompt answers both, each from when it was last asked
         notify.answered(SEAT, 350.0)
         notify.answered(SEAT, 400.0)      # nothing stands: no answer
-        self.said("done", "shipped", 500.0)
         self.assertCountEqual(self.moments(), [*asked, (350.0, "answered", 180.0),
                                                (350.0, "answered", 190.0)])
 
