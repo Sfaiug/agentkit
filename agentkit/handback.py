@@ -931,17 +931,22 @@ def routine_ending(state):
 
 
 def settle_delivered_line(state, log):
-    """A fix run that delivered -- merged, or found its fix not needed -- runs its line's check
-    in its seat's plan once, as it ends, and nothing else of that plan (`plan.delivery`): the
+    """A run that delivered -- merged, or found its fix not needed -- runs its seat's plan
+    checks once, as it ends.  A fix run runs its own line's check alone (`plan.delivery`): the
     line ticks where its fix is on the default branch, and is the seat's own where its check
-    still fails or could not run."""
+    still fails or could not run.  Any other run runs every open line's (`plan.verify`), so a
+    line its merge proved ticks before the seat hears of it, and a plan it finished reads done
+    (`plan.finished`) with nobody declaring it."""
     check, session = (state.get("followup") or {}).get("check"), transitions.launched_session(state)
-    if not (check and session and transitions.delivered(state)):
+    if not (session and transitions.delivered(state)):
         return
     try:
-        plan.delivery(session, check)
+        if check:
+            plan.delivery(session, check)
+        else:
+            plan.verify(session)
     except (config.Error, OSError) as exc:
-        log(f"WARN could not check its line in {session}'s plan: {exc}")
+        log(f"WARN could not check {session}'s plan: {exc}")
 
 
 def finish_typed(session, mark, log, cfg=None):

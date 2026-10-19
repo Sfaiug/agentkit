@@ -498,8 +498,8 @@ class CompletionNotices(Sandbox):
         self.append_owner(path, 20, 'Build the API')
         self.checked('API shipped')
         self.declare()
+        plan.forget(self.name)      # first: a finished plan at rest is done, nobody declaring it
         self.internal_turn()
-        plan.forget(self.name)
         self.append_owner(path, self.now - 1, 'Build the export')
         # Without verified outcomes, this ending keeps main's episode rule.
         self.declare('Export shipped without a plan')

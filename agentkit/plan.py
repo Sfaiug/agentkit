@@ -427,18 +427,36 @@ def identity(line):
     return undone(line.strip(), found)[6:] if found and found["check"] else None
 
 
-def outcomes(name):
-    """The plan's work, independent of order, repetition, checks and renewed proof stamps.
+def finished(name):
+    """The words of the plan's last done line where the plan holds done work and owes none
+    (`owed`): the seat's work is done, which ak reads here and nobody declares.  None for no
+    plan, one with nothing done, one still owing a line, or one nothing can read."""
+    try:
+        text = lines(name)
+    except config.Error:
+        return None
+    if any(owed(name, line) for line in text):
+        return None
+    done = [line.strip() for line in text if BOX.match(line) and not is_open(line)]
+    if not done:
+        return None
+    found = LINE.match(done[-1])
+    return found["what"] if found else done[-1].partition("] ")[2]
 
-    A done caller has already proved these lines under the seat's lock. Keep format
-    knowledge here: eye lines and hand-kept outcomes count as work too.
+
+def outcomes(name):
+    """The plan's done work, independent of order, repetition, checks and renewed proof stamps.
+
+    An open line is no done work yet: a declared done refuses one (`require_done`), and a
+    standing one is no proof of a line written since. Keep format knowledge here: eye lines
+    and hand-kept outcomes count as work too.
     """
     result = []
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
-        if found and taken(name, line, delivered=True):
-            continue        # a run's, never this done's work: it has the line, or delivered it
+        if found and (is_open(line) or taken(name, line, delivered=True)):
+            continue        # not done, or a run's: it has the line, or delivered it
         if found:
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):

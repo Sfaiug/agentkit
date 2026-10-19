@@ -2516,6 +2516,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     reports may be one a run of this seat's parked on rather than the seat's own.
     """
     from . import status as status_mod    # status imports run, which imports this module
+    from . import plan as plan_mod
     if records is None:
         try:
             records = menu_mod.run_records()
@@ -2729,7 +2730,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         reason = closed(f"session closed: press {where} to reopen")
         if owes_work(name, mine, index, at):
             return {"word": "needs you", "since": None, "reason": reason}
-        if not (last and last["kind"] == "done"):
+        if not (last and last["kind"] == "done") and not plan_mod.finished(name):
             return {"word": "idle", "since": None, "reason": reason}
     # 5. it said it was done, and nothing above it is still going. A run a later
     # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
@@ -2768,12 +2769,16 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                and found.get("state") in ("at_prompt", "draft") else None)
     if telling:
         return {"word": "working", "reason": telling, "since": found.get("began")}
-    # Nothing running, asked or owed: the seat rests and nothing on it is the owner's to do -- a
-    # new seat, a conversation that ended, a plan it finished, a turn the owner stopped.
+    # Nothing running, asked or owed: a plan whose every line is proven is done, which ak reads
+    # and nobody declares (owner, 19 Oct 2026); otherwise the seat rests and nothing on it is
+    # the owner's to do -- a new seat, a conversation, a turn the owner stopped.
     owed = still_owed(name, mine, index, found.get("interrupted"))
-    if owed is None:
-        return {"word": "idle", "reason": "", "since": found.get("began")}
-    return {"word": "needs you", "since": found.get("began"), "reason": owed}
+    if owed is not None:
+        return {"word": "needs you", "since": found.get("began"), "reason": owed}
+    finished = plan_mod.finished(name)
+    if finished:
+        return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
+    return {"word": "idle", "reason": "", "since": found.get("began")}
 
 
 MAX_BYTES = 8000        # tmux refuses one command past 16 KiB, and a typed line goes in whole
