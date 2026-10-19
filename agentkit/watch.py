@@ -3636,21 +3636,49 @@ def draft_standing(session, where, cfg=None):
     if not (still and found.get("authority") and found.get("state") in ("at_prompt", "draft")
             and _composer_open(harness, found) and not asking(name, harness, pane)):
         return False
-    return bool(composer_draft(harness, pane)) and not pane_unread(session)
+    # text read in the composer, or a draft a rule found at it past the read; never a picker
+    draft = composer_draft(harness, pane)
+    tall = {rule["id"] for rule in screen(harness)["rules"]
+            if rule["state"] == "draft" and rule["chrome"]}
+    return bool(draft or draft is None and found.get("rule") in tall) and not pane_unread(session)
 
 
 def bring_back(session, where, held, log, cfg=None):
     """Under the seat's send lock: the text ak's editor kept from that pane (`seat_editor`) back
-    in its composer, once that reads empty with no unread input, the line typed past it sent.
+    in its composer, once that reads empty with no unread input -- the delivery of every line
+    typed before it, which the text put back hides (the seat's `emptied`, held to a mark's `at`).
     The lock is held until it is drawn, so no line typed after lands on text on its way back."""
     rc, kept = orch.tmux_out("save-buffer", "-b", aside_editor.kept(where["id"]), "-",
                              socket=orch.seat_socket(session))
     if (rc != 0 or not kept.strip() or pane_unread(session)
             or composer_holds(held, session, "", cfg) != "empty"):
         return
+    seat_write(held, emptied=time.time())
     if not _edit(session, where, "back",
                  settled=lambda: composer_holds(held, session, kept, cfg) == "line"):
         log(f"WARN {held}: the owner's text ak set aside is not back in its composer yet")
+
+
+def drafts_back(cfg, log):
+    """Each tick: the owner's text ak's editor set aside back in its seat (`bring_back`), whatever
+    pass set it aside and whether that pass lived to; what a pane gone left kept is let go."""
+    seats = [session for session in orch.sessions() if not session.get("legacy")
+             and not any(session.get(key) for key in orch.CLOSED)]
+    for server in {orch.seat_socket(session) for session in seats}:
+        rc, names = orch.tmux_out("list-buffers", "-F", "#{buffer_name}", socket=server)
+        kept = {name for name in names.split("\n")
+                if rc == 0 and name.startswith(aside_editor.kept(""))}
+        rc, panes = orch.tmux_out("list-panes", "-a", "-F", "#{pane_id}\t#{session_name}",
+                                  socket=server) if kept else (1, "")
+        owners = dict(row.split("\t", 1) for row in panes.splitlines() if rc == 0 and "\t" in row)
+        for name in kept - {aside_editor.kept(pane) for pane in owners} if owners else ():
+            orch.tmux_out("delete-buffer", "-b", name, socket=server)
+        for session in seats:
+            where = (seat_editor(session, cfg) if orch.seat_socket(session) == server
+                     and session["name"] in owners.values() else None)
+            if where and aside_editor.kept(where["id"]) in kept:
+                with seat_held(session["name"]) as held:
+                    bring_back(session, where, held, log, cfg)
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -3681,13 +3709,16 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     A question the seat asked with
     `ak notify needs` holds none of this back: the seat works on what does not wait on the
     answer, which only the owner's own prompt gives (`notify.progress`); nor text the owner left
-    standing (`draft_standing`), which ak's editor keeps until the line is sent (`bring_back`).
+    standing (`draft_standing`), which ak's editor keeps until the composer reads empty
+    (`bring_back`).
     """
     mark = {"line": text, "seat": session.get("created")}
-    if typed == mark:
+    if typed and {key: typed.get(key) for key in mark} == mark:
         with seat_held(session["name"]) as held:
             if stale(held):
                 return False    # the screen is somebody else's: next pass
+            if typed.get("at", time.time()) < seat_read(held).get("emptied", 0):
+                return True     # that read delivered it, whatever the text put back reads as
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
                 return not pane_unread(session)
@@ -3713,7 +3744,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     sent = (type_checked(session, text, log, None,
                          guard=lambda: seat_held(session["name"]), veto=veto,
-                         typed=lambda: receipt(mark), source=source,
+                         typed=lambda: receipt(dict(mark, at=time.time())), source=source,
                          ready=lambda held: composer_holds(held, session, text, cfg) == "line",
                          editor=where if standing else None)
             and composer_holds(session["name"], session, text, cfg) == "empty"
@@ -6985,6 +7016,7 @@ def local_passes(state, dry_run, log):
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         ("the held-line Enter pass did not run",
          lambda: finish_own_lines(config.load(), log), False),
+        ("the set-aside drafts pass did not run", lambda: drafts_back(config.load(), log), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
         # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick

@@ -1,5 +1,6 @@
 """ak's line goes into a seat past the owner's unsent text through ak's editor, and that text
-comes back once the line is sent, each step taken on the screen's word alone (19 Oct 2026).
+comes back once the composer reads empty, each step taken on the screen's word alone (19 Oct
+2026).
 Offline: fixtures.seats' seats, their tmux faked as a harness whose Ctrl-G hands its composer
 to the real agentkit/aside_editor.py, and draws what that hands back a few reads late.
 """
@@ -8,7 +9,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fixtures.seats import LINE, NOW, REPO, Seats
+from fixtures.seats import LINE, NOW, REPO, SEAT, Seats
 from agentkit import aside_editor, watch
 from agentkit.watch import seat_editor
 
@@ -20,7 +21,7 @@ class DraftSetAside(Seats):
     def setUp(self):
         super().setUp()
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
-        self.deaf, self.launched, self.tty = False, True, self.root / "tty"
+        self.deaf, self.slow, self.launched, self.tty = False, False, True, self.root / "tty"
         self.tty.write_text("")
         self.untouched(watch.DRAFT_STILL)
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
@@ -57,6 +58,8 @@ class DraftSetAside(Seats):
             return 0, f"{said}\n" if said else ""
         if args[0] == "set-option":
             self.ask = None if "-pu" in args else args[-1]
+        elif args[0] == "list-panes":
+            return 0, f"{PANE}\t{SEAT}"
         elif args[0] == "list-buffers":
             return 0, "".join(f"{each}\n" for each in self.buffers)
         elif args[0] == "save-buffer":
@@ -83,7 +86,7 @@ class DraftSetAside(Seats):
             with patch.dict(os.environ, {"TMUX_PANE": PANE}):
                 aside_editor.edit([str(path)])
             self.handed, self.late = path.read_text(), 3
-        elif key == "Enter" and self.composer:
+        elif key == "Enter" and self.composer and not self.slow:
             self.sent.append(self.composer)
             self.show("")
 
@@ -117,6 +120,54 @@ class DraftSetAside(Seats):
         self.launched = False
         self.tick()
         self.assertEqual((self.keys, self.typed, self.told()), ([], [], False))
+
+    def test_a_line_its_seat_takes_late_is_told_once_the_owners_text_is_back(self):
+        self.wait_line()
+        self.slow = True
+        self.tick()
+        self.assertEqual((self.composer, self.told()), (LINE, False))
+        # the seat takes it a minute on, and the tick brings the owner's text back first
+        self.slow, self.sent = False, [LINE]
+        self.show("")
+        watch.time.time = lambda: NOW + 60
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.tick()
+        self.assertEqual((self.composer, self.sent, self.told()), (DRAFT, [LINE], True))
+
+    def test_text_kept_comes_back_only_into_an_empty_composer_and_goes_with_its_pane(self):
+        self.buffers = {aside_editor.kept(PANE): DRAFT.encode(), aside_editor.kept("%3"): b"x"}
+        self.show("newer words")
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.assertEqual((self.keys, list(self.buffers)), ([], [aside_editor.kept(PANE)]))
+        self.show("")
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.assertEqual((self.keys, self.composer, self.buffers), (["C-g"], DRAFT, {}))
+
+    def test_text_taller_than_the_screen_read_is_set_aside_too(self):
+        # Codex's rule finds a draft whose prompt row is above the read (`draft.rows`)
+        prompt, tall = ((REPO / f"tests/fixtures/codex-{name}-pane.txt").read_text()
+                        for name in ("prompt", "tall-line"))
+        draft = tall[tall.index("› ") + 2:tall.index("\n\n  GPT-")].replace("\n  ", "\n")
+
+        def show(composer):
+            self.composer, self.free = composer, not composer
+            self.pane = prompt.replace("› Ask Codex to do anything",
+                                       "› " + composer.replace("\n", "\n  ")) if composer else prompt
+        self.show = show
+        show(draft)
+        with patch.object(watch, "seat_model", return_value=("codex", "openai")):
+            self.wait_line()
+            self.tick()
+        self.assertEqual((self.sent, self.composer, self.told()), ([LINE], draft, True))
+
+    def test_a_screen_with_no_composer_gets_no_editor_key(self):
+        # Muse's resume pickers read as a draft its rule finds away from any composer
+        with patch.object(watch, "seat_model", return_value=("muse", "openai")):
+            for fixture in ("muse-resume-picker-pane.txt", "muse-title-resume-pane.txt"):
+                self.pane, self.free = (REPO / "tests/fixtures" / fixture).read_text(), False
+                self.wait_line()
+                self.tick()
+        self.assertEqual((self.keys, self.ask, self.told()), ([], None, False))
 
 
 if __name__ == "__main__":
