@@ -64,18 +64,13 @@ class UnsentDraft(Sandbox):
                                               side_effect=lambda *_a, **_k: self.pane))
         self.stack.enter_context(patch.object(worker, "auth_ok",
                                               side_effect=lambda h, seat=False: (True, h)))
-        # Discord, faked: the title of every card it took, and every edit of one
-        self.posts, self.edits = [], []
+        # Discord, faked: the title of every card it took
+        self.posts = []
 
         def post(payload, files, message, receipt):
             self.posts.append(payload["content"])
             receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
-
-        def close_needs(previous, status):
-            self.edits.extend((p["message_id"], status) for p in previous.get("open_needs", []))
-            return []
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close_needs))
 
     @property
     def seat(self):
@@ -195,7 +190,7 @@ class UnsentDraft(Sandbox):
         self.attached = True
         self.assertEqual(self.decide(), ("working", RUNS))
         self.tick(600)
-        self.assertEqual((self.posts, self.edits), ([], []))
+        self.assertEqual(self.posts, [])
 
     def test_c2_a_question_is_his_wherever_he_is_and_no_card_goes_while_he_is_in(self):
         # A question on the screen is not his typing: a client left attached to the seat

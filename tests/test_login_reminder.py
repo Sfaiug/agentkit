@@ -92,7 +92,7 @@ class Reminder(unittest.TestCase):
         return [post["content"] for post in self.posts]
 
     def test_a_one_page_a_local_day_naming_the_subscription_and_nothing_else(self):
-        said = "Needs you · Claude II login"
+        said = "🙋 Needs you · Claude II login"
         self.assertEqual(self.tick(local(24, 10)), [said])
         self.assertEqual(self.tick(local(24, 23, 30)), [said])     # Sunday already, in UTC
         self.assertEqual(self.tick(local(25, 0, 30)), [said] * 2)

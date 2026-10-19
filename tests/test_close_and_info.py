@@ -11,7 +11,6 @@ child.
 
 from contextlib import contextmanager, redirect_stdout
 import fcntl
-import hashlib
 import io
 import itertools
 import json
@@ -443,34 +442,12 @@ class ClosedSeat(Sandbox):
         self.assertTrue(config.stop_path("atoll").exists())       # its hooks still write it
         self.assertTrue(config.seat_file("launch", "atoll").exists())   # a starting pane reads it
 
-    def card(self):
-        url = os.environ["AGENTKIT_DISCORD_WEBHOOK"]
-        pending = {"message_id": "4242", "webhook": hashlib.sha256(url.encode()).hexdigest(),
-                   "embed": {"title": "Needs you · atoll", "color": 16753920,
-                             "fields": [{"name": "open", "value": "press 1"}]}}
+    def test_a_stopped_seats_card_goes_and_what_went_out_stays_as_it_went(self):
         config.card_path("atoll").write_text(json.dumps({
-            "word": "needs you", "since": 100, "episode": "e1", "sent": True,
-            "open_needs": [pending]}) + "\n")
-
-    def test_a_stopped_seats_open_card_reads_answered(self):
-        self.card()
+            "word": "needs you", "since": 100, "episode": "e1", "sent": True}) + "\n")
         self.stop()
-        self.assertEqual(len(self.edits), 1, self.edits)
-        method, url, body = self.edits[0]
-        self.assertEqual((method, url), ("PATCH", os.environ["AGENTKIT_DISCORD_WEBHOOK"]
-                                         + "/messages/4242"))
-        self.assertEqual(body["content"], "Answered · atoll")
-        self.assertEqual(body["embeds"], [])
+        self.assertEqual(self.edits, [])
         self.assertFalse(config.card_path("atoll").exists())
-
-    def test_a_card_discord_would_not_edit_stays_for_the_tick(self):
-        self.card()
-        self.stack.enter_context(patch.object(notify.urllib.request, "urlopen",
-                                              side_effect=OSError("down")))
-        self.stop()
-        card = json.loads(config.card_path("atoll").read_text())
-        self.assertEqual(card["word"], "")
-        self.assertEqual(len(card["open_needs"]), 1)
         self.assertTrue(config.session_path("atoll").exists())    # kept a week, card or no card
 
     def test_a_done_seats_bar_offers_the_close(self):

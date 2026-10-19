@@ -35,19 +35,14 @@ class NeedsYouAfterAnswer(unittest.TestCase):
             "HOME": tmp.name, "AGENTKIT_SESSION": SEAT, "AGENTKIT_DISCORD_WEBHOOK": "off",
             "AK_NOTIFY_SINK": "off", "AK_RUN_ROLE": ""}))
         config.ensure_dirs()
-        self.cards, self.edits = [], []
+        self.cards = []
 
         def post(payload, files, message, receipt):
             self.cards.append(message)
             receipt.update(status="disabled", message_id=str(len(self.cards)), webhook="sink")
             return 0
 
-        def close(card, status):
-            self.edits.extend((sent["message_id"], status) for sent in card.get("open_needs", []))
-            return []
-
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close))
         # Nobody has typed into the seat on its fake server.
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
 
@@ -73,7 +68,6 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         notify.answered(SEAT, 200)
         for now in (230, 300, 400, 500):
             self.tick(now, reason)
-        self.assertEqual(self.edits, [("1", "Answered")])
         self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}",
                                       f"Needs you · {SEAT}: {reason}"])
 
@@ -94,18 +88,6 @@ class NeedsYouAfterAnswer(unittest.TestCase):
             self.tick(now, "waiting for you")
         self.assertEqual(self.cards, [f"Needs you · {SEAT}: waiting for you"])
 
-    def test_an_edit_discord_did_not_take_is_tried_again_first(self):
-        edit, refused = notify.close_needs.side_effect, []
-
-        def close(card, status):
-            if len(refused) < 2:
-                refused.append(status)
-                return list(card.get("open_needs", []))
-            return edit(card, status)
-
-        notify.close_needs.side_effect = close
-        self.back_in_needs_you("waiting for you")
-
     def test_a_new_question_before_the_tick_keeps_the_answer(self):
         notify.record(SEAT, "needs", QUESTION, time=100)
         self.tick(100, QUESTION)
@@ -115,7 +97,6 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         self.ask(220, "Which port?")
         for now in (300, 400, 500, 600):
             self.tick(now, "Which port?")
-        self.assertEqual(self.edits, [("1", "Answered")])
         self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}",
                                       f"Needs you · {SEAT}: Which port?"])
 
@@ -141,7 +122,7 @@ class NeedsYouAfterAnswer(unittest.TestCase):
                 self.tick(now, "Login expired")
         self.assertEqual(self.cards, [])
 
-    def test_a_late_card_for_a_retired_question_reads_answered(self):
+    def test_a_late_card_for_a_retired_question_never_goes_out(self):
         notify.record(SEAT, "needs", QUESTION, time=100)
         self.tick(100, QUESTION)
         self.tick(160, QUESTION)
@@ -158,7 +139,8 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         notify.post.side_effect = deliver
         with patch.object(notify.time, "time", return_value=300 + notify.RETRY_BACKOFF[0]):
             notify.retry_pending(log=lambda _: None)
-        self.assertEqual(self.edits, [("1", "Answered"), ("2", "Answered")])
+        # once out a card is never edited, so one whose question is over stays unsent
+        self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}"])
 
     def test_a_needs_you_standing_before_an_upgrade_is_history(self):
         notify.record(SEAT, "needs", QUESTION, time=100)

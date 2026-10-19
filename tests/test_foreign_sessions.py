@@ -7,7 +7,6 @@ owner's tmux server, Discord or ~/.agentkit.
 
 from contextlib import ExitStack, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import hashlib
 import io
 import json
 import os
@@ -41,7 +40,7 @@ class ForeignSessions(unittest.TestCase):
         self.addCleanup(self.stack.close)
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
-        self.requests, self.codes = [], []   # codes: what Discord answers, 200 once they run out
+        self.requests = []
         owner = self
 
         class Hook(BaseHTTPRequestHandler):
@@ -51,7 +50,7 @@ class ForeignSessions(unittest.TestCase):
             def do_PATCH(self):
                 raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 owner.requests.append((self.command, self.path, json.loads(raw)))
-                self.send_response(owner.codes.pop(0) if owner.codes else 200)
+                self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(b"{}")
@@ -106,14 +105,9 @@ class ForeignSessions(unittest.TestCase):
         return self.listed()
 
     def card(self, name):
-        """A card as the tick left one: `needs you`, sent, and its Discord message standing."""
-        embed = {"title": f"Needs you · {name}", "color": 16753920,
-                 "fields": [{"name": "open", "value": "press 1"}]}
-        pending = {"message_id": "4242", "webhook": hashlib.sha256(self.url.encode()).hexdigest(),
-                   "embed": embed}
+        """A card as the tick left one: `needs you`, sent, its Discord message standing."""
         config.card_path(name).write_text(json.dumps({
-            "word": "needs you", "since": 100, "episode": "e1", "sent": True,
-            "open_needs": [pending]}) + "\n")
+            "word": "needs you", "since": 100, "episode": "e1", "sent": True}) + "\n")
         config.notify_path(name).with_suffix(".lock").touch()
 
     def test_a_bash_loop_is_not_listed_and_not_carded(self):
@@ -153,7 +147,7 @@ class ForeignSessions(unittest.TestCase):
                 self.assertTrue(found[name]["exited"])
         self.assertNotIn("watcher", found)
 
-    def test_d_a_gone_sessions_card_is_closed_once_and_goes(self):
+    def test_d_a_gone_sessions_card_goes_and_what_went_out_stays(self):
         self.tmux("new-session", "-d", "-s", "other-watch", LOOP)
         self.tmux("new-session", "-d", "-s", "chlog-deploy-watch", LOOP)
         self.card("chlog-deploy-watch")
@@ -161,11 +155,7 @@ class ForeignSessions(unittest.TestCase):
         lines = []
         notify.tick_cards(log=lines.append)
         notify.tick_cards(log=lines.append)
-        self.assertEqual(len(self.requests), 1, self.requests)
-        method, path, body = self.requests[0]
-        self.assertEqual((method, path), ("PATCH", "/api/webhooks/1/token/messages/4242"))
-        self.assertEqual((body["content"], body["embeds"], body["allowed_mentions"]),
-                         ("Answered · chlog-deploy-watch", [], {"parse": []}))
+        self.assertEqual(self.requests, [])
         self.assertFalse(config.card_path("chlog-deploy-watch").exists())
         # the lock stays: a writer holding or awaiting it would not serialize with a new file
         self.assertTrue(config.notify_path("chlog-deploy-watch").with_suffix(".lock").exists())
@@ -186,11 +176,11 @@ class ForeignSessions(unittest.TestCase):
         self.assertTrue(config.card_path("atoll").exists())
         self.assertTrue(config.notify_path("atoll").with_suffix(".lock").exists())
 
-    def test_f_a_live_watchers_old_card_is_closed_too(self):
+    def test_f_a_live_watchers_old_card_goes_too(self):
         self.tmux("new-session", "-d", "-s", "chlog-deploy-watch", LOOP)
         self.card("chlog-deploy-watch")   # carded before a watcher stopped being a seat
         notify.tick_cards(log=lambda _: None)
-        self.assertEqual([r[0] for r in self.requests], ["PATCH"])
+        self.assertEqual(self.requests, [])
         self.assertFalse(config.card_path("chlog-deploy-watch").exists())
         self.assertEqual(self.tmux("list-sessions", "-F", "#{session_name}").split(),
                          ["chlog-deploy-watch"])   # the session itself is not agentkit's to end
@@ -231,18 +221,16 @@ class ForeignSessions(unittest.TestCase):
         self.assertNotIn("chlog-deploy-watch", self.listed())
         self.assertEqual(self.requests, [])
 
-    def test_i_a_new_seat_under_a_gone_seats_name_closes_its_card_and_a_preview_does_not(self):
+    def test_i_a_new_seat_under_a_gone_seats_name_drops_its_card_and_a_preview_does_not(self):
         self.card("atoll")
         selection = ({}, ("fable", "", ["opus"]))
         with patch.object(orch, "fresh_command", return_value=(["fake"], None)), \
                 patch.object(orch, "launch") as launch, redirect_stdout(io.StringIO()):
             orch.create(self.cfg, "atoll", self.root, selection=selection, dry_run=True)
-            self.assertEqual(self.requests, [])            # a preview starts nothing, and
-            self.assertTrue(config.card_path("atoll").exists())   # closes nothing either
+            self.assertTrue(config.card_path("atoll").exists())   # a preview drops nothing
             orch.create(self.cfg, "atoll", self.root, selection=selection)
         launch.assert_called_once()
-        self.assertEqual([(r[0], r[2]["content"]) for r in self.requests],
-                         [("PATCH", "Answered · atoll")])
+        self.assertEqual(self.requests, [])
         self.assertFalse(config.card_path("atoll").exists())
 
     def test_j_one_ps_answers_a_whole_tick(self):
@@ -264,50 +252,18 @@ class ForeignSessions(unittest.TestCase):
             notify.tick_cards(log=lambda _: None)
         self.assertEqual(len(calls), 1)
         self.assertEqual([c.args[0] for c in transition.call_args_list], ["by-hand"])
-        self.assertEqual([r[0] for r in self.requests], ["PATCH"])
+        self.assertFalse(config.card_path("chlog-deploy-watch").exists())
 
-    def test_l_an_edit_discord_did_not_take_is_tried_again_on_the_next_tick(self):
-        self.tmux("new-session", "-d", "-s", "other-watch", LOOP)
-        self.card("gone-seat")
-        self.codes = [503]
-        lines = []
-        notify.tick_cards(log=lines.append)
-        card = json.loads(config.card_path("gone-seat").read_text())
-        self.assertEqual((card["word"], [n["message_id"] for n in card["open_needs"]]),
-                         ("", ["4242"]))
-        notify.tick_cards(log=lines.append)
-        self.assertEqual([r[0] for r in self.requests], ["PATCH", "PATCH"])
-        self.assertFalse(config.card_path("gone-seat").exists())
-        self.assertEqual(lines, ["WARN the card of gone-seat was not closed: Discord did not take "
-                                 "the edit; retry required",
-                                 "closed the card of gone-seat: no seat holds it any more"])
-
-    def test_m_a_record_the_sweep_retires_has_its_card_closed(self):
+    def test_m_a_record_the_sweep_retires_has_its_card_dropped(self):
         config.save_session(self.cfg, "atoll", "fable", ["opus"],
                             {"seen": time.time() - 2 * config.SESSION_STALE})
         self.card("atoll")
         orch.sweep(lambda _: None)
         self.assertNotIn("atoll", config.session_records())
-        self.assertEqual([(r[0], r[2]["content"]) for r in self.requests],
-                         [("PATCH", "Answered · atoll")])
+        self.assertEqual(self.requests, [])
         self.assertFalse(config.card_path("atoll").exists())
 
-    def test_n_a_reused_names_transitions_keep_what_discord_did_not_take(self):
-        self.card("atoll")
-        self.codes = [503, 503]
-        notify.forget_card("atoll")          # the gone seat's close, not taken
-        # the new seat's first word closes it again, not taken either; its next one is
-        working = {"word": "working", "since": time.time(), "reason": "busy"}
-        asking = {"word": "needs you", "since": time.time(), "reason": "ask"}
-        with patch.object(watch, "session_state", side_effect=[working, asking]):
-            notify.transition("atoll", working)
-            self.assertEqual([n["message_id"] for n in notify._card_read("atoll")["open_needs"]],
-                             ["4242"])
-            notify.transition("atoll", asking)
-        self.assertEqual([r[0] for r in self.requests], ["PATCH"] * 3)
-        self.assertEqual(notify._card_read("atoll")["open_needs"], [])
-
-    def test_o_a_card_that_is_a_link_is_not_the_sweeps_to_close(self):
+    def test_o_a_card_that_is_a_link_is_not_the_sweeps_to_drop(self):
         config.save_session(self.cfg, "atoll", "fable", ["opus"],
                             {"seen": time.time() - 2 * config.SESSION_STALE})
         self.card("other")
@@ -316,7 +272,7 @@ class ForeignSessions(unittest.TestCase):
         self.assertNotIn("atoll", config.session_records())
         self.assertEqual(self.requests, [])
         self.assertTrue(config.card_path("atoll").is_symlink())
-        self.assertTrue(json.loads(config.card_path("other").read_text())["open_needs"])
+        self.assertTrue(config.card_path("other").exists())
 
     def test_k_an_interpreter_runs_its_script_file_and_nothing_else(self):
         cases = {

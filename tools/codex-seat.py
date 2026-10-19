@@ -232,14 +232,10 @@ def pairing_key(environment):
 
 
 def close_pairing(environment, status):
+    # an old pairing card stops retrying; one already out stays as it went
     with notify.outbox_lock():
         event = notify._read_event(pairing_key(environment))
-        if not event or event.get("closed"):
-            return
-        receipt = event.get("receipt", {})
-        left = notify.close_needs({"open_needs": [
-            {**receipt, "embed": event["payload"]["embeds"][0]}]} if receipt else None, status)
-        if not left:
+        if event and not event.get("closed"):
             event.update(closed=status, status="disabled", next_attempt=None)
             notify._write_event(event)
 

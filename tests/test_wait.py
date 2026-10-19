@@ -69,7 +69,6 @@ class Wait(Sandbox):
             self.posts.append(payload["content"])
             receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
         # the seat owes work, so a stop with nothing recorded is sent back
         config.plan_path(SEAT).write_text('- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n')
 

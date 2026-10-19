@@ -11,8 +11,8 @@ and the owner has typed nothing into the seat for a minute. A question a seat as
 kept back in its record, apart from every notice, until a look finds that turn ended
 (`watch.ask_kept_back`): only then is the seat waiting for the answer. A done episode is sent
 once when the session state becomes done, and a declaration once whatever episodes, or versions,
-it turns up in. The owner's answer, the seat needing him no more or its finishing edits
-outstanding cards without pinging; his looking at the seat edits none. Nothing is sent, or
+it turns up in. A card once out is never edited: he has read it by the time he answers, and
+a question over before Discord took its card is never sent late. Nothing is sent, or
 retried, for a seat the owner closed himself, or an episode begun before this agentkit was
 installed.
 
@@ -57,6 +57,7 @@ UA = "agentkit/1 (+https://github.com)"
 # start and cut the rest, so context written before the ask hides it.  One classic terminal line.
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
+EMOJI = {"needs": "\U0001f64b", "done": "\u2705"}     # 🙋 a seat with its hand up, ✅ work done
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
@@ -225,22 +226,19 @@ def _read(paths):
 
 
 def title(kind, session):
-    """All a card says: two words and its seat, `Needs you · atlas-growth`, carried whole as the
-    menu shows it; `agentkit` outside a seat, never what was said."""
-    return f"{TITLES[kind]} \u00b7 {' '.join((session or '').split()) or 'agentkit'}"
+    """All a card says: its emoji, two words and its seat, `🙋 Needs you · atlas-growth`, the
+    seat carried whole as the menu shows it; `agentkit` outside a seat, never what was said."""
+    return (f"{EMOJI[kind]} {TITLES[kind]} \u00b7 "
+            f"{' '.join((session or '').split()) or 'agentkit'}")
 
 
 def card_payload(kind, session):
     """What a page posts: its title, then the owner's mention, the only one it may ping.  No
-    embed: what was asked or done stays in the seat."""
+    embed: what was asked or done stays in the seat.  Once out it is never edited: the owner
+    has read it by the time it is answered (owner, 19 Oct 2026)."""
     user_id = _secret(USER_ID_ENV, "discord_user_id")
     return {"username": "agentkit", "content": title(kind, session) + (f" <@{user_id}>" if user_id else ""),
             "allowed_mentions": {"users": [user_id]} if user_id else {"parse": []}}
-
-
-def _open_need(event, receipt):
-    """A sent question's receipt, with the title its edit keeps."""
-    return {**receipt, "title": title("needs", event["session"])}
 
 
 def webhook_url(url, message_id=None):
@@ -653,53 +651,10 @@ def progress(session, capture, seat_harness):
         else:
             extra["last_progress_at"] = max(time.time(), math.nextafter(previous["opened_at"],
                                                                         math.inf))
-            extra["open_needs"] = []
         record(session, previous["kind"], previous["text"], **extra)
         if resolved(extra):
             waited(extra, extra["last_progress_at"])
-            close_needs(previous, "Answered")
             return True
-
-
-def close_needs(previous, status):
-    """Edit every outstanding question without mentions; missing messages/hooks are harmless.
-
-    The ones Discord did not take, for a reason `post` would retry, are handed back: a caller
-    about to drop its receipts keeps those instead.
-    """
-    if not previous:
-        return []
-    try:
-        url = webhook()
-    except config.Error:
-        return list(previous.get("open_needs", []))
-    if not url or not url.startswith(("https://", "http://")):
-        return []
-    fingerprint = hashlib.sha256(url.encode()).hexdigest()
-    left = []
-    for pending in previous.get("open_needs", []):
-        message_id = pending.get("message_id")
-        if (not isinstance(message_id, str) or not message_id.isdigit()
-                or pending.get("webhook") != fingerprint):
-            continue
-        # a question sent before cards lost their text kept its title in its embed; the edit drops it
-        old = pending.get("title") or pending.get("embed", {}).get("title", "")
-        payload = {"content": old.replace(TITLES["needs"], status, 1), "embeds": [],
-                   "allowed_mentions": {"parse": []}}
-        try:
-            req = urllib.request.Request(webhook_url(url, message_id), method="PATCH",
-                                         data=json.dumps(payload).encode(),
-                                         headers={"Content-Type": "application/json", "User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                resp.read()
-        except urllib.error.HTTPError as exc:
-            if exc.code in (408, 429) or exc.code >= 500:
-                left.append(pending)
-        except (urllib.error.URLError, OSError, HTTPException):
-            left.append(pending)
-        except ValueError:
-            pass
-    return left
 
 
 def clear(session, *, notice=None):
@@ -714,11 +669,9 @@ def clear(session, *, notice=None):
             return
         if notice is not None and (previous["kind"] != "needs" or previous["text"] != notice):
             return
-        close_needs(previous, "Answered")
         record(session, previous["kind"], previous["text"],
-               **{k: v for k, v in previous.items() if k not in ("session", "kind", "text",
-                                                               "seen", "open_needs")},
-               seen=True, open_needs=[])
+               **{k: v for k, v in previous.items() if k not in ("session", "kind", "text", "seen")},
+               seen=True)
         _end_done_episode(session, previous)
 
 
@@ -840,56 +793,33 @@ def _attempt(event):
     return 1 if event["status"] == "blocked" else 0
 
 
-def _remember(event, previous):
-    """The local notice and its edit receipts are independent of the outbound event."""
+def _remember(event):
+    """A late-delivered event's notice, which the outbound event alone carried."""
     session = event["session"]
     if not session:
         return
-    receipt = event.get("receipt", {})
-    pending = list(previous.get("open_needs", [])) if previous else []
-    if event["kind"] == "done":
-        pending = []
-    elif receipt.get("message_id") and not any(
-            all(p.get(k) == receipt[k] for k in ("message_id", "webhook")) for p in pending):
-        pending.append(_open_need(event, receipt))
-    record(session, event["kind"], event["text"], **receipt, open_needs=pending,
-           event_id=event["id"], time=event["created_at"],
+    record(session, event["kind"], event["text"], **event.get("receipt", {}),
+           time=event["created_at"],
            watcher=str(event.get("source") or "").startswith(("auth:", "stuck:", "stall:")))
 
 
 def _remember_retry(event, session):
-    """Late receipts can close a question, but must never reopen an acknowledged menu row."""
-    if not session:
+    """A late receipt never reopens an acknowledged menu row, and a card's never changes the
+    session's notice: a card is the word's, and once out it is never edited."""
+    if not session or str(event.get("source") or "").startswith("card:"):
         return
     previous = last(session, include_seen=True)
-    if str(event.get("source") or "").startswith("card:"):
-        _remember_card(event, previous)
-        return
     if not previous or previous.get("time", 0) < event["created_at"]:
-        _remember({**event, "session": session}, previous)
-        return
-    receipt = event.get("receipt", {})
-    if not receipt.get("message_id") or event["kind"] != "needs":
-        return
-    pending = _open_need(event, receipt)
-    if resolved(previous) or previous["kind"] == "done":
-        close_needs({"open_needs": [pending]}, "Done" if previous["kind"] == "done"
-                    else "Answered")
-        return
-    opened = previous.get("open_needs", [])
-    if pending not in opened:
-        extra = {k: v for k, v in previous.items() if k not in ("session", "kind", "text", "open_needs")}
-        if previous.get("event_id") == event["id"]:
-            extra.update(receipt)
-        record(session, previous["kind"], previous["text"], **extra, open_needs=[*opened, pending])
+        _remember({**event, "session": session})
 
 
 def _unsendable(event, session):
     """Why a queued event may no longer go out, or "".
 
     A retry is a card sent late, and the rules for sending hold for it too: nothing queued
-    before the agentkit running now was installed, and nothing about a seat the owner has
-    closed himself since.
+    before the agentkit running now was installed, nothing about a seat the owner has closed
+    himself since, and no question that is over: once out a card is never edited, so a late
+    one would ask what is answered.  A late done is still news.
     """
     if event.get("created_at", 0) < installed_at():
         return "queued before the agentkit running now was installed"
@@ -897,6 +827,14 @@ def _unsendable(event, session):
         from . import watch
         if watch.seat_closed_by_owner(session):
             return "its seat was closed by the owner"
+        card, notice = _card_read(session), last(session, include_seen=True)
+        # answered in the seat, or by the owner's answer to its notice or the notice's retiring
+        answered = max(card.get("answered_at") or 0, (notice.get("answered_at") or math.inf)
+                       if notice is not None and resolved(notice) else 0)
+        if (event["kind"] == "needs" and str(event.get("source") or "").startswith("card:")
+                and (card.get("episode") != event.get("episode")
+                     or card.get("word") != "needs you" or answered > card.get("since", 0))):
+            return "the question it asked is over"
     return ""
 
 
@@ -1019,52 +957,6 @@ def failed_declaration(notice, mine, index=None):
                      and transitions.is_superseded(state, None, index, merged_only=True))]
 
 
-def _close_card(session, card, status):
-    """Close receipts, including cards inferred from state with no notify record at all.
-
-    What Discord did not take stays on the card, and the next close tries it again.
-    """
-    left = close_needs(card, status)
-    card.update(open_needs=left, closed=status)
-    previous = last(session, include_seen=True)
-    if previous and previous.get("open_needs"):
-        extra = {k: v for k, v in previous.items() if k not in ("session", "kind", "text", "open_needs")}
-        record(session, previous["kind"], previous["text"], **extra, open_needs=[])
-    return left
-
-
-def _remember_card(event, previous=None):
-    """A late receipt may close a card; it never changes the session's reason or declaration."""
-    session = config.resolve_session(event["session"])
-    card = _card_read(session)
-    receipt = event.get("receipt", {})
-    current = last(session, include_seen=True)
-    # No done closes a question: while it is the word it outranks any done, standing or newer,
-    # and the card's own word is what ends it.  A done declared after the card only names how
-    # its question ended.
-    declared = (current is not None and current["kind"] == "done"
-                and current.get("time", 0) >= event["created_at"])
-    if event["kind"] == "needs" and receipt.get("message_id"):
-        pending = _open_need(event, receipt)
-        # An answer from before this episode began was to an earlier needs you, not this one.
-        answered = (current is not None and resolved(current)
-                    and (current.get("answered_at") or math.inf) > card.get("since", 0))
-        if (card.get("episode") != event.get("episode") or card.get("closed")
-                or card.get("word") != "needs you" or answered):
-            finished = card.get("word") == "done" or declared
-            close_needs({"open_needs": [pending]}, "Done" if finished else "Answered")
-        elif pending not in card.get("open_needs", []):
-            card.setdefault("open_needs", []).append(pending)
-        _card_write(session, card)
-    if current is None or resolved(current) or current["kind"] == "done":
-        return
-    extra = {k: v for k, v in current.items() if k not in ("session", "kind", "text", "open_needs", "event_id")}
-    if card.get("episode") == event.get("episode"):
-        extra.update(receipt, event_id=event["id"])
-    record(session, current["kind"], current["text"], **extra,
-           open_needs=card.get("open_needs", []))
-
-
 def _send_card(session, kind, card, answer):
     """Queue once under the session lock; the outbox owns any further attempts."""
     previous = last(session, include_seen=True)
@@ -1093,9 +985,7 @@ def _send_card(session, kind, card, answer):
         _card_write(session, card)
         if fresh:
             terminal_notice(session, f"{TITLES[kind]} · {session}: {text}")
-        result = _attempt(event)
-        _remember_card(event)
-    return result
+        return _attempt(event)
 
 
 def page(key, about, text):
@@ -1194,30 +1084,25 @@ def needs_transition(session, card, answer, now, seat=None):
     answered_here = answered_at > card["since"]
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
-    # A card that is out says what its seat says: input there is him looking, at a dialog as
-    # at a question the seat asked, and it closes on his answer or when the seat needs him no
-    # more, which is the word changing (`transition`).
+    # A card that is out stays as it went: input there is him looking, at a dialog as at a
+    # question the seat asked, and his answer or the word changing (`transition`) ends its
+    # episode.
     if answered_here:
-        if card.get("sent"):
-            _close_card(session, card, "Answered")
-        else:
-            card["closed"] = "Answered"
-        if not card.get("open_needs"):
-            # The answer ends the needs you it answered once Discord took every edit: one
-            # still read now came after it -- a dialog, or the seat waiting again -- and
-            # is an episode of its own, though no tick saw the seat work in between.  Its
-            # minute counts from now, no earlier than its current question: an older
-            # callback can still be publishing. It began after the answer, which an
-            # upgrade since makes history, and after a newer `ak notify` asking again,
-            # which is never history; a watcher's notice is dated by the word.
-            card = {"word": "needs you", "since": max(
-                        now, declared.get("time", 0) if asked else 0), "began": max(
-                        answered_at, 0 if declared.get("source") else declared.get("time", 0)),
-                    "episode": secrets.token_hex(16), "sent": False, "open_needs": [],
-                    **({"completed": card["completed"]} if card.get("completed") else {})}
+        # The answer ends the needs you it answered, its card left as it went out: one still
+        # read now came after it -- a dialog, or the seat waiting again -- and is an episode
+        # of its own, though no tick saw the seat work in between.  Its minute counts from
+        # now, no earlier than its current question: an older callback can still be
+        # publishing. It began after the answer, which an upgrade since makes history, and
+        # after a newer `ak notify` asking again, which is never history; a watcher's notice
+        # is dated by the word.
+        card = {"word": "needs you", "since": max(
+                    now, declared.get("time", 0) if asked else 0), "began": max(
+                    answered_at, 0 if declared.get("source") else declared.get("time", 0)),
+                "episode": secrets.token_hex(16), "sent": False,
+                **({"completed": card["completed"]} if card.get("completed") else {})}
         _card_write(session, card)
         return 0
-    if card.get("sent") or card.get("closed"):
+    if card.get("sent"):
         return 0
     # Input in the seat holds back a card that is not out yet, for as long as he is there: a
     # seat works on with its question standing, so a glance at it must not answer it, and the
@@ -1231,7 +1116,7 @@ def needs_transition(session, card, answer, now, seat=None):
 
 
 def done_transition(session, card, answer, now):
-    """One completion when the state function says done, after editing open questions.
+    """One completion when the state function says done.
 
     Never for an episode that is history, a seat the owner closed himself, or a declaration
     already carded -- which latches this episode as sent, so the outbox is read once.
@@ -1239,9 +1124,6 @@ def done_transition(session, card, answer, now):
     from . import watch
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
         return 0
-    # A question a standing done was outranked by is finished when the word comes back to it,
-    # carded before or not.
-    _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
     completion = declared.get("completion") if declared else None
     receipt = _carded(session, declared) if declared and declared["kind"] == "done" else None
@@ -1319,15 +1201,9 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
-                pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
                 card = {"word": word, "since": since, "began": since,
-                        "episode": secrets.token_hex(16), "sent": False, "open_needs": pending,
+                        "episode": secrets.token_hex(16), "sent": False,
                         **({"completed": card["completed"]} if card.get("completed") else {})}
-                if word != "done" and pending:
-                    # The old episode left questions standing; a new episode with nothing
-                    # to close closes nothing, not even an empty edit.
-                    _close_card(name, card, "Answered")
-                    card.pop("closed", None)
                 if seat is not None and any(seat.get(key) for key in orch.CLOSED):
                     # a seat nobody is in began its word when it went, whichever tick reads it
                     card["began"] = min(since, _went_at(name))
@@ -1366,11 +1242,9 @@ def tick_cards(dry_run=False, log=print):
 
 
 def forget_card(name, log=lambda _: None):
-    """Close a gone session's open needs as `Answered`, then drop its card.
+    """Drop a gone session's card; what went out to Discord stays as it went.
 
-    An edit Discord did not take stays on the card for the next tick to try again, with the
-    card's word gone so a seat given the name meanwhile starts an episode of its own.  The
-    notify lock stays: a writer may hold it or wait on it, and one that opened a new file in
+    The notify lock stays: a writer may hold it or wait on it, and one that opened a new file in
     its place would wait for neither.  A card that is a link, a hard link or not this user's is
     not this seat's to read or remove, the way retention leaves it too.
     """
@@ -1381,14 +1255,6 @@ def forget_card(name, log=lambda _: None):
         with session_lock(name) as session:
             if session != name:
                 return        # an old name that leads to a renamed seat: its card is not this
-            card = _card_read(name)
-            if _close_card(name, card, "Answered"):
-                # Only the failed question edits outlive this seat, not its completed work.
-                card.pop("completed", None)
-                _card_write(name, {**card, "word": ""})
-                log(f"WARN the card of {name} was not closed: Discord did not take the edit; "
-                    "retry required")
-                return
             config.card_path(name).unlink(missing_ok=True)
         log(f"closed the card of {name}: no seat holds it any more")
     except (OSError, ValueError, config.Error) as exc:
@@ -1477,7 +1343,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
         print(json.dumps(card_payload(kind, name), indent=2))
-        terminal_notice(name, f"{title(kind, name)}: {text}", dry_run=True)
+        terminal_notice(name, f"{TITLES[kind]} · {name}: {text}", dry_run=True)
         return 0
     if not name:
         raise config.Error("notify needs a session: use --session NAME")
@@ -1545,8 +1411,7 @@ def _said(name, kind, text, pr=None, event_id=None, at=None, said_at=None):
     if event_id and previous and previous.get("source") == event_id:
         return previous
     extra = {"source": event_id, "pr": pr,
-             "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:")),
-             "open_needs": previous.get("open_needs", []) if previous else []}
+             "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:"))}
     if extra["watcher"] and watch.owner_question(previous) and not resolved(previous):
         # The seat's own question outranks a watcher's alert: its owner is asked already, and
         # the seat's screen says what the alert would.  Taken in its place, the question was

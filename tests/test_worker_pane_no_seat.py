@@ -1,7 +1,6 @@
 """Workers do not make hand-made tmux sessions seats; all processes and delivery are fake."""
 
 from contextlib import ExitStack
-import hashlib
 import io
 import json
 import os
@@ -151,15 +150,10 @@ class WorkerPaneNoSeat(unittest.TestCase):
         self.environ[103] = b"OTHER_AK_RUN_ROLE=worker\0AK_RUN_ROLE=worker-helper\0"
         self.assertEqual(self.listed(), [self.name])
 
-    def test_an_existing_worker_only_card_closes_once_with_one_ps_per_tick(self):
-        url = "https://discord.invalid/api/webhooks/1/acme"
-        pending = {"message_id": "4242", "webhook": hashlib.sha256(url.encode()).hexdigest(),
-                   "embed": {"title": f"Needs you · {self.name}",
-                             "fields": [{"name": "open", "value": "press 1"}]}}
+    def test_an_existing_worker_only_card_goes_once_with_one_ps_per_tick(self):
         config.card_path(self.name).write_text(json.dumps({
-            "word": "needs you", "since": 100, "episode": "acme-episode", "sent": True,
-            "open_needs": [pending]}))
-        with patch.object(notify, "webhook", return_value=url), \
+            "word": "needs you", "since": 100, "episode": "acme-episode", "sent": True}))
+        with patch.object(notify, "webhook", return_value="https://discord.invalid/api/webhooks/1/acme"), \
                 patch.object(notify, "transition") as transition, \
                 patch.object(orch, "AGENT_LOOK_EVERY", 0):
             notify.tick_cards(log=lambda _: None)
@@ -167,14 +161,8 @@ class WorkerPaneNoSeat(unittest.TestCase):
             notify.tick_cards(log=lambda _: None)
             self.assertEqual(self.ps.call_count, 2)
         transition.assert_not_called()
-        self.http.assert_called_once()
-        request = self.http.call_args.args[0]
-        self.assertEqual((request.method, request.full_url), ("PATCH", url + "/messages/4242"))
-        payload = json.loads(request.data)
-        self.assertEqual((payload["content"], payload["embeds"]), (f"Answered · {self.name}", []))
-        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        self.http.assert_not_called()        # what went out stays as it went
         self.assertFalse(config.card_path(self.name).exists())
-
 
 if __name__ == "__main__":
     unittest.main()
