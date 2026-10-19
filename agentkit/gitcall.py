@@ -443,6 +443,15 @@ def default_base(repo, log):
     return current
 
 
+def origin_default(repo):
+    """The branch origin calls default now, as origin answers: unlike `default_base`, never a
+    tracking ref missing or left behind when origin's default moved, nor the current branch."""
+    ref = git(repo, "ls-remote", "--symref", "origin", "HEAD").partition("\t")[0]
+    if not ref.startswith("ref: refs/heads/"):
+        raise config.Error(f"origin names no default branch for {repo}")
+    return ref.removeprefix("ref: refs/heads/")
+
+
 def dirty_paths(wt, env=None):
     """Every uncommitted path: tracked edits (staged or not) and untracked files, no ignored ones.
 

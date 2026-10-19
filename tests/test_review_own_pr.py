@@ -108,7 +108,7 @@ class OwnPr(unittest.TestCase):
             patch.object(run, "fetch", return_value=(0, "")),
             patch.object(run, "git", return_value=""),
             patch.object(gitcall, "git", side_effect=lambda *args, **_kw:
-                         "origin/main" if "symbolic-ref" in args else ""),
+                         "ref: refs/heads/main\tHEAD" if "ls-remote" in args else ""),
         ]
 
     def base_patches(self, author=LOGIN, reviewer="PASS"):
