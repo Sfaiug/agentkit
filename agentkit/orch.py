@@ -3632,7 +3632,7 @@ def in_flight(name, repo):
             written = plan.LINE.match(line.strip())
             if plan.is_open(line) and (seat in filed or written and checkout_of(
                     plan.place(seat, written["project"])) == target):
-                lines.append(line.partition("] ")[2].strip())
+                lines.append(plan.BOX.sub("", line, count=1).strip())
     rows.extend((seat, lines, files) for seat, (lines, files) in seats.items() if lines or files)
     return sorted(rows)
 
