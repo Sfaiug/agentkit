@@ -29,7 +29,8 @@ New seats and respawned panes receive the caller's `HOME`, harness state-root ov
 
 The key line stays the keys whatever the pointer rests on. The subscriptions are a
 grid of gray meters under the header; one under the pointer takes its company's colour and the line under the
-grid says the rest of it; the `i` page is gone. On a short empty menu, readings use the space
+grid says the rest of it; the `i` page is gone. On `c`, moving off every row clears the
+meter's colour and detail; the keyboard keeps its position. On a short empty menu, readings use the space
 above the empty-state message and keys; no space is reserved for page controls.
 A page fade does not shorten a later detail reveal or a seat's news glow.
 Breathing dots, line tips and task squares fade in with their containing rows.
