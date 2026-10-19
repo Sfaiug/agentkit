@@ -3775,11 +3775,11 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         with seat_held(session["name"]) as held:
             if stale(held):
                 return False    # the screen is somebody else's: next pass
+            if typed.get("at", time.time()) < _emptied(session):
+                return True     # read gone before ak put the owner's text back, read as the line or not
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
                 return not pane_unread(session)
-            if holds == "other" and typed.get("at", time.time()) < _emptied(session):
-                return True     # read gone before ak put the owner's text back
             if holds == "line":
                 kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)

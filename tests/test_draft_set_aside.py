@@ -115,6 +115,15 @@ class DraftSetAside(Seats):
         self.assertTrue(self.told())
 
     def test_a_line_its_seat_takes_late_is_told_once_the_owners_text_is_back(self):
+        self.late(DRAFT)
+
+    def test_text_put_back_that_reads_as_the_line_is_never_sent(self):
+        self.late(LINE)
+
+    def late(self, draft):
+        """The owner's `draft` set aside for ak's line, which its seat takes a minute late."""
+        self.composer = draft
+        self.show()
         self.wait_line()
         self.slow = True
         self.tick()
@@ -125,7 +134,7 @@ class DraftSetAside(Seats):
         watch.time.time = lambda: NOW + 60
         watch.drafts_back(self.cfg, lambda _: None)
         self.tick()
-        self.assertEqual((self.composer, self.sent), (DRAFT, [LINE]))
+        self.assertEqual((self.composer, self.sent), (draft, [LINE]))
         self.assertTrue(self.told())
 
     def test_text_typed_into_lately_or_in_a_seat_started_before_the_editor_is_left_alone(self):
