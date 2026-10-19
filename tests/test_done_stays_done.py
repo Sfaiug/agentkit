@@ -222,8 +222,9 @@ class DoneStaysDone(Sandbox):
         # a run of its own still going holds the job's card back, as it always did
         self.assertEqual(self.decide()[0], "working")
         self.assertEqual(self.posts, [])
+        # its ending told to it: a line still owed would read working
         record.save_state(other, {**record.read_state(other), "state": "pass",
-                               "finished_at": NOW - 60})
+                               "finished_at": NOW - 60, "handed_back": NOW - 60})
         self.assertEqual(self.decide(), ("idle", ""))
         # a job's own finish pages nobody: the seat says done for the whole of its work, and
         # no question card follows it
