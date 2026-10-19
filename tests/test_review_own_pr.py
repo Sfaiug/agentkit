@@ -101,12 +101,14 @@ class OwnPr(unittest.TestCase):
         return "FAIL"
 
     def checkout_patches(self):
-        """The PR's checkout, fetch and Git reads, which preflight's size check makes too."""
+        """The PR's checkout, fetch and Git reads, which preflight's base and size checks make
+        too: the repository's default branch is main."""
         return [
             patch.object(run, "checkout_for", return_value=self.repo),
             patch.object(run, "fetch", return_value=(0, "")),
             patch.object(run, "git", return_value=""),
-            patch.object(gitcall, "git", return_value=""),
+            patch.object(gitcall, "git", side_effect=lambda *args, **_kw:
+                         "origin/main" if "symbolic-ref" in args else ""),
         ]
 
     def base_patches(self, author=LOGIN, reviewer="PASS"):

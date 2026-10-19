@@ -37,7 +37,7 @@ class ReviewWaitsForPullRef(Sandbox):
                     baseRefName="main", headRefOid="a" * 40, body="Small fix")
         for name, value in (("pr_view", info), ("pr_writer", (True, "opus", "high")),
                             ("launch_session", "fix-api"), ("own_pr_budget", (3, None)),
-                            ("checkout_for", self.repo)):
+                            ("checkout_for", self.repo), ("default_base", "origin/main")):
             self.stack.enter_context(patch.object(run, name, return_value=value))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(run, "git", side_effect=Fetched))

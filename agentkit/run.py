@@ -1174,6 +1174,14 @@ def preflight(run_dir, opts, log):
             # ... and a PR too large for its first review is refused here too, before the run
             # waits for a slot, so its seat hears `split it` at once
             checkout = checkout_for(f"{owner}/{name}", log)
+            default = default_base(checkout, log).removeprefix("origin/")
+            if info["baseRefName"] != default:
+                # it would land on its base: stacked on an unmerged change, into that change's
+                # branch under that change's own review, never on the default branch
+                raise config.Error(f"PR #{number} is based on {info['baseRefName']}, not {default}: "
+                                   f"ak lands a seat's own PR on {default} only. If it builds on "
+                                   f"an unmerged change, wait for that to land, then rebase this "
+                                   f"branch onto origin/{default} and point the PR at {default}")
             head = info["headRefOid"]
             fetch_pr(checkout, number, info["baseRefName"], log)
             target_sha = git(checkout, "rev-parse", f"origin/{info['baseRefName']}^{{commit}}")
