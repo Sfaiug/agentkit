@@ -136,11 +136,11 @@ class ThreeStates(Sandbox):
 
     def test_a_expired_login_needs_you_before_anything_else(self):
         # Every lower rung is true at the same time: a going run, a turn in flight,
-        # an ending nobody took up, a done notice. The login still wins.
+        # an ending nobody took up, a finished plan. The login still wins.
         self.receipt("20260101-0900-going", state="running", finished_at=None)
         self.receipt("20260101-0800-broken", state="fail", verdict="FAIL")
         self.fact("UserPromptSubmit", at=NOW - 60)
-        notify.record("atoll", "done", "Shipped it")
+        config.plan_path("atoll").write_text("- [x] Shipped it\n")
         state = watch.load_state()
         # what the last tick's `auth seat` verb answered about this seat's own login, which
         # is the whole of the rule -- never the pane, and never a worker's token
@@ -272,12 +272,11 @@ class ThreeStates(Sandbox):
                                     cfg=self.cfg, number=3)
         self.assertEqual(found["reason"], "session closed: press 3 to reopen")
 
-    def test_f_a_done_notice_reads_done_with_its_first_line(self):
-        notify.record("atoll", "done", "Merged #75\n\nThe loop pushes and merges now.")
+    def test_f_a_finished_plan_reads_done_with_its_last_line(self):
+        config.plan_path("atoll").write_text("- [x] The loop pushes\n- [x] Merged #75\n")
         found = self.decide()
         self.assertEqual(found["word"], "done")
         self.assertEqual(found["reason"], "Merged #75")
-        self.assertEqual(found["since"], notify.last("atoll")["time"])
         # Its own run going again outranks it: a done seat that started work is working.
         self.receipt("20260101-0900-next", state="running", finished_at=None,
                      started_at=NOW - 60, title="The next one")
@@ -337,7 +336,7 @@ class ThreeStates(Sandbox):
                                 {"repo": self.repo, "cwd": self.repo})
         self.receipt("20260101-0900-parser-work", owner="parser", state="running",
                      finished_at=None, started_at=NOW - 600, title="Parser work")
-        notify.record("herdr", "done", "Shipped")
+        config.plan_path("herdr").write_text("- [x] Shipped\n")
         with patch.object(orch, "listing", return_value=seats), \
                 patch.object(menu.time, "time", return_value=NOW), \
                 patch.object(terminal, "width", return_value=100), \
@@ -377,7 +376,7 @@ class ThreeStates(Sandbox):
         for setup, word in ((lambda: self.receipt("20260101-0900-going", state="running",
                                                   finished_at=None, started_at=NOW - 60),
                              "working"),
-                            (lambda: notify.record("atoll", "done", "Shipped"), "done"),
+                            (lambda: config.plan_path("atoll").write_text("- [x] Shipped\n"), "done"),
                             (lambda: notify.record("atoll", "needs", "Which schema?"),
                              "needs you")):
             with self.subTest(word=word):

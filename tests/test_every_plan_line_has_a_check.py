@@ -39,7 +39,7 @@ class EveryLineHasACheck(Sandbox):
             f"- [x] {eye}\n")
         self.assertEqual([plan.is_open(line) for line in plan.lines("fix-api")], [False] * 3)
         self.assertIsNone(stop.owed_line("fix-api"))
-        self.assertEqual(plan.require_done("fix-api"), set())
+        self.assertTrue(plan.finished("fix-api"))
         self.assertEqual(watch.plan_progress("fix-api"), (3, 3))
 
     def test_the_bar_counts_done_as_the_stop_hook_does(self):

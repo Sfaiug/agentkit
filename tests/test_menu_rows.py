@@ -73,7 +73,7 @@ class MenuRows(Sandbox):
     def test_seats_keep_their_place_whatever_their_word(self):
         self.seat("apple-working", "atoll", live="working")
         self.seat("middle-done", "atoll")
-        notify.record("middle-done", "done", "hero swapped and published")
+        config.plan_path("middle-done").write_text("- [x] hero swapped and published\n")
         self.seat("zebra-needs", "atoll")
         notify.record("zebra-needs", "needs", "Merge the MOV helper before or after?")
         screen, _ = self.draw(100, 30)
@@ -180,13 +180,13 @@ class MenuRows(Sandbox):
 
     def test_reason_column_done(self):
         self.seat("done-seat", "atoll")
-        notify.record("done-seat", "done", "hero swapped and published\n\nSecond line here")
+        config.plan_path("done-seat").write_text("- [x] Earlier line here\n- [x] hero swapped and published\n")
         screen, _ = self.draw(100, 30)
         lines = screen.splitlines()
         at = next(n for n, line in enumerate(lines) if "done-seat" in line)
-        self.assertTrue(lines[at].endswith("✓ done"), lines[at])
+        self.assertIn("✓ done", lines[at])
         self.assertEqual(lines[at + 1].strip(), "hero swapped and published")
-        self.assertNotIn("Second line", screen)
+        self.assertNotIn("Earlier line", screen)
 
     def test_key_line_has_exactly_five_keys(self):
         self.seat("only-seat", "atoll", live="working")

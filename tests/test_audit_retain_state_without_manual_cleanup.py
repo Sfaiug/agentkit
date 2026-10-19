@@ -837,8 +837,9 @@ if not review:
                 for key, name in names.items():
                     self.seat(name, exited_since=self.now - 20 * DAY)
                     config.update_session(name, orchestrator=non_codex)
-                for key in ("done", "seen", "question"):
-                    notify.record(names[key], "done" if key == "done" else "needs", "fixture",
+                config.plan_path(names["done"]).write_text("- [x] fixture\n")
+                for key in ("seen", "question"):
+                    notify.record(names[key], "needs", "fixture",
                                   seen=None if key == "question" else self.now)
                 for key in ("running", "queued", "recovery"):
                     self.receipt(names[key], state="interrupted" if key == "recovery" else key,
