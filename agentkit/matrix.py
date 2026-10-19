@@ -532,7 +532,7 @@ def cell(found):
 
 
 def stored():
-    """The matrix as last computed, {"computed_at", "config", "harnesses", "rows"}, or {}, its
+    """The matrix as last computed, {"computed_at", "config", "harnesses", "build", "rows"}, or {}, its
     rows scored afresh: the catalogs `rows` asks are what the file saves, and scoring is cheap,
     so a scoring rule changed since the matrix was computed holds at once."""
     held = _held().get("matrix") or {}
@@ -543,22 +543,25 @@ def stored():
 def refresh(cfg, *, refresh=False, now=None):
     """The boards (`collect`) and the matrix computed from them and the config, written beside
     the boards in `state/matrix.json` so every pick reads one computed truth; computed again
-    only once a board answered anew, the config's models changed or the harnesses installed
-    are not the ones it rowed, since the harness catalogs it asks take time.  Returns (boards,
-    the scored rows); `recommended` reads off the rows."""
+    only once a board answered anew, the config's models changed, the harnesses installed are
+    not the ones it rowed or ak's own build is not the one that computed it (a matching rule
+    that landed holds at the next tick, not a day later), since the harness catalogs it asks
+    take time.  Returns (boards, the scored rows); `recommended` reads off the rows."""
+    from . import update        # here, not at the top: update reaches this module through orch
     now = time.time() if now is None else now
     boards = collect(refresh=refresh, now=now)
     held = stored()
     fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)
-    harnesses = present()
+    harnesses, build = present(), update.agentkit_version()
     if (held.get("rows") is not None and held.get("computed_at", -1) >= fetched
-            and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses):
+            and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses
+            and held.get("build") == build):
         return boards, held["rows"]
     table = scored(rows(cfg, boards, harnesses))
     with _locked():
         cache = _held()
         cache["matrix"] = {"computed_at": now, "config": config_key(cfg), "harnesses": harnesses,
-                           "rows": table}
+                           "build": build, "rows": table}
         _write(cache)
     return boards, table
 
