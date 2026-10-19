@@ -97,6 +97,14 @@ class AsideEditor(unittest.TestCase):
         self.assertEqual(self.buffers, {aside_editor.kept(PANE): b"and add these posts"})
         self.assertNotIn(aside_editor.ASK, self.options)   # not done: ak's line goes in later
 
+    def test_a_line_the_composer_file_cannot_take_is_not_done(self):
+        self.composer.write_text("")
+        self.options[aside_editor.ASK] = aside_editor.request("line", "go on")
+        with patch.dict(os.environ, {"TMUX_PANE": PANE}), \
+                patch.object(Path, "write_bytes", side_effect=OSError(28, "No space left")):
+            self.assertRaises(OSError, aside_editor.edit, [str(self.composer)])
+        self.assertNotIn(aside_editor.ASK, self.options)   # ak's line goes in later
+
     def test_a_line_ak_gave_up_on_stays_out_and_the_text_kept_leaves_the_composer(self):
         self.given_up = True
         self.assertEqual(self.edit("and add these posts", aside_editor.request("line", "go on")),

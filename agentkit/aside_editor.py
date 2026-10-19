@@ -111,8 +111,11 @@ def edit(argv):
         if mode == b"line" and (not text or held is not None and _tmux(
                 "load-buffer", "-b", name, "-",
                 data=b"\n".join(part for part in (held, text) if part)) is not None):
-            # kept, so it leaves the composer even once ak's line is too late to go in
-            path.write_bytes(line if _done(pane) else b"")
+            # in before it is said done, which ak takes as its receipt; too late for ak, it goes
+            # again, and the text kept leaves the composer all the same
+            path.write_bytes(line)
+            if not _done(pane):
+                path.write_bytes(b"")
         elif mode == b"back" and held and not text.strip() and _done(pane):
             path.write_bytes(held + text)
             _tmux("delete-buffer", "-b", name)
