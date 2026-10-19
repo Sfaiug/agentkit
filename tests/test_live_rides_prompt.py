@@ -36,7 +36,8 @@ class LiveRidesPrompt(EndingsRidePrompt):
     def test_while_ak_types_into_the_seat_or_its_record_is_written_it_stays_the_ticks(self):
         config.plan_path(SEAT).write_text(OPEN)
         live = self.gone_live("fix-parser")
-        for held in (lambda: notify.session_lock(SEAT), lambda: record.recovery_lock(live)):
+        for held in (lambda: notify.session_lock(SEAT), lambda: record.recovery_lock(live),
+                     lambda: handback.delivery_lock(live)):
             with held():
                 self.assertEqual(self.hook(), "")
             self.assertNotIn("live_notified", record.read_state(live))

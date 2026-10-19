@@ -1451,8 +1451,9 @@ def gone_live(session):
     still owed (`watch.after_merge_health`), so a prompt takes these under that lock too, and
     only while it is free: held, ak is typing into the seat this moment, perhaps this very
     prompt, and the lines stay the tick's.  Each is marked as the tick marks it, under the
-    run's recovery lock, which a rename or an acknowledgment holds to write the whole record;
-    a held one is passed over, so the prompt never waits.
+    run's recovery lock, which a rename or an acknowledgment holds to write the whole record,
+    and its delivery lock, which a hand-back holds to write its marks (`mark_delivery`); a
+    held one is passed over, so the prompt never waits.
     """
     lines, resolved = [], {}
     with notify.session_lock(session, wait=False) as free:
@@ -1466,12 +1467,13 @@ def gone_live(session):
                     continue
                 line = None
                 with run_record.recovery_lock(run_dir, wait=False) as held:
-                    if not held:
-                        continue
-                    with run_record.record(run_dir) as current:
-                        if live_owed(current):
-                            line = live_line(current, run_dir)
-                            current["live_notified"] = time.time()
+                    with delivery_lock(run_dir, wait=False) as delivering:
+                        if not (held and delivering):
+                            continue
+                        with run_record.record(run_dir) as current:
+                            if live_owed(current):
+                                line = live_line(current, run_dir)
+                                current["live_notified"] = time.time()
                 if line:
                     lines.append(line)
             except (config.Error, OSError, ValueError, KeyError, TypeError):
