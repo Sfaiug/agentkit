@@ -838,7 +838,6 @@ def seat_progress(name):
 # The three squares of a task in flight: build (its executor, its checks, a fix after review),
 # review, land (the line, the merge, the deploy until it proves itself live).
 STAGES = {"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}
-FAILED_FOR = 86400   # a failed task stays red this long unless its seat starts it again first
 
 
 class Task(tuple):
@@ -851,17 +850,15 @@ class Task(tuple):
         return task
 
 
-def seat_tasks(name, records=None, now=None, index=None):
+def seat_tasks(name, records=None, now=None):
     """Each task in flight that seat launched, as (stage, state), furthest behind first: its
     stage 0, 1 or 2 (`STAGES`), and `moving` while a model or ak works on it, `waiting` while it
     waits -- for a slot, for usage, behind an older change, for a login, for its turn in the
-    line, for the live check -- or `failed` once it ended with nothing delivered, until a later
-    run takes it up or FAILED_FOR has passed.  A run merged and live is done, and one not
-    started is no task in flight.  `index` is the draw's `transitions.supersession_index`."""
+    line, for the live check.  A run that ended is no task in flight, whatever it delivered:
+    the owner's word of 19 Oct 2026, as red squares of ended runs read as work still going."""
     from . import gate, watch   # here, not at the top: watch imports this module
     now = time.time() if now is None else now
     records = run_records() if records is None else records
-    index = transitions.supersession_index(records) if index is None else index
     found = []
     for run_dir, state in transitions.runs_by_seat(records).get(name, []):
         stage, run = STAGES.get(state.get("step"), 0), Path(run_dir).name
@@ -874,11 +871,7 @@ def seat_tasks(name, records=None, now=None, index=None):
             found.append(Task(stage, "waiting", run))
         elif watch.awaiting_live(state, now=now):
             found.append(Task(2, "waiting", run))
-        elif (state.get("state") in record.FAILED
-              and now - (state.get("finished_at") or 0) < FAILED_FOR
-              and not transitions.is_superseded(state, None, index)):
-            found.append(Task(stage, "failed", run))
-    return sorted(found, key=lambda task: (task[0], ("moving", "waiting", "failed").index(task[1])))
+    return sorted(found, key=lambda task: (task[0], task[1] == "waiting"))
 
 
 def _paint(text, kind, tmux=False):
@@ -904,7 +897,7 @@ def tips(line):
     """Plain-text offsets of the rendered progress tip and moving task-stage squares.
 
     Read their working-colour spans before highlighting or provider colouring: draft glyphs
-    are plain, and waiting or failed squares have other colours. At 256 colours several bar
+    are plain, and waiting squares are dim. At 256 colours several bar
     cells can share the tip's colour, so only the last one breathes.
     """
     if terminal.colour_depth() <= 8:
@@ -932,11 +925,11 @@ def task_cells(line, tasks):
 def squares(tasks, room=float("inf"), tmux=False, most=None):
     """`tasks` (`seat_tasks`) drawn in `room` cells, `most` of them at the most: three squares
     each, two cells apart, the stages it has reached filled -- in working's colour while it
-    moves, dim while it waits, red once it failed -- and the rest dim and empty; those not drawn
+    moves, dim while it waits -- and the rest dim and empty; those not drawn
     counted, `+3`.  No colour: the shapes alone; no UTF-8: `#--`.  `tmux` draws it as tmux
     text."""
     full, empty = "■□" if terminal.utf8() else "#-"
-    kinds = {"moving": "working", "waiting": "dim", "failed": "FAIL"}
+    kinds = {"moving": "working", "waiting": "dim"}
     # a group takes five cells with its gutter, the count of the rest as many as its digits
     fit = len(tasks[:most])
     while fit and 5 * fit - 2 + (len(f"  +{len(tasks) - fit}") if fit < len(tasks) else 0) > room:
@@ -1099,7 +1092,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     sentence = reason
     return {"number": str(number), "name": name, "session": session,
             "crew": seat_crew(selection),
-            "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now, index),
+            "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now),
             "count": word, "orchestrator": orchestrator, "worker": orchestrator,
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
@@ -1753,13 +1746,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                 line(key[1], lambda cells: motion.growing(
                     cells, since, motion.GLIDE, round(len(cells) * before[0] / max(1, before[1])),
                     words.get(key[1]) or "working"), ticked and (before[0], since, motion.GLIDE))
-            elif key[0] == "task" and before:    # a task moved on a stage, or failed
+            elif key[0] == "task" and before:    # a task moved on a stage
                 row, column = cell
                 written = terminal.cell_texts(out[row - 1])
-                if shown[1] == "failed" != before[1]:
-                    clock.start([(row, column - 1)], *motion.nudging(
-                        "".join(written[column - 1:column + 2]), since, lit))
-                elif shown[0] > before[0]:
+                if shown[0] > before[0]:
                     clock.start([(row, column + shown[0])], *motion.halving(
                         written[column - 1 + shown[0]], since, motion.STEP, lit))
             elif key[0] == "opened" and typed:
