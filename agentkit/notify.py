@@ -1235,21 +1235,29 @@ def needs_transition(session, card, answer, now, seat=None):
 def done_transition(session, card, answer, now, completion):
     """One completion when the state function says done, after editing open questions.
 
-    Never for an episode that is history, a seat the owner closed himself, work already
-    carded -- which latches this episode as sent, so the outbox is read once -- or a done
-    nobody declared that covers none of the seat's verified work (`completion`).
+    Never for an episode that is history, a seat the owner closed himself, or work already
+    carded -- which latches this episode as sent, so the outbox is read once.  A done nobody
+    declared that covers none of the seat's verified work (`completion`: its plan holds only
+    what runs delivered, or the seat has no creation stamp) cards nothing: its first pass ends
+    the owner's intent, and it stays unsent for a declaration to card.
     """
     from . import watch
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
         return 0
-    # A question a standing done was outranked by is finished when the word comes back to it,
-    # carded before or not.
-    _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
     if not (declared and declared["kind"] == "done" and not declared.get("seen")):
         declared = None
+    if not (completion or declared) and card.get("closed") == "Done":
+        return 0        # read already: its questions closed at its first pass
+    # A question a standing done was outranked by is finished when the word comes back to it,
+    # carded before or not.
+    _close_card(session, card, "Done")
+    if not (completion or declared):
+        _intent(session, now)
+        _card_write(session, card)
+        return 0
     receipt = _carded(session, completion, declared)
-    if (completion and card.get("completed") == completion) or receipt or not (completion or declared):
+    if (completion and card.get("completed") == completion) or receipt:
         card["sent"] = True
         if receipt and receipt.get("completion"):
             card["completed"] = receipt["completion"]

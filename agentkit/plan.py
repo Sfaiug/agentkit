@@ -445,17 +445,18 @@ def finished(name):
 
 
 def outcomes(name):
-    """The plan's work, independent of order, repetition, checks and renewed proof stamps.
+    """The plan's done work, independent of order, repetition, checks and renewed proof stamps.
 
-    A done caller has already proved these lines under the seat's lock. Keep format
-    knowledge here: eye lines and hand-kept outcomes count as work too.
+    An open line is no done work yet: a declared done refuses one (`require_done`), and a
+    standing one is no proof of a line written since. Keep format knowledge here: eye lines
+    and hand-kept outcomes count as work too.
     """
     result = []
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
-        if found and taken(name, line, delivered=True):
-            continue        # a run's, never this done's work: it has the line, or delivered it
+        if found and (is_open(line) or taken(name, line, delivered=True)):
+            continue        # not done, or a run's: it has the line, or delivered it
         if found:
             result.append((found["project"], found["what"]))
         elif line.startswith("- [x] ") and not is_open(line):

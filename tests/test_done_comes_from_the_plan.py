@@ -1,10 +1,12 @@
 """Done comes from the plan: a seat at rest whose every plan line is proven reads `done` and
 sends one Done card, with nobody running `ak notify done` (owner, 19 Oct 2026).  It sends one
 card per piece of work the plan finishes: a later turn over the same plan sends none, its card
-file lost or not, and work proven after a declaration sends its own.  A plan holding none of
-the seat's verified work, only what its runs delivered, sends none.  A seat
-with no plan finished is `idle`, and one whose plan still owes a line is the owner's.  A run's
-merge runs the seat's plan checks, so a line it proved ticks before the seat hears of it.
+file lost or not, and work proven after a declaration sends its own, an open line none.  A done
+covering none of the seat's verified work -- a plan holding only what its runs delivered, or a
+seat with no creation stamp -- sends none but ends the owner's intent, and a declaration still
+cards it.  A seat with no plan finished is `idle`, and one whose plan still owes a line is the
+owner's.  A run's merge runs the seat's plan checks, so a line it proved ticks before the seat
+hears of it.
 
 Offline: temporary seat state, the real state ladder with the screen read supplied, and a
 local webhook.
@@ -127,11 +129,23 @@ class DoneFromThePlan(Sandbox):
     def test_work_proven_after_a_declaration_cards_without_another(self):
         self.plan("- [x] the API answers")
         self.assertEqual(notify.shaped("done", "the API answers", session=self.name), 0)
-        self.plan("- [x] the API answers", "- [x] the export works")
+        export = "the export works · check: `test -f export.txt` · acme · written 2026-10-19 10:00"
+        self.plan("- [x] the API answers", f"- [ ] {export}")
+        self.tick()
+        self.assertEqual(len(self.done_cards()), 1)         # an open line is no work yet
+        self.plan("- [x] the API answers", f"- [x] {export} · done 0123456789ab")
         self.tick()
         self.assertEqual(len(self.done_cards()), 2)
 
-    def test_a_plan_only_runs_delivered_cards_nothing_however_often_it_reads_done(self):
+    def test_a_seat_with_no_creation_stamp_cards_its_declaration(self):
+        config.update_session(self.name, created=None)
+        self.plan("- [x] the API answers")
+        self.tick()
+        self.assertEqual(self.done_cards(), [])
+        self.assertEqual(notify.shaped("done", "the API answers", session=self.name), 0)
+        self.assertEqual(len(self.done_cards()), 1)
+
+    def test_a_plan_only_runs_delivered_ends_the_intent_and_cards_nothing(self):
         repo = self.root / "acme"
         repo.mkdir()
         (repo / "api.txt").write_text("shipped\n")
@@ -150,8 +164,11 @@ class DoneFromThePlan(Sandbox):
                   f" · deferred · written 1970-01-01 00:01 · done {sha}")
         self.ended("api-fix", owner=self.name, merged=True, repo=str(repo),
                    followup={"check": "test -f api.txt"})
-        self.tick()
+        with patch.object(notify, "_intent") as intent:
+            self.tick()
+            self.tick()
         self.assertEqual(self.word()["word"], "done")
+        intent.assert_called_once()
         late = self.ended("late-run", owner=self.name, state="running", started_at=self.now, pid=0)
         self.tick()
         self.assertEqual(self.word()["word"], "working")
