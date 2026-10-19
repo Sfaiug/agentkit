@@ -33,6 +33,10 @@ class CharacterNames(unittest.TestCase):
         taken = set(orch.CHARACTERS) | {"rex-2"}
         self.assertEqual(orch.character_name(taken, pick=lambda names: "rex"), "rex-3")
 
+    def test_rebels_only_wullffwarro_is_not_used(self):
+        taken = set(orch.CHARACTERS) - {"wullffwarro"}
+        self.assertNotEqual(orch.character_name(taken), "wullffwarro")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3695,7 +3695,7 @@ CHARACTERS = tuple("""
     amedda lott dod tarkin yularen argyus ackbar nossor tandin
     satine korkie almec vizsla kryze bokatan ursa wren rook kast saxon gar
     steela gerrera saw lux bonteri mina dendup rash cham syndulla numa gobi binks tarpals
-    lyonie tarfful wullffwarro chewbacca garnac dar smug
+    lyonie tarfful chewbacca garnac dar smug
     bane embo aurra bossk latts dengar highsinger robonino sugi seripas rumi moralo derrown
     shahan twazzi todo boba gorr hondo pilf mukmuk falso
     jabba ziro rotta gardulla arok oruba marlo snootles miraj scintel agruss atai
