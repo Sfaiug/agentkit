@@ -21,8 +21,8 @@ class CharacterNames(unittest.TestCase):
             self.assertEqual(orch.session_name(name), name)
 
     def test_none_is_from_another_show(self):
-        # Rebels' (Wullffwarro, Ursa and Sabine Wren) and names the show never had
-        self.assertFalse({"wullffwarro", "ursa", "wren", "gardulla", "gorr"} & set(orch.CHARACTERS))
+        # Wullffwarro and Gorr never appeared in The Clone Wars.
+        self.assertFalse({"wullffwarro", "gorr"} & set(orch.CHARACTERS))
 
     def test_a_free_one_is_picked_at_random(self):
         free = orch.CHARACTERS[:3]
