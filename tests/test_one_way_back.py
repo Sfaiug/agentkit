@@ -55,8 +55,11 @@ class Back(unittest.TestCase):
         screen, read = self.config_screen()
         self.assertEqual(read.call_count, 0)
         self.assertTrue(screen.startswith("agentkit · config"), screen)
-        # no seat is highlighted from a pipe, so the matrix is the efforts alone
-        self.assertEqual(terminal.ANSI.sub("", screen).splitlines()[2].split(), ["effort"])
+        # no seat is highlighted from a pipe, so the matrix is the efforts alone, under the meters
+        lines = terminal.ANSI.sub("", screen).splitlines()
+        heads = next(line for line in lines if line.split()[-1:] == ["effort"])
+        self.assertEqual(heads.split(), ["effort"])
+        self.assertIn("% left", "\n".join(lines[2:lines.index(heads)]))
 
     def test_v5u_menu_arrow_sequence_is_no_key(self):
         out = io.StringIO()

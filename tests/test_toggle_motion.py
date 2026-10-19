@@ -255,8 +255,9 @@ with closing(""", 1)
     def test_a_model_just_added_glows_and_a_key_ends_it_at_once(self):
         screen = Screen(self, env={"COLORTERM": "truecolor"})     # a glow fades in fine steps
         lines = screen.frame()
-        down = sum(1 for line in lines[3:next(n for n, line in enumerate(lines)
-                                              if "+ add a model" in line)]
+        heads = next(n for n, line in enumerate(lines) if line.split()[-1:] == ["effort"])
+        down = sum(1 for line in lines[heads + 1:next(n for n, line in enumerate(lines)
+                                                      if "+ add a model" in line)]
                    if line.startswith(("  ", "›")))
         screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› + add a model"))
         for step in ("harness", "model", "effort"):     # claude, its haiku, at none

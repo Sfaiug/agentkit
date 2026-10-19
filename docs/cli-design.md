@@ -257,7 +257,8 @@ Example:
 
 ## The config screen
 
-`c` is a sub-screen in the same frame, headed `agentkit · config`. It is a
+`c` is a sub-screen in the same frame, headed `agentkit · config`. Over its page,
+on every page, each subscription's meter as the main screen draws it. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, then `orch` (`●` on the highlighted
