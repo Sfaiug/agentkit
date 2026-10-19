@@ -786,9 +786,9 @@ if doing g; then
     skip "g: the @mention: the Discord user id is not on this host"
   fi
   must "the needs card is not its two words and the session alone" \
-    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("Needs you · " + $s)) and (has("embeds") | not)' "$WORK/needs.json"
+    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("🙋 Needs you · " + $s)) and (has("embeds") | not)' "$WORK/needs.json"
   must "the done card is not its two words and the session alone" \
-    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("Done · " + $s)) and (has("embeds") | not)' "$WORK/done.json"
+    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("✅ Done · " + $s)) and (has("embeds") | not)' "$WORK/done.json"
   verdict "g  ak notify needs/done --dry-run" \
     "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }two words and the seat, nothing posted"
 fi

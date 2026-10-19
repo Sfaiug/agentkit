@@ -24,19 +24,19 @@ class CardCarriesNoText(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_a_card_is_its_kind_and_seat_and_nothing_it_said(self):
-        for kind, line in (("needs", "Needs you · acme-api <@42>"), ("done", "Done · acme-api <@42>")):
+        for kind, line in (("needs", "🙋 Needs you · acme-api <@42>"), ("done", "✅ Done · acme-api <@42>")):
             with self.subTest(kind=kind):
                 payload = notify.card_payload(kind, "acme-api")
                 self.assertEqual(payload["content"], line)
                 self.assertNotIn("embeds", payload)
-        self.assertEqual(notify.title("done", None), "Done · agentkit")   # outside a seat
+        self.assertEqual(notify.title("done", None), "✅ Done · agentkit")   # outside a seat
 
     def test_words_in_a_card_ping_nobody_but_the_owner(self):
         self.assertEqual(notify.card_payload("done", "acme-api")["allowed_mentions"], {"users": ["42"]})
         with patch.object(notify, "_secret", return_value=""):
             payload = notify.card_payload("done", "acme-api")
         self.assertEqual((payload["content"], payload["allowed_mentions"]),
-                         ("Done · acme-api", {"parse": []}))
+                         ("✅ Done · acme-api", {"parse": []}))
 
     def test_closing_a_card_sent_with_its_text_drops_the_text(self):
         sent = []

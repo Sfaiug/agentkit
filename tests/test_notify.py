@@ -143,7 +143,7 @@ class Notifications(unittest.TestCase):
     def cards(self, kind):
         return [payload for method, _, payload in self.requests
                 if method == "POST" and payload["content"]
-                == f"{notify.TITLES[kind]} · seat <@123456789012345678>"]
+                == f"{notify.title(kind, 'seat')} <@123456789012345678>"]
 
     def test_a_cached_done_cannot_announce_a_running_job(self):
         self.assertEqual(notify.shaped("needs", "Which API route?", session="seat"), 0)
@@ -207,7 +207,7 @@ class Notifications(unittest.TestCase):
         self.cli("needs", "Merge PR #7? yes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
         payload = self.requests[0][2]
-        self.assertEqual(payload["content"], "Needs you · seat <@123456789012345678>")
+        self.assertEqual(payload["content"], "🙋 Needs you · seat <@123456789012345678>")
         self.assertNotIn("Merge", json.dumps(payload))
         before = config.notify_path("seat").read_bytes()
         result = self.cli("needs", "  MERGE\nPR   #7? YES/NO ")
@@ -240,7 +240,7 @@ class Notifications(unittest.TestCase):
         self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
         self.assertEqual(self.requests[-2][2]["content"], "Done · seat")
         payload = self.requests[-1][2]
-        self.assertEqual(payload["content"], "Done · seat <@123456789012345678>")
+        self.assertEqual(payload["content"], "✅ Done · seat <@123456789012345678>")
         self.assertEqual(payload["username"], "agentkit")
         self.assertNotIn("Shipped", json.dumps(payload))
         self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
@@ -318,7 +318,7 @@ sys.exit(p.returncode)
         with patch.object(orch, "watching", return_value=False):
             run.announce(state, run_dir, lambda _: None)
         self.assertEqual(len(self.requests), 1)
-        self.assertEqual(self.requests[0][2]["content"], "Needs you · seat <@123456789012345678>")
+        self.assertEqual(self.requests[0][2]["content"], "🙋 Needs you · seat <@123456789012345678>")
         self.assertTrue(state["reported"])
 
     def typed(self, source, into="claude"):
@@ -399,7 +399,7 @@ sys.exit(p.returncode)
         self.cli("needs", "Waiting?")
         before = config.notify_path("seat").read_bytes()
         payload = json.loads(self.cli("done", "FAIL: tests", "--dry-run").stdout)
-        self.assertEqual(payload["content"], "Done · seat <@123456789012345678>")
+        self.assertEqual(payload["content"], "✅ Done · seat <@123456789012345678>")
         self.assertEqual(config.notify_path("seat").read_bytes(), before)
         self.assertEqual(len(self.requests), 1)
 

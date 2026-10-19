@@ -106,7 +106,7 @@ class CompletionNotices(Sandbox):
         notify.answered(self.name, self.now)
 
     def posted(self, name=None, kind='done'):
-        title = f'{notify.TITLES[kind]} · {name or self.name}'
+        title = notify.title(kind, name or self.name)
         return [payload for method, payload in self.requests
                 if method == 'POST' and payload['content'].split(' <@')[0] == title]
 
@@ -129,7 +129,7 @@ class CompletionNotices(Sandbox):
                     self.declare(summary, name=name)
                 self.assertEqual(len(self.posted(name)), 1)
                 payload = self.posted(name)[0]
-                self.assertEqual(payload['content'], f'Done · {name} <@123456789012345678>')
+                self.assertEqual(payload['content'], f'✅ Done · {name} <@123456789012345678>')
                 self.assertNotIn('embeds', payload)
 
     def test_new_checked_work_sends_without_an_intermediate_tick(self):

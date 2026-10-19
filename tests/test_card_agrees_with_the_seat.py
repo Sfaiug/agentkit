@@ -68,7 +68,7 @@ class CardAgreesWithTheSeat(unittest.TestCase):
         self.client = (0, "170")          # he switched in and pressed keys there
         for now in (180, 360, 3600):
             self.assertNotIn("closed", self.says("needs you", 100, now=now))
-        self.assertEqual((self.posts, self.closed), (["Needs you · seat"], []))
+        self.assertEqual((self.posts, self.closed), (["🙋 Needs you · seat"], []))
 
     def test_it_reads_answered_once_the_seat_works_again(self):
         self.says("needs you", 100, now=160)
