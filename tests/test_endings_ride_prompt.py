@@ -82,6 +82,14 @@ class EndingsRidePrompt(Sandbox):
         self.assertTrue(record.read_state(live)["live_notified"])
         self.assertEqual(self.hook(), "")
 
+    def test_a_change_gone_live_whose_record_is_being_written_stays_the_ticks(self):
+        config.plan_path(SEAT).write_text(OPEN)
+        live = self.ended("fix-parser", owner=SEAT, merged=True, live_at=9995, pr=PR)
+        # a seat's rename writes it under this lock alone, from the record it read before
+        with record.recovery_lock(live):
+            self.assertEqual(self.hook(), "")
+        self.assertNotIn("live_notified", record.read_state(live))
+
     def test_a_change_gone_live_for_a_seat_owing_nothing_is_the_ticks_to_record(self):
         live = self.ended("fix-parser", owner=SEAT, merged=True, live_at=9995, pr=PR)
         self.assertEqual(self.hook(), "")

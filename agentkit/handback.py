@@ -1419,8 +1419,8 @@ def riding(session):
     its next turn first -- the owner's message, or another line typed -- and find them out by
     itself; the line typed after that turn was old news, one turn each (19 Oct: 40 minutes
     late, and a seat fed 30 endings a turn at a time).  So every one still waiting for this
-    seat goes with the prompt that does start one, and is told for good.  A run whose lock is
-    held is being typed this moment, perhaps as this very prompt, and a line waiting in the
+    seat goes with the prompt that does start one, and is told for good.  A run whose locks are
+    held is being typed or written this moment, perhaps as this very prompt, and a line in the
     composer for its Enter is the typed path's: both are left to it.  The prompt never waits:
     a held lock is passed over, and its checkout goes with the sweep, never here.
     """
@@ -1432,8 +1432,11 @@ def riding(session):
                                   or state.get("live_at") and not state.get("live_notified"))
                     or transitions.launched_session(state, resolved) != session):
                 continue
-            with delivery_lock(run_dir, wait=False) as held:
-                said = held and run_record.read_state(run_dir)
+            # both of the run's locks, in `reap`'s order: a write under the recovery lock alone
+            # (a seat's rename) would put the record it read back over these marks
+            with run_record.recovery_lock(run_dir, wait=False) as free, \
+                    delivery_lock(run_dir, wait=False) as held:
+                said = free and held and run_record.read_state(run_dir)
                 if not said or not same_attempt(state, said):
                     continue
                 if _ending_waits(said):
