@@ -3,10 +3,11 @@ its composer to.
 
 Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its composer in that
 editor on the keys its manifest names (`[screen] editor`), and `edit` does what ak asked of the
-pane just before (`request`, a pane option the edit clears): `line` keeps whatever the composer
-holds in a tmux buffer of the pane's (`kept`) and hands back ak's line alone; `back` hands the
-kept text back into a composer holding none of the owner's text or ak's.  No text is ever
-dropped: a second `line` adds to what is kept, and what cannot be kept stays where it is.
+pane just before (`request`, a pane option the edit takes, and sets to DONE once it has done it
+while ak still waits): `line` keeps whatever the composer holds in a tmux buffer of the pane's
+(`kept`) and hands back ak's line alone; `back` hands the kept text back into a composer holding
+none of the owner's text or ak's.  No text is ever dropped: a second `line` adds to what is
+kept, and what cannot be kept stays where it is.
 Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
 `host`, which imports nothing itself, as it starts on every edit the owner opens.
 """
@@ -22,6 +23,7 @@ EDITOR = Path(__file__).resolve().parent.parent / "tools" / "aside-editor"
 OWNER = "AK_OWNER_EDITOR"       # the owner's own editor, as the seat's launch found it
 ASK = "@ak_aside"
 FRESH = 10                      # an ask older than this was not for the edit now opened
+DONE = "done"                   # an ask over: done by the edit, or given up by ak before it was
 
 
 def launch_env(environ):
@@ -80,6 +82,12 @@ def _tmux(*args, data=None):
     return proc.stdout if proc.returncode == 0 else None
 
 
+def _done(pane):
+    """Whether this edit ends the ask it took, which ak then reads as done (`watch._edit`): ak
+    ends one it gave up on itself, and the first to end it decides."""
+    return _tmux("set-option", "-o", "-p", "-t", pane, ASK, DONE) is not None
+
+
 def edit(argv):
     """The editor's body: the file the harness hands it is its last argument."""
     pane = os.environ.get("TMUX_PANE", "")
@@ -103,8 +111,9 @@ def edit(argv):
         if mode == b"line" and (not text or held is not None and _tmux(
                 "load-buffer", "-b", name, "-",
                 data=b"\n".join(part for part in (held, text) if part)) is not None):
-            path.write_bytes(line)
-        elif mode == b"back" and held and not text.strip():
+            # kept, so it leaves the composer even once ak's line is too late to go in
+            path.write_bytes(line if _done(pane) else b"")
+        elif mode == b"back" and held and not text.strip() and _done(pane):
             path.write_bytes(held + text)
             _tmux("delete-buffer", "-b", name)
         return 0

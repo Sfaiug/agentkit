@@ -34,7 +34,7 @@ class AsideEditor(unittest.TestCase):
         self.root = Path(tmp.name)
         self.composer = self.root / "composer.md"
         self.options, self.buffers, self.opened = {}, {}, []
-        self.unreadable = False
+        self.unreadable, self.given_up = False, False
         for name, fake in (("_tmux", self.tmux),
                            ("execvp", lambda *argv: self.opened.append(argv))):
             patcher = patch.object(aside_editor if name == "_tmux" else aside_editor.os, name,
@@ -43,9 +43,18 @@ class AsideEditor(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def tmux(self, *args, data=None):
-        """The pane's option, read and cleared at once, and its buffers."""
+        """The pane's option, read and cleared at once and set only where unset, and its
+        buffers."""
         if args[0] == "show-options":
-            return self.options.pop(args[args.index("-t") + 2], "").encode()
+            said = self.options.pop(aside_editor.ASK, "").encode()
+            if self.given_up:           # ak gives up on the ask while the edit is at it
+                self.options[aside_editor.ASK], self.given_up = aside_editor.DONE, False
+            return said
+        if args[0] == "set-option":
+            if args[-2] in self.options:
+                return None
+            self.options[args[-2]] = args[-1]
+            return b""
         if args[0] == "list-buffers":
             return "".join(f"{name}\n" for name in self.buffers).encode()
         name = args[args.index("-b") + 1]
@@ -86,6 +95,13 @@ class AsideEditor(unittest.TestCase):
         self.assertEqual(self.edit("then this", aside_editor.request("line", "go on")),
                          "then this")
         self.assertEqual(self.buffers, {aside_editor.kept(PANE): b"and add these posts"})
+        self.assertNotIn(aside_editor.ASK, self.options)   # not done: ak's line goes in later
+
+    def test_a_line_ak_gave_up_on_stays_out_and_the_text_kept_leaves_the_composer(self):
+        self.given_up = True
+        self.assertEqual(self.edit("and add these posts", aside_editor.request("line", "go on")),
+                         "")
+        self.assertEqual(self.edit("", aside_editor.request("back")), "and add these posts")
 
     def test_without_a_fresh_ask_it_opens_the_owners_editor_and_keeps_nothing(self):
         stale = f"line {time.time() - aside_editor.FRESH - 5:.0f} go on"

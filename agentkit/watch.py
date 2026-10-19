@@ -3139,11 +3139,14 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", editor=No
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
     None means unread input deferred this line before any receipt or key was written.
-    `editor` (`seat_editor`) puts it in through ak's editor, in place of what the composer held.
+    Where the seat has ak's editor (`editor`, or `seat_editor` read here), the line goes in
+    through it, in place of what the composer held: a harness acts on its keys in order, so no
+    sender's line lands on the owner's text on its way back.
     """
     if pane_unread(session):
         return None
     name = session["name"]
+    editor = editor or seat_editor(session)
     record = config.session_records().get(name, {})
     plugin = orch.seat_plugin(record)
     cwd = record.get("cwd")
@@ -3209,7 +3212,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     never sent. None means unread input deferred the line before its text went in. The tty
     check gates new text, never the Enter completing it: withholding that Enter would leave
     a draft the caller cannot recover, or let a retry append the same text to itself.
-    `editor` (`seat_editor`) puts the text in through ak's editor.
+    `editor` is the pane `seat_editor` read, for `_send_line`.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -3643,8 +3646,9 @@ def seat_editor(session, cfg=None):
 
 def _edit(session, where, mode, line=""):
     """Ask ak's editor for `line` or `back` (`aside_editor.request`) and press the keys that open
-    it: True once it took the ask, which it carries out.  One not taken within SENT_WAIT, inside
-    its FRESH, is taken back in the call that reads it: False, unless the editor took it first."""
+    it: True once the editor did it (`aside_editor.DONE`).  One not done within SENT_WAIT, inside
+    its FRESH, is given up in the call that reads it: False, unless the editor was done first --
+    an editor still at it then hands back no line, and one that failed left the composer as is."""
     server, pane = orch.seat_socket(session), where["id"]
     rc, _ = orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
                           orch.tmux_literal(aside_editor.request(mode, line)), socket=server)
@@ -3654,12 +3658,13 @@ def _edit(session, where, mode, line=""):
         for _ in range(int(SENT_WAIT / SENT_POLL)):
             rc, out = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
                                     socket=server)
-            if rc == 0 and not out:
-                return True
+            if rc == 0 and out == aside_editor.DONE:
+                break
             time.sleep(SENT_POLL)
     rc, out = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK, ";",
-                            "set-option", "-pu", "-t", pane, aside_editor.ASK, socket=server)
-    return rc == 0 and not out
+                            "set-option", "-p", "-t", pane, aside_editor.ASK, aside_editor.DONE,
+                            socket=server)
+    return rc == 0 and out == aside_editor.DONE
 
 
 def draft_standing(session, where, cfg=None):

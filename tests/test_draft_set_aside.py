@@ -24,6 +24,7 @@ class DraftSetAside(Seats):
         super().setUp()
         self.keys, self.sent, self.buffers, self.ask, self.handed = [], [], {}, None, None
         self.deaf, self.slow, self.late_draw, self.launched = False, False, False, True
+        self.broken = False
         self.tty = self.root / "tty"
         self.tty.write_text("")
         self.untouched(watch.DRAFT_STILL)
@@ -46,14 +47,16 @@ class DraftSetAside(Seats):
     def tmux(self, *args, **kwargs):
         """The seat's server: its pane, the ask on it, its buffers, and its harness's keys."""
         command = args[0]
+        if ";" in args:                 # one call, its commands in turn
+            rc, out = self.tmux(*args[:args.index(";")])
+            return (rc, out) if rc else (self.tmux(*args[args.index(";") + 1:])[0], out)
         if command == "display-message" and args[-1].startswith("#{pane_id}"):
             return 0, f"{PANE}\t4242\t{self.tty}"
         if command == "show-options":
-            said = self.ask or ""
-            if ";" in args:             # read and taken back at once
-                self.ask = None
-            return 0, said
+            return 0, self.ask or ""
         if command == "set-option":
+            if "-o" in args and self.ask is not None:
+                return 1, f"already set: {aside_editor.ASK}"
             self.ask = None if "-pu" in args else args[-1]
         elif command == "list-buffers":
             return 0, "\n".join(self.buffers)
@@ -61,9 +64,12 @@ class DraftSetAside(Seats):
             return 0, f"{PANE}\t{SEAT}"
         elif command == "delete-buffer":
             self.buffers.pop(args[-1], None)
-        elif command == "send-keys" and "-l" not in args:
+        elif command == "send-keys":
             for key in args[args.index("-t") + 2:]:
-                self.press(key)
+                if key != "-l":
+                    self.press(key)
+            if "-l" in args:
+                self.typed.append(args[-1])
         else:
             return super().tmux(*args, **kwargs)
         return 0, ""
@@ -74,7 +80,9 @@ class DraftSetAside(Seats):
         if self.handed is not None:
             self.show(self.handed)
             self.handed = None
-        if key == "C-g" and not self.deaf:
+        if key == "C-g":
+            if self.deaf:
+                return
             path = self.root / "composer.md"
             path.write_text(self.composer)
             with patch.dict(os.environ, {"TMUX_PANE": PANE}):
@@ -83,27 +91,41 @@ class DraftSetAside(Seats):
                 self.handed, self.late_draw = path.read_text(), False
             else:
                 self.show(path.read_text())
-        elif key == "Enter" and self.composer and not self.slow:
-            self.sent.append(self.composer)
-            self.show("")
+        elif key == "Enter":
+            if self.composer and not self.slow:
+                self.sent.append(self.composer)
+                self.show("")
+        else:                           # text typed as it stands
+            self.show(self.composer + key)
 
     def editor_tmux(self, *args, data=None):
         """tmux as ak's editor asks it, in the pane it runs in."""
-        if args[0] == "show-options":
-            said, self.ask = self.ask, None
-            return f"{said}\n".encode() if said else b""
         if args[0] == "save-buffer":
             return self.buffers.get(args[-2])
         if args[0] == "load-buffer":
+            if self.broken:
+                return None
             self.buffers[args[-2]] = data
             return b""
-        return self.tmux(*args)[1].encode()
+        rc, out = self.tmux(*args)
+        return None if rc else out.encode()
 
     def test_text_left_standing_is_set_aside_for_the_line_and_comes_back(self):
         self.wait_line()
         self.tick()
         self.assertEqual((self.keys, self.sent), (["C-g", "Enter", "C-g"], [LINE]))
-        self.assertEqual((self.composer, self.buffers, self.ask), (DRAFT, {}, None))
+        self.assertEqual((self.composer, self.buffers, self.ask), (DRAFT, {}, aside_editor.DONE))
+        self.assertTrue(self.told())
+
+    def test_text_tmux_fails_to_keep_holds_the_line_back_until_it_can(self):
+        self.wait_line()
+        self.broken = True
+        self.tick()
+        # never told it went in: no receipt, and the owner's text where it stood
+        self.assertEqual((self.composer, self.sent, self.receipts()), (DRAFT, [], []))
+        self.broken = False
+        self.tick()
+        self.assertEqual((self.sent, self.composer, self.buffers), ([LINE], DRAFT, {}))
         self.assertTrue(self.told())
 
     def test_a_line_typed_while_the_owners_text_is_on_its_way_back_goes_in_alone(self):
@@ -117,6 +139,16 @@ class DraftSetAside(Seats):
         self.assertEqual((self.keys, self.typed), (["C-g", "C-g", "Enter", "C-g"], []))
         self.assertEqual((self.sent, self.composer, self.buffers), ([LINE], DRAFT, {}))
         self.assertTrue(self.told())
+
+    def test_every_line_of_aks_goes_in_through_the_editor(self):
+        # the stall pass's `continue`, typed while the owner's text is on its way back
+        self.buffers, self.late_draw = {aside_editor.kept(PANE): DRAFT.encode()}, True
+        self.show("")
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.assertTrue(watch.type_into(self.seat, watch.CONTINUE_LINE, lambda _: None))
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.assertEqual((self.typed, self.sent, self.composer, self.buffers),
+                         ([], [watch.CONTINUE_LINE], DRAFT, {}))
 
     def test_a_line_its_seat_takes_late_is_told_once_the_owners_text_is_back(self):
         self.late(DRAFT)
@@ -193,7 +225,8 @@ class DraftSetAside(Seats):
         self.tick()
         watch.drafts_back(self.cfg, lambda _: None)
         # no ask left for the owner's own Ctrl-G to take, nor a receipt of a line never typed
-        self.assertEqual((self.keys, self.ask, self.receipts()), (["C-g", "C-g"], None, []))
+        self.assertEqual((self.keys, self.ask, self.receipts()),
+                         (["C-g", "C-g"], aside_editor.DONE, []))
         self.assertEqual(self.buffers, {aside_editor.kept(PANE): DRAFT.encode()})
         self.deaf = False
         self.tick()
