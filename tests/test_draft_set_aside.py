@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fixtures.seats import LINE, NOW, SEAT, Seats
+from fixtures.seats import LINE, NOW, REPO, SEAT, Seats
 from agentkit import aside_editor, watch
 
 DRAFT = "and add these posts"
@@ -110,6 +110,24 @@ class DraftSetAside(Seats):
             self.wait_line()
             self.tick()
         self.assertEqual((self.sent, self.composer), ([LINE], DRAFT))
+        self.assertTrue(self.told())
+
+    def test_text_taller_than_the_screen_read_is_set_aside_too(self):
+        # Codex's rule finds a draft whose prompt row is above the read (`draft.rows`)
+        prompt, tall = ((REPO / f"tests/fixtures/codex-{name}-pane.txt").read_text()
+                        for name in ("prompt", "tall-line"))
+        draft = tall[tall.index("› ") + 2:tall.index("\n\n  GPT-")].replace("\n  ", "\n")
+
+        def show():
+            self.pane = prompt.replace("› Ask Codex to do anything",
+                                       "› " + self.composer.replace("\n", "\n  "))
+            self.pane, self.free = (self.pane, False) if self.composer else (prompt, True)
+        self.show, self.composer = show, draft
+        show()
+        with patch.object(watch, "seat_model", return_value=("codex", "openai")):
+            self.wait_line()
+            self.tick()
+        self.assertEqual((self.sent, self.composer), ([LINE], draft))
         self.assertTrue(self.told())
 
     def test_a_line_its_seat_takes_late_is_told_once_the_owners_text_is_back(self):

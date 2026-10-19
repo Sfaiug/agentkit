@@ -3666,9 +3666,12 @@ def draft_standing(session, cfg=None):
             return False
         pane = pane_text(session)
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
+        # text read in the composer, or, where none is found, a draft its harness's rule found:
+        # a composer taller than the read; never a screen with no composer on it
+        draft = composer_draft(harness, pane)
         if not (found.get("authority") and found.get("state") in ("at_prompt", "draft")
                 and _composer_open(harness, found) and not asking(name, harness, pane)
-                and composer_draft(harness, pane)):
+                and (draft or draft is None and found.get("state") == "draft")):
             return False
         where = _pane(session)
         still = time.time() - os.stat(where["tty"]).st_atime >= DRAFT_STILL
