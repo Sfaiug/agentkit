@@ -38,6 +38,16 @@ class BillingFailure(grok.GrokSandbox):
                 self.assertEqual(kept["fetched_at"], cached["fetched_at"])
                 self.assertEqual(kept["probe_error"], error)
 
+    def test_an_unfinished_transfer_is_a_failed_ask(self):
+        # curl exits 18 on a body cut short, though the status it read was 200
+        (self.bin / "curl").write_text("#!/bin/sh\nprintf '{\"config\":\\n200'\nexit 18\n")
+        shutil.copy(grok.FIX / "grok-settings-none.json",
+                    self.grok_home / "settings_cache.json")
+        proc = self.adapter("usage")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"provider": "xai", "meters": [], "error":
+                         "unknown: HTTP 000 from cli-chat-proxy.grok.com/v1/billing"})
+
     def test_settings_meters_answer_before_the_billing_error(self):
         cache = grok.FIX / "grok-settings-meters.json"
         shutil.copy(cache, self.grok_home / "settings_cache.json")

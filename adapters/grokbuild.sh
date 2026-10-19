@@ -197,8 +197,9 @@ usage)
   # fallback when the period itself did not parse.  The body is protobuf JSON, which leaves
   # a zero out: a currentPeriod with no creditUsagePercent is a window nothing has used yet
   # (captured 29 Sep, the morning a weekly window began), so it reads 0.  Spend without a
-  # currentPeriod or a percent is not a meter and falls through.  Other HTTP codes also
-  # try the cache before failing, except 401/403: an expired login fails at once.
+  # currentPeriod or a percent is not a meter and falls through.  Other HTTP codes, and a
+  # transfer curl did not finish (000, whatever status it read), also try the cache before
+  # failing, except 401/403: an expired login fails at once.
   # An XAI_API_KEY alone never probes: it is not the session this endpoint authenticates.
   code=""
   if command -v curl >/dev/null && command -v jq >/dev/null; then
@@ -210,7 +211,8 @@ usage)
         bill() {
           printf 'Authorization: Bearer %s\n' "$key" >"$tmpd/hdr"
           body=$(curl -s -m 10 -w $'\n%{http_code}' \
-            "https://cli-chat-proxy.grok.com/v1/billing?format=credits" -H @"$tmpd/hdr" 2>/dev/null)
+            "https://cli-chat-proxy.grok.com/v1/billing?format=credits" -H @"$tmpd/hdr" 2>/dev/null) ||
+            body=$'\n000'
           rm -f -- "$tmpd/hdr"
           code=${body##*$'\n'}; body=${body%$'\n'*}
         }
