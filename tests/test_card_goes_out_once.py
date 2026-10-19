@@ -1,5 +1,6 @@
 """A card goes out once at most.  A question over before Discord took its card never goes out
-late: answered, the seat moved on, or the seat gone.  One that stands goes out late once.
+late: answered, cleared, the seat moved on, or the seat gone, though its card was queued and
+never marked sent.  One that stands goes out late once; one asked after a cleared one has its own.
 
 Offline: temporary seat state and a local webhook.
 """
@@ -92,6 +93,34 @@ class CardGoesOutOnce(Sandbox):
         self.asked_while_discord_was_down()
         self.word = {"word": "working", "reason": "", "since": self.now}
         self.assertEqual(self.late(), [503])
+
+    def test_a_card_queued_and_never_marked_sent_never_goes_out_late(self):
+        """`_send_card` queues the event, then marks the card sent: stopped between the two."""
+        write = notify._card_write
+
+        def interrupted(session, card):
+            if card.get("sent"):
+                raise OSError("interrupted")
+            write(session, card)
+
+        self.now, self.word = 10000 + notify.CARD_WAIT, {"word": "needs you", "reason": "", "since": 10000}
+        with patch.object(notify, "_card_write", side_effect=interrupted):
+            self.assertEqual(notify.transition(SEAT, log=lambda _line: None), 1)
+        self.now += 100000
+        self.word = {"word": "working", "reason": "", "since": self.now}
+        self.assertEqual(self.late(), [])
+
+    def test_a_question_asked_after_a_cleared_one_has_its_own_card(self):
+        notify.record(SEAT, "needs", "Which branch?", time=10000)
+        self.asked_while_discord_was_down()
+        notify.clear(SEAT)
+        notify.shaped("needs", "Which schema?", session=SEAT)
+        self.assertEqual(self.late(), [503])
+        self.now += 1000
+        self.assertEqual(self.late(), [503, 200])
+        cards = sorted((notify._read_event(path.stem) for path in notify.outbox().glob("*.json")),
+                       key=lambda card: card["created_at"])
+        self.assertEqual([card["status"] for card in cards], ["disabled", "delivered"])
 
     def test_a_gone_seats_question_never_goes_out_late(self):
         self.asked_while_discord_was_down()

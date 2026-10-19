@@ -722,7 +722,12 @@ def clear(session, *, notice=None):
         if notice is not None and (previous["kind"] != "needs" or previous["text"] != notice):
             return
         if previous["kind"] == "needs":
-            _retire(_card_read(session))
+            # its episode ends here, as an answer's does, so a question asked before the next
+            # tick gets a card of its own (`needs_transition`)
+            card = _card_read(session)
+            _retire(card)
+            if card.get("word") == "needs you":
+                _card_write(session, {**card, "answered_at": time.time()})
         close_needs(previous, "Answered")
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text",
@@ -1036,8 +1041,9 @@ def _card_key(episode):
 def _retire(card):
     """A question's episode ends: its card, if Discord has not taken it yet, never goes out.
     Called under the seat's lock, which a retry takes too, so a late card goes out only while
-    its question stands."""
-    if card.get("word") != "needs you" or not card.get("sent"):
+    its question stands.  An unsent card is looked up too: `_send_card` queues its event before
+    it marks the card sent."""
+    if card.get("word") != "needs you":
         return
     with outbox_lock():
         event = _read_event(_card_key(card["episode"]))
