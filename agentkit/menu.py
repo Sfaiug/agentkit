@@ -2879,6 +2879,7 @@ MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
 MODELS_NOTE = ("quality is a model's share of the best on the public boards, out of 100; cost is "
                "what Artificial Analysis's index run cost it, in dollars")
 CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
+SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
 
 def models_table(held):
@@ -2939,12 +2940,14 @@ def _entry(cfg, row, role):
 def models_body(cfg, table, levels, shown, at, picks):
     """The models screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    First the knob, `within` between the arrows that step it (KNOB), then, dim, the best row
-    per role (matrix.tops) and the rows as good as it (`picks`, matrix.recommended), then the
-    recommended row per role, said as the cheapest as good (CHEAPEST), each row with its
-    quality and cost (_entry) under the configured model `r` takes it as, and what quality and
-    cost are.  Under them every
-    model of `table` (models_table) once: its label, the config's name for it or its id, dim
+    First the knob, `within` between the arrows that step it (KNOB), then the three lines that
+    say why (SAID): dim, the best row per role (matrix.tops) and the rows as good as it
+    (`picks`, matrix.recommended), then the recommended row per role, said as the cheapest as
+    good (CHEAPEST), each row with its quality and cost (_entry) under the configured model `r`
+    takes it as; each line a row the highlight rests on and nothing more, so a short screen,
+    where they wrap to more lines than its page holds, shows each in turn.  Then, dim, what
+    quality and cost are, and under them every model of `table` (models_table) once: its
+    label, the config's name for it or its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
@@ -2964,7 +2967,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
            for role, rows in picks.items()}
     tops = matrix.tops([row for rows in table.values() for row in rows.values()])
-    said = {"best": [], "as good": [], "recommended": []}
+    said = {word: [] for word in SAID}
     for number, role in enumerate(matrix.ROLES):
         rows, head = picks.get(role) or [], orch.ROLE_HEADS[number]
         if role in tops:
@@ -2978,10 +2981,11 @@ def models_body(cfg, table, levels, shown, at, picks):
     for word, parts in said.items():
         text = (CHEAPEST if word == "recommended" and parts else "") + (" · ".join(parts) or "none")
         for number, part in enumerate(terminal.wrap(text, room - 2 - wide - 2)):
-            lines.append(terminal.table_row([word if number == 0 else "", part],
-                                            [wide, room - 2 - wide - 2], indent="  ",
-                                            kinds=("dim", None if word == "recommended"
-                                                   else "dim")))
+            places[len(lines)] = (("said", word), [])
+            line = terminal.table_row([word if number == 0 else "", part],
+                                      [wide, room - 2 - wide - 2], indent="  ",
+                                      kinds=("dim", None if word == "recommended" else "dim"))
+            lines.append(terminal.highlight(line, number == 0) if at == ("said", word) else line)
     lines.extend(terminal.styled("  " + part, "dim")
                  for part in terminal.wrap(MODELS_NOTE, room - 2))
     lines.append("")
@@ -3044,7 +3048,8 @@ def models_screen(cfg, session, selected, providers, held):
     matrix.stored) has a row for, against the public boards, read with the matrix's keys
     until Esc (models_body).
 
-    ↑/↓, k/j and the wheel move between the knob and the models.  ←/→ on the knob step
+    ↑/↓, k/j and the wheel move between the knob, the three lines that say why (SAID, rows
+    read with no action) and the models.  ←/→ on the knob step
     `within`, saved to config.toml at once, and the recommendation follows; on a model they
     step the effort its row shows, through its own efforts (models_levels), the numbers and
     the cost following, nothing saved: the effort a model runs at is set on `c`.  `r` takes
@@ -3054,13 +3059,14 @@ def models_screen(cfg, session, selected, providers, held):
     table = models_table(held)
     levels = {key: models_levels(cfg, key, rows) for key, rows in table.items()}
     shown = {key: models_shown(cfg, key, rows, levels[key]) for key, rows in table.items()}
-    rows = [KNOB, *(("model", *key) for key in table)]
-    here, top, note, title = rows[1] if len(rows) > 1 else KNOB, 0, "", f"models · {session}"
+    models = [("model", *key) for key in table]
+    rows = [KNOB, *(("said", word) for word in SAID), *models]
+    here, top, note, title = models[0] if models else KNOB, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
         picks = matrix.recommended(held.get("rows") or [], matrix.within(cfg))
-        where = ("knob" if here == KNOB else "effort" if len(levels[here[1:]]) > 1
-                 else "still")
+        where = ("knob" if here == KNOB else "effort"
+                 if here[0] == "model" and len(levels[here[1:]]) > 1 else "still")
         keys = (MODELS_KEYS[where][0 if terminal.utf8() else 1]
                 + f"   {MODELS_TAKE}   esc back")
         body, places = models_body(cfg, table, levels, shown,
@@ -3078,7 +3084,7 @@ def models_screen(cfg, session, selected, providers, held):
             step = 1 if act in ("right", "more") else -1
             if here == KNOB:
                 note = config_within(cfg, step)
-            else:
+            elif here[0] == "model":
                 taken, key = levels[here[1:]], here[1:]
                 at = taken.index(shown[key]) if shown[key] in taken else -1
                 if taken:

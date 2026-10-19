@@ -338,8 +338,10 @@ one effort), its quality per role at that effort out of 100 -- the recommended r
 `done`'s colour, one as good in the accent, `-` without a score -- and what Artificial
 Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
 column gives way, then the cost, then the label is cut: a 40-cell phone shows the model, its
-effort and its three numbers. ↑/↓, k/j and the wheel move between the knob and
-the models; ←/→ on a model step the effort its row shows through its own efforts (the
+effort and its three numbers. ↑/↓, k/j and the wheel move between the knob, the three lines
+that say why (each a row read with no action, so a short screen, where they wrap to more
+lines than its page holds, shows each in turn) and the models; ←/→ on a model step the
+effort its row shows through its own efforts (the
 catalog's, and any the boards or the config have it at), the numbers and the cost following,
 nothing saved: the effort a model runs at is set on `c`. `r`, or a click on `r take
 recommended`, takes the recommendation: the seat's executors and reviewers become the
