@@ -193,12 +193,22 @@ def highlighted(lines):
     return next(line for line in lines if line.startswith("›"))
 
 
+def headings(lines):
+    """Where the column headings are: under the meters, over the models."""
+    return next(number for number, line in enumerate(lines) if line.split()[-1:] == ["effort"])
+
+
 class Matrix(unittest.TestCase):
     def test_the_screen_is_the_models_under_their_providers_then_four_rows(self):
         screen = Screen(self)
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config · fix-api "), lines[0])
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
+        # each subscription's meter over the models, as on the main screen, once
+        meters = " ".join(" ".join(lines[2:headings(lines)]).split())
+        for name in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
+            self.assertEqual(meters.count(f"{name} — no reading yet"), 1, meters)
+        self.assertEqual(lines[headings(lines) - 1], "")
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
@@ -227,7 +237,7 @@ class Matrix(unittest.TestCase):
         before = screen.path.read_bytes()
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
-        self.assertEqual(lines[2].split(), ["effort"])
+        self.assertEqual(lines[headings(lines)].split(), ["effort"])
         self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "▰▰▰▰▱", "xhigh"])
         self.assertEqual(lines[-1], EFFORT_KEYS)          # the effort is the first cell
         self.assertFalse(any(mark in line for line in lines for mark in "●○■□"), lines)
@@ -380,7 +390,8 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         # past every model, `+ add a model` and Providers
-        models = lines[3:next(n for n, line in enumerate(lines) if "+ add a model" in line)]
+        models = lines[headings(lines) + 1:next(n for n, line in enumerate(lines)
+                                                if "+ add a model" in line)]
         down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
@@ -405,7 +416,7 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
         # what a key could not do has lines of its own, however little room the rows leave
         lines = screen.press(DOWN + RIGHT + RIGHT + ENTER,
                              lambda lines: "at least one model reviews" in "\n".join(lines))
@@ -419,6 +430,19 @@ class Matrix(unittest.TestCase):
         self.assertEqual(highlighted(lines), "› + add a model")
         self.assertLessEqual(len(lines), 23)
         screen.leave()
+
+    def test_a_short_screen_leads_its_page_with_the_meters_so_the_model_s_line_has_room(self):
+        # over the page, six meters on 40 by 12 would leave none for the highlighted model's line,
+        # and on 40 by 16, with that line under the page, fewer than LEAST rows
+        for rows in (12, 16):
+            screen = Screen(self, workers=["opus"], rows=rows, cols=40)
+            lines = screen.frame()
+            self.assertLessEqual(len(lines), rows, lines)
+            self.assertTrue(highlighted(lines).startswith("› fable"), lines)
+            self.assertTrue(any(line.startswith("    fable runs on ") for line in lines), lines)
+            self.assertTrue(lines[-1].endswith("esc back"), lines)
+            screen.leave()
+        self.assertIn("Claude", lines)                    # the provider over the highlight
 
 
 if __name__ == "__main__":

@@ -241,7 +241,7 @@ class Screens(Sandbox):
         self.assertEqual({text: at(last, text) for text in rows}, rows)
         # on a screen too short for them all, a click where the pointer found the last model
         # opens it, the page as it was
-        self.stack.enter_context(patch.object(terminal, "height", return_value=22))
+        self.stack.enter_context(patch.object(terminal, "height", return_value=26))
         first = self.matrix()[0]
         label = at(first, names[-1])
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()
@@ -263,6 +263,16 @@ class Screens(Sandbox):
             self.assertIn(f"{name} {menu.model_said(self.cfg, name)[0][0]}",
                           [text.strip() for text in texts(last)])
             self.assertEqual({text: at(last, text) for text in shown}, rows)
+
+    def test_on_a_short_screen_the_meters_stay_over_every_page(self):
+        self.stack.enter_context(patch.object(terminal, "height", return_value=19))
+        first, names = self.matrix()[0], menu.config_models(self.cfg)
+        heads = next(row for row, text in enumerate(texts(first)) if text.split()[-1:] == ["effort"])
+        last = self.matrix(DOWN * (len(names) - 1) + ESC)[-1]
+        self.assertIn(names[-1], highlighted(last)[0])
+        self.assertNotIn(names[0], "\n".join(texts(last)))
+        self.assertGreater(heads, 3)
+        self.assertEqual(texts(last)[2:heads], texts(first)[2:heads])
 
     def test_moves_sent_while_the_rule_glides_are_one_draw(self):
         checkout = self.root / "code" / "ACME"

@@ -206,7 +206,7 @@ class RoleMarksScreen(unittest.TestCase):
         screen = ConfigScreen(self, workers=["opus"], cols=40, rows=24)
         lines = screen.frame()
         number, line = row(lines, "astra")
-        first = lines[2].index("review") + 1
+        first = next(line for line in lines if line.split()[-1:] == ["effort"]).index("review") + 1
         lines = screen.click(first, number,
                              lambda lines: marks(row(lines, "astra")[1]) == "○□■")
         self.assertEqual(screen.record()["reviewers"], ["opus", "astra"])

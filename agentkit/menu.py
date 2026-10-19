@@ -3440,6 +3440,23 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
+def config_meters(cfg):
+    """The lines over the `c` screen's page: each subscription's meter as the main screen draws
+    them (`usage_lines`), a blank line under them, on every page; none without a grid."""
+    meters = usage_lines(cfg, terminal.layout_width())
+    return [*meters, ""] if meters else []
+
+
+def meters_led(over, body, places, under, keys, moves=()):
+    """`over`, `body`, `places` and `moves` as the `c` screen draws its page with `under` under
+    it: the meters (config_meters) over the page while they leave it LEAST rows, else its first
+    lines, which scroll with it, so a short screen keeps its room for what is under the page."""
+    if matrix_page([], {}, None, 0, under, keys, over)[1] >= LEAST:
+        return over, body, places, list(moves)
+    return [], [*over, *body], {line + len(over): place for line, place in places.items()}, [
+        (line + len(over), *rest) for line, *rest in moves]
+
+
 def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
     """The `c` screen's line for the highlighted model, `at` (`model_said`: `providers` read for
     why it is spent, `found` for what it is recommended for), a blank line over it: its parts
@@ -3465,12 +3482,12 @@ def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
                                          for part in (shown + [""] * tallest)[:tallest]]
 
 
-def matrix_page(body, places, here, top, under, keys):
-    """The page of a matrix screen's rows that fits over `under`, lines of its own below the
-    rows, and its key line: (top, room), the first line of `body` shown and how many are.  `top`
-    stays where it was while `here`'s lines are on the page, else moves the least that brings
-    them on, and never past the last page."""
-    room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under))
+def matrix_page(body, places, here, top, under, keys, over=()):
+    """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
+    own above and below the rows, and its key line: (top, room), the first line of `body` shown
+    and how many are.  `top` stays where it was while `here`'s lines are on the page, else
+    moves the least that brings them on, and never past the last page."""
+    room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     return max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room)), room
 
@@ -3482,14 +3499,15 @@ def note_lines(note):
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None, clock=None, moves=(), under=()):
+               fetched=None, clock=None, moves=(), under=(), over=()):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
     through, and on a row cells, one a column.  `places` is {line: (row, cells)}, each cell
     (first, last, column) counted from 1 as the terminal counts.  On a screen too short for
-    every row the part the highlight is on is shown, and `under`, then `note`, have lines of
-    their own under it, whatever the height; `moves` counts `under`'s on after `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
+    every row the part the highlight is on is shown, `over` has lines of its own above it and
+    `under`, then `note`, under it, whatever the height; `moves` counts `under`'s on after
+    `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
     no cell was clicked; a cell that only explains is none.  The pointer does the same and acts
@@ -3503,13 +3521,14 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
     said = note_lines(note)
-    top, room = matrix_page(body, places, here, top, [*under, *said], keys)
-    shown = body[top:top + room]
-    spots = terminal.frame(title, shown + [*under, *said], keys, places={
-        line - top: place for line, place in places.items() if top <= line < top + room},
-        drawn=clock and (lambda: clock.drawn(moves, lambda line: 3 + line - top
+    top, room = matrix_page(body, places, here, top, [*under, *said], keys, over)
+    shown, first = body[top:top + room], 3 + len(over)     # the screen row of the page's first
+    spots = terminal.frame(title, [*over, *shown, *under, *said], keys, places={
+        len(over) + line - top: place for line, place in places.items()
+        if top <= line < top + room},
+        drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line - top
                                              if top <= line < top + room else
-                                             3 + len(shown) + line - len(body)
+                                             first + len(shown) + line - len(body)
                                              if line >= len(body) else None)))
     began = fetched and fetched()
     if began is not None:     # on the screen's own clock, so what else moves goes on with it
@@ -3547,7 +3566,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 @terminal.clicks_its_own
 def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note=""):
-    """The `c` screen read with the keys until Esc; the config as it left it.
+    """The `c` screen read with the keys until Esc; the config as it left it, each
+    subscription's meter over its page (config_meters).
 
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
     a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
@@ -3600,6 +3620,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         # on a short screen the note keeps its lines and the page a row; the model's line the rest
         fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys)[1] - 1
         said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
+        over, body, places, moves = meters_led(config_meters(cfg), body, places,
+                                               [*said, *note_lines(note or standing)], keys, moves)
         # coming up as the highlight comes to a model (`motion.fading`)
         opened = here[1] if any(map(terminal.plain, said)) else None
         moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))
@@ -3607,7 +3629,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             note or standing, keys, marks=3,
-                                            clock=clock, moves=moves, under=said)
+                                            clock=clock, moves=moves, under=said, over=over)
         column = column if clicked is None else clicked
         if here == PROVIDERS != was and clicked is None:
             # the one cell leads to `+ add`, as the first mark does, and no move onto the row
@@ -4320,7 +4342,8 @@ def show_config(dry_run=False, keyboard=None, session=None):
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
-                       config_body(cfg, version, selected=selected, providers=providers)[0],
+                       [*config_meters(cfg),
+                        *config_body(cfg, version, selected=selected, providers=providers)[0]],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
@@ -4332,11 +4355,12 @@ def move_asked(cfg, version, session, selected, providers, here, column, top, ti
     its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
     loses its conversation to a handover, so the mark asks first, as `Remove` does."""
     def around(card):     # the screen around the card, drawn again on a resize
-        body, places = config_body(cfg, version, here, column, selected, providers)
-        first, room = matrix_page(body, places, here, top, card, "esc back")
+        over, body, places, _ = meters_led(config_meters(cfg), *config_body(
+            cfg, version, here, column, selected, providers), card, "esc back")
+        first, room = matrix_page(body, places, here, top, card, "esc back", over)
         shown = body[first:first + room]
-        terminal.frame(title, [*shown, *card], "esc back")
-        return 3 + len(shown)
+        terminal.frame(title, [*over, *shown, *card], "esc back")
+        return 3 + len(over) + len(shown)
     return terminal.confirm(MOVE_ASK[0].format(session, here[1]), MOVE_ASK[1].format(here[1]),
                             "Move", around)
 
