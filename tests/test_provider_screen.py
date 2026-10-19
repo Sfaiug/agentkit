@@ -355,8 +355,9 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, rows=12, cols=40)
         self.assertIn("    fable runs on Claude", screen.frame())
         # ↑ from the first model is the last meter, then along them
-        for keys, name in ((UP, "ChatGPT"), (UP * 3, "Muse"), (UP * 2, "Claude")):
-            lines = screen.press(keys, lambda lines: lines[-1] == KEYS["row"])
+        for count, name in ((1, "ChatGPT"), (3, "Muse"), (2, "Claude")):
+            for _ in range(count):    # a key at a time: a frame drawn between two is no answer
+                lines = screen.press(UP, lambda lines: lines[-1] == KEYS["row"])
             self.assertLessEqual(len(lines), 12, lines)
             self.assertEqual(title(lines), MATRIX)
             self.assertTrue(any(line.startswith(f"  {name} ") and "—" in line
