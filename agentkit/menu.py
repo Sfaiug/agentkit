@@ -2434,7 +2434,8 @@ def hue(kind):
 def usage_rows(cfg):
     """Each usage row `usage_lines` draws, in its order: the provider, the row's label, the
     reading it is drawn from, out of the cached meters, and its account, None for the
-    provider's single row."""
+    provider's single row.  A provider whose table says `mode = "free"` is no subscription
+    and has no row."""
     try:
         providers = json.loads((config.STATE / "usage.json").read_text())["providers"]
         if not isinstance(providers, dict):
@@ -2443,6 +2444,8 @@ def usage_rows(cfg):
         providers = {}
     rows = []
     for name in sorted(cfg["providers"], key=lambda name: hue(colour(cfg, name))):
+        if cfg["providers"][name].get("mode") == "free":
+            continue
         top = providers.get(name)
         top = top if isinstance(top, dict) else {}
         found = top.get("accounts") if isinstance(top.get("accounts"), dict) else {}
