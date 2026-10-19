@@ -347,19 +347,17 @@ Example: `› opus      claude   ‹ xhigh ›   97   97   97   4000`.
 
 ## The new-session screen
 
-`n` opens the new seat's row in its place on the main screen, on the next frame: last under
-the highlighted seat's project, or the highlighted heading's, with a heading of its own where
-none is shown, numbered as the seat will be once made, every row after it numbered on, its
-state `new`. Its name cell holds a caret and, dim until a key, `a name, or ⏎`: letters, digits,
+`n` opens the new seat's row in its place on the main screen, on the next frame, wherever the
+highlight is: last under `no project`, with that heading where none is shown, numbered as the
+seat will be once made, every row after it numbered on, its state `new`. Its name cell holds a caret and, dim until a key, `a name, or ⏎`: letters, digits,
 `-` and `_` type into it, lower case and at most `orch.NAME_CAP` of them, a space as `-`, and
 Backspace takes the last back. The line under it stays open while it is typed, the crew it
-starts with as a seat's crew reads (`menu.crew`): the highlighted seat's executors and
-reviewers, `as in <seat>` dim beside them, or from a heading the last creation's
-`[defaults]`, each with something left to spend (`orch.default_crew`). A taken name, or a crew
+starts with as a seat's crew reads (`menu.crew`): the last creation's `[defaults]`, each
+with something left to spend (`orch.default_crew`). A taken name, or a crew
 no run could start from (`orch.role_refusal`), says why in amber alone on that line, wrapped
 whole on a phone, and Enter makes nothing until it changes. The keys read
-`⏎ start   tab models   esc back`, each clickable. Enter makes the seat, filed under that
-project, and opens it; Esc takes the row back; Tab opens the model picker, which starts from
+`⏎ start   tab models   esc back`, each clickable. Enter makes the seat and opens it, filed
+under a project once its orchestrator or its runs say which; Esc takes the row back; Tab opens the model picker, which starts from
 the row's crew: Enter there starts the seat, Esc goes back to the row. Notices and updates wait
 while the row is open. The popup's `n` makes the same row, and its client switches to the new
 seat.

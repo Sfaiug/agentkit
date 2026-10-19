@@ -381,13 +381,13 @@ class OneConfigScreen(unittest.TestCase):
         self.assertIn("astra", highlighted(lines))
         rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
         self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○■□", "○■■"))
-        # a seat's new seat is as that seat: fix-api's executors and its one reviewer
+        # from a seat too: the last creation's, never that seat's executors and one reviewer
         menu.press(ESC, born)
         menu.press(ESC)
         menu.press(b"j", lambda lines: "fix-api" in highlighted(lines))
         lines = menu.models()
         rows = {line.lstrip("› ").split()[0]: marks(line) for line in lines if marks(line)}
-        self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○□□", "○■□"))
+        self.assertEqual((rows["astra"], rows["fable"], rows["opus"]), ("●■■", "○■□", "○■■"))
         menu.press(ESC, born)                 # Esc on the selectors is back on the row
         menu.press(ESC)
         menu.leave()
