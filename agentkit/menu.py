@@ -2993,7 +2993,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     here = ("said", "quality and cost")
     for number, part in enumerate(terminal.wrap(MODELS_NOTE, room - 2)):
         places[len(lines)] = (here, [])
-        line = terminal.styled("  " + part, "dim")
+        line = "  " + terminal.styled(part, "dim")
         lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
     labels = {key: next(iter(_runs(cfg, *key)), None) or key[1] for key in table}
