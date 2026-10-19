@@ -1,9 +1,9 @@
-"""Another subscription of a provider is added and removed on the `c` screen's Providers row:
-`+ add` lists one more of every provider the config has as the name it will get (`Claude II`),
-logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
-provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
-`− remove` lists each subscription of a provider with several but the usual login, asks with
-`Keep` picked, and takes that one name out of `accounts`, leaving its login files on disk.
+"""Another subscription of a provider is added on the `c` screen and removed from its meter:
+`+ add a provider` lists one more of every provider the config has as the name it will get
+(`Claude II`), logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name
+to the provider's `accounts`, `default` first when it listed none; a login that fails adds
+nothing.  `− remove` on the meter of a subscription but the usual login asks with `Keep` picked,
+and takes that one name out of `accounts`, leaving its login files on disk.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The adapters are
@@ -18,8 +18,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_config_matrix import DOWN, ENTER, RIGHT, Screen
-from test_provider_screen import ADD, KEYS, MATRIX, REMOVE, choices, open_providers, pick, title
+from test_config_matrix import DOWN, ENTER, UP, Screen
+from test_provider_screen import ADD, KEYS, MATRIX, choices, open_add, open_meter, pick, title
 from agentkit import config, menu
 
 FAKE = r"""#!/usr/bin/env bash
@@ -76,14 +76,14 @@ provider = "openai"
 [providers.openai]
 mode = "subscription"
 """
-# What `+ add` lists for either config here: the shipped providers it has not, then one more
+# What `+ add a provider` lists for either config here: the shipped providers it has not, then one more
 # subscription of each it has.
 EVERY = 6
 
 
 def rows(home):
     """The names on the menu's usage grid for the config in `home`, read by the menu's own
-    loader, so a name `+ add` wrote is one the config accepts."""
+    loader, so a name `+ add a provider` wrote is one the config accepts."""
     with tempfile.TemporaryDirectory(prefix="subscription-state-") as state, \
             mock.patch.object(config, "HOME", home / ".agentkit"), \
             mock.patch.object(config, "STATE", Path(state)):
@@ -94,7 +94,7 @@ class AddSubscription(unittest.TestCase):
     def test_another_subscription_logs_in_under_a_fresh_name_and_joins_accounts(self):
         screen = Screen(self, child=CHILD, text=CLAUDE)
         home = screen.path.parent.parent
-        open_providers(screen)
+        open_add(screen)
         _, offered = pick(screen, ENTER, ADD, EVERY)
         self.assertEqual(offered[-1], "  Claude II")       # after the providers not added
         mark = len(screen.text())
@@ -122,7 +122,7 @@ class AddSubscription(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=CLAUDE + CODEX)
         home = screen.path.parent.parent
         (home / "refuse").touch()
-        open_providers(screen)
+        open_add(screen)
         before = screen.path.read_bytes()
         _, offered = pick(screen, ENTER, ADD, EVERY)
         self.assertEqual(offered[-2:], ["  Claude II", "  ChatGPT II"])
@@ -144,20 +144,16 @@ class RemoveSubscription(unittest.TestCase):
         home = screen.path.parent.parent
         (home / ".claude-b2").mkdir()
         (home / ".claude-b2" / ".credentials.json").write_text("{}")
-        open_providers(screen)
+        open_meter(screen, "Claude III")
         before = screen.path.read_bytes()
-        _, listed = pick(screen, RIGHT + ENTER, REMOVE, 4)
-        # by the name its usage row has, the usual login never
-        self.assertEqual(listed, ["› Claude", "  Claude II", "  Claude III", "  ChatGPT"])
-        asked = screen.press(DOWN * 2 + ENTER, lambda lines: lines[-1] == KEYS["ask"])
+        asked = screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
         self.assertIn("  Remove Claude III?", asked)
         self.assertIn("  Nothing new starts on it; its login stays on this machine.", asked)
         mark = screen.text().rindex("Remove Claude III?")
         self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)          # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
-        pick(screen, ENTER, REMOVE, 4)
-        screen.press(DOWN * 2 + ENTER, lambda lines: lines[-1] == KEYS["ask"])
+        screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         saved = screen.saved()
         self.assertEqual(saved["providers"]["anthropic"]["accounts"], ["default", "a1"])
@@ -167,19 +163,17 @@ class RemoveSubscription(unittest.TestCase):
         self.assertEqual(rows(home), ["Claude I", "Claude II", "ChatGPT"])
         screen.leave()
 
-    def test_the_last_provider_offers_only_its_subscriptions(self):
+    def test_the_last_provider_s_other_subscription_goes_and_its_usual_login_stays(self):
         several = CLAUDE.replace('mode = "subscription"',
                                  'mode = "subscription"\naccounts = ["default", "a1"]')
         screen = Screen(self, child=CHILD, text=several)
-        open_providers(screen)
-        _, listed = pick(screen, RIGHT + ENTER, REMOVE, 1)
-        self.assertEqual(listed, ["› Claude II"])
+        open_meter(screen, "Claude II")
         screen.press(ENTER, lambda lines: "  Remove Claude II?" in lines)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["default"])
-        # the usual login alone is one subscription: nothing is left to offer
+        # the usual login's meter, the one left, is the last provider's: it stays
         before = screen.path.read_bytes()
-        screen.press(ENTER, lambda lines: "the config needs one provider" in lines[-3])
+        screen.press(UP + ENTER, lambda lines: "the config needs one provider" in lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
 

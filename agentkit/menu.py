@@ -1605,11 +1605,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
         at = 0
     # the subscription the pointer is on, of those on the grid; a question under a row has the
     # keys and the rows, and nothing is explained while it asks
-    columns = usage_columns(layout)
-    usage_spots = {grid + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
-                                         ("usage", line * columns + n + 1))
-                                        for n in range(min(columns, len(rows) - line * columns))])
-                   for line in range(len(meters)) if grid}
+    usage_spots = meter_spots(layout, len(rows), grid) if grid else {}
     spot = terminal.Spot() if asked else terminal.pointer_spot(usage_spots)
     pointed = spot.cell and spot.cell[1]
     seats = {info["name"]: info for info in infos}
@@ -2598,6 +2594,17 @@ def login_notes(rows, now=None):
     return notes
 
 
+def meter_spots(width, count, first):
+    """Where each of `count` subscriptions' meters sits on the grid `usage_lines` draws `width`
+    wide from line `first`: {line: (None, [(first, last, ("usage", number))])}, `number` from
+    1, the columns counted from 1 as the terminal counts."""
+    columns = usage_columns(width)
+    return {first + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
+                                   ("usage", line * columns + n + 1))
+                                  for n in range(min(columns, count - line * columns))])
+            for line in range(-(-count // columns))}
+
+
 def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     """What the line under the usage grid says of subscription `number`, from 1, while the
     pointer is on it: its label in its provider's colour, then -- each where it applies, joined
@@ -2686,16 +2693,15 @@ def show_notices(messages):
             message.replace(os.path.expanduser("~") + "/", "~/"), terminal.width() - 1)))
 
 
-# The rows under the models, each running its own step; Providers `+ add` and `− remove`, and
-# `↻ spend a reset` while a subscription holds one (resets_held).
-CONFIG_ROWS = ("+ add a model", "Providers", "Discord", "Weekly audit", "Version")
-PROVIDERS = ("row", "Providers")
+# The rows under the models, each running its own step.
+CONFIG_ROWS = ("+ add a model", "+ add a provider", "Discord", "Weekly audit", "Version")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 VERSION = ("row", "Version")    # agentkit's build, read and nothing more
-PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"),
-                 ("↻ spend a reset", "spend a reset"))   # and each without UTF-8
-# What `+ add` offers each provider the shipped default has as: its company, and the harness it
-# runs on; any other is its name on the Providers row.  One shipped on a harness that runs any
+# What a subscription's meter over `c`'s page offers, each where it applies (config_usage).
+USAGE_ACTS = (("↻ spend a reset", "spend a reset"), ("sign in again", "sign in again"),
+              ("− remove", "- remove"))                 # and each without UTF-8
+# What `+ add a provider` offers each provider the shipped default has as: its company, and the
+# harness it runs on; any other is its name.  One shipped on a harness that runs any
 # provider (config.provider_hosts) is offered among that harness's own.
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity"}
@@ -3103,13 +3109,12 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim; why is on the line under the page
-    (model_lines).  Then `+ add a model`, `Providers`
-    (providers_lines), `Discord` and `Version` with their values. A row is
-    `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
-    `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
-    act on, -1 its label, and on Providers 0 or less `+ add`, 1 `− remove` and 2 or more the
-    last act it offers.  `cells` are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
-    the terminal counts. On a phone the cells give way, then the label.
+    (model_lines).  Then `+ add a model`, `+ add a provider`, `Discord` and `Version` with
+    their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
+    happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
+    the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
+    column), for a click, counted from 1 as the terminal counts. On a phone the cells give
+    way, then the label.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -3179,21 +3184,15 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
     lines.append("")
-    wide = max(terminal.cells(row) for row in CONFIG_ROWS)
     values = ("", "", discord_value(), audit_value(cfg), version or "?")
+    # the values line up past the widest row that has one
+    wide = max(terminal.cells(row) for row, value in zip(CONFIG_ROWS, values) if value)
     for row, value in zip(CONFIG_ROWS, values):
-        if ("row", row) == PROVIDERS:
-            chosen = max(column, 0) if at == PROVIDERS else None
-            drawn = providers_lines(cfg, wide, room - 2 - wide - 2, chosen)
-            for number, (line, cells) in enumerate(drawn):
-                places[len(lines)] = (PROVIDERS, cells)
-                lines.append(terminal.highlight(line, number == 0) if chosen is not None
-                             else line)
-            continue
         # the value wraps once at a word under itself, and is cut only past that
         for number, part in enumerate(terminal.title_lines(value, room - 2 - wide - 2) or [""]):
             line = terminal.table_row([row if number == 0 else "", part],
-                                      [wide, room - 2 - wide - 2], indent="  ")
+                                      [wide, room - 2 - wide - 2], indent="  ") if value else (
+                "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
     return lines, places
@@ -3233,41 +3232,6 @@ def _effort_moves(levels, effort, kind, bright, word, cells):
         if effort == levels[-1]:
             clock.start([(row, word)], *motion.shimmering(effort, since, kind, bright))
     return start
-
-
-def provider_acts(cfg):
-    """The acts the Providers row offers: `↻ spend a reset` only while there is one to spend."""
-    return PROVIDER_ACTS if resets_held(cfg) else PROVIDER_ACTS[:2]
-
-
-def providers_lines(cfg, wide, room, chosen=None):
-    """The Providers row's lines, each with the (first, last, act) of the acts on it for a
-    click, counted from 1: every provider the config has, by its name and in its colour -- a
-    cell that only explains it, `("account", name)` -- then `+ add` (act 0), `− remove`
-    (act 1) and, while a subscription holds a reset, `↻ spend a reset` (act 2), wrapped at an
-    item under themselves in `room`.  `chosen` is the act the highlight is on, the last past
-    them, reversed, or bracketed with no colour to reverse."""
-    items = [(terminal.cut(provider_name(cfg, name), room), colour(cfg, name),
-              ("account", name)) for name in cfg["providers"]]
-    acts = provider_acts(cfg)
-    for number, texts in enumerate(acts):
-        text = texts[0 if terminal.utf8() else 1]
-        if chosen is not None and number == min(chosen, len(acts) - 1):
-            items.append((text if terminal.colour_depth() else f"[{text}]", "reverse", number))
-        else:
-            items.append((text, None, number))
-    drawn, used = [], room
-    for text, kind, act in items:
-        if used + 2 + terminal.cells(text) > room:        # on a line of its own from here
-            drawn.append(("  " + terminal.pad("" if drawn else CONFIG_ROWS[1], wide), []))
-            used = -2
-        line, cells = drawn[-1]
-        first = 5 + wide + used + 2      # counted from 1, past the gutter and what is drawn
-        if act is not None:
-            cells.append((first, first + terminal.cells(text) - 1, act))
-        drawn[-1] = (line + "  " + (terminal.styled(text, kind) if kind else text), cells)
-        used += 2 + terminal.cells(text)
-    return drawn
 
 
 def _saved(cfg, table, before):
@@ -3465,20 +3429,32 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
-def config_meters(cfg):
-    """The lines over the `c` screen's page: each subscription's meter as the main screen draws
-    them (`usage_lines`), a blank line under them, on every page; none without a grid."""
-    meters = usage_lines(cfg, terminal.layout_width())
-    return [*meters, ""] if meters else []
+def config_meters(cfg, at=None):
+    """The lines over the `c` screen's page, on every page, and where its meters are on them
+    (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`), and
+    under them a line that, while `at`, from 1, has the highlight, says what its cell has no
+    room for (`usage_detail`), its meter lit as the pointer lights it there, the line that
+    meter's own; none without a grid."""
+    rows, width = usage_rows(cfg), terminal.layout_width()
+    ending = login_notes(rows)
+    meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
+    if not meters:
+        return [], {}
+    detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
+    return [*meters, detail], {**meter_spots(width, len(rows), 0),
+                               **({len(meters): (("usage", at), [])} if at else {})}
 
 
-def meters_led(over, body, places, under, keys, moves=()):
-    """`over`, `body`, `places` and `moves` as the `c` screen draws its page with `under` under
-    it: the meters (config_meters) over the page while they leave it LEAST rows, else its first
-    lines, which scroll with it, so a short screen keeps its room for what is under the page."""
+def meters_led(meters, body, places, under, keys, moves=()):
+    """The lines over the `c` screen's page and their places, its `body`, `places` and `moves`,
+    as it draws them with `under` under the page: the meters (config_meters: their lines and
+    places) over the page while they leave it LEAST rows, else its first lines, which scroll
+    with it, so a short screen keeps its room for what is under the page."""
+    over, spots = meters
     if matrix_page([], {}, None, 0, under, keys, over)[1] >= LEAST:
-        return over, body, places, list(moves)
-    return [], [*over, *body], {line + len(over): place for line, place in places.items()}, [
+        return over, spots, body, places, list(moves)
+    return [], {}, [*over, *body], {**spots, **{line + len(over): place for line, place
+                                                in places.items()}}, [
         (line + len(over), *rest) for line, *rest in moves]
 
 
@@ -3510,11 +3486,12 @@ def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
 def matrix_page(body, places, here, top, under, keys, over=()):
     """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
-    and how many are.  `top` stays where it was while the page holds every line of `here`, or
-    any of them for a row taller than the page, else moves the least that makes it so, and
-    never past the last page."""
+    and how many are.  `top` stays where it was while the page holds every line of `here` --
+    its own and those it is a cell of -- or any of them for a row taller than the page, else
+    moves the least that makes it so, and never past the last page."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
-    drawn = [number for number, (row, _) in places.items() if row == here] or [0]
+    drawn = [number for number, (row, cells) in places.items()
+             if row == here or any(cell[-1] == here for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
     if lo > hi:                                   # taller than the page: the tops holding any
         lo, hi = drawn[0] - room + 1, drawn[-1]
@@ -3528,7 +3505,7 @@ def note_lines(note):
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None, clock=None, moves=(), under=(), over=()):
+               fetched=None, clock=None, moves=(), under=(), over=(), over_places=None):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
@@ -3536,7 +3513,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     (first, last, column) counted from 1 as the terminal counts.  On a screen too short for
     every row the part the highlight is on is shown, `over` has lines of its own above it and
     `under`, then `note`, under it, whatever the height; `moves` counts `under`'s on after
-    `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
+    `body`'s.  `over_places` are `over`'s, a line's cells each one of `rows` (a meter on `c`).  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
     taller than the page before they leave it.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
@@ -3554,8 +3531,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     top, room = matrix_page(body, places, here, top, [*under, *said], keys, over)
     shown, first = body[top:top + room], 3 + len(over)     # the screen row of the page's first
     spots = terminal.frame(title, [*over, *shown, *under, *said], keys, places={
-        len(over) + line - top: place for line, place in places.items()
-        if top <= line < top + room},
+        **(over_places or {}), **{len(over) + line - top: place for line, place in places.items()
+                                  if top <= line < top + room}},
         drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line - top
                                              if top <= line < top + room else
                                              first + len(shown) + line - len(body)
@@ -3575,6 +3552,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     act, column = key.char if key.name == "char" else key.name, None
     if act in ("click", "point"):
         spot = terminal.under(key, spots)
+        if spot.what is None and spot.cell in rows:   # a row that is one cell of its line
+            spot = terminal.Spot(spot.cell)
         if spot.what is not None:
             here, column = spot.what, None if isinstance(spot.cell, tuple) else spot.cell
         if act == "point":
@@ -3583,8 +3562,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
             item = {"esc": "back", "⏎": "enter"}.get(spot.cell, spot.cell or "")
             return (item if item in ("back", "enter") or len(item) == 1 and item.isalpha()
                     else ""), here, None, top
-        # a row runs its step; on Providers only a click on one of its two acts does
-        act = "enter" if here[0] == "row" and here != PROVIDERS else ""
+        act = "enter" if here[0] in ("row", "usage") else ""      # a row runs its step
         if column is not None:
             act = "enter" if column < marks else key.col - spot.first
     if act in ("esc", "eof"):
@@ -3619,9 +3597,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     opens the models screen (models_screen), every model against the boards, where `r` takes
     the recommendation.  Enter or a click
     on `+ add a model` opens its screen (config_add), and a model added there is the row
-    highlighted after it.  On `Providers` ←/→ move between `+ add`, `− remove` and `↻ spend
-    a reset`, which ↓ never lands on, and Enter or a click on one runs it (config_add_provider,
-    config_remove_provider, config_spend_reset); the row a model, a
+    highlighted after it, and `+ add a provider` its own (config_add_provider).  ↑ past the
+    first model, and the pointer, reach the meters over the page: one is lit as the main screen
+    lights it, and Enter or a click opens what it offers (config_usage).  The row a model, a
     provider or a subscription was just added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
     On a screen too short for every row the part the highlight is on is shown, and what the
@@ -3637,14 +3615,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
-        rows = [*(("model", name) for name in config_models(cfg)),
-                *(("row", row) for row in CONFIG_ROWS)]
-        here = here if here in rows else rows[0]      # the highlight is the row itself
+        over, meters = config_meters(cfg, here[1] if here and here[0] == "usage" else None)
+        models = [*(("model", name) for name in config_models(cfg)),
+                  *(("row", row) for row in CONFIG_ROWS)]
+        rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
+        here = here if here in rows else models[0]    # the highlight is the row itself
         if here[0] == "model" and column not in columns:
-            column = columns[-1]      # up from Providers' acts onto a row without marks
-        where = ("label" if here == PROVIDERS else "still" if here == VERSION else "row"
-                 if here[0] == "row" else "effort" if column == 3 else "label" if column < 0
-                 else "mark")
+            column = columns[-1]      # onto a row without marks
+        where = ("still" if here == VERSION else "row" if here[0] in ("row", "usage")
+                 else "effort" if column == 3 else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
@@ -3655,21 +3634,18 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         # on a short screen the note keeps its lines and the page a row; the model's line the rest
         fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys)[1] - 1
         said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
-        over, body, places, moves = meters_led(config_meters(cfg), body, places,
-                                               [*said, *note_lines(note or standing)], keys, moves)
+        over, meters, body, places, moves = meters_led((over, meters), body, places,
+                                                       [*said, *note_lines(note or standing)],
+                                                       keys, moves)
         # coming up as the highlight comes to a model (`motion.fading`)
         opened = here[1] if any(map(terminal.plain, said)) else None
         moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))
                   for line, text in enumerate(said)]
-        was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             note or standing, keys, marks=3,
-                                            clock=clock, moves=moves, under=said, over=over)
+                                            clock=clock, moves=moves, under=said,
+                                            over=over, over_places=meters)
         column = column if clicked is None else clicked
-        if here == PROVIDERS != was and clicked is None:
-            # the one cell leads to `+ add`, as the first mark does, and no move onto the row
-            # lands on spending a reset: only ← → or a click reach it
-            column = 0 if column == 3 and not selected else min(column, 1)
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
@@ -3679,7 +3655,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             clock.forget()            # another screen: the matrix back from it replays nothing
             models_screen(cfg, session, selected, providers, held)
             continue
-        if act in ("enter", "space") and (here[0] == "row" or column < 0):
+        if act in ("enter", "space") and (here[0] in ("row", "usage") or column < 0):
             clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
             if act in ("enter", "space"):
@@ -3687,16 +3663,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 here = ("model", added) if added else here    # the highlight on its new row
                 if added:
                     clock.touch(here)
-        elif here == PROVIDERS:
-            last = len(provider_acts(cfg)) - 1
-            column = min(max(column, 0), last)
-            if act in ("left", "right"):
-                column = min(max(column + (1 if act == "right" else -1), 0), last)
-            elif act in ("enter", "space") and column == 2:
-                note = config_spend_reset(cfg)
-            elif act in ("enter", "space") and column == 1:
-                note = config_remove_provider(cfg)
-            elif act in ("enter", "space"):
+        elif here[0] == "usage":
+            if act in ("enter", "space"):
+                note = config_usage(cfg, keyboard, here[1])
+        elif here == ("row", CONFIG_ROWS[1]):
+            if act in ("enter", "space"):
                 before = copy.deepcopy(cfg["providers"])
                 note = config_add_provider(cfg, keyboard)
                 if cfg["providers"] != before:  # a provider or a subscription just added
@@ -4057,7 +4028,7 @@ def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",))
 
 @terminal.clicks_its_own
 def config_add_provider(cfg, keyboard):
-    """`+ add` on the Providers row: a provider the shipped default has and the config has not,
+    """`+ add a provider` on `c`: a provider the shipped default has and the config has not,
     picked from a list, then put in the way it ships, so nothing is typed; or, listed after
     them as the name it will get (`ChatGPT II`, config.account_label), another subscription
     of a provider the config has, which is only logged in and listed (_add_subscription), where
@@ -4174,89 +4145,88 @@ def config_add_provider(cfg, keyboard):
 
 
 @terminal.clicks_its_own
-def config_remove_provider(cfg):
-    """`− remove` on the Providers row: a provider the config has, each followed by its
-    subscriptions when it has several, picked from a list, then `Remove <provider> and its
-    models?` or `Remove <subscription>?` asked under it, `Keep` picked and Esc keeping it.
-    config.remove_provider takes a provider's table, its models and their places in
-    [defaults], and with its table goes its usage row.  A subscription, named as its usage row
-    is (config.account_label), leaves only the provider's `accounts`; the usual login is never
-    offered.  The last provider is not offered either, and with nothing to offer it is refused
-    without asking.  Either way no login file goes: the login taken out, the provider's usual
-    one for a provider, is recorded (config.keep_login) for `+ add` to offer back.  What to say
-    under the matrix, or "".
+def config_remove_provider(cfg, name, account, label):
+    """`− remove` on subscription `label`, `account` of provider `name`: `Remove <provider> and
+    its models?` for its usual login, or `Remove <subscription>?` for another, asked under its
+    name, `Keep` picked and Esc keeping it.  config.remove_provider takes a provider's table,
+    its models and their places in [defaults], and with its table goes its meter; a
+    subscription leaves only the provider's `accounts`.  The last provider is refused without
+    asking.  Either way no login file goes: the login taken out, the provider's usual one for a
+    provider, is recorded (config.keep_login) for `+ add a provider` to offer back.  What to
+    say under the matrix, or "".
     """
-    labels = {}
-    for text, name in _by_label(list(cfg["providers"]),
-                                lambda name: provider_name(cfg, name)).items():
-        if len(cfg["providers"]) > 1:
-            labels[text] = (name, None)
-        listed = config.accounts(cfg, name)
-        labels.update({config.account_label(cfg, name, account, text): (name, account)
-                       for account in listed
-                       if len(listed) > 1 and account != config.DEFAULT_ACCOUNT})
-    if not labels:
+    usual = account in (None, config.DEFAULT_ACCOUNT)
+    if usual and len(cfg["providers"]) < 2:
         return "the config needs one provider"
-    title, keys = "config · remove a provider", ADD_KEYS["choose"][0 if terminal.utf8() else 1]
-
-    def listed():     # the screens the two lists are drawn on, drawn again on a resize
-        terminal.frame(title, [""] * len(labels), keys + "   esc back")
-        return 3
-    picked = terminal.choose(list(labels), around=listed)
-    if picked is None:
-        return ""
-    name, account = labels[picked]
-    question, means = REMOVE_PROVIDER_ASK if account is None else REMOVE_SUBSCRIPTION_ASK
+    shown = provider_name(cfg, name) if usual else label
+    question, means = REMOVE_PROVIDER_ASK if usual else REMOVE_SUBSCRIPTION_ASK
 
     def asked(card):
-        terminal.frame(title, card, "esc back")
+        terminal.frame(f"config · {label}", card, "esc back")
         return 3
-    if not terminal.confirm(question.format(picked), means, "Remove", asked):
+    if not terminal.confirm(question.format(shown), means, "Remove", asked):
         return ""
     before = copy.deepcopy(cfg)
     try:
         # first, so nothing leaves ak unrecorded; a removal that fails below leaves its login
         # in ak, and a login in ak is never offered
-        config.keep_login(name, account or config.DEFAULT_ACCOUNT, picked if account else
-                          config.account_label(cfg, name, config.DEFAULT_ACCOUNT, picked))
-        if account is not None:
-            cfg["providers"][name]["accounts"].remove(account)
-        else:
+        config.keep_login(name, account or config.DEFAULT_ACCOUNT, label)
+        if usual:
             config.remove_provider(cfg, name)
+        else:
+            cfg["providers"][name]["accounts"].remove(account)
     except (config.Error, OSError) as exc:
         return str(exc)
     return _saved(cfg, cfg, before)
 
 
-@terminal.clicks_its_own
-def config_spend_reset(cfg):
-    """`↻ spend a reset` on the Providers row: one usage-limit reset spent, by hand, on a
-    subscription the cached meters say holds one (resets_held), picked from a list, named as
-    its usage row is, only when more than one does.  usage.replenish spends it and reads the
-    meters back into the cache, so its usage row shows the week that came back; Esc while it
-    is spent lets it finish.  What to say under the matrix: its name and what its cell on the
+def config_spend_reset(cfg, label):
+    """`↻ spend a reset` on subscription `label`: one usage-limit reset spent, by hand, where
+    the cached meters say it holds one (resets_held).  usage.replenish spends it and reads the
+    meters back into the cache, so its meter shows the week that came back; Esc while it is
+    spent lets it finish.  What to say under the matrix: its name and what its cell on the
     `ak` screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
-    held, title = resets_held(cfg), "config · spend a reset"
-    picked = next(iter(held), None)
-    if len(held) > 1:
-        keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1]
-
-        def listed():     # the screen the list is drawn on, drawn again on a resize
-            terminal.frame(title, [""] * len(held), keys + "   esc back")
-            return 3
-        picked = terminal.choose(list(held), around=listed)
-    if picked is None:
-        return ""
-    name, account = held[picked]
+    name, account = resets_held(cfg)[label]
     try:
-        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account), title,
-                          doing=f"spending a reset of {picked}")
+        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account),
+                          f"config · {label}", doing=f"spending a reset of {label}")
     except Back:
         return ""
     if not spent:
-        return f"{picked}: no reset was spent"
-    said = next(said for _, label, _, said in usage_cells(cfg) if label == picked)
-    return f"{picked} · {said}"
+        return f"{label}: no reset was spent"
+    said = next(said for _, shown, _, said in usage_cells(cfg) if shown == label)
+    return f"{label} · {said}"
+
+
+@terminal.clicks_its_own
+def config_usage(cfg, keyboard, number):
+    """Enter or a click on subscription `number`'s meter, from 1, over the page of `c`: what it
+    offers (USAGE_ACTS), picked from a list under its name where it offers more than one --
+    `↻ spend a reset` while it holds one (config_spend_reset), `sign in again` while its login
+    ends soon or has ended (login_notes, sign_in) and `− remove` (config_remove_provider), the
+    highlight starting past the reset, which only a move or a click picks.  What to say under
+    the matrix, or ""."""
+    rows = usage_rows(cfg)
+    name, label, _, account = rows[number - 1]
+    label = terminal.plain(label)
+    acts = [act for act, offers in enumerate((label in resets_held(cfg),
+                                              login_notes(rows)[number - 1], True)) if offers]
+    texts = [USAGE_ACTS[act][0 if terminal.utf8() else 1] for act in acts]
+    picked = acts[0]
+    if len(acts) > 1:
+        keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1]
+
+        def listed():     # the screen the list is drawn on, drawn again on a resize
+            terminal.frame(f"config · {label}", [""] * len(texts), keys + "   esc back")
+            return 3
+        chosen = terminal.choose(texts, around=listed, default=texts[1 if acts[0] == 0 else 0])
+        picked = None if chosen is None else acts[texts.index(chosen)]
+    if picked == 0:
+        return config_spend_reset(cfg, label)
+    if picked == 1:
+        sign_in(cfg, keyboard, name, account)
+        return ""
+    return config_remove_provider(cfg, name, account, label) if picked == 2 else ""
 
 
 def config_discord():
@@ -4342,9 +4312,9 @@ def config_audit(cfg):
 
 def show_config(dry_run=False, keyboard=None, session=None):
     """`c`: every model in one matrix of `session`'s roles -- the seat highlighted on the main
-    screen, read from its own record -- and the efforts, then `+ add a model`, `Providers`,
-    `Discord`, `Weekly audit` and `Version`, read with the menu's keyboard (config_matrix), so
-    nothing is typed.
+    screen, read from its own record -- and the efforts, under each subscription's meter, then
+    `+ add a model`, `+ add a provider`, `Discord`, `Weekly audit` and `Version`, read with the
+    menu's keyboard (config_matrix), so nothing is typed.
     On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
     and so it is for a record that will not read, saying so under the rows: the screen that
     changes the models still opens.
@@ -4377,7 +4347,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
-                       [*config_meters(cfg),
+                       [*config_meters(cfg)[0],
                         *config_body(cfg, version, selected=selected, providers=providers)[0]],
                        "esc back")
         return cfg
@@ -4390,7 +4360,7 @@ def move_asked(cfg, version, session, selected, providers, here, column, top, ti
     its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
     loses its conversation to a handover, so the mark asks first, as `Remove` does."""
     def around(card):     # the screen around the card, drawn again on a resize
-        over, body, places, _ = meters_led(config_meters(cfg), *config_body(
+        over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
             cfg, version, here, column, selected, providers), card, "esc back")
         first, room = matrix_page(body, places, here, top, card, "esc back", over)
         shown = body[first:first + room]
