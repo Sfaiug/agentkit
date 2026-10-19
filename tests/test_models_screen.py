@@ -106,9 +106,9 @@ class ModelsScreen(Sandbox):
                               r"mimo-pro opencode ‹ none › - 51 51 100 "
                               r"spark muse xhigh - - - -")
         self.assertIn("↑↓ move ←→ effort r take recommended esc back", text)
-        # back on `c`, whose line names the rows and whose key opens the screen
-        self.assertRegex(text, r"esc back.*ak recommends orch opus @ xhigh · exec astra @ xhigh · "
-                               r"review astra @ xhigh.*⏎ mark r recommended esc back")
+        # back on `c`, whose key opens the screen
+        self.assertRegex(text, r"esc back.*fable runs on [^·]+ ↑↓←→ move ⏎ mark r recommended "
+                               r"esc back")
         self.assertNotIn("r takes exec and review", text)
 
     def test_the_arrows_step_a_model_s_effort_and_the_numbers_follow_nothing_saved(self):

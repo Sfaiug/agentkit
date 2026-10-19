@@ -276,13 +276,13 @@ is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). Under the rows, above the keys, the highlighted
-model's own line says what it runs on (`fable runs on Claude I, II`, dim) and why it is spent
-(`· spent · resets Mon 02:00`, amber), each on lines of its own where they do not fit,
+model's own line says what it runs on (`fable runs on Claude I, II`, dim), why it is spent
+(`· spent · resets Mon 02:00`, amber) and, on a seat's, the roles `ak models` recommends it for
+(`· recommended to build and review`, dim), each on lines of its own where they do not fit,
 coming up as the highlight comes to it: one place for every model, outside the rows a short screen pages so
 none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
-so no row moves from under the pointer or the keys.
-Under a seat's models one dim line names the row `ak models`
-recommends per role, and `r recommended` opens the models screen (The models screen).
+so no row moves from under the pointer or the keys. `r recommended` opens the models screen
+(The models screen).
 Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none

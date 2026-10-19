@@ -381,9 +381,7 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         # past every model, `+ add a model` and Providers
         models = lines[3:next(n for n, line in enumerate(lines) if "+ add a model" in line)]
-        down = sum(1 for line in models        # the advice line, the model's own line: no row
-                   if line.startswith(("  ", "›")) and "ak recommends" not in line
-                   and not line.startswith("    ")) + 2
+        down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         mark = len(screen.text())
