@@ -31,7 +31,7 @@ wheel and every other click over it do what they do anywhere else on the bar, wh
 
 import fcntl
 
-from . import config, menu, orch, terminal
+from . import config, menu, orch, terminal, update
 
 HINT = "Ctrl-b m  menu"            # line two's right end: the one key
 CLOSE_HINT = "Ctrl-b m  x close"   # ... and a done seat's, which that menu's `x` closes at once
@@ -220,8 +220,11 @@ def _tell(only=None, own=()):
     `own` option on a session the listing shows gone -- no server is up, or it lists others --
     is not told at all: tmux would refuse the call, then each option alone (`orch.tmux_lists`),
     on every draw a stopped seat is in.  A listing that reads no session says nothing, since
-    tmux ends a server with its last one, and there every option is told as before.
+    tmux ends a server with its last one, and there every option is told as before.  Code other
+    than the live install's as it is now tells nothing (`update.publishes`).
     """
+    if not update.publishes():
+        return
     config.ensure_dirs()
     with (config.STATE / "statusbar.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

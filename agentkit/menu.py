@@ -4838,7 +4838,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
                 pointing = False
-            if updated:
+            # new code under an open menu, the tick's above all, draws it from here on
+            if updated or (newborn is None and update.outdated()):
                 keyboard.give()
                 live.close()
                 sys.stdout.flush()

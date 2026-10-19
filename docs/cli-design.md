@@ -19,8 +19,8 @@ from the left in the accent colour as each of fetch, pull and install begins, an
 wholly once they are done; the filled part is drawn heavy (`━`), so it reads
 where there is no colour. The check and update run in a detached process behind
 the first frame; keys still answer within 100 ms, and leaving lets the update finish.
-Once the code has moved, the menu starts again with the same seat highlighted as
-soon as its main screen is up. An open sub-screen, including a typed draft, stays
+Once the code has moved -- by this update, or by the tick under an open menu -- the
+menu starts again with the same seat highlighted as soon as its main screen is up. An open sub-screen, including a typed draft, stays
 until the owner comes back. A failed update says why as a notice. On a client,
 the detached update starts before ssh connects; the next `ak` takes the new code.
 Overlays and dry runs skip it. A screen whose content is still being fetched has a
