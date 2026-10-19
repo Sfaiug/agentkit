@@ -3791,7 +3791,7 @@ assert any(line.strip().startswith("1  orch-notice") for line in screen), screen
 assert any("no reading yet" in line or "% left" in line for line in screen), screen
 # The menu at rest is the projects and their seats: a run of nobody's is neither a
 # heading nor a row, whatever its repository, and `ak run status` is where it is looked up.
-assert any(line == "no project" for line in screen), screen
+assert any(line == menu.UNFILED for line in screen), screen
 # no line counts who needs the owner; each needing row says its own word
 assert not any(re.search(r"\d+ needs? you|need you|nothing needs you", line)
                for line in screen), screen

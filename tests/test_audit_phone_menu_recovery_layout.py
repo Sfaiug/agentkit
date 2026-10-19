@@ -837,7 +837,7 @@ class Phone(Sandbox):
         phone.press("11")
         phone.until(STAND_IN, "   phone-a")
         screen = phone.menu("←  1 / ")
-        self.assertIn("no project", "\n".join(Terminal.inside(screen)))
+        self.assertIn("not assigned yet", "\n".join(Terminal.inside(screen)))
         self.every_page(phone, screen, self.popup_page, 12, 8)
         phone.keys("Escape")
         phone.until(STAND_IN, absent=["esc leave"])

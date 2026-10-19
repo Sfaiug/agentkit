@@ -13,7 +13,7 @@ atoll
 agentkit
   3  herdr        fable  ● working
 
-no project
+not assigned yet
   4  scribe       fable  ○ idle
 
   n new   x stop   c config   esc leave

@@ -14,7 +14,7 @@ agentkit
      session closed: press 3 to reopen
   4  herdr-long   fable  ● working
 
-no project
+not assigned yet
   5  scribe       fable  ! needs you
      session closed: press 5 to reopen
 

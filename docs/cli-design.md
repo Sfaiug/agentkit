@@ -55,7 +55,8 @@ case; an exact match wins, otherwise a name matching several checkouts is refuse
 the matches. Each launched run then files the seat under the checkout most of its runs belong
 to, a run still queued for a slot among them, whether it works in one checkout or across
 several from `~/code`; a tie keeps the one it has. A seat with no filing and no run belonging
-to a checkout sits under `no project`, and the next draw files it once a run counts. There is
+to a checkout sits under a dim `not assigned yet` after every project (`ak orch list` and the
+past screen say `no project`), and the next draw files it once a run counts. There is
 no run row, ever: `ak run status` is where runs are looked up, and the line a
 seat's row opens, its tmux bar's second line, is where its tasks show, as squares.
 
@@ -367,7 +368,7 @@ Example: `› opus      claude   ‹ xhigh ›   97   97   97   4000`.
 ## The new-session screen
 
 `n` opens the new seat's row in its place on the main screen, on the next frame, wherever the
-highlight is: last under `no project`, with that heading where none is shown, numbered as the
+highlight is: last under `not assigned yet`, with that heading where none is shown, numbered as the
 seat will be once made, every row after it numbered on, its state `new`. Its name cell holds a caret and, dim until a key, the name Enter alone gives it: letters, digits,
 `-` and `_` type into it, lower case and at most `orch.NAME_CAP` of them, a space as `-`, and
 Backspace takes the last back. The line under it stays open while it is typed, the crew it

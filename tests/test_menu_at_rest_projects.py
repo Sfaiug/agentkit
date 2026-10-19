@@ -79,7 +79,7 @@ class Projects(Sandbox):
     @staticmethod
     def headings(screen):
         return [line for line in screen.splitlines()
-                if line in ("atoll", "agentkit", "no project")]
+                if line in ("atoll", "agentkit", "not assigned yet")]
 
     def test_v5ak_a_no_run_ever_makes_a_project_or_a_row(self):
         # Every repo a run can carry that is not a checkout under ~/code.
@@ -118,18 +118,18 @@ class Projects(Sandbox):
         self.seat("stray", "not-a-checkout")      # a directory under ~/code that is no checkout
         screen = self.draw(100, 30)
         self.assertEqual(self.headings(screen),
-                         ["atoll", "no project"])
+                         ["atoll", "not assigned yet"])
         # A project is never listed twice, and a checkout with no seat is not listed.
         self.assertEqual(screen.count("\natoll\n"), 1)
         self.assertNotIn("unstaffed", screen)
         self.assertNotIn("agentkit · ", screen)
-        # `n` offers the checkouts; `not-a-checkout` is none of them, and so is no project.
+        # `n` offers the checkouts; `not-a-checkout` is none of them, and so is a seat filed under none.
         self.assertEqual([path.name for path in orch.checkouts()],
                          ["agentkit", "atoll", "unstaffed"])
         # Both seats of a checkout sit under its one heading.
         self.seats = [self.seats[0], self.seats[2]]
         screen = self.draw(100, 30)
-        self.assertEqual(self.headings(screen), ["atoll", "no project"])
+        self.assertEqual(self.headings(screen), ["atoll", "not assigned yet"])
 
     def test_v5ak_b2_agentkit_s_own_checkout_is_a_project_beside_code(self):
         # agentkit lives at ~/agentkit, not under ~/code, and is a checkout all the same,

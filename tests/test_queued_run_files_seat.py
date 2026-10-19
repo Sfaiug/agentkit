@@ -98,7 +98,7 @@ class QueuedRunFilesSeat(Sandbox):
         self.assertEqual(self.repo(), str(self.acme))
         lines = [line.strip() for line in out.getvalue().splitlines()]
         self.assertIn("acme", lines)
-        self.assertNotIn("no project", lines)
+        self.assertNotIn("not assigned yet", lines)
         self.assertLess(lines.index("acme"),
                         next(at for at, line in enumerate(lines) if "fix-api" in line))
 
@@ -130,7 +130,7 @@ class QueuedRunFilesSeat(Sandbox):
         self.assertEqual(config.session_path("fix-api").read_bytes(), before)
         with redirect_stdout(io.StringIO()) as out:
             menu.draw(self.cfg, found, look=False)
-        self.assertIn("no project", [line.strip() for line in out.getvalue().splitlines()])
+        self.assertIn("not assigned yet", [line.strip() for line in out.getvalue().splitlines()])
 
     def test_a_started_run_still_votes_for_the_same_project(self):
         tasks = config.HOME / "tasks" / "acme"
