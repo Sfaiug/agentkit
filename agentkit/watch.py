@@ -6959,8 +6959,6 @@ def local_passes(state, dry_run, log):
                      else usage.collect(config.load(), refresh=True))
 
     return (
-        ("the notification retry did not run",
-         lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
         ("the boot resume pass did not run",
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         ("the held-line Enter pass did not run",
@@ -7031,6 +7029,10 @@ def local_passes(state, dry_run, log):
         # Cards are derived from every session's current three-state word, including seats
         # whose panes were not available to the health pass.
         ("the card transition pass did not run", lambda: notify.tick_cards(log=log), False),
+        # Late cards after it: a question that ended since the last tick has its card retired
+        # by then (`notify._retire`), so none goes out late for it.
+        ("the notification retry did not run",
+         lambda: notify.retry_pending(dry_run=dry_run, log=log), True),
         # A seat that died under its running runs comes back, after its endings were announced
         # to it.
         ("the seat revival pass did not run", lambda: revive_seats(config.load(), log), False),

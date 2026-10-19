@@ -481,14 +481,19 @@ def answered(session, at, typed=None):
             return
         if previous and previous.get("watcher") is True:
             return
+        # the needs you he answered has its card retired now, before a retry can take this lock
+        card = _card_read(session)
         if not previous or previous["kind"] != "needs":
-            card = _card_read(session)
             if card.get("word") == "needs you":
+                if at > card["since"]:
+                    _retire(card)
                 _card_write(session, {**card, "answered_at": at})
             return
         previous["answered_at"] = at
         if not resolved(previous):
             return
+        if at > card.get("since", math.inf):
+            _retire(card)
         waited(previous, at)
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
@@ -669,6 +674,8 @@ def clear(session, *, notice=None):
             return
         if notice is not None and (previous["kind"] != "needs" or previous["text"] != notice):
             return
+        if previous["kind"] == "needs":
+            _retire(_card_read(session))
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text", "seen")},
                seen=True)
@@ -817,9 +824,8 @@ def _unsendable(event, session):
     """Why a queued event may no longer go out, or "".
 
     A retry is a card sent late, and the rules for sending hold for it too: nothing queued
-    before the agentkit running now was installed, nothing about a seat the owner has closed
-    himself since, and no question that is over: once out a card is never edited, so a late
-    one would ask what is answered.  A late done is still news.
+    before the agentkit running now was installed, and nothing about a seat the owner has
+    closed himself since.  A question that is over had its card retired then (`_retire`).
     """
     if event.get("created_at", 0) < installed_at():
         return "queued before the agentkit running now was installed"
@@ -827,14 +833,6 @@ def _unsendable(event, session):
         from . import watch
         if watch.seat_closed_by_owner(session):
             return "its seat was closed by the owner"
-        card, notice = _card_read(session), last(session, include_seen=True)
-        # answered in the seat, or by the owner's answer to its notice or the notice's retiring
-        answered = max(card.get("answered_at") or 0, (notice.get("answered_at") or math.inf)
-                       if notice is not None and resolved(notice) else 0)
-        if (event["kind"] == "needs" and str(event.get("source") or "").startswith("card:")
-                and (card.get("episode") != event.get("episode")
-                     or card.get("word") != "needs you" or answered > card.get("since", 0))):
-            return "the question it asked is over"
     return ""
 
 
@@ -957,6 +955,24 @@ def failed_declaration(notice, mine, index=None):
                      and transitions.is_superseded(state, None, index, merged_only=True))]
 
 
+def _card_key(episode):
+    """The outbox id of an episode's one card."""
+    return hashlib.sha256(json.dumps(["card", episode, sink() is not None]).encode()).hexdigest()
+
+
+def _retire(card):
+    """A question's episode ends: its card, if Discord has not taken it yet, never goes out, and
+    one it took stays as it went.  Called under the seat's lock, which a retry takes too, so a
+    late card goes out only while its question stands."""
+    if card.get("word") != "needs you" or not card.get("sent"):
+        return
+    with outbox_lock():
+        event = _read_event(_card_key(card["episode"]))
+        if event and event["status"] not in ("delivered", "disabled"):
+            event.update(status="disabled", error="the question it asked is over", next_attempt=None)
+            _write_event(event)
+
+
 def _send_card(session, kind, card, answer, completion=None):
     """Queue once under the session lock; the outbox owns any further attempts.  A done
     covers `completion`."""
@@ -967,7 +983,7 @@ def _send_card(session, kind, card, answer, completion=None):
                      or " ".join(str(previous["text"]).split()) == text):
         text = previous["text"]
     payload = card_payload(kind, session)
-    key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
+    key = _card_key(card["episode"])
     with outbox_lock():
         event = _read_event(key)
         fresh = event is None
@@ -1090,6 +1106,7 @@ def needs_transition(session, card, answer, now, seat=None):
     # question the seat asked, and his answer or the word changing (`transition`) ends its
     # episode.
     if answered_here:
+        _retire(card)
         # The answer ends the needs you it answered, its card left as it went out: one still
         # read now came after it -- a dialog, or the seat waiting again -- and is an episode
         # of its own, though no tick saw the seat work in between.  Its minute counts from
@@ -1218,6 +1235,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
+                _retire(card)
                 card = {"word": word, "since": since, "began": since,
                         "episode": secrets.token_hex(16), "sent": False,
                         **({"completed": card["completed"]} if card.get("completed") else {})}
@@ -1259,7 +1277,8 @@ def tick_cards(dry_run=False, log=print):
 
 
 def forget_card(name, log=lambda _: None):
-    """Drop a gone session's card; what went out to Discord stays as it went.
+    """Drop a gone session's card, retiring it where Discord has not taken it yet; what went
+    out stays as it went.
 
     The notify lock stays: a writer may hold it or wait on it, and one that opened a new file in
     its place would wait for neither.  A card that is a link, a hard link or not this user's is
@@ -1272,6 +1291,7 @@ def forget_card(name, log=lambda _: None):
         with session_lock(name) as session:
             if session != name:
                 return        # an old name that leads to a renamed seat: its card is not this
+            _retire(_card_read(name))
             config.card_path(name).unlink(missing_ok=True)
         log(f"closed the card of {name}: no seat holds it any more")
     except (OSError, ValueError, config.Error) as exc:
@@ -1360,7 +1380,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
         print(json.dumps(card_payload(kind, name), indent=2))
-        terminal_notice(name, f"{TITLES[kind]} · {name}: {text}", dry_run=True)
+        terminal_notice(name, f"{TITLES[kind]} · {name or 'agentkit'}: {text}", dry_run=True)
         return 0
     if not name:
         raise config.Error("notify needs a session: use --session NAME")

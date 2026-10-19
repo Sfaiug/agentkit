@@ -980,7 +980,7 @@ sys.exit(int(os.environ["FIXTURE_UPDATE_RC"]))
                                                                         (None, "offline"))), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(watch.main([]), 0)
-        self.assertEqual(order, ["retry", "health", "schedule", "github"])
+        self.assertEqual(order, ["health", "retry", "schedule", "github"])
         good, _ = self.receipt("99-good", state="fail", reported=False, launched_session="open")
         bad, _ = self.receipt("98-bad", state="fail", reported=False, launched_session="bad/name")
         with patch.object(gc, "schedule_gc"), \

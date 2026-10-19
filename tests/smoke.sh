@@ -4773,7 +4773,7 @@ DEADDIR="$FBH/.agentkit/runs/$DEADID"
 grep -qE '^\[[0-9:]*\] the orchestrator session orch-x this run was launched from is gone; asking the user to continue the task$' \
   "$WORK/orphan-dead.log" || FB=1
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1
-jq -e '.username == "agentkit" and .content == "Needs you · orch-x" and (has("embeds") | not)' \
+jq -e '.username == "agentkit" and .content == "🙋 Needs you · orch-x" and (has("embeds") | not)' \
   "$WORK/hook-posts.txt" >/dev/null 2>&1 || FB=1
 jq -e '.session == "orch-x" and .kind == "needs" and (.text | startswith("Its orchestrator session orch-x is gone."))' \
   "$FBH/.agentkit/state/notify-orch-x.json" >/dev/null 2>&1 || FB=1
@@ -4782,12 +4782,12 @@ HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK
   ak notify needs "Merge PR #9 by bob? yes/no" --dry-run \
   >"$WORK/orphan-needs.json" 2>"$WORK/orphan-needs.err" || FB=1
 [ "$(cat "$WORK/orphan-needs.err")" = 'terminal notice: Needs you · agentkit: Merge PR #9 by bob? yes/no' ] || FB=1
-jq -e '.content == "Needs you · agentkit"' "$WORK/orphan-needs.json" >/dev/null 2>&1 || FB=1
+jq -e '.content == "🙋 Needs you · agentkit"' "$WORK/orphan-needs.json" >/dev/null 2>&1 || FB=1
 FBLONG="a summary with no seat behind it, longer by some way than any title a phone shows whole"
 HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK="$HOOKURL" \
   ak notify done "$FBLONG" --dry-run >"$WORK/orphan-done.json" 2>"$WORK/orphan-done.err" || FB=1
 [ "$(cat "$WORK/orphan-done.err")" = "terminal notice: Done · agentkit: $FBLONG" ] || FB=1
-jq -e '.content == "Done · agentkit"' "$WORK/orphan-done.json" >/dev/null 2>&1 || FB=1
+jq -e '.content == "✅ Done · agentkit"' "$WORK/orphan-done.json" >/dev/null 2>&1 || FB=1
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1   # and --dry-run posted nothing either
 kill "$HOOKPID" 2>/dev/null
 [ "$FB" = 0 ] && ok "29 the dead-seat fallback: nothing from a run nobody launched from a seat, one needs titled with the gone orch-x for its orphan, and agentkit's outside a session" \
