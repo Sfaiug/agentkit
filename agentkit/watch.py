@@ -2762,9 +2762,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # ... or ak still has a line to type into it, at its next quiet prompt: that line moves it,
     # not the owner, who was paged `stopped with work open` while the line waited behind
-    # their own unsent text (19 Oct 2026).  Only at its prompt: a screen nobody can read
-    # takes no line.
-    telling = news_owed(name, mine) if found.get("state") in ("at_prompt", "draft") else None
+    # their own unsent text (19 Oct 2026).  Only at a prompt a rule or hook read: `classify`
+    # offers `at_prompt` with no `authority` for a screen nobody can read, which takes no line.
+    telling = (news_owed(name, mine) if found.get("authority")
+               and found.get("state") in ("at_prompt", "draft") else None)
     if telling:
         return {"word": "working", "reason": telling, "since": found.get("began")}
     # Nothing running, asked or owed: the seat rests and nothing on it is the owner's to do -- a
