@@ -260,14 +260,14 @@ Example:
 `c` is a sub-screen in the same frame, headed `agentkit · config`. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, harness (dim), then `orch` (`●` on the highlighted
+accent, a row of label, then `orch` (`●` on the highlighted
 session's, `○` dim elsewhere), `exec` and `review` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A
 model with one effort shows its word alone. A click on a cell takes that level,
 and one on the word steps it as Enter does. The columns stay visible; the
-harness gives way, then the cells, then the label.
+cells give way, then the label. A spent model's row is dim.
 ↑/↓, k/j and the wheel move between rows,
 ←/→ between all four columns; Enter or space on an effort steps it up through
 that model's own efforts (`config.efforts`), from the highest round to the
@@ -276,8 +276,9 @@ is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). Under the rows, above the keys, the highlighted
-model's own line says what it runs on (`fable runs on Claude I, II`, dim), coming up as the
-highlight comes to it: one place for every model, outside the rows a short screen pages so
+model's own line says what it runs on (`fable runs on Claude I, II`, dim) and why it is spent
+(`· spent · resets Mon 02:00`, amber), each on lines of its own where they do not fit,
+coming up as the highlight comes to it: one place for every model, outside the rows a short screen pages so
 none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
 so no row moves from under the pointer or the keys.
 Under a seat's models one dim line names the row `ak models`
