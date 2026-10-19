@@ -4174,8 +4174,8 @@ def config_remove_provider(cfg, name, account, label):
 
 
 def config_spend_reset(cfg, name, account, label):
-    """`↻ spend a reset` on subscription `label`, `account` of provider `name`: one usage-limit
-    reset spent, by hand.  usage.replenish spends it where it still holds one and reads the
+    """`↻ spend a reset` on subscription `label`, `account` of provider `name`: one
+    usage-limit reset spent, by hand.  usage.replenish spends it where it still holds one and reads the
     meters back into the cache, so its meter shows the week that came back; Esc while it is
     spent lets it finish.  What to say under the matrix: its name and what its cell on the
     `ak` screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
