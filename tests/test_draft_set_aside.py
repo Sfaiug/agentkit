@@ -22,9 +22,11 @@ class DraftSetAside(Seats):
     def setUp(self):
         super().setUp()
         self.keys, self.buffers, self.options, self.deaf = [], {}, {}, False
-        patcher = patch.object(aside_editor, "_tmux", side_effect=self.editor_tmux)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.active, self.listed, self.drawn = PANE, True, None
+        for patcher in (patch.object(aside_editor, "_tmux", side_effect=self.editor_tmux),
+                        patch.object(watch.time, "sleep", side_effect=self.draw)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.show(DRAFT)
 
     def show(self, composer):
@@ -34,14 +36,17 @@ class DraftSetAside(Seats):
 
     def tmux(self, *args, **kwargs):
         command = args[0]
+        # a seat's `=name:` is whichever of its panes the owner has active
+        target = args[args.index("-t") + 1] if "-t" in args else ""
+        target = self.active if target == f"={SEAT}:" else target
         if command == "display-message" and args[-1].startswith("#{pane_id}"):
-            return 0, f"{PANE}\t4242\t{self.root / 'tty'}"
+            return 0, f"{self.active}\t4242\t{self.root / 'tty'}"
         if command == "set-option" and "-pu" in args:
-            self.options.pop(args[-1], None)
+            self.options.pop((target, args[-1]), None)
         elif command == "set-option":
-            self.options[args[-2]] = args[-1]
+            self.options[target, args[-2]] = args[-1]
         elif command == "list-buffers":
-            return 0, "\n".join(self.buffers)
+            return (0, "\n".join(self.buffers)) if self.listed else (1, "no server running")
         elif command == "list-panes":
             return 0, f"{PANE}\t{SEAT}"
         elif command == "delete-buffer":
@@ -55,17 +60,23 @@ class DraftSetAside(Seats):
         return 0, ""
 
     def edit(self):
-        """The harness's Ctrl-G: its composer handed to $VISUAL, and what that leaves taken."""
+        """The harness's Ctrl-G: its composer handed to $VISUAL, and what that leaves taken in
+        at its next draw."""
         path = self.root / "composer.md"
         path.write_text(self.composer)
         with patch.dict(os.environ, {"TMUX_PANE": PANE}):
             aside_editor.edit([str(path)])
-        self.show(path.read_text())
+        self.drawn = path.read_text()
+
+    def draw(self, _seconds):
+        if self.drawn is not None:
+            self.show(self.drawn)
+            self.drawn = None
 
     def editor_tmux(self, *args, data=None):
         """tmux as ak's editor asks it, in the pane it runs in."""
         if args[0] == "show-options":
-            return self.options.pop(aside_editor.ASK, "").encode()
+            return self.options.pop((args[3], aside_editor.ASK), "").encode()
         if args[0] == "save-buffer":
             return self.buffers.get(args[-2])
         if args[0] == "load-buffer":
@@ -81,12 +92,19 @@ class DraftSetAside(Seats):
         self.assertEqual((self.keys, list(self.buffers)), ([], [aside_editor.kept(PANE)]))
         self.show("")
         watch.drafts_back(self.cfg, lambda _: None)
+        # drawn before the lock lets another line at the composer
         self.assertEqual((self.keys, self.composer, self.buffers), (["C-g"], DRAFT, {}))
 
     def test_an_ask_its_harness_never_acts_on_is_taken_back_before_the_owners_edit(self):
         self.buffers, self.deaf = {aside_editor.kept(PANE): DRAFT.encode()}, True
         self.show("")
-        watch.drafts_back(self.cfg, lambda _: None)
+
+        def owner(_seconds):
+            # mid-wait the owner moves to another pane, and tmux cannot list its buffers
+            self.active, self.listed = "%8", False
+
+        with patch.object(watch.time, "sleep", side_effect=owner):
+            watch.drafts_back(self.cfg, lambda _: None)
         # the owner's own Ctrl-G later opens their editor: no ask is left for it to take
         self.assertEqual((self.keys, self.options), (["C-g"], {}))
         self.assertEqual(self.buffers, {aside_editor.kept(PANE): DRAFT.encode()})

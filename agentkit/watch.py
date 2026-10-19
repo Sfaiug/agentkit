@@ -3626,26 +3626,27 @@ def _pane(session):
 
 
 def _aside_kept(session, pane):
-    """Whether ak's editor holds text it set aside from that pane (`aside_editor.kept`)."""
+    """Whether ak's editor holds text it set aside from that pane (`aside_editor.kept`), None
+    where tmux cannot list its buffers."""
     rc, out = orch.tmux_out("list-buffers", "-F", "#{buffer_name}",
                             socket=orch.seat_socket(session))
-    return rc == 0 and aside_editor.kept(pane["id"]) in out.split("\n")
+    return aside_editor.kept(pane["id"]) in out.split("\n") if rc == 0 else None
 
 
-def _edit(session, held, keys, mode, settled, log):
-    """Ask ak's editor for `out` or `back`, open the seat's composer in it with `keys`, and
-    True once `settled` reads true.  An ask the harness has not acted on by then is taken back,
-    so that it never moves the composer of an edit the owner opens."""
-    name, server = session["name"], orch.seat_socket(session)
-    orch.tmux_out("set-option", "-p", "-t", f"={name}:", aside_editor.ASK,
+def _edit(session, held, pane, keys, mode, settled, log):
+    """Ask ak's editor for `out` or `back` in that pane, open its composer in it with `keys`,
+    and True once `settled` reads true.  The ask is taken back from that pane however the wait
+    ends -- the owner may have moved to another since -- so that one the harness has not acted
+    on never moves the composer of an edit the owner opens."""
+    server = orch.seat_socket(session)
+    orch.tmux_out("set-option", "-p", "-t", pane["id"], aside_editor.ASK,
                   aside_editor.request(mode), socket=server)
-    rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", *keys, socket=server)
+    rc, out = orch.tmux_out("send-keys", "-t", pane["id"], *keys, socket=server)
     if rc != 0:
-        log(f"WARN could not type into the {name} seat: {out[-200:]}")
-    elif _wait_ready(settled, held):
-        return True
-    orch.tmux_out("set-option", "-pu", "-t", f"={name}:", aside_editor.ASK, socket=server)
-    return False
+        log(f"WARN could not type into the {session['name']} seat: {out[-200:]}")
+    done = rc == 0 and _wait_ready(settled, held)
+    orch.tmux_out("set-option", "-pu", "-t", pane["id"], aside_editor.ASK, socket=server)
+    return done
 
 
 def bring_back(session, held, log, cfg=None):
@@ -3658,8 +3659,11 @@ def bring_back(session, held, log, cfg=None):
         return
     harness = seat_model(config.load() if cfg is None else cfg, held)[0]
     keys = screen(harness)["editor"] if harness else ()
-    if keys and not _edit(session, held, keys, "back", lambda _: not _aside_kept(session, pane),
-                          log):
+    # back once the editor let the text go and the harness drew it: the lock is held until then,
+    # so no line goes in on the empty composer the screen still shows
+    if keys and not _edit(session, held, pane, keys, "back", lambda _: (
+            _aside_kept(session, pane) is False
+            and composer_holds(held, session, "", cfg) != "empty"), log):
         log(f"WARN {held}: the owner's text ak set aside is not back yet")
 
 
