@@ -141,7 +141,7 @@ class NeedsYouAfterAnswer(unittest.TestCase):
                 self.tick(now, "Login expired")
         self.assertEqual(self.cards, [])
 
-    def test_a_late_card_for_a_retired_question_reads_answered(self):
+    def test_a_late_card_for_a_retired_question_never_goes_out(self):
         notify.record(SEAT, "needs", QUESTION, time=100)
         self.tick(100, QUESTION)
         self.tick(160, QUESTION)
@@ -158,7 +158,8 @@ class NeedsYouAfterAnswer(unittest.TestCase):
         notify.post.side_effect = deliver
         with patch.object(notify.time, "time", return_value=300 + notify.RETRY_BACKOFF[0]):
             notify.retry_pending(log=lambda _: None)
-        self.assertEqual(self.edits, [("1", "Answered"), ("2", "Answered")])
+        self.assertEqual(self.edits, [("1", "Answered")])
+        self.assertEqual(self.cards, [f"Needs you · {SEAT}: {QUESTION}"])
 
     def test_a_needs_you_standing_before_an_upgrade_is_history(self):
         notify.record(SEAT, "needs", QUESTION, time=100)

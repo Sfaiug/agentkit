@@ -295,8 +295,6 @@ class RequiredNotifications(unittest.TestCase):
         self.assertEqual(result["result"], 1)
         self.assertEqual(self.event()["status"], "blocked")
         self.assertEqual(self.posts(), [])
-        self.call(op="clear", env={"AGENTKIT_DISCORD_WEBHOOK": ""})
-        self.assertTrue(self.state("state/notify-seat.json")["seen"])
         secret.rmdir()
         secret.write_text(URL)
         self.call(op="retry", env={"AGENTKIT_DISCORD_WEBHOOK": ""})
@@ -413,16 +411,15 @@ class RequiredNotifications(unittest.TestCase):
         self.assertEqual([p["method"] for p in self.posts()], ["POST", "POST"])
         self.assertEqual(self.state("state/notify-seat.json")["message_id"], "1234")
 
-    def test_local_acknowledgment_does_not_consume_external_delivery(self):
+    def test_a_question_cleared_before_its_card_went_out_is_never_sent_late(self):
         self.call(http="timeout")
         self.call(op="clear")
         before = self.state("state/notify-seat.json")
         self.assertTrue(before["seen"])
         self.call(op="retry", now=10060)
         self.assertEqual(self.state("state/notify-seat.json"), before)
-        self.assertEqual(self.event()["status"], "delivered")
-        self.assertEqual([p["method"] for p in self.posts()], ["POST", "POST", "PATCH"])
-        self.assertEqual(self.posts()[-1]["payload"]["content"], "Answered · seat")
+        self.assertEqual(self.event()["status"], "disabled")
+        self.assertEqual([p["method"] for p in self.posts()], ["POST"])
 
     def test_dry_runs_do_not_create_or_change_state_or_post(self):
         before = self.snapshot()
