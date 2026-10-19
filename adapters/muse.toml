@@ -97,8 +97,9 @@ enforce = "nudge"
 [screen]
 # 1.2.1 draws `❯` where 1.0.3 drew `⟩`; the shared footer already reads both.  The status line
 # ends on its approvals, `YOLO` or, launched without it, `Auto-review` or `Launch overrides`,
-# and keeps `compacted context` beside them for a few seconds after a compaction.
-composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · (?:YOLO|Auto-review|Launch overrides)(?: {2,}compacted context)?)$'
+# and keeps `compacted context` beside them for a few seconds after a compaction, and `Draft
+# cleared · press ↑ to restore` for a few seconds after Ctrl-C empties a draft (1.4.10).
+composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · (?:YOLO|Auto-review|Launch overrides)(?: {2,}(?:compacted context|Draft cleared · press ↑ to restore))?)$'
 # 1.4.7 draws its composer between two rules, so a draft wrapped onto a second row is still its
 ruled = true
 # 1.4.7 draws its rotating composer suggestions ("Ask to monitor a running build …") in this
@@ -107,6 +108,11 @@ faint = ["38;5;242"]
 # 1.4.7 draws a tray of background tasks between its composer and its status line: a header,
 # up to four tasks, then `+N`.
 tray = '(?:main(?: · ↓ to select)?|[├└] .+)'
+# The owner's unsent text set aside for a line of ak's, and back after it (1.4.10, live): Ctrl-C
+# empties a composer holding text (`Draft cleared · press ↑ to restore`) and files it in the
+# prompt history, a paste whole, so once ak's line is sent it is two entries up, and one where
+# nothing was typed.
+aside = {out = ["C-c"], back = ["Up", "Up"], undo = ["Up"]}
 
 # Muse's picker: both choices and the key hint, in the last few lines with the hint newest.
 [[rule]]

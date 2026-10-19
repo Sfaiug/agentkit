@@ -99,6 +99,10 @@ composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|tab to queue message\b.*|[\
 # 0.160.1 draws `⚠ 1 warning · f2 to view` at the footer's end on a seat resumed on another
 # model than its thread's, and alone where a draft has put the shortcut hint away.
 footer = ['\? for shortcuts', '(?:\? for shortcuts\s+)?⚠ \d+ warnings? · f2 to view']
+# The owner's unsent text set aside for a line of ak's, and back after it (0.163.0, live): Ctrl-C
+# empties a composer holding text and files it in the prompt history, a paste whole, so once
+# ak's line is sent it is two entries up, and one where nothing was typed.
+aside = {out = ["C-c"], back = ["Up", "Up"], undo = ["Up"]}
 
 # Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a
 # permission request -- is the same numbered chooser, so one rule covers them: the selected

@@ -136,6 +136,11 @@ tray = '[●◯] \S.*'
 # above its bottom rule, and the rows over it are the transcript, a dialog's controls cut off:
 # such a screen reads nothing (2.1.292).
 away = 'Jump to bottom \(ctrl\+End\) ↓'
+# The owner's unsent text set aside for a line of ak's, and back after it (2.1.302, live): Ctrl-C
+# empties a composer holding text and files it in the prompt history, so once ak's line is
+# sent it is two entries up, and one where nothing was typed.  Its Ctrl-S stash keeps one
+# entry, which would overwrite one of the owner's own.
+aside = {out = ["C-c"], back = ["Up", "Up"], undo = ["Up"]}
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.

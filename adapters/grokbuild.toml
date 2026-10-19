@@ -122,6 +122,10 @@ footer = ['Shift\+Tab:mode.*', 'Enter:send.*', 'Esc:press again to clear']
 # thumb ends in whichever block its scroll position needs (`▄` and `▂` captured), so the
 # whole block range is chrome there.
 scrolled = '\s+[▀-█]$'
+# The owner's unsent text set aside for a line of ak's, and back after it (1.0.46, live): Ctrl-S
+# stashes a composer's text (`Stashed` on its top edge), which grok puts back by itself once a
+# line is sent, and Ctrl-S on the empty composer where none was.
+aside = {out = ["C-s"], back = [], undo = ["C-s"]}
 
 # Its trust dialog: the question with the pair of controls.  Words from the executable's
 # own strings; no fresh folder on this host was still untrusted enough to paint it, so the
