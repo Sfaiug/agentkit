@@ -3,13 +3,15 @@ its composer to.
 
 Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its composer in that
 editor on the keys its manifest names (`[screen] editor`), and `edit` does what ak asked of the
-pane just before (`request`, a pane option the edit clears): `out` keeps the composer's text in a
-tmux buffer of the pane's (`kept`) and hands back an empty composer; `back` hands the kept text
-back, ahead of whatever the composer holds by then.  No text is ever dropped: a second `out` adds
-to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
+pane just before (`request`, a pane option the edit clears): `line` hands back ak's line in place
+of the composer's text, which it keeps in a tmux buffer of the pane's (`kept`) after whatever is
+kept already; `back` hands the kept text back to a composer handed over empty or blank.  A step
+that fails leaves the composer and the kept text both as they were, so no text is ever dropped
+or kept twice.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
 `host`, which imports nothing itself, as it starts on every edit the owner opens.
 """
 
+import contextlib
 import os
 import subprocess
 import time
@@ -30,9 +32,9 @@ def launch_env(environ):
     return [f"VISUAL={EDITOR}", f"EDITOR={EDITOR}", f"{OWNER}={owner}"]
 
 
-def request(mode):
-    """The pane option's value asking the next edit for `out` or `back`."""
-    return f"{mode} {time.time():.0f}"
+def request(mode, line=""):
+    """The pane option's value asking the next edit for `line`, with that line, or `back`."""
+    return f"{mode} {time.time():.0f} {line}"
 
 
 def kept(pane):
@@ -79,18 +81,46 @@ def _tmux(*args, data=None):
     return proc.stdout if proc.returncode == 0 else None
 
 
+def _keep(name, data):
+    """Whether tmux now keeps `data` in that buffer, or none where it is empty."""
+    return (_tmux("load-buffer", "-b", name, "-", data=data) if data
+            else _tmux("delete-buffer", "-b", name)) is not None
+
+
+def _replace(path, data, before, undo):
+    """The composer at `path` holding `data` once `before` did what it says, else left as it was:
+    written beside it and moved over it, so no failed write hands the harness part of either, and
+    `undo` taking back what `before` did where the move fails."""
+    temp = path.with_name(f".{path.name}.{os.getpid()}.ak")
+    try:
+        # as private as the harness made the composer's own
+        with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                               os.stat(path).st_mode & 0o777), "wb") as out:
+            out.write(data)
+        if before():
+            try:
+                os.replace(temp, path)
+            except OSError:
+                undo()
+    except OSError:
+        pass
+    with contextlib.suppress(OSError):
+        temp.unlink(missing_ok=True)
+
+
 def edit(argv):
     """The editor's body: the file the harness hands it is its last argument."""
     pane = os.environ.get("TMUX_PANE", "")
     # read and cleared in one call: one ask moves one composer
     said = _tmux("show-options", "-pqv", "-t", pane, ASK, ";",
                  "set-option", "-pu", "-t", pane, ASK) if pane and argv else None
-    mode, _, at = (said or b"").decode(errors="replace").strip().partition(" ")
+    mode, _, rest = (said or b"").removesuffix(b"\n").partition(b" ")
+    at, _, line = rest.partition(b" ")
     try:
         fresh = time.time() - float(at) <= FRESH
     except ValueError:
         fresh = False
-    if fresh and mode in ("out", "back"):
+    if fresh and mode in (b"line", b"back"):
         path, name = Path(argv[-1]), kept(pane)
         # tmux fails to save a buffer it lacks as it fails for any other reason, so only one it
         # lists is read: what cannot be read leaves both the buffer and the composer as they are
@@ -100,13 +130,13 @@ def edit(argv):
         if held is None:
             return 0
         text = path.read_bytes()
-        both = b"\n".join(part for part in (held, text) if part.strip())
-        if mode == "out" and text.strip():
-            if _tmux("load-buffer", "-b", name, "-", data=both) is not None:
-                path.write_bytes(b"")
-        elif mode == "back" and held:
-            path.write_bytes(both)
-            _tmux("delete-buffer", "-b", name)
+        # a composer holding the line already got it from an edit before: nothing in it to keep
+        if mode == b"line" and text != line:
+            both = b"\n".join(part for part in (held, text) if part)
+            _replace(path, line, lambda: not text or _keep(name, both),
+                     lambda: text and _keep(name, held))
+        elif mode == b"back" and held and not text.strip():
+            _replace(path, held + text, lambda: _keep(name, b""), lambda: _keep(name, held))
         return 0
     owner = os.environ.get(OWNER) or "vi"
     os.execvp("sh", ["sh", "-c", f'{owner} "$@"', owner, *argv])
