@@ -2702,8 +2702,6 @@ AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (con
 VERSION = ("row", "Version")    # agentkit's build, read and nothing more
 PROVIDER_ACTS = (("+ add", "+ add"), ("− remove", "- remove"),
                  ("↻ spend a reset", "spend a reset"))   # and each without UTF-8
-# What a subscription's meter over `c`'s page offers, each where it applies (config_usage).
-USAGE_ACTS = (("↻ spend a reset", "spend a reset"), ("− remove", "- remove"))  # and without UTF-8
 # What `+ add` offers each provider the shipped default has as: its company, and the harness it
 # runs on; any other is its name on the Providers row.  One shipped on a harness that runs any
 # provider (config.provider_hosts) is offered among that harness's own.
@@ -3497,16 +3495,15 @@ def config_meters(cfg, at=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
     (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`), and
     under them a line that, while `at`, from 1, has the highlight, says what its cell has no
-    room for (`usage_detail`), its meter lit as the pointer lights it there, the line that
-    meter's own; none without a grid."""
+    room for (`usage_detail`), its meter lit as the pointer lights it there; none without a
+    grid."""
     rows, width = usage_rows(cfg), terminal.layout_width()
     ending = login_notes(rows)
     meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], {**meter_spots(width, len(rows), 0, rows=True),
-                               **({len(meters): (("usage", at), [])} if at else {})}
+    return [*meters, detail], meter_spots(width, len(rows), 0, rows=True)
 
 
 def meters_led(meters, body, places, under, keys, moves=()):
@@ -3552,9 +3549,10 @@ def matrix_page(body, places, here, top, under, keys, over=()):
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
     and how many are.  `top` stays where it was while the page holds every line of `here`, or
     any of them for a row taller than the page, else moves the least that makes it so, and
-    never past the last page."""
+    never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
-    drawn = [number for number, (row, _) in places.items() if row == here] or [0]
+    drawn = [number for number, (row, cells) in places.items()
+             if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
     if lo > hi:                                   # taller than the page: the tops holding any
         lo, hi = drawn[0] - room + 1, drawn[-1]
@@ -4329,27 +4327,25 @@ def config_spend_reset(cfg, picked=None):
 @terminal.clicks_its_own
 def config_usage(cfg, number):
     """Enter or a click on subscription `number`'s meter, from 1, over the page of `c`: what it
-    offers (USAGE_ACTS), picked from a list under its name where it offers more than one --
+    offers (PROVIDER_ACTS), picked from a list under its name where it offers more than one --
     `↻ spend a reset` while it holds one (config_spend_reset), and `− remove`
     (config_remove_provider), the highlight on it, so only a move or a click picks the spend.
     What to say under the matrix, or ""."""
-    rows = usage_rows(cfg)
-    name, label, prov, account = rows[number - 1]
-    picked = (name, account, terminal.plain(label))
-    acts = [act for act, offers in enumerate((in_hand(prov), True)) if offers]
-    texts = [USAGE_ACTS[act][0 if terminal.utf8() else 1] for act in acts]
-    act = acts[0]
-    if len(acts) > 1:
+    name, label, prov, account = usage_rows(cfg)[number - 1]
+    acts = {text[0 if terminal.utf8() else 1]: act for text, act, offers in (
+        (PROVIDER_ACTS[2], config_spend_reset, in_hand(prov)),
+        (PROVIDER_ACTS[1], config_remove_provider, True)) if offers}
+    texts = list(acts)
+    chosen = texts[0]
+    if len(texts) > 1:
         keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1]
 
         def listed():     # the screen the list is drawn on, drawn again on a resize
-            terminal.frame(f"config · {picked[2]}", [""] * len(texts), keys + "   esc back")
+            terminal.frame(f"config · {label}", [""] * len(texts), keys + "   esc back")
             return 3
         chosen = terminal.choose(texts, around=listed, default=texts[-1])
-        act = None if chosen is None else acts[texts.index(chosen)]
-    if act == 0:
-        return config_spend_reset(cfg, picked)
-    return config_remove_provider(cfg, picked) if act == 1 else ""
+    # its label as usage_cells has it, which config_spend_reset reads its week back by
+    return "" if chosen is None else acts[chosen](cfg, (name, account, label))
 
 
 def config_discord():

@@ -128,6 +128,12 @@ class ResetByHand(unittest.TestCase):
         self.offered(1)                                   # Esc on the list spends nothing
         self.assertEqual(self.spent, ["second"])
 
+    def test_a_meter_reads_its_week_back_by_its_name_as_written(self):
+        self.cfg["providers"]["openai"]["name"] = "Acme  Plan"     # spaced as its owner typed it
+        usage.collect(self.cfg, refresh=True)
+        self.offered(2, "↻ spend a reset")
+        self.assertEqual(self.note, "Acme  Plan II · 100% left")
+
     def test_of_two_subscriptions_of_one_name_a_meter_spends_its_own(self):
         rows = [("openai", "ChatGPT", {}, None), ("acme", "ChatGPT", {"resets": 1}, None)]
         with patch.object(menu, "usage_rows", return_value=rows), \
