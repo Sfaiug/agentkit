@@ -2454,6 +2454,19 @@ def still_owed(name, mine, index, stopped):
     return None
 
 
+def news_owed(name, mine):
+    """What ak still has to type into that seat, as its reason, or None: the end of its `ak
+    wait` not yet told (`wait_over`), or an ending of its own runs nobody has heard that is the
+    seat's to decide (`handback.owes_ending`, less a routine one, which is never typed)."""
+    wait = seat_read(name).get("wait")
+    if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
+        return f"telling it its wait on {wait.get('on')} is over"
+    for run_dir, state in mine:
+        if handback.owes_ending(state) and not handback.routine_ending(state):
+            return f"telling it how run {run_dir.name} ended"
+    return None
+
+
 def own_runs(name, records):
     """That seat's own (run_dir, state) pairs among `records`: the runs launched from it."""
     return transitions.runs_by_seat(records).get(name, [])
@@ -2747,6 +2760,14 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         "state") == "asking" else ""
     if asked:
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
+    # ... or ak still has a line to type into it, at its next quiet prompt: that line moves it,
+    # not the owner, who was paged `stopped with work open` while the line waited behind
+    # their own unsent text (19 Oct 2026).  Only at a prompt a rule or hook read: `classify`
+    # offers `at_prompt` with no `authority` for a screen nobody can read, which takes no line.
+    telling = (news_owed(name, mine) if found.get("authority")
+               and found.get("state") in ("at_prompt", "draft") else None)
+    if telling:
+        return {"word": "working", "reason": telling, "since": found.get("began")}
     # Nothing running, asked or owed: the seat rests and nothing on it is the owner's to do -- a
     # new seat, a conversation that ended, a plan it finished, a turn the owner stopped.
     owed = still_owed(name, mine, index, found.get("interrupted"))

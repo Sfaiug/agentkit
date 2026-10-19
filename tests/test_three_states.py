@@ -223,12 +223,14 @@ class ThreeStates(Sandbox):
         # ever names a run or sends him to one. A gone seat names its own number.
         for name, extra in (
                 ("20260101-0300-parser-edge-case",
-                 {"state": "fail", "verdict": "FAIL", "finished_at": NOW - 3 * 3600}),
+                 {"state": "fail", "verdict": "FAIL", "finished_at": NOW - 3 * 3600,
+                  "handed_back": NOW - 3 * 3600}),
                 ("20260101-0400-dashboard-filters",
                  {"state": "interrupted", "finished_at": None, "recovery_pending": True,
-                  "interrupted_at": NOW - 2 * 3600}),
+                  "interrupted_at": NOW - 2 * 3600, "handed_back": NOW - 2 * 3600}),
                 ("20260101-0500-schema-rewrite",
-                 {"state": "pass", "verdict": "PASS", "finished_at": NOW - 3600})):
+                 {"state": "pass", "verdict": "PASS", "finished_at": NOW - 3600,
+                  "handed_back": NOW - 3600})):
             with self.subTest(run=name):
                 for old in config.RUNS.iterdir():
                     record.save_state(old, {**record.read_state(old),
