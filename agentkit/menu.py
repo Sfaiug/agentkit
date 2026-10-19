@@ -3679,7 +3679,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
-        over, meters = config_meters(cfg, here[1] if here and here[0] == "usage" else None)
+        over, meters = config_meters(cfg, here[1] if here and here[0] == "usage"
+                                     and not terminal.away() else None)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in CONFIG_ROWS)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models

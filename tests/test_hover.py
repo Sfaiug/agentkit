@@ -31,7 +31,7 @@ from unittest.mock import Mock, call, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal
-from test_config_matrix import Screen
+from test_config_matrix import Screen, headings
 from test_menu_keys import Menu
 from fixtures.sandbox import Sandbox
 
@@ -273,6 +273,16 @@ class Screens(Sandbox):
         self.assertNotIn(names[0], "\n".join(texts(last)))
         self.assertGreater(heads, 3)
         self.assertEqual(texts(last)[2:heads], texts(first)[2:heads])
+
+    def test_leaving_a_meter_clears_its_detail_and_keeps_the_keyboards_position(self):
+        first = self.matrix()[0]
+        line = headings(texts(first)) - 1
+        screens = self.matrix(move(*at(first, "Claude")), move(1, 1), RIGHT, ESC)
+        details = [texts(grid)[line].strip() for grid in screens]
+        self.assertIn("Claude", details[1])
+        self.assertEqual(details[2], "")
+        self.assertEqual(marked(screens[2], "lit"), {})
+        self.assertEqual(details[3], details[1])
 
     def test_moves_sent_while_the_rule_glides_are_one_draw(self):
         checkout = self.root / "code" / "ACME"
