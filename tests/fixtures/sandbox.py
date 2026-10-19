@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
-from agentkit import box, host, config, gc, menu, orch, terminal
+from agentkit import box, host, config, gc, menu, orch, terminal, watch
 from agentkit import record as run_record
 from fixtures.hand_in import records
 
@@ -105,6 +105,8 @@ class Sandbox(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
+        # no seat here was launched with ak's editor: its lines go in as keys
+        self.stack.enter_context(patch.object(watch, "seat_editor", return_value=None))
         self.stack.enter_context(patch.object(terminal, "height", return_value=24))
         self.stack.enter_context(patch.object(menu.time, "time", return_value=10000))
         self.stack.enter_context(patch.object(host, "host_readings", return_value={

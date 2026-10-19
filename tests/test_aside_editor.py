@@ -3,7 +3,8 @@ it back whole, and otherwise is the owner's own editor.
 
 A seat whose turn ended on `ak wait` sat once its run merged: the end of the wait could not be
 typed while the owner's unsent text held its composer (19 Oct 2026).  A harness hands its
-composer to $VISUAL; this editor takes the text out on ak's ask and back on the next.  Offline:
+composer to $VISUAL; this editor keeps the text for ak's line on ak's ask and hands it back on
+another.  Offline:
 tmux faked in memory; the processes are this test's own.
 """
 
@@ -65,21 +66,29 @@ class AsideEditor(unittest.TestCase):
             aside_editor.edit([str(self.composer)])
         return self.composer.read_text()
 
-    def test_text_set_aside_twice_comes_back_whole_ahead_of_newer_text(self):
-        self.assertEqual(self.edit("and add these posts", aside_editor.request("out")), "")
-        self.assertEqual(self.edit("then this", aside_editor.request("out")), "")
-        self.assertEqual(self.edit("newest", aside_editor.request("back")),
-                         "and add these posts\nthen this\nnewest")
+    def test_text_set_aside_twice_comes_back_whole_into_an_empty_composer_alone(self):
+        line = aside_editor.request("line", "run done; go on")
+        for text in ("", "and add these posts", "then this"):
+            self.assertEqual(self.edit(text, line), "run done; go on")
+        # never beside the owner's newer text
+        self.assertEqual(self.edit("newest", aside_editor.request("back")), "newest")
+        self.assertEqual(self.edit("", aside_editor.request("back")),
+                         "and add these posts\nthen this")
         self.assertEqual((self.buffers, self.opened), ({}, []))
 
+    def test_text_of_blanks_alone_is_kept_and_given_back_too(self):
+        self.edit("  \n", aside_editor.request("line", "go on"))
+        self.assertEqual(self.edit("", aside_editor.request("back")), "  \n")
+
     def test_text_kept_that_cannot_be_read_is_neither_replaced_nor_lost(self):
-        self.edit("and add these posts", aside_editor.request("out"))
+        self.edit("and add these posts", aside_editor.request("line", "go on"))
         self.unreadable = True      # tmux timed out on the buffer
-        self.assertEqual(self.edit("then this", aside_editor.request("out")), "then this")
+        self.assertEqual(self.edit("then this", aside_editor.request("line", "go on")),
+                         "then this")
         self.assertEqual(self.buffers, {aside_editor.kept(PANE): b"and add these posts"})
 
     def test_without_a_fresh_ask_it_opens_the_owners_editor_and_keeps_nothing(self):
-        stale = f"out {time.time() - aside_editor.FRESH - 5:.0f}"
+        stale = f"line {time.time() - aside_editor.FRESH - 5:.0f} go on"
         with patch.dict(os.environ, {aside_editor.OWNER: "owners-editor"}):
             for ask in (None, stale):
                 self.assertEqual(self.edit("mine", ask), "mine")
