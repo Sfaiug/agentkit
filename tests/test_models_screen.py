@@ -1,5 +1,6 @@
 """`r recommended` on the `c` screen opens `models · <seat>`: every model the matrix has a row
-for against the public boards, the recommendation and the rows as good as it, and one knob,
+for against the public boards, the best row per role, the rows as good as it and the
+recommendation (said why in tests/test_models_screen_says_why.py), and one knob,
 `as good as the best: within ‹ 5 ›`, whose ←/→ step `within` a point, never under 0, saved to
 config.toml at once, the recommended and as-good lines following.  One model a row, the
 scored ones first by their best quality: config name or id, harness, effort between arrows
@@ -44,7 +45,9 @@ def row(harness, model, effort, coding, agentic, intel, cost, agent=None):
             "matched": {}, "values": values}
 
 
-class ModelsScreen(Sandbox):
+class Screen(Sandbox):
+    """`c` on a throwaway HOME whose matrix holds the rows below, driven by keys."""
+
     def setUp(self):
         super().setUp()
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "fable"],
@@ -87,12 +90,16 @@ class ModelsScreen(Sandbox):
                          "a line runs past the screen")
         return " ".join(" ".join(lines).split())
 
+
+class ModelsScreen(Screen):
     def test_r_on_c_opens_the_screen_with_the_knob_the_recommendation_and_every_model(self):
         text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)
         self.assertIn("as good as the best: within ‹ 5 ›", text)
-        self.assertIn("recommended orch opus @ xhigh · builds astra @ xhigh · reviews astra @ xhigh", text)
-        self.assertIn("as good builds opus @ xhigh · reviews opus @ xhigh", text)
+        self.assertIn("best orch opus @ max 100 $8000 · builds opus @ max 100 $8000 · reviews opus @ max "
+                      "100 $8000 as good builds opus @ xhigh 97 $4000 · reviews opus @ xhigh 97 $4000 "
+                      "recommended the cheapest as good: orch opus @ xhigh 97 $4000 · builds astra @ "
+                      "xhigh 95 $500 · reviews astra @ xhigh 96 $500", text)
         self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
                       "cost is what Artificial Analysis's index run cost it, in dollars", text)
         self.assertIn("model harness effort orch builds reviews cost $", text)
@@ -139,15 +146,18 @@ class ModelsScreen(Sandbox):
         self.assertIn("as good as the best: within ‹ 4 ›", text)
         self.assertEqual(config.load()["within"], 4)
         # within 4, astra's 96 is no longer as good as opus's 100: opus @ xhigh everywhere
-        self.assertIn("recommended orch opus @ xhigh · builds opus @ xhigh · reviews opus @ xhigh "
-                      "as good none", text)
+        self.assertIn("as good none recommended the cheapest as good: orch opus @ xhigh 97 $4000 · "
+                      "builds opus @ xhigh 97 $4000 · reviews opus @ xhigh 97 $4000", text)
         text = self.screens([Key("char", "r"), Key("up"), *[Key("left")] * 6, Key("esc"), Key("esc")])
         self.assertIn("as good as the best: within ‹ 0 ›", text)
         self.assertEqual(config.load()["within"], 0)
-        self.assertIn("recommended orch opus @ max · builds opus @ max · reviews opus @ max", text)
+        self.assertIn("recommended the cheapest as good: orch opus @ max 100 $8000 · builds opus @ max "
+                      "100 $8000 · reviews opus @ max 100 $8000", text)
 
     def test_on_a_phone_the_harness_and_the_cost_give_way_and_every_line_fits(self):
-        text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")], width=40)
+        # a phone is tall: the lines above the table wrap to more of them there
+        with patch.object(terminal, "height", return_value=60):
+            text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")], width=40)
         self.assertIn("model effort orch builds reviews › opus ‹ max › 100 100 100 astra xhigh", text)
         self.assertNotIn("harness", text.split("models · fix-api")[1])
 

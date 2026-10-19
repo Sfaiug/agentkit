@@ -2878,6 +2878,7 @@ KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
 MODELS_NOTE = ("quality is a model's share of the best on the public boards, out of 100; cost is "
                "what Artificial Analysis's index run cost it, in dollars")
+CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
 
 
 def models_table(held):
@@ -2926,17 +2927,23 @@ def models_at(rows, effort):
          if all(hit["effort"] is None for hit in (row.get("matched") or {}).values())), {})
 
 
-def _named(cfg, row, role):
-    """A row's label under the configured model `r` takes it as in `role` (takes)."""
-    return matrix.row_label({**row, "name": takes(cfg, row, role)})
+def _entry(cfg, row, role):
+    """A row as the lines above the table say it: its label under the configured model `r`
+    takes it as in `role` (takes), its quality for the role and what its index run cost
+    (`opus @ xhigh 97 $4057`; the cost left out where Artificial Analysis has not run it)."""
+    cost = row["values"].get(matrix.COST)
+    return (f"{matrix.row_label({**row, 'name': takes(cfg, row, role)})} "
+            f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.0f}"))
 
 
 def models_body(cfg, table, levels, shown, at, picks):
     """The models screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    First the knob, `within` between the arrows that step it (KNOB), then the recommended row
-    per role and, dim, the rows as good as it (`picks`, matrix.recommended), each under the
-    configured model `r` takes it as (takes), and what quality and cost are.  Under them every
+    First the knob, `within` between the arrows that step it (KNOB), then, dim, the best row
+    per role (matrix.tops) and the rows as good as it (`picks`, matrix.recommended), then the
+    recommended row per role, said as the cheapest as good (CHEAPEST), each row with its
+    quality and cost (_entry) under the configured model `r` takes it as, and what quality and
+    cost are.  Under them every
     model of `table` (models_table) once: its label, the config's name for it or its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
@@ -2956,17 +2963,20 @@ def models_body(cfg, table, levels, shown, at, picks):
     lines.append(terminal.highlight(line) if at == KNOB else line)
     ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
            for role, rows in picks.items()}
-    said = {"recommended": [], "as good": []}
+    tops = matrix.tops([row for rows in table.values() for row in rows.values()])
+    said = {"best": [], "as good": [], "recommended": []}
     for number, role in enumerate(matrix.ROLES):
-        rows = picks.get(role) or []
-        if rows:
-            said["recommended"].append(f"{orch.ROLE_HEADS[number]} {_named(cfg, rows[0], role)}")
+        rows, head = picks.get(role) or [], orch.ROLE_HEADS[number]
+        if role in tops:
+            said["best"].append(f"{head} {_entry(cfg, tops[role], role)}")
         if rows[1:]:
-            said["as good"].append(f"{orch.ROLE_HEADS[number]} "
-                                   + ", ".join(_named(cfg, row, role) for row in rows[1:]))
+            said["as good"].append(f"{head} " + ", ".join(_entry(cfg, row, role)
+                                                           for row in rows[1:]))
+        if rows:
+            said["recommended"].append(f"{head} {_entry(cfg, rows[0], role)}")
     wide = max(terminal.cells(word) for word in said)
     for word, parts in said.items():
-        text = " · ".join(parts) or "none"
+        text = (CHEAPEST if word == "recommended" and parts else "") + (" · ".join(parts) or "none")
         for number, part in enumerate(terminal.wrap(text, room - 2 - wide - 2)):
             lines.append(terminal.table_row([word if number == 0 else "", part],
                                             [wide, room - 2 - wide - 2], indent="  ",

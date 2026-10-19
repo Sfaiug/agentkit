@@ -325,10 +325,13 @@ screen), `terminal.state_text`.
 record -- opens `agentkit · models · <seat>`: every model the installed harnesses offer
 against the public boards, as `ak models` scores them, with nothing typed. Its first row is
 the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
-under 0, saved to config.toml at once, and the lines under it follow. Then `recommended`,
-the row per role (`orch opus @ xhigh · builds astra @ xhigh · reviews astra @ xhigh`), `as
-good`, dim, the rows within the knob of the best per role, and, dim, what quality and cost
-are. Under them one model a row, the scored ones first by their best quality: its config
+under 0, saved to config.toml at once, and the lines under it follow. Then the formula,
+each row said with its quality and cost (`opus @ max 100 $8708`): `best`, dim, the row of the
+highest quality per role; `as good`, dim, the rows within the knob of it, cheapest first; and
+`recommended`, the cheapest as good, said so (`recommended  the cheapest as good: orch opus @
+xhigh 97 $4057 · builds opus @ xhigh 96 $4057 · reviews gpt-sol @ max 95 $1082`), then, dim,
+what quality and cost are. Under them one model a row, the scored ones first by their best
+quality: its config
 name, or its id where the config does not run it (dim where no board scores it), its
 harness (dim), its effort between the arrows that step it (`‹ xhigh ›`; the word alone with
 one effort), its quality per role at that effort out of 100 -- the recommended row's in
