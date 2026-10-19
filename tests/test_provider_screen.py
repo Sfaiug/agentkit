@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_config_matrix import DOWN, ENTER, ESC, REPO, RIGHT, Screen, highlighted
+from test_config_matrix import DOWN, ENTER, ESC, REPO, RIGHT, UP, Screen, headings, highlighted
 from fixtures.sandbox import menu_input
 from agentkit import config, menu, terminal
 
@@ -242,6 +242,27 @@ class ProviderScreen(unittest.TestCase):
         screen.press(DOWN + ENTER, lambda lines: lines[-1] == KEYS["ask"])
         screen.press(ESC, lambda lines: title(lines) == MATRIX)              # so does Esc
         self.assertEqual(screen.path.read_bytes(), before)
+        screen.leave()
+
+    def test_a_meter_is_reached_and_asks_to_remove_its_provider(self):
+        screen = Screen(self, child=CHILD)
+        before = screen.path.read_bytes()
+        # ↑ past the first model lights the last meter, its line under the meters
+        lines = screen.press(UP, lambda lines: lines[headings(lines) - 1].strip())
+        name = lines[headings(lines) - 1].split()[0]
+        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
+        # `− remove` is all it offers, so it asks at once, and Enter keeps
+        asked = screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
+        self.assertEqual((title(asked), asked[3]), (f"agentkit · config · {name}",
+                                                    f"  Remove {name} and its models?"))
+        lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        self.assertEqual(screen.path.read_bytes(), before)
+        # a click on Claude's meter, on the line it is drawn on, asks for Claude
+        row = next(number for number, line in enumerate(lines, 1) if line.startswith("  Claude "))
+        screen.press(b"\x1b[<0;4;%dM\x1b[<0;4;%dm" % (row, row),
+                     lambda lines: "  Remove Claude and its models?" in lines)
+        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+        self.assertNotIn("anthropic", screen.saved()["providers"])
         screen.leave()
 
     def test_two_providers_of_one_name_are_told_apart(self):

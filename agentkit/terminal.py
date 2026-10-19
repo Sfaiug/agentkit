@@ -1116,14 +1116,16 @@ def key_spots(lines, row):
 
 def under(key, spots):
     """The `Spot` a click or the pointer at `key` is on, of a screen's `spots`: {screen row:
-    (what, [(first, last, cell)])}, rows and columns counted from 1 as the terminal counts.
+    (what, [(first, last, cell)])}, rows and columns counted from 1 as the terminal counts; a
+    cell that is a row of its own, one of several on its line (a meter on `c`), is (first, last,
+    cell, its row).
 
     The one place a position is read back to what a screen drew there, for a click and for the
     pointer alike, so what lights under the pointer is what a click there acts on.
     """
     what, places = spots.get(key.row, (None, ()))
-    return next((Spot(what, cell, first, last) for first, last, cell in places
-                 if first <= key.col <= last), Spot(what))
+    return next((Spot(own[0] if own else what, cell, first, last)
+                 for first, last, cell, *own in places if first <= key.col <= last), Spot(what))
 
 
 def pointer():
