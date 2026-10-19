@@ -1573,8 +1573,8 @@ def listing(reconcile=True):
 
 def numbered(found, kept):
     """`found` in the order its numbers go, 1 first: the seats the owner has not stopped as the
-    menu lists them -- projects by name, and under each its seats in the order they were made --
-    then the stopped ones the same way, for the past screen.  No seat's place hangs on its word
+    menu lists them -- projects by name, the seats filed under none last (`home_key`), and under
+    each its seats in the order they were made -- then the stopped ones the same way, for the past screen.  No seat's place hangs on its word
     or on which other seats there are, so its number is its place on the screen, and one made,
     stopped or removed moves only the ones after it.  When a seat was made is its record's, from
     its first launch (`kept`): tmux's own is when its instance last started."""
@@ -1585,8 +1585,7 @@ def numbered(found, kept):
     def home(session):            # the project the menu files the seat under, by its heading
         repo = session.get("repo")
         if repo not in homes:
-            checkout = checkout_of(repo, stands=stands)
-            homes[repo] = project_name(checkout), str(checkout or "")
+            homes[repo] = home_key(checkout_of(repo, stands=stands))
         return homes[repo]
     return sorted(found,
                   key=lambda s: (bool(s.get("closed")), home(s), made[s["name"]], s["name"]))
@@ -1711,6 +1710,12 @@ def cwd_project(cwd):
 
 def project_name(repo, fallback="no project"):
     return Path(repo).name if repo else fallback
+
+
+def home_key(checkout):
+    """Where the seats filed under `checkout` sort on the menu: projects by name, then the seats
+    filed under none, which are not yet where they will be."""
+    return checkout is None, project_name(checkout), str(checkout or "")
 
 
 def session_projects(kept):

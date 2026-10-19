@@ -102,7 +102,7 @@ class UsageLeft(Sandbox):
                 self.assertNotIn("↳", sessions)
                 for name in ("atoll-fix", "web-portal"):
                     self.assertEqual(text.count(name), 1)
-                self.assertIn("no project", sessions)
+                self.assertIn("not assigned yet", sessions)
                 self.assertNotIn("scratch", sessions)
                 self.assertNotIn("11 runs", sessions)
                 self.assertIn("\n  n new" if width == 100 else "n new", sessions)

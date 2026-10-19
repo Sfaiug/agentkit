@@ -1,5 +1,6 @@
 """`n` makes the new seat's row in its place on the main screen, numbered as it will be, its name
-typed there, else the free Clone Wars character's it shows (`orch.character_name`); Enter makes
+typed there, else the free Clone Wars character's it shows (`orch.character_name`), last under
+`not assigned yet` after every project, as its orchestrator has not filed it; Enter makes
 the seat and opens it, Esc takes the row back.  The owner's pick of 18 Oct 2026.  The keyboard tests drive `menu.loop` on a pty (tests/test_close_and_info.py's `Menu`)
 with the making of a seat faked too; nothing here starts a seat or a tmux server.
 """
@@ -21,7 +22,7 @@ from agentkit import menu, orch, terminal
 
 MADE = """
 orch.create = lambda cfg, name, cwd, **kw: print(
-    f"<made {name} under {kw['repo']} by {kw['selection'][1][0]}>", flush=True) or ["true"]
+    f"<made {name} under {kw.get('repo')} by {kw['selection'][1][0]}>", flush=True) or ["true"]
 """
 CHILD = test_close_and_info.CHILD.replace("sys.exit(menu.loop(", MADE + "sys.exit(menu.loop(")
 # every harness logged out: the crew `n` starts with has no pair that can run
@@ -58,7 +59,7 @@ class Keys(unittest.TestCase):
         shown.saw("<made fix-api under None by ", "<opened fix-api>", after=mark)
         shown.leave()
 
-    def test_n_starts_under_no_project_whatever_the_highlight_is_on(self):
+    def test_n_starts_last_under_not_assigned_yet_whatever_the_highlight_is_on(self):
         filed = CHILD.replace('{"name": name, "repo": None,',
                               '{"name": name, "repo": "/c/acme" if name == "alpha" else None,'
                               ).replace("sys.exit(menu.loop(", ACME + "sys.exit(menu.loop(")
@@ -70,8 +71,8 @@ class Keys(unittest.TestCase):
         lines = shown.frame(keys="esc back")
         row = lines.index(shown.highlighted(lines))
         self.assertIn("▏", lines[row])
-        heading = next(line for line in reversed(lines[:row]) if line and line[0] not in " ›")
-        self.assertEqual(heading.strip(), "no project")
+        headings = [line.strip() for line in lines[:row] if line and line[0] not in " ›"]
+        self.assertEqual(headings[-2:], ["acme", "not assigned yet"])   # after every project
         self.assertNotIn("as in", "\n".join(lines))                 # nor alpha's crew
         mark = shown.mark()
         shown.send(b"fix-api" + ENTER)
@@ -125,23 +126,43 @@ class Keys(unittest.TestCase):
 
 
 class Row(unittest.TestCase):
-    def test_it_goes_last_under_its_project_and_the_rows_after_it_are_numbered_on(self):
+    def test_it_goes_last_under_not_assigned_yet_numbered_as_it_will_be(self):
         acme, docs = Path("/c/acme"), Path("/c/docs")
         groups = ([{"name": "acme", "checkout": acme, "seats": [seat("fix-api", 1, acme)]},
                    {"name": "docs", "checkout": docs, "seats": [seat("blog", 2, docs)]}],
                   [], 0, {})
-        born = {"typed": "", "repo": acme, "taken": set(), "selected": {
+        born = {"typed": "", "taken": set(), "selected": {
             "orchestrator": "opus", "workers": ["astra"], "reviewers": ["fable"]}}
         ordered, *_ = menu.born_groups(groups, born)
-        self.assertEqual([[(info["number"], info["name"]) for info in project["seats"]]
+        self.assertEqual([(project["name"], [(info["number"], info["name"])
+                                             for info in project["seats"]])
                           for project in ordered],
-                         [[("1", "fix-api"), ("2", menu.BORN)], [("3", "blog")]])
-        self.assertEqual([info["number"] for info in groups[0][1]["seats"]], ["2"])  # as it was
-        ordered, *_ = menu.born_groups(groups, {**born, "repo": Path("/c/beta")})
-        self.assertEqual([project["name"] for project in ordered], ["acme", "beta", "docs"])
+                         [("acme", [("1", "fix-api")]), ("docs", [("2", "blog")]),
+                          ("not assigned yet", [("3", menu.BORN)])])
+        unfiled = {"name": "not assigned yet", "checkout": None, "seats": [seat("draft", 3)]}
+        ordered, *_ = menu.born_groups(([*groups[0], unfiled], *groups[1:]), born)
+        self.assertEqual([(project["name"], [info["number"] for info in project["seats"]])
+                          for project in ordered],
+                         [("acme", ["1"]), ("docs", ["2"]), ("not assigned yet", ["3", "4"])])
+
+    def test_a_seat_filed_under_no_project_is_numbered_after_every_project(self):
+        found = [{"name": "draft", "repo": None, "created": 1},
+                 {"name": "zeta-fix", "repo": "/c/zeta", "created": 2},
+                 {"name": "acme-fix", "repo": "/c/acme", "created": 3}]
+        with patch.object(orch, "checkout_of", lambda repo, stands=None: Path(repo) if repo else None), \
+                patch.object(orch, "listed", dict):
+            self.assertEqual([seat["name"] for seat in orch.numbered(found, {})],
+                             ["acme-fix", "zeta-fix", "draft"])
+
+    def test_its_heading_is_dim_for_it_is_no_project(self):
+        with patch.object(terminal, "colour_depth", lambda: 256):
+            self.assertEqual(menu.v5o_header({"name": "acme", "checkout": Path("/c/acme")}, 100),
+                             terminal.styled("acme", "bold"))
+            self.assertEqual(menu.v5o_header({"name": menu.UNFILED, "checkout": None}, 100),
+                             terminal.styled("not assigned yet", "dim"))
 
     def test_a_seat_left_unnamed_is_named_off_the_names_taken_now(self):
-        born = {"cfg": {}, "typed": "", "repo": None, "taken": set(), "name": "new",
+        born = {"cfg": {}, "typed": "", "taken": set(), "name": "new",
                 "selected": {"orchestrator": "opus", "workers": ["astra"], "reviewers": ["fable"]}}
         printed = io.StringIO()
         # another menu made `new`, the name this row showed, after this one last read its seats

@@ -141,6 +141,7 @@ STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 BORN = " new"            # the name of the row `n` makes: none of a seat's, which holds no space
 BORN_KEYS = "⏎ start   tab models   esc back"
+UNFILED = "not assigned yet"   # the heading of the seats no project has yet, the new row's too
 PAST_KEYS = ("↑↓ move   ⏎ reopen   x remove   esc back", "j/k move   enter reopen   x remove   esc back")
 LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
@@ -1151,16 +1152,16 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     return ordered, infos, total_needing, silent_map
 
 
-def by_project(infos, stands):
+def by_project(infos, stands, unfiled=UNFILED):
     """Seat rows grouped by the checkout each one's repo is, so a project can never be listed
     twice and a run can never make one: {str(checkout) or None: {"name", "checkout", "seats"}},
-    each project where its first seat is.  `stands` is what `orch.listed` answered for the read
-    asking."""
+    each project where its first seat is, the seats under none headed `unfiled`.  `stands` is
+    what `orch.listed` answered for the read asking."""
     groups = {}
     for info in infos:
         checkout = orch.checkout_of(info["repo"], stands=stands)
         groups.setdefault(str(checkout) if checkout else None,
-                          {"name": orch.project_name(checkout), "seats": [],
+                          {"name": orch.project_name(checkout, unfiled), "seats": [],
                            "checkout": checkout})["seats"].append(info)
     return groups
 
@@ -1196,7 +1197,8 @@ def project_pages(projects, room):
 
 
 def v5o_header(project, term_width):
-    """`<project>`, the checkout's basename in bold.
+    """`<project>`, the checkout's basename in bold; the seats filed under none have a dim one,
+    which is no project.
 
     How many need the owner is said by their rows.  A project naming its feature switches says
     how many are hidden -- off for everyone -- dim at the right, `23 hidden features`, and leaves
@@ -1210,7 +1212,8 @@ def v5o_header(project, term_width):
     name = terminal.cut(project["name"],
                         room - 2 - (terminal.cells(count) + 2 if count else 0))
     gap = room - 2 - terminal.cells(name) - terminal.cells(count)
-    return terminal.styled(name, "bold") + (" " * gap + terminal.styled(count, "dim") if count else "")
+    return (terminal.styled(name, "bold" if project.get("checkout") else "dim")
+            + (" " * gap + terminal.styled(count, "dim") if count else ""))
 
 
 def _styled_cell(plain_text, width, kind=None, right=False):
@@ -1996,8 +1999,8 @@ def new_session(cfg, dry_run, keyboard=None, found=None):
 
 
 def born(found):
-    """What `n` makes on a terminal, wherever the highlight is: a seat born in its place under
-    no project, which its runs or its orchestrator file it under once it knows the job
+    """What `n` makes on a terminal, wherever the highlight is: a seat born last under `UNFILED`,
+    which its runs or its orchestrator file it under once it knows the job
     (`orch.file_projectless`, `ak orch project`), with the last creation's executors and
     reviewers (`orch.default_crew`), named as typed (`born_key`), else the free character's name
     it opens with (`orch.character_name`) until its orchestrator names it.  Off the listing in
@@ -2011,28 +2014,26 @@ def born(found):
     selected["orchestrator"] = selected["orchestrator"] or default
     selected["reviewers"] = selected["reviewers"] or [selected["orchestrator"]]
     taken = orch.taken_names(found)
-    return {"cfg": cfg, "typed": "", "repo": None, "taken": taken,
+    return {"cfg": cfg, "typed": "", "taken": taken,
             "name": orch.character_name(taken), "providers": providers, "selected": selected,
             "default": default, "reason": reason}
 
 
 def born_groups(groups, born):
-    """`groups` with the born seat's row last under its project -- a heading of its own, in the
-    place the projects' order gives it, where none is on the screen -- and every row numbered
-    down the screen again, as the seat will be once it is made (`orch.numbered`)."""
+    """`groups` with the born seat's row last under `UNFILED` -- a heading of its own, after
+    every project, where none is on the screen -- and every row numbered down the screen again,
+    as the seat will be once it is made (`orch.numbered`)."""
     ordered, infos, *rest = groups
     selected = born["selected"]
     row = {"number": "", "name": BORN, "born": born, "orchestrator": selected["orchestrator"],
            "worker": selected["orchestrator"], "count": "new", "word": "new",
-           "crew": seat_crew(selected), "tasks": [], "sentence": "", "repo": born["repo"]}
-    key = lambda checkout: (orch.project_name(checkout), str(checkout or ""))
+           "crew": seat_crew(selected), "tasks": [], "sentence": "", "repo": None}
     ordered = [{**project, "seats": list(project["seats"])} for project in ordered]
-    home = next((project for project in ordered if project["checkout"] == born["repo"]), None)
+    home = next((project for project in ordered if project["checkout"] is None), None)
     if home is None:
-        home = {"name": orch.project_name(born["repo"]), "seats": [], "checkout": born["repo"],
-                "needing": 0, "has_needs": False, "word": "idle"}
-        ordered.insert(sum(key(project["checkout"]) < key(born["repo"]) for project in ordered),
-                       home)
+        home = {"name": UNFILED, "seats": [], "checkout": None, "needing": 0, "has_needs": False,
+                "word": "idle"}
+        ordered.append(home)
     home["seats"].append(row)
     shown = []
     for project in ordered:
@@ -2121,7 +2122,7 @@ def start_born(born, dry_run):
     if dry_run:
         print(f"would start {name}: {selected['orchestrator']}, workers "
               f"{' '.join(selected['workers'])}, reviewers {' '.join(selected['reviewers'])}")
-    elif orch.create(born["cfg"], name, orch.seat_cwd(), prompting=True, repo=born["repo"],
+    elif orch.create(born["cfg"], name, orch.seat_cwd(), prompting=True,
                      selection=(born["providers"], (selected["orchestrator"], born["reason"]
                                 if selected["orchestrator"] == born["default"] else "selected",
                                 selected["workers"], selected["reviewers"])),
@@ -4753,7 +4754,7 @@ def past_body(past, at=None, models=None, room=None):
                 for number, line in enumerate(block)]
     projects = [((v5o_header(project, width), None),
                  [[(line, info["name"]) for line in drawn(info)] for info in project["seats"]])
-                for project in by_project(infos, orch.listed()).values()]
+                for project in by_project(infos, orch.listed(), "no project").values()]
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
     pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
