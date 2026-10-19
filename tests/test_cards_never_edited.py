@@ -85,6 +85,26 @@ class CardsNeverEdited(Sandbox):
         notify.retry_pending(log=lambda _line: None)
         self.assertEqual([request[2] for request in self.requests], [503])
 
+    def test_a_dialog_over_before_the_card_pass_is_never_sent_late(self):
+        self.down = True
+        self.says("needs you", 10000, after=notify.CARD_WAIT)
+        self.down = False
+        # granted: the seat works on, and the retry comes before the tick's card pass
+        self.now += 100000
+        self.word = {"word": "working", "reason": "", "since": self.now - 10}
+        notify.retry_pending(log=lambda _line: None)
+        self.assertEqual([request[2] for request in self.requests], [503])
+
+    def test_an_earlier_retired_question_lets_a_live_dialogs_card_go_late(self):
+        notify.record(SEAT, "needs", "First question?", time=9000)
+        notify.clear(SEAT)
+        self.down = True
+        self.says("needs you", 10000, after=notify.CARD_WAIT)
+        self.down = False
+        self.now += 100000
+        notify.retry_pending(log=lambda _line: None)
+        self.assertEqual([request[2] for request in self.requests], [503, 200])
+
 
 if __name__ == "__main__":
     unittest.main()

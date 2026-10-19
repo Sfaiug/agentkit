@@ -819,7 +819,9 @@ def _unsendable(event, session):
     A retry is a card sent late, and the rules for sending hold for it too: nothing queued
     before the agentkit running now was installed, nothing about a seat the owner has closed
     himself since, and no question that is over: once out a card is never edited, so a late
-    one would ask what is answered.  A late done is still news.
+    one would ask what is answered.  Its episode is over once the card holds another, which
+    the seat's word changing or his answer begins (`transition`, run just before).  A late
+    done is still news.
     """
     if event.get("created_at", 0) < installed_at():
         return "queued before the agentkit running now was installed"
@@ -827,15 +829,13 @@ def _unsendable(event, session):
         from . import watch
         if watch.seat_closed_by_owner(session):
             return "its seat was closed by the owner"
-        card, notice = _card_read(session), last(session, include_seen=True)
-        # answered in the seat, or by the owner's answer to its notice or the notice's retiring
-        answered = max(card.get("answered_at") or 0, (notice.get("answered_at") or math.inf)
-                       if notice is not None and resolved(notice) else 0)
-        if (event["kind"] == "needs" and str(event.get("source") or "").startswith("card:")
-                and (card.get("episode") != event.get("episode")
-                     or card.get("word") != "needs you" or answered > card.get("since", 0))):
+        if _asks(event) and _card_read(session).get("episode") != event.get("episode"):
             return "the question it asked is over"
     return ""
+
+
+def _asks(event):
+    return event["kind"] == "needs" and str(event.get("source") or "").startswith("card:")
 
 
 def _dropped(event, session, log=print):
@@ -861,6 +861,8 @@ def retry_pending(dry_run=False, log=print):
                 log(f"would retry notification {event['id']} ({event['status']})")
                 continue
             session = config.resolve_session(event["session"]) if event["session"] else None
+            if _asks(event):
+                transition(session, log=log)    # the seat's word read now, not at the last tick
             with session_lock(session) if session else nullcontext(session) as session, outbox_lock():
                 event = _read_event(path.stem)
                 if _dropped(event, session, log):
