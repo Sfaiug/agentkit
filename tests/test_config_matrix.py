@@ -447,9 +447,11 @@ class Matrix(unittest.TestCase):
 
     def test_a_short_screen_s_page_holds_the_meter_the_highlight_is_on(self):
         # folded into the page, a meter is one cell of several on its line (terminal.under)
-        places = {0: (None, [(3, 35, ("usage", 1), ("usage", 1))]), 9: (("model", "fable"), [])}
-        with mock.patch.object(terminal, "height", return_value=12):
-            self.assertEqual(menu.matrix_page([""] * 10, places, ("usage", 1), 9, [], "")[0], 0)
+        places = {5: (None, [(3, 35, ("usage", 6), ("usage", 6))]), 9: (("model", "fable"), [])}
+        with mock.patch.object(terminal, "height", return_value=8):
+            top, room = menu.matrix_page([""] * 10, places, ("usage", 6), 9, [], "")
+        self.assertLessEqual(top, 5)
+        self.assertLess(5, top + room)
 
 
 if __name__ == "__main__":
