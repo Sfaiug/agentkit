@@ -305,7 +305,8 @@ its row, glowing (Motion), Esc steps back one list. A list longer than the scree
 secrets on the same keys. The key
 line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc or a click on it returns. A
-screen too short shows the part the highlight is on. From a pipe, and in a dry
+screen too short shows the part the highlight is on, a row taller than the page a page at a
+time: ↑/↓ turn its pages before they leave it. From a pipe, and in a dry
 run, it is drawn once. ← from the marks reaches the label, and Enter or a click
 there opens `config · <label>`: `model id`, `effort`, `executes at` and `reviews at`
 between the arrows ←→ step (the id and each effort only through what the harness's
@@ -325,18 +326,23 @@ screen), `terminal.state_text`.
 record -- opens `agentkit · models · <seat>`: every model the installed harnesses offer
 against the public boards, as `ak models` scores them, with nothing typed. Its first row is
 the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
-under 0, saved to config.toml at once, and the lines under it follow. Then `recommended`,
-the row per role (`orch opus @ xhigh · builds astra @ xhigh · reviews astra @ xhigh`), `as
-good`, dim, the rows within the knob of the best per role, and, dim, what quality and cost
-are. Under them one model a row, the scored ones first by their best quality: its config
+under 0, saved to config.toml at once, and the lines under it follow. Then the formula,
+each row said with its quality and cost (`opus @ max 100 $8708`): `best`, dim, the row of the
+highest quality per role; `as good`, dim, the rows within the knob of it, cheapest first; and
+`recommended`, the cheapest as good, said so (`recommended  the cheapest as good: orch opus @
+xhigh 97 $4057 · builds opus @ xhigh 96 $4057 · reviews gpt-sol @ max 95 $1082`), then, dim,
+what quality and cost are. Under them one model a row, the scored ones first by their best
+quality: its config
 name, or its id where the config does not run it (dim where no board scores it), its
 harness (dim), its effort between the arrows that step it (`‹ xhigh ›`; the word alone with
 one effort), its quality per role at that effort out of 100 -- the recommended row's in
 `done`'s colour, one as good in the accent, `-` without a score -- and what Artificial
 Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
 column gives way, then the cost, then the label is cut: a 40-cell phone shows the model, its
-effort and its three numbers. ↑/↓, k/j and the wheel move between the knob and
-the models; ←/→ on a model step the effort its row shows through its own efforts (the
+effort and its three numbers. ↑/↓, k/j and the wheel move between the knob, the three lines
+that say why (each a row read with no action, so a short screen, where they wrap to more
+lines than its page holds, shows each in turn, a page at a time where one is taller than the
+page) and the models; ←/→ on a model step the effort its row shows through its own efforts (the
 catalog's, and any the boards or the config have it at), the numbers and the cost following,
 nothing saved: the effort a model runs at is set on `c`. `r`, or a click on `r take
 recommended`, takes the recommendation: the seat's executors and reviewers become the

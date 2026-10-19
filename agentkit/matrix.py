@@ -433,18 +433,23 @@ def cost_key(row):
             if TASK_COST in values else (2, 0.0))
 
 
+def tops(table):
+    """Per role, the row of the highest quality, the one `recommended` measures the band from;
+    a role no row has a score for is left out."""
+    return {role: max(rows, key=lambda row: row["scores"][role]["score"])
+            for role in ROLES if (rows := [row for row in table if row["scores"][role]])}
+
+
 def recommended(table, within=WITHIN):
-    """Per role, the rows as good as the best, cheapest first (`cost_key`), one per model at its
-    cheapest such effort, the first the recommendation; {} for a role no row has a score for.
-    Rows alike on cost go by the higher quality, then the row the config runs in the role, then
-    the higher effort, then the first by harness and model name, so the pick is the same however
-    the table is ordered."""
+    """Per role, the rows as good as the best (`tops`), cheapest first (`cost_key`), one per
+    model at its cheapest such effort, the first the recommendation; {} for a role no row has a
+    score for.  Rows alike on cost go by the higher quality, then the row the config runs in the
+    role, then the higher effort, then the first by harness and model name, so the pick is the
+    same however the table is ordered."""
     picks = {}
-    for role in ROLES:
+    for role, top in tops(table).items():
         found = [row for row in table if row["scores"][role]]
-        if not found:
-            continue
-        best = max(row["scores"][role]["score"] for row in found)
+        best = top["scores"][role]["score"]
         seen, picks[role] = set(), []
         for row in sorted((row for row in found if row["scores"][role]["score"] >= best - within),
                           key=lambda row: (*cost_key(row), -row["scores"][role]["score"],

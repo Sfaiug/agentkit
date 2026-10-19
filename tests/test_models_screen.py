@@ -1,5 +1,7 @@
 """`r recommended` on the `c` screen opens `models · <seat>`: every model the matrix has a row
-for against the public boards, the recommendation and the rows as good as it, and one knob,
+for against the public boards, the best row per role, the rows as good as it and the
+recommendation (said why in tests/test_models_screen_says_why.py; each line a row the
+highlight rests on), and one knob,
 `as good as the best: within ‹ 5 ›`, whose ←/→ step `within` a point, never under 0, saved to
 config.toml at once, the recommended and as-good lines following.  One model a row, the
 scored ones first by their best quality: config name or id, harness, effort between arrows
@@ -7,7 +9,9 @@ scored ones first by their best quality: config name or id, harness, effort betw
 board names no effort for stands at every effort of its model), quality
 per role at that effort (the recommended row's in `done`'s colour, one as good in the accent,
 `-` without a score) and what Artificial Analysis's index run cost it.  On a phone the harness
-and the cost give way.  `r` takes the recommendation as `c`'s line says it
+and the cost give way, and the three lines, wrapped past a page, are read one at a time, a
+page at a time where one is taller than the page.  `r` takes the recommendation as `c`'s line
+says it
 (tests/test_c_recommends_effort.py); Esc returns to `c`.
 
 Offline: a throwaway HOME with a matrix scored from rows written by hand, the catalogs' efforts
@@ -44,7 +48,9 @@ def row(harness, model, effort, coding, agentic, intel, cost, agent=None):
             "matched": {}, "values": values}
 
 
-class ModelsScreen(Sandbox):
+class Screen(Sandbox):
+    """`c` on a throwaway HOME whose matrix holds the rows below, driven by keys."""
+
     def setUp(self):
         super().setUp()
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "fable"],
@@ -87,12 +93,16 @@ class ModelsScreen(Sandbox):
                          "a line runs past the screen")
         return " ".join(" ".join(lines).split())
 
+
+class ModelsScreen(Screen):
     def test_r_on_c_opens_the_screen_with_the_knob_the_recommendation_and_every_model(self):
         text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)
         self.assertIn("as good as the best: within ‹ 5 ›", text)
-        self.assertIn("recommended orch opus @ xhigh · builds astra @ xhigh · reviews astra @ xhigh", text)
-        self.assertIn("as good builds opus @ xhigh · reviews opus @ xhigh", text)
+        self.assertIn("best orch opus @ max 100 $8000 · builds opus @ max 100 $8000 · reviews opus @ max "
+                      "100 $8000 as good builds opus @ xhigh 97 $4000 · reviews opus @ xhigh 97 $4000 "
+                      "recommended the cheapest as good: orch opus @ xhigh 97 $4000 · builds astra @ "
+                      "xhigh 95 $500 · reviews astra @ xhigh 96 $500", text)
         self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
                       "cost is what Artificial Analysis's index run cost it, in dollars", text)
         self.assertIn("model harness effort orch builds reviews cost $", text)
@@ -134,22 +144,71 @@ class ModelsScreen(Sandbox):
         self.assertIn("› opus claude ‹ max › 100 100 100 4000 ", text)
 
     def test_the_knob_steps_within_saved_at_once_and_the_recommendation_follows(self):
-        text = self.screens([Key("char", "r"), Key("up"), Key("left"), Key("esc"), Key("esc")])
+        # up past the three lines that say why, each a row, to the knob
+        text = self.screens([Key("char", "r"), *[Key("up")] * 4, Key("left"), Key("esc"), Key("esc")])
         self.assertIn("↑↓ move ←→ as good r take recommended esc back", text)
         self.assertIn("as good as the best: within ‹ 4 ›", text)
         self.assertEqual(config.load()["within"], 4)
         # within 4, astra's 96 is no longer as good as opus's 100: opus @ xhigh everywhere
-        self.assertIn("recommended orch opus @ xhigh · builds opus @ xhigh · reviews opus @ xhigh "
-                      "as good none", text)
-        text = self.screens([Key("char", "r"), Key("up"), *[Key("left")] * 6, Key("esc"), Key("esc")])
+        self.assertIn("as good none recommended the cheapest as good: orch opus @ xhigh 97 $4000 · "
+                      "builds opus @ xhigh 97 $4000 · reviews opus @ xhigh 97 $4000", text)
+        text = self.screens([Key("char", "r"), *[Key("up")] * 4, *[Key("left")] * 6, Key("esc"),
+                             Key("esc")])
         self.assertIn("as good as the best: within ‹ 0 ›", text)
         self.assertEqual(config.load()["within"], 0)
-        self.assertIn("recommended orch opus @ max · builds opus @ max · reviews opus @ max", text)
+        self.assertIn("recommended the cheapest as good: orch opus @ max 100 $8000 · builds opus @ max "
+                      "100 $8000 · reviews opus @ max 100 $8000", text)
 
     def test_on_a_phone_the_harness_and_the_cost_give_way_and_every_line_fits(self):
-        text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")], width=40)
-        self.assertIn("model effort orch builds reviews › opus ‹ max › 100 100 100 astra xhigh", text)
+        # 24 lines hold a page shorter than the lines above the table, wrapped at 40 cells: up
+        # through the three that say why, each a row, then down through the models
+        with patch.object(terminal, "height", return_value=24):
+            text = self.screens([Key("char", "r"), Key("right"), *[Key("up")] * 4, *[Key("down")] * 8,
+                                 Key("esc"), Key("esc")], width=40)
+        self.assertIn("model effort orch builds reviews › opus ‹ max › 100 100 100", text)
         self.assertNotIn("harness", text.split("models · fix-api")[1])
+        # each line is read whole on the page it is highlighted on, with no arrows to offer
+        self.assertRegex(text, r"› best orch opus @ max 100 \$8000 · builds opus @ max 100 \$8000 · "
+                               r"reviews opus @ max 100 \$8000 .*? ↑↓ move r take recommended esc back")
+        self.assertRegex(text, r"› as good builds opus @ xhigh 97 \$4000 · reviews opus @ xhigh 97 "
+                               r"\$4000 .*? ↑↓ move r take recommended esc back")
+        self.assertRegex(text, r"› recommended the cheapest as good: orch opus @ xhigh 97 \$4000 · "
+                               r"builds astra @ xhigh 95 \$500 · reviews astra @ xhigh 96 \$500 .*? "
+                               r"↑↓ move r take recommended esc back")
+        self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
+                      "cost is what Artificial Analysis's index run cost it, in dollars", text)
+        self.assertIn("› spark xhigh - - -", text)
+
+    def test_a_line_taller_than_the_page_is_read_a_page_at_a_time(self):
+        # seven more models as good to build and review: `as good` wraps past a page at 40
+        # cells.  Up to the knob, then down through every row, and every line of the screen is
+        # on some page drawn
+        self.store(matrix.scored([
+            row("claude", "claude-opus-5-5", "max", 60, 70, 58, 8000, agent=0.2),
+            row("claude", "claude-opus-5-5", "xhigh", 60, 70, 56, 4000),
+            row("codex", "gpt-6-astra", "xhigh", 58, 66, 55, 500, agent=0.19),
+            *[row("opencode", f"acme-model-{n}", "high", 58, 68, 56, 3000 + n, agent=0.19)
+              for n in range(7)]]))
+        bodies, frames, body, frame = [], [], menu.models_body, terminal.frame
+
+        def whole(*args, **kwargs):
+            bodies.append(body(*args, **kwargs))
+            return bodies[-1]
+
+        def framed(name, page=(), keyline="esc back", **kwargs):
+            frames.append(page)
+            return frame(name, page, keyline, **kwargs)
+        with patch.object(menu, "models_body", side_effect=whole), \
+                patch.object(terminal, "frame", side_effect=framed), \
+                patch.object(terminal, "height", return_value=24):
+            self.screens([Key("char", "r"), *[Key("up")] * 4, *[Key("down")] * 20, Key("esc"),
+                          Key("esc")], width=40)
+
+        def said(line):
+            return " ".join(terminal.plain(line, spaced=True).split()).lstrip("› ")
+        shown = {said(line) for page in frames for line in page}
+        self.assertEqual([said(line) for line in bodies[0][0] if said(line) not in shown], [])
+        self.assertGreater(len(bodies[0][0]), 40)       # more than two pages of 17 lines
 
     def test_r_on_the_screen_takes_the_recommendation(self):
         self.screens([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])

@@ -2878,6 +2878,8 @@ KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
 MODELS_NOTE = ("quality is a model's share of the best on the public boards, out of 100; cost is "
                "what Artificial Analysis's index run cost it, in dollars")
+CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
+SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
 
 def models_table(held):
@@ -2926,18 +2928,27 @@ def models_at(rows, effort):
          if all(hit["effort"] is None for hit in (row.get("matched") or {}).values())), {})
 
 
-def _named(cfg, row, role):
-    """A row's label under the configured model `r` takes it as in `role` (takes)."""
-    return matrix.row_label({**row, "name": takes(cfg, row, role)})
+def _entry(cfg, row, role):
+    """A row as the lines above the table say it: its label under the configured model `r`
+    takes it as in `role` (takes), its quality for the role and what its index run cost
+    (`opus @ xhigh 97 $4057`; the cost left out where Artificial Analysis has not run it)."""
+    cost = row["values"].get(matrix.COST)
+    return (f"{matrix.row_label({**row, 'name': takes(cfg, row, role)})} "
+            f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.0f}"))
 
 
 def models_body(cfg, table, levels, shown, at, picks):
     """The models screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    First the knob, `within` between the arrows that step it (KNOB), then the recommended row
-    per role and, dim, the rows as good as it (`picks`, matrix.recommended), each under the
-    configured model `r` takes it as (takes), and what quality and cost are.  Under them every
-    model of `table` (models_table) once: its label, the config's name for it or its id, dim
+    First the knob, `within` between the arrows that step it (KNOB), then the three lines that
+    say why (SAID): dim, the best row per role (matrix.tops) and the rows as good as it
+    (`picks`, matrix.recommended), then the recommended row per role, said as the cheapest as
+    good (CHEAPEST), each row with its quality and cost (_entry) under the configured model `r`
+    takes it as; each line a row the highlight rests on and nothing more, so a short screen,
+    where they wrap to more lines than its page holds, shows each in turn, a page at a time
+    where one is taller than the page (matrix_key).  Then, dim, what
+    quality and cost are, and under them every model of `table` (models_table) once: its
+    label, the config's name for it or its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
@@ -2956,22 +2967,26 @@ def models_body(cfg, table, levels, shown, at, picks):
     lines.append(terminal.highlight(line) if at == KNOB else line)
     ids = {role: [(row["harness"], row["model"], row["effort"]) for row in rows]
            for role, rows in picks.items()}
-    said = {"recommended": [], "as good": []}
+    tops = matrix.tops([row for rows in table.values() for row in rows.values()])
+    said = {word: [] for word in SAID}
     for number, role in enumerate(matrix.ROLES):
-        rows = picks.get(role) or []
-        if rows:
-            said["recommended"].append(f"{orch.ROLE_HEADS[number]} {_named(cfg, rows[0], role)}")
+        rows, head = picks.get(role) or [], orch.ROLE_HEADS[number]
+        if role in tops:
+            said["best"].append(f"{head} {_entry(cfg, tops[role], role)}")
         if rows[1:]:
-            said["as good"].append(f"{orch.ROLE_HEADS[number]} "
-                                   + ", ".join(_named(cfg, row, role) for row in rows[1:]))
+            said["as good"].append(f"{head} " + ", ".join(_entry(cfg, row, role)
+                                                           for row in rows[1:]))
+        if rows:
+            said["recommended"].append(f"{head} {_entry(cfg, rows[0], role)}")
     wide = max(terminal.cells(word) for word in said)
     for word, parts in said.items():
-        text = " · ".join(parts) or "none"
+        text = (CHEAPEST if word == "recommended" and parts else "") + (" · ".join(parts) or "none")
         for number, part in enumerate(terminal.wrap(text, room - 2 - wide - 2)):
-            lines.append(terminal.table_row([word if number == 0 else "", part],
-                                            [wide, room - 2 - wide - 2], indent="  ",
-                                            kinds=("dim", None if word == "recommended"
-                                                   else "dim")))
+            places[len(lines)] = (("said", word), [])
+            line = terminal.table_row([word if number == 0 else "", part],
+                                      [wide, room - 2 - wide - 2], indent="  ",
+                                      kinds=("dim", None if word == "recommended" else "dim"))
+            lines.append(terminal.highlight(line, number == 0) if at == ("said", word) else line)
     lines.extend(terminal.styled("  " + part, "dim")
                  for part in terminal.wrap(MODELS_NOTE, room - 2))
     lines.append("")
@@ -3034,7 +3049,8 @@ def models_screen(cfg, session, selected, providers, held):
     matrix.stored) has a row for, against the public boards, read with the matrix's keys
     until Esc (models_body).
 
-    ↑/↓, k/j and the wheel move between the knob and the models.  ←/→ on the knob step
+    ↑/↓, k/j and the wheel move between the knob, the three lines that say why (SAID, rows
+    read with no action) and the models.  ←/→ on the knob step
     `within`, saved to config.toml at once, and the recommendation follows; on a model they
     step the effort its row shows, through its own efforts (models_levels), the numbers and
     the cost following, nothing saved: the effort a model runs at is set on `c`.  `r` takes
@@ -3044,13 +3060,14 @@ def models_screen(cfg, session, selected, providers, held):
     table = models_table(held)
     levels = {key: models_levels(cfg, key, rows) for key, rows in table.items()}
     shown = {key: models_shown(cfg, key, rows, levels[key]) for key, rows in table.items()}
-    rows = [KNOB, *(("model", *key) for key in table)]
-    here, top, note, title = rows[1] if len(rows) > 1 else KNOB, 0, "", f"models · {session}"
+    models = [("model", *key) for key in table]
+    rows = [KNOB, *(("said", word) for word in SAID), *models]
+    here, top, note, title = models[0] if models else KNOB, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
         picks = matrix.recommended(held.get("rows") or [], matrix.within(cfg))
-        where = ("knob" if here == KNOB else "effort" if len(levels[here[1:]]) > 1
-                 else "still")
+        where = ("knob" if here == KNOB else "effort"
+                 if here[0] == "model" and len(levels[here[1:]]) > 1 else "still")
         keys = (MODELS_KEYS[where][0 if terminal.utf8() else 1]
                 + f"   {MODELS_TAKE}   esc back")
         body, places = models_body(cfg, table, levels, shown,
@@ -3068,7 +3085,7 @@ def models_screen(cfg, session, selected, providers, held):
             step = 1 if act in ("right", "more") else -1
             if here == KNOB:
                 note = config_within(cfg, step)
-            else:
+            elif here[0] == "model":
                 taken, key = levels[here[1:]], here[1:]
                 at = taken.index(shown[key]) if shown[key] in taken else -1
                 if taken:
@@ -3493,11 +3510,15 @@ def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
 def matrix_page(body, places, here, top, under, keys, over=()):
     """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
-    and how many are.  `top` stays where it was while `here`'s lines are on the page, else
-    moves the least that brings them on, and never past the last page."""
+    and how many are.  `top` stays where it was while the page holds every line of `here`, or
+    any of them for a row taller than the page, else moves the least that makes it so, and
+    never past the last page."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
-    return max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room)), room
+    lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
+    if lo > hi:                                   # taller than the page: the tops holding any
+        lo, hi = drawn[0] - room + 1, drawn[-1]
+    return max(0, min(max(top, lo), hi, len(body) - room)), room
 
 
 def note_lines(note):
@@ -3515,7 +3536,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     (first, last, column) counted from 1 as the terminal counts.  On a screen too short for
     every row the part the highlight is on is shown, `over` has lines of its own above it and
     `under`, then `note`, under it, whatever the height; `moves` counts `under`'s on after
-    `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
+    `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
+    taller than the page before they leave it.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
     no cell was clicked; a cell that only explains is none.  The pointer does the same and acts
@@ -3567,8 +3589,13 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
             act = "enter" if column < marks else key.col - spot.first
     if act in ("esc", "eof"):
         return "back", here, column, top
-    if terminal.step(key) and rows:
-        here = rows[min(max(rows.index(here) + terminal.step(key), 0), len(rows) - 1)]
+    step = terminal.step(key)
+    if step and rows:
+        mine = [line for line, (row, _) in places.items() if row == here]
+        if mine and (mine[-1] >= top + room if step > 0 else mine[0] < top):
+            top += step * room    # a row taller than the page: its next page before the next row
+        else:
+            here = rows[min(max(rows.index(here) + step, 0), len(rows) - 1)]
     return act, here, column, top
 
 
