@@ -3668,7 +3668,7 @@ def draft_standing(session, cfg=None):
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
         if not (found.get("authority") and found.get("state") in ("at_prompt", "draft")
                 and _composer_open(harness, found) and not asking(name, harness, pane)
-                and composer_holds(name, session, "", cfg) == "other"):
+                and composer_draft(harness, pane)):
             return False
         where = _pane(session)
         still = time.time() - os.stat(where["tty"]).st_atime >= DRAFT_STILL
