@@ -3440,21 +3440,26 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
-def model_lines(cfg, at, providers=None, found=None):
+def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
     """The `c` screen's line for the highlighted model, `at` (`model_said`: `providers` read for
     why it is spent, `found` for what it is recommended for), a blank line over it: its parts
-    joined with ` · ` where they fit, else each on lines of its own.  Under the page of rows,
-    not among them, so no page leaves it off, as many lines as the tallest any model's and
-    empty while the highlight is off the models, so the page keeps its height and no row moves
-    from under the pointer as it goes."""
+    joined with ` · ` where they fit, else each on lines of its own, as many whole parts as
+    `fit` lines hold, the blank one among them.  Under the page of rows, not among them, so no
+    page leaves it off, as many lines as the tallest any model's and empty while the highlight
+    is off the models, so the page keeps its height and no row moves from under the pointer as
+    it goes."""
     room, said = terminal.layout_width(), {}
     for name in config_models(cfg):
         parts = [(name + " " + text if number == 0 else text, tone) for number, (text, tone)
                  in enumerate(model_said(cfg, name, providers, found))]
         joined = terminal.styled(" · ", "dim").join(terminal.styled(*part) for part in parts)
-        said[name] = [joined] if parts and terminal.cells(joined) <= room - 4 else [
-            terminal.styled(piece, tone) for text, tone in parts
-            for piece in terminal.wrap(text, room - 4)]
+        said[name] = []
+        for group in [[joined]] if parts and terminal.cells(joined) <= room - 4 else [
+                [terminal.styled(piece, tone) for piece in terminal.wrap(text, room - 4)]
+                for text, tone in parts]:
+            if 1 + len(said[name]) + len(group) > fit:
+                break
+            said[name] += group
     shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
     return ([""] if tallest else []) + [("    " + part).rstrip()
                                          for part in (shown + [""] * tallest)[:tallest]]
@@ -3468,6 +3473,12 @@ def matrix_page(body, places, here, top, under, keys):
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     return max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room)), room
+
+
+def note_lines(note):
+    """A matrix screen's `note`, dim lines of its own under a blank one; none for no note."""
+    return ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
+                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
@@ -3491,8 +3502,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
-    said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
-                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
+    said = note_lines(note)
     top, room = matrix_page(body, places, here, top, [*under, *said], keys)
     shown = body[top:top + room]
     spots = terminal.frame(title, shown + [*under, *said], keys, places={
@@ -3587,7 +3597,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                    selected, providers, moves)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
-        said = model_lines(cfg, None if terminal.away() else here, providers, found)
+        # on a short screen the note keeps its lines and the page a row; the model's line the rest
+        fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys)[1] - 1
+        said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
         # coming up as the highlight comes to a model (`motion.fading`)
         opened = here[1] if any(map(terminal.plain, said)) else None
         moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))

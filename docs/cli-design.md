@@ -279,6 +279,7 @@ so under the rows, its mark shaking (Motion). Under the rows, above the keys, th
 model's own line says what it runs on (`fable runs on Claude I, II`, dim), why it is spent
 (`· spent · resets Mon 02:00`, amber) and, on a seat's, the roles `ak models` recommends it for
 (`· recommended to build and review`, dim), each on lines of its own where they do not fit,
+as many whole as a short screen holds once the note under it and a row have theirs,
 coming up as the highlight comes to it: one place for every model, outside the rows a short screen pages so
 none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
 so no row moves from under the pointer or the keys. `r recommended` opens the models screen
