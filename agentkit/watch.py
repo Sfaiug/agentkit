@@ -3257,7 +3257,8 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not sent:
                 return sent
             time.sleep(KEY_GAP)
-        if not _wait_ready(ready, held if held is not None else name) or not _send_keys(seat, ("Enter",), log):
+        if (not _wait_ready(ready, held if held is not None else name)
+                or not _send_keys(seat, ("Enter",), log)):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
@@ -3651,7 +3652,7 @@ def _digest(text):
 def _standing_text(harness, pane):
     """The composer's text without whitespace, "" when empty, None where none is read: all of
     it, or its last rows where its top is above the read, as an inline paste taller than the
-    read leaves it (Codex 0.163.0, Muse 1.4.10)."""
+    read leaves it."""
     rows = _composer_read(harness, pane)
     return None if rows is None else re.sub(r"\s+", "", "".join(rows))
 
@@ -3668,7 +3669,7 @@ def _draft_at_prompt(session, harness, pane, cfg=None):
     """The owner's unsent text in that seat's composer, read without whitespace, where the
     seat would take ak's line but for it, else None: no unread input, and a prompt a rule or
     hook reads as free, or as a draft with its composer open, since a draft rule does not find
-    every draft (a pasted block reads at the prompt in Codex 0.163.0 and Muse 1.4.10)."""
+    every draft (a pasted block can read at the prompt, as its manifest's `aside` says)."""
     draft = _standing_text(harness, pane) if pane.strip() else None
     try:
         found = live_state(session, harness, pane=pane, cfg=cfg) if draft else {}

@@ -111,7 +111,8 @@ tray = '(?:main(?: · ↓ to select)?|[├└] .+)'
 # The owner's unsent text set aside for a line of ak's, and back after it (1.4.10, live): Ctrl-C
 # empties a composer holding text (`Draft cleared · press ↑ to restore`) and files it in the
 # prompt history, a paste whole, so once ak's line is sent it is two entries up, and one where
-# nothing was typed.
+# nothing was typed.  A pasted block reads at the prompt, not as a draft, and one taller than
+# the read by its last rows.
 aside = {out = ["C-c"], back = ["Up", "Up"], undo = ["Up"]}
 
 # Muse's picker: both choices and the key hint, in the last few lines with the hint newest.

@@ -91,10 +91,10 @@ class DraftSetAside(Seats):
         self.show()
         with patch.object(watch, "pane_unread", return_value=True):
             self.tick()
-        for edit in (DRAFT, DRAFT + " "):
+        for step, edit in enumerate((DRAFT, DRAFT + " "), 1):
             self.composer = edit
             self.show()
-            self.later(2 * watch.DRAFT_STILL)
+            self.later(step * watch.DRAFT_STILL)
             self.tick()
         self.assertEqual(self.keys, [])
 

@@ -101,7 +101,8 @@ composer = '(?:[▌›]\s+Ask Codex\b.*|⏎ send\b.*|tab to queue message\b.*|[\
 footer = ['\? for shortcuts', '(?:\? for shortcuts\s+)?⚠ \d+ warnings? · f2 to view']
 # The owner's unsent text set aside for a line of ak's, and back after it (0.163.0, live): Ctrl-C
 # empties a composer holding text and files it in the prompt history, a paste whole, so once
-# ak's line is sent it is two entries up, and one where nothing was typed.
+# ak's line is sent it is two entries up, and one where nothing was typed.  A pasted block reads
+# at the prompt, not as a draft, and one taller than the read by its last rows.
 aside = {out = ["C-c"], back = ["Up", "Up"], undo = ["Up"]}
 
 # Every screen Codex stops on and waits -- the directory-trust prompt, the hook review, a
