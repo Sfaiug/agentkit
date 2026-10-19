@@ -617,8 +617,8 @@ elif doing d; then
   cat >"$WORK/menu1.exp" <<EXP
 expect 120 $MENU
 send n
-expect 60 Name:
-send atoll\n
+expect 60 tab models
+send atoll\t
 expect 240 space choose
 send \n
 expect 240 $PROMPT
@@ -634,7 +634,7 @@ EXP
   must "ak orch list does not show the seat" grep -q '^atoll ' <<<"$LIST"
   # The orchestrator is the picker's, which live quota chooses: the row it marked ● (* on an
   # ASCII terminal) when Enter took it, whose title is the model's name capitalised.
-  PICKED=$(awk '/orch +exec +review/ {row = ""}
+  PICKED=$(awk '/orch +builds +reviews/ {row = ""}
                 /●|\*/ {t = $0; sub(/^[^[:alnum:]]+/, "", t); split(t, w, " "); row = tolower(w[1])}
                 /space choose/ {picked = row} END {print picked}' "$WORK/pty/menu1.txt")
   must "ak orch list does not show the models the picker chose${PICKED:+ (orchestrator $PICKED)}" \
@@ -653,7 +653,7 @@ EXP
   drive menu2 xterm-ghostty ak
   D2=$?
   must "the menu could not attach the seat under TERM=xterm-ghostty" test "$D2" = 0
-  verdict "d  menu through a pty: n, the name, Enter on the picker, detach; attach again from xterm-ghostty" \
+  verdict "d  menu through a pty: n, the name, Tab, Enter on the picker, detach; attach again from xterm-ghostty" \
     "atoll created on $(printf '%s' "$LIST" | awk -F'  +' '/^atoll /{print $5; exit}'), prompt up with no trust/theme/permission dialog, listed, detached"
   for f in menu1 menu2; do
     [ -s "$WORK/$f.log" ] && grep -q 'MISSING\|PRESENT' "$WORK/$f.log" && {
