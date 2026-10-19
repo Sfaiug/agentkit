@@ -4218,15 +4218,16 @@ def config_discord():
 
 def audit_value(cfg):
     """`Weekly audit`'s value: on or off, and who orchestrates, executes and reviews it, under
-    the matrix's own column words, `on · orch opus · exec opus, astra · review astra`; a setting
-    the config cannot read is shown as the error that says why."""
+    the matrix's own column words, `on · orch opus · builds opus, astra · reviews astra`; a
+    setting the config cannot read is shown as the error that says why."""
     try:
         setting = config.audit(cfg)
     except config.Error as exc:
         return str(exc)
-    return " · ".join(("on" if setting["on"] else "off", f"orch {setting['orchestrator']}",
-                       "exec " + (", ".join(setting["workers"]) or "nobody"),
-                       "review " + ", ".join(setting["reviewers"])))
+    heads = orch.ROLE_HEADS
+    return " · ".join(("on" if setting["on"] else "off", f"{heads[0]} {setting['orchestrator']}",
+                       f"{heads[1]} " + (", ".join(setting["workers"]) or "nobody"),
+                       f"{heads[2]} " + ", ".join(setting["reviewers"])))
 
 
 def config_audit(cfg):

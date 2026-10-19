@@ -144,7 +144,7 @@ class ExecutorsOptional(Sandbox):
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {}), "")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["workers"], [])
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 2, {}),
-                         "review needs one model")
+                         "at least one model reviews")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["reviewers"], ["astra"])
 
     def test_orchestrator_exec_mark_is_filled_and_dim_while_nobody_else_is_marked(self):

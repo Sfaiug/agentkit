@@ -81,7 +81,7 @@ class SessionModels(Sandbox):
         self.assertNotIn("reviewers", config.load_session(self.cfg, "old"))
         with patch.object(terminal, "layout_width", return_value=100):
             lines, places = menu.config_body(self.cfg, "fixture", selected=self.selected("old"))
-        self.assertEqual(lines[0].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[0].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(self.rows(lines)["opus"], "●■■")
         self.assertEqual(self.rows(lines)["fable"], "○□□")
         cells = next(cells for row, cells in places.values() if row == ("model", "opus"))
@@ -98,7 +98,7 @@ class SessionModels(Sandbox):
         with patch.object(usage, "unready", return_value=""):
             self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "opus", 1, {}), "")
         self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "astra", 2, {}),
-                         "review needs one model")
+                         "at least one model reviews")
         self.assertEqual(config.load_session(self.cfg, "solo")["workers"], [])
         config.save_session(self.cfg, "tight", "opus", ["opus"],
                             {"reviewers": ["opus", "astra"]})

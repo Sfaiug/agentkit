@@ -198,7 +198,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config · fix-api "), lines[0])
-        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
@@ -405,15 +405,15 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
         # what a key could not do has lines of its own, however little room the rows leave
         lines = screen.press(DOWN + RIGHT + RIGHT + ENTER,
-                             lambda lines: "review needs" in "\n".join(lines))
+                             lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
         lines = screen.press(DOWN * 11, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertLessEqual(len(lines), 23)
-        self.assertNotIn("review needs", "\n".join(lines))   # until the next key
+        self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
         lines = screen.press(UP * 4, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")

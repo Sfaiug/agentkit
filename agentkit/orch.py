@@ -3815,7 +3815,7 @@ def spent_note(cfg, name, providers):
     return f"spent · resets {when}" if when else "spent"
 
 
-ROLE_HEADS = ("orch", "exec", "review")
+ROLE_HEADS = ("orch", "builds", "reviews")
 
 
 def role_refusal(cfg, selected, providers):
@@ -3866,7 +3866,7 @@ def role_mark(cfg, selected, name, column, providers):
     role = "workers" if column == 1 else "reviewers"
     group = selected["workers"] if column == 1 else selected.get("reviewers", selected["workers"])
     if name in group and len(group) == 1 and role == "reviewers":
-        return selected, f"{ROLE_HEADS[column]} needs one model"
+        return selected, "at least one model reviews"
     return role_groups(cfg, selected, providers, **{
         role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 
