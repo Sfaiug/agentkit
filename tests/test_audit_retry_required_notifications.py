@@ -218,7 +218,7 @@ class RequiredNotifications(unittest.TestCase):
         first = self.event()
         self.assertEqual((first["status"], first["attempts"], first["next_attempt"]),
                          ("pending", 1, 10060))
-        self.assertEqual(first["payload"]["content"], "Needs you · seat <@42>")
+        self.assertEqual(first["payload"]["content"], "🙋 Needs you · seat <@42>")
         for now in (10001, 10059):
             self.call(op="retry", now=now)
             self.call(now=now)
@@ -448,7 +448,7 @@ class RequiredNotifications(unittest.TestCase):
                                       "resumable": True}))
         before = self.snapshot()
         result = self.call(dry=True)
-        self.assertEqual(json.loads(result["stdout"])["content"], "Needs you · seat <@42>")
+        self.assertEqual(json.loads(result["stdout"])["content"], "🙋 Needs you · seat <@42>")
         self.assertEqual(self.snapshot(), before)
 
 

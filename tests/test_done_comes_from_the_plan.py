@@ -94,7 +94,7 @@ class DoneFromThePlan(Sandbox):
         self.assertEqual(notify.transition(self.name), 0)
 
     def done_cards(self):
-        return [payload for payload in self.requests if payload["content"] == f"Done · {self.name}"]
+        return [payload for payload in self.requests if payload["content"] == f"✅ Done · {self.name}"]
 
     def test_a_proven_plan_reads_done_and_cards_once_without_a_declaration(self):
         self.plan("- [x] the API answers · check: `test -f api.txt` · acme · written 2026-10-19 10:00"

@@ -77,7 +77,7 @@ class IdleTerminalGetsCard(Sandbox):
         self.tick(notify.CARD_WAIT)
         self.tick(120)
         self.tick(300)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+        self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
         self.assertEqual(self.edits, [])
         self.assertNotIn("closed", self.card())
 
@@ -91,7 +91,7 @@ class IdleTerminalGetsCard(Sandbox):
         self.assertEqual(self.posts, [])
         self.tick(50 + notify.CARD_WAIT)
         self.tick(300)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+        self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
         self.assertEqual(self.edits, [])
 
     def test_his_last_key_holds_the_card_though_he_left_between_two_ticks(self):
@@ -108,7 +108,7 @@ class IdleTerminalGetsCard(Sandbox):
                 self.tick(50 + notify.CARD_WAIT - 1)
                 self.assertEqual(self.posts, [])
                 self.tick(50 + notify.CARD_WAIT)
-                self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+                self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
 
     def test_his_last_key_holds_the_card_after_he_leaves_the_seat(self):
         # a client that detaches or switches to another seat takes its own activity with it
@@ -122,7 +122,7 @@ class IdleTerminalGetsCard(Sandbox):
                 self.tick(50 + notify.CARD_WAIT - 1)
                 self.assertEqual(self.posts, [])
                 self.tick(50 + notify.CARD_WAIT)
-                self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+                self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
 
     def test_input_after_delivery_leaves_the_sent_card_until_the_seat_needs_him_no_more(self):
         """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):
@@ -138,7 +138,7 @@ class IdleTerminalGetsCard(Sandbox):
         self.clients = []
         self.tick(300, since=NOW + 300, word="working")
         self.tick(360, since=NOW + 300, word="working")
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+        self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
         self.assertEqual(self.edits, [("1", "Answered")])
 
     def test_no_attached_client_keeps_the_wait_delivery_and_answer(self):
@@ -147,7 +147,7 @@ class IdleTerminalGetsCard(Sandbox):
         self.assertEqual(self.posts, [])
         self.tick(notify.CARD_WAIT)
         self.tick(120)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+        self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
         self.tick(180, since=NOW + 180, word="working")
         self.assertEqual(self.edits, [("1", "Answered")])
 
@@ -158,7 +158,7 @@ class IdleTerminalGetsCard(Sandbox):
         self.tick(20, since=NOW + 20)
         self.tick(20 + notify.CARD_WAIT, since=NOW + 20)
         self.tick(300, since=NOW + 20)
-        self.assertEqual(self.posts, [f"Needs you · {SEAT}"])
+        self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
 
 
 if __name__ == "__main__":

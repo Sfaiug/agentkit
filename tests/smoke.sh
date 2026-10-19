@@ -1241,7 +1241,7 @@ class Notifications(test_notify.Notifications):
         self.cli("needs", "Merge PR #7? yes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
         payload = self.requests[0][2]
-        self.assertEqual(payload["content"], "Needs you · seat <@123456789012345678>")
+        self.assertEqual(payload["content"], "🙋 Needs you · seat <@123456789012345678>")
         self.assertNotIn("Merge", json.dumps(payload))
         before = config.notify_path("seat").read_bytes()
         result = self.cli("needs", "  MERGE\nPR   #7? YES/NO ")
@@ -1270,7 +1270,7 @@ class Notifications(test_notify.Notifications):
         self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
         self.assertEqual(self.requests[-2][2]["content"], "Done · seat")
         payload = self.requests[-1][2]
-        self.assertEqual(payload["content"], "Done · seat <@123456789012345678>")
+        self.assertEqual(payload["content"], "✅ Done · seat <@123456789012345678>")
         self.assertEqual(payload["username"], "agentkit")
         self.assertNotIn("Shipped", json.dumps(payload))
         self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
@@ -4319,7 +4319,7 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_DISCORD_USER_ID=424242 AGENTKI
 # The listing's last line says which slice the agents run in; it is not a seat, so it is not
 # counted with them.
 NUM=$(HOME="$NSH" ak orch list 2>/dev/null | sed -e '/^\(no \)\?slice /d' | sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' | awk 'NR>1{print $1}' | grep -n '^smoke-shape$' | cut -d: -f1)
-jq -e '.content == "Needs you · smoke-shape <@424242>" and .username == "agentkit"
+jq -e '.content == "🙋 Needs you · smoke-shape <@424242>" and .username == "agentkit"
   and .allowed_mentions == {"users": ["424242"]} and (has("embeds") | not)' "$WORK/needs.json" >/dev/null 2>&1 || SHAPE=1
 [ "$(cat "$WORK/needs.err")" = 'terminal notice: Needs you · smoke-shape: Merge PR #7 by bob? yes/no' ] || SHAPE=1
 [ -e "$NSH/.agentkit/state/notify-smoke-shape.json" ] && SHAPE=1   # and records nothing
@@ -4328,12 +4328,12 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify 
   >"$WORK/done.json" 2>"$WORK/done.err" || SHAPE=1
 [ "$(cat "$WORK/done.err")" = 'terminal notice: Done · smoke-shape: Parser fixed' ] || SHAPE=1
 jq -e '.username == "agentkit" and (has("embeds") | not)
-  and .content == "Done · smoke-shape" and .allowed_mentions == {"parse": []}' \
+  and .content == "✅ Done · smoke-shape" and .allowed_mentions == {"parse": []}' \
   "$WORK/done.json" >/dev/null 2>&1 || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify done "FAIL: tests red" --dry-run \
   >"$WORK/done-fail.json" 2>"$WORK/done-fail.err" || SHAPE=1
 [ "$(cat "$WORK/done-fail.err")" = 'terminal notice: Done · smoke-shape: FAIL: tests red' ] || SHAPE=1
-jq -e '.content == "Done · smoke-shape"' "$WORK/done-fail.json" >/dev/null 2>&1 || SHAPE=1
+jq -e '.content == "✅ Done · smoke-shape"' "$WORK/done-fail.json" >/dev/null 2>&1 || SHAPE=1
 # the real form, with no webhook: stderr, exit 0, and the record the menu reads.  Asked from
 # outside the seat: its own question is held until its turn ends
 # (tests/test_question_waits_for_the_stop.py)
@@ -4863,7 +4863,7 @@ DEADDIR="$FBH/.agentkit/runs/$DEADID"
 grep -qE '^\[[0-9:]*\] the orchestrator session orch-x this run was launched from is gone; asking the user to continue the task$' \
   "$WORK/orphan-dead.log" || FB=1
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1
-jq -e '.username == "agentkit" and .content == "Needs you · orch-x" and (has("embeds") | not)' \
+jq -e '.username == "agentkit" and .content == "🙋 Needs you · orch-x" and (has("embeds") | not)' \
   "$WORK/hook-posts.txt" >/dev/null 2>&1 || FB=1
 jq -e '.session == "orch-x" and .kind == "needs" and (.text | startswith("Its orchestrator session orch-x is gone."))' \
   "$FBH/.agentkit/state/notify-orch-x.json" >/dev/null 2>&1 || FB=1
@@ -4872,12 +4872,12 @@ HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK
   ak notify needs "Merge PR #9 by bob? yes/no" --dry-run \
   >"$WORK/orphan-needs.json" 2>"$WORK/orphan-needs.err" || FB=1
 [ "$(cat "$WORK/orphan-needs.err")" = 'terminal notice: Needs you · agentkit: Merge PR #9 by bob? yes/no' ] || FB=1
-jq -e '.content == "Needs you · agentkit"' "$WORK/orphan-needs.json" >/dev/null 2>&1 || FB=1
+jq -e '.content == "🙋 Needs you · agentkit"' "$WORK/orphan-needs.json" >/dev/null 2>&1 || FB=1
 FBLONG="a summary with no seat behind it, longer by some way than any title a phone shows whole"
 HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK="$HOOKURL" \
   ak notify done "$FBLONG" --dry-run >"$WORK/orphan-done.json" 2>"$WORK/orphan-done.err" || FB=1
 [ "$(cat "$WORK/orphan-done.err")" = "terminal notice: Done · agentkit: $FBLONG" ] || FB=1
-jq -e '.content == "Done · agentkit"' "$WORK/orphan-done.json" >/dev/null 2>&1 || FB=1
+jq -e '.content == "✅ Done · agentkit"' "$WORK/orphan-done.json" >/dev/null 2>&1 || FB=1
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1   # and --dry-run posted nothing either
 kill "$HOOKPID" 2>/dev/null
 [ "$FB" = 0 ] && ok "29 the dead-seat fallback: nothing from a run nobody launched from a seat, one needs titled with the gone orch-x for its orphan, and agentkit's outside a session" \

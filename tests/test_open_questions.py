@@ -72,7 +72,7 @@ class OpenQuestions(Sandbox):
         self.asks(SECOND)
         self.assertEqual(self.kept(), [])
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
-        self.assertEqual(self.posts, ["Needs you · " + SEAT])     # still the one card
+        self.assertEqual(self.posts, ["🙋 Needs you · " + SEAT])     # still the one card
 
     def test_one_kept_back_joins_one_asked_at_once_at_its_turns_end(self):
         self.asks(FIRST)                    # kept back for this turn's end

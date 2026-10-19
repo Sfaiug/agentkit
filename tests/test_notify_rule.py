@@ -267,7 +267,7 @@ class Rule(unittest.TestCase):
         # an error that ends a turn leaves the seat at its prompt: no sign anyone opened it
         state = self.stall_tick("at_prompt")
         self.assertEqual(len(self.posts), 1, self.posts)
-        self.assertEqual(self.posts[0]["content"], "Needs you · seat <@42>")
+        self.assertEqual(self.posts[0]["content"], "🙋 Needs you · seat <@42>")
         self.assertEqual(notify.last("seat")["kind"], "needs")
         self.assertTrue(state["stalls"]["seat"]["told"])   # and the nudging stops
         self.stall_tick("at_prompt")
@@ -304,7 +304,7 @@ class Rule(unittest.TestCase):
         state = self.stall_tick("at_prompt", pane="Please run /login",
                                 auth="Please run /login")
         self.assertEqual(len(self.posts), 1, self.posts)
-        self.assertEqual(self.posts[0]["content"], "Needs you · seat <@42>")
+        self.assertEqual(self.posts[0]["content"], "🙋 Needs you · seat <@42>")
         self.assertIn("needs login", notify.last("seat")["text"])
         self.assertEqual(state["stalls"]["seat"]["kind"], "auth")
 
@@ -315,7 +315,7 @@ class Rule(unittest.TestCase):
                 patch.object(config, "resolve_session", side_effect=lambda name: name):
             self.assertEqual(watch.ask_inbox(config.load(), question, PR, SHA, self.log.append), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
-        self.assertEqual(self.posts[0]["content"], "Needs you · inbox <@42>")
+        self.assertEqual(self.posts[0]["content"], "🙋 Needs you · inbox <@42>")
         self.assertIn(question, self.typed()[0])
 
     # --- (g) nothing that stood before the install, nor a seat he closed ----
@@ -354,7 +354,7 @@ class Rule(unittest.TestCase):
                 with patch.object(notify.time, "time", return_value=at):
                     notify.tick_cards(log=self.log.append)
         self.assertEqual([post["content"] for post in self.posts],
-                         ["Needs you · crashed <@42>"])
+                         ["🙋 Needs you · crashed <@42>"])
 
     # --- (f) workers stay silent -------------------------------------------
 
@@ -439,7 +439,7 @@ class Rule(unittest.TestCase):
         self.assertEqual(payload["username"], "agentkit")
         self.assertNotIn(socket.gethostname(), json.dumps(payload))
         self.assertNotIn("gethostname", (REPO / "agentkit/notify.py").read_text())
-        self.assertEqual(notify.title("done", None), "Done · agentkit")
+        self.assertEqual(notify.title("done", None), "✅ Done · agentkit")
 
     # --- and the watcher's own vocabulary ----------------------------------
 
@@ -459,7 +459,7 @@ class Rule(unittest.TestCase):
         self.assertEqual(notify.main(["done", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
         payload = self.posts[0]
-        self.assertEqual(payload["content"], "Done · seat <@42>")   # what a push shows
+        self.assertEqual(payload["content"], "✅ Done · seat <@42>")   # what a push shows
         self.assertEqual(payload["username"], "agentkit")
         self.assertNotIn("Parser", json.dumps(payload))
         self.assertEqual(notify.last("seat")["text"], long_text)
@@ -476,7 +476,7 @@ class Rule(unittest.TestCase):
         self.assertEqual(notify.main(["needs", long_text]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
         payload = self.posts[0]
-        self.assertEqual(payload["content"], "Needs you · seat <@42>")
+        self.assertEqual(payload["content"], "🙋 Needs you · seat <@42>")
         self.assertEqual(payload["username"], "agentkit")
         self.assertNotIn("branch", json.dumps(payload))
         self.assertEqual(notify.last("seat")["text"], long_text)   # the words stay on the record
@@ -490,13 +490,13 @@ class Rule(unittest.TestCase):
         with patch.object(orch, "listing", return_value=[seat]):
             self.assertEqual(notify.transition("seat", now=160, seat=seat), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
-        self.assertEqual(self.posts[0]["content"], "Needs you · seat <@42>")
+        self.assertEqual(self.posts[0]["content"], "🙋 Needs you · seat <@42>")
         self.assertNotIn("Use staging", json.dumps(self.posts[0]))
 
     def test_v5d_a_done_with_no_runs_going_posts_at_once(self):
         self.assertEqual(notify.main(["done", "Quick answer"]), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
-        self.assertEqual(self.posts[0]["content"], "Done · seat <@42>")
+        self.assertEqual(self.posts[0]["content"], "✅ Done · seat <@42>")
         events = [json.loads(path.read_text()) for path in notify.outbox().glob("*.json")]
         self.assertEqual([(event["status"], event["session"]) for event in events],
                          [("delivered", "seat")])

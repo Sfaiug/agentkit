@@ -163,14 +163,14 @@ class DoneStaysDone(Sandbox):
     def test_a_question_card_over_a_done_stays_open_until_the_done_is_back(self):
         self.fact("Stop")
         self.assertEqual(notify.shaped("done", SUMMARY, session=SEAT), 0)
-        self.assertEqual(self.posts, ["Done · fix-api"])
+        self.assertEqual(self.posts, ["✅ Done · fix-api"])
         self.open_and_redraw()
         self.fact("Notification", kind="permission_prompt",
                   text="Claude needs your permission to use Bash")
         self.pane = ASKING
         self.tick()
         self.tick(120)          # a minute of `needs you` with nobody attached
-        self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
+        self.assertEqual(self.posts, ["✅ Done · fix-api", "🙋 Needs you · fix-api"])
         self.assertEqual(self.edits, [])    # the done from before answers nothing
         self.fact("Stop")
         self.pane = PROMPT
@@ -178,7 +178,7 @@ class DoneStaysDone(Sandbox):
         self.assertEqual(self.decide()[0], "done")
         # the question's card is finished, and the declaration, carded once, is not again
         self.assertEqual(self.edits, [("2", "Done")])
-        self.assertEqual(self.posts, ["Done · fix-api", "Needs you · fix-api"])
+        self.assertEqual(self.posts, ["✅ Done · fix-api", "🙋 Needs you · fix-api"])
 
     def late_question_card_under(self, text, event_id=None, closed="Done"):
         """A question's card Discord takes only after a newer done, the question still up."""
@@ -193,7 +193,7 @@ class DoneStaysDone(Sandbox):
         self.down = False
         with patch.object(menu.time, "time", return_value=start + 900):
             notify.retry_pending(log=lambda _line: None)
-        self.assertEqual(self.posts, ["Needs you · fix-api"])
+        self.assertEqual(self.posts, ["🙋 Needs you · fix-api"])
         # the newer done answers nothing while the question is the word: its card stays open
         self.assertEqual(self.edits, [])
         self.assertEqual([p["message_id"] for p in notify._card_read(SEAT)["open_needs"]], ["1"])
@@ -241,7 +241,7 @@ class DoneStaysDone(Sandbox):
         self.tick(900)
         self.assertEqual(self.posts, [])
         self.tick(1020)
-        self.assertEqual(self.posts, ["Needs you · fix-api"])
+        self.assertEqual(self.posts, ["🙋 Needs you · fix-api"])
         # and the seat's own declaration after it is done
         self.fact("Stop")
         self.pane = PROMPT

@@ -57,6 +57,7 @@ UA = "agentkit/1 (+https://github.com)"
 # start and cut the rest, so context written before the ask hides it.  One classic terminal line.
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
+EMOJI = {"needs": "\U0001f64b", "done": "\u2705"}     # 🙋 a seat with its hand up, ✅ work done
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
@@ -225,9 +226,10 @@ def _read(paths):
 
 
 def title(kind, session):
-    """All a card says: two words and its seat, `Needs you · atlas-growth`, carried whole as the
-    menu shows it; `agentkit` outside a seat, never what was said."""
-    return f"{TITLES[kind]} \u00b7 {' '.join((session or '').split()) or 'agentkit'}"
+    """All a card says: its emoji, two words and its seat, `🙋 Needs you · atlas-growth`, the
+    seat carried whole as the menu shows it; `agentkit` outside a seat, never what was said."""
+    return (f"{EMOJI[kind]} {TITLES[kind]} \u00b7 "
+            f"{' '.join((session or '').split()) or 'agentkit'}")
 
 
 def card_payload(kind, session):
@@ -239,8 +241,8 @@ def card_payload(kind, session):
 
 
 def _open_need(event, receipt):
-    """A sent question's receipt, with the title its edit keeps."""
-    return {**receipt, "title": title("needs", event["session"])}
+    """A sent question's receipt, with the title its edit keeps: its words, no emoji."""
+    return {**receipt, "title": title("needs", event["session"]).partition(" ")[2]}
 
 
 def webhook_url(url, message_id=None):
@@ -1493,7 +1495,7 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
         print(json.dumps(card_payload(kind, name), indent=2))
-        terminal_notice(name, f"{title(kind, name)}: {text}", dry_run=True)
+        terminal_notice(name, f"{TITLES[kind]} · {name or 'agentkit'}: {text}", dry_run=True)
         return 0
     if not name:
         raise config.Error("notify needs a session: use --session NAME")

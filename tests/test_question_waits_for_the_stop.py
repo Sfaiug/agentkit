@@ -31,7 +31,7 @@ WORKING = (FIX / "claude-working-pane.txt").read_text(encoding="utf-8")
 PROMPT = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8")
 DIALOG = (FIX / "claude-question-pane.txt").read_text(encoding="utf-8")
 AFTER_DIALOG = (FIX / "claude-working-after-question-pane.txt").read_text(encoding="utf-8")
-CARD = "Needs you · " + SEAT
+CARD = "🙋 Needs you · " + SEAT
 CLOCK = time.time       # the hooks' clock: the sandbox stops this process's own
 
 

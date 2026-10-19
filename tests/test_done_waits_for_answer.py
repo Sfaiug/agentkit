@@ -71,7 +71,7 @@ class DoneWaitsForAnswer(Sandbox):
             self.assertEqual(notify.main(["done", "Shipped the schema move"]), 0)
         self.assertEqual(watch.seat_read(SEAT)["unasked"]["text"], QUESTION)
         self.assertNotEqual(watch.session_state(SEAT)["word"], "done")
-        self.assertNotIn(f"Done · {SEAT}", self.posts)
+        self.assertNotIn(notify.title("done", SEAT), "\n".join(self.posts))
         with self.assertRaises(notify.Refused):
             notify.main(["done", "Shipped the schema move"])
 
