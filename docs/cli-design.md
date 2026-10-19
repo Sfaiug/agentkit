@@ -260,14 +260,14 @@ Example:
 `c` is a sub-screen in the same frame, headed `agentkit · config`. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, then `orch` (`●` on the highlighted
-session's, `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
+accent, a row of label, harness (dim), then `orch` (`●` on the highlighted
+session's, `○` dim elsewhere), `exec` and `review` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A
 model with one effort shows its word alone. A click on a cell takes that level,
 and one on the word steps it as Enter does. The columns stay visible; the
-cells give way, then the label. A spent model's row is dim.
+harness gives way, then the cells, then the label.
 ↑/↓, k/j and the wheel move between rows,
 ←/→ between all four columns; Enter or space on an effort steps it up through
 that model's own efforts (`config.efforts`), from the highest round to the
@@ -276,15 +276,12 @@ is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). Under the rows, above the keys, the highlighted
-model's own line says what it runs on (`fable runs on Claude I, II`, dim), why it is spent
-(`· spent · resets Mon 02:00`, amber) and, on a seat's, the roles `ak models` recommends it for
-(`· recommended to build and review`, dim), each on lines of its own where they do not fit,
-as many whole as a short screen holds once the note under it and a row have theirs, the blank
-line over it giving way first,
-coming up as the highlight comes to it: one place for every model, outside the rows a short screen pages so
+model's own line says what it runs on (`fable runs on Claude I, II`, dim), coming up as the
+highlight comes to it: one place for every model, outside the rows a short screen pages so
 none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
-so no row moves from under the pointer or the keys. `r recommended` opens the models screen
-(The models screen).
+so no row moves from under the pointer or the keys.
+Under a seat's models one dim line names the row `ak models`
+recommends per role, and `r recommended` opens the models screen (The models screen).
 Under the models `+ add a model`, `Providers` (the config's
 providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none
@@ -323,7 +320,7 @@ record -- opens `agentkit · models · <seat>`: every model the installed harnes
 against the public boards, as `ak models` scores them, with nothing typed. Its first row is
 the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
 under 0, saved to config.toml at once, and the lines under it follow. Then `recommended`,
-the row per role (`orch opus @ xhigh · builds astra @ xhigh · reviews astra @ xhigh`), `as
+the row per role (`orch opus @ xhigh · exec astra @ xhigh · review astra @ xhigh`), `as
 good`, dim, the rows within the knob of the best per role, and, dim, what quality and cost
 are. Under them one model a row, the scored ones first by their best quality: its config
 name, or its id where the config does not run it (dim where no board scores it), its
@@ -367,7 +364,7 @@ seat.
 
 The picker is `agentkit · new session`: every model appears once, with the same configured name
 and provider heading as on `c`: `Claude`, `ChatGPT`, and each other provider's display name in
-the accent style. Each row has `orch` (`●`/`○`) for the one orchestrator, `builds` and `reviews`
+the accent style. Each row has `orch` (`●`/`○`) for the one orchestrator, `exec` and `review`
 (`■`/`□`) for its two role groups, with its harness and effort dim beside it. Names are no wider
 than a third of the screen, a longer one cut. The defaults are chosen when it opens; a spent
 model reads dim with `spent · resets <day HH:MM>`, on a line of its own under the name where the
@@ -376,7 +373,7 @@ and scroll them on a short screen, the role headings kept visible; ←/→ choos
 a click chooses, Enter starts from anywhere -- or, with every model spent and a role still
 empty, takes the highlight to it -- Esc goes back, and reviewers keep their last model, its mark
 shaking (Motion). Executors may be left empty: the orchestrator builds everything, its own
-`builds` mark filled and dim on both `n` and `c`. Enter on an empty name leaves `new`, then
+`exec` mark filled and dim on both `n` and `c`. Enter on an empty name leaves `new`, then
 `new-2`, unnamed until its orchestrator knows the job and gives it the shortest name, at most
 three words, with `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints
 the current name and exits 0; plain `ak orch rename` still renames. A seat can take back its own

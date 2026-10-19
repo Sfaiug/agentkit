@@ -115,7 +115,7 @@ class RoleMarks(Sandbox):
         notes = {name: "" for name in config.offered(self.cfg)}
         with patch.object(terminal, "utf8", return_value=False):
             lines, rows, cells = orch.picker_lines(self.cfg, notes, selected, 1, 2, 40)
-        self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
+        self.assertEqual(lines[0].split(), ["orch", "exec", "review"])
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         self.assertTrue(all([cell[2] for cell in own] == [0, 1, 2] for own in cells))
         self.assertIn("[.]", lines[rows[1].start])
@@ -185,7 +185,7 @@ class RoleMarksScreen(unittest.TestCase):
         screen.picker()
         screen.send(DOWN * 20)
         lines = screen.picker(lambda lines: "mimo" in highlighted(lines))
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews"])
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review"])
         self.assertLessEqual(len(lines), 11)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
         row = lines.index(highlighted(lines)) + 1
@@ -218,9 +218,9 @@ class RoleMarksScreen(unittest.TestCase):
         before = screen.session.read_bytes()
         number, line = row(lines, "opus")
         lines = screen.click(first + 4, number,
-                             lambda lines: any("at least one model reviews" in line for line in lines))
-        self.assertEqual([line.strip() for line in lines if "at least one model reviews" in line],
-                         ["at least one model reviews"])
+                             lambda lines: any("needs one model" in line for line in lines))
+        self.assertEqual([line.strip() for line in lines if "needs one model" in line],
+                         ["review needs one model"])
         self.assertEqual(screen.session.read_bytes(), before)
         screen.leave()
 

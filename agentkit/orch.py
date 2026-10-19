@@ -2681,17 +2681,20 @@ def rulebook_news(session, conversation):
 
 
 def prompt_news(session, conversation, said=None):
-    """The rulebook news, beside the questions an owner's prompt may answer.
+    """The rulebook news, beside the run endings and the questions an owner's prompt may answer.
 
     `said` is None for harness bookkeeping; the hook extracts the owner's words once for
-    both this foreground context and its background answer.
+    both this foreground context and its background answer.  Endings ride only on words
+    (`handback.riding`): one that rode is told for good, and a slash command may start no
+    turn to read it in.
     """
-    from . import notify
+    from . import handback, notify
     news = rulebook_news(session, conversation)
     name = config.resolve_session(session)
     record = config.session_records().get(name)
     if said is not None and takes_prompt_context(record, conversation):
-        news = "\n\n".join(filter(None, (news, notify.answer_context(name, said))))
+        news = "\n\n".join(filter(None, (news, handback.riding(name),
+                                           notify.answer_context(name, said))))
     return news
 
 
@@ -3815,7 +3818,7 @@ def spent_note(cfg, name, providers):
     return f"spent · resets {when}" if when else "spent"
 
 
-ROLE_HEADS = ("orch", "builds", "reviews")
+ROLE_HEADS = ("orch", "exec", "review")
 
 
 def role_refusal(cfg, selected, providers):
@@ -3866,7 +3869,7 @@ def role_mark(cfg, selected, name, column, providers):
     role = "workers" if column == 1 else "reviewers"
     group = selected["workers"] if column == 1 else selected.get("reviewers", selected["workers"])
     if name in group and len(group) == 1 and role == "reviewers":
-        return selected, "at least one model reviews"
+        return selected, f"{ROLE_HEADS[column]} needs one model"
     return role_groups(cfg, selected, providers, **{
         role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 

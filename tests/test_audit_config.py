@@ -74,10 +74,10 @@ class AuditSetting(unittest.TestCase):
 
     def test_the_row_says_on_or_off_and_the_three_roles(self):
         self.assertEqual(menu.audit_value(config.load()),
-                         "on · orch opus · builds opus, astra · reviews opus, astra")
+                         "on · orch opus · exec opus, astra · review opus, astra")
         self.write('on = false\nworkers = []\nreviewers = ["astra"]\n')
         self.assertEqual(menu.audit_value(config.load()),
-                         "off · orch opus · builds nobody · reviews astra")
+                         "off · orch opus · exec nobody · review astra")
 
     def step(self, *answers):
         with patch.object(menu, "read", side_effect=list(answers)) as read, \
@@ -151,7 +151,7 @@ class AuditSetting(unittest.TestCase):
         self.assertEqual(read.call_count, 0)
         text = terminal.ANSI.sub("", out.getvalue())
         self.assertIn("Weekly audit", text)
-        self.assertIn("on · orch opus · builds opus, astra · reviews opus, astra", text)
+        self.assertIn("on · orch opus · exec opus, astra · review opus, astra", text)
         rows = [line.split()[0] for line in text.splitlines() if line.startswith("  ")]
         self.assertLess(rows.index("Discord"), rows.index("Weekly"))
         self.assertLess(rows.index("Weekly"), rows.index("Version"))

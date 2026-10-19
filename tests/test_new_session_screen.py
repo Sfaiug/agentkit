@@ -170,7 +170,7 @@ class Screen:
 
     def picker(self, where=None, after=0):
         # its heading, as its key line says what the pointer rests on after a click
-        return self.drawn("orch  builds  reviews", where, after)
+        return self.drawn("orch  exec  review", where, after)
 
     def menu(self, after=0):
         return self.drawn("esc leave", after=after)
@@ -211,7 +211,7 @@ class NewSessionScreen(unittest.TestCase):
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
         self.assertIn("opus", highlighted(lines))                 # the cursor starts there
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews"])
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review"])
         self.assertEqual(len(models(lines)), 7)
         self.assertEqual(marks(highlighted(lines)), "●■■")
         self.assertEqual([row.split()[0 if not row.startswith("›") else 1]
@@ -255,7 +255,7 @@ class NewSessionScreen(unittest.TestCase):
         # A click chooses Spark's executor mark even with the cursor in the orch column.
         screen.send(LEFT)
         row = next(number for number, line in enumerate(lines, 1) if "spark" in line)
-        col = lines[2].index("builds") + 2
+        col = lines[2].index("exec") + 2
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
         screen.picker(lambda lines: "spark" in highlighted(lines)
                       and marks(highlighted(lines))[1] == "■")

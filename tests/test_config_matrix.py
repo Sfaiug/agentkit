@@ -198,14 +198,14 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config · fix-api "), lines[0])
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "○", "□", "□", "▰▰▰▰▱",
-                                                          "xhigh"])
-        self.assertEqual(row(lines, "opus")[1].split(), ["opus", "●", "■", "■", "▰▰▰▰▱",
-                                                         "xhigh"])
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "○", "□", "□",
+                                                          "▰▰▰▰▱", "xhigh"])
+        self.assertEqual(row(lines, "opus")[1].split(), ["opus", "claude", "●", "■", "■",
+                                                         "▰▰▰▰▱", "xhigh"])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
@@ -228,7 +228,8 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
         self.assertEqual(lines[2].split(), ["effort"])
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "▰▰▰▰▱", "xhigh"])
+        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "claude", "▰▰▰▰▱",
+                                                          "xhigh"])
         self.assertEqual(lines[-1], EFFORT_KEYS)          # the effort is the first cell
         self.assertFalse(any(mark in line for line in lines for mark in "●○■□"), lines)
         lines = screen.press(LEFT, lambda lines: lines[-1] == "  ↑↓←→ move   ⏎ open   esc back")
@@ -381,7 +382,9 @@ class Matrix(unittest.TestCase):
         lines = screen.frame()
         # past every model, `+ add a model` and Providers
         models = lines[3:next(n for n, line in enumerate(lines) if "+ add a model" in line)]
-        down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2
+        down = sum(1 for line in models        # the advice line, the model's own line: no row
+                   if line.startswith(("  ", "›")) and "ak recommends" not in line
+                   and not line.startswith("    ")) + 2
         lines = screen.press(DOWN * down, lambda lines: highlighted(lines).startswith("› Discord"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         mark = len(screen.text())
@@ -405,15 +408,15 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
         # what a key could not do has lines of its own, however little room the rows leave
         lines = screen.press(DOWN + RIGHT + RIGHT + ENTER,
-                             lambda lines: "at least one model reviews" in "\n".join(lines))
+                             lambda lines: "review needs" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
         lines = screen.press(DOWN * 11, lambda lines: highlighted(lines).startswith("› Version"))
         self.assertLessEqual(len(lines), 23)
-        self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
+        self.assertNotIn("review needs", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
         lines = screen.press(UP * 4, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")
