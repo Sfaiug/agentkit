@@ -209,6 +209,8 @@ usage)
         trap 'rm -rf -- "$tmpd"' EXIT HUP INT TERM   # an interrupt must not leave the token on disk
         bill() {
           printf 'Authorization: Bearer %s\n' "$key" >"$tmpd/hdr"
+          # curl can fail after reading a code (a short body, or .curlrc's fail).
+          # Keep that code: 401/403 must still let grok renew its key.
           body=$(curl -s -m 10 -w $'\n%{http_code}' \
             "https://cli-chat-proxy.grok.com/v1/billing?format=credits" -H @"$tmpd/hdr" 2>/dev/null)
           rm -f -- "$tmpd/hdr"
@@ -241,6 +243,9 @@ usage)
           "") err "no session key in $AUTH after grok's own renewal; run 'grok login'" ;;
           200)
             rm -f -- "$REFUSED"
+            # Only a complete billing JSON body can prove the absence of a meter.
+            body=$(jq -sce 'select(length == 1) | .[0]
+              | select(.config | type == "object")' <<<"$body" 2>/dev/null) || body=""
             meters=$(jq -c 'def epoch: sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601;
               def instant:
                 if type == "number" then .
@@ -313,10 +318,10 @@ usage)
     fi
   fi
   # A failed ask says nothing about whether a meter exists: keep the last reading.
-  case "$code" in
-    ""|200) ;;
-    *) err "HTTP $code from cli-chat-proxy.grok.com/v1/billing" ;;
-  esac
+  [ "$code" = 200 ] && [ -n "${body:-}" ] &&
+    jq -e '.config | [.creditUsagePercent, .productUsage[]?.usagePercent]
+      | all(. == null)' <<<"$body" >/dev/null 2>&1 ||
+    err "no billing reading from cli-chat-proxy.grok.com/v1/billing (HTTP ${code:-000})"
   # A meterless billing answer and a cache with no subscription_usage are a real no meter.
   # [usage] none keeps the provider neutral in the picker, unlike a failed ask above.
   printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: cli-chat-proxy.grok.com/v1/billing?format=credits reports no usage percent, and the settings cache carries no subscription_usage entries"}' ;;

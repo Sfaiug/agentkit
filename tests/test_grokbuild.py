@@ -195,8 +195,9 @@ class UsageVerb(GrokSandbox):
     # `resp` file the test writes -- the code on the first line, the body on the
     # rest, 000 with no body where no file is -- so no usage test reaches a real
     # endpoint; a `resp.<key>` file answers that session key alone, and a `during.<key>`
-    # file is a login saved over auth.json while that key's request was out.  The session
-    # key the probe went out with and the URL it went to are appended to `asked` and
+    # file is a login saved over auth.json while that key's request was out.
+    # A `resp.exit` (or `resp.<key>.exit`) supplies curl's exit code; .curlrc's `fail`
+    # suppresses HTTP error bodies and exits 22.  The key and URL are appended to `asked` and
     # `asked-url`, under $HOME/fake beside the temp HOME.
     FAKE_CURL = """#!/bin/sh
 dir="$HOME/fake"
@@ -213,7 +214,11 @@ resp="$dir/resp"
 [ ! -f "$resp.$tok" ] || resp="$resp.$tok"
 [ -f "$resp" ] || { printf '\\n000\\n'; exit 0; }
 code=$(sed -n '1p' "$resp"); body=$(sed -n '2,$p' "$resp")
+if grep -qx fail "$HOME/.curlrc" 2>/dev/null && [ "$code" -ge 400 ]; then
+  printf '\\n%s\\n' "$code"; exit 22
+fi
 printf '%s\\n%s\\n' "$body" "$code"
+exit "$(cat "$resp.exit" 2>/dev/null || printf 0)"
 """
 
     # The fake `grok` answers the one call the usage verb makes of it, `grok models`, the
@@ -245,9 +250,11 @@ fi
             (self.bin / name).write_text(script)
             (self.bin / name).chmod(0o755)
 
-    def answer(self, code, body="", key=None):
+    def answer(self, code, body="", key=None, exit_code=0):
         """What the billing endpoint says to the next probe, or to that key's: the code, then the body."""
-        (self.fake / ("resp" if key is None else f"resp.{key}")).write_text(f"{code}\n{body}\n")
+        response = "resp" if key is None else f"resp.{key}"
+        (self.fake / response).write_text(f"{code}\n{body}\n")
+        (self.fake / f"{response}.exit").write_text(str(exit_code))
 
     def grok_asked(self):
         """The arguments of every grok call the usage verb made, in order."""
