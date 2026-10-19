@@ -319,6 +319,29 @@ class ProviderScreen(unittest.TestCase):
         self.assertIn("ChatGPT", labels)
         self.assertNotIn("Claude", labels)
 
+    def test_a_free_provider_goes_with_its_last_model(self):
+        # no meter offers its `− remove`, so its last model's `Remove` asks for the provider
+        cfg = {"defaults": {"orchestrator": "opus", "workers": ["opus"]},
+               "providers": {"anthropic": {"mode": "subscription"},
+                             "opencode": {"mode": "free", "name": "OpenCode"}},
+               "models": {"opus": {"harness": "claude", "model": "claude-opus-5", "effort": "high",
+                                   "provider": "anthropic"},
+                          "zeta": {"harness": "opencode", "model": "opencode/zeta-free",
+                                   "effort": "none", "provider": "opencode"}}}
+        asked = []
+        with tempfile.TemporaryDirectory(prefix="provider-state-") as state, \
+                mock.patch.object(config, "STATE", Path(state)), \
+                mock.patch.object(config, "ensure_dirs"), \
+                mock.patch.object(config, "save"), \
+                mock.patch.object(terminal, "frame", return_value={}), \
+                mock.patch.object(terminal, "read_key", side_effect=[
+                    *[terminal.Key("down")] * 4, terminal.Key("enter")]), \
+                mock.patch.object(terminal, "confirm",
+                                  side_effect=lambda question, *_a, **_kw: not asked.append(question)):
+            menu.config_model(cfg, "zeta")
+        self.assertEqual(asked, ["Remove OpenCode and its models?"])
+        self.assertEqual((list(cfg["providers"]), list(cfg["models"])), (["anthropic"], ["opus"]))
+
     def test_the_last_provider_stays(self):
         screen = Screen(self, child=CHILD, text=ONE)
         row = next(number for number, line in enumerate(screen.frame(), 1)

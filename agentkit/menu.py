@@ -3369,7 +3369,8 @@ def config_model(cfg, name):
     own (config.efforts).  Nothing is typed, so no id or effort ak does not offer is ever
     written.  Enter on `Remove` asks `Keep` or `Remove` under it, `Keep` picked and Esc
     keeping it; the last model is refused without asking, and one removed goes back to the
-    matrix at once.
+    matrix at once.  The last model of a provider with no meter (usage_rows), a free one, asks
+    to remove that provider (config_remove_provider), since no meter offers it.
     """
     here, note, title = MODEL_ROWS[0], "", f"config · {name}"
     while name in cfg["models"]:
@@ -3402,6 +3403,11 @@ def config_model(cfg, name):
         elif here == "Remove" and act in ("enter", "space"):
             if config.offered(cfg) == [name]:
                 note = "the config needs one model"
+                continue
+            provider = cfg["models"][name]["provider"]
+            if provider not in (row[0] for row in usage_rows(cfg)) and [
+                    entry["provider"] for entry in cfg["models"].values()].count(provider) == 1:
+                note = config_remove_provider(cfg, provider, None, provider_name(cfg, provider))
                 continue
 
             def around(card):     # the screen around the card, drawn again on a resize
