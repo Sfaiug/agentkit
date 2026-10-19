@@ -4838,8 +4838,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
                 pointing = False
-            # new code under an open menu, the tick's above all, draws it from here on
-            if updated or (newborn is None and update.outdated()):
+            # new code under an open menu, the tick's above all, draws it from here on, once
+            # the menu's own update, which stamps the install too, has said how it went
+            if updated or (updated is False and newborn is None and update.outdated()):
                 keyboard.give()
                 live.close()
                 sys.stdout.flush()
@@ -4859,7 +4860,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 cursor, pointing = drawn["cursor"], drawn["pointing"]
             if start_update:
                 update_first(live, updates=updates)    # detached, after the first frame
-                start_update = False
+                start_update, updated = False, None    # None until it says how it went
             live.probe()                  # after the draw, never before it: the cache is enough
             if tidy is not None:
                 live.tidy(tidy)           # maintenance too: the first draw is as recorded

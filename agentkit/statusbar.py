@@ -223,11 +223,11 @@ def _tell(only=None, own=()):
     tmux ends a server with its last one, and there every option is told as before.  Code other
     than the live install's as it is now tells nothing (`update.publishes`).
     """
-    if not update.publishes():
-        return
     config.ensure_dirs()
     with (config.STATE / "statusbar.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if not update.publishes():   # asked under the lock: an install while it waited counts
+            return
         listed = sessions()
         here = {f"={name}:" for _, name, _ in listed or ()}
         # a seat tmux did not list has no bar to write: no other session is asked what it is

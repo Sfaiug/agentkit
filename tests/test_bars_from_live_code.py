@@ -41,6 +41,37 @@ class BarsFromLiveCode(Sandbox):
         (config.STATE / "installed-at").write_text(str(int(config.STARTED) + 5))
         self.assertFalse(self.told())                    # installed since this process began
 
+    def test_an_install_while_a_bar_waits_for_its_lock_stops_it(self):
+        def flock(*_a):                                  # the install lands while it waits
+            (config.STATE / "installed-at").write_text(str(int(config.STARTED) + 5))
+        with patch.object(statusbar.fcntl, "flock", flock):
+            self.assertFalse(self.told())
+
+    def test_the_menus_own_update_says_how_it_went_before_new_code_restarts_it(self):
+        said, inbox = [], []
+        def update_first(live, updates):                 # install.sh stamps, then it reports
+            inbox.append(updates)
+            updates.append({"progress": 2 / 3})
+            (config.STATE / "installed-at").write_text(str(int(config.STARTED) + 5))
+        steps = [None, "result", terminal.Key("esc")]
+        def moving(*_a, **_kw):                          # a wait, the result, then Esc
+            step = steps.pop(0)
+            if step == "result":
+                inbox[0].append({"moved": False, "lines": ["install.sh failed"]})
+                return None
+            return step
+        with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
+                                           "return_value.asking.return_value": None}), \
+                patch.object(terminal, "Keyboard", Keyboard), \
+                patch.object(terminal, "sense", lambda: None), \
+                patch.object(menu, "update_first", update_first), \
+                patch.object(menu, "moving", moving), \
+                patch.object(menu, "show_notices", said.extend), \
+                patch.object(menu.os, "execve", lambda *_a: said.append("restart")), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(menu.loop(self.cfg), 0)
+        self.assertEqual(said, ["install.sh failed", "restart"])
+
     def test_an_open_menu_starts_again_once_new_code_is_installed_under_it(self):
         def restarts():
             with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
