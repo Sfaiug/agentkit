@@ -10,7 +10,7 @@ Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child pro
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  OpenCode's adapter
 is a fake there: it logs each verb with the provider it was named, `install` puts an empty
 program in a bin dir of the HOME's own, `login` on the terminal marks that provider logged in,
-and `providers` lists `opencode` (OpenCode's own, which it calls OpenCode Console, logged in),
+and `providers` lists `opencode` (OpenCode's own, which it calls OpenCode Console, free),
 `zeta`, `mimo`, `anthropic` and `openai` by that mark.  The catalog is faked
 too.  Nothing reads or writes the owner's ~/.agentkit or OpenCode's own home.
 """
@@ -25,7 +25,7 @@ from agentkit import matrix, usage
 
 FAKE = r"""#!/usr/bin/env bash
 echo "opencode $1 ${AGENTKIT_PROVIDER-}" >> "$HOME/verbs.log"
-rows=("opencode"$'\t'"OpenCode Console"$'\t'"subscription" "zeta"$'\t'"Zeta Cloud"$'\t'"payg"
+rows=("opencode"$'\t'"OpenCode Console"$'\t'"free" "zeta"$'\t'"Zeta Cloud"$'\t'"payg"
       "mimo"$'\t'"MiMo"$'\t'"payg" "anthropic"$'\t'"Anthropic"$'\t'"payg"
       "openai"$'\t'"OpenAI"$'\t'"payg")
 case $1 in
@@ -142,7 +142,7 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertNotIn("opencode login opencode", verbs(screen))
         saved = screen.saved()
         # OpenCode's own provider, by the harness's name rather than the one OpenCode gives it
-        self.assertEqual(saved["providers"]["opencode"], {"mode": "subscription", "name": "OpenCode"})
+        self.assertEqual(saved["providers"]["opencode"], {"mode": "free", "name": "OpenCode"})
         self.assertEqual(saved["models"]["zeta-free"], {
             "harness": "opencode", "model": "opencode/zeta-free", "effort": "none",
             "provider": "opencode"})

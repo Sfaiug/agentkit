@@ -490,11 +490,12 @@ cat "$dir/bridge-eval"
                    (self.cfgdir / "opencode.json").read_text())}])}
         proc = self.adapter("providers", env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        # a plan or a free provider prices every model at nothing; one priced, or not priced at
-        # all (MiMo's), is pay as you go; the rest have no login, so no mode
+        # a plan prices every model at nothing behind a login, and OpenCode's own free provider
+        # with none; one priced, or not priced at all (MiMo's), is pay as you go; the rest have
+        # no login, so no mode
         self.assertEqual([line.split("\t") for line in proc.stdout.splitlines()], [
             ["acme", "Acme", "subscription"], ["zeta", "Zeta", "payg"], ["vega", "Vega", "payg"],
-            ["opencode", "Opencode", "subscription"], ["nova", "Nova", ""]])
+            ["opencode", "Opencode", "free"], ["nova", "Nova", ""]])
         self.assertNotIn("dummy", proc.stdout + proc.stderr)
         proc = self.adapter("providers", env={**env, "STUB_INTEGRATION_LIST": ""})
         self.assertEqual((proc.returncode, proc.stdout), (1, ""))

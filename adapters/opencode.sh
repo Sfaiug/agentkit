@@ -560,9 +560,10 @@ providers)
   # Every provider OpenCode can log in to, for `+ add` on Providers: the ones with a login
   # first -- a key in its config, one saved in its auth store or none needed, as `auth` reads
   # them -- each
-  # `subscription` where OpenCode prices every one of its models at nothing (a plan's, or its
-  # own free ones) and `payg` where it prices one or says nothing of one (MiMo's), which never
-  # spends money unasked; then the rest, with no mode, in OpenCode's own order.  Its
+  # `subscription` where OpenCode prices every one of its models at nothing behind a login (a
+  # plan's), `free` where it does with none (its own free ones), and `payg` where it prices one
+  # or says nothing of one (MiMo's), which never spends money unasked; then the rest, with no
+  # mode, in OpenCode's own order.  Its
   # background service is asked one list at a time, since lists asked at once while it starts
   # can fail, each cut to the fields read here: settings, keys among them, never leave jq.  A
   # list of providers that fails is a failed verb: nothing to offer.
@@ -577,12 +578,13 @@ providers)
     own=$(own_providers)
     costs=$(ask model.list '{id: .providerID, cost}') || costs='[]'
     jq -rn --argjson all "$all" --argjson in "[${keyed:-[]}, ${saved:-[]}, ${own:-[]}]" --argjson costs "$costs" '
-      (reduce ($in | add // [])[] as $p ([]; if index([$p]) then . else . + [$p] end)) as $in
+      ($in[0] + $in[1]) as $login
+      | (reduce ($in | add // [])[] as $p ([]; if index([$p]) then . else . + [$p] end)) as $in
       | ([$all[] | {(.id): .name}] | add // {}) as $names
       | ($in[] | . as $p | [$costs[] | select(.id == $p) | .cost] as $priced
         | [$p, $names[$p] // $p, if ($priced | length) > 0 and all($priced[]; length > 0
             and all(.[]; type == "object" and .input == 0 and .output == 0))
-          then "subscription" else "payg" end]),
+          then (if $login | index([$p]) then "subscription" else "free" end) else "payg" end]),
         ($all[] | select(.id | IN($in[]) | not) | [.id, .name // .id, ""])
       | join("\t")'
   else
