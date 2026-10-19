@@ -111,6 +111,7 @@ class ExecutorsOptional(Sandbox):
         # the launch's size check reads the PR's checkout (`test_own_pr_size_before_slot`)
         with patch.object(run, "checkout_for", return_value=self.root), \
                 patch.object(run, "fetch", return_value=(0, "")), \
+                patch.object(run, "origin_default", return_value="main"), \
                 patch.object(run, "git", return_value=""), \
                 patch.object(run, "own_pr_first_review", return_value=None), \
                 patch.object(run, "pr_view", return_value=info), \

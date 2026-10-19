@@ -51,7 +51,7 @@ from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scop
     answered, finished_answer, scope_is_real,
     shell_foreground_note, stop_run_tree, tail)
 from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity, commit_leftovers,
-    default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, repo_line, repo_rules, round_commands, run_depth, say,
+    default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, origin_default, repo_line, repo_rules, round_commands, run_depth, say,
     slugify, stopped, tool_env, tool_run, with_suite)
 
 _PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
@@ -1174,6 +1174,14 @@ def preflight(run_dir, opts, log):
             # ... and a PR too large for its first review is refused here too, before the run
             # waits for a slot, so its seat hears `split it` at once
             checkout = checkout_for(f"{owner}/{name}", log)
+            default = origin_default(checkout)
+            if info["baseRefName"] != default:
+                # it would land on its base: stacked on an unmerged change, into that change's
+                # branch under that change's own review, never on the default branch
+                raise config.Error(f"PR #{number} is based on {info['baseRefName']}, not {default}: "
+                                   f"ak lands a seat's own PR on {default} only. If it builds on "
+                                   f"an unmerged change, wait for that to land, then rebase this "
+                                   f"branch onto origin/{default} and point the PR at {default}")
             head = info["headRefOid"]
             fetch_pr(checkout, number, info["baseRefName"], log)
             target_sha = git(checkout, "rev-parse", f"origin/{info['baseRefName']}^{{commit}}")

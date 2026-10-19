@@ -90,7 +90,7 @@ class OwnPrReview(unittest.TestCase):
             run.capture_launch(directory, {"--review-pr": URL})
             for name, value in (("pr_view", info), ("viewer_login", "owner"),
                                 ("checkout_for", self.repo), ("fetch", (0, "")),
-                                ("collect_usage", {}),
+                                ("origin_default", "main"), ("collect_usage", {}),
                                 ("ready_order", ["astra"]), ("post_review", True),
                                 ("checks", (True, "")), ("gh_json", (info, ""))):
                 mocks.enter_context(patch.object(run, name, return_value=value))
