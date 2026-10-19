@@ -490,8 +490,9 @@ board naming no effort counts for every effort of its model, and a model no boar
 none. A board's model is found by its letters and digits (`normal`: `claude-opus-5-5` is `Claude Opus 5.5 (max)` at
 max), else by the board's name the id extends with a version only (`muse-wonder-full` for `muse-wonder-full-1.0`;
 `found`), else by the one board name that is the model with a qualifier in brackets (`Acme 5 (Default Fallback)` for
-`acme-5`; two such names stand for nothing), else, on a board where none of these finds it, by `benchmark` on the
-config entry; at the row's effort, else the board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it and the
+`acme-5`; two such names stand for nothing), else by the same matches without the id's trailing `-free` pricing tier
+(`Acme 5` for `acme/acme-5-free`), else, on a board where none of these finds it, by `benchmark` on the config entry;
+at the row's effort, else the board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it and the
 roles it runs it in (`roles`), every matched board's numbers and which board model and effort each came from.
 
 Every row is scored per role (`scored`), on quality and cost alone: speed is ak's own to fix, and the subscriptions

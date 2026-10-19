@@ -290,9 +290,9 @@ def found(index, model, benchmark=None):
     """A board's rows for one model: under its exact name, else under a board's name naming no
     version of its own that `model` extends with one (`Acme Pro` for `acme-pro-1.0`, never
     `Acme 5` for `acme-5-5`), else under the one board name that is `model` with a qualifier in
-    brackets (`Acme 5 (Default Fallback)`; two such names stand for nothing), else under
-    `benchmark`, the config entry's name for it on a board where none fits; none where the board
-    has nothing for it."""
+    brackets (`Acme 5 (Default Fallback)`; two such names stand for nothing), else the same
+    matches without a trailing `-free` pricing tier, else under `benchmark`, the config entry's
+    name for it on a board where none fits; none where the board has nothing for it."""
     wanted = normal(model)
     if wanted in index:
         return index[wanted]
@@ -304,6 +304,9 @@ def found(index, model, benchmark=None):
                  if normal(re.sub(r"\([^()]*\)", "", hits[0]["model"])) == wanted]
     if len(qualified) == 1:
         return index[qualified[0]]
+    if model.endswith("-free"):
+        # Free is a pricing tier, so use the underlying model's board rows.
+        return found(index, model.removesuffix("-free"), benchmark)
     return index.get(normal(benchmark), []) if benchmark else []
 
 
