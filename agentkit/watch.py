@@ -3776,7 +3776,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if stale(held):
                 return False    # the screen is somebody else's: next pass
             if typed.get("at", time.time()) < _emptied(session):
-                return True     # read gone before ak put the owner's text back, read as the line or not
+                return True     # that read delivered it, whatever the text put back reads as
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
                 return not pane_unread(session)
