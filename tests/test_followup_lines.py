@@ -207,7 +207,8 @@ class Planned(Sandbox):
         plan.still_done(SEAT, proven)
         self.assertFalse(stop.owed(SEAT))                  # ... and no turn is held for it ...
         self.assertEqual(plan.open_lines(SEAT), [line])    # ... while the line stays open
-        plan.add(SEAT, "the hero looks calm", None)          # ... and an owed line still holds it
+        plan.add(SEAT, "Write the hero", "test -f hero.txt", self.repo,
+                 proven=self.base)                         # ... and an owed line still holds it
         self.assertTrue(stop.owed(SEAT))
         with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
             plan.require_done(SEAT)
