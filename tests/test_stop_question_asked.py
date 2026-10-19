@@ -93,7 +93,8 @@ class StopQuestionAsked(unittest.TestCase):
             (run / "run.json").write_text(json.dumps({
                 "run_id": "fix-api", "launched_session": SEAT, "state": "running"}))
         for owed in (True, False):
-            for said in (QUESTION, "**Shall I go on?**", "Merge it (a or b?)"):
+            for said in (QUESTION, "**Shall I go on?**", "Merge it (a or b?)", f"“{QUESTION}”",
+                         f"‘{QUESTION}’", "Choose {schema A or B?}"):
                 with self.subTest(owed=owed, said=said):
                     self.setUp()
                     going()

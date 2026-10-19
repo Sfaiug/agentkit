@@ -224,7 +224,7 @@ def questioned(payload):
 
 def trails_question(said):
     """The message ends in a question mark, past any closing emphasis, quote or bracket."""
-    return (said or "").rstrip().rstrip("*_`'\")]").endswith("?")
+    return (said or "").rstrip().rstrip("*_`'\"’”»)]}").endswith("?")
 
 
 def latched(latch, record):
