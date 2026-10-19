@@ -427,6 +427,23 @@ def identity(line):
     return undone(line.strip(), found)[6:] if found and found["check"] else None
 
 
+def finished(name):
+    """The words of the plan's last done line where the plan holds done work and owes none
+    (`owed`): the seat's work is done, which ak reads here and nobody declares.  None for no
+    plan, one with nothing done, one still owing a line, or one nothing can read."""
+    try:
+        text = lines(name)
+    except config.Error:
+        return None
+    if any(owed(name, line) for line in text):
+        return None
+    done = [line.strip() for line in text if BOX.match(line) and not is_open(line)]
+    if not done:
+        return None
+    found = LINE.match(done[-1])
+    return found["what"] if found else done[-1].partition("] ")[2]
+
+
 def outcomes(name):
     """The plan's work, independent of order, repetition, checks and renewed proof stamps.
 

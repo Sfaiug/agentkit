@@ -1065,13 +1065,16 @@ def _remember_card(event, previous=None):
            open_needs=card.get("open_needs", []))
 
 
-def _send_card(session, kind, card, answer):
-    """Queue once under the session lock; the outbox owns any further attempts."""
+def _send_card(session, kind, card, answer, completion=None):
+    """Queue once under the session lock; the outbox owns any further attempts.  A done
+    covers `completion`, else what the seat's done declared."""
     previous = last(session, include_seen=True)
     text = answer["reason"]
     # the seat's word shows its notice on one line; the card carries the notice as written
-    if previous and (kind == "done" or " ".join(str(previous["text"]).split()) == text):
+    if previous and ((kind == "done" and previous["kind"] == "done")
+                     or " ".join(str(previous["text"]).split()) == text):
         text = previous["text"]
+    completion = completion or (previous.get("completion") if previous else None)
     payload = card_payload(kind, session)
     key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
     with outbox_lock():
@@ -1084,8 +1087,8 @@ def _send_card(session, kind, card, answer):
                      "payload": payload, "message": f"{TITLES[kind]} · {session}: {text}",
                      "created_at": time.time(), "sink": sink() is not None,
                      "status": "pending", "attempts": 0, "next_attempt": 0}
-            if kind == "done" and previous and previous.get("completion"):
-                event["completion"] = previous["completion"]
+            if kind == "done" and completion:
+                event["completion"] = completion
             _write_event(event)
         card["sent"] = True
         if kind == "done" and event.get("completion"):
@@ -1243,15 +1246,20 @@ def done_transition(session, card, answer, now):
     # carded before or not.
     _close_card(session, card, "Done")
     declared = last(session, include_seen=True)
-    completion = declared.get("completion") if declared else None
-    receipt = _carded(session, declared) if declared and declared["kind"] == "done" else None
+    if not (declared and declared["kind"] == "done" and not declared.get("seen")):
+        declared = None
+    # a done its plan reads, nobody declaring it, covers the plan's verified work
+    completion = declared.get("completion") if declared else _completion(session)
+    receipt = _carded(session, declared) if declared else None
     if (completion and card.get("completed") == completion) or receipt:
         card["sent"] = True
         if receipt and receipt.get("completion"):
             card["completed"] = receipt["completion"]
         _card_write(session, card)
         return 0
-    return _send_card(session, "done", card, answer)
+    if declared is None:
+        _intent(session, now)
+    return _send_card(session, "done", card, answer, completion)
 
 
 def transition(session, answer=None, now=None, dry_run=False, log=print, seat=None,
@@ -1315,7 +1323,8 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 since = max(since, asked)
                 if began is not None:
                     began = max(began, asked)
-            completion = declared.get("completion") if declared and declared["kind"] == "done" else None
+            completion = (declared.get("completion") if declared and declared["kind"] == "done"
+                          else _completion(name) if word == "done" else None)
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
