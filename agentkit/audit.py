@@ -1,6 +1,6 @@
 """The weekly audit: once a week the tick writes the scoreboard with the week's largest loss
 against the vision and the one line the `audit` seat is told, for that seat to fix the loss
-through the line.  The owner hears nothing of it but the seat's own done notice.
+through the line.  The owner hears nothing of it but the seat's own Done card.
 
 The first tick of each ISO week (UTC, so every host counts the same week) writes
 `state/audit/<week>.md`: the board as `ak run status --history` prints it, and the largest

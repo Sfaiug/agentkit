@@ -101,7 +101,6 @@ class OpenQuestions(Sandbox):
         self.asks(SECOND)
         notify.answered(SEAT, notify.last(SEAT)["time"] + 1)
         self.assertIsNone(notify.last(SEAT))
-        self.assertEqual(notify.main(["done", "Shipped the schema move"]), 0)
 
     def test_after_his_answer_a_new_question_stands_alone(self):
         self.asked_for_it(FIRST)

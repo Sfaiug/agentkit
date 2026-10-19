@@ -87,8 +87,6 @@ class QuestionStands(unittest.TestCase):
         notify.clear("seat", notice=alert)          # the login came back
         self.assertTrue(watch.owner_question(notify.last("seat")))
         self.assertEqual(notify.last("seat")["text"], question)
-        with self.assertRaises(notify.Refused):
-            notify.shaped("done", "Shipped the parser", session="seat")
 
     def test_switching_in_leaves_a_watchers_alert_and_a_dialogs_card_open_too(self):
         """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):

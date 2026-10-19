@@ -69,7 +69,7 @@ class PassFarPastItsUsual(unittest.TestCase):
             "ak stalled: the acme landing line has run one check pass for 50m, more than 3 times "
             f"its usual 11m, with 1 in line; its log is {self.turn.with_suffix('.log')}. Find why "
             "and build the smallest change to ak that keeps it from happening again, through the "
-            "line, and ak notify done once it is live."])
+            "line."])
         self.assertEqual(self.log[-1], "audit: told the audit seat about the stall of the acme "
                                        "landing line")
         self.assertEqual(len(self.tick(NOW + 600)), 1)

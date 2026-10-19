@@ -2,8 +2,8 @@
 
 Muse, OpenCode and Antigravity declare `[stop] enforce = "nudge"`, and the tick types the
 continue keystroke at a stop hooks/orchestrator-stop.sh would send back.  A run of the seat's
-own parked and undecided holds the stop past a run going, an `ak wait` and a `done` there just
-as the hook holds it, and a seat whose `ak wait` names a run that has ended is told so,
+own parked and undecided holds the stop past a run going, an `ak wait` and a finished plan there
+just as the hook holds it, and a seat whose `ak wait` names a run that has ended is told so,
 with its reason, before any bare `continue`.  Offline: a fake tmux, fake adapters for the three
 harnesses, fake run receipts and a throwaway HOME; the hook runs as its harness runs it, JSON on
 stdin.  The seat's turn began once, long ago, and never moves: what is decided here is read off
@@ -171,12 +171,12 @@ class NudgeTurnRule(Sandbox):
                     self.stopped()
                     self.assertEqual(self.tick(), ["continue"])
 
-    def test_a_parked_run_holds_a_stop_past_a_run_going_a_wait_and_a_done(self):
+    def test_a_parked_run_holds_a_stop_past_a_run_going_a_wait_and_a_finished_plan(self):
         for harness in HARNESSES:
             for label, ends_it in (
                     ("a run going", lambda: self.receipt(THEIRS, SEAT, "running")),
                     ("an ak wait", lambda: (self.receipt(THEIRS, OTHER, "running"), self.wait())),
-                    ("a done", lambda: notify.record(SEAT, "done", "Shipped the parser"))):
+                    ("a finished plan", lambda: config.plan_path(SEAT).write_text("- [x] the parser parses\n"))):
                 with self.subTest(harness=harness, case=label):
                     self.setUp()
                     self.harness = harness
@@ -215,18 +215,6 @@ class NudgeTurnRule(Sandbox):
                 self.stopped()
                 self.assertEqual(self.tick(), ["continue"])
 
-    def test_a_live_wait_leaves_the_ticks_completion_binding_untouched(self):
-        for harness in HARNESSES:
-            with self.subTest(harness=harness):
-                self.setUp()
-                self.harness = harness
-                notify.record(SEAT, "done", "Shipped the parser")
-                self.receipt(THEIRS, OTHER, "running")
-                self.wait()
-                self.stopped()
-                self.assertEqual(self.tick(), [])
-                self.assertIsNone(watch.seat_read(SEAT).get("stop_done"))
-
     def test_d_the_same_parked_run_is_nudged_twice_and_the_third_stop_stands(self):
         """Each `continue` is a turn, so a seat that never decides was nudged forever."""
         for harness in HARNESSES:
@@ -257,12 +245,12 @@ class NudgeTurnRule(Sandbox):
                     self.assertEqual(self.tick(), typed)
 
     def test_e_a_run_a_later_merged_run_replaced_holds_nothing(self):
-        """Settled as `ak notify done` and the seat's state read it, on both sides of the rule."""
+        """Settled as the seat's state reads it, on both sides of the rule."""
         for harness in HARNESSES:
             with self.subTest(harness=harness):
                 self.setUp()
                 self.harness = harness
-                notify.record(SEAT, "done", "Shipped the parser")
+                config.plan_path(SEAT).write_text("- [x] the parser parses\n")
                 self.receipt(PARKED, SEAT, "fail", recovery_pending=True, branch="ak/parked",
                              finished_at=time.time() - 3600)
                 self.assertEqual(self.judged(), (True, ["continue"]))

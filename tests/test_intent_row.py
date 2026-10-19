@@ -53,7 +53,7 @@ class IntentRow(Sandbox):
 
     def done(self, seat, at):
         with notify.session_lock(seat) as name:
-            notify._said(name, "done", "shipped", at=at)
+            notify._intent(name, at)
 
     def test_a_done_starts_at_the_owner_s_first_message_since_the_conversation_s_last_done(self):
         self.harness.said = [(50.0, "c1"), (60.0, "c1"), (900.0, "c1")]   # 900: after the done

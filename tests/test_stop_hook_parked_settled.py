@@ -1,7 +1,7 @@
 """The stop hook holds a turn only for a run still unsettled, and names commands that work.
 
 A failed run a later merged relaunch `from:` its branch, or a merged continuation of its title,
-replaced is settled -- as `ak notify done` and the seat's state read it -- and holds nothing;
+replaced is settled -- as the seat's state reads it -- and holds nothing;
 a relaunch still running settles nothing yet.  The hold names, per run, only the commands its
 state takes: `ak run status <id>` marks an ending looked at, `ak run stop <id>` only where stop
 ends it, `ak run resume <id>` only where resume carries it on, with the `--rounds` a FAIL at its
@@ -33,9 +33,8 @@ class ParkedSettled(unittest.TestCase):
         self.state.mkdir(parents=True)
         self.runs.mkdir(parents=True)
         self.turn = time.time() - 600
-        # a done this turn: the stop stands unless a run of the seat's sits parked
-        (self.state / f"notify-{SEAT}.json").write_text(json.dumps(
-            {"session": SEAT, "kind": "done", "text": "Shipped fix-api", "time": self.turn + 1}))
+        # a finished plan: the stop stands unless a run of the seat's sits parked
+        (self.state / f"plan-{SEAT}.md").write_text("- [x] Shipped fix-api\n")
 
     def run_json(self, name, **fields):
         directory = self.runs / name

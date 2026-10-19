@@ -2,10 +2,9 @@
 
 Offline and deterministic: hooks/orchestrator-stop.sh is run as its harness runs it -- the
 hook's own JSON on stdin -- against fake run records and a throwaway HOME, never a real seat
-or ~/.agentkit.  Undecided is `transitions.unfinished` whole, the runs `ak notify done` refuses on,
-so a run still going never holds the turn and an acknowledged or stopped one holds nothing;
+or ~/.agentkit.  Undecided is `transitions.unfinished` whole, so a run still going never holds the turn and an acknowledged or stopped one holds nothing;
 a question, `ak notify needs`, background work and the third stop stand past a parked run as
-they always did, while a done, a run going or an `ak wait` ends the turn only with none.
+they always did, while a finished plan, a run going or an `ak wait` ends the turn only with none.
 """
 
 import json
@@ -25,8 +24,9 @@ SEAT, OTHER = "park-seat", "other-seat"
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 SPENT = "three rounds spent: split or re-scope the task"
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
-          "prompt or ak notify needs, no ak notify done, no run or pull request you are waiting on. "
-          "Continue: decide the next step and do it.")
+          "prompt or ak notify needs, no run or pull request you are waiting on, and an open line "
+          "in your plan. Continue: decide the next step and do it. ak plan checks every open line "
+          "and ticks the proven ones; nothing else ticks a line between runs.")
 
 
 class StopParked(unittest.TestCase):
@@ -162,9 +162,9 @@ class StopParked(unittest.TestCase):
         self.assertIn("run parked-exhausted parked: ",
                       self.blocked(self.stop(env=env))["reason"])
 
-    def test_a_done_recorded_this_turn_does_not_end_it_while_a_run_sits_parked(self):
-        self.notified("done", self.turn + 1)
-        self.assertEqual(self.stop(), "")             # no parked run: the done stands
+    def test_a_finished_plan_does_not_end_the_turn_while_a_run_sits_parked(self):
+        (self.state / f"plan-{SEAT}.md").write_text("- [x] the parser parses\n")
+        self.assertEqual(self.stop(), "")             # no parked run: the plan's done stands
         self.parked_exhausted()
         self.latch(self.turn)
         self.assertIn("run parked-exhausted parked: ",
