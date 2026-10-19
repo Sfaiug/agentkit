@@ -116,15 +116,13 @@ class TwoLines(Sandbox):
         self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
-    def test_c2_a_seat_waiting_to_land_names_its_target_as_text(self):
-        # a branch may hold what tmux would read as a format, a command or a time
-        target = "release/#{session_name}#(true)%Y"
+    def test_c2_a_seat_waiting_to_land_keeps_its_line(self):
+        self.plan(2, 5)
         statusbar.redress(self.seat, {"word": "working",
-                                      "reason": f"waiting · 3rd in line to land on {target}"},
+                                      "reason": "waiting · 3rd in line to land on main"},
                           cfg=self.cfg)
-        top = self.options[statusbar.TOP]
-        self.assertTrue(top.endswith("   waiting · 3rd in line to land on "
-                                     "release/##{session_name}##(true)%Y"), top)
+        bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
+        self.assertTrue(self.options[statusbar.TOP].endswith(f"fable#[default]   {bar}"))
 
     def test_d_a_done_seat_offers_the_close_key(self):
         top, why, key, title = statusbar.lines("fix-api", "fable", "done", "", "astra builds")

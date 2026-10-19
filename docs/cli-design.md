@@ -80,8 +80,8 @@ and a seat made, stopped or removed moves only the ones after it
 is its progress line (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, in its word's
-colour while it is not at rest, else empty -- except for a run recorded in the
-line to land: its seat shows `waiting · 3rd in line to land on main`. What the
+colour while it is not at rest, its work waiting in the line to land too
+(`working` includes landing: its squares say so), else empty. What the
 reason says -- the question the seat asked, `stopped with work open: <line>`,
 the done summary, an idle seat's way back in, `session closed: press 2 to
 reopen` -- opens under the row (Rows are tables), never beside it. Never `N

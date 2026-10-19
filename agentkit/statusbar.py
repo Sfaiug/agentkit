@@ -114,8 +114,8 @@ def lines(name, model, word=None, last="", why=""):
     """(line one, line two, its key, the window title): the seat's bar, as tmux text.
 
     Line one is its row on the `ak` screen: its word, its name, the model that orchestrates it,
-    and `last`, its last column (`menu.last_column`): its progress, tmux text already, or a
-    working seat's place in the landing line or what the owner left unsent, made text here.  Line two is `why`, the
+    and `last`, its last column (`menu.last_column`): its progress, tmux text already, or what
+    a working seat's owner left unsent, made text here.  Line two is `why`, the
     line its row opens under itself (`whys`).  Before its first word a seat's bar is its name and
     its model, and its title the name.
     """
