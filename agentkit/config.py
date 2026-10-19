@@ -502,8 +502,8 @@ def one_login(harness):
 
 def listed_providers(harness):
     """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
-    (id, name, mode), the logged-in ones first with their mode, `subscription` or `payg`, and
-    the rest with none.  The one with the harness's own id is the harness's own, named as `+
+    (id, name, mode), the logged-in ones first with their mode, `subscription`, `free` or
+    `payg`, and the rest with none.  The one with the harness's own id is the harness's own, named as `+
     add` offers the harness (provider_hosts): OpenCode's is OpenCode, whatever OpenCode calls
     it.  Error, in the adapter's own last words, when it lists none."""
     try:
