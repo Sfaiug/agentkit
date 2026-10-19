@@ -4838,7 +4838,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
                 pointing = False
-            if updated:
+            # new code under an open menu, the tick's above all, draws it from here on, once
+            # the menu's own update, which stamps the install too, has said how it went
+            if updated or (updated is False and newborn is None and update.outdated()):
                 keyboard.give()
                 live.close()
                 sys.stdout.flush()
@@ -4858,7 +4860,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 cursor, pointing = drawn["cursor"], drawn["pointing"]
             if start_update:
                 update_first(live, updates=updates)    # detached, after the first frame
-                start_update = False
+                start_update, updated = False, None    # None until it says how it went
             live.probe()                  # after the draw, never before it: the cache is enough
             if tidy is not None:
                 live.tidy(tidy)           # maintenance too: the first draw is as recorded
@@ -5053,10 +5055,17 @@ def update_first(live=None, updates=None):
 
     The child has no terminal and keeps going after Esc. Only the main loop reads its messages,
     so an open sub-screen keeps its keys and drafts until the owner comes back. A worktree's
-    menu never updates the live checkout under it, as with the tick (update.go_live).
+    menu never updates the live checkout under it, as with the tick (update.go_live).  With
+    `live`, a result always comes, from an update that never started too: the menu hears it out
+    before new code restarts it (`loop`).
     """
+    updates = [] if updates is None else updates
+    def result(*lines):             # the main screen clears progress through this completion path
+        if live:
+            updates.append({"moved": False, "lines": list(lines)})
+            live._wake()
     if update.agentkit_dir().resolve() != config.REPO:
-        return
+        return result()
     try:
         proc = subprocess.Popen([sys.executable, "-m", "agentkit.update", "--agentkit"],
                                 cwd=config.REPO, env=config.child_env(), stdin=subprocess.DEVNULL,
@@ -5064,11 +5073,8 @@ def update_first(live=None, updates=None):
                                 stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
                                 start_new_session=True)
     except OSError as exc:
-        if live:
-            live.say(f"update: {exc}")
-        return
+        return result(f"update: {exc}")
     if live:
-        updates = [] if updates is None else updates
         def hear():
             ended = False
             with proc.stdout:
@@ -5079,9 +5085,7 @@ def update_first(live=None, updates=None):
                     live._wake()
             code = proc.wait()
             if not ended:
-                updates.append({"moved": False, "lines": [
-                    f"update: agentkit update exited {code} without a result"]})
-                live._wake()        # the main screen clears progress through the same completion path
+                result(f"update: agentkit update exited {code} without a result")
         threading.Thread(target=hear, daemon=True).start()
     return proc
 

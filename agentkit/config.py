@@ -19,6 +19,7 @@ from string import Template
 from . import host
 
 REPO = Path(__file__).resolve().parent.parent
+STARTED = time.time()   # when this process read its code: every entry imports this module first
 HOME = Path.home() / ".agentkit"
 RUNS, WT, STATE, SECRETS, TMP, ENV, WORK = (
     HOME / n for n in ("runs", "wt", "state", "secrets", "tmp", "env", "work"))

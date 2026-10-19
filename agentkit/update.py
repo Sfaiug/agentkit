@@ -433,6 +433,22 @@ def agentkit_dir():
     return Path.home() / "agentkit"
 
 
+def outdated():
+    """Was newer agentkit put in place since this process read its code: by the tick, above
+    all, under a menu left open (`notify.installed_at`)?"""
+    from . import notify
+    return notify.installed_at() > config.STARTED
+
+
+def publishes():
+    """May this process write what every seat's bar shows?  Only the live checkout as it is now
+    does -- or anything where there is none, a test's sandbox: a worktree's menu, or one open
+    across an install, wrote its own design over the live one's, so bars flipped between the
+    two."""
+    live = agentkit_dir()
+    return not outdated() and (not live.exists() or live.resolve() == config.REPO)
+
+
 def agentkit_version():
     """That checkout's short commit and its date, `abc1234 · 2026-09-29`, or "" when it is no
     checkout at all."""
