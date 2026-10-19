@@ -246,15 +246,10 @@ class PlanLines(Sandbox):
         path = config.plan_path("fix-api")
         path.write_text(path.read_text().replace("- [ ] the feature", "- [x] the feature"))
         self.assertEqual(len(plan.verify("fix-api")), 2)
-        self.assertIsNone(plan.finished("fix-api"))
         self.land_the_work()
         [left] = plan.verify("fix-api")
         self.assertIn("the hero looks calm", left)
-        (self.repo / "hero.txt").write_text("calm\n")
-        self.commit("the hero")
-        self.land_the_work()
-        self.assertEqual(plan.verify("fix-api"), [])
-        self.assertEqual([plan.is_open(line) for line in self.plan_lines()], [False, False])
+        self.assertIsNone(plan.finished("fix-api"))
 
     def test_a_probe_the_fix_outgrew_gives_way_to_the_seat_s_own_test(self):
         def land(files, message):

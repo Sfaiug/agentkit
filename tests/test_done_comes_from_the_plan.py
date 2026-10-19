@@ -1,9 +1,10 @@
 """Done comes from the plan: a seat at rest whose every plan line is proven reads `done` and
-sends one Done card, which nobody declares (owner, 19 Oct 2026).  It sends one card per piece
-of work the plan finishes: a later turn over the same plan sends none, its card file lost or
-not, and work proven later sends its own, an open line none.  A done covering none of the seat's
-verified work -- a plan holding only what its runs delivered, or a seat with no creation stamp --
-sends none but ends the owner's intent.  A seat with no plan finished is `idle`, and one whose plan still owes a line is the
+sends one Done card, with nobody declaring it (owner, 19 Oct 2026).  It sends one
+card per piece of work the plan finishes: a later turn over the same plan sends none, its card
+file lost or not, and work proven later sends its own, an open line none.  A done
+covering none of the seat's verified work -- a plan holding only what its runs delivered, or a
+seat with no creation stamp -- sends none but ends the owner's intent.
+A seat with no plan finished is `idle`, and one whose plan still owes a line is the
 owner's.  A run's merge runs the seat's plan checks, so a line it proved ticks before the seat
 hears of it.
 

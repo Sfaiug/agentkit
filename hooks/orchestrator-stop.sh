@@ -5,11 +5,11 @@
 # harness's question prompt or `ak notify needs`, a run or live job it is waiting on, including
 # background work it started in its own harness while the harness still lists it in flight, and
 # a pull request or run it said it waits on with `ak wait`, for as long as `watch.waiting_on`
-# says that is not yet over, or a plan that owes nothing.  A merged run of its own not yet live,
-# where its project declares `health:`, is ak's own step and a wait too.  With no open line in
-# the seat's plan nothing is owed, and a plain reply stands.  A run of its own that sits parked
-# and undecided -- `unfinished`, so not one a later merged run replaced -- holds the turn past a
-# plan that owes nothing or a run going: the block names each such run, its
+# says that is not yet over.  A merged run of its own not yet live, where its project declares
+# `health:`, is ak's own step and a wait too.  With no open line in the seat's plan nothing is
+# owed, and a plain reply stands.  A run of its own that sits parked and undecided --
+# `unfinished`, so not one a later merged run replaced --
+# holds the turn past a finished plan or a run going: the block names each such run, its
 # parked reason and the commands its state takes, and the seat looks at it, resumes it,
 # relaunches it split or on another model, stops it, or asks the owner.  A question, `ak notify
 # needs`, background work and the third stop stand past it, as they always did.  An unnamed seat
@@ -298,9 +298,10 @@ def held(launched, payload):
     """The reason to send this stop back with, or "" where the stop stands.
 
     At most LIMIT blocks in one turn, which the latch counts: a question, `ak notify needs`,
-    background work and the third stop stand past a parked run as they always did, while a run
-    going, a merged run not yet live, an `ak wait` or a plan with no open line ends the turn
-    only with none of this seat's runs parked and undecided.  A turn that ends so on a question in prose alone goes back once to ask it.
+    background work and the third stop stand past a parked run as they always did, while a
+    finished plan, a run going, a merged run not yet live or an `ak wait` ends the turn only with none
+    of this seat's runs parked and undecided, and nothing at all is owed with no open line in
+    the seat's plan.  A turn that ends so on a question in prose alone goes back once to ask it.
     """
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the

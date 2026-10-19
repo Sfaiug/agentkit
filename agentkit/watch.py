@@ -1421,7 +1421,7 @@ def recorded_error(harness, name):
 def limit_ended(harness, name):
     """Did that seat's harness end its latest turn for a spent subscription -- told the model to
     wrap up, so it stopped without a refusal -- on a job its plan does not prove done?"""
-    from . import plan
+    from . import plan as plan_mod
     record = config.session_records().get(name) if name else None
     if not record:
         return False
@@ -1431,7 +1431,7 @@ def limit_ended(harness, name):
         at = plugin.wrapped_up(record, cwd, plugin.conversation(record, cwd))
     except OSError:
         return False
-    return at is not None and not plan.finished(name)
+    return at is not None and not plan_mod.finished(name)
 
 
 def interrupted_at(harness, name):
@@ -2264,8 +2264,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * otherwise it is at its prompt with nothing running: the owner's again where a watcher's
       alert or a question on its screen says so, or where something of its own is still theirs
       (`still_owed`: work its plan owes, a question kept back); with nothing asked or owed it
-      is `done` where its plan proves every line -- unless a run of its own still sits parked
-      and undecided, which is him -- else `idle`.
+      is `done` where its plan is finished and no run of its own sits undecided, else `idle`.
 
     An ended run is its orchestrator's business: the run hands its ending back to the seat
     that launched it, so no reason ever names a run or sends him to one -- unless the
@@ -2698,8 +2697,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                 reason += f" · {waiting} hand-backs waiting"
             return {"word": "idle", "since": None, "reason": closed(reason)}
         # One that went on its own is the owner's while it owes work: no ending is typed into a
-        # seat nobody is in, so nothing moves it until it is opened.  With nothing owed it is
-        # done where its plan is finished, else rests.
+        # seat nobody is in, so nothing moves it until it is opened.  With nothing owed it says
+        # done where its plan is finished, or rests.
         reason = closed(f"session closed: press {where} to reopen")
         if owes_work(name, mine, index, at):
             return {"word": "needs you", "since": None, "reason": reason}
@@ -2730,15 +2729,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "since": found.get("began"), "reason": owed}
     finished = plan_mod.finished(name)
     if finished:
-        # nothing above is going, so a run still undecided waits on him: the stop hook's third
-        # stop stands on it, and this is where he hears
+        # a run still undecided waits on him: the stop hook's third stop stands on it
         if index is None:
             index = transitions.supersession_index(records)
-        unfinished = [(d, state) for d, state in mine if transitions.unfinished(state, index=index)]
-        if unfinished:
-            run_dir, state = unfinished[0]
+        undecided = next(((d, s) for d, s in mine if transitions.unfinished(s, index=index)), None)
+        if undecided:
             return {"word": "needs you", "since": found.get("began"), "reason":
-                    f"run {run_dir.name} parked: {handback.handback_reason(state)}"}
+                    f"run {undecided[0].name} parked: {handback.handback_reason(undecided[1])}"}
         return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
     return {"word": "idle", "reason": "", "since": found.get("began")}
 
@@ -3883,9 +3880,9 @@ def window_ends(cfg, provider, name):
 
 def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     """The end-of-turn rule where no hook can hold it: a turn ends with a question asked through
-    `ak notify needs`, a run or live job to wait on, or a plan that owes nothing, and a seat
-    that stopped on none of the three is told to get on with it.  A question mark on the screen
-    asks nobody anything.  An unnamed seat is told to name itself instead (`config.name_owed`).
+    `ak notify needs`, a finished plan or a run or live job to wait on, and a seat that stopped on none
+    of the three is told to get on with it.  A question mark on the screen asks nobody anything.
+    An unnamed seat is told to name itself instead (`config.name_owed`).
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
     alone -- so what is left to read is the plan and the runs and jobs.

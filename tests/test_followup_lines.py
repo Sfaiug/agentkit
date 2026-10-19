@@ -1,7 +1,7 @@
 """A review follow-up is a deferred line in the owning seat's plan: open until its check
-passes on the default branch, owed by nobody while a run of the seat is on its way with its
-check, and ticking itself once its fix is on the default branch -- a delivery runs the check --
-while a line no run has is the seat's own and holds its turn.
+passes on the default branch, owed by nobody while a run of the seat is on its way
+with its check, and ticking itself once its fix is on the default branch -- a delivery runs the
+check -- while a line no run has is the seat's own and holds its turn.
 The hand-in and the weighing: tests/test_followups_never_block.py; the fix runs:
 tests/test_followup_runs.py.  Offline: a real repository and plan.
 """

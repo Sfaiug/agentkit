@@ -1,8 +1,8 @@
 """A seat's turn ends on a fact ak records, and nothing is owed without an open plan line.
 
-The stop hook decides from the record alone: a question, a run of the seat's going, a merged run
-of its not yet live where its project declares `health:`, or an `ak wait` on a pull request or
-run ends the turn; with no open line in the seat's plan nothing is owed and any
+The stop hook decides from the record alone: a question, a run of the seat's going, a
+merged run of its not yet live where its project declares `health:`, or an `ak wait` on a pull
+request or run ends the turn; with no open line in the seat's plan nothing is owed and any
 reply stands; with one open and none of those recorded the stop is sent back twice, and the
 third becomes a question to the owner carrying the seat's last words, kept back for the next
 look to ask as the seat's own `ak notify needs` is.  No words of the owner's prompt decide

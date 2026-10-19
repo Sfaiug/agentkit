@@ -5,8 +5,8 @@ Its owner reads it in the pane and often answers at once; a message typed while 
 goes into that turn, and no prompt hook hears it.  The question used to stand as `needs you`,
 its card out, until the owner's next prompt, hours later.  Now the tick, before its card pass,
 answers a standing question whose seat's conversation holds a message of the owner's written
-after the question was said, by the path their prompt takes (`notify.answered`): its waits and
-the stall latch it lets go are their prompt's.  A message from
+after the question was said, by the path their prompt takes (`notify.answered`): its waits, the
+stall latch it lets go are their prompt's.  A message from
 before the question, or before another question standing beside it, answers nothing, and
 neither do ak's own lines (`user_messages` leaves them out).  A question still kept back waits
 for the look that asks it.

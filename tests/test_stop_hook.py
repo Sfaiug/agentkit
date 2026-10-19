@@ -1,5 +1,4 @@
-"""An orchestrator turn ends with a question, a run to wait on, or a plan owing nothing; else it
-goes back, told that `ak plan` ticks the lines proven.
+"""An orchestrator turn ends with a question, a run to wait on, or a finished plan; else it goes back.
 
 Offline and deterministic: hooks/orchestrator-stop.sh is run as its harness runs it -- the
 hook's own JSON on stdin -- against fake transcripts and a throwaway HOME, and the tick that

@@ -33,7 +33,6 @@ class ParkedSettled(unittest.TestCase):
         self.state.mkdir(parents=True)
         self.runs.mkdir(parents=True)
         self.turn = time.time() - 600
-        # a finished plan: the stop stands unless a run of the seat's sits parked
         (self.state / f"plan-{SEAT}.md").write_text("- [x] Shipped fix-api\n")
 
     def run_json(self, name, **fields):

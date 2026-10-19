@@ -285,15 +285,23 @@ class SeatNeverSaysWorking(Sandbox):
         live_new = {"word": "working", "state": "working", "since": 2000,
                     "began": 2000, "authority": "hooks",
                     "rule": "UserPromptSubmit", "evidence": ""}
+        with patch.object(watch, "live_state", return_value=live_new), \
+                patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \
+                patch.object(watch, "load_state", return_value={"stalls": {}}):
+            self.assertEqual(menu.status(seat)[0], "working")
+            row = menu.row(self.cfg, 1, seat)
+            self.assertEqual(row[3], "working")
+            self.assertNotIn("Checks passed", row[4])
         live_old = {"word": "idle", "state": "at_prompt", "since": 500,
                     "began": 500, "authority": "screen",
                     "rule": "prompt.composer", "evidence": ""}
-        for live, word in ((live_new, "working"), (live_old, "done")):
-            with patch.object(watch, "live_state", return_value=live), \
-                    patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \
-                    patch.object(watch, "load_state", return_value={"stalls": {}}):
-                self.assertEqual(menu.status(seat)[0], word)
-                self.assertEqual(menu.row(self.cfg, 1, seat)[3], word)
+        with patch.object(watch, "live_state", return_value=live_old), \
+                patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \
+                patch.object(watch, "load_state", return_value={"stalls": {}}):
+            self.assertEqual(menu.status(seat)[0], "done")
+            row = menu.row(self.cfg, 1, seat)
+            self.assertEqual(row[3], "done")
+            self.assertIn("Checks passed", row[4])
 
 
 if __name__ == "__main__":

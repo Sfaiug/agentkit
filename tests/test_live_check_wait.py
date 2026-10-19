@@ -107,11 +107,10 @@ class LiveCheckWait(MergedRuns):
                          "started_at": time.time() - 900, "finished_at": time.time() - 10,
                          **run_state}) + "\n")
                 with patch.object(config, "STATE", self.state):
+                    config.plan_path(SEAT).write_text("- [x] Shipped it\n")
                     if notice:
                         config.notify_path(SEAT).write_text(json.dumps(
                             {"session": SEAT, "time": time.time() - 30, **notice}))
-                    else:
-                        config.plan_path(SEAT).write_text("- [x] Shipped it\n")
                 self.assertEqual(self.word()["word"], "needs you")
                 self.assertEqual(self.card_pass(), "needs you")
                 self.assertEqual(self.word()["word"], "needs you")

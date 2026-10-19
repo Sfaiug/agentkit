@@ -1,17 +1,17 @@
 """Discord webhook notification.  The orchestrator's, and the orphaned run's.
 
-Two cards, each one line naming its seat and nothing it said (the owner keeps what a seat
-asked or did out of Discord): `Needs you` when the orchestrator asks with `ak notify needs
-"<question>"`, which records itself as the session's last notification, what the menu shows as
-that session's state, and `Done` when the seat's plan proves its whole work done.  `ak notify`
-records the question; the session-state transition sends the card.
+Two shapes, each one line naming its seat and nothing it said (the owner keeps what a seat
+asked or did out of Discord): `ak notify needs "<question>"` when the orchestrator needs the
+user, and Done when the seat's plan proves the job done.  A question records itself as the session's
+last notification, which is what the menu shows as that session's state. `ak notify` records
+the question; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
 and the owner has typed nothing into the seat for a minute. A question a seat asks during its own turn is
 kept back in its record, apart from every notice, until a look finds that turn ended
 (`watch.ask_kept_back`): only then is the seat waiting for the answer. A done episode is sent
-once when the session state becomes done, and its work once whatever episodes, or versions, it
-turns up in. A card once out is never edited: he has read it by the time he answers, and
+once when the session state becomes done, and its work once whatever episodes, or versions,
+it turns up in. A card once out is never edited: he has read it by the time he answers, and
 a question over before Discord took its card is never sent late. Nothing is sent, or
 retried, for a seat the owner closed himself, or an episode begun before this agentkit was
 installed.
