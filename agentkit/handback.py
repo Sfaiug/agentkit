@@ -823,7 +823,7 @@ def clear_delivery(state):
 
 
 @contextmanager
-def delivery_lock(run_dir):
+def delivery_lock(run_dir, wait=True):
     """The one delivery an ending gets, held from deciding to say it until it is said.
 
     The loop that finished a run and the `ak watch` tick that found it unheard can both be
@@ -834,22 +834,26 @@ def delivery_lock(run_dir):
 
     Reentrant within a thread, and counted here because flock is not: `mark_delivery` takes it
     for every write it makes, and `hand_back` holds it across the whole decision the write is
-    the end of.
+    the end of.  Yields whether it is held: without `wait`, False when another holds it.
     """
     held = getattr(_DELIVERY_HELD, "paths", None)
     if held is None:
         held = _DELIVERY_HELD.paths = set()
     mine = str(run_dir)
     if mine in held:
-        yield
+        yield True
         return
-    held.add(mine)
-    try:
-        with (Path(run_dir) / "delivery.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            yield
-    finally:
-        held.discard(mine)
+    with (Path(run_dir) / "delivery.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except BlockingIOError:
+            yield False
+            return
+        held.add(mine)
+        try:
+            yield True
+        finally:
+            held.discard(mine)
 
 
 def same_attempt(state, record):
@@ -1316,7 +1320,8 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
 
     Typed into the seat's composer through the confirmed send, and only while its harness sits
     at its own prompt: a line typed into a turn in flight is swallowed.  Otherwise the record
-    keeps `handback_pending` and the `ak watch` tick types it at the next quiet prompt, once;
+    keeps `handback_pending` and the `ak watch` tick types it at the next quiet prompt, once,
+    unless a prompt starting a turn there carries it first (`riding`);
     the log says so, with what a look at the seat read (`watch.untyped`), as the ending is first
     deferred, on each read at its prompt that took no line, and when the line is in.
     `busy` is the tick's pass: the seats it found not taking a line and what it read of each,
@@ -1386,6 +1391,42 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
             log(f"the {session} seat is not at its prompt ({busy[session]}); "
                 f"the tick hands run {run_dir.name} back")
     return False
+
+
+def riding(session):
+    """The deferred hand-backs a prompt starting a turn in `session` carries, told as it does.
+
+    A hand-back waits for a quiet prompt, but a seat can start its next turn first -- the
+    owner's message, or another ending typed -- and find the run ended by itself; the line
+    typed after that turn was old news, one turn each (19 Oct: 40 minutes late, and a seat
+    fed 30 endings a turn at a time).  So every ending still waiting for this seat goes with
+    the prompt that does start one, and is told for good.  One whose lock is held is being
+    typed this moment, perhaps as this very prompt, and one whose line waits in the composer
+    for its Enter is the typed path's: both are left to it.  The prompt never waits: a held
+    lock is passed over, and its checkout goes with the sweep, never here.
+    """
+    lines = []
+    for run_dir in run_record.run_dirs():
+        try:
+            state = run_record.read_state(run_dir)
+            if (not state or not state.get("handback_pending") or state.get("handback_typed")
+                    or transitions.launched_session(state) != session):
+                continue
+            with delivery_lock(run_dir, wait=False) as held:
+                said = held and run_record.read_state(run_dir)
+                if (not said or not same_attempt(state, said) or already_handed_back(said)
+                        or not said.get("handback_pending") or said.get("handback_typed")):
+                    continue
+                line = handback_line(said, run_dir)
+                if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
+                                 handback_pending=None, handback_note=None,
+                                 handback_wait_reason=None, notification_pending=None):
+                    lines.append(line)
+        except (config.Error, OSError, ValueError, KeyError, TypeError):
+            continue        # left waiting: the tick types it at the next quiet prompt
+    if not lines:
+        return ""
+    return "Runs you have not been told about yet:\n" + "\n".join(lines)
 
 
 def announce_safely(state, run_dir, log, cfg=None):
