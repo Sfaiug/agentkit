@@ -3617,11 +3617,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                    selected, providers, moves)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
-        over, body, places, moves = meters_led(config_meters(cfg), body, places,
-                                               note_lines(note or standing), keys, moves)
         # on a short screen the note keeps its lines and the page a row; the model's line the rest
-        fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys, over)[1] - 1
+        fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys)[1] - 1
         said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
+        over, body, places, moves = meters_led(config_meters(cfg), body, places,
+                                               [*said, *note_lines(note or standing)], keys, moves)
         # coming up as the highlight comes to a model (`motion.fading`)
         opened = here[1] if any(map(terminal.plain, said)) else None
         moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))

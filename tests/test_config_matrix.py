@@ -432,14 +432,17 @@ class Matrix(unittest.TestCase):
         screen.leave()
 
     def test_a_short_screen_leads_its_page_with_the_meters_so_the_model_s_line_has_room(self):
-        # over the page, six meters on 40 by 12 would leave none for the highlighted model's line
-        screen = Screen(self, workers=["opus"], rows=12, cols=40)
-        lines = screen.frame()
-        self.assertLessEqual(len(lines), 12, lines)
-        self.assertTrue(highlighted(lines).startswith("› fable"), lines)
-        self.assertTrue(any(line.startswith("    fable runs on ") for line in lines), lines)
-        self.assertTrue(lines[-1].endswith("esc back"), lines)
-        screen.leave()
+        # over the page, six meters on 40 by 12 would leave none for the highlighted model's line,
+        # and on 40 by 16, with that line under the page, fewer than LEAST rows
+        for rows in (12, 16):
+            screen = Screen(self, workers=["opus"], rows=rows, cols=40)
+            lines = screen.frame()
+            self.assertLessEqual(len(lines), rows, lines)
+            self.assertTrue(highlighted(lines).startswith("› fable"), lines)
+            self.assertTrue(any(line.startswith("    fable runs on ") for line in lines), lines)
+            self.assertTrue(lines[-1].endswith("esc back"), lines)
+            screen.leave()
+        self.assertIn("Claude", lines)                    # the provider over the highlight
 
 
 if __name__ == "__main__":

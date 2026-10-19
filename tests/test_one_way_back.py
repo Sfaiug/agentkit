@@ -59,7 +59,7 @@ class Back(unittest.TestCase):
         lines = terminal.ANSI.sub("", screen).splitlines()
         heads = next(line for line in lines if line.split()[-1:] == ["effort"])
         self.assertEqual(heads.split(), ["effort"])
-        self.assertIn("% left", "\n".join(lines[2:lines.index(heads)]))
+        self.assertIn("  Claude ", "\n".join(lines[2:lines.index(heads)]))  # whatever it reads
 
     def test_v5u_menu_arrow_sequence_is_no_key(self):
         out = io.StringIO()
