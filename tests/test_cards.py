@@ -1,7 +1,6 @@
 """Session-state transition cards: one latch, one episode, one delivery."""
 
 from contextlib import ExitStack
-import io
 import json
 import os
 from pathlib import Path
@@ -50,13 +49,6 @@ class Cards(unittest.TestCase):
         with patch.object(watch, "session_state", return_value=answer):
             return notify.transition(session, answer, **kwargs)
 
-    def run_fixture(self, name, state, **extra):
-        directory = config.RUNS / name
-        directory.mkdir(parents=True)
-        record = {"state": state, "launched_session": "seat", "title": name, **extra}
-        (directory / "run.json").write_text(json.dumps(record))
-        return directory
-
     def test_needs_card_after_sixty_seconds_held(self):
         notify.record("seat", "needs", "Which branch?", time=100)
         self.transition("seat", self.answer("needs you", 100), now=159)
@@ -84,32 +76,6 @@ class Cards(unittest.TestCase):
         self.transition("seat", self.answer("needs you", 300), now=360)
         self.assertEqual(len(self.posts), 2)
 
-    def test_done_card_waits_until_no_run_is_unfinished(self):
-        directory = self.run_fixture("job", "running")
-        self.assertEqual(notify.main(["done", "Finished", "--session", "seat"]), 0)
-        self.assertEqual(self.posts, [])   # the word is working while the run goes
-        record = json.loads((directory / "run.json").read_text())
-        record.update(state="pass", finished_at=time.time())
-        (directory / "run.json").write_text(json.dumps(record))
-        with patch.object(orch, "listing", return_value=[{"name": "seat"}]):
-            notify.tick_cards()
-        self.assertEqual(self.posts[0]["content"], "✅ Done · seat")
-
-    def test_failed_run_drops_declaration_with_one_log_line(self):
-        directory = self.run_fixture("job", "running")
-        self.assertEqual(notify.main(["done", "Finished", "--session", "seat"]), 0)
-        self.assertEqual(self.posts, [])
-        record = json.loads((directory / "run.json").read_text())
-        record.update(state="fail", finished_at=time.time())
-        (directory / "run.json").write_text(json.dumps(record))
-        with io.StringIO() as err, patch("sys.stdout", err), \
-                patch.object(orch, "listing", return_value=[{"name": "seat"}]):
-            notify.tick_cards()
-            notify.tick_cards()
-            self.assertEqual(err.getvalue().count("dropping done declaration"), 1)
-        self.assertTrue(notify.last("seat", include_seen=True).get("seen"))
-        self.assertEqual(self.posts, [])
-
     def test_notify_needs_records_and_sends_in_the_same_call(self):
         with patch.object(watch, "session_state", return_value=self.answer("needs you", 100)), \
                 patch.object(notify.time, "time", return_value=200):
@@ -120,9 +86,9 @@ class Cards(unittest.TestCase):
     def test_tick_sends_a_word_that_changed_between_ticks(self):
         with patch.object(orch, "listing", return_value=[{"name": "seat"}]), \
                 patch.object(watch, "session_state", side_effect=[
-                    self.answer("working", 100), self.answer("done", 200, "Finished")]):
+                    self.answer("working", 100), self.answer("needs you", 200, "Which branch?")]):
             notify.tick_cards()
-            notify.record("seat", "done", "Finished", time=200)
+            notify.record("seat", "needs", "Which branch?", time=200)
             notify.tick_cards()
         self.assertEqual(len(self.posts), 1)
 
@@ -171,28 +137,6 @@ class Cards(unittest.TestCase):
             self.transition("my-editor", self.answer("needs you", 100), now=200)
         self.assertEqual(sockets, [orch.seat_socket(seat)])
         self.assertEqual(len(self.posts), 1)   # an explicit command still names its subject
-
-    def test_resolved_done_opens_a_new_episode(self):
-        self.assertEqual(notify.main(["done", "First job", "--session", "seat"]), 0)
-        self.assertEqual(len(self.posts), 1)
-        notify.clear("seat")
-        self.assertEqual(notify.main(["done", "Second job", "--session", "seat"]), 0)
-        self.assertEqual(len(self.posts), 2)
-
-    def test_done_card_waits_on_a_run_awaiting_recovery(self):
-        directory = self.run_fixture("job", "interrupted")
-        self.assertEqual(notify.main(["done", "Finished", "--session", "seat"]), 0)
-        self.assertEqual(self.posts, [])   # the word is his while recovery is pending
-        word = watch.session_state("seat")
-        self.assertEqual(word["word"], "needs you")
-        self.assertEqual(word["reason"],
-                         "run job parked: The run stopped before recording completion")
-        record = json.loads((directory / "run.json").read_text())
-        record["recovery_acknowledged_at"] = time.time()
-        (directory / "run.json").write_text(json.dumps(record))
-        with patch.object(orch, "listing", return_value=[{"name": "seat"}]):
-            notify.tick_cards()
-        self.assertEqual(self.posts[0]["content"], "✅ Done · seat")
 
     def test_no_card_for_a_seat_the_owner_closed(self):
         # `x`, `ak orch stop` or a pause script: the seat is gone on purpose, and nobody
@@ -315,9 +259,6 @@ class Cards(unittest.TestCase):
             # seat tmux lost long before it
             config.save_session(cfg, "gone", "fable", ["opus"], {"exited_since": now - 7200})
             config.save_session(cfg, "lost", "fable", ["opus"], {"seen": now - 3 * 86400})
-            # ... and a done declared before it
-            notify.record("finished", "done", "Shipped", time=now - 3600)
-            self.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
             # A seat last seen alive shortly before the install may have gone after it: its
             # record is renewed only every few minutes, so it is still news.
             config.save_session(cfg, "vanished", "fable", ["opus"], {"seen": now - 700})
@@ -360,7 +301,7 @@ class Cards(unittest.TestCase):
             installed = time.time()
             for name in ("other", "third"):
                 self.assertEqual(notify.main(["needs", "Which one?", "--session", name]), 0)
-            self.assertEqual(notify.main(["done", "Shipped", "--session", "paused"]), 0)
+            self.assertEqual(notify.main(["needs", "Which one?", "--session", "paused"]), 0)
         orch.mark_owner_closed("other")
         orch.mark_owner_closed("paused")
         logs = []
@@ -378,65 +319,19 @@ class Cards(unittest.TestCase):
 
     def test_notify_is_news_even_where_the_standing_episode_is_history(self):
         # `ak notify` is the visible start of its episode, however long the word it lands
-        # on has stood: explicit needs and done keep working as they did.
+        # on has stood: an explicit needs keeps working as it did.
         now = time.time()
         watch.seat_write("seat", word="needs you", reason="waiting for you",
                          word_since=now - 3600)
         with patch.object(notify, "installed_at", return_value=now - 600):
             self.transition("seat", self.answer("needs you", now - 3600), now=now)
-            notify.record("finished", "done", "Shipped", time=now - 3600)
-            self.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
             self.assertEqual(self.posts, [])
             self.assertEqual(notify.main(["needs", "Which branch?"]), 0)
-            self.assertEqual(notify.main(["done", "Shipped again", "--session", "finished"]), 0)
             # ... and on a seat with no episode yet
             watch.seat_write("fresh", word="needs you", word_since=now - 3600)
             self.assertEqual(notify.main(["needs", "Which one?", "--session", "fresh"]), 0)
         self.assertEqual([post["content"] for post in self.posts],
-                         ["🙋 Needs you · seat", "✅ Done · finished", "🙋 Needs you · fresh"])
-
-    def test_a_done_is_carded_once_however_often_its_word_comes_back(self):
-        notify.record("seat", "done", "Finished", time=100)
-        self.transition("seat", self.answer("done", 100, "Finished"), now=100)
-        # a run of its own awaits recovery and is acknowledged: the same ending again
-        self.transition("seat", self.answer("working", 200), now=200)
-        self.transition("seat", self.answer("done", 300, "Finished"), now=300)
-        self.assertEqual(len(self.posts), 1)
-        # A new declaration is a new ending.
-        self.transition("seat", self.answer("working", 400), now=400)
-        notify.record("seat", "done", "Finished again", time=500)
-        self.transition("seat", self.answer("done", 500, "Finished again"), now=500)
-        self.assertEqual([post["content"] for post in self.posts],
-                         ["✅ Done · seat", "✅ Done · seat"])
-
-    def test_a_done_is_carded_once_across_versions_episodes_and_names(self):
-        # A done card the version before sent, keyed its own way, whose word it had already
-        # moved on before this install: the outbox still holds it, and it is this ending's.
-        notify.record("seat", "done", "Finished", time=100)
-        notify.outbox().mkdir(parents=True, exist_ok=True)
-        (notify.outbox() / "old.json").write_text(json.dumps(
-            {"id": "old", "source": "", "session": "seat", "kind": "done", "text": "Finished",
-             "created_at": 101, "status": "delivered"}))
-        config.card_path("seat").write_text(json.dumps(
-            {"word": "working", "since": 150, "episode": "e", "sent": False}))
-        self.transition("seat", self.answer("done", 300, "Finished"), now=300)
-        self.assertEqual(self.posts, [])
-        # An explicit done over a done episode that is history is sent, and once.
-        now = time.time()
-        with patch.object(notify, "installed_at", return_value=now - 600):
-            notify.record("finished", "done", "Shipped", time=now - 3600)
-            self.transition("finished", self.answer("done", now - 3600, "Shipped"), now=now)
-            self.assertEqual(notify.main(["done", "Shipped again", "--session", "finished"]), 0)
-            self.transition("finished", self.answer("working", now), now=now)
-            self.transition("finished", self.answer("done", now, "Shipped again"), now=now)
-        # ... and one sent under the old name is the same ending under the new one.
-        notify.record("other", "done", "Shipped", time=400)
-        self.transition("other", self.answer("done", 400, "Shipped"), now=400)
-        config.rename_session("other", "renamed")
-        self.transition("renamed", self.answer("working", 500), now=500)
-        self.transition("renamed", self.answer("done", 600, "Shipped"), now=600)
-        self.assertEqual([post["content"] for post in self.posts],
-                         ["✅ Done · finished", "✅ Done · other"])
+                         ["🙋 Needs you · seat", "🙋 Needs you · fresh"])
 
 if __name__ == "__main__":
     unittest.main()
