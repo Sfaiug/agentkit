@@ -38,17 +38,32 @@ def kept(pane):
     return f"{ASK[1:]}-{pane.lstrip('%')}"
 
 
-def launched(pid):
-    """Whether the seat pane whose process has that id was launched with this editor as its
-    $VISUAL.  The launch execs into the pane's process, so its environment is the one the harness
-    below it inherits, where a tool the harness runs may have been given another; a seat
-    started before opens the owner's editor over its composer."""
+def launched(pid, tty):
+    """Whether the seat pane whose process has that id, on that terminal, was launched with this
+    editor as its $VISUAL.  The harness inherits its environment from the last process down from
+    there still on the pane's terminal: the launch, execed into the harness's wrapper, which
+    runs the harness on a terminal of its own -- whether or not the shell tmux runs the pane's
+    command in is still above it.  A tool the harness runs may have been given another, and a
+    seat started before opens the owner's editor over its composer."""
     try:
-        env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if pid.isdigit() else []
+        while pid.isdigit():
+            below = [child for task in Path(f"/proc/{pid}/task").glob("*/children")
+                     for child in task.read_text().split() if _stdin(child) == tty]
+            if not below:
+                env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+                return any(entry.startswith(b"VISUAL=")
+                           and Path(os.fsdecode(entry[7:])).resolve() == EDITOR for entry in env)
+            pid = below[0]
     except OSError:
-        return False
-    return any(entry.startswith(b"VISUAL=") and Path(os.fsdecode(entry[7:])).resolve() == EDITOR
-               for entry in env)
+        pass
+    return False
+
+
+def _stdin(pid):
+    try:
+        return os.readlink(f"/proc/{pid}/fd/0")
+    except OSError:
+        return None
 
 
 def _tmux(*args, data=None):

@@ -56,6 +56,10 @@ enforce = "nudge"
 # The composer is a bare `>` between two rules; a typed line reads `> text`, and so does every
 # prompt the transcript echoes, which is why only the empty one is chrome.
 composer = '^>$'
+# The key opening the composer in $VISUAL (agy 1.4.2, live), pastes written out
+# in full, and taking back what that editor leaves, mid-turn too: ak's editor sets the owner's
+# unsent text aside there for a line of ak's (agentkit/aside_editor.py).
+editor = ["C-g"]
 # and the line under it: a key hint on the left -- `? for shortcuts` at rest, `esc to cancel`
 # while a turn runs or a chooser is open, `press ctrl+c again to exit` after one Ctrl-C, nothing
 # over a draft -- and on the right the model and effort (`Gemini 3.8 Flash · low`), or, on a

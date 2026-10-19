@@ -88,7 +88,9 @@ class ReceiptNeedsEnter(Sandbox):
     def check_unread_receipt(self):
         line, marks = "Parser merged.", []
         self.assertFalse(self.type(line, receipt=marks.append))
-        self.assertEqual(marks, [{"line": line, "seat": 10}])
+        # its line and seat, and when its text went in
+        self.assertEqual([dict(mark, at=None) for mark in marks],
+                         [{"line": line, "seat": 10, "at": None}])
         self.assertTrue(watch.pane_unread(self.seat))
         for _ in range(3):
             self.assertFalse(self.type(line, typed=marks[0], receipt=marks.append))

@@ -9,6 +9,7 @@ tmux faked in memory; the processes are this test's own.
 
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -92,17 +93,29 @@ class AsideEditor(unittest.TestCase):
         self.assertEqual(aside_editor.launch_env(inside)[2], f"{aside_editor.OWNER}=vim")
 
     def test_a_seat_is_told_by_its_launch_not_by_what_its_harness_runs(self):
-        # each seat's harness starts a tool given ak's editor; only the first was launched with it
-        tool = f"env VISUAL={aside_editor.EDITOR} sh -c 'echo up; exec sleep 30' & wait"
-        seats = [subprocess.Popen(["env", f"VISUAL={visual}", "sh", "-c", tool],
-                                  stdout=subprocess.PIPE, start_new_session=True)
-                 for visual in (aside_editor.EDITOR, "nano")]
+        # each seat's wrapper, on the pane's terminal, runs its harness on another, and the
+        # harness a tool given ak's editor; tmux's shell is above the wrapper or execed into it
+        terminal, pane = os.openpty()
+        for end in (terminal, pane):
+            self.addCleanup(os.close, end)
+        tool = shlex.join(["env", f"VISUAL={aside_editor.EDITOR}", "sh", "-c",
+                           "echo up; exec sleep 30"])
+        harness = shlex.join(["sh", "-c", f"{tool} & wait"]) + " </dev/null"
+        env = {key: value for key, value in os.environ.items() if key != "VISUAL"}
+        seats = []
+        for shell in (True, False):
+            for visual in (aside_editor.EDITOR, "nano"):
+                launch = ["env", f"VISUAL={visual}", "sh", "-c", f"{harness} & wait"]
+                seats.append(subprocess.Popen(
+                    ["sh", "-c", shlex.join(launch) + "; wait"] if shell else launch, stdin=pane,
+                    stdout=subprocess.PIPE, start_new_session=True, env=env))
         for seat in seats:
             self.addCleanup(seat.stdout.close)
             self.addCleanup(seat.wait)
             self.addCleanup(os.killpg, seat.pid, 9)
             self.assertEqual(seat.stdout.readline(), b"up\n")
-        self.assertEqual([aside_editor.launched(str(seat.pid)) for seat in seats], [True, False])
+        self.assertEqual([aside_editor.launched(str(seat.pid), os.ttyname(pane)) for seat in seats],
+                         [True, False, True, False])
 
     def test_the_script_a_harness_runs_opens_the_owners_editor(self):
         owner = self.root / "owners-editor"
