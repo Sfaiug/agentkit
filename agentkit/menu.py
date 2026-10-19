@@ -3197,6 +3197,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                        for piece in terminal.wrap(text, room - 4)])
     shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
     for part in (shown + [""] * tallest)[:tallest]:
+        if part:      # its row's own lines, so a page keeps them on with it (matrix_page)
+            places[len(lines)] = (at, [])
         lines.append(("    " + part).rstrip())
         if moves is not None:
             moves.append((len(lines) - 1, ("said",), at[1] if shown else None,
