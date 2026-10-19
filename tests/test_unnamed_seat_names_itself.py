@@ -146,6 +146,23 @@ class UnnamedSeatNamesItself(Sandbox):
                 self.assertEqual(notify.last(SEAT)["text"], QUESTION)
                 self.assertIsNone(notify.last(SEAT).get("answered_at"))
 
+    def test_the_naming_line_never_joins_the_owners_reply(self):
+        """Past a question, the line waits while the owner has begun answering it since the seat
+        was read: what is in the composer is theirs to send."""
+        typer = watch.type_into
+
+        def replying(*args, **kwargs):
+            empty, row = TYPED[self.harness]
+            self.pane = self.screen("prompt").replace(empty, row.format("Use staging"))
+            return typer(*args, **kwargs)
+
+        notify.record(SEAT, "needs", QUESTION)
+        for harness in NUDGED:
+            with self.subTest(harness=harness), patch.object(watch, "type_into",
+                                                             side_effect=replying):
+                self.harness = harness
+                self.assertEqual(self.tick(), [])
+
     def test_the_rulebook_says_the_line_the_stop_holds_it_to(self):
         self.assertIn(config.NAME_LINE, config.seat_rulebook(SEAT))
         self.named()

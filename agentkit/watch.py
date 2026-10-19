@@ -3942,9 +3942,9 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     of the three is told to get on with it.  A question mark on the screen asks nobody anything.
     An unnamed seat is told to name itself instead, whatever it recorded (`config.name_owed`).
 
-    An unanswered question of this seat's own never reaches here -- health() leaves those
-    alone, but for an unnamed seat's -- so what is left to read is the `done` on record and the
-    runs and jobs.
+    An unanswered question of this seat's own ends its stop whenever it was asked, so what is
+    left to read is the `done` on record and the runs and jobs; only an unnamed seat's naming
+    line is typed past it.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
     `done`, as it holds the hook's.  A wait that is over is wait_over's to end, with
@@ -3971,8 +3971,9 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     Nothing is typed before the words it stopped on have stood for STALL_WAIT -- `stop_said_at`
     and not the prompt's own age, which an unwatched turn never moves -- as nothing else here
     types before a screen has stood.  And nothing is typed on this pass's capture alone: the
-    seat is read once more first, because a composer the user has begun typing into is theirs
-    and a line appended to it would send what they are still writing.
+    seat is read once more first, and again under its send lock (`quiet_prompt`), because a
+    composer the user has begun typing into is theirs and a line appended to it would send what
+    they are still writing.
 
     A turn the owner stopped (`interrupted`) is no stop at all: no hook runs on an Esc, and the
     seat rests until their next prompt (owner, 14 Oct 2026).
@@ -3990,8 +3991,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     began = _stamp(live.get("turn_began"))
     if began is None:
         return          # nothing has watched this seat finish a turn; there is none to judge
-    question = bool(notice and notice.get("kind") == "needs"
-                    and (_stamp(notice.get("time")) or 0) >= began)
+    question = owner_question(notice) or bool(notice and notice.get("kind") == "needs"
+                                              and (_stamp(notice.get("time")) or 0) >= began)
     said = progress_output(harness, pane_tail(pane))
     if not said or live.get("stop_nudged") == [began, said]:
         return
@@ -4026,7 +4027,8 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if (_decided_state(name, harness, current) != "at_prompt"
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
-    if type_into(session, keys, log, asked=bool(owed)):
+    if type_into(session, keys, log, lambda held: not quiet_prompt(session, held),
+                 asked=bool(owed)):
         seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
         log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
 
@@ -4416,8 +4418,7 @@ def health(cfg, state, dry_run, log):
                 continue        # auth is read-only on these seats; no catch-all or capacity recovery
             notice = notify.last(name)
             if owner_question(notice):
-                if config.name_owed(name):
-                    stop_nudge(session, harness, pane, notice, records, dry_run, log)
+                stop_nudge(session, harness, pane, notice, records, dry_run, log)
                 continue        # an unanswered owner decision is never a reason to type a resume
             if entry.get("told"):
                 continue
