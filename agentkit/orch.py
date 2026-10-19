@@ -45,7 +45,7 @@ from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from . import command_help, config, gitcall, guard, host, motion, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, motion, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -260,7 +260,10 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
                            f"({exc}): {line[:200]}")
     if not cmd:
         raise config.Error(f"{adapter.name} interactive printed no command for {name}")
-    cmd = ["env", *(f"{key}={value}" for key, value in config.account_env(account).items()), *cmd]
+    # ak's editor is the seat's own, so the owner's unsent text can be set aside for a line of
+    # ak's (agentkit/aside_editor.py)
+    cmd = ["env", *(f"{key}={value}" for key, value in config.account_env(account).items()),
+           *aside_editor.launch_env(os.environ), *cmd]
     # a seat's only instructions are its rulebook: a file its harness reads on its own, and
     # cannot be told not to, is refused rather than read beside it -- looked for in the home
     # the seat's own line runs the harness from, an account's where the adapter keeps one

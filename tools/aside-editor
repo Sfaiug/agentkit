@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""ak's editor in a seat whose harness sets the owner's draft aside through its external editor:
+agentkit/aside_editor.py."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from agentkit import aside_editor  # noqa: E402
+
+sys.exit(aside_editor.edit(sys.argv[1:]))
