@@ -386,8 +386,9 @@ a click chooses, Enter starts from anywhere -- or, with every model spent and a 
 empty, takes the highlight to it -- Esc goes back, and reviewers keep their last model, its mark
 shaking (Motion). Executors may be left empty: the orchestrator builds everything, its own
 `builds` mark filled and dim on both `n` and `c`. Enter on an empty name leaves a free one-word
-name of a Star Wars: The Clone Wars character (`orch.character_name`: `ahsoka`, `rex`), unnamed until its orchestrator knows the job and gives it the shortest name, at most
-three words, with `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints
+name of a Star Wars: The Clone Wars character (`orch.character_name`: `ahsoka`, `rex`), unnamed until its orchestrator gives it the shortest name, at most
+three words, with `ak orch rename --auto <name>`; the end-of-turn rule sends its stops back until it has, a
+question to the owner aside. Once named, `--auto` changes nothing, prints
 the current name and exits 0; plain `ak orch rename` still renames. A seat can take back its own
 former name; another seat's former name stays reserved, with a variant chosen for a rename from
 Claude. From a pipe `n` asks `Name (Enter: auto):`, `Orchestrator [opus]:` and
