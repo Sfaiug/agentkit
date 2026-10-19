@@ -145,13 +145,11 @@ class DesktopAndBoot(Sandbox):
         with patch.object(notify, "datetime") as clock, \
                 patch.object(notify, "_last_input", return_value=0):
             clock.now.return_value = fixed
-            for kind, title, text, color, answer in (
-                    ("needs", "Needs you", "Which branch?", 0xF5A623,
+            for kind, title, text, answer in (
+                    ("needs", "Needs you", "Which branch?",
                      {"word": "needs you", "since": 10000, "reason": "Which branch?"}),
-                    ("done", "Done", "Checks passed", 0x2ECC71,
+                    ("done", "Done", "Checks passed",
                      {"word": "done", "since": 10100, "reason": "Checks passed"})):
-                body = {"title": f"{title} · source", "color": color, "description": text,
-                        "timestamp": "2026-09-14T12:00:00+00:00"}
                 if kind == "done":    # a seat's done waits for the answer to its question
                     notify.answered("source", notify.last("source")["time"] + 1)
                 # The command records; the card follows the word, once per episode.
@@ -160,9 +158,8 @@ class DesktopAndBoot(Sandbox):
                 self.assertEqual(notify.last("source", include_seen=True)["text"], text)
                 self.transition(answer, now=answer["since"] + 60)
                 self.assertEqual(self.posts[-1], json.dumps({"username": "agentkit",
-                                                             "content": f"{text} · source <@42>",
-                                                             "allowed_mentions": {"users": ["42"]},
-                                                             "embeds": [body]}).encode())
+                                                             "content": f"{title} · source <@42>",
+                                                             "allowed_mentions": {"users": ["42"]}}).encode())
                 self.assertEqual(self.output(other), f"\033]9;{title} · source: {text}\007".encode())
                 self.assertEqual(self.output(active), b"")
                 self.transition(answer, now=answer["since"] + 120)
@@ -253,8 +250,8 @@ class DesktopAndBoot(Sandbox):
         before = self.snapshot()
         with redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
             notify.main(["needs", "Question?", "--session", "source", "--dry-run"])
-        self.assertEqual(json.loads(out.getvalue())["embeds"][0]["title"], "Needs you · source")
-        self.assertEqual(json.loads(out.getvalue())["embeds"][0]["description"], "Question?")
+        self.assertEqual(json.loads(out.getvalue())["content"], "Needs you · source <@42>")
+        self.assertNotIn("Question?", out.getvalue())
         self.assertIn("terminal notice: Needs you · source: Question?", err.getvalue())
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.output(other), b"")

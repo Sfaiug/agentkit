@@ -171,7 +171,7 @@ class WorkerPaneNoSeat(unittest.TestCase):
         request = self.http.call_args.args[0]
         self.assertEqual((request.method, request.full_url), ("PATCH", url + "/messages/4242"))
         payload = json.loads(request.data)
-        self.assertEqual(payload["embeds"][0], {"title": f"Answered · {self.name}"})
+        self.assertEqual((payload["content"], payload["embeds"]), (f"Answered · {self.name}", []))
         self.assertEqual(payload["allowed_mentions"], {"parse": []})
         self.assertFalse(config.card_path(self.name).exists())
 

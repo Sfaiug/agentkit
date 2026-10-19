@@ -1,7 +1,8 @@
 """Discord webhook notification.  The orchestrator's, and the orphaned run's.
 
-Two shapes, both embeds: `ak notify needs "<question>"` when the orchestrator needs the user,
-and `ak notify done "<summary>"` when the job is done.  Each records itself as the session's
+Two shapes, each one line naming its seat and nothing it said (the owner keeps what a seat
+asked or did out of Discord): `ak notify needs "<question>"` when the orchestrator needs the
+user, and `ak notify done "<summary>"` when the job is done.  Each records itself as the session's
 last notification, which is what the menu shows as that session's state. `ak notify` records
 the reason or declaration; the session-state transition sends the card.
 
@@ -33,7 +34,6 @@ import itertools
 import json
 import math
 import os
-import re
 import secrets
 import stat
 import sys
@@ -53,14 +53,10 @@ from . import harness
 
 FILE_CAP = 8 * 1024 * 1024
 UA = "agentkit/1 (+https://github.com)"
-COLORS = {"needs": 0xF5A623, "done": 0x2ECC71, "fail": 0xE74C3C}   # amber, green, red
-SUBJECT_CAP = 60   # a title the phone shows whole, when the task has to stand in for a session
 # Where a seat's question must have asked: a seat's bar and its menu row show a question from its
 # start and cut the rest, so context written before the ask hides it.  One classic terminal line.
 ASK_CAP = 80
 TITLES = {"needs": "Needs you", "done": "Done"}
-DESCRIPTION_CAP = 4096   # of one embed's description: Discord refuses a card past it
-CONTENT_CAP = 1900       # of a message's 2000, leaving the owner's mention room after it
 CARD_WAIT = 60
 SINK_ENV = "AK_NOTIFY_SINK"   # the suites' destination; it outranks the owner's webhook
 SINK_LOG_ENV = "AK_NOTIFY_SINK_LOG"   # where a diversion is written, for the suite to fail on
@@ -228,26 +224,23 @@ def _read(paths):
     return files
 
 
-def lead(kind, text):
-    """What a page leads with: a question up to its "?", else its first sentence, across the
-    lines it wraps onto.  A mark ends one only where a space or the text's end follows it, so a
-    link's own "?" or "." ends nothing."""
-    flat = " ".join(str(text).split())
-    end = (kind == "needs" and re.search(r"\?(?=\s|$)", flat)) or re.search(r"[.!?](?=\s|$)", flat)
-    return flat[:end.end()] if end else flat
+def title(kind, session):
+    """All a card says: two words and its seat, `Needs you · atlas-growth`, carried whole as the
+    menu shows it; `agentkit` outside a seat, never what was said."""
+    return f"{TITLES[kind]} \u00b7 {' '.join((session or '').split()) or 'agentkit'}"
 
 
-def card_payload(kind, session, text):
-    """What a page posts.  A phone's push shows a message's content and not its embed, so the
-    content is the lead and the seat, the owner's mention last and the only one it may ping (a
-    card's own words ping nobody); the embed under it holds the whole text."""
+def card_payload(kind, session):
+    """What a page posts: its title, then the owner's mention, the only one it may ping.  No
+    embed: what was asked or done stays in the seat."""
     user_id = _secret(USER_ID_ENV, "discord_user_id")
-    content = f"{lead(kind, text)} \u00b7 {subject(session, text)}"
-    if len(content) > CONTENT_CAP:
-        content = content[:CONTENT_CAP - 1] + "\u2026"
-    return {"username": "agentkit", "content": content + (f" <@{user_id}>" if user_id else ""),
-            "allowed_mentions": {"users": [user_id]} if user_id else {"parse": []},
-            "embeds": [embed(kind, session, text)]}
+    return {"username": "agentkit", "content": title(kind, session) + (f" <@{user_id}>" if user_id else ""),
+            "allowed_mentions": {"users": [user_id]} if user_id else {"parse": []}}
+
+
+def _open_need(event, receipt):
+    """A sent question's receipt, with the title its edit keeps."""
+    return {**receipt, "title": title("needs", event["session"])}
 
 
 def webhook_url(url, message_id=None):
@@ -689,10 +682,10 @@ def close_needs(previous, status):
         if (not isinstance(message_id, str) or not message_id.isdigit()
                 or pending.get("webhook") != fingerprint):
             continue
-        body = dict(pending["embed"])
-        body["title"] = body["title"].replace(TITLES["needs"], status, 1)[:256]
-        body.pop("fields", None)   # the instruction to open this seat no longer applies
-        payload = {"content": "", "embeds": [body], "allowed_mentions": {"parse": []}}
+        # a question sent before cards lost their text kept its title in its embed; the edit drops it
+        old = pending.get("title") or pending.get("embed", {}).get("title", "")
+        payload = {"content": old.replace(TITLES["needs"], status, 1), "embeds": [],
+                   "allowed_mentions": {"parse": []}}
         try:
             req = urllib.request.Request(webhook_url(url, message_id), method="PATCH",
                                          data=json.dumps(payload).encode(),
@@ -858,7 +851,7 @@ def _remember(event, previous):
         pending = []
     elif receipt.get("message_id") and not any(
             all(p.get(k) == receipt[k] for k in ("message_id", "webhook")) for p in pending):
-        pending.append({**receipt, "embed": event["payload"]["embeds"][0]})
+        pending.append(_open_need(event, receipt))
     record(session, event["kind"], event["text"], **receipt, open_needs=pending,
            event_id=event["id"], time=event["created_at"],
            watcher=str(event.get("source") or "").startswith(("auth:", "stuck:", "stall:")))
@@ -878,7 +871,7 @@ def _remember_retry(event, session):
     receipt = event.get("receipt", {})
     if not receipt.get("message_id") or event["kind"] != "needs":
         return
-    pending = {**receipt, "embed": event["payload"]["embeds"][0]}
+    pending = _open_need(event, receipt)
     if resolved(previous) or previous["kind"] == "done":
         close_needs({"open_needs": [pending]}, "Done" if previous["kind"] == "done"
                     else "Answered")
@@ -1052,7 +1045,7 @@ def _remember_card(event, previous=None):
     declared = (current is not None and current["kind"] == "done"
                 and current.get("time", 0) >= event["created_at"])
     if event["kind"] == "needs" and receipt.get("message_id"):
-        pending = {**receipt, "embed": event["payload"]["embeds"][0]}
+        pending = _open_need(event, receipt)
         # An answer from before this episode began was to an earlier needs you, not this one.
         answered = (current is not None and resolved(current)
                     and (current.get("answered_at") or math.inf) > card.get("since", 0))
@@ -1079,7 +1072,7 @@ def _send_card(session, kind, card, answer):
     # the seat's word shows its notice on one line; the card carries the notice as written
     if previous and (kind == "done" or " ".join(str(previous["text"]).split()) == text):
         text = previous["text"]
-    payload = card_payload(kind, session, text)
+    payload = card_payload(kind, session)
     key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
     with outbox_lock():
         event = _read_event(key)
@@ -1111,7 +1104,7 @@ def page(key, about, text):
     take is tried again on a card's schedule and rules only when asked again, so a caller
     asking while the page is still due never has it sent once it is not.
     It reads as a seat's question does, `about` standing where the seat's name would."""
-    payload = card_payload("needs", about, text)
+    payload = card_payload("needs", about)
     key = hashlib.sha256(json.dumps(["page", key, sink() is not None]).encode()).hexdigest()
     with outbox_lock():
         event = _read_event(key)
@@ -1402,34 +1395,6 @@ def forget_card(name, log=lambda _: None):
         log(f"WARN the card of {name} was not closed ({type(exc).__name__}); retry required")
 
 
-def subject(session, text):
-    """Who the notification is about: the session it speaks for, else what it is about.
-
-    A dash names nothing, and a phone shows the title before it shows anything else.  Outside
-    a seat -- a run whose orchestrator is gone, an `ak notify` run by hand -- the subject is
-    the task itself, cut to a title's worth of it.  The cut is the fallback's alone: a session
-    name is what the user has to find in the menu, so it is carried whole.
-    """
-    name = " ".join((session or "").split())
-    if name:
-        return name
-    return " ".join((text or "").split())[:SUBJECT_CAP] or "agentkit"
-
-
-def embed(kind, session, text):
-    """The card Discord hears: two words and the seat as its title, the colour saying which of
-    the two it is, and the whole of what was asked or done as it was written.  No fields, no
-    footer, no PR link, no run id, no key hint."""
-    color = COLORS["fail" if kind == "done" and text.lstrip().upper().startswith("FAIL")
-                   else kind]
-    text = str(text).strip()
-    if len(text) > DESCRIPTION_CAP:
-        text = text[:DESCRIPTION_CAP - 1] + "\u2026"
-    return {"title": f"{TITLES[kind]} \u00b7 {subject(session, text)}"[:256], "color": color,
-            **({"description": text} if text else {}),
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-
-
 class Refused(config.Error):
     """A `shaped` gate said no: nothing was recorded, and the caller hears why."""
 
@@ -1511,8 +1476,8 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         raise config.Error("--file was removed: notification cards carry no attachments")
     name = config.resolve_session(session) if session else config.current_session()
     if dry_run:
-        print(json.dumps(card_payload(kind, name, text), indent=2))
-        terminal_notice(name, f"{TITLES[kind]} · {subject(name, text)}: {text}", dry_run=True)
+        print(json.dumps(card_payload(kind, name), indent=2))
+        terminal_notice(name, f"{title(kind, name)}: {text}", dry_run=True)
         return 0
     if not name:
         raise config.Error("notify needs a session: use --session NAME")

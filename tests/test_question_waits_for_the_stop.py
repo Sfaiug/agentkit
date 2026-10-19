@@ -46,7 +46,7 @@ class QuestionWaitsForTheStop(Sandbox):
         self.posts, self.closed = [], []
 
         def post(payload, files, message, receipt):
-            self.posts.append(payload["embeds"][0]["title"])
+            self.posts.append(payload["content"])
             receipt.update(status="disabled", message_id=str(len(self.posts)), webhook="sink")
             return 0
 

@@ -89,18 +89,14 @@ class Reminder(unittest.TestCase):
                 patch.object(time, "time", return_value=at):
             passes["the notification retry did not run"]()
             passes["the login-end read did not run"]()
-        return [post["embeds"][0]["description"] for post in self.posts]
+        return [post["content"] for post in self.posts]
 
-    def test_a_one_page_a_local_day_naming_the_subscription_its_email_and_end(self):
-        said = ("Claude II login second@acme.test ends Mon 26 Oct 04:47 (in 2 days). "
-                "Log in again from ak.")
+    def test_a_one_page_a_local_day_naming_the_subscription_and_nothing_else(self):
+        said = "Needs you · Claude II login"
         self.assertEqual(self.tick(local(24, 10)), [said])
         self.assertEqual(self.tick(local(24, 23, 30)), [said])     # Sunday already, in UTC
-        self.assertEqual(self.tick(local(25, 0, 30))[1:], [
-            "Claude II login second@acme.test ends Mon 26 Oct 04:47 (tomorrow). "
-            "Log in again from ak."])
-        self.assertEqual(self.tick(local(27, 9))[2:], [
-            "Claude II login second@acme.test ended Mon 26 Oct 04:47. Log in again from ak."])
+        self.assertEqual(self.tick(local(25, 0, 30)), [said] * 2)
+        self.assertEqual(self.tick(local(27, 9)), [said] * 3)
 
     def test_b_four_days_away_no_end_or_renewed_pages_nothing(self):
         self.answer("second", local(28, 10, 1))

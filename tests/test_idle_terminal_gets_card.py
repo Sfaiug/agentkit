@@ -49,7 +49,7 @@ class IdleTerminalGetsCard(Sandbox):
                            if name == SEAT), default=0))
 
     def post(self, payload, files, message, receipt):
-        self.posts.append(payload["embeds"][0]["title"])
+        self.posts.append(payload["content"])
         receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
         return 0
 

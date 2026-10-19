@@ -785,14 +785,12 @@ if doing g; then
   else
     skip "g: the @mention: the Discord user id is not on this host"
   fi
-  must "the needs embed does not name the session" \
-    jq -e --arg s "${SEAT:-atoll}" '.embeds[0].title == ("Needs you · " + $s)' "$WORK/needs.json"
-  must "the done embed does not name the session" \
-    jq -e --arg s "${SEAT:-atoll}" '.embeds[0].title == ("Done · " + $s)' "$WORK/done.json"
-  must "the needs card does not lead with its question over the whole of it" \
-    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("test? · " + $s)) and .embeds[0].description == "test?" and (.embeds[0] | has("fields") | not)' "$WORK/needs.json"
+  must "the needs card is not its two words and the session alone" \
+    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("Needs you · " + $s)) and (has("embeds") | not)' "$WORK/needs.json"
+  must "the done card is not its two words and the session alone" \
+    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("Done · " + $s)) and (has("embeds") | not)' "$WORK/done.json"
   verdict "g  ak notify needs/done --dry-run" \
-    "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }the question and the seat first, nothing posted"
+    "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }two words and the seat, nothing posted"
 fi
 
 # ==== d, closing: x and Stop stop the seat ==================================

@@ -218,8 +218,7 @@ class RequiredNotifications(unittest.TestCase):
         first = self.event()
         self.assertEqual((first["status"], first["attempts"], first["next_attempt"]),
                          ("pending", 1, 10060))
-        self.assertEqual(first["payload"]["embeds"][0]["title"], "Needs you · seat")
-        self.assertNotIn("fields", first["payload"]["embeds"][0])
+        self.assertEqual(first["payload"]["content"], "Needs you · seat <@42>")
         for now in (10001, 10059):
             self.call(op="retry", now=now)
             self.call(now=now)
@@ -423,7 +422,7 @@ class RequiredNotifications(unittest.TestCase):
         self.assertEqual(self.state("state/notify-seat.json"), before)
         self.assertEqual(self.event()["status"], "delivered")
         self.assertEqual([p["method"] for p in self.posts()], ["POST", "POST", "PATCH"])
-        self.assertEqual(self.posts()[-1]["payload"]["content"], "")
+        self.assertEqual(self.posts()[-1]["payload"]["content"], "Answered · seat")
 
     def test_dry_runs_do_not_create_or_change_state_or_post(self):
         before = self.snapshot()
@@ -449,8 +448,7 @@ class RequiredNotifications(unittest.TestCase):
                                       "resumable": True}))
         before = self.snapshot()
         result = self.call(dry=True)
-        self.assertEqual(json.loads(result["stdout"])["embeds"][0]["title"], "Needs you · seat")
-        self.assertNotIn("fields", json.loads(result["stdout"])["embeds"][0])
+        self.assertEqual(json.loads(result["stdout"])["content"], "Needs you · seat <@42>")
         self.assertEqual(self.snapshot(), before)
 
 

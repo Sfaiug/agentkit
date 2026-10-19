@@ -60,7 +60,7 @@ class DoneStaysDone(Sandbox):
             if self.down:
                 receipt.update(status="pending")
                 return
-            self.posts.append(payload["embeds"][0]["title"])
+            self.posts.append(payload["content"])
             receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
 
         def close_needs(previous, status):

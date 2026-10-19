@@ -108,7 +108,7 @@ class CompletionNotices(Sandbox):
     def posted(self, name=None, kind='done'):
         title = f'{notify.TITLES[kind]} · {name or self.name}'
         return [payload for method, payload in self.requests
-                if method == 'POST' and payload['embeds'][0]['title'] == title]
+                if method == 'POST' and payload['content'].split(' <@')[0] == title]
 
     def internal_turn(self, name=None):
         name = name or self.name
@@ -129,10 +129,8 @@ class CompletionNotices(Sandbox):
                     self.declare(summary, name=name)
                 self.assertEqual(len(self.posted(name)), 1)
                 payload = self.posted(name)[0]
-                self.assertEqual(payload['content'], f'API shipped · {name} <@123456789012345678>')
-                self.assertEqual(set(payload['embeds'][0]), {'title', 'color', 'description', 'timestamp'})
-                self.assertEqual(payload['embeds'][0]['description'], 'API shipped')
-                self.assertEqual(payload['embeds'][0]['color'], notify.COLORS['done'])
+                self.assertEqual(payload['content'], f'Done · {name} <@123456789012345678>')
+                self.assertNotIn('embeds', payload)
 
     def test_new_checked_work_sends_without_an_intermediate_tick(self):
         self.checked('API accepts the new parameters')
@@ -389,7 +387,7 @@ class CompletionNotices(Sandbox):
         self.declare('Question settled; API remains shipped')
         self.assertEqual(len(self.posted()), 1)
         patches = [payload for method, payload in self.requests if method == 'PATCH']
-        self.assertEqual(patches[-1]['embeds'][0]['title'], f'Done · {self.name}')
+        self.assertEqual(patches[-1]['content'], f'Done · {self.name}')
 
     def test_a_real_question_and_unfinished_work_still_hold_the_completion(self):
         self.checked('API shipped')
@@ -411,8 +409,7 @@ class CompletionNotices(Sandbox):
         self.assertEqual(notify.transition(self.name), 0)
         self.assertEqual(len(self.posted()), 1)
         patches = [payload for method, payload in self.requests if method == 'PATCH']
-        self.assertEqual(patches[-1]['embeds'][0]['title'], f'Answered · {self.name}')
-        self.assertEqual(patches[-1]['content'], '')
+        self.assertEqual(patches[-1]['content'], f'Answered · {self.name}')
         self.assertEqual(patches[-1]['allowed_mentions'], {'parse': []})
         self.internal_turn()
         self.declare('The run handback confirms shipping')
