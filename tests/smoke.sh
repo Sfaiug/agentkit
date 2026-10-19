@@ -733,8 +733,6 @@ class SessionState(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(orch, "inside", return_value=True))
         self.stack.enter_context(patch.object(notify, "_attempt", side_effect=self.deliver))
-        self.close_needs = notify.close_needs
-        self.edits = self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
         self.stack.enter_context(patch.object(usage, "collect"))    # a seat's account, to health
         self.stack.enter_context(patch.object(record, "run_dirs", return_value=[]))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=(None, "offline")))
@@ -791,9 +789,8 @@ class SessionState(unittest.TestCase):
         self.tick()
         self.assertEqual(menu.state(self.seat), "needs you")
         self.assertEqual(self.saved(), before)
-        self.edits.assert_not_called()
 
-    def test_b_open_then_his_prompt_clears_the_notice_and_edits_discord_once(self):
+    def test_b_open_then_his_prompt_clears_the_notice(self):
         self.now += 1
         self.open()
         self.now += 1
@@ -802,7 +799,6 @@ class SessionState(unittest.TestCase):
         # this seat's harness reports his prompts, so its screen moving answers nothing: a seat
         # that asked works on, whether he answered or only looked
         self.assertEqual(notify.last("seat")["text"], "May I merge?")
-        self.edits.assert_not_called()
         self.now += 1
         notify.answered("seat", self.now)
         self.tick()
@@ -813,8 +809,6 @@ class SessionState(unittest.TestCase):
         self.assertLessEqual(facts["time"], facts["opened_at"])
         self.assertLess(facts["opened_at"], facts["answered_at"])
         self.assertNotIn("seen", facts)
-        self.edits.assert_called_once()
-        self.assertEqual(self.edits.call_args.args[1], "Answered")
         before = self.saved()
         for attached in (True, False, True):
             self.seat["attached"] = attached
@@ -1010,23 +1004,19 @@ class SessionState(unittest.TestCase):
         notify.answered("seat", self.now)    # an alert leaves an open question standing
         notify.shaped("needs", text, session="seat", event_id="auth:seat:codex:1")
         self.assertTrue(notify.last("seat")["watcher"])
-        self.edits.reset_mock()    # the alert ended the answered question's card
         watch.forget("seat", acknowledge=False, notice=text)
         # the alert is retracted; nobody has opened this seat, so its own screen speaks for it:
         # a prompt with nothing asked, at rest
         self.assertEqual(menu.state(self.seat), "idle")
-        self.edits.assert_called_once()
         for kind in ("needs", "done"):
             self.now += 1
             if kind == "done":    # a seat's done waits for the answer to its question
                 notify.answered("seat", self.now)
             self.notice(kind, "The orchestrator's latest intent")
             before = self.saved()
-            self.edits.reset_mock()
             watch.forget("seat", acknowledge=False, notice=text)
             self.assertEqual(self.saved(), before)
             self.assertFalse(notify.last("seat")["watcher"])
-            self.edits.assert_not_called()
 
     def test_chrome_input_blank_capture_and_viewport_resize_are_not_progress(self):
         self.open()
@@ -1035,7 +1025,6 @@ class SessionState(unittest.TestCase):
             self.pane = pane
             self.tick()
             self.assertEqual(menu.state(self.seat), "needs you")
-        self.edits.assert_not_called()
 
     def test_failed_open_capture_needs_a_baseline_before_resolving(self):
         self.pane = ""
@@ -1118,12 +1107,11 @@ class SessionState(unittest.TestCase):
         self.assertEqual(notify.last("renamed")["opened_pane"], "May I merge?")
         self.assertEqual(menu.state({"name": "renamed"}), "needs you")
 
-    def test_discord_ping_once_edit_answered_and_late_receipt_cannot_reopen(self):
+    def test_discord_ping_once_never_edited_and_late_receipt_cannot_reopen(self):
         event = json.loads(next(notify.outbox().glob("*.json")).read_text())
         self.notice("needs", "May I merge?")
         self.assertEqual(len(list(notify.outbox().glob("*.json"))), 1)
-        with patch.object(notify, "close_needs", wraps=self.close_needs), \
-                patch.object(notify, "_secret", return_value="https://discord.example/hook?thread_id=42"), \
+        with patch.object(notify, "_secret", return_value="https://discord.example/hook?thread_id=42"), \
                 patch.object(notify.urllib.request, "urlopen") as request:
             self.open()
             self.tick()
@@ -1134,18 +1122,11 @@ class SessionState(unittest.TestCase):
             notify.answered("seat", self.now + 1)
             self.tick()
             self.tick()
-            request.assert_called_once()
-            sent = request.call_args.args[0]
-            self.assertEqual(sent.method, "PATCH")
-            self.assertEqual(sent.full_url, "https://discord.example/hook/messages/123?thread_id=42")
-            payload = json.loads(sent.data)
-            self.assertEqual(payload["content"], "Answered · seat")
-            self.assertEqual(payload["allowed_mentions"], {"parse": []})
+            request.assert_not_called()     # his answer leaves the card as it went
             before = self.saved()
             notify._remember_retry(event, "seat")
             self.assertEqual(self.saved(), before)
             self.assertEqual(menu.state(self.seat), "idle")     # answered, so at rest
-        self.assertEqual(notify.last("seat", include_seen=True)["open_needs"], [])
 
 
 unittest.main(verbosity=2)
@@ -1236,77 +1217,6 @@ class Notifications(test_notify.Notifications):
         self.assertEqual(len(self.requests), messages)
         between()
         notify.progress("seat", lambda: "Fresh output after the answer", None)
-
-    def test_lifecycle_and_approved_payload(self):
-        self.cli("needs", "Merge PR #7? yes/no")
-        self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
-        payload = self.requests[0][2]
-        self.assertEqual(payload["content"], "🙋 Needs you · seat <@123456789012345678>")
-        self.assertNotIn("Merge", json.dumps(payload))
-        before = config.notify_path("seat").read_bytes()
-        result = self.cli("needs", "  MERGE\nPR   #7? YES/NO ")
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(len(self.requests), 1)   # same episode: recorded again, posted once
-        self.assertEqual(notify.last("seat")["open_needs"][0]["message_id"], "1")
-        self.assertNotIn(self.url, before.decode())
-
-        self.cli("needs", "Which branch?")
-        self.assertEqual(len(self.requests), 1)   # one card per episode, whatever it asks
-        self.assertEqual(menu.state({"name": "seat"}), "needs you")
-        self.open_and_progress()
-        self.assertEqual(menu.state({"name": "seat"}), "idle")     # answered, so at rest
-        self.assertIsNone(notify.last("seat"))
-        self.assertEqual([r[1] for r in self.requests[1:]],
-                         ["/hook/messages/1?thread_id=42"])
-        for method, _, payload in self.requests[1:]:
-            self.assertEqual(method, "PATCH")
-            self.assertEqual(payload["content"], "Answered · seat")
-            self.assertEqual(payload["allowed_mentions"], {"parse": []})
-
-        self.cli("needs", "Which branch?")   # the word never left: still the same episode
-        self.assertEqual(len(self.requests), 2)
-        self.answer()
-        self.cli("done", "Shipped", "--pr", "https://github.com/me/repo/pull/7")
-        self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
-        self.assertEqual(self.requests[-2][2]["content"], "Done · seat")
-        payload = self.requests[-1][2]
-        self.assertEqual(payload["content"], "✅ Done · seat <@123456789012345678>")
-        self.assertEqual(payload["username"], "agentkit")
-        self.assertNotIn("Shipped", json.dumps(payload))
-        self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
-        self.assertEqual(menu.state({"name": "seat"}), "done")
-        count = len(self.requests)
-        self.cli("done", "Another job, another summary")     # same word: the episode stands
-        self.assertEqual(len(self.requests), count)
-        self.open_and_progress()
-        # a done is no question: opening and reading it leave it, and its episode, standing
-        self.assertEqual(menu.state({"name": "seat"}), "done")
-        self.cli("done", "Another job, another summary")
-        self.assertEqual(len(self.requests), count)
-        self.cli("needs", "One more decision?")
-        self.answer()
-        self.cli("done", "Second job finished")
-        self.assertEqual(len(self.requests), count + 3)
-
-    def test_edit_failures_are_silent_and_do_not_block_completion(self):
-        for status in (404, 500, 0):
-            self.cli("needs", f"Question {status}?")
-            self.answer()
-            self.edit_status = status
-            result = self.cli("done", f"Finished anyway after {status}")   # a job apiece
-            self.assertEqual((result.stdout, result.stderr), ("", ""))
-            self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
-            self.assertEqual(notify.last("seat")["open_needs"], [])
-        self.cli("needs", "A changed webhook?")
-        count = len(self.requests)
-        changed = self.url.replace("/hook", "/new")
-        with patch.dict(os.environ, {"AGENTKIT_DISCORD_WEBHOOK": changed,
-                                     notify.SINK_ENV: changed}), \
-                redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
-            self.open_and_progress()
-        self.assertEqual((out.getvalue(), err.getvalue()), ("", ""))
-        self.assertEqual(len(self.requests), count)
-        self.assertIsNone(notify.last("seat"))
 
 
 if sys.argv[1] == "notify":
@@ -2146,7 +2056,7 @@ fi
 
 # --- 5c: enforced notification lifecycle, fake webhook only ------------------
 if lifecycle_check notify >"$WORK/notify-lifecycle.log" 2>&1; then
-  ok "5c worker silence and audit, episode cards, silent Discord edits, one done per job, --check"
+  ok "5c worker silence and audit, episode cards never edited, one done per job, --check"
 else
   no "5c notification lifecycle"; tail -30 "$WORK/notify-lifecycle.log"
 fi

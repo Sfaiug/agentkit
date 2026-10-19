@@ -49,7 +49,6 @@ class DesktopAndBoot(Sandbox):
         self.stack.enter_context(patch.object(orch, "attach", side_effect=AssertionError("attached")))
         self.posts = []
         self.stack.enter_context(patch.object(notify, "post", side_effect=self.post))
-        self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
         self.seat = {"name": "source", "legacy": False}
 
     def post(self, payload, files, message, receipt):

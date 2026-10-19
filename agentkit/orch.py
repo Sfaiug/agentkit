@@ -3449,9 +3449,9 @@ def cmd_stop(argv):
     """Stop a seat and everything it runs; stop it again and it is gone.
 
     The first stop ends the seat and keeps it: every run it launched is stopped the way `ak
-    run stop` stops one, each run's checkout and local branch go with it, its Discord card is
-    closed as `Answered`, the tabs the seat or its runs opened close, and the tmux session
-    goes -- under the seat's own typing lock, so a line being typed into it finishes first.
+    run stop` stops one, each run's checkout and local branch go with it, the tabs the seat or
+    its runs opened close, and the tmux session goes -- under the seat's own typing lock, so a
+    line being typed into it finishes first.
     Its record and state files stay, the stop mark in the seat file, so its row keeps its
     number a week, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number
     reopens the conversation where it stopped, and a

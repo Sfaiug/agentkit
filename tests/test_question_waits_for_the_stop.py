@@ -42,21 +42,16 @@ class QuestionWaitsForTheStop(Sandbox):
         home = self.root / ".agentkit"
         home.mkdir()
         (home / "state").symlink_to(config.STATE)
-        self.posts, self.closed = [], []
+        self.posts = []
 
         def post(payload, files, message, receipt):
             self.posts.append(payload["content"])
             receipt.update(status="disabled", message_id=str(len(self.posts)), webhook="sink")
             return 0
-
-        def close_needs(previous, status):
-            self.closed.extend(status for _ in previous.get("open_needs") or ())
-            return []
         self.stack.enter_context(patch.dict(os.environ, {
             "AGENTKIT_SESSION": SEAT, "AGENTKIT_DISCORD_WEBHOOK": "off", "AK_NOTIFY_SINK": "off",
             "AK_RUN_ROLE": ""}))
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close_needs))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         # somebody is in the seat: a seat nobody is in names its number, whatever it asked
@@ -151,16 +146,14 @@ class QuestionWaitsForTheStop(Sandbox):
         self.looked(PROMPT, self.stop(), after=2000)
         for later in (2001, 2000 + notify.CARD_WAIT, 5600):
             self.assertEqual(self.carded(later), [CARD])
-        self.assertEqual(self.closed, [])
         notify.answered(SEAT, NOW + 5000)                       # his prompt, and its turn
         fact = self.hook("UserPromptSubmit", prompt="Use v2.")
         self.assertEqual(self.looked(WORKING, fact, after=6000)["word"], "working")
         self.assertEqual(self.carded(6001), [CARD])
-        self.assertEqual(self.closed, ["Answered"])
 
     def test_a_dialog_in_the_turn_that_asked_is_no_end_of_it(self):
-        """A dialog is the turn waiting, not over: its card is the dialog's, closed as the
-        turn runs on, and the question is asked at the stop with a card of its own."""
+        """A dialog is the turn waiting, not over: its card is the dialog's, left as it
+        went as the turn runs on, and the question is asked at the stop with a card of its own."""
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()
         fact = self.hook("Notification", notification_type="permission_prompt",
@@ -170,7 +163,6 @@ class QuestionWaitsForTheStop(Sandbox):
         self.assertEqual(self.carded(notify.CARD_WAIT), [CARD])
         self.assertEqual(self.looked(AFTER_DIALOG, fact, after=600)["word"], "working")
         self.carded(601)
-        self.assertEqual(self.closed, ["Answered"])
         answer = self.looked(PROMPT, self.stop(), after=1200)
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
         self.assertEqual(self.carded(1200 + notify.CARD_WAIT), [CARD, CARD])
@@ -204,7 +196,6 @@ class QuestionWaitsForTheStop(Sandbox):
         self.assertEqual((answer["word"], answer["reason"]),
                          ("needs you", QUESTION + " Also: Ship v2 to acme today?"))
         self.assertEqual(self.carded(1000 + notify.CARD_WAIT), [CARD])
-        self.assertEqual(self.closed, [])
 
     def test_both_of_two_questions_asked_in_one_turn_are_asked(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")

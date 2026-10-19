@@ -1,6 +1,7 @@
-"""A card goes out once at most.  A question over before Discord took its card never goes out
-late: answered, cleared, the seat moved on, or the seat gone, though its card was queued and
-never marked sent.  One that stands goes out late once; one asked after a cleared one has its own.
+"""A card goes out once at most, and stays as it went.  A question over before Discord took its
+card never goes out late: answered, cleared, the seat moved on, or the seat gone, though its card
+was queued and never marked sent.  One that stands goes out late once; one asked after a cleared
+one has its own.
 
 Offline: temporary seat state and a local webhook.
 """
@@ -77,6 +78,14 @@ class CardGoesOutOnce(Sandbox):
                 if what in wanted:
                     step()
         return [request[2] for request in self.requests]
+
+    def test_a_card_stays_as_it_went(self):
+        """Answered, then the seat back at work: the card keeps its words and its mention."""
+        self.says("needs you", 10000, after=notify.CARD_WAIT)
+        notify.answered(SEAT, self.now)
+        self.says("working", self.now)
+        self.assertEqual([request[:2] for request in self.requests],
+                         [("POST", notify.title("needs", SEAT))])
 
     def test_a_standing_question_goes_out_late_once(self):
         self.asked_while_discord_was_down()

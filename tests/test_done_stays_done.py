@@ -52,9 +52,9 @@ class DoneStaysDone(Sandbox):
                                               side_effect=lambda *_a, **_k: self.pane))
         self.stack.enter_context(patch.object(worker, "auth_ok",
                                               side_effect=lambda h, seat=False: (True, h)))
-        # Discord, faked: the title of every card it took, and every edit of one; while it is
-        # down it takes nothing, and the outbox retries
-        self.posts, self.edits, self.down = [], [], False
+        # Discord, faked: the title of every card it took; while it is down it takes nothing,
+        # and the outbox retries
+        self.posts, self.down = [], False
 
         def post(payload, files, message, receipt):
             if self.down:
@@ -62,12 +62,7 @@ class DoneStaysDone(Sandbox):
                 return
             self.posts.append(payload["content"])
             receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
-
-        def close_needs(previous, status):
-            self.edits.extend((p["message_id"], status) for p in previous.get("open_needs", []))
-            return []
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close_needs))
 
     def fact(self, event, kind="", text="", at=NOW):
         """What this seat's own lifecycle hook would have written, and when."""
@@ -124,8 +119,7 @@ class DoneStaysDone(Sandbox):
         # record as that left it, with no hand edit: done, opened, progress after the open.
         config.notify_path(SEAT).write_text(json.dumps(
             {"session": SEAT, "kind": "done", "text": SUMMARY, "time": NOW - 900,
-             "opened_at": NOW - 600, "opened_pane": PROMPT, "last_progress_at": NOW - 300,
-             "open_needs": []}) + "\n")
+             "opened_at": NOW - 600, "opened_pane": PROMPT, "last_progress_at": NOW - 300}) + "\n")
         self.fact("Stop")
         self.assertEqual(self.decide(), ("done", "Merged #75: the parser reads both schemas"))
         for width in (170, 40):
@@ -160,7 +154,7 @@ class DoneStaysDone(Sandbox):
         self.pane = PROMPT
         self.assertEqual(self.decide()[0], "done")
 
-    def test_a_question_card_over_a_done_stays_open_until_the_done_is_back(self):
+    def test_a_question_card_over_a_done_is_its_own_and_the_done_is_carded_once(self):
         self.fact("Stop")
         self.assertEqual(notify.shaped("done", SUMMARY, session=SEAT), 0)
         self.assertEqual(self.posts, ["✅ Done · fix-api"])
@@ -171,16 +165,14 @@ class DoneStaysDone(Sandbox):
         self.tick()
         self.tick(120)          # a minute of `needs you` with nobody attached
         self.assertEqual(self.posts, ["✅ Done · fix-api", "🙋 Needs you · fix-api"])
-        self.assertEqual(self.edits, [])    # the done from before answers nothing
         self.fact("Stop")
         self.pane = PROMPT
         self.tick(240)
         self.assertEqual(self.decide()[0], "done")
-        # the question's card is finished, and the declaration, carded once, is not again
-        self.assertEqual(self.edits, [("2", "Done")])
+        # the declaration, carded once, is not again
         self.assertEqual(self.posts, ["✅ Done · fix-api", "🙋 Needs you · fix-api"])
 
-    def late_question_card_under(self, text, event_id=None, closed="Done"):
+    def late_question_card_under(self, text, event_id=None):
         """A question's card Discord takes only after a newer done, the question still up."""
         start = menu.time.time()
         self.fact("Notification", kind="permission_prompt", text=BASH)
@@ -194,22 +186,14 @@ class DoneStaysDone(Sandbox):
         with patch.object(menu.time, "time", return_value=start + 900):
             notify.retry_pending(log=lambda _line: None)
         self.assertEqual(self.posts, ["🙋 Needs you · fix-api"])
-        # the newer done answers nothing while the question is the word: its card stays open
-        self.assertEqual(self.edits, [])
-        self.assertEqual([p["message_id"] for p in notify._card_read(SEAT)["open_needs"]], ["1"])
+        # the newer done answers nothing while the question is the word: its card still goes
         self.assertEqual(self.decide(), ("needs you", BASH))
-        self.fact("Stop")
-        self.pane = PROMPT
-        self.tick(1000)
-        self.assertEqual(self.edits, [("1", closed)])
 
-    def test_a_newer_done_leaves_a_late_question_card_open(self):
+    def test_a_late_question_card_still_goes_under_a_newer_done(self):
         self.late_question_card_under(SUMMARY)
 
-    def test_a_newer_job_done_leaves_a_late_question_card_open(self):
-        # a job's own finish is no done of the seat's: the question's card closes as answered
-        # once nothing asks the owner any more
-        self.late_question_card_under(*JOB, closed="Answered")
+    def test_a_late_question_card_still_goes_under_a_newer_job_done(self):
+        self.late_question_card_under(*JOB)
 
     def test_a_jobs_all_finished_is_no_word_of_the_seats(self):
         self.fact("Stop")
@@ -253,7 +237,7 @@ class DoneStaysDone(Sandbox):
         start = menu.time.time()
         notify.record(SEAT, "done", JOB[0], source=JOB[1])
         notify._card_write(SEAT, {"word": "done", "since": start - 1000, "began": start - 1000,
-                                  "episode": "job", "sent": True, "open_needs": []})
+                                  "episode": "job", "sent": True})
         watch.seat_write(SEAT, word="idle", reason="", word_since=start - 999)
         self.fact("Notification", kind="permission_prompt", text=BASH)
         self.pane = ASKING
