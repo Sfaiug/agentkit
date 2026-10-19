@@ -72,6 +72,18 @@ class ResetByHand(unittest.TestCase):
     def acts(self):
         return "".join(line for line, _ in menu.providers_lines(self.cfg, 13, 100))
 
+    def offered(self, number, picked=None):
+        """What subscription `number`'s meter on `c` lists and picks first, `picked` taken; a
+        meter offering only `− remove` lists nothing and asks at once."""
+        asked = []
+        with patch.object(terminal, "choose", side_effect=lambda choices, default=None, **_kw:
+                          asked.append((choices, default)) or picked), \
+                patch.object(terminal, "frame"), \
+                patch.object(menu, "config_remove_provider",
+                             side_effect=lambda *_a: asked.append("removed") or ""):
+            self.note = menu.config_usage(self.cfg, number)
+        return asked
+
     def test_a_usage_row_says_the_resets_its_subscription_holds(self):
         usage.collect(self.cfg, refresh=True)
         first, second = self.rows()
@@ -105,6 +117,30 @@ class ResetByHand(unittest.TestCase):
             menu.config_spend_reset(self.cfg)
         self.assertEqual((len(asked), self.spent), (1, ["second", ""]))
         self.assertIn("1 reset in hand", self.rows()[0])
+
+    def test_a_meter_spends_one_of_its_own_and_shows_the_week_back(self):
+        usage.collect(self.cfg, refresh=True)
+        self.assertEqual(self.offered(2, "↻ spend a reset"),
+                         [(["↻ spend a reset", "− remove"], "− remove")])
+        self.assertEqual(self.spent, ["second"])          # exactly one, of the meter picked
+        self.assertEqual(self.note, "ChatGPT II · 100% left")
+        self.assertEqual(self.offered(2), ["removed"])   # none left there to spend
+        self.offered(1)                                   # Esc on the list spends nothing
+        self.assertEqual(self.spent, ["second"])
+
+    def test_a_meter_reads_its_week_back_by_its_name_as_written(self):
+        self.cfg["providers"]["openai"]["name"] = "Acme  Plan"     # spaced as its owner typed it
+        usage.collect(self.cfg, refresh=True)
+        self.offered(2, "↻ spend a reset")
+        self.assertEqual(self.note, "Acme  Plan II · 100% left")
+
+    def test_of_two_subscriptions_of_one_name_a_meter_spends_its_own(self):
+        rows = [("openai", "ChatGPT", {}, None), ("acme", "ChatGPT", {"resets": 1}, None)]
+        with patch.object(menu, "usage_rows", return_value=rows), \
+                patch.object(usage, "replenish", return_value=(False, 1)) as replenish:
+            self.assertEqual(self.offered(1), ["removed"])      # the other's is not its own
+            self.offered(2, "↻ spend a reset")
+        replenish.assert_called_once_with(self.cfg, "acme", account=None)
 
     def test_no_move_onto_providers_lands_on_spending_a_reset(self):
         usage.collect(self.cfg, refresh=True)

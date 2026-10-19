@@ -293,7 +293,11 @@ providers in their colours, then `+ add` and `− remove`, and `↻ spend a rese
 while a subscription holds one, ←/→ choosing between them, ↓ landing on none
 past `− remove`, each a list opening in the frame where it has a choice),
 `Discord` (connected or not)
-and `Version` (the commit and its date; read, with no action). A reset spent, the
+and `Version` (the commit and its date; read, with no action). Each meter over
+the page is a row ↑ past the first model reaches, and the pointer too, lit as on
+the main screen with its line under the meters; Enter or a click lists what it
+offers, `↻ spend a reset` while it holds one and `− remove`, the highlight on
+`− remove`, which asks at once where it is all there is. A reset spent, the
 line under the rows says that subscription's week as its usage row reads it:
 `Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`. Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then

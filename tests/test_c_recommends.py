@@ -100,7 +100,7 @@ class Recommends(Sandbox):
 
         def keys():         # the click lands on `r` where the drawn key line has it
             yield next(Key("click", col=first, row=line) for line, (_, cells) in spots.items()
-                       for first, _, cell in cells if cell == "r")
+                       for first, _, cell, *_ in cells if cell == "r")
             yield Key("char", "r")
             yield Key("esc")
             yield Key("esc")

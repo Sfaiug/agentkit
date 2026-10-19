@@ -26,6 +26,7 @@ import threading
 import time
 import tomllib
 import unittest
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -443,6 +444,14 @@ class Matrix(unittest.TestCase):
             self.assertTrue(lines[-1].endswith("esc back"), lines)
             screen.leave()
         self.assertIn("Claude", lines)                    # the provider over the highlight
+
+    def test_a_short_screen_s_page_holds_the_meter_the_highlight_is_on(self):
+        # folded into the page, a meter is one cell of several on its line (terminal.under)
+        places = {5: (None, [(3, 35, ("usage", 6), ("usage", 6))]), 9: (("model", "fable"), [])}
+        with mock.patch.object(terminal, "height", return_value=8):
+            top, room = menu.matrix_page([""] * 10, places, ("usage", 6), 9, [], "")
+        self.assertLessEqual(top, 5)
+        self.assertLess(5, top + room)
 
 
 if __name__ == "__main__":
