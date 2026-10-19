@@ -3940,6 +3940,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     """The end-of-turn rule where no hook can hold it: a turn ends with a question asked through
     `ak notify needs`, a done or a run or live job to wait on, and a seat that stopped on none
     of the three is told to get on with it.  A question mark on the screen asks nobody anything.
+    An unnamed seat is told to name itself instead (`config.name_owed`).
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
     alone -- so what is left to read is the `done` on record and the runs and jobs.
@@ -4015,7 +4016,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         nudged = {"notice": since,
                   "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     tail = pane_tail(pane)
-    keys = keystroke(harness, tail)
+    keys = config.name_owed(name) or keystroke(harness, tail)
     if dry_run:
         log(f"would resume {name}, stopped with no question, no done and no run, with {keys!r}")
         return
