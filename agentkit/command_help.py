@@ -4,10 +4,7 @@ WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--se
                 "       [--role executor|reviewer|fixer|reviewer-pr|executor-scratch|"
                 "fixer-scratch|reviewer-scratch]")
 NOTIFY_NEEDS = 'ak notify needs "QUESTION" [--session NAME] [--dry-run]'
-NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
-               '[--session NAME] [--dry-run]')
-NOTIFY_USAGE = (f"usage: {NOTIFY_NEEDS}\n       {NOTIFY_DONE}\n"
-                "       ak notify --check")
+NOTIFY_USAGE = f"usage: {NOTIFY_NEEDS}\n       ak notify --check"
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
 HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) [--before PROOF]'
 HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND | --quote LINES)'
@@ -137,16 +134,13 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                      "plan lines and the files their going runs change.",
                      "ak orch project acme"),
     "notify": (NOTIFY_USAGE,
-               "Record a needs-you question or a job summary.\n"
-               "--session and --dry-run apply to needs/done; --check checks without posting.",
-               'ak notify done "Parser fixed" --session parser-fix --dry-run'),
+               "Record a needs-you question.\n"
+               "--session and --dry-run apply to needs; --check checks without posting.",
+               'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify needs": (f"usage: {NOTIFY_NEEDS}",
                      "Ask for a blocking decision: the question first, context after it.\n"
                      "--dry-run prints the payload without posting.",
                      'ak notify needs "Which branch?" --session parser-fix --dry-run'),
-    "notify done": (f"usage: {NOTIFY_DONE}",
-                    "Report the finished job; --dry-run prints the payload without posting.",
-                    'ak notify done "Parser fixed" --dry-run'),
     "wait": ("usage: ak wait PR_URL|RUN_ID",
              "End this turn waiting on that pull request or run; ak wakes you with one line\n"
              "when it merges, closes or ends. One already over is refused. Never a session.",
@@ -159,7 +153,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
              "check N puts your own test in place of line N's check, such as a review\n"
              "follow-up's probe; it must fail on the commit the line names, where its check failed.\n"
              "Listing ticks each check line that now passes on its project's default branch;\n"
-             "ak notify done runs every check again and waits for all.",
+             "with every line ticked, the session's work is done.",
              "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",
@@ -219,7 +213,7 @@ PURPOSES = {
     "update": "upgrade harnesses and verify with acceptance gates",
     "watch": "check PRs and stalled sessions",
     "doctor": "show the slice, the tick, and any model set to an effort it does not take",
-    "notify": "record a needs-you question or a job summary",
+    "notify": "record a needs-you question",
     "wait": "end this turn waiting on a pull request or run",
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",

@@ -84,7 +84,7 @@ from (the newest wins), else from its unfinished jobs' tasks, in its word's
 colour while it is not at rest, its work waiting in the line to land too
 (`working` includes landing: its squares say so), else empty. What the
 reason says -- the question the seat asked, `stopped with work open: <line>`,
-the done summary, an idle seat's way back in, `session closed: press 2 to
+the plan's last done line, an idle seat's way back in, `session closed: press 2 to
 reopen` -- opens under the row (Rows are tables), never beside it. Never `N
 running`, and never when the work will finish: the line and its count are a
 seat's progress. No screen names a run or a task, and an ended run is its

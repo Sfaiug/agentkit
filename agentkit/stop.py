@@ -38,8 +38,8 @@ def _ending_work(name, records):
 
 
 def owed(name):
-    """Whether the seat owes work: a line in its plan it owes (`plan.owed`, as a done reads
-    it), or a plan nothing can read, which proves nothing done.  Read without the plan's lock:
+    """Whether the seat owes work: a line in its plan it owes (`plan.owed`), or a plan nothing
+    can read, which proves nothing done.  Read without the plan's lock:
     a harness hook never waits on it, and every plan write is a whole-file replace."""
     return owed_line(name) is not None
 
@@ -58,16 +58,14 @@ def owed_line(name):
     return None
 
 
-def recorded_ending(name, records=None, *, question=False, completion=False, answer=False,
-                    since=None):
+def recorded_ending(name, records=None, *, question=False, since=None):
     """(the turn may end, parked records), from the evidence its caller can see.
 
-    The native hook reads parked work, then completion, then fresh wait receipts; the tick
+    The native hook reads parked work, then the plan, then fresh wait receipts; the tick
     supplies its existing census. A question stands past an unnamed seat's name
     (`config.name_owed`), which holds everything else, and past parked work, which holds a
-    completion, an answer and every live wait. `since` retains the prompt hook's wait on
-    work launched in this turn even after it ends. A callable completion reads the native
-    notice after the census; a callable answer binds the tick's output after live waits.
+    plan that owes nothing and every live wait. `since` retains the prompt hook's wait on
+    work launched in this turn even after it ends.
     """
     if question:
         return True, []
@@ -82,8 +80,6 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
         return False, parked
     if not owed(name):
         return True, []     # nothing is owed: no open line in the plan, so the stop stands
-    if completion() if callable(completion) else completion:
-        return True, []
     if supplied is None:
         _, mine = _ending_work(name, None)
     for _, state in mine:
@@ -94,9 +90,7 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
                 stamp = watch._stamp(state.get(key))
                 if stamp is not None and stamp >= since:
                     return True, []
-    if jobs.job_waiting(name) or watch.waiting_on(name):
-        return True, []
-    return bool(answer() if callable(answer) else answer), []
+    return bool(jobs.job_waiting(name) or watch.waiting_on(name)), []
 
 
 def stoppable(state):

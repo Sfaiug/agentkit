@@ -6,8 +6,8 @@ proves nothing, and one that never finishes there could never tick.  `ak plan ch
 puts another check in a line's place -- the seat's own test where a review follow-up came
 checked by the reviewer's probe -- when it fails on the commit the line's check was proven
 failing on, which the line names (a line from before lines named one takes it unproven).  `ak plan` ticks each check line whose check now passes on
-its project's default branch, then lists the lines, numbered, and `ak notify done` runs every
-check again and waits for every line.  The plan is the seat's `plan-<seat>.md`, the
+its project's default branch, then lists the lines, numbered; with none open the seat's work is
+done (`finished`).  The plan is the seat's `plan-<seat>.md`, the
 file the menu's bar counts, and a line names its outcome, its check, the project, when it was written and, for a check, the commit it failed on then:
 
     - [ ] each session sees its project · check: `python3 tests/test_x.py` · agentkit · written 2026-10-02 12:40 on 0123456789ab
@@ -360,13 +360,10 @@ def deferred(line):
     return bool(found and found["deferred"])
 
 
-def owed(name, line, proven=None):
-    """Whether the seat owes the line, which holds its `ak notify done` and its turn
-    (`stop.owed`): an open line, or, for a done, a check line its own checks did not prove
-    (`proven`); never a deferred one a run is on its way with (`taken`)."""
-    bare = identity(line)
-    return ((is_open(line) or (proven is not None and bare is not None and bare not in proven))
-            and not taken(name, line))
+def owed(name, line):
+    """Whether the seat owes the line, which holds its done and its turn (`stop.owed`): an
+    open line, never a deferred one a run is on its way with (`taken`)."""
+    return is_open(line) and not taken(name, line)
 
 
 def taken(name, line, delivered=False):
@@ -445,9 +442,8 @@ def finished(name):
 def outcomes(name):
     """The plan's done work, independent of order, repetition, checks and renewed proof stamps.
 
-    An open line is no done work yet: a declared done refuses one (`require_done`), and a
-    standing one is no proof of a line written since. Keep format knowledge here: old eye
-    lines and hand-kept outcomes count as work too.
+    An open line is no done work yet. Keep format knowledge here: old eye lines and hand-kept
+    outcomes count as work too.
     """
     result = []
     for line in lines(name):
@@ -462,32 +458,24 @@ def outcomes(name):
     return sorted(set(result))
 
 
-def verify(name, every=False, check=None):
-    """The open lines left once the plan's checks ran (`_verify`): only the lines holding
-    `check`, where one is given."""
-    return _verify(name, every, check)[0]
-
-
-def _verify(name, every, check=None):
-    """Run the open check lines on their project's default branch now: each that passes is
-    ticked, naming that commit, each check from a clean checkout of it.  With `every`, ticked
-    check lines run too, and one that fails there -- or does not finish, or names a project
-    this host has no checkout of -- is open again: a tick is what its check says today, not
-    what a line's text claims.  The results are written onto the plan as it reads after the
+def verify(name, check=None):
+    """Run the open check lines -- only those holding `check`, where one is given -- on their
+    project's default branch now: each that passes is ticked, naming that commit, each check
+    from a clean checkout of it.  The results are written onto the plan as it reads after the
     checks, each onto its own line however another listing ticked it meanwhile, so a line
     added meanwhile stays and these results are the ones the open lines are counted from.
     Returns the plan's open lines left."""
     with verifying(name):
-        return _verify_held(name, every, check)
+        return _verify_held(name, check)
 
 
-def _verify_held(name, every, check=None):
+def _verify_held(name, check=None):
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
     for line in snapshot:
         found = LINE.match(line.strip())
-        if (found and found["check"] and (every or is_open(line))
+        if (found and found["check"] and is_open(line)
                 and (check is None or found["check"].strip() == check.strip())):
             # lines alike are one check, run once: its result is every one of theirs
             checks.setdefault(found["project"], {})[identity(line)] = found
@@ -495,8 +483,6 @@ def _verify_held(name, every, check=None):
     for project_, group in checks.items():
         repo = place(name, project_)
         if repo is None:
-            for bare in group if every else ():
-                results[bare] = f"- [ ] {bare}"
             continue
         written = project_.rpartition("#")[2] if "#" in project_ else None
         with default_branch(repo) as (commit, env, checkout):
@@ -517,32 +503,7 @@ def _verify_held(name, every, check=None):
         # let alone with an empty plan
         if any(identity(line) in results for line in present):
             write(current, text)
-    # for done, a check line that arrived after the snapshot was proved by nobody here
-    unproven = [line for line in text if every and identity(line) and identity(line) not in results]
-    return [line.strip() for line in text if is_open(line) or line in unproven], results
-
-
-def require_done(name):
-    """Refuse a done while the plan still has open lines, after running every check once more;
-    the check lines those checks proved, for `still_done`."""
-    left, results = _verify(name, every=True)
-    left = [line for line in left if owed(name, line, results)]
-    if left:
-        raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
-                           "a check line is done when its check passes on the default branch "
-                           "(one that no longer tests the outcome takes your own test: "
-                           "`ak plan check N`)")
-    return {bare for bare, line in results.items() if line.startswith("- [x]")}
-
-
-def still_done(name, proven):
-    """Run under the seat's lock as its done is recorded: the plan as it reads now has no
-    open line and no check line the done's own checks did not prove -- one added or ticked
-    while they ran is not done."""
-    left = [line.strip() for line in lines(name) if owed(name, line, proven)]
-    if left:
-        raise config.Error(f"{len(left)} plan line(s) open or unproven since the checks ran, "
-                           f"first: {left[0]}; run `ak notify done` again")
+    return [line.strip() for line in text if is_open(line)]
 
 
 def compose(what, proof, where, deferred, stamp, base):

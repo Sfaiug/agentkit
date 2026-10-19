@@ -78,7 +78,7 @@ def line_for(week, target, found):
     """The one line the seat is told: the week, its loss and where the board is, and what to do
     with it, as a run's ending tells a seat what ended."""
     return (f"ak's week {week}: {phrase(found)}; the board is at {target}. Build the smallest "
-            "change to ak that moves it, through the line, and ak notify done once it is live. "
+            "change to ak that moves it, through the line. "
             "Quality, then speed, then cost: a gain in speed or cost while a quality measure gets "
             "worse is no win.")
 

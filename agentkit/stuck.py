@@ -22,7 +22,7 @@ SLOWER = 3            # a pass or wait this many times its usual is stuck,
 FLOOR = 30 * 60       # and none shorter than half an hour, however quick its usual
 SAMPLES = 3           # fewer finished passes or waits give no pace to compare with
 ASKED = ("Find why and build the smallest change to ak that keeps it from happening again, "
-         "through the line, and ak notify done once it is live.")     # of the seat, each stall
+         "through the line.")     # of the seat, each stall
 
 
 def path():

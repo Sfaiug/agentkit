@@ -1,17 +1,17 @@
 """Discord webhook notification.  The orchestrator's, and the orphaned run's.
 
-Two shapes, each one line naming its seat and nothing it said (the owner keeps what a seat
-asked or did out of Discord): `ak notify needs "<question>"` when the orchestrator needs the
-user, and `ak notify done "<summary>"` when the job is done.  Each records itself as the session's
-last notification, which is what the menu shows as that session's state. `ak notify` records
-the reason or declaration; the session-state transition sends the card.
+Two cards, each one line naming its seat and nothing it said (the owner keeps what a seat
+asked or did out of Discord): `Needs you` when the orchestrator asks with `ak notify needs
+"<question>"`, which records itself as the session's last notification, what the menu shows as
+that session's state, and `Done` when the seat's plan proves its whole work done.  `ak notify`
+records the question; the session-state transition sends the card.
 
 Workers are silent by construction. A needs episode is sent once after it has stood for a minute
 and the owner has typed nothing into the seat for a minute. A question a seat asks during its own turn is
 kept back in its record, apart from every notice, until a look finds that turn ended
 (`watch.ask_kept_back`): only then is the seat waiting for the answer. A done episode is sent
-once when the session state becomes done, and a declaration once whatever episodes, or versions,
-it turns up in. A card once out is never edited: he has read it by the time he answers, and
+once when the session state becomes done, and its work once whatever episodes, or versions, it
+turns up in. A card once out is never edited: he has read it by the time he answers, and
 a question over before Discord took its card is never sent late. Nothing is sent, or
 retried, for a seat the owner closed himself, or an episode begun before this agentkit was
 installed.
@@ -48,7 +48,6 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from . import command_help, config, history, retention, transitions
-from . import record as run_record
 from . import harness
 
 FILE_CAP = 8 * 1024 * 1024
@@ -412,11 +411,6 @@ def name_lock(name):
 def record(session, kind, text, **extra):
     """Remember the last thing a session said, so the menu can show it as the session's state."""
     config.ensure_dirs()
-    # A question changes the turn's word, not the work a pending completion covers.
-    if kind == "needs" and "completion" not in extra:
-        previous = last(session, include_seen=True) or {}
-        if previous.get("completion"):
-            extra["completion"] = previous["completion"]
     path = config.notify_path(session)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"session": session, "kind": kind, "text": text,
@@ -425,12 +419,13 @@ def record(session, kind, text, **extra):
 
 
 def last(session, include_seen=False):
-    """The last notification; resolved history stays on disk but off the menu."""
+    """The last notification; resolved history stays on disk but off the menu.  A seat says
+    only that it needs the owner: a done an older install recorded reads as nothing."""
     try:
         data = json.loads(config.notify_path(session).read_text(encoding="utf-8"))
     except (OSError, ValueError, config.Error):
         return None
-    if (not isinstance(data, dict) or data.get("kind") not in TITLES
+    if (not isinstance(data, dict) or data.get("kind") != "needs"
             or not isinstance(data.get("text"), str) or (resolved(data) and not include_seen)):
         return None
     return data
@@ -441,13 +436,10 @@ def resolved(data):
 
     These facts travel with the notice, so rendering never acknowledges it or depends on
     whether tmux reports a client attached. `seen` also covers explicit retirement and
-    guarded retraction of the watcher's own recovery alerts.  A done is no question: opening
-    it, reading it and its redraws answer nothing, and only a newer notice replaces it.
+    guarded retraction of the watcher's own recovery alerts.
     """
     if data.get("seen"):
         return True
-    if data.get("kind") == "done":
-        return False
     stamps = [data.get(key) for key in ("time", "answered_at")]
     if (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
             for n in stamps) and stamps[0] < stamps[1]):
@@ -483,7 +475,7 @@ def answered(session, at, typed=None):
             return
         # the needs you he answered has its card retired now, before a retry can take this lock
         card = _card_read(session)
-        if not previous or previous["kind"] != "needs":
+        if not previous:
             if card.get("word") == "needs you":
                 if at > card["since"]:
                     _retire(card)
@@ -529,13 +521,6 @@ def waited(notice, at):
     it was last asked (`_said` dates them)."""
     for asked in (notice.get("asked_at") or {}).values():
         history.owner_time("answered", at, at - asked)
-
-
-def job_done(notice):
-    """A job's `all N tasks finished`, as a job loop of an earlier install still records it:
-    no word of the seat's, which only the seat says of itself."""
-    return bool(notice) and notice["kind"] == "done" and str(
-        notice.get("source") or "").startswith("job:")
 
 
 def opened(session, capture):
@@ -637,8 +622,8 @@ def progress(session, capture, seat_harness):
     """
     with session_lock(session) as session:
         previous = last(session)
-        if not previous or previous.get("opened_at") is None or previous["kind"] == "done":
-            return                 # output after an open answers a question, never a done
+        if not previous or previous.get("opened_at") is None:
+            return
         if (seat_harness and previous.get("watcher") is not True
                 and harness.load(seat_harness).prompt_hook is not None):
             return
@@ -672,19 +657,17 @@ def clear(session, *, notice=None):
         previous = last(session, include_seen=True)
         if not previous or previous.get("seen"):
             return
-        if notice is not None and (previous["kind"] != "needs" or previous["text"] != notice):
+        if notice is not None and previous["text"] != notice:
             return
-        if previous["kind"] == "needs":
-            # its episode ends here, as an answer's does, so a question asked before the next
-            # tick gets a card of its own (`needs_transition`)
-            card = _card_read(session)
-            _retire(card)
-            if card.get("word") == "needs you":
-                _card_write(session, {**card, "answered_at": time.time()})
+        # its episode ends here, as an answer's does, so a question asked before the next
+        # tick gets a card of its own (`needs_transition`)
+        card = _card_read(session)
+        _retire(card)
+        if card.get("word") == "needs you":
+            _card_write(session, {**card, "answered_at": time.time()})
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text", "seen")},
                seen=True)
-        _end_done_episode(session, previous)
 
 
 def outbox():
@@ -914,17 +897,6 @@ def installed_at():
     return max(stamps)
 
 
-def _end_done_episode(session, previous):
-    """A resolved done declaration ends its episode: hiding the record moves the word
-    off done, so the next declaration opens a new episode even before any tick runs."""
-    if previous.get("kind") != "done":
-        return
-    card = _card_read(session)
-    if card.get("word") == "done":
-        card["word"] = ""
-        _card_write(session, card)
-
-
 def _last_input(session, seat=None):
     """When he last typed into the seat or opened it, or 0 where its server cannot say.
 
@@ -941,23 +913,6 @@ def _last_input(session, seat=None):
         return int(output.strip()) if not rc else 0
     except ValueError:
         return 0
-
-
-def failed_declaration(notice, mine, index=None):
-    """A run the declaration waited on failed; earlier jobs do not invalidate a new done.
-
-    A failure a later merged run replaced is not one: the work it waited on is done,
-    elsewhere. `index` is a `transitions.supersession_index` over the run records; without
-    one supersession is not read.
-    """
-    stamp = notice.get("time", 0)
-    return [directory.name for directory, state in mine
-            if state.get("state") in run_record.FAILED
-            and (directory.name in notice.get("runs", []) or
-                 (isinstance(state.get("finished_at"), (int, float))
-                  and state["finished_at"] >= stamp))
-            and not (index is not None
-                     and transitions.is_superseded(state, None, index, merged_only=True))]
 
 
 def _card_key(episode):
@@ -985,8 +940,7 @@ def _send_card(session, kind, card, answer, completion=None):
     previous = last(session, include_seen=True)
     text = answer["reason"]
     # the seat's word shows its notice on one line; the card carries the notice as written
-    if previous and ((kind == "done" and previous["kind"] == "done")
-                     or " ".join(str(previous["text"]).split()) == text):
+    if previous and " ".join(str(previous["text"]).split()) == text:
         text = previous["text"]
     payload = card_payload(kind, session)
     key = _card_key(card["episode"])
@@ -995,8 +949,7 @@ def _send_card(session, kind, card, answer, completion=None):
         fresh = event is None
         if fresh:
             event = {"id": key, "source": "card:" + card["episode"], "episode": card["episode"],
-                     "session": session, "kind": kind, "text": text,
-                     "pr": previous.get("pr") if previous else None, "files": [],
+                     "session": session, "kind": kind, "text": text, "files": [],
                      "payload": payload, "message": f"{TITLES[kind]} · {session}: {text}",
                      "created_at": time.time(), "sink": sink() is not None,
                      "status": "pending", "attempts": 0, "next_attempt": 0}
@@ -1071,26 +1024,11 @@ def _done_events(session):
             continue
 
 
-def _carded(session, completion, declared=None):
-    """The existing done receipt covering this work, if any.
-
-    Recorded identities compare the checked work through later handbacks and renames.
-    Identity-free receipts keep their text/time comparison with the declaration: their
-    original work cannot be reconstructed from a plan that has since changed.
-    """
-    stamp = (declared or {}).get("time")
-    dated = isinstance(stamp, (int, float)) and not isinstance(stamp, bool)
-    for event in _done_events(session):
-        try:
-            same = (event.get("completion") == completion
-                    if event.get("completion") and completion else
-                    dated and event.get("text") == declared["text"]
-                    and event.get("created_at", 0) >= stamp)
-            if same:
-                return event
-        except (TypeError, KeyError):
-            continue
-    return None
+def _carded(session, completion):
+    """The existing done receipt covering this work, if any: recorded identities compare the
+    checked work through later handbacks and renames."""
+    return next((event for event in _done_events(session)
+                 if event.get("completion") == completion), None)
 
 
 def needs_transition(session, card, answer, now, seat=None):
@@ -1144,33 +1082,28 @@ def done_transition(session, card, answer, now, completion):
     """One completion when the state function says done.
 
     Never for an episode that is history, a seat the owner closed himself, or work already
-    carded -- which latches this episode as sent, so the outbox is read once.  A done nobody
-    declared that covers none of the seat's verified work (`completion`: its plan holds only
-    what runs delivered, or the seat has no creation stamp) cards nothing: its first pass ends
-    the owner's intent, and it stays unsent for a declaration to card.
+    carded -- which latches this episode as sent, so the outbox is read once.  A done that
+    covers none of the seat's verified work (`completion`: its plan holds only what runs
+    delivered, or the seat has no creation stamp) cards nothing: its first pass ends the
+    owner's intent.
     """
     from . import watch
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
         return 0
-    declared = last(session, include_seen=True)
-    if not (declared and declared["kind"] == "done" and not declared.get("seen")):
-        declared = None
-    if not (completion or declared) and card.get("closed") == "Done":
+    if not completion and card.get("closed") == "Done":
         return 0        # read already: its first pass is on record
     card["closed"] = "Done"
-    if not (completion or declared):
+    if not completion:
         _intent(session, now)
         _card_write(session, card)
         return 0
-    receipt = _carded(session, completion, declared)
-    if (completion and card.get("completed") == completion) or receipt:
+    receipt = _carded(session, completion)
+    if card.get("completed") == completion or receipt:
         card["sent"] = True
-        if receipt and receipt.get("completion"):
-            card["completed"] = receipt["completion"]
+        card["completed"] = completion
         _card_write(session, card)
         return 0
-    if not (declared and declared.get("completion") == completion):
-        _intent(session, now)     # work the plan proved, which nobody declared
+    _intent(session, now)     # work the plan proved
     return _send_card(session, "done", card, answer, completion)
 
 
@@ -1193,30 +1126,15 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             at = time.time() if now is None else now
             card = _card_read(name)
             records = menu.run_records()
-            mine = [(directory, state) for directory, state in records
-                    if transitions.launched_session(state) == name]
             declared = last(name, include_seen=True)
-            if declared and declared.get("seen") and declared.get("kind") == "done":
-                # Already dropped: no second log line, but later words still card.
-                declared = None
-            if declared and declared["kind"] == "done":
-                failed = failed_declaration(
-                    declared, mine, transitions.supersession_index(records))
-                if failed:
-                    extra = {k: v for k, v in declared.items() if k not in ("session", "kind", "text")}
-                    record(name, "done", declared["text"], **extra, seen=True)
-                    log(f"dropping done declaration for {name}: {', '.join(failed)} failed; not sent")
-                    answer = None
             previous = watch.seat_read(name)
-            # A screen may have observed an intervening episode since our last tick, but
-            # not while a job's done stands: the screens read no notice there, and their
-            # `needs you` is not the card's.
+            # A screen may have observed an intervening episode since our last tick.
             if card and (previous.get("word_since") or 0) <= card.get("since", 0):
                 previous = {"word": card["word"], "word_since": card["since"]}
             current = watch.session_state(name, now=time.time() if answer is not None else at,
                                           session=seat, records=records,
                                           previous=previous, card=True)
-            # A newer declaration or run can outrank the answer shaped read before this
+            # A newer notice or run can outrank the answer shaped read before this
             # lock. An unchanged word keeps its observed beginning, including the explicit
             # question's clock before shaped advances the hold.
             if answer is not None and answer["word"] == current["word"]:
@@ -1235,9 +1153,8 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 since = max(since, asked)
                 if began is not None:
                     began = max(began, asked)
-            # a done covers the seat's verified work now, whoever declared it or none did
-            completion = ((_completion(name) or (declared or {}).get("completion"))
-                          if word == "done" else None)
+            # a done covers the seat's verified work now
+            completion = _completion(name) if word == "done" else None
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
@@ -1304,16 +1221,9 @@ def forget_card(name, log=lambda _: None):
         log(f"WARN the card of {name} was not closed ({type(exc).__name__}); retry required")
 
 
-class Refused(config.Error):
-    """A `shaped` gate said no: nothing was recorded, and the caller hears why."""
-
-
 def _completion(session):
-    """Verified plan work, retaining unsent work before older sent coverage.
-
-    A receipt remembers its distinct outcomes after plan cleanup. Unknown older receipts
-    keep their original gates; a completion without verified outcomes does too.
-    """
+    """Verified plan work, beside the work earlier Done cards covered: a receipt remembers its
+    distinct outcomes after plan cleanup."""
     from . import plan
     created = (config.session_records().get(session) or {}).get("created")
     if created is None:
@@ -1327,11 +1237,10 @@ def _completion(session):
     covered = outcomes(_card_read(session).get("completed"))
     for event in _done_events(session):
         covered.update(outcomes(event.get("completion")))
-    pending = outcomes((last(session, include_seen=True) or {}).get("completion")) - covered
     work = set(plan.outcomes(session))
-    if not work and not pending:
+    if not work:
         return None
-    return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | pending | covered)]}
+    return {"created": created, "outcomes": [list(outcome) for outcome in sorted(work | covered)]}
 
 
 def asks_first(text):
@@ -1352,33 +1261,12 @@ def keep_back(name, text):
     watch.keep(name, text)
 
 
-def unanswered(name):
-    """Refuse a done while a question that seat asked its owner stands unanswered, kept back for
-    its turn's end or asked: his answer can change the work, so the seat never decides it for
-    him and calls the job finished."""
-    from . import watch
-    kept = watch.questions_kept(watch.seat_read(name).get("unasked"))
-    asked = last(name)
-    text = kept[0]["text"] if kept else None
-    if not isinstance(text, str) and watch.owner_question(asked):
-        text = asked["text"]
-    if isinstance(text, str):
-        question = " ".join(text.split()).partition("?")
-        raise config.Error(f"your question to the owner is still open ({question[0]}{question[1]}): "
-                           "say the job is done once they have answered it")
-
-
-def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=None):
-    """Record the question or declaration, then evaluate the same transition latch.
+def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None):
+    """Record the question, then evaluate the transition latch.
 
     A question the seat itself asks waits for its turn's end where `watch.keeps_back` says so:
     nothing is recorded here but the question, in the seat's record, which `ask_kept` turns
-    into this notice when that turn has ended.
-
-    A done, whoever declares it, waits for the owner's answer to a question the seat asked him
-    (`unanswered`) and for every line of the seat's plan: its checks run first
-    (`plan.require_done`), and both are read once more under the seat's lock right before the
-    record (`plan.still_done`); a refusal records nothing and is raised as `Refused`."""
+    into this notice when that turn has ended."""
     if worker_blocked(kind, dry_run):
         return 0
     if paths:
@@ -1390,28 +1278,14 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         return 0
     if not name:
         raise config.Error("notify needs a session: use --session NAME")
-    from . import plan, watch
-    gate = None
-    if kind == "done":
-        try:
-            unanswered(name)
-            proven = plan.require_done(name)
-        except config.Error as exc:
-            raise Refused(str(exc)) from None
-        # and still, as recorded
-        gate = lambda current: (unanswered(current), plan.still_done(current, proven))
+    from . import watch
     try:
         own = name == config.current_session()      # the seat's own word
         if kind == "needs" and own and event_id is None and watch.keeps_back(name):
             keep_back(name, text)
             return 0
         with session_lock(name) as name:
-            if gate:
-                try:
-                    gate(name)
-                except config.Error as exc:
-                    raise Refused(str(exc)) from None
-            previous = _said(name, kind, text, pr, event_id)
+            previous = _said(name, kind, text, event_id)
             if event_id is None:
                 # the seat's newer word ends its `ak wait`; a question it kept back waits for
                 # its own turn's end, and is asked beside this one then (`ask_kept`)
@@ -1433,14 +1307,12 @@ def shaped(kind, text, pr=None, paths=(), session=None, dry_run=False, event_id=
         # lands on has stood; a watcher's own notice is dated by the word.
         return transition(name, answer=answer, now=stamp + (CARD_WAIT if kind == "needs" else 0),
                           began=stamp if event_id is None else None)
-    except Refused:
-        raise
     except (OSError, ValueError, config.Error) as exc:
         print(f"notify: record could not be persisted ({type(exc).__name__}); retry required", file=sys.stderr)
         return 1
 
 
-def _said(name, kind, text, pr=None, event_id=None, at=None, said_at=None):
+def _said(name, kind, text, event_id=None, at=None, said_at=None):
     """Record what that session said, under its notice lock, which the caller holds; the
     notice it replaced, or None.  A watcher's repeated event re-records nothing, nor does its
     alert while the seat's own question stands unanswered.  A question -- `text` one, or the
@@ -1449,11 +1321,11 @@ def _said(name, kind, text, pr=None, event_id=None, at=None, said_at=None):
     (`answered`).  `at` dates it where it was said before now, never before those it is asked
     beside.  `said_at` is when the seat said what it kept back for its turn's end: the notice
     keeps the latest moment any question it asks was said (`answer_typed`)."""
-    from . import menu, watch
+    from . import watch
     previous = last(name, include_seen=True)
     if event_id and previous and previous.get("source") == event_id:
         return previous
-    extra = {"source": event_id, "pr": pr,
+    extra = {"source": event_id,
              "watcher": str(event_id or "").startswith(("auth:", "stuck:", "stall:"))}
     if extra["watcher"] and watch.owner_question(previous) and not resolved(previous):
         # The seat's own question outranks a watcher's alert: its owner is asked already, and
@@ -1487,20 +1359,11 @@ def _said(name, kind, text, pr=None, event_id=None, at=None, said_at=None):
         # The answer ends its card's episode at the next tick; the newer notice carries it
         # there, in a field of its own: it answered only the one replaced.
         extra["earlier_answer_at"] = earlier
-    if kind == "done":
-        completion = _completion(name)
-        if completion:
-            extra["completion"] = completion
-        extra["runs"] = [directory.name for directory, state in menu.run_records()
-                         if transitions.launched_session(state) == name and
-                         (transitions.going(state) or transitions.unfinished(state))]
     if at is not None:
         extra["time"] = at
     record(name, kind, text, **extra)
     for _ in range(fresh):
         history.owner_time("asked", time.time() if at is None else at)
-    if kind == "done":
-        _intent(name, time.time() if at is None else at)
     return previous
 
 
@@ -1622,15 +1485,11 @@ def main(argv):
         return 0
     if argv == ["--check"]:
         return check()
-    kind = argv[0] if argv[:1] in (["needs"], ["done"]) else None
-    rest, pr, session, dry_run, i = [], None, None, False, 1 if kind else 0
+    kind = argv[0] if argv[:1] == ["needs"] else None
+    rest, session, dry_run, i = [], None, False, 1 if kind else 0
     while i < len(argv):
         arg = argv[i]
-        if kind == "done" and arg == "--pr":
-            if i + 1 >= len(argv) or not argv[i + 1].startswith(("https://", "http://")):
-                raise config.Error("--pr needs the PR's URL")
-            pr, i = argv[i + 1], i + 2
-        elif kind and arg == "--session":
+        if kind and arg == "--session":
             # for a caller that speaks for a seat it is not in: `ak watch` speaks for `inbox`
             if i + 1 >= len(argv):
                 raise config.Error("--session needs a session name")
@@ -1642,12 +1501,9 @@ def main(argv):
         else:
             rest.append(arg)
             i += 1
-    if len(rest) != 1 or rest[0].startswith("-") or not rest[0].strip():
+    if not kind or len(rest) != 1 or rest[0].startswith("-") or not rest[0].strip():
         raise config.Error(USAGE)
-    if kind and worker_blocked(kind, dry_run):
-        return 0                          # before the plan's checks: a worker runs none of them
-    if kind == "needs":
-        asks_first(rest[0])
-    if kind:
-        return shaped(kind, rest[0].strip(), pr, session=session, dry_run=dry_run)
-    raise config.Error(USAGE)
+    if worker_blocked(kind, dry_run):
+        return 0                          # before the question's shape: a worker asks nothing
+    asks_first(rest[0])
+    return shaped(kind, rest[0].strip(), session=session, dry_run=dry_run)
