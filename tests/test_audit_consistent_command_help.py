@@ -67,7 +67,7 @@ MATRIX = [
     ("notify done", "usage: ak notify done", ["Summary", "--pr"],
      {"--session", "--dry-run", "--pr"}),
     ("wait", "usage: ak wait PR_URL|RUN_ID", ["https://github.com/acme/api/pull/12"], set()),
-    ("plan", "usage: ak plan", ["unexpected"], {"--check", "--eye"}),
+    ("plan", "usage: ak plan", ["unexpected"], {"--check"}),
     ("update", "usage: ak update [--dry-run]", ["--dry-run"], {"--dry-run"}),
     ("watch", "usage: ak watch [--dry-run]", ["--dry-run"], {"--dry-run"}),
     ("doctor", "usage: ak doctor", ["unexpected"], set()),

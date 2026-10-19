@@ -152,11 +152,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
              "when it merges, closes or ends. One already over is refused. Never a session.",
              "ak wait https://github.com/acme/api/pull/12"),
     "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
-             "ak plan add \"OUTCOME\" --eye | ak plan tick N | ak plan check N 'COMMAND'",
+             "ak plan check N 'COMMAND'",
              "This session's plan: each line an outcome with the check that proves it.\n"
              "add runs the check on the project's default branch and refuses one that passes,\n"
              "does not finish or holds the project's checkout path (it runs in a clean one);\n"
-             "--eye is the owner's to judge, tick N marks it on their word.\n"
              "check N puts your own test in place of line N's check, such as a review\n"
              "follow-up's probe; it must fail on the commit the line names, where its check failed.\n"
              "Listing ticks each check line that now passes on its project's default branch;\n"

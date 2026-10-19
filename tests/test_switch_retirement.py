@@ -163,8 +163,7 @@ class Retire(unittest.TestCase):
         written = " · check: `true` · ACME · written 2026-10-06 12:00"
         config.plan_path("acme-gb").write_text(
             f"- [ ] Proven switches region_gb, vat_fee are gone from the code{written}\n"
-            f"- [x] help_chat copy reviewed · your eye · ACME · written 2026-10-06 12:00"
-            " · done your yes 2026-10-06 13:00\n")
+            f"- [x] help_chat copy reviewed{written} · done 0123456789ab\n")
         config.plan_path("acme-help").write_text(
             f"- [ ] The help_chat switch is gone{written}\n")
         self.switches(row("help_chat", 120), row("region_gb", 110),

@@ -1,6 +1,5 @@
 """`ak plan add` writes an outcome with the check that proves it, only when that check fails on
-the project's default branch; `--eye` lines are ticked on the owner's word, check lines never by
-hand.
+the project's default branch, and only its check ticks it, never a hand.
 
 Offline: a throwaway HOME, a local origin and checkout, and the check run there.
 """
@@ -211,37 +210,13 @@ class PlanLines(Sandbox):
                                      .split("worktree ")) - 1, 1)
                 self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
-    def test_an_eye_line_is_ticked_on_the_owners_word_and_a_check_line_never_by_hand(self):
-        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
-        eye = self.ak("add", "the hero looks calm", "--eye").strip()
-        self.assertIn(f" · your eye · {self.project} · written ", eye)
-        with self.assertRaisesRegex(config.Error, "only a --eye line"):
-            plan.main(["tick", "1"])
-        ticked = self.ak("tick", "2").strip()
-        self.assertRegex(ticked, r"^- \[x\] the hero looks calm · your eye · " + re.escape(self.project) + r" · written .+"
-                                 r" · done your yes \d{4}-\d\d-\d\d \d\d:\d\d$")
-        self.assertEqual(plan.LINE.match(ticked)["done"][:8], "your yes")
-        with self.assertRaisesRegex(config.Error, "already done"):
-            plan.main(["tick", "2"])
-        with self.assertRaisesRegex(config.Error, "no plan line 3"):
-            plan.main(["tick", "3"])
-
-    def test_a_malformed_line_cannot_bypass_the_check_lines_tick_refusal(self):
-        line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
-        for text in (line + " · unexpected", "- [ ] old unchecked outcome"):
-            with self.subTest(text=text):
-                config.plan_path("fix-api").write_text(text + "\n")
-                with self.assertRaisesRegex(config.Error, "only a --eye line"):
-                    self.ak("tick", "1")
-                self.assertEqual(self.plan_lines(), [text])
-
     def test_numbered_lines_wrap_to_the_terminal_width(self):
-        self.ak("add", "a calm hero", "--eye")
-        self.ak("add", "a clear footer", "--eye")
+        self.ak("add", "a calm hero", "--check", "test -f hero.txt")
+        self.ak("add", "a clear footer", "--check", "test -f footer.txt")
         with patch.object(terminal, "width", return_value=40):
             listing = self.ak().splitlines()
         self.assertTrue(all(terminal.cells(line) <= 40 for line in listing), listing)
-        self.assertIn("your eye", " ".join(listing))
+        self.assertIn("check:", " ".join(listing))
         self.assertEqual([line.split()[0] for line in listing if re.match(r"\s*\d+\s+- \[", line)],
                          ["1", "2"])
 
@@ -276,7 +251,7 @@ class PlanLines(Sandbox):
 
     def test_done_waits_for_every_line_and_a_hand_tick_proves_nothing(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
-        self.ak("add", "the hero looks calm", "--eye")
+        self.ak("add", "the hero looks calm", "--check", "test -f hero.txt")
         path = config.plan_path("fix-api")
         path.write_text(path.read_text().replace("- [ ] the feature", "- [x] the feature"))
         with self.recorder() as sent:
@@ -287,7 +262,9 @@ class PlanLines(Sandbox):
             with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
                                                       r"- \[ \] the hero looks calm"):
                 notify.main(["done", "Shipped"])
-            self.ak("tick", "2")
+            (self.repo / "hero.txt").write_text("calm\n")
+            self.commit("the hero")
+            self.land_the_work()
             self.assertEqual(notify.main(["done", "Shipped"]), 0)
             self.assertEqual(notify.main(["done", "Shipped", "--dry-run"]), 0)
         self.assertEqual(sent.call_count, 1)            # the dry run records nothing
@@ -344,7 +321,8 @@ class PlanLines(Sandbox):
 
     def test_a_new_check_passing_where_its_line_failed_is_refused(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
-        self.ak("add", "the hero looks calm", "--eye")
+        path = config.plan_path("fix-api")
+        path.write_text(path.read_text() + "- [ ] the hero looks calm\n")     # kept by hand
         with self.assertRaisesRegex(config.Error, "already passes on [0-9a-f]{12}, the commit "
                                                   "line 1 names"):
             plan.main(["check", "1", "test -f base.txt"])
@@ -404,7 +382,7 @@ class PlanLines(Sandbox):
         def meanwhile(*args):
             # another `ak plan add` writes while this check runs
             path = config.plan_path("fix-api")
-            path.write_text(path.read_text() + f"- [ ] added meanwhile · your eye · {self.project} · "
+            path.write_text(path.read_text() + f"- [ ] added meanwhile · check: `test -f extra.txt` · {self.project} · "
                             "written 2026-10-04 21:00\n")
             return fails(*args)
 
@@ -412,7 +390,8 @@ class PlanLines(Sandbox):
             self.ak()
         text = self.plan_lines()
         self.assertTrue(text[0].startswith("- [x] the feature exists"))
-        self.assertEqual(text[1], f"- [ ] added meanwhile · your eye · {self.project} · written 2026-10-04 21:00")
+        self.assertEqual(text[1], f"- [ ] added meanwhile · check: `test -f extra.txt` · {self.project} · "
+                                  "written 2026-10-04 21:00")
 
     def test_an_add_from_another_process_during_the_checks_is_kept(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
@@ -421,7 +400,7 @@ class PlanLines(Sandbox):
         add = ("import json, sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
                "from agentkit import config, plan; "
                "[setattr(config, key, Path(value)) for key, value in json.loads(sys.argv[2]).items()]; "
-               "plan.add('fix-api', 'added meanwhile')")
+               "plan.add('fix-api', 'added meanwhile', 'test -f extra.txt')")
         places = json.dumps({key: str(getattr(config, key)) for key in
                              ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE")})
 
@@ -437,7 +416,7 @@ class PlanLines(Sandbox):
         text = self.plan_lines()
         self.assertTrue(text[0].startswith("- [x] the feature exists"))
         self.assertEqual(len(text), 2)
-        self.assertIn(f"added meanwhile · your eye · {self.project}", text[1])
+        self.assertIn(f"added meanwhile · check: `test -f extra.txt` · {self.project}", text[1])
 
     def test_moving_head_or_a_submodule_never_carries_to_the_next_check(self):
         source = self.root / "sub-source"
@@ -531,13 +510,14 @@ class PlanLines(Sandbox):
 
     def test_rename_during_done_keeps_all_requirements(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
-        self.ak("add", "the hero looks calm", "--eye")
+        self.ak("add", "the hero looks calm", "--check", "test -f hero.txt")
         fails = plan.fails
         checked = []
         def meanwhile(*args):
             result = fails(*args)
             checked.append(result)
-            config.rename_session("fix-api", "fix-api-renamed")
+            if len(checked) == 1:
+                config.rename_session("fix-api", "fix-api-renamed")
             return result
         error = None
         with patch.object(plan, "fails", side_effect=meanwhile), \
@@ -652,13 +632,13 @@ class PlanLines(Sandbox):
         sent.assert_not_called()
 
     def test_a_writer_waiting_through_a_rename_writes_to_the_renamed_plan(self):
-        self.ak("add", "initial requirement", "--eye")
+        self.ak("add", "initial requirement", "--check", "test -f initial.txt")
         places = json.dumps({key: str(getattr(config, key)) for key in
                              ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE")})
         add = ("import json, sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
                "from agentkit import config, plan; "
                "[setattr(config, k, Path(v)) for k, v in json.loads(sys.argv[2]).items()]; "
-               "plan.add('fix-api', 'queued before the rename')")
+               "plan.add('fix-api', 'queued before the rename', 'test -f queued.txt')")
         with notify.session_lock("fix-api"):              # a rename holds the seat's lock
             writer = subprocess.Popen([sys.executable, "-c", add, str(REPO), places])
             time.sleep(1)                                 # the writer waits on it
@@ -742,11 +722,6 @@ class PlanLines(Sandbox):
         self.assertIn("still open", err)
         self.assertTrue(plan.lines("fix-api-renamed")[0].startswith("- [ ]"))
 
-    def test_an_eye_line_needs_no_origin(self):
-        self.git("remote", "remove", "origin")
-        line = self.ak("add", "the hero looks calm", "--eye").strip()
-        self.assertIn(f" · {self.project} · written ", line)
-
     def test_a_check_line_added_while_done_checks_is_proved_by_nobody(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
         self.land_the_work()
@@ -766,8 +741,8 @@ class PlanLines(Sandbox):
         sent.assert_not_called()
 
     def test_a_line_added_before_done_is_recorded_refuses_it(self):
-        self.ak("add", "initial requirement", "--eye")
-        self.ak("tick", "1")
+        self.ak("add", "initial requirement", "--check", "test -f feature.txt")
+        self.land_the_work()
         lock, added = notify.session_lock, []
 
         @contextmanager
@@ -775,7 +750,7 @@ class PlanLines(Sandbox):
             # the plan's checks are over; a writer gets in before done takes the lock to record
             if not added and sys._getframe(2).f_code.co_name == "shaped":
                 added.append(True)
-                self.ak("add", "new required outcome", "--eye")
+                self.ak("add", "new required outcome", "--check", "test -f extra.txt")
             with lock(name, *args, **kwargs) as current:
                 yield current
 
@@ -899,16 +874,6 @@ class PlanLines(Sandbox):
         self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [x]"))
 
-    def test_an_eye_line_ticked_by_hand_is_open_until_the_owner_s_yes(self):
-        line = self.ak("add", "the hero looks calm", "--eye").strip()
-        ticked = line.replace("- [ ]", "- [x]", 1)
-        for edited in (ticked, ticked.split(" · written ")[0]):
-            with self.subTest(edited=edited):
-                config.plan_path("fix-api").write_text(edited + "\n")
-                with self.recorder() as sent, self.assertRaisesRegex(config.Error, "still open"):
-                    notify.main(["done", "Shipped"])
-                sent.assert_not_called()
-
     def test_the_seat_is_looked_up_under_the_lock_a_rename_takes(self):
         found = []
         with notify.session_lock("fix-api"):            # a rename holds it
@@ -919,16 +884,6 @@ class PlanLines(Sandbox):
             config.rename_session("fix-api", "fix-api-renamed")
         looking.join(10)
         self.assertEqual(found, [self.repo])
-
-    def test_an_eye_line_needs_the_owner_s_yes_and_any_written_field_is_ak_s(self):
-        eye = self.ak("add", "the hero looks calm", "--eye").strip().replace("- [ ]", "- [x]", 1)
-        for edited in (eye + " · done pending", eye + " · done 0123456789ab claimed",
-                       "- [x] the hero looks calm · written yesterday"):
-            with self.subTest(edited=edited):
-                config.plan_path("fix-api").write_text(edited + "\n")
-                with self.recorder() as sent, self.assertRaisesRegex(config.Error, "still open"):
-                    notify.main(["done", "Shipped"])
-                sent.assert_not_called()
 
     def test_a_check_run_in_another_repository_s_tree_proves_nothing(self):
         # the checkout is swapped for another project's between the lookup and the check
@@ -982,15 +937,6 @@ class PlanLines(Sandbox):
         self.assertTrue(got.wait(10))                       # and takes it once the rename is done
         self.assertEqual(config.resolve_session("fix-api-2"), "fix-api")
 
-    def test_an_eye_line_reopened_by_hand_is_ticked_with_one_yes(self):
-        self.ak("add", "the hero looks calm", "--eye")
-        self.ak("tick", "1")
-        path = config.plan_path("fix-api")
-        path.write_text(path.read_text().replace("- [x]", "- [ ]", 1))
-        ticked = self.ak("tick", "1").strip()
-        self.assertEqual(ticked.count(" · done "), 1)
-        self.assertFalse(plan.is_open(ticked))
-
     def test_a_hand_kept_line_of_another_shape_keeps_its_box(self):
         config.plan_path("fix-api").write_text("# The plan\n\n- [x] b4 each session sees its project (#359)\n"
                                                 "  - [x] the docs say `ak plan` ticks lines\n"
@@ -1037,8 +983,7 @@ class PlanLines(Sandbox):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
         config.rename_session("fix-api", "fix-api-renamed")   # the plan file moves with it
         older = config.plan_path("fix-api-renamed")
-        older.write_text(f"- [x] an older plan · your eye · {self.project} · written 2026-10-01 09:00 "
-                         "· done your yes 2026-10-01 10:00\n")
+        older.write_text("- [x] an older plan\n")
         os.utime(older, (1, 1))
         # the seat goes on writing its plan under the name it was launched with
         config.plan_path("fix-api").write_text(line + "\n")
@@ -1076,7 +1021,7 @@ class PlanLines(Sandbox):
             plan.main([])
         config.save_session(self.cfg, "fix-api", "opus", ["opus"], {"cwd": str(self.root)})
         with self.assertRaisesRegex(config.Error, "filed under no project"):
-            plan.main(["add", "anything", "--eye"])
+            plan.main(["add", "anything", "--check", "false"])
         with self.assertRaisesRegex(config.Error, "usage: ak plan"):
             plan.main(["add", "anything"])
 

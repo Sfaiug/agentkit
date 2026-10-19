@@ -2,15 +2,13 @@
 
 `ak plan add "<outcome>" --check '<cmd>'` runs the check on a clean checkout of the project's
 default branch and refuses one that already passes there: a check that passes before the work
-proves nothing, and one that never finishes there could never tick.  `--eye` is an outcome only
-the owner can judge; `ak plan tick <n>` ticks it on their word.  `ak plan check <n> '<cmd>'`
+proves nothing, and one that never finishes there could never tick.  `ak plan check <n> '<cmd>'`
 puts another check in a line's place -- the seat's own test where a review follow-up came
 checked by the reviewer's probe -- when it fails on the commit the line's check was proven
 failing on, which the line names (a line from before lines named one takes it unproven).  `ak plan` ticks each check line whose check now passes on
 its project's default branch, then lists the lines, numbered, and `ak notify done` runs every
 check again and waits for every line.  The plan is the seat's `plan-<seat>.md`, the
-file the menu's bar counts, and a line names its outcome, its check (or `your eye`), the
-project, when it was written and, for a check, the commit it failed on then:
+file the menu's bar counts, and a line names its outcome, its check, the project, when it was written and, for a check, the commit it failed on then:
 
     - [ ] each session sees its project · check: `python3 tests/test_x.py` · agentkit · written 2026-10-02 12:40 on 0123456789ab
 """
@@ -30,6 +28,8 @@ from pathlib import Path
 from . import command_help, config, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
+# an eye line, from before every line had a check, reads done: how a change looks is the
+# owner's to judge once it is live, never a line the seat waits on
 EYE = "your eye"
 DEFERRED = " · deferred"
 STAMP = "%Y-%m-%d %H:%M"
@@ -333,23 +333,21 @@ def fails_on_main(repo, cmd, at=None):
 BOX = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s*\[[^\]\n]*\](?!\()")
 # what marks a line `ak plan` wrote, however its spacing was changed by hand since
 WRITTEN = re.compile(r"\bcheck\s*:|·\s*written\b|·\s*your\s+eye\b|·\s*done\b", re.I)
-# the done each proof stamps: an eye line's the owner's yes (`ak plan tick`), a check line's
-# the commit its check passed on
-YES = re.compile(r"your yes \d{4}-\d\d-\d\d \d\d:\d\d$")
+# the done a check line's proof stamps: the commit its check passed on
 PASSED_ON = re.compile(r"[0-9a-f]{7,40}(?: |$)")
 
 
 def is_open(line):
-    """A box line that does not read as done.  Done is `- [x] ` and then either a line
-    `ak plan` wrote with the done its proof stamped -- its check's commit, or the owner's yes
-    on an eye line (`ak plan tick`) -- or a hand-kept line with none of its fields; every other
+    """A box line that does not read as done.  Done is `- [x] ` and then either a check line
+    `ak plan` wrote with the commit its check passed on, or a hand-kept line with none of its
+    fields; an eye line is done however it is ticked (`EYE`); every other
     box -- unticked, ticked by hand past its proof, or spelled any other way -- is open, since
     nothing proved it.  A line with no box is no plan line."""
     line = line.strip()
     found = LINE.match(line)
     if found:
-        stamp = YES if found["check"] is None else PASSED_ON
-        return found["mark"] != "x" or not stamp.match(found["done"] or "")
+        return found["check"] is not None and (found["mark"] != "x"
+                                               or not PASSED_ON.match(found["done"] or ""))
     if line.startswith("- [x] ") and not WRITTEN.search(line):
         return False
     return bool(BOX.match(line))
@@ -448,8 +446,8 @@ def outcomes(name):
     """The plan's done work, independent of order, repetition, checks and renewed proof stamps.
 
     An open line is no done work yet: a declared done refuses one (`require_done`), and a
-    standing one is no proof of a line written since. Keep format knowledge here: eye lines
-    and hand-kept outcomes count as work too.
+    standing one is no proof of a line written since. Keep format knowledge here: old eye
+    lines and hand-kept outcomes count as work too.
     """
     result = []
     for line in lines(name):
@@ -533,7 +531,7 @@ def require_done(name):
         raise config.Error(f"{len(left)} plan line(s) still open, first: {left[0]}; "
                            "a check line is done when its check passes on the default branch "
                            "(one that no longer tests the outcome takes your own test: "
-                           "`ak plan check N`), an eye line on the user's word (`ak plan tick N`)")
+                           "`ak plan check N`)")
     return {bare for bare, line in results.items() if line.startswith("- [x]")}
 
 
@@ -553,7 +551,7 @@ def compose(what, proof, where, deferred, stamp, base):
             + f" · written {stamp}" + (f" on {base}" if base else ""))
 
 
-def add(name, what, check=None, repo=None, proven=None, deferred=False):
+def add(name, what, check, repo=None, proven=None, deferred=False):
     """Append an open line to the seat's plan, or keep the open line that already holds this
     check in this project, deferred or the seat's own as this call asks.  A review follow-up
     names the run's project as `repo`, and as `proven` the commit its check already failed on
@@ -565,31 +563,29 @@ def add(name, what, check=None, repo=None, proven=None, deferred=False):
     if not what or "·" in what:
         raise config.Error("an outcome is plain words without `·`")
     repo = Path(repo) if repo else project_of(name)
-    found = base = None
-    if check is not None:
-        check = one_command(check)
-        holds_checkout(check, repo)
-        if proven:
-            found, base = root(repo, proven), proven[:12]
-            if not found:
-                raise config.Error(f"{repo.name} does not hold {proven[:12]}, the commit this "
-                                   "check failed on")
-        else:
-            failing, found, base = fails_on_main(repo, check)
-            if not failing:
-                raise config.Error(f"this check already passes on {repo.name}'s default "
-                                   "branch, so it proves nothing; write one that fails until "
-                                   "the work is done")
+    check = one_command(check)
+    holds_checkout(check, repo)
+    if proven:
+        found, base = root(repo, proven), proven[:12]
+        if not found:
+            raise config.Error(f"{repo.name} does not hold {proven[:12]}, the commit this "
+                               "check failed on")
+    else:
+        failing, found, base = fails_on_main(repo, check)
+        if not failing:
+            raise config.Error(f"this check already passes on {repo.name}'s default "
+                               "branch, so it proves nothing; write one that fails until "
+                               "the work is done")
     where = named(repo, found)
     if "·" in where:
         raise config.Error(f"{where}: a project a line names holds no `·`")
-    proof = f"check: `{check}`" if check is not None else EYE
+    proof = f"check: `{check}`"
     with held(name) as current:
         text = lines(current)
         for index, old in enumerate(text):
             parsed = LINE.match(old.strip())
-            if (check is not None and parsed and is_open(old)
-                    and parsed["check"] == check and parsed["project"] == where):
+            if (parsed and is_open(old) and parsed["check"] == check
+                    and parsed["project"] == where):
                 # the open line already holding this check here is kept, its mark as asked
                 kept = compose(parsed["what"], proof, where, deferred, parsed["when"], parsed["base"])
                 if kept != old.strip():
@@ -676,30 +672,6 @@ def recheck(name, number, check):
     return new
 
 
-def tick(name, number):
-    with held(name) as current:
-        return _tick(current, number)
-
-
-def _tick(name, number):
-    text = lines(name)
-    at = numbered(text, number)
-    found = LINE.match(text[at].strip())
-    if not found or found["check"]:
-        raise config.Error("only a --eye line can be ticked on the owner's word")
-    if not text[at].lstrip().startswith("- [ ]"):
-        raise config.Error(f"plan line {number} is already done")
-    # a line reopened by hand keeps the done it had: this yes replaces it
-    line = text[at].strip()
-    if found["done"] is not None:
-        line = line[:found.start("done")].removesuffix(" · done ")
-    text[at] = (text[at][:len(text[at]) - len(text[at].lstrip())]
-                + line.replace("- [ ]", "- [x]", 1)
-                + f" · done your yes {time.strftime(STAMP)}")
-    write(name, text)
-    return text[at]
-
-
 def main(argv):
     if command_help.show("plan", argv):
         return 0
@@ -717,12 +689,6 @@ def main(argv):
         return 0
     if argv[0] == "add" and len(argv) == 4 and argv[2] == "--check":
         print(add(name, argv[1], argv[3]))
-        return 0
-    if argv[0] == "add" and len(argv) == 3 and argv[2] == "--eye":
-        print(add(name, argv[1]))
-        return 0
-    if argv[0] == "tick" and len(argv) == 2 and argv[1].isdigit():
-        print(tick(name, int(argv[1])))
         return 0
     if argv[0] == "check" and len(argv) == 3 and argv[1].isdigit():
         print(recheck(name, int(argv[1]), argv[2]))

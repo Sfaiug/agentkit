@@ -182,8 +182,8 @@ class OwnPrReview(unittest.TestCase):
     def test_an_own_pr_review_carries_the_seats_open_plan_lines(self):
         here = plan.named(self.repo)
         config.plan_path("fix-api").write_text(
-            f"- [x] the gate opens · your eye · {here} · written 2026-10-01 10:00"
-            " · done your yes 2026-10-01 11:00\n"
+            f"- [x] the gate opens · check: `test -f gate.txt` · {here} · written 2026-10-01 10:00"
+            " · done 0123456789ab\n"
             f"- [ ] the fence holds · check: `test -f fence.txt` · {here} · written 2026-10-02 12:00\n"
             "- [ ] the other site loads · check: `true` · ~/code/site#0123456789ab"
             " · written 2026-10-02 12:00\n"
