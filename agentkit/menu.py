@@ -3502,10 +3502,13 @@ def matrix_page(body, places, here, top, under, keys, over=()):
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
     and how many are.  `top` stays where it was while the page holds every line of `here`, or
     any of them for a row taller than the page, else moves the least that makes it so, and
-    never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
+    never past the last page; a cell that is a row of its own (terminal.under) is on its line,
+    and the lines under the last row, read and no row (`Version` on `c`), are the last row's."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
+    if drawn[-1] == max(places, default=0):     # no highlight stop would reach them
+        drawn += range(drawn[-1] + 1, len(body))
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
     if lo > hi:                                   # taller than the page: the tops holding any
         lo, hi = drawn[0] - room + 1, drawn[-1]

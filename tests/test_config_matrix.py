@@ -450,6 +450,13 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(top, 5)
         self.assertLess(5, top + room)
 
+    def test_the_last_row_s_page_holds_the_read_lines_under_it(self):
+        # `Version` under `Weekly audit` is no row, so only the last row's page can show it
+        places = {line: (("row", line), []) for line in range(8)}
+        with mock.patch.object(terminal, "height", return_value=12):
+            top, room = menu.matrix_page([""] * 10, places, ("row", 7), 0, [], "")
+        self.assertEqual(top + room, 10)
+
 
 if __name__ == "__main__":
     unittest.main()
