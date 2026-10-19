@@ -2947,8 +2947,8 @@ def models_body(cfg, table, levels, shown, at, picks):
     takes it as; each line a row the highlight rests on and nothing more, so a short screen,
     where they wrap to more lines than its page holds, shows each in turn, a page at a time
     where one is taller than the page (matrix_key).  Then, dim, what
-    quality and cost are, and under them every model of `table` (models_table) once: its
-    label, the config's name for it or its id, dim
+    quality and cost are, a row read the same way, and under it every model of `table`
+    (models_table) once: its label, the config's name for it or its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
@@ -2987,8 +2987,11 @@ def models_body(cfg, table, levels, shown, at, picks):
                                       [wide, room - 2 - wide - 2], indent="  ",
                                       kinds=("dim", None if word == "recommended" else "dim"))
             lines.append(terminal.highlight(line, number == 0) if at == ("said", word) else line)
-    lines.extend(terminal.styled("  " + part, "dim")
-                 for part in terminal.wrap(MODELS_NOTE, room - 2))
+    here = ("said", "quality and cost")
+    for number, part in enumerate(terminal.wrap(MODELS_NOTE, room - 2)):
+        places[len(lines)] = (here, [])
+        line = terminal.styled("  " + part, "dim")
+        lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
     labels = {key: next(iter(_runs(cfg, *key)), None) or key[1] for key in table}
     showing = {key: models_at(rows, shown[key]) for key, rows in table.items()}
@@ -3049,8 +3052,8 @@ def models_screen(cfg, session, selected, providers, held):
     matrix.stored) has a row for, against the public boards, read with the matrix's keys
     until Esc (models_body).
 
-    ↑/↓, k/j and the wheel move between the knob, the three lines that say why (SAID, rows
-    read with no action) and the models.  ←/→ on the knob step
+    ↑/↓, k/j and the wheel move between the knob, the three lines that say why (SAID), the
+    quality and cost note (rows read with no action) and the models.  ←/→ on the knob step
     `within`, saved to config.toml at once, and the recommendation follows; on a model they
     step the effort its row shows, through its own efforts (models_levels), the numbers and
     the cost following, nothing saved: the effort a model runs at is set on `c`.  `r` takes
@@ -3061,7 +3064,6 @@ def models_screen(cfg, session, selected, providers, held):
     levels = {key: models_levels(cfg, key, rows) for key, rows in table.items()}
     shown = {key: models_shown(cfg, key, rows, levels[key]) for key, rows in table.items()}
     models = [("model", *key) for key in table]
-    rows = [KNOB, *(("said", word) for word in SAID), *models]
     here, top, note, title = models[0] if models else KNOB, 0, "", f"models · {session}"
     clock = motion.Clock(page=True)
     while True:
@@ -3072,6 +3074,7 @@ def models_screen(cfg, session, selected, providers, held):
                 + f"   {MODELS_TAKE}   esc back")
         body, places = models_body(cfg, table, levels, shown,
                                    None if terminal.away() else here, picks)
+        rows = list(dict.fromkeys(row for row, _ in places.values()))
         act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0,
                                        clock=clock)
         if act is None:
