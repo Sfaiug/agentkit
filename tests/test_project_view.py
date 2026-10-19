@@ -165,6 +165,11 @@ class ProjectView(Sandbox):
                             " · written 2026-10-01 10:00\n")
         self.assertEqual(orch.in_flight("fix-api", self.acme), [])
 
+    def test_an_open_line_keeps_its_words_however_its_box_is_spelled(self):
+        self.plan("design", "- [ ]\tpreserve the export\n* [X]  tidy the menu\n")
+        self.assertEqual(orch.in_flight("fix-api", self.acme),
+                         [("design", ["preserve the export", "tidy the menu"], set())])
+
     def test_nothing_in_flight_says_so(self):
         self.plan("idle", "- [x] all done\n")
         self.assertEqual(self.file().splitlines(),
