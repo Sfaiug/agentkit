@@ -2699,10 +2699,9 @@ REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
-# The config screen's line of what `ak models` recommends per role, and the key that takes it.
-ADVICE_HEAD = "ak recommends"
-ADVICE_NONE = "nothing yet: ak models"
+# The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
+PICKED = ("orchestrate", "build", "review")    # what `ak models` recommends a model to do, per role
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
@@ -2801,32 +2800,22 @@ def advice(cfg, held):
     return found
 
 
-def advice_lines(found):
-    """The dim lines under a seat's models: each role's recommended row, wrapped under
-    themselves to the screen's width as the rows under them are; `r recommended` opens the
-    models screen (models_screen), where `r` takes them."""
-    if found:
-        said = " · ".join(f"{orch.ROLE_HEADS[number]} {label}"
-                          + ("" if name else " (not configured)")
-                          for number, role in enumerate(matrix.ROLES)
-                          for label, name, _ in [found.get(role, ("-", None, None))])
-    else:
-        said = ADVICE_NONE
-    wide, room = terminal.cells(ADVICE_HEAD), terminal.layout_width() - 2
-    return [terminal.styled(terminal.table_row([ADVICE_HEAD if number == 0 else "", part],
-                                               [wide, room - wide - 2], indent="  "), "dim")
-            for number, part in enumerate(terminal.wrap(said, room - wide - 2))]
-
-
-def model_said(cfg, name):
-    """What `c` says of the highlighted model on the line under the models: the subscriptions
-    it runs on, its provider's (`usage_rows`), the provider's name said once (`runs on Claude
-    I, II`); "" where it has none."""
+def model_said(cfg, name, providers=None, found=None):
+    """What `c` says of the highlighted model on the line under the models, (text, tone) a
+    part: the subscriptions it runs on, its provider's (`usage_rows`), the provider's name said
+    once (`runs on Claude I, II`); why it is spent, in amber (orch.spent_note); and the roles
+    `ak models` recommends it for (`found`, `advice`)."""
     provider = cfg["models"][name]["provider"]
     on = [terminal.plain(label) for each, label, _, _ in usage_rows(cfg) if each == provider]
     head = on[0].rsplit(" ", 1)[0] + " " if len(on) > 1 else ""
     on = on[:1] + [label.removeprefix(head) for label in on[1:]]
-    return "runs on " + ", ".join(on) if on else ""
+    spent = orch.spent_note(cfg, name, providers) if providers else ""
+    picked = [verb for role, verb in zip(matrix.ROLES, PICKED)
+              if (found or {}).get(role, (None, None))[1] == name]
+    return [part for part in (
+        ("runs on " + ", ".join(on), "dim") if on else None, (spent, "amber") if spent else None,
+        ("recommended to " + " and ".join(filter(None, (", ".join(picked[:-1]), picked[-1]))),
+         "dim") if picked else None) if part]
 
 
 def take_advice(cfg, name, selected, providers, found):
@@ -3078,27 +3067,24 @@ def models_screen(cfg, session, selected, providers, held):
                     shown[key] = taken[min(max(at + step, 0), len(taken) - 1)]
 
 
-def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None,
-                found=None):
+def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    Every offered model once, under its provider's name: label, harness (dim), the three role
+    Every offered model once, under its provider's name, a line each: label, the three role
     marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
     its effort: a cell for each level it offers, full up to its effort (terminal.effort_cells,
     effort_levels), then its word; a model with one effort is its word alone.  With no
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
-    A model `providers` read as spent is dim, its reset note beside it or, on a
-    phone, under it.  Then `+ add a model`, `Providers`
+    A model `providers` read as spent is dim; why is on the line under the page
+    (model_lines).  Then `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
     act on, -1 its label, and on Providers 0 or less `+ add`, 1 `− remove` and 2 or more the
-    last act it offers.  Under a session's models, `found` (`advice`) is what `ak models`
-    recommends per role, dim lines (advice_lines) that are no row.  `cells`
-    are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
-    the terminal counts. On a phone the harness gives way, then the cells, then the label.
+    last act it offers.  `cells` are a model row's (first, last, column), or Providers' acts, for a click, counted from 1 as
+    the terminal counts. On a phone the cells give way, then the label.
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -3112,7 +3098,6 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
         levelled[name] = terminal.effort_cells(len(taken), taken.index(effort) + 1 if effort
                                                in taken else 0) if len(taken) > 1 else []
     label = max(terminal.cells(name) for name in names)
-    harness = max(terminal.cells(str(models[name].get("harness", ""))) for name in names)
     heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
     widths = [terminal.cells(head) for head in heads[:-1]]
     word = max(terminal.cells(text) for text in efforts.values())
@@ -3126,8 +3111,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                       *(terminal.cells(leads[name] + efforts[name]) for name in names)))
     rest += widths[-1]
     label = min(label, max(1, room - 2 - rest))
-    harness = min(harness, max(0, room - 2 - label - 2 - rest))
-    left = 2 + label + (2 + harness if harness else 0)     # the columns before the marks
+    left = 2 + label                                        # the columns before the marks
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
@@ -3142,9 +3126,6 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))
             cells, first = [(3, 2 + terminal.cells(shown), -1)], left + 1
-            if harness:
-                line += "  " + terminal.styled(terminal.pad(str(models[name].get("harness", "")),
-                                                            harness), "dim")
             for number, text, width in zip(range(4 - len(texts), 4), texts, widths):
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if note or text in (marks[1], marks[3]) or builds and number == 1
@@ -3169,18 +3150,9 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                                                 first + 2 + terminal.cells(leads[name]),
                                                 first + 2 if leads[name] and not note else None)))
                 first += 2 + width
-            parts = [line.rstrip()]
-            if note and terminal.cells(parts[0]) + 2 + terminal.cells(note) <= room:
-                parts[0] += "  " + terminal.styled(note, "dim")
-            elif note:
-                parts += [terminal.styled("    " + part, "dim")
-                          for part in terminal.wrap(note, room - 4)]
-            for number, part in enumerate(parts):
-                places[len(lines)] = (("model", name), cells if number == 0 else [])
-                lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
-                             else part)
-    if selected is not None and found is not None:
-        lines.extend(advice_lines(found))
+            places[len(lines)] = (("model", name), cells)
+            lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
+                         else line.rstrip())
     lines.append("")
     wide = max(terminal.cells(row) for row in CONFIG_ROWS)
     values = ("", "", discord_value(), audit_value(cfg), version or "?")
@@ -3468,16 +3440,28 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
-def model_lines(cfg, at):
-    """The `c` screen's line for the highlighted model, `at` (`model_said`), dim, a blank line
-    over it: under the page of rows, not among them, so no page leaves it off, as many lines as
-    the tallest any model's and empty while the highlight is off the models, so the page keeps
-    its height and no row moves from under the pointer as the highlight goes."""
-    room, names = terminal.layout_width(), config_models(cfg)
-    said = {name: terminal.wrap(f"{name} {text}", room - 4) if (text := model_said(cfg, name))
-            else [] for name in names}
+def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
+    """The `c` screen's line for the highlighted model, `at` (`model_said`: `providers` read for
+    why it is spent, `found` for what it is recommended for), a blank line over it: its parts
+    joined with ` · ` where they fit, else each on lines of its own, as many whole parts as
+    `fit` lines hold, the blank one giving way first.  Under the page of rows, not among them,
+    so no page leaves it off, as many lines as the tallest any model's and empty while the
+    highlight is off the models, so the page keeps its height and no row moves from under the
+    pointer as it goes."""
+    room, said = terminal.layout_width(), {}
+    for name in config_models(cfg):
+        parts = [(name + " " + text if number == 0 else text, tone) for number, (text, tone)
+                 in enumerate(model_said(cfg, name, providers, found))]
+        joined = terminal.styled(" · ", "dim").join(terminal.styled(*part) for part in parts)
+        said[name] = []
+        for group in [[joined]] if parts and terminal.cells(joined) <= room - 4 else [
+                [terminal.styled(piece, tone) for piece in terminal.wrap(text, room - 4)]
+                for text, tone in parts]:
+            if len(said[name]) + len(group) > fit:
+                break
+            said[name] += group
     shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
-    return ([""] if tallest else []) + [("    " + terminal.styled(part, "dim")).rstrip()
+    return ([""] if 0 < tallest < fit else []) + [("    " + part).rstrip()
                                          for part in (shown + [""] * tallest)[:tallest]]
 
 
@@ -3489,6 +3473,12 @@ def matrix_page(body, places, here, top, under, keys):
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
     return max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room)), room
+
+
+def note_lines(note):
+    """A matrix screen's `note`, dim lines of its own under a blank one; none for no note."""
+    return ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
+                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
@@ -3512,8 +3502,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
-    said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
-                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
+    said = note_lines(note)
     top, room = matrix_page(body, places, here, top, [*under, *said], keys)
     shown = body[top:top + room]
     spots = terminal.frame(title, shown + [*under, *said], keys, places={
@@ -3605,10 +3594,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
         body, places = config_body(cfg, version, None if terminal.away() else here, column,
-                                   selected, providers, moves, found)
+                                   selected, providers, moves)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
-        said = model_lines(cfg, None if terminal.away() else here)
+        # on a short screen the note keeps its lines and the page a row; the model's line the rest
+        fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys)[1] - 1
+        said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
         # coming up as the highlight comes to a model (`motion.fading`)
         opened = here[1] if any(map(terminal.plain, said)) else None
         moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))
@@ -4239,15 +4230,16 @@ def config_discord():
 
 def audit_value(cfg):
     """`Weekly audit`'s value: on or off, and who orchestrates, executes and reviews it, under
-    the matrix's own column words, `on · orch opus · exec opus, astra · review astra`; a setting
-    the config cannot read is shown as the error that says why."""
+    the matrix's own column words, `on · orch opus · builds opus, astra · reviews astra`; a
+    setting the config cannot read is shown as the error that says why."""
     try:
         setting = config.audit(cfg)
     except config.Error as exc:
         return str(exc)
-    return " · ".join(("on" if setting["on"] else "off", f"orch {setting['orchestrator']}",
-                       "exec " + (", ".join(setting["workers"]) or "nobody"),
-                       "review " + ", ".join(setting["reviewers"])))
+    heads = orch.ROLE_HEADS
+    return " · ".join(("on" if setting["on"] else "off", f"{heads[0]} {setting['orchestrator']}",
+                       f"{heads[1]} " + (", ".join(setting["workers"]) or "nobody"),
+                       f"{heads[2]} " + ", ".join(setting["reviewers"])))
 
 
 def config_audit(cfg):
@@ -4328,8 +4320,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
-                       config_body(cfg, version, selected=selected, providers=providers,
-                                   found=advice(cfg, matrix.stored()) if selected else None)[0],
+                       config_body(cfg, version, selected=selected, providers=providers)[0],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)

@@ -59,7 +59,7 @@ class RecommendsEffort(Sandbox):
                     row("claude", "claude-opus-5-5", "max", execute=100),
                     row("codex", "gpt-6-astra", "high", review=100)])
         text = self.screen([Key("esc")])
-        self.assertIn("ak recommends orch fable @ max · exec opus @ max · review astra @ high", text)
+        self.assertRegex(text, r"fable runs on [^·]+ · recommended to orchestrate ")
         self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
@@ -77,7 +77,7 @@ class RecommendsEffort(Sandbox):
         config.save(self.cfg)
         self.store([row("claude", "claude-opus-5-5", "max", execute=100, review=100)])
         text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
-        self.assertIn("recommended exec opus-max @ max · review opus-max @ max", text)
+        self.assertIn("recommended builds opus-max @ max · reviews opus-max @ max", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus-max"], ["opus-max"]))
         self.assertNotIn("exec_effort", self.entry("opus-max"))

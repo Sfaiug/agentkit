@@ -238,7 +238,7 @@ class OneConfigScreen(unittest.TestCase):
         self.assertIn("opus", highlighted(lines).split())
         defaults = menu.defaults()
         lines = menu.press(b"c", title("config · fix-api"))
-        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(marks(model(lines, "opus")), "●■□")
         self.assertEqual(marks(model(lines, "astra")), "○■■")
         # fable executes, then opus and astra stop: fable alone executes, astra alone reviews
@@ -291,7 +291,7 @@ class OneConfigScreen(unittest.TestCase):
         del cfg["models"]["opus"]                         # removed while fix-api orchestrates on it
         menu.config.write_text(config.dump(cfg))
         lines = menu.press(b"c", title("config · fix-api"))
-        self.assertEqual(lines[2].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(marks(model(lines, "astra")), "○■■")   # its roles, off what is left
         self.assertEqual(marks(model(lines, "fable")), "○□□")
         self.assertFalse(any("●" in marks(line) for line in lines), lines)
@@ -309,8 +309,7 @@ class OneConfigScreen(unittest.TestCase):
                            and "ACME" in highlighted(lines))
         lines = menu.press(b"c", title("config"))
         self.assertEqual(lines[2].split(), ["effort"])
-        self.assertEqual(model(lines, "fable").split(), ["›", "fable", "claude", "▰▰▰▰▱",
-                                                          "xhigh"])
+        self.assertEqual(model(lines, "fable").split(), ["›", "fable", "▰▰▰▰▱", "xhigh"])
         self.assertFalse(any(marks(line) for line in lines), lines)
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ effort   esc back")
         menu.press(ESC)

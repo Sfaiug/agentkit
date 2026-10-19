@@ -126,7 +126,7 @@ class AddModel(unittest.TestCase):
         self.assertEqual(listed(lines), [["low"], ["medium"], ["high"]])
         self.assertEqual(lines[-1], KEYS["add"])
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
-        self.assertEqual(highlighted(lines).split()[:3], ["›", "sonnet", "claude"])
+        self.assertEqual(highlighted(lines).split()[:2], ["›", "sonnet"])
         saved = screen.saved()
         self.assertEqual(saved["models"]["sonnet"],
                          {"harness": "claude", "model": "claude-sonnet-5", "effort": "medium",
@@ -144,7 +144,7 @@ class AddModel(unittest.TestCase):
         levels = config.efforts("claude")          # the manifest's `[effort] levels`, no listing
         self.assertEqual(listed(lines), [[level] for level in levels])
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
-        self.assertEqual(highlighted(lines).split()[:3], ["›", "mystery", "claude"])
+        self.assertEqual(highlighted(lines).split()[:2], ["›", "mystery"])
         self.assertEqual(screen.saved()["models"]["mystery"],
                          {"harness": "claude", "model": "claude-mystery", "effort": levels[1],
                           "provider": "anthropic"})

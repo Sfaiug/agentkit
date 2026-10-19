@@ -352,7 +352,7 @@ class Switch(Sandbox):
         with patch.object(terminal, "layout_width", return_value=100):
             lines, _ = menu.config_body(self.cfg, "fixture", ("model", "opus"), 0,
                                         self.selected())
-        self.assertEqual(lines[0].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[0].split(), ["orch", "builds", "reviews", "effort"])
         rows = {terminal.plain(line).lstrip("› ").split()[0]: "".join(
             char for char in terminal.plain(line) if char in "●○■□") for line in lines
                 if any(char in terminal.plain(line) for char in "●○■□")}
@@ -366,8 +366,8 @@ class Switch(Sandbox):
         screen = out.getvalue()
         self.assertIn("agentkit · config · fix-api", screen)
         self.assertIn("orch", screen)
-        self.assertIn("exec", screen)
-        self.assertIn("review", screen)
+        self.assertIn("builds", screen)
+        self.assertIn("reviews", screen)
         with patch.object(terminal, "layout_width", return_value=40):
             lines, _ = menu.config_body(self.cfg, "fixture", selected=self.selected())
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
