@@ -90,7 +90,7 @@ def _keep(name, data):
 def _replace(path, data, before, undo):
     """The composer at `path` holding `data` once `before` did what it says, else left as it was:
     written beside it and moved over it, so no failed write hands the harness part of either, and
-    `undo` taking back what `before` did where the move fails."""
+    `undo` putting back what `before` changed where any step fails."""
     temp = path.with_name(f".{path.name}.{os.getpid()}.ak")
     try:
         # as private as the harness made the composer's own
@@ -98,12 +98,13 @@ def _replace(path, data, before, undo):
                                os.stat(path).st_mode & 0o777), "wb") as out:
             out.write(data)
         if before():
-            try:
-                os.replace(temp, path)
-            except OSError:
-                undo()
+            os.replace(temp, path)
+            return
     except OSError:
         pass
+    # a step that failed may still have been done, as tmux's server can do one its client then
+    # times out on, and putting back what is unchanged changes nothing
+    undo()
     with contextlib.suppress(OSError):
         temp.unlink(missing_ok=True)
 

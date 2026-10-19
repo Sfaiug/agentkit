@@ -45,21 +45,20 @@ class AsideEditor(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def tmux(self, *args, data=None):
-        """The pane's option, read and cleared at once, and its buffers; `failing` fails."""
-        if args[0] == self.failing:
-            return None
+        """The pane's option, read and cleared at once, and its buffers; `failing` fails once
+        done, as a client timing out after its server did the step."""
         if args[0] == "show-options":
-            return self.options.pop(args[args.index("-t") + 2], "").encode()
-        if args[0] == "list-buffers":
-            return "".join(f"{name}\n" for name in self.buffers).encode()
-        name = args[args.index("-b") + 1]
-        if args[0] == "save-buffer":
-            return self.buffers.get(name)
-        if args[0] == "load-buffer":
-            self.buffers[name] = data
+            said = self.options.pop(args[args.index("-t") + 2], "").encode()
+        elif args[0] == "list-buffers":
+            said = "".join(f"{name}\n" for name in self.buffers).encode()
         else:
-            self.buffers.pop(name, None)
-        return b""
+            name = args[args.index("-b") + 1]
+            said = self.buffers.get(name) if args[0] == "save-buffer" else b""
+            if args[0] == "load-buffer":
+                self.buffers[name] = data
+            elif args[0] == "delete-buffer":
+                self.buffers.pop(name, None)
+        return None if args[0] == self.failing else said
 
     def edit(self, text, ask=None):
         """The harness's own editor key: its composer handed over, and what is left taken."""
