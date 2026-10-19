@@ -3444,10 +3444,10 @@ def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
     """The `c` screen's line for the highlighted model, `at` (`model_said`: `providers` read for
     why it is spent, `found` for what it is recommended for), a blank line over it: its parts
     joined with ` · ` where they fit, else each on lines of its own, as many whole parts as
-    `fit` lines hold, the blank one among them.  Under the page of rows, not among them, so no
-    page leaves it off, as many lines as the tallest any model's and empty while the highlight
-    is off the models, so the page keeps its height and no row moves from under the pointer as
-    it goes."""
+    `fit` lines hold, the blank one giving way first.  Under the page of rows, not among them,
+    so no page leaves it off, as many lines as the tallest any model's and empty while the
+    highlight is off the models, so the page keeps its height and no row moves from under the
+    pointer as it goes."""
     room, said = terminal.layout_width(), {}
     for name in config_models(cfg):
         parts = [(name + " " + text if number == 0 else text, tone) for number, (text, tone)
@@ -3457,11 +3457,11 @@ def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
         for group in [[joined]] if parts and terminal.cells(joined) <= room - 4 else [
                 [terminal.styled(piece, tone) for piece in terminal.wrap(text, room - 4)]
                 for text, tone in parts]:
-            if 1 + len(said[name]) + len(group) > fit:
+            if len(said[name]) + len(group) > fit:
                 break
             said[name] += group
     shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
-    return ([""] if tallest else []) + [("    " + part).rstrip()
+    return ([""] if 0 < tallest < fit else []) + [("    " + part).rstrip()
                                          for part in (shown + [""] * tallest)[:tallest]]
 
 
