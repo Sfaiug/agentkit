@@ -617,8 +617,8 @@ elif doing d; then
   cat >"$WORK/menu1.exp" <<EXP
 expect 120 $MENU
 send n
-expect 60 Name:
-send atoll\n
+expect 60 tab models
+send atoll\t
 expect 240 space choose
 send \n
 expect 240 $PROMPT
@@ -632,11 +632,13 @@ EXP
   must "the menu did not run through to a supported harness prompt (xterm-256color)" test "$D1" = 0
   LIST=$(as 'ak orch list' 2>&1)
   must "ak orch list does not show the seat" grep -q '^atoll ' <<<"$LIST"
-  # The orchestrator is the picker's, which live quota chooses: the row it marked ● (* on an
-  # ASCII terminal) when Enter took it, whose title is the model's name capitalised.
-  PICKED=$(awk '/orch +exec +review/ {row = ""}
-                /●|\*/ {t = $0; sub(/^[^[:alnum:]]+/, "", t); split(t, w, " "); row = tolower(w[1])}
-                /space choose/ {picked = row} END {print picked}' "$WORK/pty/menu1.txt")
+  # The orchestrator is the picker's, which live quota chooses: the model marked ● (* on an
+  # ASCII terminal) in the last frame before Enter took it.  A frame's rows are drawn by cursor
+  # moves, so in the transcript they can run together on one line.
+  PICKED=$(python3 -I -c 'import re, sys
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+marked = re.findall(r"([\w.-]+) +[●*] ", text[:text.rfind("space choose")])
+print(marked[-1].lower() if marked else "")' "$WORK/pty/menu1.txt")
   must "ak orch list does not show the models the picker chose${PICKED:+ (orchestrator $PICKED)}" \
     awk -F'  +' -v m="$PICKED" '/^atoll /{ok = (m != "" && tolower($5) == m && $6 != "" && $6 != "—")} END{exit !ok}' <<<"$LIST"
   SEAT=atoll
@@ -653,7 +655,7 @@ EXP
   drive menu2 xterm-ghostty ak
   D2=$?
   must "the menu could not attach the seat under TERM=xterm-ghostty" test "$D2" = 0
-  verdict "d  menu through a pty: n, the name, Enter on the picker, detach; attach again from xterm-ghostty" \
+  verdict "d  menu through a pty: n, the name, Tab, Enter on the picker, detach; attach again from xterm-ghostty" \
     "atoll created on $(printf '%s' "$LIST" | awk -F'  +' '/^atoll /{print $5; exit}'), prompt up with no trust/theme/permission dialog, listed, detached"
   for f in menu1 menu2; do
     [ -s "$WORK/$f.log" ] && grep -q 'MISSING\|PRESENT' "$WORK/$f.log" && {
