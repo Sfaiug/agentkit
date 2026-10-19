@@ -1,11 +1,12 @@
 """`n` makes the new seat's row in its place on the main screen, numbered as it will be, its name
-typed there; Enter makes the seat and opens it, Esc takes the row back.  The owner's pick of 18
-Oct 2026.  The keyboard tests drive `menu.loop` on a pty (tests/test_close_and_info.py's `Menu`)
+typed there, else the free Clone Wars character's it shows (`orch.character_name`); Enter makes
+the seat and opens it, Esc takes the row back.  The owner's pick of 18 Oct 2026.  The keyboard tests drive `menu.loop` on a pty (tests/test_close_and_info.py's `Menu`)
 with the making of a seat faked too; nothing here starts a seat or a tmux server.
 """
 
 import io
 from pathlib import Path
+import re
 import sys
 import unittest
 from unittest.mock import patch
@@ -48,7 +49,7 @@ class Keys(unittest.TestCase):
         shown.frame()
         shown.send(b"n")
         lines = shown.frame(keys="esc back")
-        self.assertRegex(shown.highlighted(lines), r"^›\s+3  ▏a name, or ⏎\s+\S+\s+new$")
+        self.assertRegex(shown.highlighted(lines), r"^›\s+3  ▏[a-z]+\s+\S+\s+new$")
         self.assertIn(menu.BORN_KEYS, lines[-1])
         shown.send(b"Fix Apix\x7f")               # a space is a dash, and Backspace takes one back
         shown.frame(lambda lines: "fix-api▏" in shown.highlighted(lines), keys="esc back")
@@ -68,13 +69,25 @@ class Keys(unittest.TestCase):
         shown.send(b"n")
         lines = shown.frame(keys="esc back")
         row = lines.index(shown.highlighted(lines))
-        self.assertIn("a name, or", lines[row])
+        self.assertIn("▏", lines[row])
         heading = next(line for line in reversed(lines[:row]) if line and line[0] not in " ›")
         self.assertEqual(heading.strip(), "no project")
         self.assertNotIn("as in", "\n".join(lines))                 # nor alpha's crew
         mark = shown.mark()
         shown.send(b"fix-api" + ENTER)
         shown.saw("<made fix-api under None by ", "<opened fix-api>", after=mark)
+        shown.leave()
+
+    def test_n_shows_a_free_character_s_name_and_enter_alone_makes_the_seat_by_it(self):
+        shown = Menu(self, {"alpha": "working", "beta": "working"})
+        shown.frame()
+        shown.send(b"n")
+        lines = shown.frame(keys="esc back")
+        name = re.match(r"^›\s+3  ▏(\S+)\s", shown.highlighted(lines))[1]
+        self.assertIn(name, orch.CHARACTERS)
+        mark = shown.mark()
+        shown.send(ENTER)
+        shown.saw(f"<made {name} under None by ", f"<opened {name}>", after=mark)
         shown.leave()
 
     def test_esc_takes_the_row_back_and_a_taken_name_starts_nothing_on_a_phone(self):
@@ -128,11 +141,12 @@ class Row(unittest.TestCase):
         self.assertEqual([project["name"] for project in ordered], ["acme", "beta", "docs"])
 
     def test_a_seat_left_unnamed_is_named_off_the_names_taken_now(self):
-        born = {"cfg": {}, "typed": "", "repo": None, "taken": set(), "selected": {
-            "orchestrator": "opus", "workers": ["astra"], "reviewers": ["fable"]}}
+        born = {"cfg": {}, "typed": "", "repo": None, "taken": set(), "name": "new",
+                "selected": {"orchestrator": "opus", "workers": ["astra"], "reviewers": ["fable"]}}
         printed = io.StringIO()
-        # another menu made `new` after this one last read its seats
+        # another menu made `new`, the name this row showed, after this one last read its seats
         with patch.object(orch, "listing", lambda **_kw: [{"name": "new"}]), \
+                patch.object(orch, "CHARACTERS", ("new",)), \
                 patch.object(orch, "alias_names", lambda names=None: set()), \
                 patch.object(orch, "held_names", set), \
                 patch.object(menu, "open_session", lambda *_args: None), \

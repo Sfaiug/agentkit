@@ -74,6 +74,7 @@ def ask_name(taken, auto=False, **_kw):
     return orch.BACK
 
 orch.taken_names = lambda found=None: set()
+orch.CHARACTERS = ("new",)          # a seat nobody named is `new` here
 menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
 menu.close_seat = close_seat
 cfg = config.load()

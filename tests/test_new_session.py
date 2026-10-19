@@ -33,6 +33,7 @@ class NewSession(Sandbox):
         self.stack.enter_context(patch.object(orch, "fresh_command", return_value=(["fake"], None)))
         self.stack.enter_context(patch.object(orch, "launch"))
         self.stack.enter_context(patch.object(menu, "open_session"))
+        self.stack.enter_context(patch.object(orch, "CHARACTERS", ("new",)))   # unnamed: `new`, `new-2`
 
     def answers(self, values):
         sequence = iter(values)

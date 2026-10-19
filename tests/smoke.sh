@@ -3592,16 +3592,16 @@ done
 printf '\n' | HOME="$MHOME" ak attach --dry-run >"$WORK/menu-attach.log" 2>&1 || MENU=1
 grep -q 'n new' "$WORK/menu-attach.log" || MENU=1
 # from a pipe `n` asks Name, Orchestrator and Workers a line at a time: Enter takes each
-# default, the seat starts as new, and a dry run only says what it would start
+# default, the seat takes a character's name, and a dry run only says what it would start
 printf 'n\n\n\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n.log" 2>&1 || MENU=1
 grep -q '^Workers \[opus astra\]:' "$WORK/menu-n.log" || MENU=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/menu-n.log" || MENU=1
 grep -q '^Name (Enter: auto):' "$WORK/menu-n.log" || MENU=1
-MSESSION=$(sed -n 's/^would start \(new\(-[0-9]*\)\{0,1\}\): opus, workers opus astra$/\1/p' "$WORK/menu-n.log")
+MSESSION=$(sed -n 's/^would start \([a-z][a-z0-9-]*\): opus, workers opus astra$/\1/p' "$WORK/menu-n.log")
 [ -n "$MSESSION" ] && grep -q "^would attach $MSESSION\$" "$WORK/menu-n.log" || MENU=1
 # EOF takes the defaults as well; and neither starts a session: no record, no rulebook
 printf 'n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-n-eof.log" 2>&1 || MENU=1
-grep -q '^would start new' "$WORK/menu-n-eof.log" || MENU=1
+grep -q '^would start [a-z][a-z0-9-]*: ' "$WORK/menu-n-eof.log" || MENU=1
 ls "$MHOME/.agentkit/state" | grep -qE '^(session|rulebook)-' && MENU=1
 printf 'zz\n\n' | HOME="$MHOME" ak --dry-run >"$WORK/menu-bad.log" 2>&1 || MENU=1
 grep -q "not a key: 'zz'" "$WORK/menu-bad.log" || MENU=1
@@ -3628,7 +3628,7 @@ OFFER=0
 printf 'n\n\n\n\n' | HOME="$OHOME" ak --dry-run >"$WORK/offer-n.log" 2>&1 || OFFER=1
 grep -q '^Workers \[opus astra\]:' "$WORK/offer-n.log" || OFFER=1
 grep -q '^Orchestrator \[opus\]:' "$WORK/offer-n.log" || OFFER=1
-grep -q '^would start new\(-[0-9]*\)\{0,1\}: opus, workers opus astra$' "$WORK/offer-n.log" || OFFER=1
+grep -q '^would start [a-z][a-z0-9-]*: opus, workers opus astra$' "$WORK/offer-n.log" || OFFER=1
 # the orchestrator choices are every model in file order, no sol
 grep -q ' 1 fable ' "$WORK/offer-n.log" || OFFER=1
 grep -q ' 2 opus ' "$WORK/offer-n.log" || OFFER=1
@@ -3954,10 +3954,10 @@ NAME=0
 for seat in my-big-task resume-seat by-hand pair-one pair-two nopin-seat; do
   tm kill-session -t "=$seat" 2>/dev/null
 done
-# (a) Enter at the menu's Name question leaves a new placeholder for the orchestrator to name;
+# (a) Enter at the menu's Name question leaves a placeholder for the orchestrator to name;
 # `ak orch rename` gives it the user's own name in tmux, in its environment and on its bar
 printf 'n\n\n\n\n\n' | akn >"$WORK/name-new.log" 2>&1 || NAME=1
-NAUTO=$(sed -n 's/^session \(new\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-new.log")
+NAUTO=$(sed -n 's/^session \([a-z][a-z0-9-]*\) is running; .*/\1/p' "$WORK/name-new.log")
 jq -e '.orchestrator == "opus"' "$NH/.agentkit/state/session-$NAUTO.json" >/dev/null 2>&1 || NAME=1
 akn orch rename "$NAUTO" '  My Big/Task  ' >"$WORK/name-rename.log" 2>&1 || NAME=1
 tm has-session -t =my-big-task 2>/dev/null || NAME=1
@@ -3968,7 +3968,7 @@ tm has-session -t =my-big-task 2>/dev/null || NAME=1
 jq -e '.orchestrator == "opus"' "$NH/.agentkit/state/session-my-big-task.json" >/dev/null 2>&1 || NAME=1
 # (b) Enter at a second `n` takes the next placeholder: the first still leads to the renamed seat
 printf 'n\n\n\n\n\n' | akn >"$WORK/name-dup.log" 2>&1 || NAME=1
-NSECOND=$(sed -n 's/^session \(new\(-[0-9]*\)\{0,1\}\) is running; .*/\1/p' "$WORK/name-dup.log")
+NSECOND=$(sed -n 's/^session \([a-z][a-z0-9-]*\) is running; .*/\1/p' "$WORK/name-dup.log")
 [ -n "$NSECOND" ] && [ "$NSECOND" != "$NAUTO" ] || NAME=1
 tm has-session -t "=$NSECOND" 2>/dev/null || NAME=1
 # (c) `true` exited the moment the seat opened, and the seat is still there, owing nothing: it rests

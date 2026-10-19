@@ -22,6 +22,7 @@ class Projects(Sandbox):
     def setUp(self):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
+        self.stack.enter_context(patch.object(orch, "CHARACTERS", ("new",)))   # unnamed: `new`, `new-2`
         self.stack.enter_context(patch("agentkit.watch.live_state", side_effect=lambda seat, *a, **kw:
                                       {"state": seat.get("live", "working"), "rule": "fixture",
                                        "since": 9100, "began": 9100, "evidence": ""}))

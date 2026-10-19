@@ -33,6 +33,7 @@ class SeatNameAsked(Sandbox):
         self.stack.enter_context(patch.object(orch, "launch"))
         self.stack.enter_context(patch.object(orch, "attach", return_value=0))
         self.stack.enter_context(patch.object(menu, "open_session"))
+        self.stack.enter_context(patch.object(orch, "CHARACTERS", ("new",)))   # unnamed: `new`, `new-2`
         self.stack.enter_context(patch.object(orch, "command", side_effect=self.command))
 
     def command(self, cfg, model, *args, **kwargs):
