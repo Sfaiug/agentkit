@@ -36,6 +36,10 @@ class IdleAtRest(Sandbox):
                          ("needs you", "stopped with work open: the parser reads both schemas"))
         self.assertTrue(stop.owed(SEAT))
 
+    def test_a_hand_kept_line_is_named_whatever_follows_its_box(self):
+        config.plan_path(SEAT).write_text("- [ ]\tpreserve the export\n")
+        self.assertEqual(self.decide(), ("needs you", "stopped with work open: preserve the export"))
+
     def test_a_question_kept_for_the_turns_end_is_no_rest(self):
         watch.seat_write(SEAT, unasked=[{"text": "Which schema?", "time": 9500}])
         self.assertEqual(self.decide()[0], "needs you")
