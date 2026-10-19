@@ -302,12 +302,13 @@ fi
                           for m in data["meters"]],
                          [("weekly", 42, 1999999999, 604800),
                           ("session", 10, 1999999999, 18000)])
-        self.assertNotIn("none", data)   # none only on the fallback path
+        self.assertNotIn("none", data)   # a cached meter answers even when billing fails
 
-    def test_usage_reports_none_only_on_the_fallback_path(self):
+    def test_usage_reports_none_after_a_meterless_billing_answer(self):
         shutil.copy(FIX / "grok-auth-valid.json", self.grok_home / "auth.json")
         shutil.copy(FIX / "grok-settings-none.json",
                     self.grok_home / "settings_cache.json")
+        self.answer(200, (FIX / "grok-billing-nometer.json").read_text())
         proc = self.adapter("usage")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         data = json.loads(proc.stdout)
@@ -344,7 +345,8 @@ fi
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("not installed", json.loads(proc.stdout)["error"])
         shutil.copy(FIX / "grok-auth-valid.json", self.grok_home / "auth.json")
-        proc = self.adapter("usage")   # a login restores the neutral reading
+        self.answer(200, (FIX / "grok-billing-nometer.json").read_text())
+        proc = self.adapter("usage")   # a meterless answer restores the neutral reading
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("no meter", json.loads(proc.stdout)["none"])
 
@@ -407,47 +409,39 @@ fi
                          [("weekly", 0, reset, 604800)])
         self.assertNotIn("none", data)
 
-    def test_usage_names_every_failed_source_when_none_remains(self):
+    def test_usage_names_every_meterless_source_when_none_remains(self):
         # Every source tried and none a meter: the credits response is spend without a
-        # percent, and the settings cache carries no subscription_usage entries.  The
-        # same with the endpoint unreachable.  The reason names each source.
+        # percent, and the settings cache carries no subscription_usage entries.
+        # The reason names each source.
         shutil.copy(FIX / "grok-auth-valid.json", self.grok_home / "auth.json")
         shutil.copy(FIX / "grok-settings-none.json",
                     self.grok_home / "settings_cache.json")
         self.answer(200, (FIX / "grok-billing-nometer.json").read_text())
-        for label in ("meterless answer", "unreachable endpoint"):
-            if label == "unreachable endpoint":
-                (self.fake / "resp").unlink()
-            with self.subTest(label=label):
-                proc = self.adapter("usage")
-                self.assertEqual(proc.returncode, 0, proc.stderr)
-                data = json.loads(proc.stdout)
-                self.assertEqual((data["provider"], data["meters"], data["error"]),
-                                 ("xai", [], None))
-                self.assertIn("no meter", data["none"])
-                self.assertIn("format=credits", data["none"])
-                self.assertIn("settings cache", data["none"])
+        proc = self.adapter("usage")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertEqual((data["provider"], data["meters"], data["error"]),
+                         ("xai", [], None))
+        self.assertIn("no meter", data["none"])
+        self.assertIn("format=credits", data["none"])
+        self.assertIn("settings cache", data["none"])
 
     def test_usage_reports_none_when_every_source_is_meterless(self):
         # Every source tried and none a meter: the billing endpoint answers spend
         # without an allowance (captured verbatim 2026-09-22) and the settings cache
-        # carries no subscription_usage entries -- then the same with the endpoint
-        # unreachable.  Both keep the provider neutral, with the reason.
+        # carries no subscription_usage entries.  This is a real no meter and keeps
+        # the provider neutral, with the reason.
         shutil.copy(FIX / "grok-auth-valid.json", self.grok_home / "auth.json")
         shutil.copy(FIX / "grok-settings-none.json",
                     self.grok_home / "settings_cache.json")
         self.answer(200, (FIX / "grok-billing-nometer.json").read_text())
-        for label in ("meterless answer", "unreachable endpoint"):
-            if label == "unreachable endpoint":
-                (self.fake / "resp").unlink()   # no answer file: curl reports 000
-            with self.subTest(label=label):
-                proc = self.adapter("usage")
-                self.assertEqual(proc.returncode, 0, proc.stderr)
-                data = json.loads(proc.stdout)
-                self.assertEqual((data["provider"], data["meters"], data["error"]),
-                                 ("xai", [], None))
-                self.assertIn("no meter", data["none"])
-                self.assertIn("billing", data["none"])
+        proc = self.adapter("usage")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        data = json.loads(proc.stdout)
+        self.assertEqual((data["provider"], data["meters"], data["error"]),
+                         ("xai", [], None))
+        self.assertIn("no meter", data["none"])
+        self.assertIn("billing", data["none"])
 
     def test_usage_with_an_expired_login_is_a_failed_probe(self):
         # A refused billing probe is an expired login, not a missing meter: it fails

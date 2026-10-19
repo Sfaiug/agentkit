@@ -8,7 +8,8 @@
 #                     usage        -> the weekly window on the billing endpoint's credits
 #                        form (the response the TUI's Usage limit tab reads) when it carries
 #                        a usage percent, else the subscription_usage entries of the CLI's own
-#                        settings cache when it carries any, else [usage] none with the reason.
+#                        settings cache when it carries any.  A successful meterless answer
+#                        is [usage] none; a failed ask without cached meters is an error.
 #                        Plain /v1/billing omits that percent on a SuperGrok seat; `grok usage`
 #                        reports per-session tokens only.  A refused key, or none beside a
 #                        refresh token, is first renewed by grok itself (`grok models`) and
@@ -196,10 +197,10 @@ usage)
   # fallback when the period itself did not parse.  The body is protobuf JSON, which leaves
   # a zero out: a currentPeriod with no creditUsagePercent is a window nothing has used yet
   # (captured 29 Sep, the morning a weekly window began), so it reads 0.  Spend without a
-  # currentPeriod or a percent is not a meter
-  # and falls through, as does any answer but 200: only 401/403 is terminal, an expired
-  # login, which must fail the probe like a missing one instead of reading neutral.  An
-  # XAI_API_KEY alone never probes: it is not the session this endpoint authenticates.
+  # currentPeriod or a percent is not a meter and falls through.  Other HTTP codes also
+  # try the cache before failing, except 401/403: an expired login fails at once.
+  # An XAI_API_KEY alone never probes: it is not the session this endpoint authenticates.
+  code=""
   if command -v curl >/dev/null && command -v jq >/dev/null; then
     key=$(keyof)
     if grep -q '[^[:space:]]' "$AUTH" 2>/dev/null; then
@@ -213,7 +214,6 @@ usage)
           rm -f -- "$tmpd/hdr"
           code=${body##*$'\n'}; body=${body%$'\n'*}
         }
-        code=""
         [ -z "$key" ] || bill
         # The key lives six hours and grok trades its refresh token for a fresh one whenever
         # it runs, so a refusal -- or a refresh token with no key beside it -- is first a key
@@ -299,7 +299,7 @@ usage)
   # The one subscription channel the CLI itself reads: tier and watch interval live in the
   # settings cache it fetches from its own endpoint, so meter entries would land here if the
   # CLI carried any.  Only a fully meter-shaped entry is answered -- name, used 0-100, an
-  # epoch reset and a window in seconds -- and anything less falls through to none.
+  # epoch reset and a window in seconds -- so a partial cache cannot hide a failed ask.
   cache="$GROK_HOME/settings_cache.json"
   if [ -s "$cache" ] && command -v jq >/dev/null; then
     meters=$(jq -c '.payload | fromjson? | .settings.subscription_usage // empty
@@ -312,9 +312,13 @@ usage)
       exit 0
     fi
   fi
-  # No source answered a meter.  The credits billing response had no usage percent, and
-  # the settings cache carries no subscription_usage entries.  [usage] none keeps the
-  # provider neutral in the picker instead of ranking it last like a failed probe.
+  # A failed ask says nothing about whether a meter exists: keep the last reading.
+  case "$code" in
+    ""|200) ;;
+    *) err "HTTP $code from cli-chat-proxy.grok.com/v1/billing" ;;
+  esac
+  # A meterless billing answer and a cache with no subscription_usage are a real no meter.
+  # [usage] none keeps the provider neutral in the picker, unlike a failed ask above.
   printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: cli-chat-proxy.grok.com/v1/billing?format=credits reports no usage percent, and the settings cache carries no subscription_usage entries"}' ;;
 install)
   if command -v grok >/dev/null; then echo "grok: already installed ($(grok --version 2>/dev/null))"; exit 0; fi
