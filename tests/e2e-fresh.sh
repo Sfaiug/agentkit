@@ -766,32 +766,24 @@ TASK
     "$(grep -h '^pr: ' "$RESULT" 2>/dev/null) merged, done-when passed on fetched $SMOKE_REPO origin/main"
 fi
 
-# ==== g) the two notifications, never posted ================================
+# ==== g) the needs-you notification, never posted ==========================
 # Here, not later: this runs while the seat from step d is still up, and step d's `x`
-# closes it below. Each card leads with its question or result and the seat, the mention last.
+# closes it below. The card leads with its two words and the seat, the mention last.
 if doing g; then
   UID_WANT=$(cat "$UH/.agentkit/secrets/discord_user_id" 2>/dev/null)
   as "AGENTKIT_SESSION=${SEAT:-atoll} ak notify needs 'test?' --dry-run" >"$WORK/needs.json" 2>"$WORK/needs.err"
-  as "AGENTKIT_SESSION=${SEAT:-atoll} ak notify done 'test' --dry-run" >"$WORK/done.json" 2>"$WORK/done.err"
   must "the needs terminal preview is missing" \
     grep -qxF "terminal notice: Needs you · ${SEAT:-atoll}: test?" "$WORK/needs.err"
-  must "the done terminal preview is missing" \
-    grep -qxF "terminal notice: Done · ${SEAT:-atoll}: test" "$WORK/done.err"
   must "the needs payload is not JSON" jq -e . "$WORK/needs.json"
-  must "the done payload is not JSON" jq -e . "$WORK/done.json"
   if [ -n "$UID_WANT" ]; then
     must "the needs payload has no @mention" \
       jq -e --arg m "<@$UID_WANT>" '.content | endswith(" " + $m)' "$WORK/needs.json"
-    must "the done payload has no @mention" \
-      jq -e --arg m "<@$UID_WANT>" '.content | endswith(" " + $m)' "$WORK/done.json"
   else
     skip "g: the @mention: the Discord user id is not on this host"
   fi
   must "the needs card is not its two words and the session alone" \
     jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("🙋 Needs you · " + $s)) and (has("embeds") | not)' "$WORK/needs.json"
-  must "the done card is not its two words and the session alone" \
-    jq -e --arg s "${SEAT:-atoll}" '(.content | startswith("✅ Done · " + $s)) and (has("embeds") | not)' "$WORK/done.json"
-  verdict "g  ak notify needs/done --dry-run" \
+  verdict "g  ak notify needs --dry-run" \
     "${UID_WANT:+mention <@$(printf '%s' "$UID_WANT" | cut -c1-4)...>, }two words and the seat, nothing posted"
 fi
 

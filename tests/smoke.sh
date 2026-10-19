@@ -847,26 +847,6 @@ class SessionState(unittest.TestCase):
         self.tick()
         self.assertEqual(menu.state(self.seat), "needs you")
 
-    def test_e_done_waits_for_the_answer_then_outlasts_opens_and_output(self):
-        self.open()
-        with self.assertRaises(notify.Refused):
-            self.notice("done", "Merged and verified")
-        self.now += 1
-        notify.answered("seat", self.now)
-        self.notice("done", "Merged and verified")
-        before = self.saved()
-        self.pane = "Finished"
-        self.tick()
-        self.assertEqual(menu.state(self.seat), "done")
-        self.assertEqual(self.saved(), before)
-        self.open()
-        self.tick()
-        self.assertEqual(menu.state(self.seat), "done")
-        self.now += 1
-        self.pane = "Starting the next task"
-        self.tick()
-        self.assertEqual(menu.state(self.seat), "done")   # output after an open answers no done
-
     def test_f_failed_usage_is_dash_and_real_zero_used_is_100_percent(self):
         def meter(used):
             return {"name": "weekly", "used": used, "window_secs": 604800,
@@ -1008,15 +988,12 @@ class SessionState(unittest.TestCase):
         # the alert is retracted; nobody has opened this seat, so its own screen speaks for it:
         # a prompt with nothing asked, at rest
         self.assertEqual(menu.state(self.seat), "idle")
-        for kind in ("needs", "done"):
-            self.now += 1
-            if kind == "done":    # a seat's done waits for the answer to its question
-                notify.answered("seat", self.now)
-            self.notice(kind, "The orchestrator's latest intent")
-            before = self.saved()
-            watch.forget("seat", acknowledge=False, notice=text)
-            self.assertEqual(self.saved(), before)
-            self.assertFalse(notify.last("seat")["watcher"])
+        self.now += 1
+        self.notice("needs", "The orchestrator's latest intent?")
+        before = self.saved()
+        watch.forget("seat", acknowledge=False, notice=text)
+        self.assertEqual(self.saved(), before)
+        self.assertFalse(notify.last("seat")["watcher"])
 
     def test_chrome_input_blank_capture_and_viewport_resize_are_not_progress(self):
         self.open()
@@ -1051,27 +1028,6 @@ class SessionState(unittest.TestCase):
             notice["watcher"] = invalid_tag
             config.notify_path("seat").write_text(json.dumps(notice))
             self.assertFalse(watch.type_into(self.seat, "continue", lambda _: None))
-
-    def test_done_racing_progress_waits_for_the_answer_and_is_then_the_final_intent(self):
-        self.open()
-        captured, release = threading.Event(), threading.Event()
-        def capture():
-            captured.set()
-            self.assertTrue(release.wait(5))
-            return "Resuming"
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            progress = pool.submit(notify.progress, "seat", capture, None)
-            try:
-                self.assertTrue(captured.wait(5))
-                # said while the output that answers the question is still being recorded
-                with self.assertRaises(notify.Refused):
-                    self.notice("done", "All verified")
-            finally:
-                release.set()
-            progress.result(timeout=5)
-        self.notice("done", "All verified")
-        self.assertEqual(menu.state(self.seat), "done")
-        self.assertNotIn("opened_at", notify.last("seat"))
 
     def test_cron_start_preserves_notice_until_a_new_notify(self):
         self.seats = []
@@ -2063,7 +2019,7 @@ fi
 
 # --- 5d: a test can never reach the user's webhook (offline) -----------------
 # The suite's marker outranks whatever destination is configured, and says so on stderr, so a
-# scratch run that decides to say `done` cannot post to the user however its own environment
+# scratch run that decides to ask the user cannot post to them however its own environment
 # was set up: its event is disabled and no POST is attempted at all.  Without the marker the
 # very same command really does reach for that webhook and queues what it could not deliver --
 # both exit 0, because a queued event is a delivered one as far as the caller is concerned.
@@ -2074,7 +2030,7 @@ GUARD=0
 # its own log and `finish`; every other one lands in this suite's log, which `finish` fails on
 ( WORK="$NGH"; . "$REPO/tests/acceptance.sh"
   HOME="$NGH" AGENTKIT_DISCORD_WEBHOOK='http://127.0.0.1:1/hook' AGENTKIT_SESSION=smoke-guard \
-    ak notify done "a test must never reach the user" >"$WORK/guard.log" 2>&1 || exit 2
+    ak notify needs "Does a test ever reach the user?" >"$WORK/guard.log" 2>&1 || exit 2
   finish >"$WORK/guard-finish.log" 2>&1 )
 [ "$?" = 1 ] || GUARD=1
 grep -q 'AK_NOTIFY_SINK is set' "$NGH/guard.log" || GUARD=1
@@ -2085,7 +2041,7 @@ grep -q 'webhook POST failed' "$NGH/guard.log" && GUARD=1     # nothing was even
 grep -q 'went to the test sink and not to the configured webhook' "$NGH/notify-diversions.log" || GUARD=1
 grep -q 'FAIL  a notification was aimed at the configured webhook' "$NGH/guard-finish.log" || GUARD=1
 HOME="$NGH" AK_NOTIFY_SINK= AGENTKIT_DISCORD_WEBHOOK='http://127.0.0.1:1/hook' \
-  AGENTKIT_SESSION=smoke-guard-nosink ak notify done "the same words with no marker" \
+  AGENTKIT_SESSION=smoke-guard-nosink ak notify needs "The same question with no marker?" \
   >"$WORK/guard-nosink.log" 2>&1
 [ "$?" = 0 ] || GUARD=1
 grep -q 'webhook POST failed' "$WORK/guard-nosink.log" || GUARD=1
@@ -3152,14 +3108,11 @@ HOME="$NFH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "smoke attachment" --file 
   >"$WORK/nf-needs.log" 2>&1
 [ "$?" = 2 ] || NF=1
 grep -q 'was removed' "$WORK/nf-needs.log" || NF=1
-HOME="$NFH" AGENTKIT_DISCORD_WEBHOOK= ak notify done "smoke done" --file "$WORK/attach.txt" \
-  >"$WORK/nf-done.log" 2>&1
-[ "$?" = 2 ] || NF=1
 HOME="$NFH" AGENTKIT_DISCORD_WEBHOOK= ak notify "smoke" --file "$WORK/nope.txt" \
   >"$WORK/nf-missing.log" 2>&1
 [ "$?" = 2 ] || NF=1
 [ -z "$(find "$NFH/.agentkit/state" -maxdepth 1 -name 'notify-*.json' 2>/dev/null)" ] || NF=1
-[ "$NF" = 0 ] && ok "17 ak notify --file: refused for needs, done and freeform, and nothing recorded" \
+[ "$NF" = 0 ] && ok "17 ak notify --file: refused for needs and freeform, and nothing recorded" \
               || no "17 ak notify --file: $(head -1 "$WORK/nf-needs.log")"
 
 # --- 18: ak update --dry-run -----------------------------------------------
@@ -4233,17 +4186,6 @@ jq -e '.content == "🙋 Needs you · smoke-shape <@424242>" and .username == "a
   and .allowed_mentions == {"users": ["424242"]} and (has("embeds") | not)' "$WORK/needs.json" >/dev/null 2>&1 || SHAPE=1
 [ "$(cat "$WORK/needs.err")" = 'terminal notice: Needs you · smoke-shape: Merge PR #7 by bob? yes/no' ] || SHAPE=1
 [ -e "$NSH/.agentkit/state/notify-smoke-shape.json" ] && SHAPE=1   # and records nothing
-HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify done "Parser fixed" \
-  --pr https://example.invalid/o/r/pull/7 --dry-run \
-  >"$WORK/done.json" 2>"$WORK/done.err" || SHAPE=1
-[ "$(cat "$WORK/done.err")" = 'terminal notice: Done · smoke-shape: Parser fixed' ] || SHAPE=1
-jq -e '.username == "agentkit" and (has("embeds") | not)
-  and .content == "✅ Done · smoke-shape" and .allowed_mentions == {"parse": []}' \
-  "$WORK/done.json" >/dev/null 2>&1 || SHAPE=1
-HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify done "FAIL: tests red" --dry-run \
-  >"$WORK/done-fail.json" 2>"$WORK/done-fail.err" || SHAPE=1
-[ "$(cat "$WORK/done-fail.err")" = 'terminal notice: Done · smoke-shape: FAIL: tests red' ] || SHAPE=1
-jq -e '.content == "✅ Done · smoke-shape"' "$WORK/done-fail.json" >/dev/null 2>&1 || SHAPE=1
 # the real form, with no webhook: stderr, exit 0, and the record the menu reads.  Asked from
 # outside the seat: its own question is held until its turn ends
 # (tests/test_question_waits_for_the_stop.py)
@@ -4262,10 +4204,10 @@ rm -f -- "$WORK/menu-shape.log"
 grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +Which branch\?$' || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
-# the freeform message went with the attachments: needs, done or --check
+# the freeform message went with the attachments: needs or --check
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify "plain old message" >"$WORK/plain.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
-[ "$SHAPE" = 0 ] && ok "21 ak notify: needs is amber, done is green and red on FAIL, every card leads with its question or result and the seat, --dry-run posts nothing, the record reaches the menu row" \
+[ "$SHAPE" = 0 ] && ok "21 ak notify: needs is amber, its card leads with its two words and the seat, --dry-run posts nothing, the record reaches the menu row" \
                || { no "21 ak notify shapes"; head -c 600 "$WORK/needs.json" | sed 's/^/      /'; sed 's/^/      /' "$WORK/menu-shape.log" | head -5; }
 
 # --- 22: ak orch rename follows the old name (offline, a real tmux seat) ------
@@ -4784,11 +4726,6 @@ HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK
   >"$WORK/orphan-needs.json" 2>"$WORK/orphan-needs.err" || FB=1
 [ "$(cat "$WORK/orphan-needs.err")" = 'terminal notice: Needs you · agentkit: Merge PR #9 by bob? yes/no' ] || FB=1
 jq -e '.content == "🙋 Needs you · agentkit"' "$WORK/orphan-needs.json" >/dev/null 2>&1 || FB=1
-FBLONG="a summary with no seat behind it, longer by some way than any title a phone shows whole"
-HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK="$HOOKURL" \
-  ak notify done "$FBLONG" --dry-run >"$WORK/orphan-done.json" 2>"$WORK/orphan-done.err" || FB=1
-[ "$(cat "$WORK/orphan-done.err")" = "terminal notice: Done · agentkit: $FBLONG" ] || FB=1
-jq -e '.content == "✅ Done · agentkit"' "$WORK/orphan-done.json" >/dev/null 2>&1 || FB=1
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1   # and --dry-run posted nothing either
 kill "$HOOKPID" 2>/dev/null
 [ "$FB" = 0 ] && ok "29 the dead-seat fallback: nothing from a run nobody launched from a seat, one needs titled with the gone orch-x for its orphan, and agentkit's outside a session" \
@@ -5306,7 +5243,7 @@ for name, repo in (("atoll-fix", "atoll"), ("ask-seat", "atoll"), ("done-seat", 
                                                 "- [ ] d\n- [ ] e\n")
 from agentkit import notify
 notify.record("ask-seat", "needs", "Merge the MOV helper before or after?")
-notify.record("done-seat", "done", "hero swapped and published")
+(config.STATE / "plan-done-seat.md").write_text("- [x] hero swapped and published\n")
 import agentkit.watch as watch_mod
 watch_mod.live_state = lambda seat, *a, **kw: {"state": "working"
     if seat["name"] == "atoll-fix" else "at_prompt", "rule": "smoke",
@@ -5390,7 +5327,7 @@ else
 fi
 # --- 48: end of turn ------------------------------------------------------
 if python3 "$REPO/tests/test_stop_hook.py" >"$WORK/stop-hook.log" 2>&1; then
-  ok "48 the end of a turn: a question, a done or a run to wait on allows the stop, anything else is blocked with the rule it broke, twice per turn and never for a worker; a harness with no blocking hook has the same test typed at its prompt once"
+  ok "48 the end of a turn: a question, a finished plan or a run to wait on allows the stop, anything else is blocked with the rule it broke, twice per turn and never for a worker; a harness with no blocking hook has the same test typed at its prompt once"
 else
   no "48 end-of-turn rule"; tail -30 "$WORK/stop-hook.log"
 fi
