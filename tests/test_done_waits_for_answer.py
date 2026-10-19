@@ -32,7 +32,6 @@ class DoneWaitsForAnswer(Sandbox):
             receipt.update(status="disabled", message_id="1", webhook="sink")
             return 0
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         self.stack.enter_context(patch.object(orch, "listing", return_value=[

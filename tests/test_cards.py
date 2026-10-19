@@ -418,7 +418,7 @@ class Cards(unittest.TestCase):
             {"id": "old", "source": "", "session": "seat", "kind": "done", "text": "Finished",
              "created_at": 101, "status": "delivered"}))
         config.card_path("seat").write_text(json.dumps(
-            {"word": "working", "since": 150, "episode": "e", "sent": False, "open_needs": []}))
+            {"word": "working", "since": 150, "episode": "e", "sent": False}))
         self.transition("seat", self.answer("done", 300, "Finished"), now=300)
         self.assertEqual(self.posts, [])
         # An explicit done over a done episode that is history is sent, and once.

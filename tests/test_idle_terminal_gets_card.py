@@ -23,11 +23,10 @@ class IdleTerminalGetsCard(Sandbox):
         self.seat = {"name": SEAT, "legacy": False}
         self.typed = []
         self.clients = []
-        self.posts, self.edits = [], []
+        self.posts = []
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
         self.stack.enter_context(patch.object(notify, "post", side_effect=self.post))
-        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=self.close))
 
     @property
     def clients(self):
@@ -53,11 +52,6 @@ class IdleTerminalGetsCard(Sandbox):
         receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
         return 0
 
-    def close(self, previous, status):
-        self.edits.extend((card["message_id"], status)
-                          for card in previous.get("open_needs", []))
-        return []
-
     def tick(self, elapsed=0, since=NOW, word="needs you"):
         answer = {"word": word, "since": since, "reason": "Choose a branch?"}
         with patch.object(watch, "session_state", return_value=answer):
@@ -78,8 +72,6 @@ class IdleTerminalGetsCard(Sandbox):
         self.tick(120)
         self.tick(300)
         self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
-        self.assertEqual(self.edits, [])
-        self.assertNotIn("closed", self.card())
 
     def test_a_glance_holds_the_card_only_until_he_has_left_the_seat_a_minute(self):
         # a seat works on with its question standing: looking at it answers nothing
@@ -92,7 +84,6 @@ class IdleTerminalGetsCard(Sandbox):
         self.tick(50 + notify.CARD_WAIT)
         self.tick(300)
         self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
-        self.assertEqual(self.edits, [])
 
     def test_his_last_key_holds_the_card_though_he_left_between_two_ticks(self):
         # no tick saw the key: he typed and left the seat, or went to another, in between
@@ -124,22 +115,19 @@ class IdleTerminalGetsCard(Sandbox):
                 self.tick(50 + notify.CARD_WAIT)
                 self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
 
-    def test_input_after_delivery_leaves_the_sent_card_until_the_seat_needs_him_no_more(self):
-        """A card that is out says what its seat says (tests/test_card_agrees_with_the_seat.py):
-        his keys there are him looking, and the word changing is what closes it, once."""
+    def test_input_after_delivery_leaves_the_sent_card_as_it_went(self):
+        """A card that is out stays as it went (tests/test_card_agrees_with_the_seat.py): his
+        keys there are him looking, and the word changing sends nothing more."""
         self.clients = [(SEAT, int(NOW) - 600)]
         self.tick(notify.CARD_WAIT)
         self.clients.append((SEAT, int(NOW) + 61))
         # Later state readings do not move the stored episode's start.
         self.tick(120, since=NOW + 100)
         self.tick(180)
-        self.assertEqual(self.edits, [])
-        self.assertNotIn("closed", self.card())
         self.clients = []
         self.tick(300, since=NOW + 300, word="working")
         self.tick(360, since=NOW + 300, word="working")
         self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
-        self.assertEqual(self.edits, [("1", "Answered")])
 
     def test_no_attached_client_keeps_the_wait_delivery_and_answer(self):
         self.tick()
@@ -149,7 +137,6 @@ class IdleTerminalGetsCard(Sandbox):
         self.tick(120)
         self.assertEqual(self.posts, [f"🙋 Needs you · {SEAT}"])
         self.tick(180, since=NOW + 180, word="working")
-        self.assertEqual(self.edits, [("1", "Answered")])
 
     def test_input_from_the_previous_episode_does_not_hide_a_new_question(self):
         self.clients = [(SEAT, int(NOW) + 1)]

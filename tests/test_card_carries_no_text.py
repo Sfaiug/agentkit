@@ -1,12 +1,10 @@
-"""A card is two words and its seat, and nothing the seat asked or did.
+"""A card is its emoji, two words and its seat, and nothing the seat asked or did.
 
 The owner keeps a seat's questions and results out of Discord: a card says whose and which, the
-owner's mention last and the only one it may ping, and its edit to `Answered` or `Done` drops
-whatever a card sent before this kept.  Offline: no webhook, no tmux.
+owner's mention last and the only one it may ping.  Offline: no webhook, no tmux.
 """
 
 from pathlib import Path
-import json
 import sys
 import unittest
 from unittest.mock import patch
@@ -37,34 +35,6 @@ class CardCarriesNoText(unittest.TestCase):
             payload = notify.card_payload("done", "acme-api")
         self.assertEqual((payload["content"], payload["allowed_mentions"]),
                          ("✅ Done · acme-api", {"parse": []}))
-
-    def test_closing_a_card_sent_with_its_text_drops_the_text(self):
-        sent = []
-
-        class Reply:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def read(self):
-                return b""
-
-        def urlopen(request, timeout):
-            sent.append(json.loads(request.data))
-            return Reply()
-
-        hook = "https://discord.test/api/webhooks/1/x"
-        fingerprint = notify.hashlib.sha256(hook.encode()).hexdigest()
-        cards = [{"message_id": "7", "webhook": fingerprint,
-                  "embed": {"title": "Needs you · acme-api", "description": "Top up the key?"}},
-                 {"message_id": "8", "webhook": fingerprint, "title": "Needs you · acme-api"}]
-        with patch.object(notify, "webhook", return_value=hook), \
-                patch.object(notify.urllib.request, "urlopen", urlopen):
-            self.assertEqual(notify.close_needs({"open_needs": cards}, "Answered"), [])
-        self.assertEqual(sent, [{"content": "Answered · acme-api", "embeds": [],
-                                 "allowed_mentions": {"parse": []}}] * 2)
 
 
 if __name__ == "__main__":

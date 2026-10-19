@@ -409,7 +409,6 @@ class RequiredNotifications(unittest.TestCase):
         self.call(op="retry", now=10060)
         self.assertEqual(self.event()["status"], "delivered")
         self.assertEqual([p["method"] for p in self.posts()], ["POST", "POST"])
-        self.assertEqual(self.state("state/notify-seat.json")["message_id"], "1234")
 
     def test_a_question_cleared_before_its_card_went_out_is_never_sent_late(self):
         self.call(http="timeout")

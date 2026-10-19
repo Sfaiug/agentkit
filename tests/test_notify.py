@@ -36,7 +36,6 @@ class Notifications(unittest.TestCase):
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
         config.ensure_dirs()
         self.requests = []
-        self.edit_status = 200
         owner = self
 
         class Hook(BaseHTTPRequestHandler):
@@ -51,11 +50,7 @@ class Notifications(unittest.TestCase):
                     raw = mail.get_payload()[0].get_payload(decode=True)
                 data = json.loads(raw) if raw else None
                 owner.requests.append((self.command, self.path, data))
-                status = owner.edit_status if self.command == "PATCH" else 200
-                if status == 0:
-                    self.wfile.write(b"not an HTTP response\r\n\r\n")
-                    return
-                self.send_response(status)
+                self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"id": str(len(owner.requests))}).encode())
@@ -213,7 +208,6 @@ class Notifications(unittest.TestCase):
         result = self.cli("needs", "  MERGE\nPR   #7? YES/NO ")
         self.assertEqual(result.stdout, "")
         self.assertEqual(len(self.requests), 1)   # same episode: recorded again, posted once
-        self.assertEqual(notify.last("seat")["open_needs"][0]["message_id"], "1")
         self.assertNotIn(self.url, before.decode())
 
         self.cli("needs", "Which branch?")
@@ -226,19 +220,13 @@ class Notifications(unittest.TestCase):
         # asked or owed: at rest.
         self.assertEqual(menu.state({"name": "seat"}), "idle")
         self.assertIsNone(notify.last("seat"))
-        self.assertEqual([r[1] for r in self.requests[1:]],
-                         ["/hook/messages/1?thread_id=42"])
-        for method, _, payload in self.requests[1:]:
-            self.assertEqual(method, "PATCH")
-            self.assertEqual(payload["content"], "Answered · seat")
-            self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        self.assertEqual(len(self.requests), 1)   # the answer leaves its card as it went
 
         self.cli("needs", "Which branch?")   # the word never left: still the same episode
-        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(len(self.requests), 1)
         self.answer()
         self.cli("done", "Shipped", "--pr", "https://github.com/me/repo/pull/7")
-        self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
-        self.assertEqual(self.requests[-2][2]["content"], "Done · seat")
+        self.assertEqual([r[0] for r in self.requests], ["POST", "POST"])
         payload = self.requests[-1][2]
         self.assertEqual(payload["content"], "✅ Done · seat <@123456789012345678>")
         self.assertEqual(payload["username"], "agentkit")
@@ -256,7 +244,7 @@ class Notifications(unittest.TestCase):
         self.cli("needs", "One more decision?")
         self.answer()
         self.cli("done", "Second job finished")
-        self.assertEqual(len(self.requests), count + 3)
+        self.assertEqual([r[0] for r in self.requests[count:]], ["POST", "POST"])
 
     def test_worker_guard_and_check_exception(self):
         log = self.root / "log.txt"
@@ -373,17 +361,15 @@ sys.exit(p.returncode)
                 self.answer()
             with ThreadPoolExecutor(max_workers=5) as pool:
                 list(pool.map(lambda _: self.cli(kind, "Same message?"), range(5)))
-        self.assertEqual([r[0] for r in self.requests], ["POST", "PATCH", "POST"])
+        self.assertEqual([r[0] for r in self.requests], ["POST", "POST"])
 
-    def test_edit_failures_are_silent_and_do_not_block_completion(self):
-        for status in (404, 500, 0):
-            self.cli("needs", f"Question {status}?")
+    def test_an_answered_question_is_never_edited(self):
+        for job in range(3):
+            self.cli("needs", f"Question {job}?")
             self.answer()
-            self.edit_status = status
-            result = self.cli("done", f"Finished anyway after {status}")   # a job apiece
+            result = self.cli("done", f"Finished {job}")   # a job apiece
             self.assertEqual((result.stdout, result.stderr), ("", ""))
-            self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
-            self.assertEqual(notify.last("seat")["open_needs"], [])
+            self.assertEqual([r[0] for r in self.requests[-2:]], ["POST", "POST"])
         self.cli("needs", "A changed webhook?")
         count = len(self.requests)
         changed = self.url.replace("/hook", "/new")

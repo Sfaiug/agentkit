@@ -272,7 +272,7 @@ class CompletionNotices(Sandbox):
         self.declare('Earlier failure explained; API remains shipped')
         self.assertEqual(len(self.posted()), 1)
 
-    def test_a_replacement_seat_sends_its_first_completion_after_a_failed_old_edit(self):
+    def test_a_replacement_seat_sends_its_first_completion(self):
         for tick_first in (False, True):
             with self.subTest(tick_first=tick_first):
                 self.name = f'replacement-{int(tick_first)}'
@@ -282,15 +282,12 @@ class CompletionNotices(Sandbox):
                 self.now += 100
                 self.assertEqual(notify.shaped(
                     'needs', 'Which export format?', session=self.name), 0)
-                self.response_status = 503
                 notify.forget_card(self.name)
-                self.assertTrue(config.card_path(self.name).exists())
-                # The create path clears notice and plan, while a failed Discord edit
-                # leaves the old question's card for retry under this same name.
+                self.assertFalse(config.card_path(self.name).exists())
+                # the create path clears notice and plan under this same name
                 self.seat(self.name, created=30)
                 config.notify_path(self.name).unlink(missing_ok=True)
                 plan.forget(self.name)
-                self.response_status = 200
                 self.now += 100
                 if tick_first:
                     self.assertEqual(notify.transition(self.name), 0)
@@ -386,8 +383,6 @@ class CompletionNotices(Sandbox):
         self.answer()
         self.declare('Question settled; API remains shipped')
         self.assertEqual(len(self.posted()), 1)
-        patches = [payload for method, payload in self.requests if method == 'PATCH']
-        self.assertEqual(patches[-1]['content'], f'Done · {self.name}')
 
     def test_a_real_question_and_unfinished_work_still_hold_the_completion(self):
         self.checked('API shipped')
@@ -408,9 +403,6 @@ class CompletionNotices(Sandbox):
         self.now += 100
         self.assertEqual(notify.transition(self.name), 0)
         self.assertEqual(len(self.posted()), 1)
-        patches = [payload for method, payload in self.requests if method == 'PATCH']
-        self.assertEqual(patches[-1]['content'], f'Answered · {self.name}')
-        self.assertEqual(patches[-1]['allowed_mentions'], {'parse': []})
         self.internal_turn()
         self.declare('The run handback confirms shipping')
         self.assertEqual(len(self.posted()), 1)
