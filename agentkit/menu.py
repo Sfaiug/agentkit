@@ -3100,10 +3100,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim, its reset note beside it or, on a
-    phone, under it.  Under them the highlighted model's own line (`model_said`), coming up as
-    the highlight comes to it (`motion.fading`): one place, as many lines as the tallest any
-    model's, empty while the highlight is off the models, so no row moves as the highlight
-    goes.  Then `+ add a model`, `Providers`
+    phone, under it.  Then `+ add a model`, `Providers`
     (providers_lines), `Discord` and `Version` with their values. A row is
     `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that happens to be called
     `Discord` is still a model; `at` is the highlighted one and `column` the cell on it the keys
@@ -3192,16 +3189,6 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
                 places[len(lines)] = (("model", name), cells if number == 0 else [])
                 lines.append(terminal.highlight(part, number == 0) if at == ("model", name)
                              else part)
-    # under the models, not under its row: a line that opened there would move every row
-    # below it from under the pointer that brought the highlight to one of them
-    said = {name: terminal.wrap(f"{name} {text}", room - 4) if (text := model_said(cfg, name))
-            else [] for name in names}
-    shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
-    for part in (shown + [""] * tallest)[:tallest]:
-        lines.append(("    " + terminal.styled(part, "dim")).rstrip())
-        if moves is not None:
-            moves.append((len(lines) - 1, ("said",), at[1] if shown else None,
-                          motion.fading(lines[-1], motion.OPEN)))
     if selected is not None and found is not None:
         lines.extend(advice_lines(found))
     lines.append("")
@@ -3491,6 +3478,19 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
+def model_lines(cfg, at):
+    """The `c` screen's line for the highlighted model, `at` (`model_said`), dim, a blank line
+    over it: under the page of rows, not among them, so no page leaves it off, as many lines as
+    the tallest any model's and empty while the highlight is off the models, so the page keeps
+    its height and no row moves from under the pointer as the highlight goes."""
+    room, names = terminal.layout_width(), config_models(cfg)
+    said = {name: terminal.wrap(f"{name} {text}", room - 4) if (text := model_said(cfg, name))
+            else [] for name in names}
+    shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
+    return ([""] if tallest else []) + [("    " + terminal.styled(part, "dim")).rstrip()
+                                         for part in (shown + [""] * tallest)[:tallest]]
+
+
 def matrix_page(body, places, here, top, under, keys):
     """The page of a matrix screen's rows that fits over `under`, lines of its own below the
     rows, and its key line: (top, room), the first line of `body` shown and how many are.  `top`
@@ -3502,14 +3502,14 @@ def matrix_page(body, places, here, top, under, keys):
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
-               fetched=None, clock=None, moves=()):
+               fetched=None, clock=None, moves=(), under=()):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
 
     The `c` screen and a project's feature switches are read this way: rows the highlight moves
     through, and on a row cells, one a column.  `places` is {line: (row, cells)}, each cell
     (first, last, column) counted from 1 as the terminal counts.  On a screen too short for
-    every row the part the highlight is on is shown, and `note` has lines of its own under it,
-    whatever the height.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
+    every row the part the highlight is on is shown, and `under`, then `note`, have lines of
+    their own under it, whatever the height; `moves` counts `under`'s on after `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
     no cell was clicked; a cell that only explains is none.  The pointer does the same and acts
@@ -3524,12 +3524,14 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     """
     said = ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
                   for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
-    top, room = matrix_page(body, places, here, top, said, keys)
+    top, room = matrix_page(body, places, here, top, [*under, *said], keys)
     shown = body[top:top + room]
-    spots = terminal.frame(title, shown + said, keys, places={
+    spots = terminal.frame(title, shown + [*under, *said], keys, places={
         line - top: place for line, place in places.items() if top <= line < top + room},
         drawn=clock and (lambda: clock.drawn(moves, lambda line: 3 + line - top
-                                             if top <= line < top + room else None)))
+                                             if top <= line < top + room else
+                                             3 + len(shown) + line - len(body)
+                                             if line >= len(body) else None)))
     began = fetched and fetched()
     if began is not None:     # on the screen's own clock, so what else moves goes on with it
         clock = motion.fetching(clock or motion.Clock(), began)
@@ -3616,10 +3618,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                    selected, providers, moves, found)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
+        said = model_lines(cfg, None if terminal.away() else here)
+        # coming up as the highlight comes to a model (`motion.fading`)
+        opened = here[1] if any(map(terminal.plain, said)) else None
+        moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))
+                  for line, text in enumerate(said)]
         was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             note or standing, keys, marks=3,
-                                            clock=clock, moves=moves)
+                                            clock=clock, moves=moves, under=said)
         column = column if clicked is None else clicked
         if here == PROVIDERS != was and clicked is None:
             # the one cell leads to `+ add`, as the first mark does, and no move onto the row

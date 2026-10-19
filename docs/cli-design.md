@@ -275,10 +275,11 @@ lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
-so under the rows, its mark shaking (Motion). Right under the models, the highlighted one's
-own line says what it runs on (`fable runs on Claude I, II`, dim), coming up as the highlight
-comes to it: one place for every model, as many lines as the tallest, empty while the
-highlight is off the models, so no row moves from under the pointer or the keys.
+so under the rows, its mark shaking (Motion). Under the rows, above the keys, the highlighted
+model's own line says what it runs on (`fable runs on Claude I, II`, dim), coming up as the
+highlight comes to it: one place for every model, outside the rows a short screen pages so
+none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
+so no row moves from under the pointer or the keys.
 Under a seat's models one dim line names the row `ak models`
 recommends per role, and `r recommended` opens the models screen (The models screen).
 Under the models `+ add a model`, `Providers` (the config's

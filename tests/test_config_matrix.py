@@ -214,8 +214,9 @@ class Matrix(unittest.TestCase):
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
         self.assertIn("Version        abc1234 · 2026-09-29", tail)
+        # the last row, then the highlighted model's line
         self.assertEqual(tail[tail.index("Version        abc1234 · 2026-09-29") + 1:],
-                         ["", "↑↓←→ move   ⏎ mark   esc back"])     # the last row
+                         ["", "fable runs on Claude", "", "↑↓←→ move   ⏎ mark   esc back"])
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         screen.leave()
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
