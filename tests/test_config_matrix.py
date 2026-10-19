@@ -456,6 +456,10 @@ class Matrix(unittest.TestCase):
         with mock.patch.object(terminal, "height", return_value=12):
             top, room = menu.matrix_page([""] * 10, places, ("row", 7), 0, [], "")
         self.assertEqual(top + room, 10)
+        # where they do not both fit, the row keeps its first line, its label, on the page
+        places = {0: (("row", 0), []), 1: (("row", 1), []), 2: (("row", 1), [])}
+        with mock.patch.object(terminal, "height", return_value=7):    # a page of two lines
+            self.assertEqual(menu.matrix_page([""] * 4, places, ("row", 1), 2, [], ""), (1, 2))
 
 
 if __name__ == "__main__":
