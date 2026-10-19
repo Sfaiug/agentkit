@@ -2201,16 +2201,11 @@ def plan_text(name):
 
 
 def plan_progress(name):
-    """(done, total) from the session's latest plan, or (0, 0) without one."""
-    done = total = 0
-    for line in plan_text(name).splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("- [x]"):
-            done += 1
-            total += 1
-        elif stripped.startswith("- [ ]"):
-            total += 1
-    return (done, total)
+    """(done, total) from the session's latest plan, or (0, 0) without one: done as the stop
+    hook reads it (`plan.is_open`), so the bar and the seat's word never disagree."""
+    from . import plan
+    lines = [line for line in plan_text(name).splitlines() if plan.BOX.match(line)]
+    return (sum(not plan.is_open(line) for line in lines), len(lines))
 
 
 def unsent(name, harness, found, session):

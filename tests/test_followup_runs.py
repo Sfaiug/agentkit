@@ -448,7 +448,7 @@ class FollowupRuns(unittest.TestCase):
             with plan.held("seat"):
                 merge = pool.submit(self.start, directory, state)
                 self.assertFalse(wait([merge], timeout=1).done)
-                plan.write("seat", [*plan.lines("seat"), f"- [ ] by hand · your eye · {plan.named(self.repo)} · written 2026-10-04 21:00"])
+                plan.write("seat", [*plan.lines("seat"), f"- [ ] by hand · check: `true` · {plan.named(self.repo)} · written 2026-10-04 21:00"])
             merge.result(timeout=30)
         self.assertEqual(len(plan.lines("seat")), 2)
 
