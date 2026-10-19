@@ -4,7 +4,7 @@ the project's default branch, and only its check ticks it, never a hand.
 Offline: a throwaway HOME, a local origin and checkout, and the check run there.
 """
 
-from contextlib import contextmanager, redirect_stdout
+from contextlib import redirect_stdout
 import io
 import json
 import os
@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, menu, notify, orch, plan, terminal, usage, watch
+from agentkit import config, history, notify, orch, plan, stop, terminal, usage, watch
 
 
 class PlanLines(Sandbox):
@@ -63,15 +63,6 @@ class PlanLines(Sandbox):
         with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(plan.main(list(args)), 0)
         return out.getvalue()
-
-    @contextmanager
-    def recorder(self):
-        """`ak notify done` through its plan's gate, recording nothing for real: what it would
-        record is `sent`'s calls."""
-        with patch.object(notify, "record") as sent, \
-                patch.object(notify, "transition", return_value=0), \
-                patch.object(watch, "seat_write"):
-            yield sent
 
     def plan_lines(self):
         return config.plan_path("fix-api").read_text().splitlines()
@@ -249,45 +240,21 @@ class PlanLines(Sandbox):
         self.assertRegex(self.listed().strip(), r"^1  - \[x\] the feature exists · check: "
                          r"`test -f feature.txt` · " + re.escape(self.project) + r" · written .+ · done " + re.escape(head) + "$")
 
-    def test_done_waits_for_every_line_and_a_hand_tick_proves_nothing(self):
+    def test_a_hand_tick_proves_nothing_and_each_line_waits_for_its_check(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
         self.ak("add", "the hero looks calm", "--check", "test -f hero.txt")
         path = config.plan_path("fix-api")
         path.write_text(path.read_text().replace("- [ ] the feature", "- [x] the feature"))
-        with self.recorder() as sent:
-            with self.assertRaisesRegex(config.Error, r"2 plan line\(s\) still open, first: "
-                                                      r"- \[ \] the feature exists"):
-                notify.main(["done", "Shipped"])
-            self.land_the_work()
-            with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
-                                                      r"- \[ \] the hero looks calm"):
-                notify.main(["done", "Shipped"])
-            (self.repo / "hero.txt").write_text("calm\n")
-            self.commit("the hero")
-            self.land_the_work()
-            self.assertEqual(notify.main(["done", "Shipped"]), 0)
-            self.assertEqual(notify.main(["done", "Shipped", "--dry-run"]), 0)
-        self.assertEqual(sent.call_count, 1)            # the dry run records nothing
-        self.assertEqual([plan.is_open(line) for line in self.plan_lines()], [False, False])
-
-    def test_done_runs_every_check_again_and_reopens_what_fails_today(self):
-        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
+        self.assertEqual(len(plan.verify("fix-api")), 2)
+        self.assertIsNone(plan.finished("fix-api"))
         self.land_the_work()
-        self.ak()
-        path = config.plan_path("fix-api")
-        path.write_text(path.read_text() + "- [x] the extra exists · check: `test -f extra.txt` · "
-                        f"{self.project} · written 2026-10-03 09:00 · done 0123456789ab claimed\n")
-        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
-                                                  r"- \[ \] the extra exists"):
-            plan.require_done("fix-api")
-        self.git("checkout", "-q", "main")
-        self.git("rm", "-q", "feature.txt")
-        self.commit("main loses the feature again")
-        self.git("push", "-q", "origin", "main")
-        self.git("checkout", "-q", "work")
-        with self.assertRaisesRegex(config.Error, r"2 plan line\(s\) still open, first: "
-                                                  r"- \[ \] the feature exists"):
-            plan.require_done("fix-api")
+        [left] = plan.verify("fix-api")
+        self.assertIn("the hero looks calm", left)
+        (self.repo / "hero.txt").write_text("calm\n")
+        self.commit("the hero")
+        self.land_the_work()
+        self.assertEqual(plan.verify("fix-api"), [])
+        self.assertEqual([plan.is_open(line) for line in self.plan_lines()], [False, False])
 
     def test_a_probe_the_fix_outgrew_gives_way_to_the_seat_s_own_test(self):
         def land(files, message):
@@ -305,16 +272,13 @@ class PlanLines(Sandbox):
         # a later change calls it another way, rightly, with its own test
         land({"feature.txt": "new-call\n", "feature_test.sh": "test -s feature.txt\n"},
              "the call changes")
-        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
-                                                  r"- \[ \] the feature exists.+`ak plan check N`"):
-            plan.require_done("fix-api")
         # the test passes on main now; it fails on the commit the probe failed on
         line = self.ak("check", "1", "sh feature_test.sh").strip()
         self.assertRegex(line, r"^- \[ \] the feature exists · check: `sh feature_test.sh` · "
                                + re.escape(self.project) + r" · written \d{4}-\d\d-\d\d \d\d:\d\d "
                                + "on " + self.git("rev-parse", "--short=12", "main~2") + "$")
         self.assertEqual(self.plan_lines(), [line])
-        self.assertEqual(plan.require_done("fix-api"), {line[6:]})
+        self.assertEqual(plan.verify("fix-api"), [])
         # a done line takes one too, its done gone until the new check passes
         self.assertEqual(self.ak("check", "1", "test -f feature_test.sh").strip(),
                          line.replace("sh feature_test.sh", "test -f feature_test.sh"))
@@ -365,14 +329,6 @@ class PlanLines(Sandbox):
         listed = self.listed()
         self.assertIn("1  - [ ] the feature exists", listed)
         self.assertIn("2  - [ ] something generated", listed)     # never off the first's file
-
-    def test_a_ticked_line_this_host_cannot_check_is_open_for_done(self):
-        path = config.plan_path("fix-api")
-        path.write_text("- [x] the remote is up · check: `true` · gone-project · written "
-                        "2026-10-03 09:00 · done 0123456789ab once\n")
-        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open, first: "
-                                                  r"- \[ \] the remote is up"):
-            plan.require_done("fix-api")
 
     def test_a_line_added_while_the_checks_run_is_kept(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
@@ -440,17 +396,6 @@ class PlanLines(Sandbox):
         self.listed()
         self.assertEqual([line[:5] for line in self.plan_lines()], ["- [ ]"] * 4)
 
-    def test_a_workers_done_is_suppressed_before_any_check_runs(self):
-        marker = self.root / "check-ran"
-        self.ak("add", "the feature exists", "--check", f"touch {marker}; test -f feature.txt")
-        marker.unlink()
-        before = config.plan_path("fix-api").read_bytes()
-        with patch.dict(os.environ, {"AK_RUN_ROLE": "worker", "AK_RUN_LOG": "",
-                                     config.SESSION_ENV: ""}), redirect_stdout(io.StringIO()):
-            self.assertEqual(notify.main(["done", "a worker's result", "--session", "fix-api"]), 0)
-        self.assertFalse(marker.exists())
-        self.assertEqual(config.plan_path("fix-api").read_bytes(), before)
-
     def test_renaming_back_keeps_the_plan_the_seat_wrote_last(self):
         config.plan_path("fix-api").write_text("- [x] an older outcome\n")
         config.rename_session("fix-api", "fix-api-2")
@@ -508,7 +453,7 @@ class PlanLines(Sandbox):
                 config.rename_session(config.resolve_session("newer"), name)
                 self.assertEqual(watch.plan_text(name), "")
 
-    def test_rename_during_done_keeps_all_requirements(self):
+    def test_rename_during_the_checks_keeps_all_requirements(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
         self.ak("add", "the hero looks calm", "--check", "test -f hero.txt")
         fails = plan.fails
@@ -519,20 +464,12 @@ class PlanLines(Sandbox):
             if len(checked) == 1:
                 config.rename_session("fix-api", "fix-api-renamed")
             return result
-        error = None
-        with patch.object(plan, "fails", side_effect=meanwhile), \
-                self.recorder() as sent, \
-                redirect_stdout(io.StringIO()):
-            try:
-                notify.main(["done", "Shipped"])
-            except config.Error as exc:
-                error = str(exc)
+        with patch.object(plan, "fails", side_effect=meanwhile):
+            plan.verify("fix-api")
         current = config.resolve_session("fix-api")
         saved = plan.lines(current)
-        self.assertEqual(len(saved), 2,
-                         "done lost the renamed plan; saved=" + repr(saved) +
-                         "; failed checks=" + repr(checked) + "; error=" + repr(error) +
-                         "; notifications=" + str(sent.call_count))
+        self.assertEqual(len(saved), 2, "the checks lost the renamed plan; saved=" + repr(saved) +
+                         "; failed checks=" + repr(checked))
         self.assertIn("the hero looks calm", "\n".join(saved))
 
     def listing(self, call="raise SystemExit(plan.main([]))"):
@@ -562,74 +499,6 @@ class PlanLines(Sandbox):
         self.commit("main loses the feature")
         self.git("push", "-q", "origin", "main")
         self.git("checkout", "-q", "work")
-
-    def test_a_listing_started_while_done_checks_waits_and_runs_on_main_as_it_is_then(self):
-        ready, release, command = self.gate()
-        self.ak("add", "the feature exists", "--check", command)
-        self.land_the_work()
-        branch, writer = plan.default_branch, []
-
-        def started(repo):
-            if not writer:                  # done has its plan; a listing starts meanwhile
-                writer.append(self.listing())
-                time.sleep(1)
-                self.assertIsNone(writer[0].poll(), "the listing ran beside done")
-                self.lose_the_feature()
-            return branch(repo)
-
-        with patch.object(plan, "default_branch", side_effect=started), \
-                self.recorder() as sent, \
-                self.assertRaisesRegex(config.Error, "still open"):
-            notify.main(["done", "Shipped"])
-        sent.assert_not_called()
-        out, err = writer[0].communicate(timeout=30)
-        self.assertEqual(writer[0].returncode, 0, out + err)
-        self.assertFalse(ready.exists(), "the listing checked the main done had already left")
-        self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
-
-    def test_an_older_listing_never_lands_over_a_newer_done(self):
-        ready, release, command = self.gate()
-        self.ak("add", "the feature exists", "--check", command)
-        self.land_the_work()
-        writer = self.listing()             # it holds on main with the feature
-        deadline = time.monotonic() + 15
-        while not ready.exists() and writer.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertTrue(ready.exists(), "the listing did not reach its check")
-        self.lose_the_feature()
-        # done, after it: it waits for the listing, then checks the newer main
-        later = self.listing("plan.require_done('fix-api')")
-        time.sleep(1)
-        self.assertIsNone(later.poll(), "done ran beside the listing")
-        release.touch()
-        out, err = writer.communicate(timeout=30)
-        self.assertEqual(writer.returncode, 0, out + err)
-        out, err = later.communicate(timeout=60)
-        self.assertIn("still open", err)
-        self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
-
-    def test_a_rename_during_the_first_read_cannot_skip_a_failing_check(self):
-        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
-        self.land_the_work()
-        self.ak()                                         # ticked on the older main
-        self.git("checkout", "-q", "main")
-        self.git("rm", "-q", "feature.txt")
-        self.commit("main loses the feature")
-        self.git("push", "-q", "origin", "main")
-        self.git("checkout", "-q", "work")
-        aliases, renamed = config.session_aliases, []
-
-        def rename_during_lookup():
-            if not renamed:
-                renamed.append(True)
-                config.rename_session("fix-api", "fix-api-renamed")
-            return aliases()
-
-        with patch.object(config, "session_aliases", side_effect=rename_during_lookup), \
-                self.recorder() as sent, \
-                self.assertRaisesRegex(config.Error, "still open"):
-            notify.main(["done", "Shipped"])
-        sent.assert_not_called()
 
     def test_a_writer_waiting_through_a_rename_writes_to_the_renamed_plan(self):
         self.ak("add", "initial requirement", "--check", "test -f initial.txt")
@@ -662,10 +531,8 @@ class PlanLines(Sandbox):
                        ticked.replace("- [x]", "- [done]", 1), ticked.replace("- [x]", "- [✔️]", 1)):
             with self.subTest(edited=edited):
                 config.plan_path("fix-api").write_text(edited + "\n")
-                with self.recorder() as sent, \
-                        self.assertRaisesRegex(config.Error, "still open"):
-                    notify.main(["done", "Shipped"])
-                sent.assert_not_called()
+                self.assertTrue(stop.owed("fix-api"))
+                self.assertIsNone(plan.finished("fix-api"))
 
     def test_a_renamed_plan_nothing_can_look_at_never_counts_as_done(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
@@ -677,10 +544,9 @@ class PlanLines(Sandbox):
         config.plan_path("fix-api").symlink_to(saved)    # the old name's plan, out of reach
         private.chmod(0)
         self.addCleanup(private.chmod, 0o700)
-        with self.recorder() as sent, \
-                self.assertRaisesRegex(config.Error, "cannot read the plan"):
-            notify.main(["done", "Shipped"])
-        sent.assert_not_called()
+        with self.assertRaisesRegex(config.Error, "cannot read the plan"):
+            plan.verify("fix-api")
+        self.assertIsNone(plan.finished("fix-api"))
 
     def test_a_verifier_started_inside_a_rename_waits_for_the_one_before_it(self):
         ready, release, command = self.gate()
@@ -696,7 +562,7 @@ class PlanLines(Sandbox):
         moved_lock, replace, newer = config.seat_file("verify", "fix-api"), Path.replace, []
 
         def during_move(source, target):
-            # the new name is out, the old name's lock not yet moved: done starts now
+            # the new name is out, the old name's lock not yet moved: a check starts now
             if source == moved_lock and not newer:
                 newer.append(self.listing(
                     "original = plan._verify_held\n"
@@ -704,9 +570,9 @@ class PlanLines(Sandbox):
                     f"    Path({str(entered)!r}).touch()\n"
                     "    return original(*args)\n"
                     "plan._verify_held = entering\n"
-                    "plan.require_done('fix-api')"))
+                    "plan.verify('fix-api')"))
                 time.sleep(1)
-                self.assertFalse(entered.exists(), "done ran beside the listing")
+                self.assertFalse(entered.exists(), "the check ran beside the listing")
             return replace(source, target)
 
         with notify.session_lock("fix-api"), notify.session_lock("fix-api-renamed"), \
@@ -714,54 +580,13 @@ class PlanLines(Sandbox):
             config.rename_session("fix-api", "fix-api-renamed")
         self.assertTrue(newer, "the rename moved no verification lock")
         time.sleep(1)
-        self.assertFalse(entered.exists(), "done ran beside the listing")
+        self.assertFalse(entered.exists(), "the check ran beside the listing")
         release.touch()
         out, err = older.communicate(timeout=30)
         self.assertEqual(older.returncode, 0, out + err)
         out, err = newer[0].communicate(timeout=60)
-        self.assertIn("still open", err)
-        self.assertTrue(plan.lines("fix-api-renamed")[0].startswith("- [ ]"))
-
-    def test_a_check_line_added_while_done_checks_is_proved_by_nobody(self):
-        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
-        self.land_the_work()
-        fails, added = plan.fails, []
-
-        def meanwhile(*args):
-            failed = fails(*args)
-            if not added:                  # done has read its plan; another writer adds a line
-                added.append(True)
-                self.ak("add", "the extra exists", "--check", "test -f extra.txt")
-            return failed
-
-        with patch.object(plan, "fails", side_effect=meanwhile), \
-                self.recorder() as sent, \
-                self.assertRaisesRegex(config.Error, "the extra exists"):
-            notify.main(["done", "Shipped"])
-        sent.assert_not_called()
-
-    def test_a_line_added_before_done_is_recorded_refuses_it(self):
-        self.ak("add", "initial requirement", "--check", "test -f feature.txt")
-        self.land_the_work()
-        lock, added = notify.session_lock, []
-
-        @contextmanager
-        def add_first(name, *args, **kwargs):
-            # the plan's checks are over; a writer gets in before done takes the lock to record
-            if not added and sys._getframe(2).f_code.co_name == "shaped":
-                added.append(True)
-                self.ak("add", "new required outcome", "--check", "test -f extra.txt")
-            with lock(name, *args, **kwargs) as current:
-                yield current
-
-        with patch.object(notify, "session_lock", side_effect=add_first), \
-                patch.object(menu, "run_records", return_value=[]), \
-                patch.object(watch, "seat_write"), \
-                patch.object(notify, "transition", return_value=0), \
-                self.assertRaisesRegex(config.Error, "new required outcome"):
-            notify.main(["done", "Shipped"])
-        self.assertTrue(added)
-        self.assertIsNone(notify.last("fix-api"))
+        self.assertEqual(newer[0].returncode, 0, out + err)
+        self.assertTrue(entered.exists())
 
     def other_acme(self, has_feature):
         """A second checkout named acme, with an origin of its own, filed under a seat."""
@@ -796,8 +621,7 @@ class PlanLines(Sandbox):
                             {"cwd": str(other), "repo": str(other)})
         self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
-        with self.assertRaisesRegex(config.Error, "still open"):
-            plan.require_done("fix-api")
+        self.assertTrue(stop.owed("fix-api"))
 
     def test_a_line_names_the_checkout_it_was_written_under(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
@@ -820,8 +644,7 @@ class PlanLines(Sandbox):
         self.other_acme(has_feature=True)           # another acme, with an origin of its own
         self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
-        with self.assertRaisesRegex(config.Error, "still open"):
-            plan.require_done("fix-api")
+        self.assertTrue(stop.owed("fix-api"))
 
     def test_another_repository_at_the_checkout_s_old_path_proves_nothing(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
@@ -847,8 +670,7 @@ class PlanLines(Sandbox):
         line = self.plan_lines()[0]
         config.plan_path("fix-api").write_text(line + "\n" + line + "\n")
         counter.unlink()
-        with self.assertRaisesRegex(config.Error, "still open"):
-            plan.require_done("fix-api")
+        self.assertEqual(len(plan.verify("fix-api")), 2)
         self.assertEqual(counter.read_text().count("run"), 1)
         self.assertTrue(all(row.startswith("- [ ]") for row in self.plan_lines()))
 
@@ -857,15 +679,7 @@ class PlanLines(Sandbox):
         config.plan_path("fix-api").write_text(line.replace(f" · {self.project} · ", " · acme · ") + "\n")
         self.land_the_work()
         config.rename_session("fix-api", "fix-api-renamed")
-        plan.require_done("fix-api")               # the name it was launched under still reaches it
-
-    def test_every_done_waits_for_the_plan_whoever_declares_it(self):
-        # a finished job declares its seat's done too, through the same door
-        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
-        with self.recorder() as sent, self.assertRaisesRegex(notify.Refused, "still open"):
-            notify.shaped("done", "job x: all 2 tasks finished", session="fix-api",
-                          event_id="job:x:1")
-        sent.assert_not_called()
+        self.assertEqual(plan.verify("fix-api"), [])   # the name it was launched under still reaches it
 
     def test_a_checkout_with_another_branch_out_still_proves_its_line(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
@@ -941,17 +755,16 @@ class PlanLines(Sandbox):
         config.plan_path("fix-api").write_text("# The plan\n\n- [x] b4 each session sees its project (#359)\n"
                                                 "  - [x] the docs say `ak plan` ticks lines\n"
                                                 "- see [the guide](docs/guide.md) and [x]\n")
-        self.assertEqual(plan.require_done("fix-api"), set())     # nothing refused, nothing to prove
+        self.assertEqual(plan.verify("fix-api"), [])     # nothing open, nothing to prove
 
     def test_a_plan_that_cannot_be_read_never_counts_as_done(self):
         self.ak("add", "the feature exists", "--check", "test -f feature.txt")
         path = config.plan_path("fix-api")
         path.chmod(0)
         self.addCleanup(path.chmod, 0o600)
-        with self.recorder() as sent, \
-                self.assertRaisesRegex(config.Error, "cannot read the plan"):
-            notify.main(["done", "Shipped"])
-        sent.assert_not_called()
+        with self.assertRaisesRegex(config.Error, "cannot read the plan"):
+            plan.verify("fix-api")
+        self.assertIsNone(plan.finished("fix-api"))
 
     def test_a_check_holding_the_done_words_keeps_its_line_whole(self):
         check = "grep -q ' · done ' notes.txt"
@@ -979,7 +792,7 @@ class PlanLines(Sandbox):
         path.write_text(f"- [ ] agentkit has it · check: `true` · {plan.named(own)} · written 2026-10-04 21:00\n")
         self.assertIn("1  - [x] agentkit has it", self.listed())
 
-    def test_a_renamed_seats_done_reads_the_plan_it_still_writes(self):
+    def test_a_renamed_seats_checks_read_the_plan_it_still_writes(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
         config.rename_session("fix-api", "fix-api-renamed")   # the plan file moves with it
         older = config.plan_path("fix-api-renamed")
@@ -987,8 +800,8 @@ class PlanLines(Sandbox):
         os.utime(older, (1, 1))
         # the seat goes on writing its plan under the name it was launched with
         config.plan_path("fix-api").write_text(line + "\n")
-        with self.assertRaisesRegex(config.Error, "the feature exists"):
-            plan.require_done("fix-api-renamed")
+        self.assertIn("the feature exists", "\n".join(plan.verify("fix-api-renamed")))
+        self.assertTrue(stop.owed("fix-api-renamed"))
 
     def test_a_line_runs_in_the_checkout_it_names_wherever_the_seat_is_filed(self):
         beta = config.CODE / "beta"
