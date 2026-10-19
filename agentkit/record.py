@@ -97,27 +97,32 @@ def process_active(state):
 
 
 @contextmanager
-def recovery_lock(run_dir):
+def recovery_lock(run_dir, wait=True):
     """Serialize reaping, acknowledgment and launch handoff; never hold across model work.
 
     Reentrant within a thread, and counted here because flock is not: `save_state`
     takes it for every write it makes, and `reap`, `cmd_stop` and the launch handoff
-    hold it across the read-decide-write the save is the end of.
+    hold it across the read-decide-write the save is the end of.  Yields whether it is
+    held: without `wait`, False when another holds it.
     """
     held = getattr(_RECOVERY_HELD, "paths", None)
     if held is None:
         held = _RECOVERY_HELD.paths = set()
     mine = str(run_dir)
     if mine in held:
-        yield
+        yield True
         return
-    held.add(mine)
-    try:
-        with (Path(run_dir) / RECOVERY_LOCK).open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            yield
-    finally:
-        held.discard(mine)
+    with (Path(run_dir) / RECOVERY_LOCK).open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except BlockingIOError:
+            yield False
+            return
+        held.add(mine)
+        try:
+            yield True
+        finally:
+            held.discard(mine)
 
 
 def _in_line(state):

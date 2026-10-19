@@ -1394,7 +1394,8 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
 
 
 def riding(session):
-    """The deferred hand-backs a prompt starting a turn in `session` carries, told as it does.
+    """The deferred hand-backs a prompt starting a turn in `session` carries, told as it does,
+    and the `is live` lines owed to it (`gone_live`).
 
     A hand-back waits for a quiet prompt, but a seat can start its next turn first -- the
     owner's message, or another ending typed -- and find the run ended by itself; the line
@@ -1424,9 +1425,58 @@ def riding(session):
                     lines.append(line)
         except (config.Error, OSError, ValueError, KeyError, TypeError):
             continue        # left waiting: the tick types it at the next quiet prompt
+    lines += gone_live(session)
     if not lines:
         return ""
     return "Runs you have not been told about yet:\n" + "\n".join(lines)
+
+
+def live_line(state, run_dir, fit=True):
+    """The line telling a seat its merged run is live, fitted to a typed line (`seat_notice`)."""
+    line = f"run {run_dir.name} is live: {state['pr']}."
+    return seat_notice(line, state, run_dir, f"run {run_dir.name} is live.") if fit else line
+
+
+def live_owed(state):
+    """A merge gone live whose seat owes work, its line neither typed nor told."""
+    return bool(state.get("merged") and state.get("live_at") and state.get("pr")
+                and not state.get("live_notified") and not state.get("live_typed")
+                and not seat_owes_nothing(state))
+
+
+def gone_live(session):
+    """The `is live` lines a prompt starting a turn in `session` carries, told as it does.
+
+    The tick types such a line under the seat's lock, asking before each key whether it is
+    still owed (`watch.after_merge_health`), so a prompt takes these under that lock too, and
+    only while it is free: held, ak is typing into the seat this moment, perhaps this very
+    prompt, and the lines stay the tick's.  Each is marked as the tick marks it, under the
+    run's recovery lock, which a rename or an acknowledgment holds to write the whole record;
+    a held one is passed over, so the prompt never waits.
+    """
+    lines, resolved = [], {}
+    with notify.session_lock(session, wait=False) as free:
+        if not free:
+            return lines
+        for run_dir in run_record.run_dirs():
+            try:
+                state = run_record.read_state(run_dir)
+                if (not state or not state.get("live_at") or state.get("live_notified")
+                        or transitions.launched_session(state, resolved) != session):
+                    continue
+                line = None
+                with run_record.recovery_lock(run_dir, wait=False) as held:
+                    if not held:
+                        continue
+                    with run_record.record(run_dir) as current:
+                        if live_owed(current):
+                            line = live_line(current, run_dir)
+                            current["live_notified"] = time.time()
+                if line:
+                    lines.append(line)
+            except (config.Error, OSError, ValueError, KeyError, TypeError):
+                continue    # left owed: the tick types it at the next quiet prompt
+    return lines
 
 
 def announce_safely(state, run_dir, log, cfg=None):

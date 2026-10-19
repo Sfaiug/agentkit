@@ -6378,7 +6378,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
     if not dry_run:
         history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     if not st.get("live_notified"):
-        line = f"run {run_dir.name} is live: {pr_url}."
+        line = handback.live_line(st, run_dir, fit=False)
         if dry_run:
             log(f"would tell its launching seat: {line}")
             return "passed", None, None
@@ -6398,8 +6398,14 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 with run_record.record(run_dir) as current:
                     current["live_typed"] = mark
 
-            line = handback.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
-            if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
+            def told(_held):
+                # a prompt starting the seat's turn may have carried it since this pass read
+                # the run (`handback.gone_live`), which it does under the lock this is asked in
+                return bool((run_record.read_state(run_dir) or {}).get("live_notified"))
+
+            line = handback.live_line(st, run_dir)
+            if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept,
+                              stale=told):
                 with run_record.record(run_dir) as current:
                     current["live_notified"] = now
                     current.pop("live_typed", None)
