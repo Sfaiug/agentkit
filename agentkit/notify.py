@@ -1256,7 +1256,7 @@ def done_transition(session, card, answer, now, completion):
         _card_write(session, card)
         return 0
     if not (declared and declared.get("completion") == completion):
-        _intent(session, now)     # work the plan proved since any declaration: nobody declared it
+        _intent(session, now)     # work the plan proved, which nobody declared
     return _send_card(session, "done", card, answer, completion)
 
 

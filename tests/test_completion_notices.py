@@ -314,6 +314,7 @@ class CompletionNotices(Sandbox):
                 self.declare('The replacement seat shipped')
                 self.assertEqual(len(self.posted()), 2,
                                  'unknown creation cannot identify the replacement as old work')
+                plan.forget(self.name)  # first: a finished plan at rest is done, nobody declaring it
                 self.internal_turn()
                 self.declare('A later declaration retains the original episode rule')
                 self.assertEqual(len(self.posted()), 3)

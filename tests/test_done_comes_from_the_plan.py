@@ -1,6 +1,8 @@
 """Done comes from the plan: a seat at rest whose every plan line is proven reads `done` and
 sends one Done card, with nobody running `ak notify done` (owner, 19 Oct 2026).  It sends one
-card per piece of work the plan finishes: a later turn over the same plan sends none.  A seat
+card per piece of work the plan finishes: a later turn over the same plan sends none, its card
+file lost or not, and work proven after a declaration sends its own.  A plan holding none of
+the seat's verified work, only what its runs delivered, sends none.  A seat
 with no plan finished is `idle`, and one whose plan still owes a line is the owner's.  A run's
 merge runs the seat's plan checks, so a line it proved ticks before the seat hears of it.
 
@@ -11,6 +13,7 @@ local webhook.
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import threading
@@ -113,6 +116,50 @@ class DoneFromThePlan(Sandbox):
         self.plan("- [x] the API answers", "- [x] the export works")    # new work, finished
         self.tick()
         self.assertEqual(len(self.done_cards()), 2)
+
+    def test_the_outbox_remembers_carded_work_when_the_card_file_is_lost(self):
+        self.plan("- [x] the API answers")
+        self.tick()
+        config.card_path(self.name).unlink()
+        self.tick()
+        self.assertEqual(len(self.done_cards()), 1)
+
+    def test_work_proven_after_a_declaration_cards_without_another(self):
+        self.plan("- [x] the API answers")
+        self.assertEqual(notify.shaped("done", "the API answers", session=self.name), 0)
+        self.plan("- [x] the API answers", "- [x] the export works")
+        self.tick()
+        self.assertEqual(len(self.done_cards()), 2)
+
+    def test_a_plan_only_runs_delivered_cards_nothing_however_often_it_reads_done(self):
+        repo = self.root / "acme"
+        repo.mkdir()
+        (repo / "api.txt").write_text("shipped\n")
+
+        def git(*args):
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c",
+                                   "user.email=test@localhost", *args],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", "main")
+        git("add", ".")
+        git("commit", "-qm", "Ship API")
+        sha = git("rev-parse", "HEAD")
+        config.update_session(self.name, repo=str(repo))
+        self.plan(f"- [x] the API answers · check: `test -f api.txt` · {plan.named(repo)}"
+                  f" · deferred · written 1970-01-01 00:01 · done {sha}")
+        self.ended("api-fix", owner=self.name, merged=True, repo=str(repo),
+                   followup={"check": "test -f api.txt"})
+        self.tick()
+        self.assertEqual(self.word()["word"], "done")
+        late = self.ended("late-run", owner=self.name, state="running", started_at=self.now, pid=0)
+        self.tick()
+        self.assertEqual(self.word()["word"], "working")
+        state = json.loads((late / "run.json").read_text())
+        (late / "run.json").write_text(json.dumps({**state, "state": "pass", "reported": True,
+                                                    "merged": True, "finished_at": self.now}))
+        self.tick()
+        self.assertEqual(self.done_cards(), [])
 
     def test_no_plan_is_idle_and_an_owed_line_is_the_owners(self):
         self.tick()
