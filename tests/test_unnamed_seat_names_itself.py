@@ -9,11 +9,10 @@ adapters and a throwaway HOME; the hook runs as its harness runs it, JSON on std
 
 import json
 import os
+import subprocess
 import time
 import unittest
 from unittest.mock import patch
-
-from fixtures import hooks
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, menu, notify, orch, watch
@@ -64,11 +63,11 @@ class UnnamedSeatNamesItself(Sandbox):
                 (home / name).symlink_to(target)
         (config.STATE / f"stop-{SEAT}.json").write_text(json.dumps(
             {"session": SEAT, "turn": time.time() - 60, "blocks": blocks}))
-        done = hooks.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")], text=True,
-                         capture_output=True, input=json.dumps({"hook_event_name": "Stop",
-                                                                **payload}),
-                         env={"PATH": os.environ["PATH"], "HOME": str(home.parent),
-                              "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"})
+        done = subprocess.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")], text=True,
+                              capture_output=True, input=json.dumps({"hook_event_name": "Stop",
+                                                                     **payload}),
+                              env={"PATH": os.environ["PATH"], "HOME": str(home.parent),
+                                   "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"})
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)["reason"] if done.stdout.strip() else ""
 
