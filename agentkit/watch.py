@@ -6377,9 +6377,8 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 handback.mark_delivery(run_dir, st, live_typed=mark)
 
             # held from deciding to the mark, as a hand-back's is: a prompt starting a turn
-            # there may have carried this line since the pass read the run (`handback.riding`);
-            # both locks, as `reap` takes them, so no record written meanwhile drops the mark
-            with run_record.recovery_lock(run_dir), handback.delivery_lock(run_dir):
+            # there may have carried this line since the pass read the run (`handback.riding`)
+            with handback.delivery_lock(run_dir):
                 current = run_record.read_state(run_dir) or st
                 if current.get("live_notified"):
                     return "passed", None, None
