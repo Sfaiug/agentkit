@@ -85,7 +85,7 @@ def child():
         result = 0
         if op == "send":
             result = notify.shaped(args.get("kind", "needs"), args.get("text", "Continue the job?"),
-                                   session=args.get("session", "seat"), pr=args.get("pr"),
+                                   session=args.get("session", "seat"),
                                    paths=args.get("paths", []), event_id=args.get("event_id"),
                                    dry_run=args.get("dry", False))
         elif op == "retry":
@@ -259,7 +259,7 @@ class RequiredNotifications(unittest.TestCase):
         self.assertEqual(len(self.posts()), 1)
         for disabled in ("", "off"):
             with self.subTest(disabled=disabled):
-                self.call(kind="done", session=f"disabled-{disabled}",
+                self.call(session=f"disabled-{disabled}",
                           env={"AGENTKIT_DISCORD_WEBHOOK": disabled})
         self.assertEqual([e["status"] for e in self.events()].count("disabled"), 2)
         self.call(op="retry", now=50000)
@@ -312,20 +312,18 @@ class RequiredNotifications(unittest.TestCase):
         self.assertNotIn("notification_pending", self.state("runs/job/run.json"))
         self.assertEqual(self.event()["status"], "delivered")
 
-    def test_declaration_metadata_is_durable_and_attachments_are_refused(self):
+    def test_question_metadata_is_durable_and_attachments_are_refused(self):
         attachment = self.root / "result.bin"
         attachment.write_bytes(bytes(range(256)) + b"\x00\xffdeliverable")
-        self.call(kind="done", text="Whole job shipped", paths=[str(attachment)],
-                  exit_code=1)
+        self.call(text="Which branch?", paths=[str(attachment)], exit_code=1)
         self.assertEqual((self.events(), self.posts()), ([], []))
         self.assertFalse((self.root / ".agentkit/state/notify-seat.json").exists())
-        self.call(kind="done", text="Whole job shipped", pr=PR,
-                  http="network", event_id="whole-job:123")
+        self.call(text="Which branch?", http="network", event_id="whole-job:123")
         first = self.event()
         self.call(op="retry", now=10060)
         event = self.event()
-        self.assertEqual((event["status"], event["session"], event["kind"], event["pr"]),
-                         ("delivered", "seat", "done", PR))
+        self.assertEqual((event["status"], event["session"], event["kind"]),
+                         ("delivered", "seat", "needs"))
         self.assertEqual(event["files"], [])
         self.assertEqual(first["payload"], self.posts()[1]["payload"])
         self.assertTrue(event["source"].startswith("card:"))
@@ -428,7 +426,7 @@ class RequiredNotifications(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
         self.call(http="timeout")
         before = self.snapshot()
-        self.call(kind="done", dry=True)
+        self.call(text="Which branch?", dry=True)
         self.call(op="retry", dry=True, now=50000)
         self.call(op="watch", dry=True, now=50000)
         self.call(op="outgoing", dry=True)

@@ -73,10 +73,6 @@ class AskFirst(unittest.TestCase):
         self.assertEqual(notify.main(["needs", text]), 0)
         self.assertEqual(notify.last("seat")["text"], text)
 
-    def test_a_done_is_no_question(self):
-        self.assertEqual(notify.main(["done", CONTEXT]), 0)
-        self.assertEqual(notify.last("seat", include_seen=True)["text"], CONTEXT)
-
     def test_the_command_says_why_and_exits_2(self):
         done = subprocess.run([str(ROOT / "bin" / "ak"), "notify", "needs", CONTEXT, "--dry-run"],
                               capture_output=True, text=True, timeout=60,

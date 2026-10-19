@@ -333,7 +333,7 @@ class Rule(unittest.TestCase):
             config.plan_path(name).write_text(OWED)
             seats.append({"name": name, "exited": True, "legacy": False})
         orch.mark_owner_closed("paused")
-        notify.record("test", "done", "Shipped", time=now - 86400)
+        config.plan_path("test").write_text("- [x] Shipped\n")
         watch.seat_write("test", word="done", reason="Shipped", word_since=now - 86400)
         seats.append({"name": "test", "legacy": False})
         with patch.object(orch, "listing", return_value=seats):
@@ -361,7 +361,6 @@ class Rule(unittest.TestCase):
     def test_v5d_a_worker_posts_nothing_at_all(self):
         with patch.dict(os.environ, {"AK_RUN_ROLE": "worker"}):
             self.assertEqual(notify.shaped("needs", "May I?", session="seat"), 0)
-            self.assertEqual(notify.shaped("done", "Shipped", session="seat"), 0)
             self.stall_tick("working")
             self.stall_tick("working", pane="Please run /login", auth="Please run /login")
         self.assertEqual(self.requests, [])
@@ -371,7 +370,7 @@ class Rule(unittest.TestCase):
         with patch.dict(os.environ, {notify.SINK_ENV: SINK}), \
                 patch.object(notify.urllib.request, "urlopen",
                              side_effect=TimeoutError("the sink is down")):
-            self.assertEqual(notify.shaped("done", "A scratch run finished", session="seat"), 0)
+            self.assertEqual(notify.shaped("needs", "May I merge?", session="seat"), 0)
         event = json.loads(next(notify.outbox().glob("*.json")).read_text())
         self.assertEqual((event["status"], event["sink"]), ("pending", True))
         with patch.object(notify.time, "time", return_value=time.time() + 3600):
@@ -418,7 +417,7 @@ class Rule(unittest.TestCase):
 
     def test_v5d_the_suites_sink_wins_over_the_owners_webhook(self):
         with patch.dict(os.environ, {notify.SINK_ENV: "dry-run"}):
-            self.assertEqual(notify.shaped("done", "A scratch run finished", session="seat"), 0)
+            self.assertEqual(notify.shaped("needs", "May I merge?", session="seat"), 0)
         self.assertEqual(self.requests, [])
         self.assertIn(f"{notify.SINK_ENV} is set", self.err.getvalue())
         self.assertIn("went to the test sink", self.err.getvalue())
@@ -426,7 +425,7 @@ class Rule(unittest.TestCase):
         self.assertIn("went to the test sink", self.diversions.read_text())
         # one card per episode, so the sink half of the check gets its own seat
         with patch.dict(os.environ, {notify.SINK_ENV: SINK}):
-            self.assertEqual(notify.shaped("done", "And another one", session="other"), 0)
+            self.assertEqual(notify.shaped("needs", "Which branch?", session="other"), 0)
         self.assertEqual(len(self.requests), 1)
         self.assertTrue(self.requests[0][0].startswith(SINK), self.requests[0][0])
         self.assertNotIn(WEBHOOK, [url for url, _ in self.requests])
@@ -454,23 +453,6 @@ class Rule(unittest.TestCase):
 
     # --- (rule 10) a card is two words and the seat, nothing it said ---------
 
-    def test_v5d_a_done_card_carries_no_result(self):
-        long_text = "Parser fixed and the PR is up, see run 20260915-0001 and key abc123"
-        self.assertEqual(notify.main(["done", long_text]), 0)
-        self.assertEqual(len(self.posts), 1, self.posts)
-        payload = self.posts[0]
-        self.assertEqual(payload["content"], "✅ Done · seat <@42>")   # what a push shows
-        self.assertEqual(payload["username"], "agentkit")
-        self.assertNotIn("Parser", json.dumps(payload))
-        self.assertEqual(notify.last("seat")["text"], long_text)
-        event = json.loads(next(notify.outbox().glob("*.json")).read_text())
-        self.assertEqual((event["text"], event["message"].split(": ", 1)[1]), (long_text, long_text))
-        out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            self.assertEqual(notify.main(["done", long_text, "--dry-run"]), 0)
-        self.assertIn(long_text, out.getvalue() + err.getvalue())
-        self.assertEqual(len(self.posts), 1)   # a dry run posts nothing
-
     def test_v5d_a_needs_card_carries_no_question(self):
         long_text = "Which branch should this land on,\nand who owns the numbers below?"
         self.assertEqual(notify.main(["needs", long_text]), 0)
@@ -492,14 +474,6 @@ class Rule(unittest.TestCase):
         self.assertEqual(len(self.posts), 1, self.posts)
         self.assertEqual(self.posts[0]["content"], "🙋 Needs you · seat <@42>")
         self.assertNotIn("Use staging", json.dumps(self.posts[0]))
-
-    def test_v5d_a_done_with_no_runs_going_posts_at_once(self):
-        self.assertEqual(notify.main(["done", "Quick answer"]), 0)
-        self.assertEqual(len(self.posts), 1, self.posts)
-        self.assertEqual(self.posts[0]["content"], "✅ Done · seat <@42>")
-        events = [json.loads(path.read_text()) for path in notify.outbox().glob("*.json")]
-        self.assertEqual([(event["status"], event["session"]) for event in events],
-                         [("delivered", "seat")])
 
     # --- (rule 8) a run keeps its test origin --------------------------------
 

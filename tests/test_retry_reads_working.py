@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import notify, watch  # noqa: E402
+from agentkit import config, notify, watch  # noqa: E402
 
 SEAT = "acme-api"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -38,7 +38,7 @@ class RetryReadsWorking(Sandbox):
         self.assertEqual(self.word(""), RETRYING)       # a capture that failed says nothing
         self.assertEqual(self.word(PROMPT), ("idle", ""))  # the retry worked
         self.assertEqual(self.word(STALL), RETRYING)    # ... or ended on the error again
-        notify.record(SEAT, "done", "Shipped the parser", time=9990)
+        config.plan_path(SEAT).write_text("- [x] Shipped the parser\n")
         self.assertEqual(self.word(PROMPT), ("done", "Shipped the parser"))
 
     def test_a_login_is_no_retry(self):

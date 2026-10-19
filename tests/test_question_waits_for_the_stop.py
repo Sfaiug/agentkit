@@ -212,14 +212,6 @@ class QuestionWaitsForTheStop(Sandbox):
         answer = self.looked(PROMPT, self.stop())
         self.assertEqual((answer["word"], answer["reason"]), ("needs you", QUESTION))
 
-    def test_a_done_declared_after_it_in_the_same_turn_waits_for_his_answer(self):
-        self.hook("UserPromptSubmit", prompt="Build the acme parser.")
-        self.asks()
-        with patch.object(notify.time, "time", CLOCK), self.assertRaises(notify.Refused):
-            notify.main(["done", "Parser built."])
-        self.assertEqual(watch.seat_read(SEAT)["unasked"]["text"], QUESTION)
-        self.assertEqual(self.looked(PROMPT, self.stop())["word"], "needs you")
-
     def test_its_stop_puts_the_turns_end_on_record(self):
         self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()

@@ -87,8 +87,7 @@ class Notifications(unittest.TestCase):
         return result
 
     def answer(self, seat="seat"):
-        """The owner's prompt answers the seat's question, as its prompt hook records it: a
-        seat's done waits for it."""
+        """The owner's prompt answers the seat's question, as its prompt hook records it."""
         asked = notify.last(seat, include_seen=True)["time"]
         notify.answered(seat, max(time.time(), asked + 0.001))
 
@@ -140,35 +139,8 @@ class Notifications(unittest.TestCase):
                 if method == "POST" and payload["content"]
                 == f"{notify.title(kind, 'seat')} <@123456789012345678>"]
 
-    def test_a_cached_done_cannot_announce_a_running_job(self):
-        self.assertEqual(notify.shaped("needs", "Which API route?", session="seat"), 0)
-        self.answer()
-        pending = config.RUNS / "acme-run"
-        state = {"run_id": pending.name, "state": "running", "launched_session": "seat",
-                 "started_at": time.time(), "pid": 0}
-
-        def newer():
-            pending.mkdir()
-            (pending / "run.json").write_text(json.dumps(state))
-            self.assertEqual(notify.shaped("done", "Export ready pending its run",
-                                           session="seat"), 0)
-
-        self.interleaved_declarations("done", "Old API handback", newer)
-        self.assertEqual(len(self.cards("done")), 0)
-        state.update(state="pass", verdict="PASS", reported=True, finished_at=time.time())
-        (pending / "run.json").write_text(json.dumps(state))
-        self.assertEqual(notify.transition("seat"), 0)
-        self.assertEqual(len(self.cards("done")), 1)
-
-    def test_a_cached_done_cannot_replace_a_new_question(self):
-        self.interleaved_declarations("done", "Old API handback", lambda:
-            self.assertEqual(notify.shaped("needs", "Which export format?", session="seat"), 0))
-        self.assertEqual(len(self.cards("done")), 0)
-        self.assertEqual(len(self.cards("needs")), 1)
-        self.assertEqual(notify.last("seat")["text"], "Which export format?")
-
     def test_input_before_a_new_question_does_not_suppress_it(self):
-        for kind in ("done", "needs"):
+        for kind in ("needs",):
             with self.subTest(older=kind):
                 config.card_path("seat").unlink(missing_ok=True)
                 config.notify_path("seat").unlink(missing_ok=True)
@@ -190,13 +162,6 @@ class Notifications(unittest.TestCase):
                     self.interleaved_declarations(kind, "Which export format?", newer)
                 self.assertEqual(len(self.cards("needs")), 1)
                 self.assertEqual(notify.last("seat")["time"], 300.0)
-
-    def test_a_cached_question_cannot_page_for_completed_work(self):
-        self.interleaved_declarations("needs", "Which API route?", lambda: (
-            self.answer(), self.assertEqual(notify.shaped("done", "API shipped", session="seat"), 0)))
-        self.assertEqual(len(self.cards("needs")), 0)
-        self.assertEqual(len(self.cards("done")), 1)
-        self.assertEqual(notify.last("seat")["text"], "API shipped")
 
     def test_lifecycle_and_approved_payload(self):
         self.cli("needs", "Merge PR #7? yes/no")
@@ -224,38 +189,16 @@ class Notifications(unittest.TestCase):
 
         self.cli("needs", "Which branch?")   # the word never left: still the same episode
         self.assertEqual(len(self.requests), 1)
-        self.answer()
-        self.cli("done", "Shipped", "--pr", "https://github.com/me/repo/pull/7")
-        self.assertEqual([r[0] for r in self.requests], ["POST", "POST"])
-        payload = self.requests[-1][2]
-        self.assertEqual(payload["content"], "✅ Done · seat <@123456789012345678>")
-        self.assertEqual(payload["username"], "agentkit")
-        self.assertNotIn("Shipped", json.dumps(payload))
-        self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
-        self.assertEqual(menu.state({"name": "seat"}), "done")
-        count = len(self.requests)
-        self.cli("done", "Another job, another summary")     # same word: the episode stands
-        self.assertEqual(len(self.requests), count)
-        self.open_and_progress()
-        # a done is no question: opening and reading it leave it, and its episode, standing
-        self.assertEqual(menu.state({"name": "seat"}), "done")
-        self.cli("done", "Another job, another summary")
-        self.assertEqual(len(self.requests), count)
-        self.cli("needs", "One more decision?")
-        self.answer()
-        self.cli("done", "Second job finished")
-        self.assertEqual([r[0] for r in self.requests[count:]], ["POST", "POST"])
 
     def test_worker_guard_and_check_exception(self):
         log = self.root / "log.txt"
         env = {"AK_RUN_ROLE": "worker", "AK_RUN_LOG": str(log)}
-        for args in (("needs", "Please answer"), ("done", "Finished"),
-                     ("needs", "Preview", "--dry-run")):
+        for args in (("needs", "Please answer"), ("needs", "Preview", "--dry-run")):
             result = self.cli(*args, env=env)
             self.assertIn("AK_RUN_ROLE=worker", result.stdout)
             self.assertEqual(len(result.stdout.splitlines()), 1)
             self.assertEqual(result.stderr, "")
-        self.assertEqual(len(log.read_text().splitlines()), 2)  # dry-run does not append to the log
+        self.assertEqual(len(log.read_text().splitlines()), 1)  # dry-run does not append to the log
         self.assertFalse(config.notify_path("seat").exists())
         self.assertEqual(self.requests, [])
         self.assertIn("ok (200)", self.cli("--check", env=env).stdout)
@@ -347,29 +290,23 @@ sys.exit(p.returncode)
         self.assertEqual(len(self.requests), 1)
         self.cli("needs", "STRASSE?", "--session", "other")
         self.assertEqual(len(self.requests), 2)    # another seat is another episode
-        self.answer()
-        self.cli("done", "Finished")
-        count = len(self.requests)
         # Old records without a timestamp can still be displayed and replaced safely.
         config.notify_path("seat").write_text('{"kind":"needs","text":"Legacy?"}')
+        self.assertEqual(notify.last("seat")["text"], "Legacy?")
         self.cli("needs", "Legacy?")
-        self.assertEqual(len(self.requests), count + 1)
+        self.assertIsInstance(notify.last("seat")["time"], float)
 
     def test_concurrent_cli_repeats_post_once(self):
-        for kind in ("needs", "done"):
-            if kind == "done":
-                self.answer()
-            with ThreadPoolExecutor(max_workers=5) as pool:
-                list(pool.map(lambda _: self.cli(kind, "Same message?"), range(5)))
-        self.assertEqual([r[0] for r in self.requests], ["POST", "POST"])
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            list(pool.map(lambda _: self.cli("needs", "Same message?"), range(5)))
+        self.assertEqual([r[0] for r in self.requests], ["POST"])
 
     def test_an_answered_question_is_never_edited(self):
         for job in range(3):
-            self.cli("needs", f"Question {job}?")
-            self.answer()
-            result = self.cli("done", f"Finished {job}")   # a job apiece
+            result = self.cli("needs", f"Question {job}?")   # a question apiece
             self.assertEqual((result.stdout, result.stderr), ("", ""))
-            self.assertEqual([r[0] for r in self.requests[-2:]], ["POST", "POST"])
+            self.answer()
+        self.assertEqual({r[0] for r in self.requests}, {"POST"})
         self.cli("needs", "A changed webhook?")
         count = len(self.requests)
         changed = self.url.replace("/hook", "/new")
@@ -384,8 +321,8 @@ sys.exit(p.returncode)
     def test_dry_run_does_not_record_or_close_questions(self):
         self.cli("needs", "Waiting?")
         before = config.notify_path("seat").read_bytes()
-        payload = json.loads(self.cli("done", "FAIL: tests", "--dry-run").stdout)
-        self.assertEqual(payload["content"], "✅ Done · seat <@123456789012345678>")
+        payload = json.loads(self.cli("needs", "Which branch?", "--dry-run").stdout)
+        self.assertEqual(payload["content"], "🙋 Needs you · seat <@123456789012345678>")
         self.assertEqual(config.notify_path("seat").read_bytes(), before)
         self.assertEqual(len(self.requests), 1)
 

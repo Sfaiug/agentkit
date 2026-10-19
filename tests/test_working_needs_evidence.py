@@ -214,7 +214,7 @@ class SeatNeverSaysWorking(Sandbox):
 
     def test_v5n_row_word_matches_status_word(self):
         seat = {"name": "seat", "created": 100}
-        notice = {"kind": "done", "text": "Checks passed", "time": 1000,
+        notice = {"kind": "needs", "text": "Which branch?", "time": 1000,
                   "opened_at": None, "last_progress_at": None}
         cases = [({"word": "idle", "state": "at_prompt", "since": 500,
                    "began": 500, "authority": "screen",
@@ -279,15 +279,13 @@ class SeatNeverSaysWorking(Sandbox):
         self.assertTrue(ok)
         self.assertEqual(events, ["capture", "send", "send"])
 
-    def test_v5n_notice_outranked_by_working(self):
+    def test_v5n_finished_plan_outranked_by_working(self):
         seat = {"name": "seat", "created": 100}
-        notice = {"kind": "done", "text": "Checks passed", "time": 1000,
-                  "opened_at": None, "last_progress_at": None}
+        config.plan_path("seat").write_text("- [x] Checks passed\n")
         live_new = {"word": "working", "state": "working", "since": 2000,
                     "began": 2000, "authority": "hooks",
                     "rule": "UserPromptSubmit", "evidence": ""}
         with patch.object(watch, "live_state", return_value=live_new), \
-                patch("agentkit.menu.notify.last", return_value=notice), \
                 patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \
                 patch.object(watch, "load_state", return_value={"stalls": {}}):
             self.assertEqual(menu.status(seat)[0], "working")
@@ -298,7 +296,6 @@ class SeatNeverSaysWorking(Sandbox):
                     "began": 500, "authority": "screen",
                     "rule": "prompt.composer", "evidence": ""}
         with patch.object(watch, "live_state", return_value=live_old), \
-                patch("agentkit.menu.notify.last", return_value=notice), \
                 patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \
                 patch.object(watch, "load_state", return_value={"stalls": {}}):
             self.assertEqual(menu.status(seat)[0], "done")

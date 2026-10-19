@@ -34,7 +34,7 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 - Runs already going are never stopped for a process change: the change applies to the next launch.
 - A changed fact about a running task means `ak run stop <id> --keep` and a relaunch with `from: <branch>`, never steering the run.
 - Before planning work in a repository, read its `ak run status --history` summary line.
-- Your plan is `ak plan`: one line per outcome, written with `ak plan add "<outcome>" --check '<command>'` (a check that fails on the default branch until the work is done); `ak plan check N '<command>'` puts your own test in place of a line's check, such as a review follow-up's probe; ak ticks a check line itself once its check passes on the default branch, and `ak notify done` waits for every line of the seat's own. It is the progress bar the user sees.
+- Your plan is `ak plan`: one line per outcome, written with `ak plan add "<outcome>" --check '<command>'` (a check that fails on the default branch until the work is done); `ak plan check N '<command>'` puts your own test in place of a line's check, such as a review follow-up's probe; ak ticks a check line itself once its check passes on the default branch, and the seat's work is done once every line of its own is. It is the progress bar the user sees.
 
 ## When a run comes back
 
@@ -44,11 +44,11 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 
 ## Never stop
 
-A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), `ak notify done "<summary>"` because the whole job is finished, or a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`); a merged change of yours not yet live counts as waiting. With no open line of your own in your plan and no run of yours parked undecided, nothing is owed and a reply stands. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`), or a plan with nothing open: no open line of your own and no run of yours parked undecided. A merged change of yours not yet live counts as waiting. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
 
 ## Talk to the user
 
-- `ak notify done` once, when the whole job's work is finished, with what changed and where; never for a turn that only answered or discussed. Questions that do not block go into that message or wait in the terminal.
+- Your last message is the last thing the user reads: once the whole job's work is finished, it says what changed and where. Questions that do not block go into it or wait in the terminal.
 - The user is told nothing else: never progress, never a run's PR link, never a status.
 - Probe a cause or state before telling the user: a wrong cause costs more trust than a slow one.
 - Anything going out in the user's name (a mail to customers, legal text) is asked through the question prompt before it goes out.

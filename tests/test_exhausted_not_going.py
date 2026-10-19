@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, handback, menu, notify, orch, run, status, transitions, watch, worker
+from agentkit import config, handback, menu, orch, run, status, transitions, watch, worker
 from agentkit import record
 
 NOW = 1_800_000_000
@@ -93,7 +93,7 @@ class ExhaustedNotGoing(Sandbox):
         self.assertEqual(found["since"], NOW - 600)
         # ... above the seat's own last word, which would otherwise call it recovering,
         # and past its own age: nothing else will ever move it, so it stays his
-        notify.record("acme", "done", "Shipped it")
+        config.plan_path("acme").write_text("- [x] Shipped it\n")
         record.save_state(directory, {**state, "finished_at": NOW - 8 * 86400})
         found = self.decide()
         self.assertEqual((found["word"], found["reason"]),

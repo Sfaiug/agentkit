@@ -3164,8 +3164,8 @@ def maintenance(log=print):
     instead -- every three minutes, beside this same stamp and sweep -- and `ak run gc` does
     it on demand.
 
-    The endings are not among them.  A run launched from a seat is the orchestrator's to hand
-    back, and it does, with `ak notify done`; printing it to the owner as well opened the menu
+    The endings are not among them.  A run launched from a seat is handed back to that seat;
+    printing it to the owner as well opened the menu
     on a list of runs already reported, and on a smoke suite's throwaway runs besides.  What
     finished is in `r`, in the project overview and in `ak run status`.
     """

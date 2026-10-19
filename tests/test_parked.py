@@ -433,9 +433,9 @@ class Parked(unittest.TestCase):
                 for word, detail, live, notice in (
                         ("working", "", {"hooked": "working",
                                           "hooked_at": self.now - 20}, None),
-                        ("done", "Shipped it", {},
-                         {"kind": "done", "text": "Shipped it", "time": self.now}),
+                        ("done", "Shipped it", {}, None),
                         ("idle", "", {}, None)):
+                    config.plan_path("seat").write_text("- [x] Shipped it\n" if word == "done" else "")
                     with self.subTest(reason=reason, indexed=index is not None, word=word), \
                             patch.object(watch.notify, "last", return_value=notice):
                         found = watch.session_state(
@@ -742,8 +742,9 @@ class Parked(unittest.TestCase):
             for index in (None, transitions.supersession_index(records)):
                 for word, live, notice in (
                         ("working", {"hooked": "working", "hooked_at": self.now - 20}, None),
-                        ("done", {}, {"kind": "done", "text": "Shipped it", "time": self.now}),
+                        ("done", {}, None),
                         ("idle", {}, None)):
+                    config.plan_path("seat").write_text("- [x] Shipped it\n" if word == "done" else "")
                     with self.subTest(extra=extra, indexed=index is not None, word=word), \
                             patch.object(watch.notify, "last", return_value=notice), \
                             patch.object(watch, "seat_read", return_value=live), \

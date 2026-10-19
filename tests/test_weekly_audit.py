@@ -95,8 +95,7 @@ class Weekly(unittest.TestCase):
                          (week, str(report), None, None))
         self.assertEqual(state["line"], f"ak's week {week}: the largest loss is product runs ended "
                          f"without merging, 30% against 20% the week before; the board is at {report}. "
-                         "Build the smallest change to ak that moves it, through the line, and ak "
-                         "notify done once it is live. Quality, then speed, then cost: a gain in "
+                         "Build the smallest change to ak that moves it, through the line. Quality, then speed, then cost: a gain in "
                          "speed or cost while a quality measure gets worse is no win.")
         # no seat and no record: opened with the setting's roles, filed under ak; typed next tick
         self.ensure.assert_called_once_with(self.cfg, "audit", log=self.log.append, saved=False,

@@ -137,7 +137,7 @@ class DesktopAndBoot(Sandbox):
         self.assertEqual(len(self.posts), 1)
         self.assertIn("set -g allow-passthrough on", orch.tmux_conf().read_text())
 
-    def test_b_needs_done_shape_and_byte_identical_discord_payload(self):
+    def test_b_needs_shape_and_byte_identical_discord_payload(self):
         active, other = self.client("source"), self.client("menu")
         fixed = datetime(2026, 9, 14, 12, tzinfo=timezone.utc)
         working = {"word": "working", "since": 10000, "reason": ""}
@@ -146,11 +146,7 @@ class DesktopAndBoot(Sandbox):
             clock.now.return_value = fixed
             for kind, title, text, answer in (
                     ("needs", "Needs you", "Which branch?",
-                     {"word": "needs you", "since": 10000, "reason": "Which branch?"}),
-                    ("done", "Done", "Checks passed",
-                     {"word": "done", "since": 10100, "reason": "Checks passed"})):
-                if kind == "done":    # a seat's done waits for the answer to its question
-                    notify.answered("source", notify.last("source")["time"] + 1)
+                     {"word": "needs you", "since": 10000, "reason": "Which branch?"}),):
                 # The command records; the card follows the word, once per episode.
                 with patch.object(watch, "session_state", return_value=working):
                     self.assertEqual(notify.shaped(kind, text, session="source"), 0)
@@ -163,7 +159,7 @@ class DesktopAndBoot(Sandbox):
                 self.assertEqual(self.output(active), b"")
                 self.transition(answer, now=answer["since"] + 120)
                 self.assertEqual(self.output(other), b"")
-        self.assertEqual(len(self.posts), 2)
+        self.assertEqual(len(self.posts), 1)
         before = self.snapshot()
         notify.retry_pending()
         self.assertEqual(self.output(other), b"")
@@ -298,7 +294,8 @@ class DesktopAndBoot(Sandbox):
         notify.answered("source", notify.last("source")["time"] + 1)
         # A disconnected client does not prevent Discord's next event.
         with patch.object(notify.os, "write", side_effect=OSError("gone")):
-            self.assertEqual(notify.shaped("done", "Finished", session="source"), 0)
+            self.assertEqual(notify.shaped("needs", "Which branch now?", session="source"), 0)
+            self.assertEqual(notify.transition("source", now=notify.time.time() + 2 * notify.CARD_WAIT), 0)
         self.assertEqual(len(self.posts), 2)
 
     def test_dead_pane_with_recycled_tty_notifies_each_client_and_never_the_old_tty(self):

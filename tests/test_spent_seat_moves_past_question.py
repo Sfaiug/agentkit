@@ -147,7 +147,7 @@ class SpentSeat(SeatAccount):
     def test_a_wrapped_turn_prompted_since_or_done_since_stays_idle(self):
         cases = {"prompted": lambda: self.wrapped(self.entry(30, "user", "Thanks, stop here.")),
                  "done": lambda: (self.wrapped(),
-                                  notify.record(NAME, "done", "Both clips are rendered."))}
+                                  config.plan_path(NAME).write_text("- [x] Both clips are rendered.\n"))}
         for case, arrange in cases.items():
             with self.subTest(case), patch.object(orch, "resume", return_value="resumed"):
                 arrange()

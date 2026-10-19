@@ -50,14 +50,5 @@ class IdleAtRest(Sandbox):
         notify.record(SEAT, "needs", "Which schema should acme use?", time=9000)
         self.assertEqual(self.decide(), ("needs you", "Which schema should acme use?"))
 
-    def test_a_done_a_run_of_its_own_then_failed_is_still_the_owners(self):
-        """The card pass marks a done seen once a run of its own fails after it; the failure
-        stays the owner's, at rest as anywhere."""
-        failed = {"run_id": "r1", "launched_session": SEAT, "handed_back": True,
-                  "state": "fail", "verdict": "FAIL", "started_at": 8000, "finished_at": 9500}
-        notify.record(SEAT, "done", "all shipped", time=9000, seen=True)
-        self.assertEqual(self.decide(records=[(Path("r1"), failed)]),
-                         ("needs you", "run r1 failed; declaration dropped"))
-
 if __name__ == "__main__":
     unittest.main()

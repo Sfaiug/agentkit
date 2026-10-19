@@ -208,22 +208,6 @@ class Wait(Sandbox):
         self.assertTrue(any(line.startswith(f"WARN {SEAT}: its wait on {PR} cannot be read")
                             for line in self.logs), self.logs)
 
-    def test_e_a_newer_notify_done_replaces_the_wait(self):
-        self.receipt(THEIRS, OTHER)
-        self.wait(THEIRS)
-        self.assertEqual(self.decide(), ("working", f"waiting on {THEIRS}"))
-        config.plan_path(SEAT).unlink()         # nothing left owed: the plan line is done
-        with redirect_stdout(io.StringIO()):
-            self.assertEqual(notify.main(["done", "Shipped the parser"]), 0)
-        self.assertEqual(self.decide(), ("done", "Shipped the parser"))
-        self.assertIsNone(watch.seat_read(SEAT).get("wait"))
-        self.ended()
-        self.assertEqual(self.tick(), [])       # a replaced wait is told nothing
-        # ... and a newer wait replaces the done in turn
-        self.receipt("20260101-1000-other", OTHER)
-        self.wait("20260101-1000-other")
-        self.assertEqual(self.decide(), ("working", "waiting on 20260101-1000-other"))
-
     def hook(self, said=RECOMMENDATION):
         """hooks/orchestrator-stop.sh on this seat's Stop, as Claude Code runs it."""
         home, sockets = self.root / "hook-home", self.root / "sockets"

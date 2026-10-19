@@ -61,11 +61,9 @@ MATRIX = [
     ("orch rename", "usage: ak orch rename [--auto] [OLD] NEW", ["MISSING", "NEW"], {"--auto"}),
     ("orch project", "usage: ak orch project [SEAT] CHECKOUT", ["MISSING", "acme"], set()),
     ("notify", "usage: ak notify needs", ["--check"],
-     {"--session", "--dry-run", "--pr", "--check"}),
+     {"--session", "--dry-run", "--check"}),
     ("notify needs", "usage: ak notify needs", ["Question?", "--session"],
      {"--session", "--dry-run"}),
-    ("notify done", "usage: ak notify done", ["Summary", "--pr"],
-     {"--session", "--dry-run", "--pr"}),
     ("wait", "usage: ak wait PR_URL|RUN_ID", ["https://github.com/acme/api/pull/12"], set()),
     ("plan", "usage: ak plan", ["unexpected"], {"--check"}),
     ("update", "usage: ak update [--dry-run]", ["--dry-run"], {"--dry-run"}),
@@ -329,15 +327,10 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
 
     def test_notify_documented_variants_match_parsing(self):
         expected = [
-            (["needs", "Question?"], "shaped", ["needs", "Question?", None],
+            (["needs", "Question?"], "shaped", ["needs", "Question?"],
              {"session": None, "dry_run": False}),
             (["needs", "Question?", "--session", "seat", "--dry-run"], "shaped",
-             ["needs", "Question?", None], {"session": "seat", "dry_run": True}),
-            (["done", "Summary"], "shaped", ["done", "Summary", None],
-             {"session": None, "dry_run": False}),
-            (["done", "--session", "seat", "Summary", "--pr", "https://example.invalid/pr/1",
-              "--dry-run"], "shaped", ["done", "Summary", "https://example.invalid/pr/1"],
-             {"session": "seat", "dry_run": True}),
+             ["needs", "Question?"], {"session": "seat", "dry_run": True}),
             (["--check"], "check", [], {}),
         ]
         for args, call, parsed, kwargs in expected:
@@ -347,7 +340,7 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
                 self.assertEqual(json.loads(result.stdout),
                                  {"call": call, "args": parsed, "kwargs": kwargs})
         # The actual notify examples printed by every help variant must also parse.
-        for command in ("notify", "notify needs", "notify done"):
+        for command in ("notify", "notify needs"):
             text = self.cli([*command.split(), "--help"]).stdout
             example = next(line.removeprefix("Example: ") for line in text.splitlines()
                            if line.startswith("Example: "))
@@ -425,7 +418,7 @@ sys.exit(int(os.environ.get("HELP_WORKER_EXIT", "0")))
             (["orch", "rename"], "usage: ak orch rename"),
             (["notify"], "usage: ak notify"),
             (["notify", "needs", "Question?", "--file", "missing"], "was removed"),
-            (["notify", "done", "Summary", "--pr", "bad"], "--pr needs the PR's URL"),
+            (["notify", "done", "Summary"], "usage: ak notify needs"),
             (["notify", "needs", "Question?", "--session"], "--session needs a session name"),
             (["notify", "message", "--file"], "usage: ak notify"),
             (["notify", "message", "--dry-run"], "usage: ak notify"),

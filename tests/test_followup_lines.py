@@ -1,7 +1,7 @@
 """A review follow-up is a deferred line in the owning seat's plan: open until its check
-passes on the default branch, holding no `ak notify done` while a run of the seat is on its way
+passes on the default branch, owed by nobody while a run of the seat is on its way
 with its check, and ticking itself once its fix is on the default branch -- a delivery runs the
-check -- while a line no run has is the seat's own and holds its done.
+check -- while a line no run has is the seat's own and holds its turn.
 The hand-in and the weighing: tests/test_followups_never_block.py; the fix runs:
 tests/test_followup_runs.py.  Offline: a real repository and plan.
 """
@@ -122,24 +122,16 @@ class Planned(Sandbox):
             self.fix(**state)
             self.assertEqual(stop.owed(SEAT), state in ended_without_it, state)
             self.assertEqual(plan.open_lines(SEAT), [line])      # read so, never written
-        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
-            plan.require_done(SEAT)
-        self.fix(state="running")
-        plan.require_done(SEAT)
 
-    def test_a_delivery_whose_check_still_fails_goes_to_the_seat_after_its_done(self):
+    def test_a_delivery_whose_check_still_fails_goes_to_the_seat(self):
         self.deferred()
-        self.fix(state="running")
-        plan.still_done(SEAT, plan.require_done(SEAT))     # a done while the run is on its way
         for ending in ({"state": "pass", "merged": True}, {"state": "not_needed"}):
             state = self.fix(**ending, finished_at=time.time())
             run.settle_delivered_line(state, lambda _: None)      # as the run ends
             self.assertFalse(handback.routine_ending(state), ending)   # its ending goes to the seat ...
             self.assertTrue(stop.owed(SEAT), ending)             # ... and its turn is held
-        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
-            plan.require_done(SEAT)
         self.land("The seat builds what the run's delivery did not")
-        plan.still_done(SEAT, plan.require_done(SEAT))
+        self.assertEqual(plan.verify(SEAT), [])                  # ak plan ticks it
         self.assertFalse(plan.is_open(plan.lines(SEAT)[0]))
         self.assertEqual([what for _, what in plan.outcomes(SEAT)], [OUTCOME])   # the seat's work
 
@@ -203,15 +195,11 @@ class Planned(Sandbox):
         self.assertTrue(plan.deferred(line))
         self.assertEqual(plan.open_lines(SEAT), [line])
         self.assertEqual(plan.outcomes(SEAT), [])
-        proven = plan.require_done(SEAT)            # nothing owed: a done may be recorded ...
-        plan.still_done(SEAT, proven)
-        self.assertFalse(stop.owed(SEAT))                  # ... and no turn is held for it ...
+        self.assertFalse(stop.owed(SEAT))                  # nothing owed: no turn is held for it ...
         self.assertEqual(plan.open_lines(SEAT), [line])    # ... while the line stays open
         plan.add(SEAT, "Write the hero", "test -f hero.txt", self.repo,
                  proven=self.base)                         # ... and an owed line still holds it
         self.assertTrue(stop.owed(SEAT))
-        with self.assertRaisesRegex(config.Error, r"1 plan line\(s\) still open"):
-            plan.require_done(SEAT)
         # its fix lands: the check passes on the default branch and the line ticks
         self.land("Fix the follow-up")
         plan.verify(SEAT)

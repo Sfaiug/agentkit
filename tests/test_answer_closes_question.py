@@ -298,17 +298,6 @@ class AnswerClosesQuestion(Sandbox):
                                "<status>completed</status></task-notification>"})
                 self.assert_open()
 
-    def test_task_notification_cannot_end_on_a_done_from_before_its_turn(self):
-        notify.record(SEAT, "done", "Acme reads both schemas.")
-        for field in ("prompt", "message"):
-            with self.subTest(field=field):
-                self.prompt(**{field: "<task-notification><status>failed</status>"
-                               "</task-notification>"})
-                output = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
-                                   last_assistant_message="The background acme test run failed in fix-api.")
-                self.assertTrue(output, "background results still require the seat to act")
-                self.assertEqual(json.loads(output)["decision"], "block")
-
     def test_a_task_notifications_question_ends_nothing_with_work_open(self):
         for field in ("prompt", "message"):
             with self.subTest(field=field):
@@ -339,13 +328,6 @@ class AnswerClosesQuestion(Sandbox):
         self.assertFalse(notify.progress(SEAT, lambda: PROMPT + "\nThe schema is updated.",
                                          watch.seat_model(self.cfg, SEAT)[0]))
         self.assertTrue(watch.owner_question(notify.last(SEAT)))
-
-    def test_owner_prompt_leaves_a_done_standing(self):
-        notify.record(SEAT, "done", "Acme now reads both schemas.")
-        self.prompt()
-        self.assertEqual(notify.last(SEAT)["kind"], "done")
-        self.assertNotIn("answered_at", notify.last(SEAT))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

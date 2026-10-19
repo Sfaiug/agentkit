@@ -54,8 +54,7 @@ class FirstInLineFarPastItsUsual(unittest.TestCase):
         self.assertEqual(self.lines(NOW), [
             f"ak stalled: {WEB} has been first in line for a slot for 2h, more than 1h, with 0 "
             "behind it; `ak run status` shows what it waits on. Find why and build the smallest "
-            "change to ak that keeps it from happening again, through the line, and ak notify "
-            "done once it is live."])
+            "change to ak that keeps it from happening again, through the line."])
 
     def test_half_an_hour_holds_however_quick_the_firsts_let_in(self):
         self.firsts_let_in_after(60)

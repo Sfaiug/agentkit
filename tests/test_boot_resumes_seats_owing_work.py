@@ -60,7 +60,8 @@ class BootResumesOwingSeats(Sandbox):
         self.seat("running", run={"state": "running", "verdict": None})
         self.seat("landing", run={"state": "waiting", "verdict": None,
                                   "waiting_on": {"line": "acme"}})
-        self.seat("done", notice=("done", "fix-api is live."), run={"merged": True})
+        self.seat("done", run={"merged": True})
+        config.plan_path("done").write_text("- [x] fix-api is live\n")
         self.seat("idle")
         self.seat("closed", "PermissionRequest", notice=("needs", "Ship it?"))
         orch.mark_owner_closed("closed")

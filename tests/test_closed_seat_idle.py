@@ -5,7 +5,7 @@ owes work.
 anything, so it reads `idle`, its number still the way back in.  A seat whose harness went on its
 own (a crash, a host reboot) is the owner's while it owes work -- a line of its plan, a question
 kept for its turn's end, a run of its own undecided -- since nothing moves it until it is opened;
-with nothing owed it says what it said last (`done`) or rests.  Offline: a temporary HOME, no tmux.
+with nothing owed it is `done` where its plan is finished, or rests.  Offline: a temporary HOME, no tmux.
 """
 
 from pathlib import Path
@@ -50,7 +50,7 @@ class ClosedSeatIdle(Sandbox):
 
     def test_gone_on_its_own_owing_nothing_rests_or_says_done(self):
         self.assertEqual(self.decide(), ("idle", "session closed: press 3 to reopen"))
-        notify.record(SEAT, "done", "Shipped.", time=9000)
+        config.plan_path(SEAT).write_text("- [x] Shipped.\n")
         self.assertEqual(self.decide()[0], "done")
 
 

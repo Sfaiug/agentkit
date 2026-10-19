@@ -1,4 +1,4 @@
-"""An orchestrator turn ends with a question, a done, or a run to wait on; else it goes back.
+"""An orchestrator turn ends with a question, a run to wait on, or a finished plan; else it goes back.
 
 Offline and deterministic: hooks/orchestrator-stop.sh is run as its harness runs it -- the
 hook's own JSON on stdin -- against fake transcripts and a throwaway HOME, and the tick that
@@ -27,8 +27,9 @@ HOOK = REPO / "hooks/orchestrator-stop.sh"
 SEAT_STATE = REPO / "hooks/seat-state.sh"
 SEAT = "stop-seat"
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
-          "prompt or ak notify needs, no ak notify done, no run or pull request you are waiting on. "
-          "Continue: decide the next step and do it.")
+          "prompt or ak notify needs, no run or pull request you are waiting on, and an open line "
+          "in your plan. Continue: decide the next step and do it. ak plan checks every open line "
+          "and ticks the proven ones; nothing else ticks a line between runs.")
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 STOOD = 300     # longer than watch.STALL_WAIT: how long a tick lets a screen stand
 # The screen a Muse seat opens on, captured: its update notice, its banner and an empty
@@ -171,62 +172,13 @@ class StopHook(unittest.TestCase):
                         f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]))["reason"], REASON)
                 self.assertEqual(self.stop(f"{RECOMMENDATION}\n\n{asked}", background_tasks=[]), "")
 
-    def test_a_needs_or_done_recorded_this_turn_allows_the_stop(self):
-        for kind in ("needs", "done"):
-            with self.subTest(kind=kind):
-                self.latch(self.turn)
-                self.notified(kind, self.turn + 1)
-                self.assertEqual(self.stop(), "")
-
-    def test_a_notification_from_an_earlier_turn_does_not_allow_it(self):
-        self.notified("done", self.turn - 600)
+    def test_a_needs_recorded_this_turn_allows_the_stop_and_an_old_done_does_not(self):
+        self.notified("done", self.turn + 1)        # an older install's: it reads as nothing
         self.assertEqual(self.blocked(self.stop())["reason"], REASON)
-
-    def test_completion_changed_while_reading_work_is_read_before_the_native_stop(self):
-        for action in ("publish",):
-            with self.subTest(action=action):
-                self.setUp()
-                # A concurrent writer changes the notice while the hook reads its runs.
-                (self.home / "sitecustomize.py").write_text(f'''import json, os, time
-from pathlib import Path
-root = Path(os.environ["HOME"]) / ".agentkit"
-original = Path.iterdir
-changed = False
-def during_census(path):
-    global changed
-    if path == root / "runs" and not changed:
-        changed = True
-        notice = root / "state" / "notify-{SEAT}.json"
-        if {action!r} == "publish":
-            data = {{"session": {SEAT!r}, "kind": "done", "text": "Shipped the parser",
-                    "time": time.time()}}
-        else:
-            data = json.loads(notice.read_text())
-            data["seen"] = True
-        temporary = notice.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data) + "\\n")
-        temporary.replace(notice)
-    return original(path)
-Path.iterdir = during_census
-''')
-                output = self.stop(env={"PYTHONDONTWRITEBYTECODE": "1"})
-                self.assertEqual(output, "")
-
-    def test_a_completion_published_during_the_wait_check_holds_the_next_stop(self):
-        (self.home / "sitecustomize.py").write_text(f'''import json, os, time
-from pathlib import Path
-from agentkit import watch
-def during_wait(*args, **kwargs):
-    notice = Path(os.environ["HOME"]) / ".agentkit/state/notify-{SEAT}.json"
-    notice.write_text(json.dumps({{"session": {SEAT!r}, "kind": "done",
-                                  "text": "Shipped the parser", "time": time.time()}}) + "\\n")
-    return None
-watch.waiting_on = during_wait
-''')
-        self.assertEqual(self.blocked(self.stop())["reason"], REASON)
+        self.notified("needs", self.turn + 1)
         self.assertEqual(self.stop(), "")
 
-    def test_a_run_started_while_reading_completion_is_a_live_wait(self):
+    def test_a_run_started_while_reading_the_plan_is_a_live_wait(self):
         (self.home / "sitecustomize.py").write_text(f'''import json, os, time
 from pathlib import Path
 root = Path(os.environ["HOME"]) / ".agentkit"
@@ -237,26 +189,19 @@ def during_census(path):
     if path == root / "runs":
         censused = True
     return original_iterdir(path)
-def during_completion(path, *args, **kwargs):
+def during_plan(path, *args, **kwargs):
     global started
-    if censused and not started and path == root / "state/notify-{SEAT}.json":
+    if censused and not started and path == root / "state/plan-{SEAT}.md":
         started = True
         directory = root / "runs/late-work"
         directory.mkdir()
         (directory / "run.json").write_text(json.dumps({{"run_id": "late-work",
             "launched_session": {SEAT!r}, "state": "running", "started_at": time.time()}}))
     return original_read(path, *args, **kwargs)
-Path.iterdir, Path.read_text = during_census, during_completion
+Path.iterdir, Path.read_text = during_census, during_plan
 ''')
         self.assertEqual(self.stop(), "")
         self.assertTrue((self.runs / "late-work/run.json").is_file())
-
-    def test_a_seen_current_done_keeps_the_native_stop_policy(self):
-        self.notified("done", self.turn + 1)
-        path = self.state / f"notify-{SEAT}.json"
-        note = json.loads(path.read_text())
-        path.write_text(json.dumps({**note, "seen": True}) + "\n")
-        self.assertEqual(self.stop(), "")
 
     def test_a_boolean_run_stamp_is_not_a_new_launch(self):
         for stamp in (True, False, "later", None):
@@ -376,7 +321,7 @@ Path.iterdir, Path.read_text = during_census, during_completion
                    "background_tasks": [watching], "stop_hook_active": False}
         self.assertEqual(self.blocked(self.stop(said=None, **payload))["reason"], REASON)
         self.assertEqual(self.read_as(), ("working", "Stop/held"))
-        self.notified("done", time.time())
+        (self.state / f"plan-{SEAT}.md").write_text("- [x] the parser parses\n")   # nothing owed
         self.assertEqual(self.stop(said=None, **payload), "")
         self.assertEqual(self.read_as(), ("at_prompt", "Stop"))
         # ... while a background agent beside it is still work the seat waits on
@@ -570,7 +515,7 @@ class StopNudge(unittest.TestCase):
 
     # --- the rule, as a tick reaches it -------------------------------------
 
-    def test_a_prompt_with_no_question_no_done_and_no_run_is_typed_into_once(self):
+    def test_a_prompt_with_no_question_no_run_and_work_owed_is_typed_into_once(self):
         self.stopped(RECOMMENDATION)
         self.tick()
         self.assertEqual([call.args[1] for call in self.typed.call_args_list], ["continue"])
@@ -578,7 +523,7 @@ class StopNudge(unittest.TestCase):
         self.stopped("Still just a recommendation.")
         self.assertEqual(self.typed.call_count, 2)
 
-    def test_a_question_a_done_or_an_unfinished_run_holds_it_back(self):
+    def test_a_question_a_finished_plan_or_an_unfinished_run_holds_it_back(self):
         runs = [(Path("/runs/one"), {"launched_session": SEAT, "state": "running"})]
 
         def asked():
@@ -587,7 +532,7 @@ class StopNudge(unittest.TestCase):
 
         for label, prepare in (
                 ("a question asked with ak notify needs", asked),
-                ("a done", lambda: notify.record(SEAT, "done", "shipped")),
+                ("a finished plan", lambda: config.plan_path(SEAT).write_text("- [x] shipped\n")),
                 ("a run", lambda: self.records.extend(runs))):
             with self.subTest(case=label):
                 self.setUp()
@@ -654,60 +599,7 @@ class StopNudge(unittest.TestCase):
         self.stopped(RECOMMENDATION)                # ... and the first real turn is enforced
         self.assertEqual(self.typed.call_count, 1)
 
-    def test_a_done_from_a_turn_the_user_has_already_replied_to_does_not_exempt(self):
-        notify.record(SEAT, "done", "shipped")
-        self.stopped("The job is finished.")
-        self.typed.assert_not_called()          # the turn that said it is the one on screen
-        self.stopped(RECOMMENDATION)            # a turn later, under the same done
-        self.assertEqual(self.typed.call_count, 1)
-
-    def test_a_done_expires_when_a_turn_begins_after_it_however_that_turn_was_seen(self):
-        """A turn beginning after a done is the user's reply, and answers it.
-
-        The menu draws a row far oftener than cron ticks, so the turn that answers a done is
-        commonly one no tick ever sees running.  live_state stamps it for whoever looked, and
-        the words repeating is no reason to hold a done that has been answered.
-        """
-        notify.record(SEAT, "done", "shipped")
-        self.stopped("The job is finished.")
-        self.typed.assert_not_called()          # the turn that said it is the one on screen
-        self.draw(self.working("The job is finished."))     # a menu draw, between ticks
-        self.stopped("The job is finished.")    # ... and it stops on the same words again
-        self.assertEqual(self.typed.call_count, 1)
-
-    def test_a_done_never_seen_by_a_tick_does_not_exempt_the_job_after_it(self):
-        """Job A's done, job B's recommendation, and not one tick between them.
-
-        Every look at A belongs to the menu, so nothing binds the done at A's prompt and the
-        first tick to reach the rule is looking at B.  The turn B began is what answers it.
-        """
-        self.draw(self.working("Halfway through job A."))
-        notify.record(SEAT, "done", "shipped")      # A finishes and says so
-        self.draw(self.showing("Job A is finished."))            # a menu draw, not a tick
-        self.draw(self.working("Starting job B."))               # ... and another
-        self.stopped(RECOMMENDATION)                # the first tick sees only B, stopped
-        self.assertEqual(self.typed.call_count, 1)
-
-    def test_a_done_recorded_under_a_turn_a_menu_draw_saw_start_still_holds(self):
-        """The other way round: the turn began, then the done.  It is that turn's own."""
-        self.draw(self.working("Halfway through the job."))
-        notify.record(SEAT, "done", "shipped")
-        self.stopped("The job is finished.")
-        self.typed.assert_not_called()
-
     # --- what the user does in the composer is their business ---------------
-
-    def test_a_draft_typed_and_cleared_neither_answers_a_done_nor_reopens_an_episode(self):
-        """Editing a line and thinking better of it begins no turn and ends none."""
-        self.draw(self.working("Halfway through the job."))
-        notify.record(SEAT, "done", "shipped")  # recorded under the turn that just started
-        self.stopped("The job is finished.")
-        self.typed.assert_not_called()
-        for state in (self.drafting("The job is finished."),     # they start typing
-                      self.showing("The job is finished.")):     # ... and clear it again
-            self.draw(state)
-        self.stopped("The job is finished.")
-        self.typed.assert_not_called()          # the done it finished on still stands
 
     def test_a_draft_typed_and_cleared_does_not_earn_a_second_keystroke(self):
         self.stopped(RECOMMENDATION)
@@ -719,18 +611,6 @@ class StopNudge(unittest.TestCase):
         self.assertEqual(watch.seat_read(SEAT)["turn_began"], began)
         self.stopped(RECOMMENDATION)
         self.assertEqual(self.typed.call_count, 1)
-
-    def test_output_moving_under_one_long_turn_never_ages_that_turn_s_done(self):
-        """Mid-turn output is not a turn ending: only what it stopped on dates the done."""
-        for said in ("Reading the tests.", "Rewriting the parser."):
-            self.pane = self.working(said)      # ticks land inside one long turn
-            self.tick()
-        notify.record(SEAT, "done", "shipped")  # ... which says it is done and keeps talking
-        for said in ("Running the suite.", "Writing the summary."):
-            self.pane = self.working(said)
-            self.tick()
-        self.stopped("All of it is done.")
-        self.typed.assert_not_called()
 
     def test_a_missed_turn_clears_the_episode_the_last_nudge_belonged_to(self):
         self.stopped(RECOMMENDATION)
@@ -831,16 +711,9 @@ class StopNudge(unittest.TestCase):
         self.typed.assert_not_called()
 
     def test_a_dry_run_says_what_it_would_type_and_neither_types_nor_writes(self):
-        notify.record(SEAT, "done", "shipped")  # the one leg that would write on its own
         self.pane = self.showing(RECOMMENDATION)
         self.tick()
         before = watch.seat_read(SEAT)
-        self.tick(dry=True)
-        self.tick(dry=True)
-        self.typed.assert_not_called()
-        self.assertEqual(watch.seat_read(SEAT), before)
-        self.assertNotIn("would resume", " ".join(self.logs))   # the done still holds it
-        notify.clear(SEAT)
         self.tick(dry=True)
         self.typed.assert_not_called()
         self.assertIn("would resume", " ".join(self.logs))

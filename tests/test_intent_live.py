@@ -52,7 +52,7 @@ class IntentLive(Sandbox):
         for run, _, at in self.runs:
             history.start_run(run, repo="acme", started_at=at)
         with notify.session_lock("fix-api") as name:
-            notify._said(name, "done", "shipped", at=NOW - 2 * HOUR)
+            notify._intent(name, NOW - 2 * HOUR)
 
     def live(self):
         return history.dones(0, NOW)[0][2]

@@ -144,7 +144,7 @@ verdict() { [ "$NFAIL" = 0 ] && ok "$1"; }
                     result = subprocess.run(["bash", "-c", setup + '''
 smoke_home
 . "$REPO/tests/acceptance.sh"
-ak notify done "a seat in the suite's HOME speaks" >"$WORK/speak.log" 2>&1
+ak notify needs "Does a seat in the suite's HOME speak?" >"$WORK/speak.log" 2>&1
 finish
 '''], env=env, capture_output=True, text=True, timeout=60)
                     speak = work / "speak.log"

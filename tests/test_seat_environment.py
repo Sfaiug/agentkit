@@ -24,7 +24,7 @@ HARNESS = '''
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
 from agentkit import config, notify
-notify.record(os.environ[config.SESSION_ENV], "done", "Probe complete")
+notify.record(os.environ[config.SESSION_ENV], "needs", "Probe complete?")
 print(json.dumps({"home": str(config.HOME), "destination": notify.webhook(),
                   "sink_log": os.environ.get(notify.SINK_LOG_ENV, ""),
                   "mention": notify._secret(notify.USER_ID_ENV, "discord_user_id") or "",

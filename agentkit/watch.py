@@ -100,8 +100,8 @@ def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
     line = (f"{question} -- {url} at {sha[:12]}, reviewed by agentkit. The user was pinged with "
             "`ak notify needs`; wait for their yes or no here. On yes run `gh pr merge " + url
             + f" --squash --delete-branch --match-head-commit {sha}` -- it refuses if the author "
-            "has pushed since the review, and then the PR needs a new review, not a merge -- and "
-            "`ak notify done`; on no leave the PR as it is and say so.")
+            "has pushed since the review, and then the PR needs a new review, not a merge; on no "
+            "leave the PR as it is and say so.")
     # `=name:` -- the session, exactly, and its current pane: send-keys wants a pane target,
     # on whichever server holds the seat, which for a legacy one is not agentkit's own
     session = orch.find(name) or {"name": name}
@@ -790,7 +790,7 @@ def stop_marks(harness, pane, found, previous, at):
     `turn_began` is when the turn behind what is on the screen began, as near as anything
     watching can say it.  A seat caught working says it exactly.  A seat at its prompt saying
     something it was not saying at the last look says a turn ended between the two, and that
-    turn began no earlier than that look -- a bound, never later than the truth, so a `done`
+    turn began no earlier than that look -- a bound, never later than the truth, so a question
     recorded during the turn always falls inside it.  Mid-turn output moves nothing: only a
     seat at its prompt has ended anything.  The tighter of the two bounds is the one kept.
 
@@ -1420,7 +1420,8 @@ def recorded_error(harness, name):
 
 def limit_ended(harness, name):
     """Did that seat's harness end its latest turn for a spent subscription -- told the model to
-    wrap up, so it stopped without a refusal -- on a job not since reported done?"""
+    wrap up, so it stopped without a refusal -- on a job its plan does not prove done?"""
+    from . import plan as plan_mod
     record = config.session_records().get(name) if name else None
     if not record:
         return False
@@ -1430,9 +1431,7 @@ def limit_ended(harness, name):
         at = plugin.wrapped_up(record, cwd, plugin.conversation(record, cwd))
     except OSError:
         return False
-    notice = notify.last(name, include_seen=True)
-    return at is not None and not (notice and notice["kind"] == "done"
-                                   and notice.get("time", 0) >= at)
+    return at is not None and not plan_mod.finished(name)
 
 
 def interrupted_at(harness, name):
@@ -2260,15 +2259,12 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
       so the seat is working, unless a run below or a watcher's alert is his;
     * nobody is in the seat any more and its number is the way back in: one the owner closed
-      rests, `idle`, and one gone on its own needs them while it owes work, else what it said
-      last;
-    * it said it was done itself, a job never says it for it, nothing on its screen asks him
-      and it kept no question back for its turn's end
-      -- unless a run of its own still sits parked and undecided, which is him;
+      rests, `idle`, and one gone on its own needs them while it owes work, else is `done`
+      where its plan is finished;
     * otherwise it is at its prompt with nothing running: the owner's again where a watcher's
       alert or a question on its screen says so, or where something of its own is still theirs
-      (`still_owed`: work its plan owes, a done a run of its own then failed); with nothing
-      asked or owed it is `idle`.
+      (`still_owed`: work its plan owes, a question kept back); with nothing asked or owed it
+      is `done` where its plan is finished and no run of its own sits undecided, else `idle`.
 
     An ended run is its orchestrator's business: the run hands its ending back to the seat
     that launched it, so no reason ever names a run or sends him to one -- unless the
@@ -2427,25 +2423,18 @@ def start_look(launched):
         return None
 
 
-def still_owed(name, mine, index, stopped):
+def still_owed(name, stopped):
     """Why a seat with nothing running and nothing asked on its screen or in its notices is
     still the owner's, or None where it rests.  Work its plan owes is a turn the stop hook let
     stand on its third stop, or one a harness it cannot send back left: the stop hook's own test
     says which (`stop.owed_line`), so this word and the turn's end never disagree -- except after
     a turn the owner `stopped`: they are in the seat and know (owner, 14 Oct 2026).  So does a
-    question it kept back for its turn's end.  A done it said that a run of its own then
-    failed stays theirs after the card pass marks that done seen.  Any other ending of its runs
-    is typed into the seat at its next quiet prompt, so it is the seat's to act on, not theirs.
-    `mine` is the seat's own (run_dir, state) pairs, `index` their supersession index."""
+    question it kept back for its turn's end.  Any ending of its runs is typed into the seat at
+    its next quiet prompt, so it is the seat's to act on, not theirs."""
     from . import stop as stop_mod    # stop imports this module
     line = None if stopped else stop_mod.owed_line(name)
     if line is not None or seat_read(name).get("unasked"):
         return f"stopped with work open: {line}" if line else "stopped with work open"
-    declared = notify.last(name, include_seen=True)
-    if declared and declared["kind"] == "done" and not notify.job_done(declared):
-        failed = notify.failed_declaration(declared, mine, index)
-        if failed:
-            return f"run {failed[0]} failed; declaration dropped"
     return None
 
 
@@ -2495,8 +2484,8 @@ def owes_work(name, mine, index, at):
     supersession index."""
     from . import menu as menu_mod    # the menu imports this module
     last = notify.last(name)
-    return bool(parked_runs(mine, index, at) or (last and last["kind"] != "done")
-                or still_owed(name, mine, index, stopped=False) is not None
+    return bool(parked_runs(mine, index, at) or last
+                or still_owed(name, stopped=False) is not None
                 or any(resumes_itself(state, at) or transitions.unfinished(state, index=index)
                        or menu_mod.v5o_needs_look(state, index=index, now=at)
                        for _, state in mine))
@@ -2566,7 +2555,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # ... and so is a question it asked with `ak notify needs` that nothing has answered: it
     # asks, then gets on with the work that does not wait on the answer, so neither its runs
     # nor its turn going says he was not asked.  A seat nobody is in names its number below,
-    # and a watcher's own alert about the seat waits for its prompt (rung 6).
+    # and a watcher's own alert about the seat waits for its prompt (rung 5).
     if not gone and owner_question(last):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time"), "question": True}
@@ -2668,27 +2657,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             and not (seat_read(name).get("usage_refusal") or {}).get("told")):
         return {"word": "working", "reason": f"retrying: {found['stall']}",
                 "since": found.get("began")}
-    # Only the seat says it is done: a job's `all N tasks finished` is the job's word, handed to
-    # the seat, which says done once the whole of its work is.  Opening the seat, reading it and
-    # its redraws leave the seat's own standing until a newer notice, but a question on its
-    # screen or a question it kept back for its turn's end outranks it; typed text nobody sent
-    # only joins its reason.  Read here, once, for the live-check wait below and for rung 5.
-    if last and last["kind"] == "done" and (found.get("state") == "asking" or (
-            notify.job_done(last)) or seat_read(name).get("unasked")):
-        last = None
     # 3a. ... or a run of its own merged and its project has yet to prove itself live: ak's own
     # probe, read every tick (`awaiting_live`), so the stop hook, this word and the card it
     # decides agree that nothing here is his.  Only where nothing below is his either: a run
-    # parked or undecided (the hook's `unfinished`, which it puts first), a run failed after
-    # the seat's own done, or a watcher's alert keeps the word the rungs below give it.  That
-    # done is read as the card pass leaves it, dropped or not: its drop only marks it seen.
+    # parked or undecided (the hook's `unfinished`, which it puts first) or a watcher's alert
+    # keeps the word the rungs below give it.
     pending = [state for _, state in mine if awaiting_live(state, now=at)]
-    declared = notify.last(name, include_seen=True) if pending else None
     if pending and not (
             parked or any(transitions.unfinished(state, index=index) for _, state in mine)
-            or (last and last["kind"] != "done")
-            or (declared and declared["kind"] == "done" and not notify.job_done(declared)
-                and notify.failed_declaration(declared, mine, index))):
+            or last):
         newest = max(pending, key=lambda state: state.get("finished_at") or 0)
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
         return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
@@ -2721,33 +2698,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             return {"word": "idle", "since": None, "reason": closed(reason)}
         # One that went on its own is the owner's while it owes work: no ending is typed into a
         # seat nobody is in, so nothing moves it until it is opened.  With nothing owed it says
-        # what it said last, done, or rests.
+        # done where its plan is finished, or rests.
         reason = closed(f"session closed: press {where} to reopen")
         if owes_work(name, mine, index, at):
             return {"word": "needs you", "since": None, "reason": reason}
-        if not (last and last["kind"] == "done") and not plan_mod.finished(name):
+        if not plan_mod.finished(name):
             return {"word": "idle", "since": None, "reason": reason}
-    # 5. it said it was done, and nothing above it is still going. A run a later
-    # merged run replaced is neither failed nor unfinished: its work is done, elsewhere.
-    if last and last["kind"] == "done":
-        if index is None:
-            index = transitions.supersession_index(records)
-        failed = notify.failed_declaration(last, mine, index)
-        unfinished = [(d, state) for d, state in mine
-                      if transitions.unfinished(state, index=index)]
-        if failed:
-            return {"word": "needs you", "reason":
-                    f"run {failed[0]} failed; declaration dropped",
-                    "since": last.get("time")}
-        # nothing above is going, so a run still undecided waits on him: the stop hook's
-        # third stop stands on it, and this is where he hears
-        if unfinished:
-            run_dir, state = unfinished[0]
-            return {"word": "needs you", "since": last.get("time"), "reason":
-                    f"run {run_dir.name} parked: {handback.handback_reason(state)}"}
-        line = next((piece for piece in str(last["text"]).splitlines() if piece.strip()), "")
-        return {"word": "done", "reason": " ".join(line.split()), "since": last.get("time")}
-    # 6. at its prompt with nothing running: a watcher's alert, a question on its screen, or
+    # 5. at its prompt with nothing running: a watcher's alert, a question on its screen, or
     # nothing at all
     if last:
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
@@ -2767,11 +2724,18 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # Nothing running, asked or owed: a plan whose every line is proven is done, which ak reads
     # and nobody declares (owner, 19 Oct 2026); otherwise the seat rests and nothing on it is
     # the owner's to do -- a new seat, a conversation, a turn the owner stopped.
-    owed = still_owed(name, mine, index, found.get("interrupted"))
+    owed = still_owed(name, found.get("interrupted"))
     if owed is not None:
         return {"word": "needs you", "since": found.get("began"), "reason": owed}
     finished = plan_mod.finished(name)
     if finished:
+        # a run still undecided waits on him: the stop hook's third stop stands on it
+        if index is None:
+            index = transitions.supersession_index(records)
+        undecided = next(((d, s) for d, s in mine if transitions.unfinished(s, index=index)), None)
+        if undecided:
+            return {"word": "needs you", "since": found.get("began"), "reason":
+                    f"run {undecided[0].name} parked: {handback.handback_reason(undecided[1])}"}
         return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
     return {"word": "idle", "reason": "", "since": found.get("began")}
 
@@ -3914,39 +3878,17 @@ def window_ends(cfg, provider, name):
     return max(ends, default=None)
 
 
-def done_holds(name, live, notice, began, said, dry_run):
-    """Does that `done` speak for the turn the seat is stopped on, or for an earlier one?
-
-    Two ways of having answered it, and either is enough, because each catches what the other
-    cannot see.  A turn that began after it was recorded is the user's reply, so the job it
-    called finished is not the one stopped now -- the rule hooks/orchestrator-stop.sh applies
-    with the prompt hook's own record, and `turn_began` is what stands in for that record on a
-    harness with no hooks.  And the words it was first seen with are the ending it was about:
-    once the seat has said something else, it has been about nothing since, whether or not
-    anything was watching when the turn between them ran.
-    """
-    told = _stamp(notice.get("time"))
-    if told is not None and told < began:
-        return False
-    bound = live.get("stop_done")
-    if not isinstance(bound, list) or len(bound) != 2 or bound[0] != told:
-        if not dry_run:     # the words this done was the ending of, kept beside it
-            seat_write(name, stop_done=[told, said])
-        return True
-    return bound[1] == said
-
-
 def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     """The end-of-turn rule where no hook can hold it: a turn ends with a question asked through
-    `ak notify needs`, a done or a run or live job to wait on, and a seat that stopped on none
+    `ak notify needs`, a finished plan or a run or live job to wait on, and a seat that stopped on none
     of the three is told to get on with it.  A question mark on the screen asks nobody anything.
     An unnamed seat is told to name itself instead (`config.name_owed`).
 
     An unanswered question of this seat's own never reaches here -- health() leaves those
-    alone -- so what is left to read is the `done` on record and the runs and jobs.
+    alone -- so what is left to read is the plan and the runs and jobs.
 
     A run of its own parked and undecided holds the stop past a run going, an `ak wait` and a
-    `done`, as it holds the hook's.  A wait that is over is wait_over's to end, with
+    plan that owes nothing, as it holds the hook's.  A wait that is over is wait_over's to end, with
     the line saying what ended it: a bare keystroke typed first would take
     the prompt that line waits for, and leave the seat deciding without it.
 
@@ -3958,7 +3900,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
 
     The episode is `turn_began` and the output that turn stopped on, both of them stop_marks'
     to say, so a footer that repainted is the same episode and the same words after another
-    turn are a new one.  What answers a `done` is done_holds.  A seat with no turn marked at
+    turn are a new one.  A seat with no turn marked at
     all has ended none where anything could see it -- it is sitting at the prompt its harness
     opened on, showing a banner and not an answer -- and the rule has nothing to hold it to,
     just as the hook has nothing to judge a stop by before the first prompt of a session.
@@ -3997,10 +3939,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     wait = live.get("wait")
     if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return      # its wait is over: wait_over says so, and why, before any continue
-    ends, undecided = stop.recorded_ending(
-        name, records, question=question,
-        answer=lambda: bool(notice and notice["kind"] == "done" and done_holds(
-            name, live, notice, began, said, dry_run)))
+    ends, undecided = stop.recorded_ending(name, records, question=question)
     if ends:
         return
     parked = [directory.name for directory, _ in undecided]
@@ -4018,7 +3957,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     tail = pane_tail(pane)
     keys = config.name_owed(name) or keystroke(harness, tail)
     if dry_run:
-        log(f"would resume {name}, stopped with no question, no done and no run, with {keys!r}")
+        log(f"would resume {name}, stopped with work open, no question and no run, with {keys!r}")
         return
     current = pane_text(session)
     if (_decided_state(name, harness, current) != "at_prompt"
@@ -4026,7 +3965,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if type_into(session, keys, log):
         seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
-        log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
+        log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
 
 
 def _resume_on(cfg, name, log, account, continuing):
