@@ -355,7 +355,7 @@ Example: `› opus      claude   ‹ xhigh ›   97   97   97   4000`.
 
 `n` opens the new seat's row in its place on the main screen, on the next frame, wherever the
 highlight is: last under `no project`, with that heading where none is shown, numbered as the
-seat will be once made, every row after it numbered on, its state `new`. Its name cell holds a caret and, dim until a key, `a name, or ⏎`: letters, digits,
+seat will be once made, every row after it numbered on, its state `new`. Its name cell holds a caret and, dim until a key, the name Enter alone gives it: letters, digits,
 `-` and `_` type into it, lower case and at most `orch.NAME_CAP` of them, a space as `-`, and
 Backspace takes the last back. The line under it stays open while it is typed, the crew it
 starts with as a seat's crew reads (`menu.crew`): the last creation's `[defaults]`, each
@@ -379,8 +379,8 @@ and scroll them on a short screen, the role headings kept visible; ←/→ choos
 a click chooses, Enter starts from anywhere -- or, with every model spent and a role still
 empty, takes the highlight to it -- Esc goes back, and reviewers keep their last model, its mark
 shaking (Motion). Executors may be left empty: the orchestrator builds everything, its own
-`builds` mark filled and dim on both `n` and `c`. Enter on an empty name leaves `new`, then
-`new-2`, unnamed until its orchestrator knows the job and gives it the shortest name, at most
+`builds` mark filled and dim on both `n` and `c`. Enter on an empty name leaves a free one-word
+name of a Star Wars: The Clone Wars character (`orch.character_name`: `ahsoka`, `rex`), unnamed until its orchestrator knows the job and gives it the shortest name, at most
 three words, with `ak orch rename --auto <name>`. Once named, `--auto` changes nothing, prints
 the current name and exits 0; plain `ak orch rename` still renames. A seat can take back its own
 former name; another seat's former name stays reserved, with a variant chosen for a rename from

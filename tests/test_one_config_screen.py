@@ -60,6 +60,7 @@ orch.fresh_command = lambda cfg, name, seat=None, account=None: (["harness"], No
 config.catalog_now = lambda harness: [{"id": "claude-fable-5-1", "label": "Fable 5.1",
                                        "efforts": ["high", "xhigh", "max"]}]
 orch.launch = lambda name, model, *args, **kwargs: print(f"<launched {name} {model}>", flush=True)
+orch.CHARACTERS = ("new",)          # a seat nobody named is `new` here
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>",
                                                         flush=True)
 code = menu.loop(cfg)

@@ -17,6 +17,7 @@ class OpenWhatWasListed(Sandbox):
         self.calls = []
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.listed = self.stack.enter_context(patch.object(orch, "sessions", return_value=[]))
+        self.stack.enter_context(patch.object(orch, "CHARACTERS", ("new",)))   # unnamed: `new`, `new-2`
 
     def tmux(self, *args, **_kw):
         self.calls.append(args)

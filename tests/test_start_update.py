@@ -294,7 +294,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.wait_for(lambda: (self.root / "install.started").exists())
         screen.key(b"\x1b[B", "<draw old tidy-docs>")
         os.write(screen.master, b"n")
-        screen.when("a name, or")
+        screen.when(r"tab(\x1b\[[0-9;]*m)* models")     # the new row's key line, styled
         os.write(screen.master, b"acme-draft")
         screen.when("acme-draft")
         self.release("install")

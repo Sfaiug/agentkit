@@ -141,7 +141,6 @@ STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 BORN = " new"            # the name of the row `n` makes: none of a seat's, which holds no space
 BORN_KEYS = "⏎ start   tab models   esc back"
-BORN_HINT = ("a name, or ⏎", "a name, or enter")    # in the born row's name before a key
 PAST_KEYS = ("↑↓ move   ⏎ reopen   x remove   esc back", "j/k move   enter reopen   x remove   esc back")
 LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
@@ -1988,7 +1987,7 @@ def new_session(cfg, dry_run, keyboard=None, found=None):
         keyboard.give()
     if unnamed:
         taken = orch.taken_names()        # its name is chosen now: the picker may have waited
-        name = orch.unique_name("new", taken)
+        name = orch.character_name(taken)
     if dry_run:
         reviewers = selected[3] if len(selected) == 4 else cfg["defaults"].get("reviewers")
         print(f"would start {name}: {selected[0]}, workers {' '.join(selected[2])}"
@@ -2004,8 +2003,10 @@ def born(found):
     """What `n` makes on a terminal, wherever the highlight is: a seat born in its place under
     no project, which its runs or its orchestrator file it under once it knows the job
     (`orch.file_projectless`, `ak orch project`), with the last creation's executors and
-    reviewers (`orch.default_crew`), named as typed (`born_key`).  Off the listing in hand and
-    the usage cache, so the row is up on the next frame; Back where Esc ends a slow read."""
+    reviewers (`orch.default_crew`), named as typed (`born_key`), else the free character's name
+    it opens with (`orch.character_name`) until its orchestrator names it.  Off the listing in
+    hand and the usage cache, so the row is up on the next frame; Back where Esc ends a slow
+    read."""
     cfg = config.load()           # the last creation's [defaults], whichever process made it
     providers = waited(lambda: usage.collect(cfg), "new session", doing=LEFT)
     default, reason = orch.choose(cfg, providers)
@@ -2013,8 +2014,10 @@ def born(found):
     # every model spent: launched anyway, as `orch.choose` launches its default
     selected["orchestrator"] = selected["orchestrator"] or default
     selected["reviewers"] = selected["reviewers"] or [selected["orchestrator"]]
-    return {"cfg": cfg, "typed": "", "repo": None, "taken": orch.taken_names(found),
-            "providers": providers, "selected": selected, "default": default, "reason": reason}
+    taken = orch.taken_names(found)
+    return {"cfg": cfg, "typed": "", "repo": None, "taken": taken,
+            "name": orch.character_name(taken), "providers": providers, "selected": selected,
+            "default": default, "reason": reason}
 
 
 def born_groups(groups, born):
@@ -2044,17 +2047,17 @@ def born_groups(groups, born):
 
 
 def born_cells(born):
-    """How wide the born row's name is: what is typed and the caret, or the hint before a key."""
-    return 1 + terminal.cells(born["typed"] or BORN_HINT[not terminal.utf8()])
+    """How wide the born row's name is: what is typed and the caret, or its name before a key."""
+    return 1 + terminal.cells(born["typed"] or born["name"])
 
 
 def born_name(born, width):
     """The born row's name cell in `width` cells: what is typed so far in bold -- its end, as a
-    field shows it, where it runs past -- then the caret, and before a key, dim, that Enter
-    alone lets its orchestrator name it."""
+    field shows it, where it runs past -- then the caret, and before a key, dim, the name Enter
+    alone gives it."""
     caret = "▏" if terminal.utf8() else "_"
     typed = born["typed"][-(width - 1):] if width > 1 else ""
-    hint = "" if born["typed"] else terminal.cut(BORN_HINT[not terminal.utf8()], max(0, width - 1))
+    hint = "" if born["typed"] else terminal.cut(born["name"], max(0, width - 1))
     text = (terminal.styled(typed, "bold") + terminal.styled(caret, "accent")
             + terminal.styled(hint, "dim"))
     return text + " " * max(0, width - terminal.cells(typed) - 1 - terminal.cells(hint))
@@ -2109,13 +2112,15 @@ def born_models(born):
 
 
 def start_born(born, dry_run):
-    """Make the born seat and open it, filed under its project: by the name typed, else one its
-    orchestrator replaces (`unnamed`); a dry run only says what it would start.  The name, or
-    None where `orch.create` made nothing.  The names taken are read again: another menu may
-    have made a seat since the row opened, and `create` would write over its record."""
+    """Make the born seat and open it, filed under its project: by the name typed, else the
+    one the row showed, which its orchestrator replaces (`unnamed`); a dry run only says what it
+    would start.  The name, or None where `orch.create` made nothing.  The names taken are read
+    again: another menu may have made a seat since the row opened, and `create` would write
+    over its record, so a name taken since is another free character's."""
     taken = orch.taken_names()
     unnamed = not born["typed"]
-    name = orch.unique_name("new", taken) if unnamed else orch.session_name(born["typed"])
+    name = (orch.session_name(born["typed"]) if not unnamed else born["name"]
+            if born["name"] not in taken else orch.character_name(taken))
     selected = born["selected"]
     if dry_run:
         print(f"would start {name}: {selected['orchestrator']}, workers "

@@ -3679,6 +3679,38 @@ def parse(argv):
     return name, forced, forced_workers, dry_run
 
 
+# What a seat nobody named is called until its orchestrator names it for its job: a character of
+# Star Wars: The Clone Wars, one word each, so the menu reads names rather than `new-35`.
+CHARACTERS = tuple("""
+    ahsoka anakin skywalker kenobi yoda windu plo fisto luminara barriss aayla shaak quinlan
+    mundi koth gallia piell ropal sinube nahdar vebb jocasta huyang katooni petro zatt ganodi
+    byph gungi kalifa jinx
+    rex cody wolffe gregor fives echo hevy cutup droidbait jesse kix hardcase tup dogma appo
+    waxer boil bly gree ponds thire fox denal sinker boost comet colt slick keeli hunter
+    wrecker crosshair tech nala lama taun
+    dooku sidious palpatine ventress asajj maul savage opress talzin feral viscus daka karis
+    grievous gunray nute tambor poggle durd lok kalani trench tuuk whorm loathsom sobeck
+    tamson riff karina
+    padme amidala bail organa mothma chuchi riyo onaconda farr clovis rush deechi burtoni
+    amedda lott dod tarkin yularen argyus ackbar nossor tandin
+    satine korkie almec vizsla kryze bokatan ursa wren rook kast saxon gar
+    steela gerrera saw lux bonteri mina dendup rash cham syndulla numa gobi binks tarpals
+    lyonie tarfful wullffwarro chewbacca garnac dar smug
+    bane embo aurra bossk latts dengar highsinger robonino sugi seripas rumi moralo derrown
+    shahan twazzi todo boba gorr hondo pilf mukmuk falso
+    jabba ziro rotta gardulla arok oruba marlo snootles miraj scintel agruss atai
+    lawquane suu jek shaeeah zillo sionver boll gascon meebur wac artoo threepio letta jackar
+    cassie cryar trace rafa martez
+""".split())
+
+
+def character_name(taken, pick=secrets.choice):
+    """A name for a seat nobody named: one of CHARACTERS no seat or rename has, at random; once
+    every one is, one of them made unique (`unique_name`)."""
+    free = [name for name in CHARACTERS if name not in taken]
+    return pick(free) if free else unique_name(pick(CHARACTERS), taken)
+
+
 def unique_name(base, taken):
     """The base lowercased name made unique against taken names: `atoll`, then `atoll-2`.
 
@@ -4450,7 +4482,7 @@ def main(argv):
         unnamed = name is None
         if unnamed:
             taken = taken_names()       # its name is chosen now: the question may have waited
-            name = unique_name("new", taken)
+            name = character_name(taken)
     # A direct shell invocation keeps its working directory when no project is chosen.
     # The menu's n deliberately starts unassigned seats in ~/code instead.
     result = create(cfg, name, repo or cwd, forced, forced_workers, True, dry_run,

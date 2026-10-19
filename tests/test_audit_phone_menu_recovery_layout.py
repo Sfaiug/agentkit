@@ -178,7 +178,7 @@ class Picker(Sandbox):
                 patch.object(orch, "sessions", return_value=[]), \
                 patch.object(orch.usage, "collect", return_value={}), \
                 patch.object(orch, "launch"), patch.object(menu, "open_session"), \
-                redirect_stdout(io.StringIO()):
+                patch.object(orch, "CHARACTERS", ("new",)), redirect_stdout(io.StringIO()):
             self.assertEqual(menu.new_session(self.cfg, dry_run=False), "new")
         record = json.loads(config.session_path("new").read_text())
         self.assertEqual(record["orchestrator"], "astra")
@@ -683,16 +683,17 @@ class Phone(Sandbox):
             screen = self.picked(phone, title, "○■□")   # executing, not reviewing
         self.fits(screen, width, height)
         phone.keys("Enter")
-        # the unnamed seat opens in this terminal, and its bar keeps the key
-        screen = phone.until(STAND_IN, "new   astra", "Ctrl-b m  menu")
+        # the unnamed seat opens in this terminal by a character's name, and its bar keeps the key
+        screen = phone.until(STAND_IN, "astra", "Ctrl-b m  menu")
         self.fits(screen, width, height)
         bar = screen[-1]
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
+        first, = (name for name in orch.CHARACTERS if self.has_seat(name))
         # renamed the way an owner does, outside the menu; then the popup: c opens its models
         # and Esc comes back; Esc closes it; n starts a second seat and switches to it; a
         # number switches back; x stops this session, and the client falls back to the other
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(orch.main(["rename", "new", "Phone Audit"]), 0)
+            self.assertEqual(orch.main(["rename", first, "Phone Audit"]), 0)
         phone.menu("1  phone-au")
         phone.press("c")
         screen = phone.until("config · phone-audit", "esc back", prompt="esc back")
@@ -707,38 +708,38 @@ class Phone(Sandbox):
         phone.until(STAND_IN, absent=["esc leave"])
         phone.settled()                      # its screen goes before its process does
         phone.menu()
-        phone.press("n")                     # the old placeholder is held by the rename alias
+        phone.press("n")
         phone.until("tab models", prompt="esc back")
-        phone.keys("Enter")                  # the row's crew, as the last creation's: astra
-        phone.until("new-2  ", "Ctrl-b m  menu", absent=["esc leave"])
+        phone.keys("acme", "Enter")          # the row's crew, as the last creation's: astra
+        phone.until("acme  ", "Ctrl-b m  menu", absent=["esc leave"])
         phone.settled()
-        self.assertTrue(self.has_seat("new-2"))
-        phone.menu("1  phone-au", "2  new-2")     # in the order they were made
+        self.assertTrue(self.has_seat("acme"))
+        phone.menu("1  phone-au", "2  acme")     # in the order they were made
         phone.press("1")
         phone.until("   phone-a", absent=["esc leave"])   # its bar: line one cut on a phone
         phone.settled()
-        phone.menu("2  new-2")
+        phone.menu("2  acme")
         phone.press("2")
-        phone.until("new-2  ", absent=["esc leave"])
+        phone.until("acme  ", absent=["esc leave"])
         phone.settled()
         phone.menu()
         phone.press("x")                     # this session's, asked under its own row
-        phone.until("Stop new-2 and everything it runs?", "Keep", prompt="esc back")
+        phone.until("Stop acme and everything it runs?", "Keep", prompt="esc back")
         self.stop_answered(phone)
         # the session is gone, so the attach is over: the menu is back, no box, the stopped seat
         # off its project and on the past screen, numbered after every seat with a row, where
         # `x` takes it off at once
-        screen = phone.until("1  phone-audit", "p past", absent=["│", "new-2"],
+        screen = phone.until("1  phone-audit", "p past", absent=["│", "acme"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
-        self.assertFalse(self.has_seat("new-2"))
+        self.assertFalse(self.has_seat("acme"))
         self.assertEqual(self.marked(screen), 1)
         phone.press("p")
-        screen = phone.until("past sessions", "2  new-2", "x remove", prompt="esc back")
+        screen = phone.until("past sessions", "2  acme", "x remove", prompt="esc back")
         self.fits(screen, width, height)
         self.assertEqual(self.marked(screen), 2)
         phone.press("x")
-        screen = phone.until("1  phone-audit", "esc leave", absent=["new-2", "p past"],
+        screen = phone.until("1  phone-audit", "esc leave", absent=["acme", "p past"],
                              prompt="esc leave")
         self.whole_page(screen, width, height)
         phone.settled()

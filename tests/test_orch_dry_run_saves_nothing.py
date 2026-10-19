@@ -59,6 +59,7 @@ class DryRun(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK"):
             stack.enter_context(patch.object(config, name, home / name.lower()))
         stack.enter_context(patch.object(config, "CODE", root / "code"))
+        stack.enter_context(patch.object(orch, "CHARACTERS", ("new",)))   # unnamed: `new`
         config.ensure_dirs()
         stack.enter_context(patch.object(usage, "collect", return_value={}))
         stack.enter_context(patch.object(terminal.Keyboard, "take", return_value=False))
