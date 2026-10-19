@@ -115,6 +115,14 @@ state = "working"
 # narrow pane cuts the border's words short of its corner (`· always-appro─╯`, 1.0.46).
 [screen]
 composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
+# Only its command palette's `Edit Prompt in External Editor`, the one match `edit prompt`
+# leaves, hands the composer to $VISUAL, ak's editor, mid-turn too, each key typed once the
+# palette shows the one before it landed (1.0.46)
+editor = ["C-p", "edit prompt", "Enter"]
+editor_shows = ['│\s+search: ', '│\s+search: edit prompt\s']
+# It refuses that edit for a draft holding a pasted chip, `[Pasted: 40 lines]`, saying so in
+# its transcript, so such a draft holds ak's line back as any draft does
+editor_refuses = '\[Pasted:\s*\d+\s*lines?\]'
 # the first Esc on a draft turns the hints into `Esc:press again to clear` (1.0.46)
 footer = ['Shift\+Tab:mode.*', 'Enter:send.*', 'Esc:press again to clear']
 # A line taller than the box scrolls inside it, the box's last rows showing, with a scrollbar

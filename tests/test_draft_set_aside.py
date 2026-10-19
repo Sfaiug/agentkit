@@ -134,6 +134,15 @@ class DraftSetAside(Seats):
         self.tick()
         self.assertEqual((self.composer, self.sent, self.told()), (DRAFT, [LINE], True))
 
+    def test_a_draft_its_harness_never_hands_to_an_editor_holds_the_line_back(self):
+        # Grok 1.0.46 refuses it for a draft holding a pasted chip, saying so in its transcript
+        chip = (REPO / "tests/fixtures/grokbuild-pasted-chip-pane.txt").read_text()
+        with patch.object(watch, "seat_model", return_value=("grokbuild", "xai")):
+            where = watch.seat_editor(self.seat, self.cfg)
+            plain = chip.replace("Pasted: 40 lines", "and more")
+            for self.pane, standing in ((chip, False), (plain, True)):
+                self.assertEqual(watch.draft_standing(self.seat, where, self.cfg), standing)
+
     def test_text_kept_comes_back_only_into_an_empty_composer_and_goes_with_its_pane(self):
         self.buffers = {aside_editor.kept(PANE): DRAFT.encode(), aside_editor.kept("%3"): b"x"}
         self.show("newer words")

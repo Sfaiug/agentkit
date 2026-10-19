@@ -157,9 +157,10 @@ A merged (`PASS merged`) or not-needed (`DONE`) ending goes the same way only wh
 the end of a wait its turn may have ended on; otherwise it is recorded, never typed, and wakes no seat. A seat mid-turn
 gets it from the tick; its line is typed once, and one still sitting in the seat's composer gets only its Enter, none
 while text you typed sits beside it, and counts as delivered only once that composer, read whole, is empty. Text you
-left in a composer two minutes untouched holds no line back where the harness hands its composer to an editor (Ctrl-G
-in Claude Code, Codex, Muse and Antigravity): ak's editor, every seat's `$VISUAL`, sets it aside for ak's line and puts
-it back once that is sent. Your own Ctrl-G opens your own editor. The tick reads
+left in a composer two minutes untouched holds no line back: every harness hands its composer to an editor (Ctrl-G in
+Claude Code, Codex, Muse and Antigravity, Ctrl-X E in OpenCode, Grok's `Edit Prompt in External Editor`), and ak's
+editor, every seat's `$VISUAL`, sets it aside for ak's line and puts it back once that is sent. Grok keeps a draft
+holding a pasted chip, which waits as before. Your own keys open your own editor. The tick reads
 a seat found off its prompt once a pass for all the endings waiting on it, and the log names a waiting ending once, as it
 is first deferred, again on each pass its seat reads at its prompt yet takes no line, and as it is said. A prompt
 that starts a turn there first carries every ending and live notice still waiting, yours or a line ak typed (never a
