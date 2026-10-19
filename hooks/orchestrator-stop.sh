@@ -13,7 +13,8 @@
 # holds the turn past a done, an answer or a run going: the block names each such run, its
 # parked reason and the commands its state takes, and the seat looks at it, resumes it,
 # relaunches it split or on another model, stops it, or asks the owner.  A question, `ak notify
-# needs`, background work and the third stop stand past it, as they always did.
+# needs`, background work and the third stop stand past it, as they always did.  An unnamed seat's
+# turn ends on none of these: it is sent back to name itself first (`config.name_owed`).
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
@@ -312,17 +313,18 @@ def held(launched, payload):
         completion=lambda: told(seat, turn, "done"), since=turn)
     if ends:
         return ""
+    reason = config.name_owed(seat) or (parked_reason(undecided) if undecided else REASON)
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        if not undecided:
+        if reason == REASON:
             asked_owner(seat, last_message(payload))
         return ""    # the third stop stands: the owner is paged with what the seat is stuck on
     kept = {"session": launched, "turn": turn, "blocks": blocks}
     tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
     tmp.write_text(json.dumps(kept) + "\n")
     tmp.replace(latch)
-    return parked_reason(undecided) if undecided else REASON
+    return reason
 
 
 def written(launched, kind):

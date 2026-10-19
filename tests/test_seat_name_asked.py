@@ -94,7 +94,7 @@ class SeatNameAsked(Sandbox):
                 self.assertIn(PROMPT, text)
                 self.assertTrue(config.load_session(self.cfg, name)["unnamed"])
                 self.assertIn(RULE, self.rules[-1])
-                self.assertIn("as the conversation tells you what the job is", self.rules[-1])
+                self.assertIn("Before your turn ends", self.rules[-1])
                 self.assertIn("`ak orch rename --auto <name>`", self.rules[-1])
                 self.assertIn("shortest possible name, at most three words", self.rules[-1])
 

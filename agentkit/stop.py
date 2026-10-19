@@ -62,12 +62,15 @@ def recorded_ending(name, records=None, *, question=False, completion=False, ans
                     since=None):
     """(the turn may end, parked records), from the evidence its caller can see.
 
-    The native hook reads parked work, then completion, then fresh wait receipts; the tick
-    supplies its existing census. A question stands past parked work, which holds a
-    completion, an answer and every live wait. `since` retains the prompt hook's wait on
+    An unnamed seat's turn never ends, whatever it recorded: it names itself first
+    (`config.name_owed`). The native hook reads parked work, then completion, then fresh wait
+    receipts; the tick supplies its existing census. A question stands past parked work, which
+    holds a completion, an answer and every live wait. `since` retains the prompt hook's wait on
     work launched in this turn even after it ends. A callable completion reads the native
     notice after the census; a callable answer binds the tick's output after live waits.
     """
+    if config.name_owed(name):
+        return False, []
     if question:
         return True, []
     supplied = records

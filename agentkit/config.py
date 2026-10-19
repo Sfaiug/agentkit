@@ -1564,6 +1564,16 @@ def rulebook_text(project=""):
     return f"{body.rstrip()}\n\n{local}" if local.strip() else body
 
 
+NAME_LINE = ("This seat is unnamed. Before your turn ends, name it with `ak orch rename --auto "
+             "<name>`: the shortest possible name, at most three words, saying what the work is.")
+
+
+def name_owed(name):
+    """NAME_LINE while that seat is unnamed, else None: its rulebook carries the line, and no
+    turn of it ends before it has a name (`stop.recorded_ending`)."""
+    return NAME_LINE if session_records().get(name, {}).get("unnamed") else None
+
+
 def seat_rulebook(session, repo=None):
     """What `session`'s rulebook file holds when it opens now: `rulebook_text`, the AGENTS.md of
     the project it is filed under -- `repo`, else its record's -- as on that project's default
@@ -1579,9 +1589,7 @@ def seat_rulebook(session, repo=None):
                 "the project this session is filed under, as on its default branch: its workers "
                 f"get the same.\n\n{project}\n")
     if record.get("unnamed"):
-        body = (f"{body.rstrip()}\n\nThis seat is unnamed. As soon as the conversation tells you "
-                "what the job is, name this seat with `ak orch rename --auto <name>`. Choose the "
-                "shortest possible name, at most three words, saying what the work is.\n")
+        body = f"{body.rstrip()}\n\n{NAME_LINE}\n"
     return body
 
 
