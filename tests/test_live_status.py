@@ -16,14 +16,13 @@ from pathlib import Path
 import re
 import select
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
 from unittest.mock import patch
-
-from fixtures import hooks
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -165,13 +164,13 @@ class LiveStatus(unittest.TestCase):
 
         def hook(payload):
             began = time.monotonic()
-            hooks.run(["bash", str(REPO / "hooks/seat-state.sh")], input=json.dumps(payload),
+            subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")], input=json.dumps(payload),
                            env=env, text=True, capture_output=True, timeout=30, check=True)
             return time.monotonic() - began
 
         def stop(payload):
             """hooks/orchestrator-stop.sh judging that Stop, as Claude Code runs it beside it."""
-            hooks.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
+            subprocess.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
                            input=json.dumps(payload), env=env, text=True, capture_output=True,
                            timeout=30, check=True)
 
@@ -510,7 +509,7 @@ class LiveStatus(unittest.TestCase):
                "AK_RUN_ROLE": "orchestrator"}
 
         def hook(script, payload):
-            hooks.run(["bash", str(REPO / "hooks" / script)], input=json.dumps(payload),
+            subprocess.run(["bash", str(REPO / "hooks" / script)], input=json.dumps(payload),
                            env=env, text=True, capture_output=True, timeout=30, check=True)
 
         hook("seat-state.sh", {"hook_event_name": "UserPromptSubmit", "prompt": "go"})

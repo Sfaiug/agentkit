@@ -7,11 +7,10 @@ process, harness or notification is touched.
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import time
 import unittest
-
-from fixtures import hooks
 
 REPO = Path(__file__).resolve().parents[1]
 HOOK = REPO / "hooks/orchestrator-stop.sh"
@@ -41,7 +40,7 @@ class StopQuestionAsked(unittest.TestCase):
                  {"type": "assistant", "message": {"role": "assistant", "content": [
                      {"type": "text", "text": said}]}}]
         self.transcript.write_text("".join(json.dumps(line) + "\n" for line in lines))
-        done = hooks.run(["bash", str(HOOK)], input=json.dumps({
+        done = subprocess.run(["bash", str(HOOK)], input=json.dumps({
             "hook_event_name": "Stop", "transcript_path": str(self.transcript),
             "last_assistant_message": said, **payload}), text=True, capture_output=True,
             env=self.env)
@@ -84,13 +83,33 @@ class StopQuestionAsked(unittest.TestCase):
         self.assertIsNone(self.stop(background_tasks=[]))   # the third stop stands, as always
         self.assertEqual(json.loads(self.latch.read_text())["blocks"], 2)
 
-    def test_a_run_going_ends_the_turn_whatever_its_last_words(self):
-        """Reading prose for a question is judgement, not this hook's: the run going decides."""
-        run = self.home / ".agentkit/runs/fix-api"
-        run.mkdir(parents=True)
-        (run / "run.json").write_text(json.dumps({
-            "run_id": "fix-api", "launched_session": SEAT, "state": "running"}))
-        self.assertIsNone(self.stop())
+    def test_a_turn_ending_on_a_question_in_prose_goes_back_once(self):
+        """Nobody but the terminal hears a question left in prose: a turn that would end on one,
+        waiting on a run or owing nothing, goes back once to ask it through the prompt or go on
+        without it, and its next stop stands."""
+        def going():
+            run = self.home / ".agentkit/runs/fix-api"
+            run.mkdir(parents=True)
+            (run / "run.json").write_text(json.dumps({
+                "run_id": "fix-api", "launched_session": SEAT, "state": "running"}))
+        for owed in (True, False):
+            for said in (QUESTION, "**Shall I go on?**", "Merge it (a or b?)", f"“{QUESTION}”",
+                         f"‘{QUESTION}’", "Choose {schema A or B?}"):
+                with self.subTest(owed=owed, said=said):
+                    self.setUp()
+                    going()
+                    if not owed:
+                        (self.state / f"plan-{SEAT}.md").unlink()
+                    reason = self.stop(said)["reason"]
+                    self.assertIn("question prompt", reason)
+                    self.assertIn("ak notify needs", reason)
+                    self.assertIsNone(self.stop(said))
+                    self.assertEqual(json.loads(self.latch.read_text())["blocks"], 0)
+        # a question asked through the prompt, or none at all, ends the turn at once
+        self.setUp()
+        going()
+        self.assertIsNone(self.stop(entries=[self.question()]))
+        self.assertIsNone(self.stop("The run is going; I will look when it ends."))
 
     def test_a_question_prompt_this_turn_ends_it_without_a_prose_question(self):
         self.assertIsNone(self.stop("Waiting for your answer.", entries=[self.question()]))

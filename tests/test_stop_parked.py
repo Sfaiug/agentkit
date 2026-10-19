@@ -11,12 +11,11 @@ they always did, while a done, a run going or an `ak wait` ends the turn only wi
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
-
-from fixtures import hooks
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -90,7 +89,7 @@ class StopParked(unittest.TestCase):
         environment = {"PATH": os.environ["PATH"], "HOME": str(self.home),
                        "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
         environment.update(env or {})
-        done = hooks.run(["bash", str(HOOK)], input=json.dumps(payload), text=True,
+        done = subprocess.run(["bash", str(HOOK)], input=json.dumps(payload), text=True,
                               capture_output=True, env=environment)
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout

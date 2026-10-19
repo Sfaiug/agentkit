@@ -340,8 +340,7 @@ sys.exit(1)
         self.assertNotIn("## Findings", reviewer)
         self.assertNotIn("ak notify", reviewer)
         # every role keeps its opener, which is what the fixtures and adapters route on
-        openers = {"reader": "You are the reader.",
-                   "executor": "You are the executor.", "fixer": "You are the executor, continuing",
+        openers = {"executor": "You are the executor.", "fixer": "You are the executor, continuing",
                    "reviewer": "You are the reviewer.",
                    "reviewer-pr": "You are the reviewer of a pull request by another author.",
                    "executor-scratch": "You are the executor.",
@@ -355,8 +354,6 @@ sys.exit(1)
                 if role.startswith("reviewer"):
                     self.assertIn("Report every finding you can establish in this one pass", text)
                     self.assertNotIn("ak notify", text)
-                elif role == "reader":
-                    self.assertIn("Do not use tools or edit files.", text)
                 else:
                     self.assertIn("ak suppresses `ak notify` in worker sessions", text)
                 if role.startswith("fixer"):

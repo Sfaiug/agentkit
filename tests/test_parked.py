@@ -12,14 +12,13 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-
-from fixtures import hooks
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -804,7 +803,7 @@ class Parked(unittest.TestCase):
                     (config.STATE / "stop-seat.json").write_text(json.dumps(
                         {"session": "seat", "turn": self.now - 1000, "blocks": 0}))
                     env = {**os.environ, "HOME": str(home), "AGENTKIT_SESSION": "seat"}
-                    result = hooks.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
+                    result = subprocess.run(["bash", str(REPO / "hooks/orchestrator-stop.sh")],
                                             input=payload, text=True, capture_output=True,
                                             env=env, cwd=self.root, timeout=10)
                     self.assertEqual(result.returncode, 0, result.stderr)

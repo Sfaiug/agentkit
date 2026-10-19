@@ -5,12 +5,12 @@ Offline: real hook input, fake tmux and card delivery, and a temporary HOME.
 
 import json
 import os
+import subprocess
 import sys
 import time
 import unittest
 from unittest.mock import patch
 
-from fixtures import hooks
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, watch
 
@@ -129,9 +129,9 @@ class AnswerClosesQuestion(Sandbox):
         looks = script == "seat-state.sh" and environ["TMUX"] and environ["TMUX_PANE"]
         if looks:
             self.addCleanup(self.wait_look, finished)
-        result = hooks.run(["bash", str(REPO / "hooks" / script)],
-                           input=json.dumps({"hook_event_name": event, **payload}),
-                           text=True, capture_output=True, timeout=15, env=environ)
+        result = subprocess.run(["bash", str(REPO / "hooks" / script)],
+                                input=json.dumps({"hook_event_name": event, **payload}),
+                                text=True, capture_output=True, timeout=15, env=environ)
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         if script == "seat-state.sh":
             self.assertEqual(result.stdout, "")

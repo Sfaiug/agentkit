@@ -10,6 +10,7 @@ import signal
 import socketserver
 import sqlite3
 import struct
+import subprocess
 import sys
 import time
 import tomllib
@@ -18,8 +19,6 @@ import uuid
 args = sys.argv[1:]
 home = Path.home()
 repo = Path(os.environ['FAKE_CODEX_REPO'])
-sys.path.insert(0, str(repo / 'tests'))
-from fixtures import hooks
 
 ch = Path(os.environ.get('CODEX_HOME', home / '.codex'))
 
@@ -69,8 +68,8 @@ if args[:1] == ['app-server']:
             return
         for group in settings.get('hooks.' + event['hook_event_name'], []):
             for command in group['hooks']:
-                hooks.run(shlex.split(command['command']), input=json.dumps(event),
-                          text=True, check=True)
+                subprocess.run(shlex.split(command['command']), input=json.dumps(event),
+                               text=True, check=True)
 
     class Handler(socketserver.StreamRequestHandler):
         def handle(self):

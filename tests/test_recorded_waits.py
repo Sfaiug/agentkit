@@ -20,7 +20,6 @@ import time
 import unittest
 from unittest.mock import patch
 
-from fixtures import hooks
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -46,7 +45,7 @@ class RecordedWaits(MergedRuns):
 
     def prompt(self, text):
         """Open a turn through hooks/seat-state.sh, as the harness does on a prompt."""
-        done = hooks.run(["bash", str(SEAT_STATE)], text=True, capture_output=True,
+        done = subprocess.run(["bash", str(SEAT_STATE)], text=True, capture_output=True,
                               input=json.dumps({"hook_event_name": "UserPromptSubmit",
                                                 "prompt": text}),
                               env={**self.env(), "IDLE_COMPACT_STATE": ""})
@@ -60,7 +59,7 @@ class RecordedWaits(MergedRuns):
             {"type": "user", "message": {"role": "user", "content": "go"}},
             {"type": "assistant", "isSidechain": False,
              "message": {"role": "assistant", "content": [{"type": "text", "text": said}]}})))
-        done = hooks.run(["bash", str(hook)], text=True, capture_output=True,
+        done = subprocess.run(["bash", str(hook)], text=True, capture_output=True,
                               input=json.dumps({"hook_event_name": "Stop", "session_id": "fake",
                                                 "transcript_path": str(transcript), **payload}),
                               env=self.env(), timeout=120)
