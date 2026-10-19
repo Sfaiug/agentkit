@@ -1,7 +1,8 @@
-"""`Providers` in `c` adds a provider the way it ships and removes one with its models: `+ add`
+"""`+ add a provider` in `c` adds a provider the way it ships and a meter removes one: `+ add`
 offers the shipped default's providers the config has not, installs the picked one's harness when
 its program is missing, logs it in on the terminal, then adds its shipped table and its first
-catalog model; `− remove` asks with `Keep` picked, and the last provider stays.
+catalog model; a meter's `− remove` asks with `Keep` picked and takes its models, the last
+provider stays, and a free provider, which has no meter, goes with its last model.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The adapters are
@@ -23,7 +24,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_config_matrix import DOWN, ENTER, ESC, REPO, RIGHT, UP, Screen, headings, highlighted
+from test_config_matrix import DOWN, ENTER, ESC, REPO, UP, Screen, headings, highlighted
 from fixtures.sandbox import menu_input
 from agentkit import config, menu, terminal
 
@@ -83,9 +84,8 @@ provider = "anthropic"
 mode = "subscription"
 """
 SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
-MATRIX, ADD, REMOVE = ("agentkit · config", "agentkit · config · add a provider",
-                       "agentkit · config · remove a provider")
-KEYS = {"row": "  ↑↓←→ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
+MATRIX, ADD = "agentkit · config", "agentkit · config · add a provider"
+KEYS = {"row": "  ↑↓ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
         "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
 
@@ -96,25 +96,31 @@ def title(lines):
 
 
 def providers(lines):
-    """The Providers row as drawn, its first line from `Providers` on, and any line under it."""
-    at = next(number for number, line in enumerate(lines) if line[2:].startswith("Providers"))
-    shown = [lines[at][2:]]
-    for line in lines[at + 1:]:
-        if not line.startswith(" " * 17) or not line.strip():
-            break
-        shown.append(line.strip())
-    return shown
+    """The subscriptions whose meters are over the page, by name."""
+    return sorted(name.strip() for line in lines[2:headings(lines)] if "—" in line
+                  for name in line.split("— no reading yet") if name.strip())
 
 
 def open_providers(screen):
-    """Down the matrix to Providers: the screen with it highlighted, `+ add` its act."""
+    """Down the matrix to `+ add a provider`: the screen with it highlighted."""
     lines = screen.frame()
     for _ in range(20):
-        if highlighted(lines).startswith("› Providers"):
+        if "› + add a provider" in lines:       # no `›` while a meter is lit
             screen.case.assertEqual(lines[-1], KEYS["row"])
             return lines
         lines = screen.press(DOWN)
-    screen.case.fail(f"no Providers row: {lines}")
+    screen.case.fail(f"no `+ add a provider`: {lines}")
+
+
+def open_meter(screen, name):
+    """↑ onto `name`'s meter over the page, ↓ back if past it: the screen with it lit."""
+    lines = screen.frame()
+    for key in [UP] * 20 + [DOWN] * 10:
+        if lines[headings(lines) - 1].strip().startswith(name + "  "):
+            screen.case.assertEqual(lines[-1], KEYS["row"])
+            return lines
+        lines = screen.press(key)
+    screen.case.fail(f"no meter of {name}: {lines}")
 
 
 def choices(screen, after, count):
@@ -137,7 +143,7 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=ONE)
         home = screen.path.parent.parent
         lines = open_providers(screen)
-        self.assertEqual(providers(lines), ["Providers      Claude  + add  − remove"])
+        self.assertEqual(providers(lines), ["Claude"])
         lines, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(lines[-1], KEYS["add"])
         self.assertEqual(offered[:3], ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build"])
@@ -157,8 +163,8 @@ class ProviderScreen(unittest.TestCase):
                                                    "effort": "xhigh", "provider": "xai"})
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
         self.assertIn("Grok", lines)
-        self.assertEqual(providers(lines), ["Providers      Claude  Grok  + add  − remove"])
-        self.assertTrue(highlighted(lines).startswith("› Providers"))
+        self.assertEqual(providers(lines), ["Claude", "Grok"])
+        self.assertTrue(highlighted(lines).startswith("› + add a provider"))
         # a program already there is logged in and never installed
         pick(screen, ENTER, ADD, 6)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX and "ChatGPT" in lines)
@@ -216,34 +222,6 @@ class ProviderScreen(unittest.TestCase):
         home = screen.path.parent.parent
         self.assertFalse((home / "verbs.log").exists())
 
-    def test_remove_asks_with_keep_preselected(self):
-        screen = Screen(self, child=CHILD)
-        open_providers(screen)
-        mark = len(screen.text())
-        lines = screen.press(RIGHT)
-        screen.saw("\x1b[7m− remove", after=mark)          # reversed: the act Enter runs
-        self.assertTrue(highlighted(lines).startswith("› Providers"))
-        before = screen.path.read_bytes()
-        lines, listed = pick(screen, ENTER, REMOVE, 6)
-        self.assertEqual(listed, ["› Claude", "  ChatGPT", "  Muse", "  Grok", "  Gemini",
-                                  "  MiMo"])
-        self.assertEqual(lines[-1], KEYS["choose"])
-        asked = screen.press(DOWN + ENTER, lambda lines: lines[-1] == KEYS["ask"])
-        self.assertEqual(asked[2:5], ["", "  Remove ChatGPT and its models?",
-                                      "  Its models leave the config with it; its login stays "
-                                      "on this machine."])
-        self.assertFalse(any(line.startswith("›") for line in asked), asked)
-        mark = screen.text().rindex("and its models?")          # the answers go under it
-        self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
-        lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)    # Enter keeps
-        self.assertEqual(screen.path.read_bytes(), before)
-        self.assertIn("ChatGPT", lines)
-        pick(screen, ENTER, REMOVE, 6)
-        screen.press(DOWN + ENTER, lambda lines: lines[-1] == KEYS["ask"])
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)              # so does Esc
-        self.assertEqual(screen.path.read_bytes(), before)
-        screen.leave()
-
     def test_a_meter_is_reached_and_asks_to_remove_its_provider(self):
         screen = Screen(self, child=CHILD)
         before = screen.path.read_bytes()
@@ -269,11 +247,8 @@ class ProviderScreen(unittest.TestCase):
         house = ('\n[models.house]\nharness = "claude"\nmodel = "claude-sonnet-5"\n'
                  'effort = "high"\nprovider = "claude"\n\n[providers.claude]\nmode = "payg"\n')
         screen = Screen(self, child=CHILD, text=ONE + house)
-        open_providers(screen)
-        _, listed = pick(screen, RIGHT + ENTER, REMOVE, 2)
-        self.assertEqual(listed, ["› Claude (anthropic)", "  Claude (claude)"])
-        screen.press(DOWN + ENTER, lambda lines: "  Remove Claude (claude) and its models?"
-                                                 in lines)
+        self.assertEqual(providers(screen.frame()), ["Claude", "Claude"])
+        screen.press(UP + ENTER, lambda lines: "  Remove Claude and its models?" in lines)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         saved = screen.saved()
         self.assertEqual(list(saved["providers"]), ["anthropic"])
@@ -307,17 +282,13 @@ class ProviderScreen(unittest.TestCase):
 
     def test_a_removed_provider_takes_its_models_and_its_usage_row(self):
         screen = Screen(self, child=CHILD)
-        lines = open_providers(screen)
-        row = next(number for number, line in enumerate(lines, 1) if "− remove" in line)
-        col = terminal.cells(lines[row - 1].split("− remove")[0]) + 2
-        pick(screen, b"\x1b[<0;%d;%dM\x1b[<0;%d;%dm" % (col, row, col, row), REMOVE, 6)
+        open_meter(screen, "Claude")
         screen.press(ENTER, lambda lines: "  Remove Claude and its models?" in lines)
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertNotIn("Claude", lines)
         for name in ("fable", "opus", "haiku"):
             self.assertFalse(any(line[2:].startswith(f"{name} ") for line in lines), name)
-        self.assertEqual(providers(lines),
-                         ["Providers      ChatGPT  Muse  Grok  Gemini  MiMo  + add  − remove"])
+        self.assertEqual(providers(lines), ["ChatGPT", "Gemini", "Grok", "MiMo", "Muse"])
         saved = screen.saved()
         self.assertNotIn("anthropic", saved["providers"])
         self.assertFalse({"fable", "opus", "haiku"} & set(saved["models"]))
@@ -334,13 +305,24 @@ class ProviderScreen(unittest.TestCase):
         self.assertIn("ChatGPT", labels)
         self.assertNotIn("Claude", labels)
 
+    def test_a_free_provider_goes_with_its_last_model_and_one_left_bare_never_loads(self):
+        free = '\n[providers.opencode]\nmode = "free"\nname = "OpenCode"\n'
+        zeta = ('\n[models.zeta]\nharness = "opencode"\nmodel = "opencode/zeta-free"\n'
+                'effort = "none"\nprovider = "opencode"\n')
+        with tempfile.TemporaryDirectory(prefix="provider-free-") as home, \
+                mock.patch.object(config, "HOME", Path(home)):
+            path = Path(home) / config.CONFIG_NAME
+            path.write_text(ONE + free + zeta)
+            self.assertEqual(list(config.remove_model(config.load(), "zeta")["providers"]),
+                             ["anthropic"])
+            path.write_text(ONE + free + "\n[models.draft]\n")     # an older removal's, say
+            self.assertEqual(list(config.load()["providers"]), ["anthropic"])
+
     def test_the_last_provider_stays(self):
         screen = Screen(self, child=CHILD, text=ONE)
-        open_providers(screen)
+        open_meter(screen, "Claude")
         before, mark = screen.path.read_bytes(), len(screen.text())
-        lines = screen.press(RIGHT + ENTER,
-                             lambda lines: "the config needs one provider" in lines[-3])
-        self.assertTrue(highlighted(lines).startswith("› Providers"))
+        screen.press(ENTER, lambda lines: "the config needs one provider" in lines[-3])
         self.assertNotIn("and its models?", screen.text()[mark:])      # nothing asked
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
@@ -348,10 +330,9 @@ class ProviderScreen(unittest.TestCase):
 
     def test_a_phone_draws_the_row_and_the_add_step_in_forty_columns(self):
         screen = Screen(self, child=CHILD, rows=24, cols=40)
-        lines = open_providers(screen)
-        self.assertEqual(providers(lines), ["Providers      Claude  ChatGPT  Muse",
-                                            "Grok  Gemini  MiMo", "+ add  − remove"])
-        for line in lines:
+        lines = screen.frame()
+        self.assertEqual(providers(lines), ["ChatGPT", "Claude", "Gemini", "Grok", "MiMo", "Muse"])
+        for line in lines + open_providers(screen):      # the meters scroll off above the row
             self.assertLessEqual(terminal.cells(line), 40, line)
         screen.leave()
         screen = Screen(self, child=CHILD, text=ONE, rows=24, cols=40)

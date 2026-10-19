@@ -1,4 +1,4 @@
-"""`+ add` on Providers offers OpenCode, then every model OpenCode runs now, as its own `/models`
+"""`+ add a provider` offers OpenCode, then every model OpenCode runs now, as its own `/models`
 lists them, and after them every provider it can log in to; a picked provider is logged in on
 the terminal and its models join the list.  A model and an effort picked are added with the
 provider's table -- the shipped one where the shipped default has it, else the mode OpenCode's
@@ -115,8 +115,8 @@ class AddOpenCodeProvider(unittest.TestCase):
         self.assertIn("  model   Comet 2 · Zeta Cloud", lines)
         self.assertEqual(listed(lines), [["none"]])
         lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
-        # by the name OpenCode gives it, on its row and over its models
-        self.assertEqual(providers(lines), ["Providers      Claude  Zeta Cloud  + add  − remove"])
+        # by the name OpenCode gives it, on its meter and over its models
+        self.assertEqual(providers(lines), ["Claude", "Zeta Cloud"])
         self.assertIn("Zeta Cloud", [line.strip() for line in lines])
         saved = screen.saved()
         # priced by OpenCode: pay as you go, used only once every subscription runs ahead
@@ -154,11 +154,10 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.saved()["providers"]["mimo"], SHIPPED["providers"]["mimo"])
-        # one OpenCode on the Providers row; `+ add` offers it again, and no second login of a
-        # provider on it, since it keeps one
+        # no meter for OpenCode's own models, which are free; `+ add` offers it again, and no
+        # second login of a provider on it, since it keeps one
         lines = open_providers(screen)
-        self.assertEqual(providers(lines),
-                         ["Providers      Claude  OpenCode  MiMo  + add  − remove"])
+        self.assertEqual(providers(lines), ["Claude", "MiMo"])
         mark = len(screen.text())
         _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered[4:], ["  OpenCode", "  Claude II"])
@@ -172,8 +171,7 @@ class AddOpenCodeProvider(unittest.TestCase):
                        '\n[models.rocket]\nharness = "opencode"\nmodel = "opencode/rocket-1"\n'
                        'effort = "high"\nprovider = "opencode"\n')
         screen = Screen(self, child=CHILD, text=older)
-        self.assertEqual(providers(open_providers(screen)),
-                         ["Providers      Claude  OpenCode  + add  − remove"])
+        self.assertEqual(providers(open_providers(screen)), ["Claude", "OpenCode"])
         lines = through(screen)
         self.assertEqual(listed(lines)[1][:2], ["Zeta Free", "OpenCode"])
         screen.press(DOWN + ENTER, lambda lines: "  effort" in lines)

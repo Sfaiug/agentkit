@@ -557,7 +557,7 @@ models)
   IFS=$'\n'; set -f   # one argument a line
   python3 "$REPO/tools/catalog.py" opencode $listed ;;
 providers)
-  # Every provider OpenCode can log in to, for `+ add` on Providers: the ones with a login
+  # Every provider OpenCode can log in to, for `+ add a provider`: the ones with a login
   # first -- a key in its config, one saved in its auth store or none needed, as `auth` reads
   # them -- each
   # `subscription` where OpenCode prices every one of its models at nothing behind a login (a

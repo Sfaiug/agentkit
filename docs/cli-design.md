@@ -289,16 +289,14 @@ coming up as the highlight comes to it: one place for every model, outside the r
 none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
 so no row moves from under the pointer or the keys. `r recommended` opens the models screen
 (The models screen).
-Under the models `+ add a model`, `Providers` (the config's
-providers in their colours, then `+ add` and `− remove`, and `↻ spend a reset`
-while a subscription holds one, ←/→ choosing between them, ↓ landing on none
-past `− remove`, each a list opening in the frame where it has a choice),
-`Discord` (connected or not)
+Under the models `+ add a model`, `+ add a provider` (a list opening in the
+frame), `Discord` (connected or not)
 and `Version` (the commit and its date; read, with no action). Each meter over
 the page is a row ↑ past the first model reaches, and the pointer too, lit as on
 the main screen with its line under the meters; Enter or a click lists what it
 offers, `↻ spend a reset` while it holds one and `− remove`, the highlight on
-`− remove`, which asks at once where it is all there is. A reset spent, the
+`− remove`, which asks at once where it is all there is. A free provider has no
+meter: it goes with its last model. A reset spent, the
 line under the rows says that subscription's week as its usage row reads it:
 `Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`. Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
@@ -544,7 +542,7 @@ Example: `  Claude I    ▰▰▰▰▰▱▱▱▱▱  52% left  ChatGPT     em
 Screens ask for a colour by its role, never by RGB: the accent (section titles,
 project headings, the highlight's `›`), `working`, `needs you` (`attention`,
 `amber`), `done` (`good`), `FAIL` (red) and `dim` (`waiting`). The one RGB a
-screen names is a company's own, on the `c` screen's Providers row and a seat's
+screen names is a company's own, on the meters over the `c` screen's page and a seat's
 bar. There is one palette per background, and `terminal.styled` draws from it:
 
 - dark, `terminal.STATE_STYLES` (Catppuccin Mocha): accent and `working`

@@ -1,8 +1,8 @@
-"""The owner spends a usage-limit reset by hand, from the Providers row of `c`; offline.
+"""The owner spends a usage-limit reset by hand, from its subscription's meter on `c`; offline.
 
 A subscription's line under the grid of `ak` says `1 reset in hand` (`2 resets in hand`) while it
-holds any, and nothing with none.  The Providers row of `c` then offers `↻ spend a reset` beside
-`+ add` and `− remove`; it asks which subscription when more than one holds a reset, spends
+holds any, and nothing with none.  Its meter over the page of `c` then offers `↻ spend a reset`
+beside `− remove`, Enter on the list never landing on the spend; it spends
 exactly one through `usage.replenish` -- the only caller of it in ak -- and the row shows the
 week that came back.  A fake Codex adapter answers every verb in a temporary HOME.
 """
@@ -69,9 +69,6 @@ class ResetByHand(unittest.TestCase):
         return [terminal.plain(menu.usage_detail(self.cfg, number))
                 for number in range(1, len(menu.usage_cells(self.cfg)) + 1)]
 
-    def acts(self):
-        return "".join(line for line, _ in menu.providers_lines(self.cfg, 13, 100))
-
     def offered(self, number, picked=None):
         """What subscription `number`'s meter on `c` lists and picks first, `picked` taken; a
         meter offering only `− remove` lists nothing and asks at once."""
@@ -89,34 +86,13 @@ class ResetByHand(unittest.TestCase):
         first, second = self.rows()
         self.assertRegex(first, r"^ChatGPT I resets .* · 2 resets in hand$")
         self.assertRegex(second, r"^ChatGPT II resets .* · 1 reset in hand$")
-        self.assertIn("↻ spend a reset", self.acts())
+        self.assertEqual(self.offered(1), [(["↻ spend a reset", "− remove"], "− remove")])
         self.held.update({"": 0, "second": 0})
         (config.STATE / "usage.json").unlink()
         usage.collect(self.cfg, refresh=True)
         self.assertFalse(any("in hand" in row for row in self.rows()), self.rows())
-        self.assertNotIn("spend a reset", self.acts())
+        self.assertEqual(self.offered(1), ["removed"])
         self.assertEqual(menu.in_hand({"resets": None}), "")
-
-    def test_it_asks_which_subscription_spends_one_and_the_row_shows_the_week_back(self):
-        usage.collect(self.cfg, refresh=True)
-        asked = []
-
-        def choose(choices, **_kw):
-            asked.append(choices)
-            return "ChatGPT II"
-        with patch.object(terminal, "choose", side_effect=choose):
-            note = menu.config_spend_reset(self.cfg)
-        self.assertEqual(asked, [["ChatGPT I", "ChatGPT II"]])
-        self.assertEqual(self.spent, ["second"])          # exactly one, on the one picked
-        self.assertEqual(note, "ChatGPT II · 100% left")
-        first, second = self.rows()
-        self.assertIn("2 resets in hand", first)
-        self.assertRegex(second, r"^ChatGPT II resets [^·]*$")
-        # one subscription left holding one: nothing to ask, and it is the one spent from
-        with patch.object(terminal, "choose", side_effect=choose):
-            menu.config_spend_reset(self.cfg)
-        self.assertEqual((len(asked), self.spent), (1, ["second", ""]))
-        self.assertIn("1 reset in hand", self.rows()[0])
 
     def test_a_meter_spends_one_of_its_own_and_shows_the_week_back(self):
         usage.collect(self.cfg, refresh=True)
@@ -142,33 +118,12 @@ class ResetByHand(unittest.TestCase):
             self.offered(2, "↻ spend a reset")
         replenish.assert_called_once_with(self.cfg, "acme", account=None)
 
-    def test_no_move_onto_providers_lands_on_spending_a_reset(self):
-        usage.collect(self.cfg, refresh=True)
-        model = config.offered(self.cfg)[0]
-        selected = {"orchestrator": model, "workers": [model], "reviewers": [model]}
-        ran, script = [], iter([
-            ("right", ("model", model), None, 0), ("right", ("model", model), None, 0),
-            ("down", menu.PROVIDERS, None, 0),        # from the reviewer mark, column 2
-            ("enter", menu.PROVIDERS, None, 0),       # `− remove`, not the spend
-            ("right", menu.PROVIDERS, None, 0), ("right", menu.PROVIDERS, None, 0),
-            ("enter", menu.PROVIDERS, None, 0),
-            ("back", menu.PROVIDERS, None, 0)])
-        with patch("agentkit.watch.worker_token_note", return_value=None), \
-                patch.object(menu, "matrix_key", side_effect=lambda *a, **k: next(script)), \
-                patch.object(menu, "config_remove_provider",
-                             side_effect=lambda cfg: ran.append("remove") or ""), \
-                patch.object(menu, "config_spend_reset",
-                             side_effect=lambda cfg: ran.append("spend") or ""):
-            menu.config_matrix(self.cfg, None, "abc1234", "fix-api", selected, {})
-        self.assertEqual(ran, ["remove", "spend"])
-        self.assertEqual(self.spent, [])
-
     def test_only_the_owners_act_spends_one_and_the_docs_say_where(self):
         callers = [(path.name, inside) for path in sorted((REPO / "agentkit").rglob("*.py"))
                    for inside, _ in calls(path, "replenish")]
         self.assertEqual(callers, [("menu.py", "config_spend_reset")])
         text = (REPO / "docs/guide.md").read_text()
-        self.assertIn("`↻ spend a reset` on the Providers row of `c`", text)
+        self.assertIn("`↻ spend a reset` on its meter on `c`", text)
         self.assertIn("`1 reset in hand`", text)
 
 
