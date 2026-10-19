@@ -44,8 +44,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (browser, command_help, config, gc, gitcall, handback, host, notify, orch, staffing,
-               statusbar, transitions, turns, update, usage, worker)
+from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
+               orch, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -733,6 +733,10 @@ def screen(harness):
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
+             # the keys that open the composer in $VISUAL, where ak's editor sets the owner's
+             # unsent text aside for a line of ak's (agentkit/aside_editor.py)
+             "editor": tuple(key for key in block.get("editor") or ()
+                             if isinstance(key, str) and key),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -3610,6 +3614,74 @@ def quiet_prompt(session, held, cfg=None):
         return False
     return bool(harness and takes_line(session, cfg=cfg, pane=pane)
                 and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
+
+
+def _pane(session):
+    """{"id", "pid", "tty"} of the pane ak types that seat's lines into, or None."""
+    rc, out = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
+                            "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
+                            socket=orch.seat_socket(session))
+    parts = out.split("\t") if rc == 0 else ()
+    return dict(zip(("id", "pid", "tty"), parts)) if len(parts) == 3 else None
+
+
+def _aside_kept(session, pane):
+    """Whether ak's editor holds text it set aside from that pane (`aside_editor.kept`)."""
+    rc, out = orch.tmux_out("list-buffers", "-F", "#{buffer_name}",
+                            socket=orch.seat_socket(session))
+    return rc == 0 and aside_editor.kept(pane["id"]) in out.split("\n")
+
+
+def _edit(session, held, keys, mode, settled, log):
+    """Ask ak's editor for `out` or `back`, open the seat's composer in it with `keys`, and
+    True once `settled` reads true.  An ask the harness has not acted on by then is taken back,
+    so that it never moves the composer of an edit the owner opens."""
+    name, server = session["name"], orch.seat_socket(session)
+    orch.tmux_out("set-option", "-p", "-t", f"={name}:", aside_editor.ASK,
+                  aside_editor.request(mode), socket=server)
+    rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", *keys, socket=server)
+    if rc != 0:
+        log(f"WARN could not type into the {name} seat: {out[-200:]}")
+    elif _wait_ready(settled, held):
+        return True
+    orch.tmux_out("set-option", "-pu", "-t", f"={name}:", aside_editor.ASK, socket=server)
+    return False
+
+
+def bring_back(session, held, log, cfg=None):
+    """Under the seat's send lock: the owner's text ak's editor set aside back in the seat's
+    composer, once that reads empty with no unread input; never beside the owner's newer text
+    or an unsent line of ak's."""
+    pane = _pane(session)
+    if (not pane or not _aside_kept(session, pane) or pane_unread(session)
+            or composer_holds(held, session, "", cfg) != "empty"):
+        return
+    harness = seat_model(config.load() if cfg is None else cfg, held)[0]
+    keys = screen(harness)["editor"] if harness else ()
+    if keys and not _edit(session, held, keys, "back", lambda _: not _aside_kept(session, pane),
+                          log):
+        log(f"WARN {held}: the owner's text ak set aside is not back yet")
+
+
+def drafts_back(cfg, log):
+    """Each tick: the owner's text set aside from a seat back in it (`bring_back`), whatever
+    pass set it aside and whether that pass lived to; text kept from a pane gone is let go."""
+    seats = [session for session in orch.sessions() if not session.get("legacy")
+             and not any(session.get(key) for key in orch.CLOSED)]
+    for server in {orch.seat_socket(session) for session in seats}:
+        rc, names = orch.tmux_out("list-buffers", "-F", "#{buffer_name}", socket=server)
+        kept = [name for name in names.split() if name.startswith(aside_editor.kept(""))]
+        live, panes = (orch.tmux_out("list-panes", "-a", "-F", "#{pane_id}\t#{session_name}",
+                                     socket=server) if rc == 0 and kept else (1, ""))
+        owners = {aside_editor.kept(pane): seat for pane, _, seat in
+                  (line.partition("\t") for line in panes.splitlines())} if live == 0 else {}
+        for name in kept if live == 0 else ():
+            if name not in owners:
+                orch.tmux_out("delete-buffer", "-b", name, socket=server)
+            for session in seats:
+                if session["name"] == owners.get(name) and orch.seat_socket(session) == server:
+                    with seat_held(session["name"]) as held:
+                        bring_back(session, held, log, cfg)
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -6961,6 +7033,7 @@ def local_passes(state, dry_run, log):
          lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         ("the held-line Enter pass did not run",
          lambda: finish_own_lines(config.load(), log), False),
+        ("the set-aside drafts pass did not run", lambda: drafts_back(config.load(), log), False),
         ("the mid-turn continue pass did not run",
          lambda: continue_turns(config.load(), log), False),
         # the seats first, and never behind GitHub: a stalled seat is the one thing on this tick

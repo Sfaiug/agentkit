@@ -106,6 +106,8 @@ kinds = ["manual"]
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;
 # a renamed session's name sits in the box's top rule
 composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+|─{3,} \S.* ─+)$'
+# opens the composer in $VISUAL, pastes written out in full, mid-turn too (Claude Code 2.1.302, live)
+editor = ["C-g"]
 # and the key hints under it, on top of the box-drawing and prompt footer every harness shares
 footer = [
   '\? for shortcuts',

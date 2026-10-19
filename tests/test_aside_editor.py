@@ -62,11 +62,13 @@ class AsideEditor(unittest.TestCase):
             aside_editor.edit([str(self.composer)])
         return self.composer.read_text()
 
-    def test_text_set_aside_twice_comes_back_whole_ahead_of_newer_text(self):
+    def test_text_set_aside_twice_comes_back_whole_and_never_beside_newer_text(self):
         self.assertEqual(self.edit("and add these posts", aside_editor.request("out")), "")
         self.assertEqual(self.edit("then this", aside_editor.request("out")), "")
-        self.assertEqual(self.edit("newest", aside_editor.request("back")),
-                         "and add these posts\nthen this\nnewest")
+        # the owner typed after ak read the composer empty, and then left only a blank line
+        self.assertEqual(self.edit("newest", aside_editor.request("back")), "newest")
+        self.assertEqual(self.edit("\n", aside_editor.request("back")),
+                         "and add these posts\nthen this\n")
         self.assertEqual((self.buffers, self.opened), ({}, []))
 
     def test_text_kept_that_cannot_be_read_is_neither_replaced_nor_lost(self):

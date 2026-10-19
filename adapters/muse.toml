@@ -99,6 +99,8 @@ enforce = "nudge"
 # ends on its approvals, `YOLO` or, launched without it, `Auto-review` or `Launch overrides`,
 # and keeps `compacted context` beside them for a few seconds after a compaction.
 composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · (?:YOLO|Auto-review|Launch overrides)(?: {2,}compacted context)?)$'
+# opens the composer in $VISUAL, pastes written out in full, mid-turn too (Muse 1.4.10, live)
+editor = ["C-g"]
 # 1.4.7 draws its composer between two rules, so a draft wrapped onto a second row is still its
 ruled = true
 # 1.4.7 draws its rotating composer suggestions ("Ask to monitor a running build …") in this

@@ -5,9 +5,9 @@ Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its compos
 editor on the keys its manifest names (`[screen] editor`), and `edit` does what ak asked of the
 pane just before (`request`, a pane option the edit clears): `out` keeps the composer's text in a
 tmux buffer of the pane's (`kept`) and hands back an empty composer; `back` hands the kept text
-back, ahead of whatever the composer holds by then.  No text is ever dropped: a second `out` adds
-to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's, as
-it starts on every edit the owner opens.
+back to a composer handed over empty or blank, and keeps it past one holding text.  No text is
+ever dropped: a second `out` adds to what is kept.  Asked nothing, it opens the owner's own
+editor.  It imports nothing of ak's, as it starts on every edit the owner opens.
 """
 
 import os
@@ -80,12 +80,14 @@ def edit(argv):
         if held is None:
             return 0
         text = path.read_bytes()
-        both = b"\n".join(part for part in (held, text) if part.strip())
         if mode == "out" and text.strip():
+            both = b"\n".join(part for part in (held, text) if part.strip())
             if _tmux("load-buffer", "-b", name, "-", data=both) is not None:
                 path.write_bytes(b"")
-        elif mode == "back" and held:
-            path.write_bytes(both)
+        # the owner can type between ak's empty read and this edit: what they typed stays as it
+        # is, the kept text with ak until the composer empties again; blanks alone hide nothing
+        elif mode == "back" and held and not text.strip():
+            path.write_bytes(held + text)
             _tmux("delete-buffer", "-b", name)
         return 0
     owner = os.environ.get(OWNER) or "vi"
