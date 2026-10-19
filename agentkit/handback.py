@@ -1286,9 +1286,14 @@ def record_decision(run_dir, state, reason, merged=False):
     return state
 
 
+def live_sentence(state, run_dir):
+    """The full live notice, shared by delivery and the tick's logs."""
+    return f"run {run_dir.name} is live: {state['pr']}."
+
+
 def live_line(state, run_dir):
     """The live notice shared by a prompt's context and the tick's typed delivery."""
-    return seat_notice(f"run {run_dir.name} is live: {state['pr']}.", state, run_dir,
+    return seat_notice(live_sentence(state, run_dir), state, run_dir,
                        f"run {run_dir.name} is live.")
 
 

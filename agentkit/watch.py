@@ -6377,7 +6377,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
                 f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
     if dry_run:
         if not st.get("live_notified"):
-            log(f"would tell its launching seat: run {run_dir.name} is live: {pr_url}.")
+            log(f"would tell its launching seat: {handback.live_sentence(st, run_dir)}")
         return "passed", None, None
     history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     # A prompt may have carried the notice since this tick read the run. The deciding,
@@ -6389,14 +6389,13 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
             return "passed", None, None
         st.clear()
         st.update(current)
-        line = f"run {run_dir.name} is live: {pr_url}."
         session = transitions.launched_session(st)
         if handback.seat_owes_nothing(st):
             # no turn of its seat's waits on this (`awaiting_live`), a repair's included:
             # recorded, never typed, and a line an earlier pass typed and never saw sent is sent
             if handback.finish_typed(session, st.get("live_typed"), log):
                 handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
-                log(f"{line} Recorded, not typed")
+                log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
         seat = orch.find(session)
         if after_merge_live(seat):
