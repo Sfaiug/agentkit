@@ -2263,8 +2263,6 @@ def unread(prov, weekly, readable, now):
     """
     if readable:
         return "no shared week"
-    if prov.get("none") and not prov.get("error"):
-        return "no meter"
     if weekly and all(usage._past(m, now) for m in weekly):
         return "window reset"
     if weekly:
@@ -2429,7 +2427,8 @@ def hue(kind):
 def usage_rows(cfg):
     """Each usage row `usage_lines` draws, in its order: the provider, the row's label, the
     reading it is drawn from, out of the cached meters, and its account, None for the
-    provider's single row."""
+    provider's single row.  A provider its harness reads no meter for (`none`) is no
+    subscription and has no row."""
     try:
         providers = json.loads((config.STATE / "usage.json").read_text())["providers"]
         if not isinstance(providers, dict):
@@ -2444,6 +2443,8 @@ def usage_rows(cfg):
         shown = provider_name(cfg, name)
         for account in config.accounts(cfg, name) or [None]:
             rec = top if account is None else found.get(account)
+            if isinstance(rec, dict) and rec.get("none"):
+                continue
             rows.append((name, shown if account is None else
                          config.account_label(cfg, name, account, shown),
                          rec if isinstance(rec, dict) else {}, account))

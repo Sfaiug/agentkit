@@ -5693,7 +5693,8 @@ grep -q -- '--rules ' "$WORK/grok-orch.log" || GROKRC=1
 grep -q -- '--trust --always-approve --model grok-4.7 --reasoning-effort xhigh' \
   "$WORK/grok-orch.log" || GROKRC=1
 [ ! -e "$GHOME/.agentkit/state/session-smoke-grok.json" ] || GROKRC=1
-# (b) its provider is neutral, never last, and says `no meter` where the menu draws it
+# (b) its provider is neutral, never last, and has no row on the menu's usage grid, which
+# shows only providers with a meter
 HOME="$GHOME" ak usage --json >"$WORK/grok-usage.json" 2>&1 || GROKRC=1
 jq -e '.providers.xai.none == true and .providers.xai.error == null
        and .providers.xai.budget == 1.0
@@ -5706,8 +5707,7 @@ for line in menu.usage_lines(config.load(), 100):
     print(line)
 PY
 ) || GROKRC=1
-grep -q 'Grok' "$WORK/grok-menu-usage.log" || GROKRC=1
-grep -q 'no meter' "$WORK/grok-menu-usage.log" || GROKRC=1
+! grep -q 'Grok' "$WORK/grok-menu-usage.log" || GROKRC=1
 # (c) the update plan names it with its versioned reinstall
 HOME="$GHOME" ak update --dry-run >"$WORK/grok-update.log" 2>&1 || GROKRC=1
 grep -q '^grokbuild .*versioned reinstall available' "$WORK/grok-update.log" || GROKRC=1
@@ -5751,7 +5751,7 @@ raise SystemExit(1 if bad else 0)
 PY
 ) || GROKRC=1
 if [ "$GROKRC" = 0 ]; then
-  ok "46b Grok Build plugs in: a seat planned on it with the TUI's own flags, its meterless provider neutral in ak usage with \`no meter\` on the menu row, its update plan naming its versioned reinstall, and the menu reading its screen rules"
+  ok "46b Grok Build plugs in: a seat planned on it with the TUI's own flags, its meterless provider neutral in ak usage with no row on the menu's usage grid, its update plan naming its versioned reinstall, and the menu reading its screen rules"
 else
   no "46b Grok Build plugs in"
   for log in grok-orch grok-menu-usage grok-update grok-menu; do
@@ -5830,7 +5830,7 @@ for line in menu.usage_lines(config.load(), 100):
     print(line)
 PY
 ) || OCHRC=1
-grep -q 'no meter' "$WORK/oc-menu-usage.log" || OCHRC=1
+! grep -q 'MiMo' "$WORK/oc-menu-usage.log" || OCHRC=1
 akoc update --dry-run >"$WORK/oc-update.log" 2>&1 || OCHRC=1
 grep -q '^opencode .*versioned reinstall available' "$WORK/oc-update.log" || OCHRC=1
 if [ "$OCHRC" = 0 ]; then

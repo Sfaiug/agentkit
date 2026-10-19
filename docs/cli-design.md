@@ -483,7 +483,8 @@ an arrow amber where a seat that needs the owner is that way; in a pipe it says
 ## Subscriptions
 
 Right under the rule, a grid of every subscription, three to a line from 105
-columns: its name, a ten-cell meter of its **shared** weekly meter -- the one every model of
+columns; a provider its harness reads no meter for, as OpenCode's own free models,
+is no subscription and is not on it. Each has its name, a ten-cell meter of its **shared** weekly meter -- the one every model of
 it draws on, never a cap one model has to itself -- `▰` left and a dim `▱` spent,
 and `NN% left`; a spent week says `empty until <when>`, dim, or the credits it
 still runs on, which count as usage left. A row
