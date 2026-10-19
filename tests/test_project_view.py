@@ -160,6 +160,11 @@ class ProjectView(Sandbox):
         self.assertEqual(" ".join(text.strip() for text in content),
                          f"plan: {line} changing: README.md, agentkit/menu.py, docs/guide.md")
 
+    def test_a_line_the_plan_reads_done_is_not_in_flight(self):
+        self.plan("design", "- [ ] the hero looks calm · your eye · acme"
+                            " · written 2026-10-01 10:00\n")
+        self.assertEqual(orch.in_flight("fix-api", self.acme), [])
+
     def test_nothing_in_flight_says_so(self):
         self.plan("idle", "- [x] all done\n")
         self.assertEqual(self.file().splitlines(),

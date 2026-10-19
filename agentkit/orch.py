@@ -3594,18 +3594,15 @@ def cmd_project(argv):
     return 0
 
 
-PLAN_OPEN = re.compile(r"^\s*- \[ \] (.+)$")
-
-
 def in_flight(name, repo):
     """What the other seats have in flight on that checkout, so two sessions never build the
     same thing unaware: [(seat, open plan lines, changed files)] by name.
 
     A seat counts when it is filed under the checkout or has a going run on it, whatever it is
-    filed under.  Its open lines are its plan's unticked ones, of a seat filed elsewhere only
-    those written on this checkout; its files are what its going runs on the checkout change
-    against their base, committed or not, or a queued run's task `files:`.  A seat with
-    neither is left out.  A going run launched from no seat counts as `run <id>`.
+    filed under.  Its open lines are its plan's open ones (`plan.is_open`), of a seat filed
+    elsewhere only those written on this checkout; its files are what its going runs on the
+    checkout change against their base, committed or not, or a queued run's task `files:`.  A
+    seat with neither is left out.  A going run launched from no seat counts as `run <id>`.
     """
     from . import menu, watch  # here, not at the top: menu imports this module
     target = checkout_of(repo)
@@ -3627,10 +3624,10 @@ def in_flight(name, repo):
                 rows.append((f"run {directory.name}", [], set(files)))
     for seat, (lines, _) in seats.items():
         for line in watch.plan_text(seat).splitlines():
-            found, written = PLAN_OPEN.match(line), plan.LINE.match(line.strip())
-            if found and (seat in filed or written and checkout_of(
+            written = plan.LINE.match(line.strip())
+            if plan.is_open(line) and (seat in filed or written and checkout_of(
                     plan.place(seat, written["project"])) == target):
-                lines.append(found.group(1).strip())
+                lines.append(line.partition("] ")[2].strip())
     rows.extend((seat, lines, files) for seat, (lines, files) in seats.items() if lines or files)
     return sorted(rows)
 
