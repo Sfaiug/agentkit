@@ -80,7 +80,7 @@ class SessionModels(Sandbox):
     def test_a_legacy_record_shows_workers_in_both_columns_until_the_first_flip(self):
         self.assertNotIn("reviewers", config.load_session(self.cfg, "old"))
         with patch.object(terminal, "layout_width", return_value=100):
-            lines, places = menu.config_body(self.cfg, "fixture", selected=self.selected("old"))
+            lines, places = menu.config_body(self.cfg, selected=self.selected("old"))
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(self.rows(lines)["opus"], "●■■")
         self.assertEqual(self.rows(lines)["fable"], "○□□")
@@ -158,7 +158,7 @@ class SessionModels(Sandbox):
             "name": "weekly_all", "used": 100, "exhausted": True, "resets_at": 10000 + 86400}]}})
         note = orch.spent_note(self.cfg, "opus", spent)
         with patch.object(terminal, "layout_width", return_value=100):
-            lines, _ = menu.config_body(self.cfg, "fixture", ("model", "opus"), 1,
+            lines, _ = menu.config_body(self.cfg, ("model", "opus"), 1,
                                         self.selected("fix-api"), spent)
             opus = menu.model_lines(self.cfg, ("model", "opus"), spent)
             astra = menu.model_lines(self.cfg, ("model", "astra"), spent)

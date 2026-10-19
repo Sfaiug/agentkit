@@ -350,7 +350,7 @@ class Switch(Sandbox):
 
     def test_the_config_screen_holds_the_orchestrator_and_a_dry_run_draws_it(self):
         with patch.object(terminal, "layout_width", return_value=100):
-            lines, _ = menu.config_body(self.cfg, "fixture", ("model", "opus"), 0,
+            lines, _ = menu.config_body(self.cfg, ("model", "opus"), 0,
                                         self.selected())
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews", "effort"])
         rows = {terminal.plain(line).lstrip("› ").split()[0]: "".join(
@@ -369,7 +369,7 @@ class Switch(Sandbox):
         self.assertIn("builds", screen)
         self.assertIn("reviews", screen)
         with patch.object(terminal, "layout_width", return_value=40):
-            lines, _ = menu.config_body(self.cfg, "fixture", selected=self.selected())
+            lines, _ = menu.config_body(self.cfg, selected=self.selected())
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
 
 

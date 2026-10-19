@@ -7,7 +7,7 @@ Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child pro
 its own, the way tests/test_close_and_info.py runs the menu, in a temporary HOME whose
 config.toml is the shipped default plus a Haiku, for the seat `fix-api` whose record the child
 writes first.  The harness catalog is faked -- Haiku takes only `none`, Opus low to max -- and
-so are agentkit's build on the Version row, the Discord step itself, the meters, and the
+so are agentkit's build under the rows, the Discord step itself, the meters, and the
 orchestrator switch, which only writes the record; a harness's version is never asked.
 Nothing here reads or writes the owner's ~/.agentkit, and the only process signalled is the
 test's own child.
@@ -223,10 +223,10 @@ class Matrix(unittest.TestCase):
         self.assertIn("+ add a provider", tail)       # each subscription is its meter, above
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
-        self.assertIn("Version       abc1234 · 2026-09-29", tail)
-        # the last row, then the highlighted model's line
-        self.assertEqual(tail[tail.index("Version       abc1234 · 2026-09-29") + 1:],
-                         ["", "fable runs on Claude", "", "↑↓←→ move   ⏎ mark   esc back"])
+        # the highlighted model's line under the last row, then the build under the page
+        self.assertEqual(tail[tail.index("Version abc1234 · 2026-09-29") - 3:],
+                         ["", "fable runs on Claude", "", "Version abc1234 · 2026-09-29", "",
+                          "↑↓←→ move   ⏎ mark   esc back"])
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         screen.leave()
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
@@ -386,7 +386,7 @@ class Matrix(unittest.TestCase):
         screen.saw("<left>")
         self.assertEqual(screen.proc.wait(15), 0)
 
-    def test_enter_on_discord_runs_its_step_and_on_version_nothing(self):
+    def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)
         lines = screen.frame()
         # past every model, `+ add a model` and `+ add a provider`
@@ -401,12 +401,9 @@ class Matrix(unittest.TestCase):
         self.assertNotIn("\x1b[?1049l", screen.text()[mark:])   # typed on the matrix's keys
         lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")   # its step, like Discord's
-        lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Version"))
-        self.assertEqual(lines[-1], "  ↑↓ move   esc back")      # no action to name
-        mark = len(screen.text())
-        lines = screen.press(ENTER)
-        self.assertTrue(highlighted(lines).startswith("› Version"))
-        self.assertNotIn("\x1b[?1049l", screen.text()[mark:])     # the terminal kept
+        # the last stop: the build under the page is read, and never highlighted
+        lines = screen.press(DOWN, lambda lines: highlighted(lines).startswith("› Weekly audit"))
+        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])
         screen.leave()
         self.assertEqual(screen.text().count("<discord step>"), 1)
 
@@ -414,6 +411,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self, workers=["opus"], rows=24, cols=40)
         lines = screen.frame()
         self.assertLessEqual(len(lines), 23)
+        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # on the first page
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
@@ -422,11 +420,13 @@ class Matrix(unittest.TestCase):
                              lambda lines: "at least one model reviews" in "\n".join(lines))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("opus", highlighted(lines))
-        lines = screen.press(DOWN * 11, lambda lines: highlighted(lines).startswith("› Version"))
+        lines = screen.press(DOWN * 11,
+                             lambda lines: highlighted(lines).startswith("› Weekly audit"))
         self.assertLessEqual(len(lines), 23)
+        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 4, lambda lines: highlighted(lines) == "› + add a model")
+        lines = screen.press(UP * 3, lambda lines: highlighted(lines) == "› + add a model")
         self.assertEqual(highlighted(lines), "› + add a model")
         self.assertLessEqual(len(lines), 23)
         screen.leave()

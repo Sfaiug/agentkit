@@ -65,7 +65,7 @@ class Editor(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.home / name.lower()))
         self.stack.enter_context(patch.object(terminal, "width", return_value=100))
         self.stack.enter_context(patch.object(terminal, "height", return_value=36))
-        # The Version row's build is a git call; the row is pinned, not the checkout.
+        # The build under `c`'s rows is a git call; it is pinned, not the checkout.
         self.stack.enter_context(patch.object(update, "agentkit_version",
                                               return_value="abc1234 · 2026-09-29"))
         self.path = self.home / "config.toml"
@@ -235,7 +235,7 @@ class Editor(unittest.TestCase):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config · fix-api"), screen)
         for bit in ("orch  builds  reviews  effort", "Claude", "opus     ●", "●", "■", "□",
-                    "▰▰▰▰▱", "add a model", "Discord", "Version       abc1234 · 2026-09-29",
+                    "▰▰▰▰▱", "add a model", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
         self.assertNotIn("Update", screen)

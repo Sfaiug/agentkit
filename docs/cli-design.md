@@ -290,8 +290,8 @@ none leaves it off, as many lines as the tallest, empty while the highlight is o
 so no row moves from under the pointer or the keys. `r recommended` opens the models screen
 (The models screen).
 Under the models `+ add a model`, `+ add a provider` (a list opening in the
-frame), `Discord` (connected or not)
-and `Version` (the commit and its date; read, with no action). Each meter over
+frame) and `Discord` (connected or not); under the page, dim and on every page,
+`Version` with the commit and its date, which the highlight never stops on. Each meter over
 the page is a row ↑ past the first model reaches, and the pointer too, lit as on
 the main screen with its line under the meters; Enter or a click lists what it
 offers, `↻ spend a reset` while it holds one and `− remove`, the highlight on

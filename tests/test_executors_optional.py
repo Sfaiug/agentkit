@@ -153,7 +153,7 @@ class ExecutorsOptional(Sandbox):
         with patch.object(terminal, "layout_width", return_value=100), \
                 patch.object(terminal, "colour_depth", return_value=8), \
                 patch.object(terminal, "utf8", return_value=True):
-            lines, _ = menu.config_body(self.cfg, "fixture", selected=self.selected())
+            lines, _ = menu.config_body(self.cfg, selected=self.selected())
             picker, _, _ = orch.picker_lines(self.cfg, dict.fromkeys(config.offered(self.cfg), ""),
                                              self.selected(), None, 0, 100)
             for screen in (lines, picker):
