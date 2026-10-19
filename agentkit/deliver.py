@@ -596,10 +596,10 @@ def merged(lp, url, method):
     return True
 
 
-def is_delivery(lp, info, upstream):
-    """Is this PR view still this run's delivery: the reviewed head, aimed at `upstream`?"""
-    return (info.get("headRefOid") == lp.state["delivery_sha"]
-            and info.get("baseRefName") == upstream.removeprefix("origin/"))
+def is_delivery(lp, current, upstream):
+    """Is this PR (`pr_head`) still this run's delivery: the reviewed head, aimed at `upstream`?"""
+    return (current["head"]["sha"] == lp.state["delivery_sha"]
+            and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
 
 
 def merged_anyway(lp, url, upstream):
@@ -607,19 +607,17 @@ def merged_anyway(lp, url, upstream):
 
     A 5xx or a stopped call may have merged it, and `--delete-branch` exits non-zero on a
     merge that went through when the repository deleted the head branch first (`Reference
-    does not exist`).  Only `state` says MERGED -- mergeStateStatus carries mergeability
-    (BEHIND/BLOCKED/CLEAN and the rest), never the outcome -- and only a merge of the
-    delivery into its target is this run's work: a head another writer replaced, or a PR
-    retargeted and merged elsewhere, is not.
+    does not exist`).  Only `merged` says so -- mergeability is never the outcome -- and only
+    a merge of the delivery into its target is this run's work: a head another writer
+    replaced, or a PR retargeted and merged elsewhere, is not.
     """
-    src, view = gitcall.gh(lp.run_dir, "pr", "view", url, "--json", "state,headRefOid,baseRefName")
-    if gitcall.stopped(src, view):
-        raise gitcall.Stopped(view)
     try:
-        info = json.loads(view) if src == 0 else {}
-    except ValueError:
-        info = {}
-    return (info.get("state") == "MERGED" and is_delivery(lp, info, upstream)
+        current = pr_head(lp.run_dir, url)
+    except gitcall.Stopped:
+        raise
+    except config.Error:
+        return False
+    return (current.get("merged") and is_delivery(lp, current, upstream)
             and merged(lp, url, lp.state["merge_method"]))
 
 
@@ -636,8 +634,8 @@ def do_merge(lp, url, upstream):
     retried after the next merge to the target.  GitHub answering with a 5xx of its own
     takes the same road, and a merge it went through with anyway counts as merged; so does
     `Head branch was modified` straight after the delivery's own push, which the re-check
-    ends only when the PR head really is another commit.  After `Pull Request is not
-    mergeable`, GitHub is asked again while it reports the PR's state UNKNOWN, up to
+    ends only when git shows the PR head is another commit (`pr_head`).  After `Pull Request
+    is not mergeable`, GitHub is asked again while it reports the PR's state UNKNOWN, up to
     GITHUB_RETRIES times, and a PR it then calls CLEAN is tried once more.  Work
     that passed review is never thrown away over one lost race or one bad answer.
     """
@@ -680,23 +678,18 @@ def do_merge(lp, url, upstream):
             frc, fetched = gitcall.fetch(lp.wt, "origin")
             if frc != 0:
                 return roundloop.note(lp, f"git fetch origin failed: {fetched[-400:]}", failed=True)
-            vrc, view = gitcall.gh(lp.run_dir, "pr", "view", url, "--json",
-                           "state,mergeable,headRefOid,baseRefName")
-            if gitcall.stopped(vrc, view):
-                raise gitcall.Stopped(view)
-            if vrc != 0:
-                return roundloop.note(lp, f"could not re-check the PR: {view[-400:]}", failed=True)
             try:
-                info = json.loads(view)
-            except ValueError:
-                return roundloop.note(lp, f"could not read the PR: {view[-400:]}", failed=True)
-            if not is_delivery(lp, info, upstream):
+                current = pr_head(lp.run_dir, url)
+            except gitcall.Stopped:
+                raise
+            except config.Error as exc:
+                return roundloop.note(lp, f"could not re-check the PR: {exc}", failed=True)
+            if not is_delivery(lp, current, upstream):
                 return roundloop.note(lp, "PR head or target changed since PASS; a new run is required",
                             failed=True)
-            seen, mergeable = info.get("state"), info.get("mergeable")
-            if seen == "MERGED":
+            if current.get("merged"):
                 return merged(lp, url, method)
-            if seen != "OPEN":
+            if current.get("state") != "open":
                 return roundloop.note(lp, "PR is closed without a merge", failed=True)
             # A moving target can change both the patch and its checks. Reuse the same
             # integration path as a BEHIND retry before authorizing the new head.
@@ -715,7 +708,7 @@ def do_merge(lp, url, upstream):
             else:
                 # GitHub may still be computing mergeability. An unconfirmed answer
                 # uses the remaining retries to re-check before authorizing a merge.
-                ready = mergeable == "MERGEABLE"
+                ready = current.get("mergeable") is True
         if rc == 0:
             return merged(lp, url, method)
         if lost:
@@ -1079,7 +1072,7 @@ def merge_own_pr(lp, url):
     upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
 
     def deliver():
-        current = pr_head(lp, url)
+        current = pr_head(lp.run_dir, url)
         remote = current["head"]
         expected = own_pr_heads(lp.state)
         ours = (remote["sha"] in expected
@@ -1108,13 +1101,27 @@ def merge_own_pr(lp, url):
     return join_line(lp, upstream, deliver)
 
 
-def pr_head(lp, url):
+def pr_head(cwd, url):
     """The pull request as GitHub describes it now, its head named, or an error: what a push
-    to its branch and a merge of it stand on."""
+    to its branch and a merge of it stand on.
+
+    An open PR's head commit is git's: its head repository's branch, which moves the moment a
+    push succeeds, where GitHub's own read of it can show the head from before a push for
+    seconds.  A merged or closed PR keeps the head GitHub closed it on, what merged: its branch
+    may have moved or gone since."""
     api, owner, repo, number = pr_parts(url)
-    current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
+    current, why = gh_json(cwd, *api, f"repos/{owner}/{repo}/pulls/{number}")
     if not isinstance(current, dict) or not (current.get("head") or {}).get("sha"):
         raise config.Error(f"cannot read the PR: {why}")
+    if current.get("state") == "open":
+        head = current["head"]
+        ref, source = f"refs/heads/{head.get('ref')}", (head.get("repo") or {}).get("clone_url")
+        rc, out = (gitcall.git_out(cwd, "ls-remote", "--", source, ref) if source
+                   else (1, "GitHub names no head repository"))
+        head["sha"] = next((line.split("\t")[0] for line in out.splitlines() if rc == 0
+                            and line.endswith(f"\t{ref}")), None)
+        if not head["sha"]:
+            raise config.Error(f"cannot read the PR head from git: {out[-400:] or f'no {ref}'}")
     return current
 
 

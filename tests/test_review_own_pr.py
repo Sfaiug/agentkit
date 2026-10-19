@@ -118,7 +118,7 @@ class OwnPr(unittest.TestCase):
             "FAIL": self.review_fail,
         }
         return [
-            patch.object(run, "pr_view", side_effect=[info(author), info(author, state="CLOSED")]),
+            patch.object(run, "pr_view", return_value=info(author)),
             patch.object(run, "viewer_login", return_value=LOGIN),
             *self.checkout_patches(),
             patch.object(run, "make_worktree", return_value=(self.wt, "ak/pr-7")),
@@ -411,9 +411,7 @@ class OwnPr(unittest.TestCase):
                 mocks.enter_context(m)
             mocks.enter_context(patch.object(run, "checks", return_value=(True, "")))
             mocks.enter_context(patch.object(
-                run, "gh_json", side_effect=[
-                    ({"headRefOid": HEAD, "state": "OPEN"}, ""),
-                    ({"headRefOid": "d" * 40, "state": "OPEN"}, "")]))
+                run, "pr_view", side_effect=[info(), info(), info(head="d" * 40)]))
             mocks.enter_context(patch.object(
                 gitcall, "gh", side_effect=self.posting_gh(events, merges)))
             mocks.enter_context(patch.object(

@@ -316,12 +316,12 @@ sys.exit(item.get("rc", 0))
 
     def test_review_head_is_checked_and_submission_is_pinned(self):
         lp = self.lp()
-        key = f"pr view {URL} --json headRefOid,state"
-        self.reply(key, {"headRefOid": "b" * 40, "state": "OPEN"})
+        view = self.stack.enter_context(patch.object(run, "pr_view", return_value={
+            "headRefOid": "b" * 40, "state": "OPEN"}))
         self.assertFalse(run.post_review(lp, URL, "PASS"))
         self.assertTrue(lp.state["review_stale"])
-        self.assertEqual(len(self.calls()), 1)
-        self.reply(key, {"headRefOid": SHA, "state": "OPEN"})
+        self.assertEqual(self.calls(), [])
+        view.return_value = {"headRefOid": SHA, "state": "OPEN"}
         for verdict, event in (("PASS", "COMMENT"), ("FAIL", "REQUEST_CHANGES")):
             self.reply(f"api repos/me/repo/pulls/7/reviews --method POST -f commit_id={SHA} "
                        f"-f event={event} -F body=@{lp.run_dir / 'review.md'}", {})
@@ -539,8 +539,8 @@ sys.exit(item.get("rc", 0))
                  "executor": "opus", "reviewer": "astra", "branch": "ak/test", "pr": URL,
                  "delivery_sha": SHA, "merge_method": "squash", "merged": False}
         run_record.save_state(d, state)
-        self.reply(f"pr view {URL} --json number,title,body,author,baseRefName,headRefOid,url,state,isDraft",
-                   {"headRefOid": SHA, "baseRefName": "release/v4", "state": "OPEN"})
+        view = self.stack.enter_context(patch.object(run, "pr_view", return_value={
+            "headRefOid": SHA, "baseRefName": "release/v4", "state": "OPEN"}))
         self.rules([])
         key = f"pr merge {URL} --squash --delete-branch --match-head-commit {SHA}"
         self.reply(key, rc=1, text="approvals missing")
@@ -563,8 +563,7 @@ sys.exit(item.get("rc", 0))
             self.assertEqual(run.main(["merge", "passed"]), 0)
             after["merged"] = False
             run_record.save_state(d, after)
-            self.reply(f"pr view {URL} --json number,title,body,author,baseRefName,headRefOid,url,state,isDraft",
-                       {"headRefOid": "changed", "baseRefName": "release/v4", "state": "OPEN"})
+            view.return_value = {"headRefOid": "changed", "baseRefName": "release/v4", "state": "OPEN"}
             self.assertEqual(run.main(["merge", "passed"]), 1)
             self.assertIn("PR head or target changed since PASS", (d / "result.md").read_text())
         self.assertEqual(sum(args[:2] == ["pr", "merge"] for args in self.calls()), 2)

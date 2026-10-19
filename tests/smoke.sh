@@ -4598,15 +4598,16 @@ printf -- '---\ntests: test -f contrib.txt\n---\n# smokerepo\n' >"$PR/AGENTS.md"
 git -C "$PR" add -A; git -C "$PR" commit -qm "declare tests"; git -C "$PR" push -q -u origin main
 git -C "$PR" checkout -q -b contrib; printf 'c\n' >"$PR/contrib.txt"; git -C "$PR" add -A
 git -C "$PR" commit -qm "add contrib.txt"; PHEAD=$(git -C "$PR" rev-parse HEAD)
-git -C "$PR" push -q origin "contrib:refs/pull/7/head"; git -C "$PR" checkout -q main; git -C "$PR" branch -qD contrib
+git -C "$PR" push -q origin "contrib:refs/pull/7/head" "contrib:refs/heads/contrib"; git -C "$PR" checkout -q main; git -C "$PR" branch -qD contrib
 cat >"$PBIN/gh" <<SH
 #!/usr/bin/env bash
-GHLOG="$PGHLOG"; PHEAD=$PHEAD; PREPO=$PREPO
+GHLOG="$PGHLOG"; PHEAD=$PHEAD; PREPO=$PREPO; PORIGIN="$PORIGIN"
 SH
 cat >>"$PBIN/gh" <<'SH'
 printf '%s\n' "$*" >>"$GHLOG"
 case "${1:-} ${2:-}" in
   "pr view") printf '{"number":7,"title":"Add contrib","body":"adds a file","author":{"login":"bob"},"baseRefName":"main","headRefOid":"%s","url":"https://github.com/smokeowner/%s/pull/7","state":"OPEN","isDraft":false}\n' "$PHEAD" "$PREPO" ;;
+  "api repos/smokeowner/$PREPO/pulls/7") printf '{"state":"open","merged":false,"base":{"ref":"main"},"head":{"sha":"%s","ref":"contrib","repo":{"clone_url":"%s"}}}\n' "$PHEAD" "$PORIGIN" ;;
   "api repos/smokeowner/$PREPO/pulls/7/reviews") cp -- "${10#body=@}" "${GHLOG%.log}-review.md" ;;
   "api graphql") printf '{"data":{"repository":{"ref":{"branchProtectionRule":null}}}}\n' ;;
   "api --paginate") printf '[]\n' ;;

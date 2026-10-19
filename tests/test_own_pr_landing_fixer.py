@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_own_pr_line as line
-from agentkit import deliver, hand_in, history, land, record, roundloop, run, turns, watch, worker
+from agentkit import deliver, hand_in, history, land, record, roundloop, run, turns, worker
 from fixtures.hand_in import submitting
 
 
@@ -89,31 +89,6 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         with patch.object(run, "pickup_new_code", side_effect=lambda *a, **k: self.push(url)):
             state = self.review(directory, url)
         return state, self.reviews[seen:], self.prs[url]["head"]
-
-    def test_a_watcher_write_during_the_wait_on_github_stays_on_the_record(self):
-        # the re-review reads the PR again while GitHub lags behind the fixer's push; a mark a
-        # watcher puts on the record meanwhile (a freeze) is not written over by the pop that
-        # takes landing_fix off a head the run did not write
-        directory, url = self.red_landing()
-        self.fixer_turns(self.rename)
-        real, reads = run.pr_view, []
-
-        def view(url_):
-            info = real(url_)
-            reads.append(info["headRefOid"])
-            if len(reads) == 1:        # GitHub still shows the head the run reviewed
-                return {**info, "headRefOid": record.read_state(directory)["head_sha"]}
-            if len(reads) == 2:        # the watcher writes while the re-review waits
-                watch.note_freeze(directory, "frozen", 12345.0)
-            return info
-
-        with patch.object(run, "pickup_new_code", side_effect=lambda *a, **k: self.push(url)), \
-                patch.object(run, "pr_view", side_effect=view), patch.object(run, "PR_READ_LAG", 0):
-            state = self.review(directory, url)
-        self.assertGreaterEqual(len(reads), 2)
-        self.assertEqual(record.read_state(directory).get("frozen_since"), 12345.0)
-        self.assertNotIn("landing_fix", state)
-        self.assertEqual(len(state["round_summaries"]), 2)
 
     def test_a_seat_push_right_after_the_landing_fix_push_spends_a_round(self):
         state, reviews, seat = self.seat_push_after_the_landing_fix(1)

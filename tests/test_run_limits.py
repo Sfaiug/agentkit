@@ -96,12 +96,15 @@ if refuse and args[:len(refuse)] == refuse:
 if args[:2] == ["repo", "view"]:
     print(json.dumps({"nameWithOwner": "fixture/repo", "viewerPermission": "WRITE"}))
 elif args[:2] == ["pr", "create"]:
+    (root / "branch").write_text(args[args.index("--head") + 1])
     print(url)
 elif args[:2] == ["pr", "merge"]:
     (root / "merged").write_text(" ".join(args))
 elif args[:2] == ["pr", "view"]:
-    print(json.dumps({"headRefOid": (root / "delivery").read_text().strip(),
-                      "baseRefName": "main", "state": "OPEN", "url": url}))
+    print(json.dumps({"baseRefName": "main", "state": "OPEN", "url": url}))
+elif args[:2] == ["api", "repos/fixture/repo/pulls/7"]:     # its head is what git reads
+    print(json.dumps({"state": "open", "base": {"ref": "main"}, "head": {
+        "sha": "0" * 40, "ref": (root / "branch").read_text(), "repo": {"clone_url": str(root / "origin.git")}}}))
 elif args[:2] == ["api", "graphql"]:
     print(json.dumps({"data": {"repository": {"ref": {"branchProtectionRule": None}}}}))
 elif args[:2] == ["api", "--paginate"]:
@@ -366,7 +369,6 @@ class Limits(unittest.TestCase):
                 seen.append((list(cmd), kwargs.get("timeout"), kwargs.get("env") or {}))
             return real(cmd, **kwargs)
 
-        (self.root / "delivery").write_text("unset")
         task = self.task(["true"])
         with patch.object(run.subprocess, "run", side_effect=record):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
@@ -545,7 +547,6 @@ class Limits(unittest.TestCase):
     def test_v5f_run_merge_retries_a_pass_whose_push_was_rejected(self):
         self.repo()
         (self.root / "reject-push").touch()
-        (self.root / "delivery").write_text("unset")
         task = self.task(["true"])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
@@ -665,7 +666,6 @@ class Limits(unittest.TestCase):
 
     def test_v5f_a_timed_out_gh_stops_the_delivery_and_keeps_it_retryable(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         (self.root / "slow-gh").write_text("repo view")      # the rights check never answers
         task = self.task(["true"])
         with patch.object(gitcall, "TOOL_CAP", 5):
@@ -687,14 +687,12 @@ class Limits(unittest.TestCase):
 
     def test_v5f_run_merge_survives_a_stopped_gh_and_stays_retryable(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         task = self.task(["true"])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
         self.assertEqual(code, 0)
         self.assertTrue(state["merged"])
 
         # the same run, back where a failed delivery leaves it, with gh no longer answering
-        (self.root / "delivery").write_text(state["delivery_sha"])   # what the PR reports now
         state.update(merged=False, merge_failed=True, merge_note="pushing failed", reported=False)
         run_record.save_state(directory, state)
         # the first run merged, so its checkout went with the merge; a genuine failed
@@ -743,7 +741,6 @@ class Limits(unittest.TestCase):
 
     def test_v5f_a_stop_after_integration_leaves_the_run_resumable(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         # origin moves under the run, so the merge integrates and the saved review is
         # invalidated; v5ac keeps identical patches without a reviewer turn, so the
         # stop is armed on the first review for a git only the post-rebase
@@ -785,7 +782,6 @@ class Limits(unittest.TestCase):
     def test_v5f_an_interrupted_merge_retry_is_reaped_rather_than_lost(self):
         self.repo()
         (self.root / "reject-push").touch()
-        (self.root / "delivery").write_text("unset")
         task = self.task(["true"])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
         self.assertEqual((code, state["merge_failed"], state["pr"]), (1, True, None))
@@ -868,7 +864,6 @@ class Limits(unittest.TestCase):
 
     def test_v5f_a_refused_gh_prompt_stops_the_delivery_like_a_timeout(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         (self.root / "prompt-gh").write_text("repo view")   # the rights check is refused a login
         task = self.task(["true"])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
@@ -891,7 +886,6 @@ class Limits(unittest.TestCase):
 
     def test_v5f_a_rebase_that_stops_is_aborted_and_leaves_a_retryable_pass(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         # the rebase -- and only the rebase -- never answers, so the abort still runs real git
         # the rebase names the pinned tip, so arm the hang on that exact command line
         tip = run.git(self.work, "rev-parse", "origin/main^{commit}")
@@ -1007,7 +1001,6 @@ class Limits(unittest.TestCase):
 
     def test_v5f_a_stopped_fetch_and_a_stopped_push_take_the_same_path(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         task = self.task(["true"])
 
         for verb in ("fetch origin", "push"):
@@ -1087,7 +1080,6 @@ class Limits(unittest.TestCase):
 
     def test_v5f_a_stop_in_exclude_junk_ends_the_run_exhausted_and_resumable(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         (self.root / "slow-git").write_text("rev-parse --git-path")
         task = self.task(["true"])
         with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
@@ -1187,7 +1179,6 @@ class Limits(unittest.TestCase):
 
     def test_v5f_a_merge_confirmed_by_pr_state_after_a_stopped_call(self):
         self.repo()
-        (self.root / "delivery").write_text("unset")
         task = self.task(["true"])
         code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
         self.assertEqual(code, 0)
@@ -1195,7 +1186,6 @@ class Limits(unittest.TestCase):
 
         # back where a failed delivery leaves it; the merge call itself will stop, but the
         # PR already merged server-side
-        (self.root / "delivery").write_text(state["delivery_sha"])
         state.update(merged=False, merge_failed=True, merge_note="pushing failed", reported=False)
         run_record.save_state(directory, state)
         # the first run merged, so its checkout went with the merge; a genuine failed
@@ -1203,12 +1193,14 @@ class Limits(unittest.TestCase):
         run.git(state["repo"], "branch", state["branch"], state["delivery_sha"])
         run.git(state["repo"], "worktree", "add", state["worktree"], state["branch"])
         (self.root / "slow-gh").write_text("pr merge")
-        real_gh = gitcall.gh
+        real_gh, tried = gitcall.gh, []
 
         def confirm_gh(cwd, *args, **kwargs):
-            if "--json" in args and args[args.index("--json") + 1] == "state,headRefOid,baseRefName":
-                return 0, json.dumps({"state": "MERGED", "headRefOid": state["delivery_sha"],
-                                      "baseRefName": "main"})
+            if args[:2] == ("pr", "merge"):
+                tried.append(args)
+            elif tried and args[0] == "api" and args[1].endswith("/pulls/7"):
+                return 0, json.dumps({"state": "closed", "merged": True, "base": {"ref": "main"},
+                                      "head": {"sha": state["delivery_sha"]}})
             return real_gh(cwd, *args, **kwargs)
 
         with patch.object(gitcall, "TOOL_CAP", 5), patch.object(gitcall, "gh", side_effect=confirm_gh), \

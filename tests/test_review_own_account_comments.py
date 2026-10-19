@@ -35,8 +35,6 @@ class OwnAccountReview(unittest.TestCase):
         def gh(_cwd, *args, **_kw):
             if args[:2] == ("api", "user"):
                 return 0, json.dumps({"login": LOGIN})
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"headRefOid": HEAD, "state": "OPEN"})
             if args[0] == "api" and args[1].endswith("/pulls/7/reviews"):
                 events.extend(a for a in args if a.startswith("event="))
                 return 0, "{}"
@@ -47,7 +45,8 @@ class OwnAccountReview(unittest.TestCase):
                  "author": author, "own_pr": False, "verdict": "FAIL"}
         lp = run.Loop({}, run_dir, state, {}, lambda *_: None, run_dir, "", [], "", [])
         lp.findings = "api.py:2 wrong answer"
-        with patch.object(config, "RUNS", run_dir), patch.object(gitcall, "gh", side_effect=gh):
+        with patch.object(config, "RUNS", run_dir), patch.object(gitcall, "gh", side_effect=gh), \
+                patch.object(run, "pr_view", return_value={"headRefOid": HEAD, "state": "OPEN"}):
             posted = run.post_review(lp, URL, "FAIL")
         return posted, events, record.read_state(run_dir)
 
