@@ -4,8 +4,8 @@ it back whole, and otherwise is the owner's own editor.
 A seat whose turn ended on `ak wait` sat once its run merged: the end of the wait could not be
 typed while the owner's unsent text held its composer (19 Oct 2026).  A harness hands its
 composer to $VISUAL; this editor puts ak's line in place of the text on ak's ask and the text back
-on the next, and a step that fails changes neither.  Offline: tmux faked in memory; the processes
-are this test's own.
+on the next, and a step that fails loses none of it nor, asked again, keeps any twice.  Offline:
+tmux faked in memory; the processes are this test's own.
 """
 
 import io
@@ -35,8 +35,7 @@ class AsideEditor(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.composer = self.root / "composer.md"
-        self.options, self.buffers, self.opened = {}, {}, []
-        self.failing = None
+        self.options, self.buffers, self.opened, self.failing = {}, {}, [], {}
         for name, fake in (("_tmux", self.tmux),
                            ("execvp", lambda *argv: self.opened.append(argv))):
             patcher = patch.object(aside_editor if name == "_tmux" else aside_editor.os, name,
@@ -45,8 +44,12 @@ class AsideEditor(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def tmux(self, *args, data=None):
-        """The pane's option, read and cleared at once, and its buffers; `failing` fails once
-        done, as a client timing out after its server did the step."""
+        """The pane's option, read and cleared at once, and its buffers; each step `failing` lists
+        for a command fails as it says: `refused`, or `done` first, as a client timing out after
+        its server did the step."""
+        failed = self.fails(args[0])
+        if failed == "refused":
+            return None
         if args[0] == "show-options":
             said = self.options.pop(args[args.index("-t") + 2], "").encode()
         elif args[0] == "list-buffers":
@@ -58,7 +61,10 @@ class AsideEditor(unittest.TestCase):
                 self.buffers[name] = data
             elif args[0] == "delete-buffer":
                 self.buffers.pop(name, None)
-        return None if args[0] == self.failing else said
+        return None if failed else said
+
+    def fails(self, step):
+        return (self.failing.get(step) or [None]).pop(0)
 
     def edit(self, text, ask=None):
         """The harness's own editor key: its composer handed over, and what is left taken."""
@@ -80,39 +86,55 @@ class AsideEditor(unittest.TestCase):
         self.assertEqual(self.edit(" \n", aside_editor.request("line", LINE)), LINE)
         self.assertEqual(self.edit("", aside_editor.request("back")), " \n")
 
-    def test_a_step_that_fails_changes_neither_the_composer_nor_the_text_kept(self):
+    def test_a_step_that_fails_loses_no_text_and_asked_again_keeps_it_once(self):
         name, opened, moved = aside_editor.kept(PANE), os.fdopen, os.replace
-        steps = {"line": ("list-buffers", "save-buffer", "load-buffer", "write", "move"),
-                 "back": ("list-buffers", "save-buffer", "delete-buffer", "write", "move")}
 
         def fdopen(fd, *args):
-            if self.failing == "write":
+            if self.fails("write"):
                 os.close(fd)
                 raise OSError(28, "No space left on device")
             return opened(fd, *args)
 
         def move(*args):
-            if self.failing == "move":
+            if self.fails("move"):
                 raise OSError(13, "Permission denied")
             return moved(*args)
 
-        for mode in steps:
-            for failing in steps[mode]:
-                with self.subTest(mode=mode, failing=failing):
-                    composer = DRAFT if mode == "line" else ""
-                    self.buffers, self.failing = {name: b"kept before"}, failing
-                    with patch.object(aside_editor.os, "fdopen", side_effect=fdopen), \
-                         patch.object(aside_editor.os, "replace", side_effect=move):
-                        self.assertEqual(self.edit(composer, aside_editor.request(mode, LINE)),
-                                         composer)
-                    self.assertEqual(self.buffers, {name: b"kept before"})
-                    self.assertEqual([path.name for path in self.root.iterdir()], ["composer.md"])
-                    # asked again, it keeps one copy of what the composer held
-                    self.failing = None
-                    self.assertEqual(self.edit(composer, aside_editor.request(mode, LINE)),
-                                     LINE if mode == "line" else "kept before")
-                    self.assertEqual(self.buffers, {name: f"kept before\n{DRAFT}".encode()}
-                                     if mode == "line" else {})
+        twice = f"kept before\n{DRAFT}".encode()
+        # what each failing step leaves: as it was, or the text moved, or -- where tmux refused
+        # the step that would undo or finish one -- in both places, which asking again mends
+        left = {"line": {"as it was": (DRAFT, {name: b"kept before"}), "twice": (DRAFT, {name: twice})},
+                "back": {"as it was": ("", {name: b"kept before"}), "moved": ("kept before", {}),
+                         "twice": ("kept before", {name: b"kept before"})}}
+        refused, done, failed = ("refused",), ("done",), ("failed",)
+        for mode, failing, outcome in (
+                *(("line", {step: refused}, "as it was")
+                  for step in ("list-buffers", "save-buffer", "load-buffer")),
+                ("line", {"load-buffer": done}, "as it was"),
+                ("line", {"load-buffer": ("done", "refused")}, "twice"),
+                ("line", {"write": failed}, "as it was"), ("line", {"move": failed}, "as it was"),
+                ("line", {"move": failed, "load-buffer": (None, "refused")}, "twice"),
+                *(("back", {step: refused}, "as it was") for step in ("list-buffers", "save-buffer")),
+                ("back", {"delete-buffer": refused}, "twice"),
+                # the reviewer's probes: the buffer dropped by a step its client timed out on
+                ("back", {"delete-buffer": done}, "moved"),
+                ("back", {"delete-buffer": done, "load-buffer": refused}, "moved"),
+                ("back", {"write": failed}, "as it was"), ("back", {"move": failed}, "as it was")):
+            with self.subTest(mode=mode, failing=failing):
+                self.buffers = {name: b"kept before"}
+                self.failing = {step: list(steps) for step, steps in failing.items()}
+                with patch.object(aside_editor.os, "fdopen", side_effect=fdopen), \
+                     patch.object(aside_editor.os, "replace", side_effect=move):
+                    now = self.edit(DRAFT if mode == "line" else "", aside_editor.request(mode, LINE))
+                self.assertEqual((now, self.buffers), left[mode][outcome])
+                self.assertEqual([path.name for path in self.root.iterdir()], ["composer.md"])
+                # ak's line in, asked again where it is not, then sent: the text comes back once
+                self.failing = {}
+                if now != LINE:
+                    self.assertEqual(self.edit(now, aside_editor.request("line", LINE)), LINE)
+                self.assertEqual(self.edit("", aside_editor.request("back")),
+                                 f"kept before\n{DRAFT}" if mode == "line" else "kept before")
+                self.assertEqual(self.buffers, {})
 
     def test_without_a_fresh_ask_it_opens_the_owners_editor_and_keeps_nothing(self):
         stale = f"line {time.time() - aside_editor.FRESH - 5:.0f} {LINE}"

@@ -5,10 +5,12 @@ Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its compos
 editor on the keys its manifest names (`[screen] editor`), and `edit` does what ak asked of the
 pane just before (`request`, a pane option the edit clears): `line` hands back ak's line in place
 of the composer's text, which it keeps in a tmux buffer of the pane's (`kept`) after whatever is
-kept already; `back` hands the kept text back to a composer handed over empty or blank.  A step
-that fails leaves the composer and the kept text both as they were, so no text is ever dropped
-or kept twice.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
-`host`, which imports nothing itself, as it starts on every edit the owner opens.
+kept already; `back` hands the kept text back to a composer handed over empty or blank.  Text is
+in its new place before it leaves its old one, so a step that fails leaves it where it was or
+where it went, never nowhere; and a composer holding what was kept last keeps nothing more, so
+an ask made again after a step whose end went unseen keeps one copy.  Asked nothing, it opens
+the owner's own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as
+it starts on every edit the owner opens.
 """
 
 import contextlib
@@ -87,26 +89,21 @@ def _keep(name, data):
             else _tmux("delete-buffer", "-b", name)) is not None
 
 
-def _replace(path, data, before, undo):
-    """The composer at `path` holding `data` once `before` did what it says, else left as it was:
-    written beside it and moved over it, so no failed write hands the harness part of either, and
-    `undo` putting back what `before` changed where any step fails."""
+def _publish(path, data):
+    """Whether the composer at `path` now holds `data`: written beside it and moved over it, so no
+    failed write hands the harness part of either."""
     temp = path.with_name(f".{path.name}.{os.getpid()}.ak")
     try:
         # as private as the harness made the composer's own
         with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                                os.stat(path).st_mode & 0o777), "wb") as out:
             out.write(data)
-        if before():
-            os.replace(temp, path)
-            return
+        os.replace(temp, path)
+        return True
     except OSError:
-        pass
-    # a step that failed may still have been done, as tmux's server can do one its client then
-    # times out on, and putting back what is unchanged changes nothing
-    undo()
-    with contextlib.suppress(OSError):
-        temp.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            temp.unlink(missing_ok=True)
+        return False
 
 
 def edit(argv):
@@ -133,11 +130,17 @@ def edit(argv):
         text = path.read_bytes()
         # a composer holding the line already got it from an edit before: nothing in it to keep
         if mode == b"line" and text != line:
+            keep = text and not (held == text or held.endswith(b"\n" + text))
+            # the line goes in once the text is kept, and a failed step is undone too, as tmux's
+            # server can do one its client then times out on
             both = b"\n".join(part for part in (held, text) if part)
-            _replace(path, line, lambda: not text or _keep(name, both),
-                     lambda: text and _keep(name, held))
-        elif mode == b"back" and held and not text.strip():
-            _replace(path, held + text, lambda: _keep(name, b""), lambda: _keep(name, held))
+            if keep and not (_keep(name, both) and _publish(path, line)):
+                _keep(name, held)
+            elif not keep:
+                _publish(path, line)
+        # a buffer tmux fails to drop is one copy too many, which the next line keeps once
+        elif mode == b"back" and held and not text.strip() and _publish(path, held + text):
+            _keep(name, b"")
         return 0
     owner = os.environ.get(OWNER) or "vi"
     os.execvp("sh", ["sh", "-c", f'{owner} "$@"', owner, *argv])
