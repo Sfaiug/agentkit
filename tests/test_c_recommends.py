@@ -130,13 +130,14 @@ class Recommends(Sandbox):
                             Key("down"), Key("enter"), Key("char", "r"), Key("char", "r"),
                             Key("esc"), Key("esc")])
         self.assertNotIn("fable", config.load()["models"])
-        self.assertRegex(text, r"opus runs on [^·]+ · recommended to review ↑↓←→ move")
+        self.assertRegex(text, r"opus runs on [^·]+ · recommended to review Version abc1234 ↑↓←→ move")
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
 
     def test_on_a_short_screen_the_line_keeps_whole_parts_that_fit_with_the_note(self):
-        # fable spent, recommended for every role and the last reviewer: the refusal and a row
-        # of the page keep their lines; the blank line over the model's gives way, then parts
+        # fable spent, recommended for every role and the last reviewer: the build, the refusal
+        # and a row of the page keep their lines; the blank line over the model's gives way, then
+        # parts, the recommendation here
         self.store([row("claude", "claude-fable-5-1", "xhigh", "fable",
                         orchestrate=100, execute=100, review=100)])
         config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"],
@@ -150,16 +151,16 @@ class Recommends(Sandbox):
                            " ".join(" ".join(map(terminal.plain, body)).split())))
             return frame(name, body, keyline, **kwargs)
         with patch.object(terminal, "layout_width", return_value=40), \
-                patch.object(terminal, "height", return_value=12), \
+                patch.object(terminal, "height", return_value=14), \
                 patch.object(usage, "collect", return_value=spent), \
                 patch.object(terminal, "frame", side_effect=framed):
             self.screen([Key("right"), Key("right"), Key("enter"), Key("esc")])
         # every page leaves the screen's last two rows (matrix_page)
-        self.assertEqual(max(height for height, _ in frames), 10, frames)
+        self.assertEqual(max(height for height, _ in frames), 12, frames)
         self.assertRegex(frames[0][1], r"fable runs on Claude spent · resets \w+ \d\d:\d\d "
-                                       r"recommended to orchestrate, build and review$")
-        self.assertRegex(frames[-1][1], r"fable runs on Claude spent · resets .* "
-                                        r"at least one model reviews$")
+                                       r"recommended to orchestrate, build and review Version abc1234$")
+        self.assertRegex(frames[-1][1], r"fable runs on Claude spent · resets \w+ \d\d:\d\d "
+                                        r"Version abc1234 at least one model reviews$")
 
     def test_with_nothing_computed_no_model_is_recommended_and_r_is_no_key(self):
         text = self.screen([Key("char", "r"), Key("esc")])
