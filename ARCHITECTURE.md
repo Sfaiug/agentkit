@@ -150,6 +150,10 @@
 - `retention.py`: ownership-safe deletion: markers, `safe`/`busy` evidence, worktree
   cleanup, compression; a harness config's stale trust and MCP entries, where its plugin
   says they are (`config_entries`). For gc, run, orch, update, notify.
+- `aside_editor.py`: the editor every seat's harness opens its composer in (`$VISUAL`, set
+  at launch): asked through a pane option, it keeps the owner's unsent text in a tmux buffer
+  for a line of ak's and hands it back; asked nothing, it opens the owner's own. For orch's
+  launch and watch; `tools/aside-editor` runs it.
 - `pty_relay.py`: nonblocking terminal transport, bounded queues and exit draining.
   `Relay.poll`, `finish`, `close` for `tools/idle-compact.py`; owns the two directions without
   harness or model knowledge.
@@ -207,7 +211,8 @@
   `<HOME>/bin/<name>` first on a seat's PATH; and, called by adapters:
   `rulebook.py`, `idle-compact.py` (every seat's harness runs under it: it looks at the seat
   again when its screen comes to rest, starts moving or its harness exits; it types nothing),
-  `codex-seat.py`, `catalog.py`, `desktop-mcp.py`.
+  `codex-seat.py`, `catalog.py`, `desktop-mcp.py`; `aside-editor`, every seat's `$VISUAL`
+  (`agentkit/aside_editor.py`).
 - `tools/helper/`: helper.py's Mac side: `mac.sh` (probe, known, prepare, run, finish; it
   keeps each repository's history), `piece.sh` (one piece in the VM, offline) and agentkit's own
   suite image `Containerfile`.
