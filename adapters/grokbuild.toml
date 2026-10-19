@@ -45,8 +45,8 @@ unreadable = false
 
 # The weekly subscription window is the credits form of the billing endpoint, the
 # response the TUI's Usage limit tab reads.  `grok usage` itself reports per-session
-# tokens only.  A seat whose credits response carries no usage percent, and whose
-# settings cache has no subscription_usage entries, answers no meter: the budget stays
+# tokens only.  Only a parsed HTTP 200 billing response without a usage percent, and a
+# settings cache with no subscription_usage entries, answer no meter: the budget stays
 # neutral (1.0, shown as `in step`), the menu row reads `Grok -- no meter`, and the
 # picker ranks it by its normal rules, never last; only a failed probe ranks last.
 [usage]
