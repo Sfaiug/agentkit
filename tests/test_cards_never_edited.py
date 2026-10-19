@@ -95,6 +95,15 @@ class CardsNeverEdited(Sandbox):
         notify.retry_pending(log=lambda _line: None)
         self.assertEqual([request[2] for request in self.requests], [503])
 
+    def test_a_gone_seats_queued_question_never_goes_out(self):
+        self.down = True
+        self.says("needs you", 10000, after=notify.CARD_WAIT)
+        self.down = False
+        notify.forget_card(SEAT)
+        self.now += 100000
+        notify.retry_pending(log=lambda _line: None)
+        self.assertEqual([request[2] for request in self.requests], [503])
+
     def test_an_earlier_retired_question_lets_a_live_dialogs_card_go_late(self):
         notify.record(SEAT, "needs", "First question?", time=9000)
         notify.clear(SEAT)

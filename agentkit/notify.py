@@ -819,9 +819,7 @@ def _unsendable(event, session):
     A retry is a card sent late, and the rules for sending hold for it too: nothing queued
     before the agentkit running now was installed, nothing about a seat the owner has closed
     himself since, and no question that is over: once out a card is never edited, so a late
-    one would ask what is answered.  Its episode is over once the card holds another, which
-    the seat's word changing or his answer begins (`transition`, run just before).  A late
-    done is still news.
+    one would ask what is answered.  A late done is still news.
     """
     if event.get("created_at", 0) < installed_at():
         return "queued before the agentkit running now was installed"
@@ -829,13 +827,15 @@ def _unsendable(event, session):
         from . import watch
         if watch.seat_closed_by_owner(session):
             return "its seat was closed by the owner"
-        if _asks(event) and _card_read(session).get("episode") != event.get("episode"):
+        card = _card_read(session)
+        # read under the lock the post holds: the seat's word now, not at the last tick's card
+        # pass, and an answer the tick has yet to turn into an episode of its own
+        if (event["kind"] == "needs" and str(event.get("source") or "").startswith("card:")
+                and (card.get("episode") != event.get("episode")
+                     or watch.session_state(session, card=True)["word"] != "needs you"
+                     or _answered_at(card, last(session, include_seen=True) or {}) > card["since"])):
             return "the question it asked is over"
     return ""
-
-
-def _asks(event):
-    return event["kind"] == "needs" and str(event.get("source") or "").startswith("card:")
 
 
 def _dropped(event, session, log=print):
@@ -861,8 +861,6 @@ def retry_pending(dry_run=False, log=print):
                 log(f"would retry notification {event['id']} ({event['status']})")
                 continue
             session = config.resolve_session(event["session"]) if event["session"] else None
-            if _asks(event):
-                transition(session, log=log)    # the seat's word read now, not at the last tick
             with session_lock(session) if session else nullcontext(session) as session, outbox_lock():
                 event = _read_event(path.stem)
                 if _dropped(event, session, log):
@@ -1071,6 +1069,13 @@ def _carded(session, declared):
     return None
 
 
+def _answered_at(card, declared):
+    """When the owner last answered: in the seat, or his notice; a newer notice carries the
+    answer to the one it replaced (`shaped`)."""
+    return max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
+               (declared.get("answered_at") or 0) if resolved(declared) else 0)
+
+
 def needs_transition(session, card, answer, now, seat=None):
     """One amber card once needs you has stood a minute and the owner has typed nothing into
     the seat for a minute, which stays `Needs you` for as long as the seat does.
@@ -1080,9 +1085,7 @@ def needs_transition(session, card, answer, now, seat=None):
     in it is asking him anything.
     """
     declared = last(session, include_seen=True) or {}
-    # A newer notice carries the answer to the one it replaced (`shaped`).
-    answered_at = max(card.get("answered_at") or 0, declared.get("earlier_answer_at") or 0,
-                      (declared.get("answered_at") or 0) if resolved(declared) else 0)
+    answered_at = _answered_at(card, declared)
     answered_here = answered_at > card["since"]
     asked = (declared.get("kind") == "needs" and declared.get("watcher") is not True
              and not resolved(declared))
