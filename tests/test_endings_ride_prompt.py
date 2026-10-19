@@ -10,10 +10,12 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, handback, record
+from test_health_after_merge import PR, SEAT as MERGED_SEAT, HealthAfterMerge
+from agentkit import config, handback, orch, record
 
 SEAT = "fix-api"
 CONVERSATION = "acme-conversation"
+OPEN = "- [ ] the parser parses\n"     # a plan line the seat still owes
 
 
 class EndingsRidePrompt(Sandbox):
@@ -69,12 +71,51 @@ class EndingsRidePrompt(Sandbox):
             self.assertTrue(record.read_state(run_dir)["handback_pending"])
         self.assertIn("run fix-parser finished FAIL", self.hook())
 
+    def test_a_change_gone_live_rides_once_while_the_seat_owes_work(self):
+        config.plan_path(SEAT).write_text(OPEN)
+        live = self.ended("fix-parser", owner=SEAT, merged=True, live_at=9995, pr=PR)
+        self.ended("fix-schema", owner=SEAT, merged=True, live_at=9995, pr=PR,
+                   live_typed={"line": "run fix-schema", "seat": 100})
+        context = self.hook()
+        self.assertIn(f"run fix-parser is live: {PR}.", context)
+        self.assertNotIn("fix-schema", context)                # its Enter is the tick's
+        self.assertTrue(record.read_state(live)["live_notified"])
+        self.assertEqual(self.hook(), "")
+
+    def test_a_change_gone_live_for_a_seat_owing_nothing_is_the_ticks_to_record(self):
+        live = self.ended("fix-parser", owner=SEAT, merged=True, live_at=9995, pr=PR)
+        self.assertEqual(self.hook(), "")
+        self.assertNotIn("live_notified", record.read_state(live))
+
     def test_a_prompt_that_is_no_words_of_a_turn_leaves_them_waiting(self):
         run_dir = self.waiting("fix-parser")
         for prompt in ("/rename fix-api", "<task-notification>done</task-notification>"):
             with self.subTest(prompt=prompt):
                 self.assertNotIn("fix-parser", self.hook(prompt))
                 self.assertTrue(record.read_state(run_dir)["handback_pending"])
+
+
+
+class TickLeavesWhatRode(HealthAfterMerge):
+    def test_a_live_line_a_prompt_carried_first_is_never_typed(self):
+        config.plan_path(MERGED_SEAT).write_text(OPEN)
+        directory = self.merged(self.declare("exit 0"))
+        seat, carried = self.rows[0], []
+        # a prompt starts the seat's turn between the pass reading the run and typing its line
+        with patch.object(orch, "find",
+                          lambda name: carried.append(handback.riding(name)) or seat):
+            self.tick()
+        self.assertIn(f"run {directory.name} is live: {PR}.", "".join(carried))
+        self.assertEqual(self.lines, [])
+        self.assertTrue(record.read_state(directory)["live_notified"])
+
+
+def load_tests(loader, tests, pattern):
+    """Only this file's own cases: the harness it builds on runs its tests from its own file."""
+    suite = unittest.TestSuite()
+    for case in (EndingsRidePrompt, TickLeavesWhatRode):
+        suite.addTests(loader.loadTestsFromTestCase(case))
+    return suite
 
 
 if __name__ == "__main__":

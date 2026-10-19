@@ -6357,7 +6357,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
     if not dry_run:
         history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     if not st.get("live_notified"):
-        line = f"run {run_dir.name} is live: {pr_url}."
+        line = handback.live_line(st, run_dir, fit=False)
         if dry_run:
             log(f"would tell its launching seat: {line}")
             return "passed", None, None
@@ -6374,15 +6374,19 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
         seat = orch.find(session)
         if after_merge_live(seat):
             def kept(mark):
-                with run_record.record(run_dir) as current:
-                    current["live_typed"] = mark
+                handback.mark_delivery(run_dir, st, live_typed=mark)
 
-            line = handback.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
-            if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
-                with run_record.record(run_dir) as current:
-                    current["live_notified"] = now
-                    current.pop("live_typed", None)
-                log(f"told the {seat['name']} seat: {line}")
+            # held from deciding to the mark, as a hand-back's is: a prompt starting a turn
+            # there may have carried this line since the pass read the run (`handback.riding`)
+            with handback.delivery_lock(run_dir):
+                current = run_record.read_state(run_dir) or st
+                if current.get("live_notified"):
+                    return "passed", None, None
+                line = handback.live_line(current, run_dir)
+                if type_at_prompt(seat, line, log, typed=current.get("live_typed"),
+                                  receipt=kept):
+                    handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
+                    log(f"told the {seat['name']} seat: {line}")
     return "passed", None, None
 
 

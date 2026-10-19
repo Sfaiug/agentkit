@@ -160,8 +160,9 @@ gets it from the tick; its line is typed once, and one still sitting in the seat
 while text you typed sits beside it, and counts as delivered only once that composer, read whole, is empty. The tick reads
 a seat found off its prompt once a pass for all the endings waiting on it, and the log names a waiting ending once, as it
 is first deferred, again on each pass its seat reads at its prompt yet takes no line, and as it is said. A prompt
-that starts a turn there first carries every ending still waiting, yours or a line ak typed (never a slash command or
-a harness's own turn), where the harness's prompt hook carries context, and each is then told for good. A seat that
+that starts a turn there first carries every ending still waiting, and every `is live` line, yours or a line ak
+typed (never a slash command or a harness's own turn), where the harness's prompt hook carries context, and each is
+then told for good. A seat that
 has died is reopened by the run and told `continue <task>`; only when that fails does a `Needs you` card go to you. A
 run you launch by hand has no seat: its result is on the terminal and in `ak run status`.
 Workers and checks run with `$AGENTKIT_UNATTENDED`, so a run one of them starts belongs to nobody. A project's `AGENTS.md` front matter may declare `health: <shell command>`: exit 0 means its live product works with the change deployed. For three hours after merging, the tick reads the declaration at the merge commit, from GitHub if it is unavailable locally, and runs it in the original repository checkout with `AK_MERGE_SHA` set to that commit. It tries at most once per commit per tick, stopping at the first pass: `live_at` goes into the run and its history row, and the launching seat hears that the change is live only while its plan has an open line of its own, as its turn may have ended waiting on it; otherwise that is recorded, never typed. Each attempt has a 30-second timeout that kills its process group. A command still failing when the window closes goes back once with its last output, using the merge-commit checks' existing break marks. An unreadable declaration retries next tick without changing merge-check handling. The project owns its deploy; without `health:`, merging behaves as before.
