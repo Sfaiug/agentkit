@@ -1,9 +1,9 @@
-"""A task's squares move once when it moves on: its next square fills, and a failure nudges.
+"""A task's squares move once when it moves on: its next square fills, and one that ended goes.
 
 The owner's design (14 Oct 2026): on the line the highlighted row opens, each task in flight is
 three squares (build, review, land).  One that reaches its next stage fills that square through
-its half (`□ ▣ ■`) over 150 ms; one that fails turns red and nudges a cell left, right, left and
-back over 240 ms.  A task first seen, or one that did not change, stands still.  Offline: a
+its half (`□ ▣ ■`) over 150 ms; one that ended is gone from the line (their word of 19 Oct
+2026).  A task first seen, or one that did not change, stands still.  Offline: a
 temporary HOME, fake seats and runs, the motion clock read, no terminal.
 """
 
@@ -72,7 +72,7 @@ class TasksMove(Sandbox):
                 new = {cell for cell in self.clock.cells if cell not in moved}
                 self.assertTrue(new and {r for r, _ in new} == {row}, (new, lines))
 
-    def test_the_next_square_fills_through_its_half_and_a_failure_nudges(self):
+    def test_the_next_square_fills_through_its_half_and_an_ended_task_goes(self):
         before = [run("g1", state="running", step="executor"),
                   run("g2", state="running", step="reviewer")]
         self.groups(self.draw(before))
@@ -82,19 +82,12 @@ class TasksMove(Sandbox):
         with patch.object(motion, "STEP", 60):     # long enough to read its half by the clock
             lines = self.draw(after)
             now = time.monotonic()
-        (row, first), (_, second) = self.groups(lines)    # both at stage 1 now, g1 first
+        (row, first), = self.groups(lines)    # g1 alone: g2 ended
         new = {cell: self.clock.cells[cell] for cell in self.clock.cells if cell not in moved}
         # g1's second square fills: half first, then as drawn, breathing on as it moves
         animation, _ = new[row, first + 1]
         self.assertEqual(terminal.plain(animation(now)), "▣")
         self.assertEqual(terminal.plain(animation(now + 60)), "■")
-        # g2 nudges, drawn from the cell before its squares: left, right, left and back
-        animation, until = new[row, second - 1]
-        began = until - motion.SHAKE
-        shifts = [terminal.ANSI.sub("", animation(began + motion.SHAKE * k / 4 + 0.001))
-                  for k in range(4)]
-        self.assertEqual([len(text) - len(text.lstrip()) for text in shifts], [0, 2, 0, 1])
-        self.assertEqual({text.strip() for text in shifts}, {"■■□"})
 
     def test_a_task_first_seen_or_unchanged_stands_still(self):
         records = [run("g1", state="running", step="executor")]

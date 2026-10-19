@@ -2375,8 +2375,7 @@ def announce_state(session, cfg=None, look=False, **facts):
             seat_write(name, word=answer["word"], reason=answer["reason"],
                        unsent=answer.get("unsent", ""), word_since=answer["since"],
                        word_from=decided)
-        statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"),
-                          index=facts.get("index"))
+        statusbar.redress(session, answer, cfg=cfg, records=facts.get("records"))
         if previous.get("word") != answer["word"]:
             statusbar.retell(session)
     return answer

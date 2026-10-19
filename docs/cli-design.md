@@ -429,8 +429,8 @@ its seat is opened, whatever harness it runs; for any other, each model that bui
 reviews named once, dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
 it reviews (glyphs without their word, the owner's pick of 18 Oct 2026), and each task in
 flight as three squares -- build, review, land -- the stages it reached filled, in
-working's colour while a model or ak works on it, dim while it waits, red once it
-failed (for a day, unless a later run takes it up), the rest empty:
+working's colour while a model or ak works on it, dim while it waits, the rest
+empty, and a run that ended gone from it, whatever it delivered:
 `astra ⚒   opus ⚒◎   ■□□  ■■□  ■■■` (`menu.crew`, `menu.squares`,
 `menu.seat_tasks`). No screen names a task. No other row grows: every page
 keeps as many lines as the most any seat on screen opens, up to half the screen
@@ -626,8 +626,7 @@ the line shows: from 0 as it grows, and on to a task ticked as it glides (`motio
 a count whose total changed, or with fewer done, is written at once. On the line the
 highlighted row opens, a
 task that reaches its next stage fills that square through its half (`□ ▣ ■`) over
-150 ms (`motion.halving`), and one that fails nudges left, right, left and back
-over 240 ms (`motion.nudging`); a task first seen stands still. Only a change seen while the
+150 ms (`motion.halving`); a task first seen stands still. Only a change seen while the
 menu is up moves: the first draw after opening, one after a resize and one back
 from another screen or a notice draw every value as it is (`motion.Clock.look`,
 `forget`).

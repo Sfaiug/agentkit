@@ -280,9 +280,9 @@ def halving(text, began, took, bright=False):
 
 
 def nudging(text, began, bright=False):
-    """Marks, `text` as drawn, from the cell before them, whose change was refused or that just
-    failed: they nudge a cell left, right, left and back in SHAKE seconds; and when they are
-    still.  `bright` on the highlighted row."""
+    """Marks, `text` as drawn, from the cell before them, whose change was refused: they nudge
+    a cell left, right, left and back in SHAKE seconds; and when they are still.  `bright` on
+    the highlighted row."""
     def at(now):
         shift = (-1, 1, -1, 0)[min(3, int(4 * (now - began) / SHAKE))]
         moved = " " * (1 + shift) + text + " " * (1 - shift)

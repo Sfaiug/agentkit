@@ -256,14 +256,14 @@ def dress(name, model):
         pass
 
 
-def redress(session, answer, cfg=None, records=None, index=None):
+def redress(session, answer, cfg=None, records=None):
     """Write that seat's bar and window title from its row's own values; never raises.
 
     The one writer: the watch tick, every menu draw and a seat's own hook come through here --
     all call `watch.announce_state` -- so the bar says what the row says: the state function's
     word, `menu.last_column` over `menu.seat_progress`, and the line its row opens, who builds
-    and reviews and its tasks' squares (`menu.seat_tasks`) from the caller's run `records` and
-    their `transitions.supersession_index` where it has them.  A legacy seat lives on the
+    and reviews and its tasks' squares (`menu.seat_tasks`) from the caller's run `records`
+    where it has them.  A legacy seat lives on the
     user's own server, where nothing is written.
     """
     try:
@@ -282,7 +282,7 @@ def redress(session, answer, cfg=None, records=None, index=None):
                                   narrow=True, tmux=True, unsent=answer.get("unsent"))
                  for cells in BARS]
         info = {"crew": menu.seat_crew(selection),
-                "tasks": menu.seat_tasks(name, records, index=index)}
+                "tasks": menu.seat_tasks(name, records)}
         _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,
                whys(info))
     except Exception:  # noqa: BLE001 - dressing a bar never breaks the draw or the tick beneath it

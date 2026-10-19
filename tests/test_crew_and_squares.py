@@ -4,7 +4,8 @@ The owner's design (14 Oct 2026): pointing at a working seat opens one line unde
 `astra ⚒   fable ◎   ■□□  ■■□` -- each model once, ⚒ after one that builds and ◎ after one that
 reviews (their pick of 18 Oct 2026), dim as the row's orchestrator, with each task in flight as three squares
 (build, review, land), the stages it reached filled: in working's colour while a model or ak
-works on it, dim while it waits, red once it failed.  No task's name appears anywhere.
+works on it, dim while it waits; a run that ended is gone from it, whatever it delivered (their
+word of 19 Oct 2026).  No task's name appears anywhere.
 Offline: a temporary HOME, fake run records, no tmux.
 """
 
@@ -32,7 +33,7 @@ class CrewAndSquares(Sandbox):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
 
-    def test_each_run_is_a_task_at_its_stage_moving_waiting_or_failed(self):
+    def test_each_run_in_flight_is_a_task_at_its_stage_moving_or_waiting_and_an_ended_one_none(self):
         records = [
             run("g1-parser", state="running", step="executor"),
             run("g2-review", state="running", step="reviewer"),
@@ -42,11 +43,12 @@ class CrewAndSquares(Sandbox):
             run("g6-failed", state="fail", verdict="FAIL", step="reviewer", handed_back=True,
                 finished_at=NOW - 60),
             run("g7-merged", state="pass", merged=True, live_at=NOW - 30),
+            run("g8-blocked", state="blocked", step="executor", finished_at=NOW - 60),
+            run("g9-error", state="error", step="merge", finished_at=NOW - 60),
             run("other", state="running", step="executor", launched_session="other-seat"),
         ]
         self.assertEqual(menu.seat_tasks(SEAT, records, NOW), [
-            (0, "moving"), (0, "waiting"), (1, "moving"), (1, "failed"),
-            (2, "moving"), (2, "waiting")])
+            (0, "moving"), (0, "waiting"), (1, "moving"), (2, "moving"), (2, "waiting")])
 
     def test_a_running_loop_that_only_waits_is_waiting(self):
         """Its pid on a transient wait not yet over, a suite turn or another delivery's turn."""
@@ -64,7 +66,7 @@ class CrewAndSquares(Sandbox):
                              [(0, "moving"), (0, "waiting"), (0, "waiting"), (2, "waiting")])
 
     def test_squares_fill_the_stages_reached_and_count_what_does_not_fit(self):
-        tasks = [(0, "moving"), (1, "waiting"), (2, "failed")]
+        tasks = [(0, "moving"), (1, "waiting"), (2, "moving")]
         with patch.object(terminal, "colour_depth", return_value=0):
             self.assertEqual(menu.squares(tasks, 40), "■□□  ■■□  ■■■")
             self.assertEqual(menu.squares(tasks * 4, 21), "■□□  ■■□  ■■■  +9")
@@ -76,11 +78,10 @@ class CrewAndSquares(Sandbox):
             self.assertEqual(menu.squares(tasks, 40), "#--  ##-  ###")
         with patch.object(terminal, "colour_depth", return_value=24):
             drawn = menu.squares(tasks, 40)
-            working, dim, red = (terminal.styled("■", "working"), terminal.styled("□", "dim"),
-                                 terminal.styled("■■■", "FAIL"))
+            working, dim = terminal.styled("■", "working"), terminal.styled("□", "dim")
             self.assertTrue(drawn.startswith(working + terminal.styled("□□", "dim")), drawn)
             self.assertIn(terminal.styled("■■", "dim") + dim, drawn)
-            self.assertTrue(drawn.endswith(red), drawn)
+            self.assertTrue(drawn.endswith(terminal.styled("■■■", "working")), drawn)
 
     def test_the_line_names_who_builds_and_reviews_and_never_a_task(self):
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {"reviewers": ["fable"]})
