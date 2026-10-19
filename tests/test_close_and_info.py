@@ -459,8 +459,8 @@ class ClosedSeat(Sandbox):
         method, url, body = self.edits[0]
         self.assertEqual((method, url), ("PATCH", os.environ["AGENTKIT_DISCORD_WEBHOOK"]
                                          + "/messages/4242"))
-        self.assertEqual(body["embeds"][0]["title"], "Answered · atoll")
-        self.assertNotIn("fields", body["embeds"][0])
+        self.assertEqual(body["content"], "Answered · atoll")
+        self.assertEqual(body["embeds"], [])
         self.assertFalse(config.card_path("atoll").exists())
 
     def test_a_card_discord_would_not_edit_stays_for_the_tick(self):

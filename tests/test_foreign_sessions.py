@@ -164,9 +164,8 @@ class ForeignSessions(unittest.TestCase):
         self.assertEqual(len(self.requests), 1, self.requests)
         method, path, body = self.requests[0]
         self.assertEqual((method, path), ("PATCH", "/api/webhooks/1/token/messages/4242"))
-        self.assertEqual(body["embeds"][0]["title"], "Answered · chlog-deploy-watch")
-        self.assertNotIn("fields", body["embeds"][0])
-        self.assertEqual((body["content"], body["allowed_mentions"]), ("", {"parse": []}))
+        self.assertEqual((body["content"], body["embeds"], body["allowed_mentions"]),
+                         ("Answered · chlog-deploy-watch", [], {"parse": []}))
         self.assertFalse(config.card_path("chlog-deploy-watch").exists())
         # the lock stays: a writer holding or awaiting it would not serialize with a new file
         self.assertTrue(config.notify_path("chlog-deploy-watch").with_suffix(".lock").exists())
@@ -242,7 +241,7 @@ class ForeignSessions(unittest.TestCase):
             self.assertTrue(config.card_path("atoll").exists())   # closes nothing either
             orch.create(self.cfg, "atoll", self.root, selection=selection)
         launch.assert_called_once()
-        self.assertEqual([(r[0], r[2]["embeds"][0]["title"]) for r in self.requests],
+        self.assertEqual([(r[0], r[2]["content"]) for r in self.requests],
                          [("PATCH", "Answered · atoll")])
         self.assertFalse(config.card_path("atoll").exists())
 
@@ -289,7 +288,7 @@ class ForeignSessions(unittest.TestCase):
         self.card("atoll")
         orch.sweep(lambda _: None)
         self.assertNotIn("atoll", config.session_records())
-        self.assertEqual([(r[0], r[2]["embeds"][0]["title"]) for r in self.requests],
+        self.assertEqual([(r[0], r[2]["content"]) for r in self.requests],
                          [("PATCH", "Answered · atoll")])
         self.assertFalse(config.card_path("atoll").exists())
 

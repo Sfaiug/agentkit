@@ -62,7 +62,7 @@ class Cards(unittest.TestCase):
         self.transition("seat", self.answer("needs you", 100), now=159)
         self.assertEqual(self.posts, [])
         self.transition("seat", self.answer("needs you", 100), now=160)
-        self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
+        self.assertEqual(self.posts[0]["content"], "Needs you · seat")
 
     def test_no_card_while_an_attached_client_has_input_during_the_episode(self):
         notify.record("seat", "needs", "Which branch?", time=100)
@@ -93,7 +93,7 @@ class Cards(unittest.TestCase):
         (directory / "run.json").write_text(json.dumps(record))
         with patch.object(orch, "listing", return_value=[{"name": "seat"}]):
             notify.tick_cards()
-        self.assertEqual(self.posts[0]["embeds"][0]["title"], "Done · seat")
+        self.assertEqual(self.posts[0]["content"], "Done · seat")
 
     def test_failed_run_drops_declaration_with_one_log_line(self):
         directory = self.run_fixture("job", "running")
@@ -144,12 +144,7 @@ class Cards(unittest.TestCase):
             self.assertEqual(self.posts, [])
             self.transition("seat", self.answer("needs you", 100), now=210)
         self.assertNotIn("closed", json.loads(config.card_path("seat").read_text()))
-        self.assertEqual(self.posts[0]["embeds"][0]["title"], "Needs you · seat")
-
-    def test_done_fail_summary_is_red(self):
-        notify.record("seat", "done", "FAIL: tests", time=100)
-        self.transition("seat", self.answer("done", 100, "FAIL: tests"), now=100)
-        self.assertEqual(self.posts[0]["embeds"][0]["color"], notify.COLORS["fail"])
+        self.assertEqual(self.posts[0]["content"], "Needs you · seat")
 
     def test_legacy_seat_never_cards(self):
         seats = [{"name": "my-editor", "legacy": True}]
@@ -197,7 +192,7 @@ class Cards(unittest.TestCase):
         (directory / "run.json").write_text(json.dumps(record))
         with patch.object(orch, "listing", return_value=[{"name": "seat"}]):
             notify.tick_cards()
-        self.assertEqual(self.posts[0]["embeds"][0]["title"], "Done · seat")
+        self.assertEqual(self.posts[0]["content"], "Done · seat")
 
     def test_no_card_for_a_seat_the_owner_closed(self):
         # `x`, `ak orch stop` or a pause script: the seat is gone on purpose, and nobody
@@ -209,7 +204,7 @@ class Cards(unittest.TestCase):
             gone = {"name": name, "exited": True}
             notify.transition(name, now=time.time(), seat=gone)
             notify.transition(name, now=time.time() + notify.CARD_WAIT, seat=gone)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
+        self.assertEqual([post["content"] for post in self.posts],
                          ["Needs you · crashed"])
         # ... and the menu still shows it, idle, with the number that reopens it
         found = watch.session_state("seat", session={"name": "seat", "exited": True}, number=3)
@@ -301,8 +296,7 @@ class Cards(unittest.TestCase):
                             self.assertEqual(publish("seat"), 0)
                         self.assertEqual(len(self.posts), 1)
                         if self.posts:
-                            card = self.posts[0]["embeds"][0]
-                            self.assertEqual(card["title"], "Needs you · seat")
+                            self.assertEqual(self.posts[0]["content"], "Needs you · seat")
                         # both stand unanswered, the one asked first first
                         self.assertEqual(notify.last("seat")["text"],
                                          "Which schema? Also: Which export format?")
@@ -337,14 +331,14 @@ class Cards(unittest.TestCase):
                 config.plan_path(seat["name"]).write_text(OWED)
                 notify.transition(seat["name"], now=now, seat=seat)
                 notify.transition(seat["name"], now=now + notify.CARD_WAIT, seat=seat)
-            self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
+            self.assertEqual([post["content"] for post in self.posts],
                              ["Needs you · vanished"])
             self.assertEqual(json.loads(config.card_path("gone").read_text())["began"],
                              now - 7200)
             # A word that begins after the install is news as ever.
             self.transition("seat", self.answer("working", now), now=now)
             self.transition("seat", self.answer("needs you", now), now=now + notify.CARD_WAIT)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
+        self.assertEqual([post["content"] for post in self.posts],
                          ["Needs you · vanished", "Needs you · seat"])
 
     def test_an_episode_opened_before_the_install_is_not_sent_after_it(self):
@@ -374,7 +368,7 @@ class Cards(unittest.TestCase):
                 patch.object(notify.time, "time", return_value=installed + 3600):
             notify.retry_pending(log=logs.append)
             notify.retry_pending(log=logs.append)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
+        self.assertEqual([post["content"] for post in self.posts],
                          ["Needs you · third"])
         events = {event["session"]: event for event in
                   (json.loads(path.read_text()) for path in notify.outbox().glob("*.json"))}
@@ -398,7 +392,7 @@ class Cards(unittest.TestCase):
             # ... and on a seat with no episode yet
             watch.seat_write("fresh", word="needs you", word_since=now - 3600)
             self.assertEqual(notify.main(["needs", "Which one?", "--session", "fresh"]), 0)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
+        self.assertEqual([post["content"] for post in self.posts],
                          ["Needs you · seat", "Done · finished", "Needs you · fresh"])
 
     def test_a_done_is_carded_once_however_often_its_word_comes_back(self):
@@ -412,7 +406,7 @@ class Cards(unittest.TestCase):
         self.transition("seat", self.answer("working", 400), now=400)
         notify.record("seat", "done", "Finished again", time=500)
         self.transition("seat", self.answer("done", 500, "Finished again"), now=500)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
+        self.assertEqual([post["content"] for post in self.posts],
                          ["Done · seat", "Done · seat"])
 
     def test_a_done_is_carded_once_across_versions_episodes_and_names(self):
@@ -441,7 +435,7 @@ class Cards(unittest.TestCase):
         config.rename_session("other", "renamed")
         self.transition("renamed", self.answer("working", 500), now=500)
         self.transition("renamed", self.answer("done", 600, "Shipped"), now=600)
-        self.assertEqual([post["embeds"][0]["title"] for post in self.posts],
+        self.assertEqual([post["content"] for post in self.posts],
                          ["Done · finished", "Done · other"])
 
 if __name__ == "__main__":

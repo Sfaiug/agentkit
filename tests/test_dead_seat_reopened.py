@@ -209,7 +209,7 @@ class V5s(Sandbox):
         posts = []
 
         def post(payload, files, message, receipt):
-            posts.append(payload["embeds"][0]["title"])
+            posts.append(payload["content"])
             receipt.update(status="disabled", message_id="1", webhook="sink")
             return 0
 

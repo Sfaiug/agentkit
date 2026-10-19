@@ -66,7 +66,7 @@ class Wait(Sandbox):
         self.posts = []
 
         def post(payload, files, message, receipt):
-            self.posts.append(payload["embeds"][0]["title"])
+            self.posts.append(payload["content"])
             receipt.update(status="delivered", message_id=str(len(self.posts)), webhook="sink")
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
         self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))

@@ -1139,10 +1139,8 @@ class SessionState(unittest.TestCase):
             self.assertEqual(sent.method, "PATCH")
             self.assertEqual(sent.full_url, "https://discord.example/hook/messages/123?thread_id=42")
             payload = json.loads(sent.data)
-            self.assertEqual(payload["embeds"][0]["title"], "Answered · seat")
-            self.assertEqual(payload["content"], "")
+            self.assertEqual(payload["content"], "Answered · seat")
             self.assertEqual(payload["allowed_mentions"], {"parse": []})
-            self.assertNotIn("fields", payload["embeds"][0])
             before = self.saved()
             notify._remember_retry(event, "seat")
             self.assertEqual(self.saved(), before)
@@ -1213,6 +1211,7 @@ lifecycle_check() {
   PYTHONPATH="$REPO:$REPO/tests" python3 - "$1" <<'PY'
 from contextlib import redirect_stdout, redirect_stderr
 import io
+import json
 import os
 import sys
 import unittest
@@ -1242,9 +1241,8 @@ class Notifications(test_notify.Notifications):
         self.cli("needs", "Merge PR #7? yes/no")
         self.assertEqual(self.requests[0][0:2], ("POST", "/hook?thread_id=42&wait=true"))
         payload = self.requests[0][2]
-        self.assertEqual(payload["content"], "Merge PR #7? · seat <@123456789012345678>")
-        self.assertEqual(payload["embeds"][0]["title"], "Needs you · seat")
-        self.assertEqual(payload["embeds"][0]["color"], 0xF5A623)
+        self.assertEqual(payload["content"], "Needs you · seat <@123456789012345678>")
+        self.assertNotIn("Merge", json.dumps(payload))
         before = config.notify_path("seat").read_bytes()
         result = self.cli("needs", "  MERGE\nPR   #7? YES/NO ")
         self.assertEqual(result.stdout, "")
@@ -1262,24 +1260,19 @@ class Notifications(test_notify.Notifications):
                          ["/hook/messages/1?thread_id=42"])
         for method, _, payload in self.requests[1:]:
             self.assertEqual(method, "PATCH")
-            self.assertEqual(payload["embeds"][0]["title"], "Answered · seat")
-            self.assertEqual(payload["content"], "")
+            self.assertEqual(payload["content"], "Answered · seat")
             self.assertEqual(payload["allowed_mentions"], {"parse": []})
-            self.assertNotIn("fields", payload["embeds"][0])
 
         self.cli("needs", "Which branch?")   # the word never left: still the same episode
         self.assertEqual(len(self.requests), 2)
         self.answer()
         self.cli("done", "Shipped", "--pr", "https://github.com/me/repo/pull/7")
         self.assertEqual([r[0] for r in self.requests[-2:]], ["PATCH", "POST"])
-        self.assertEqual(self.requests[-2][2]["embeds"][0]["title"], "Done · seat")
+        self.assertEqual(self.requests[-2][2]["content"], "Done · seat")
         payload = self.requests[-1][2]
-        self.assertEqual(payload["content"], "Shipped · seat <@123456789012345678>")
+        self.assertEqual(payload["content"], "Done · seat <@123456789012345678>")
         self.assertEqual(payload["username"], "agentkit")
-        self.assertEqual(payload["embeds"][0]["title"], "Done · seat")
-        self.assertEqual(payload["embeds"][0]["color"], 0x2ECC71)
-        self.assertNotIn("fields", payload["embeds"][0])
-        self.assertEqual(payload["embeds"][0]["description"], "Shipped")
+        self.assertNotIn("Shipped", json.dumps(payload))
         self.assertEqual(notify.last("seat")["text"], "Shipped")   # the words stay on the record
         self.assertEqual(menu.state({"name": "seat"}), "done")
         count = len(self.requests)
@@ -4307,8 +4300,8 @@ grep -qE '^ +[0-9]+  update ' "$WORK/update-notice.log" && UPD=1
 # --- 21: the two notification shapes (offline) --------------------------------
 # `--dry-run` prints the payload and posts nothing; without a webhook the real form prints to
 # stderr and records the session's last message, which is what the menu shows. The card leads
-# with the question or the result and the seat, where a phone's push shows it, the mention last
-# and the only one it may ping; the whole text is the embed under it.
+# with its two words and the seat, the mention last and the only one it may ping, and carries
+# nothing the seat asked or did.
 NSH="$WORK/home-notify-shapes"
 mkdir -p -- "$NSH/.agentkit/state"
 tm kill-session -t =smoke-shape 2>/dev/null
@@ -4326,30 +4319,21 @@ HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_DISCORD_USER_ID=424242 AGENTKI
 # The listing's last line says which slice the agents run in; it is not a seat, so it is not
 # counted with them.
 NUM=$(HOME="$NSH" ak orch list 2>/dev/null | sed -e '/^\(no \)\?slice /d' | sed -e ':a;N;$!ba;s/,\n  /,/g;s/\n  / /g' | awk 'NR>1{print $1}' | grep -n '^smoke-shape$' | cut -d: -f1)
-jq -e '.content == "Merge PR #7 by bob? · smoke-shape <@424242>" and .username == "agentkit"
-  and .allowed_mentions == {"users": ["424242"]} and (.embeds | length == 1)
-  and .embeds[0].title == "Needs you · smoke-shape"
-  and .embeds[0].color == 16098851
-  and .embeds[0].description == "Merge PR #7 by bob? yes/no"
-  and (has("description") | not) and (has("fields") | not) and (has("footer") | not)
-  and (.embeds[0] | has("fields") | not)
-  and (.embeds[0] | has("footer") | not)' "$WORK/needs.json" >/dev/null 2>&1 || SHAPE=1
+jq -e '.content == "Needs you · smoke-shape <@424242>" and .username == "agentkit"
+  and .allowed_mentions == {"users": ["424242"]} and (has("embeds") | not)' "$WORK/needs.json" >/dev/null 2>&1 || SHAPE=1
 [ "$(cat "$WORK/needs.err")" = 'terminal notice: Needs you · smoke-shape: Merge PR #7 by bob? yes/no' ] || SHAPE=1
 [ -e "$NSH/.agentkit/state/notify-smoke-shape.json" ] && SHAPE=1   # and records nothing
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify done "Parser fixed" \
   --pr https://example.invalid/o/r/pull/7 --dry-run \
   >"$WORK/done.json" 2>"$WORK/done.err" || SHAPE=1
 [ "$(cat "$WORK/done.err")" = 'terminal notice: Done · smoke-shape: Parser fixed' ] || SHAPE=1
-jq -e '.username == "agentkit"
-  and .embeds[0].title == "Done · smoke-shape" and .embeds[0].color == 3066993
-  and .embeds[0].description == "Parser fixed" and (.embeds[0] | has("fields") | not)
-  and (.embeds[0] | has("footer") | not)
-  and .content == "Parser fixed · smoke-shape" and .allowed_mentions == {"parse": []}' \
+jq -e '.username == "agentkit" and (has("embeds") | not)
+  and .content == "Done · smoke-shape" and .allowed_mentions == {"parse": []}' \
   "$WORK/done.json" >/dev/null 2>&1 || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK=off AGENTKIT_SESSION=smoke-shape ak notify done "FAIL: tests red" --dry-run \
   >"$WORK/done-fail.json" 2>"$WORK/done-fail.err" || SHAPE=1
 [ "$(cat "$WORK/done-fail.err")" = 'terminal notice: Done · smoke-shape: FAIL: tests red' ] || SHAPE=1
-jq -e '.embeds[0].color == 15158332' "$WORK/done-fail.json" >/dev/null 2>&1 || SHAPE=1
+jq -e '.content == "Done · smoke-shape"' "$WORK/done-fail.json" >/dev/null 2>&1 || SHAPE=1
 # the real form, with no webhook: stderr, exit 0, and the record the menu reads.  Asked from
 # outside the seat: its own question is held until its turn ends
 # (tests/test_question_waits_for_the_stop.py)
@@ -4879,28 +4863,24 @@ DEADDIR="$FBH/.agentkit/runs/$DEADID"
 grep -qE '^\[[0-9:]*\] the orchestrator session orch-x this run was launched from is gone; asking the user to continue the task$' \
   "$WORK/orphan-dead.log" || FB=1
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1
-jq -e '.username == "agentkit"
-  and .embeds[0].title == "Needs you · orch-x" and .embeds[0].color == 16098851
-  and (.embeds[0].description | startswith("Its orchestrator session orch-x is gone."))
-  and ((.embeds[0].fields // []) | length == 0)' "$WORK/hook-posts.txt" >/dev/null 2>&1 || FB=1
+jq -e '.username == "agentkit" and .content == "Needs you · orch-x" and (has("embeds") | not)' \
+  "$WORK/hook-posts.txt" >/dev/null 2>&1 || FB=1
 jq -e '.session == "orch-x" and .kind == "needs" and (.text | startswith("Its orchestrator session orch-x is gone."))' \
   "$FBH/.agentkit/state/notify-orch-x.json" >/dev/null 2>&1 || FB=1
-# (c) `ak notify` outside a seat: the message names itself, never a dash
+# (c) `ak notify` outside a seat: the message names agentkit, never a dash or what was said
 HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK="$HOOKURL" \
   ak notify needs "Merge PR #9 by bob? yes/no" --dry-run \
   >"$WORK/orphan-needs.json" 2>"$WORK/orphan-needs.err" || FB=1
-[ "$(cat "$WORK/orphan-needs.err")" = 'terminal notice: Needs you · Merge PR #9 by bob? yes/no: Merge PR #9 by bob? yes/no' ] || FB=1
-jq -e '.embeds[0].title == "Needs you · Merge PR #9 by bob? yes/no"' "$WORK/orphan-needs.json" \
-  >/dev/null 2>&1 || FB=1
+[ "$(cat "$WORK/orphan-needs.err")" = 'terminal notice: Needs you · agentkit: Merge PR #9 by bob? yes/no' ] || FB=1
+jq -e '.content == "Needs you · agentkit"' "$WORK/orphan-needs.json" >/dev/null 2>&1 || FB=1
 FBLONG="a summary with no seat behind it, longer by some way than any title a phone shows whole"
 HOME="$FBH" AGENTKIT_SESSION= AGENTKIT_DISCORD_USER_ID= AGENTKIT_DISCORD_WEBHOOK="$HOOKURL" \
   ak notify done "$FBLONG" --dry-run >"$WORK/orphan-done.json" 2>"$WORK/orphan-done.err" || FB=1
-[ "$(cat "$WORK/orphan-done.err")" = "terminal notice: Done · ${FBLONG:0:60}: $FBLONG" ] || FB=1
-jq -e --arg t "Done · ${FBLONG:0:60}" '.embeds[0].title == $t' "$WORK/orphan-done.json" \
-  >/dev/null 2>&1 || FB=1
+[ "$(cat "$WORK/orphan-done.err")" = "terminal notice: Done · agentkit: $FBLONG" ] || FB=1
+jq -e '.content == "Done · agentkit"' "$WORK/orphan-done.json" >/dev/null 2>&1 || FB=1
 [ "$(wc -l <"$WORK/hook-posts.txt")" -eq 1 ] || FB=1   # and --dry-run posted nothing either
 kill "$HOOKPID" 2>/dev/null
-[ "$FB" = 0 ] && ok "29 the dead-seat fallback: nothing from a run nobody launched from a seat, one needs titled with the gone orch-x for its orphan, and a title of its own outside a session" \
+[ "$FB" = 0 ] && ok "29 the dead-seat fallback: nothing from a run nobody launched from a seat, one needs titled with the gone orch-x for its orphan, and agentkit's outside a session" \
              || { no "29 the dead-seat fallback (webhook ${HOOKURL:-none}, posts $(wc -l <"$WORK/hook-posts.txt"))"
                   tail -3 "$WORK/orphan.log" | sed 's/^/      /'
                   tail -3 "$WORK/orphan-dead.log" | sed 's/^/      /'

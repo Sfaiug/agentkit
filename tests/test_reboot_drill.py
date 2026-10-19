@@ -168,7 +168,7 @@ class RebootDrill(Sandbox):
     def test_the_first_tick_after_a_reboot_puts_every_seat_and_run_back(self):
         self.before()
         self.assertEqual(len(self.pages), 1, "the owner was asked before the reboot")
-        self.assertIn(QUESTION, self.pages.pop())
+        self.assertEqual(self.pages.pop(), "Needs you · asking")
         slot = gate.slot_order(run_record.read_state(config.RUNS / SLOT))
         said = self.tick()
         self.assertEqual([line for line in said if line.startswith("WARN")],

@@ -124,7 +124,7 @@ def remind(cfg, now=None):
             label = config.account_label(cfg, provider, account,
                                          menu.NAMES.get(provider, provider.title()))
             whose = f" {login['email']}" if login.get("email") else ""
-            notify.page(f"login:{provider}:{account}:{date.fromtimestamp(now)}", label,
+            notify.page(f"login:{provider}:{account}:{date.fromtimestamp(now)}", f"{label} login",
                         f"{label} login{whose} {when}. Log in again from ak.")
 
 
