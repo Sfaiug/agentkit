@@ -47,7 +47,7 @@ unreadable = false
 # response the TUI's Usage limit tab reads.  `grok usage` itself reports per-session
 # tokens only.  A seat whose credits response carries no usage percent, and whose
 # settings cache has no subscription_usage entries, answers no meter: the budget stays
-# neutral (1.0, shown as `in step`), the menu row reads `Grok -- no meter`, and the
+# neutral (1.0, shown as `in step`), the usage grid has no Grok row, and the
 # picker ranks it by its normal rules, never last; only a failed probe ranks last.
 [usage]
 none = true
