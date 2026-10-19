@@ -485,14 +485,19 @@ def answered(session, at, typed=None):
             return
         if previous and previous.get("watcher") is True:
             return
+        # the needs you he answered has its card retired now, before a retry can take this lock
+        card = _card_read(session)
         if not previous or previous["kind"] != "needs":
-            card = _card_read(session)
             if card.get("word") == "needs you":
+                if at > card["since"]:
+                    _retire(card)
                 _card_write(session, {**card, "answered_at": at})
             return
         previous["answered_at"] = at
         if not resolved(previous):
             return
+        if at > card.get("since", math.inf):
+            _retire(card)
         waited(previous, at)
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
@@ -716,6 +721,8 @@ def clear(session, *, notice=None):
             return
         if notice is not None and (previous["kind"] != "needs" or previous["text"] != notice):
             return
+        if previous["kind"] == "needs":
+            _retire(_card_read(session))
         close_needs(previous, "Answered")
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text",
@@ -1021,6 +1028,24 @@ def failed_declaration(notice, mine, index=None):
                      and transitions.is_superseded(state, None, index, merged_only=True))]
 
 
+def _card_key(episode):
+    """The outbox id of an episode's one card."""
+    return hashlib.sha256(json.dumps(["card", episode, sink() is not None]).encode()).hexdigest()
+
+
+def _retire(card):
+    """A question's episode ends: its card, if Discord has not taken it yet, never goes out.
+    Called under the seat's lock, which a retry takes too, so a late card goes out only while
+    its question stands."""
+    if card.get("word") != "needs you" or not card.get("sent"):
+        return
+    with outbox_lock():
+        event = _read_event(_card_key(card["episode"]))
+        if event and event["status"] not in ("delivered", "disabled"):
+            event.update(status="disabled", error="the question it asked is over", next_attempt=None)
+            _write_event(event)
+
+
 def _close_card(session, card, status):
     """Close receipts, including cards inferred from state with no notify record at all.
 
@@ -1077,7 +1102,7 @@ def _send_card(session, kind, card, answer, completion=None):
                      or " ".join(str(previous["text"]).split()) == text):
         text = previous["text"]
     payload = card_payload(kind, session)
-    key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
+    key = _card_key(card["episode"])
     with outbox_lock():
         event = _read_event(key)
         fresh = event is None
@@ -1202,6 +1227,7 @@ def needs_transition(session, card, answer, now, seat=None):
     # at a question the seat asked, and it closes on his answer or when the seat needs him no
     # more, which is the word changing (`transition`).
     if answered_here:
+        _retire(card)
         if card.get("sent"):
             _close_card(session, card, "Answered")
         else:
@@ -1337,6 +1363,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
+                _retire(card)
                 pending = card.get("open_needs", (last(name, include_seen=True) or {}).get("open_needs", []))
                 card = {"word": word, "since": since, "began": since,
                         "episode": secrets.token_hex(16), "sent": False, "open_needs": pending,
@@ -1400,6 +1427,7 @@ def forget_card(name, log=lambda _: None):
             if session != name:
                 return        # an old name that leads to a renamed seat: its card is not this
             card = _card_read(name)
+            _retire(card)
             if _close_card(name, card, "Answered"):
                 # Only the failed question edits outlive this seat, not its completed work.
                 card.pop("completed", None)
