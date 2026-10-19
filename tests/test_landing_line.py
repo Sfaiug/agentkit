@@ -9,7 +9,8 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, deliver, job as jobs, land, menu, record, run, status, transitions, watch
+from agentkit import (config, deliver, job as jobs, land, menu, record, run, status, terminal,
+                      transitions, watch)
 
 
 class LandingLine(Sandbox):
@@ -101,11 +102,12 @@ class LandingLine(Sandbox):
         self.assertEqual(status.parked_line(record.read_state(members[2])),
                          "waiting · 2nd in line to land on main")
 
-    def test_status_and_menu_show_the_place_and_target(self):
+    def test_status_shows_the_place_and_target_and_the_menu_its_line(self):
         self.member("first", joined=10)
         self.member("second", joined=20)
         directory = self.member("third", joined=30, launched_session="seat")
         config.save_session(self.cfg, "seat", "fable", ["astra"])
+        (config.STATE / "plan-seat.md").write_text("- [x] one\n- [ ] two\n- [ ] three\n")
         state = record.read_state(directory)
         sentence = "waiting · 3rd in line to land on main"
         for flags in ([], ["--plain"], ["--why"]):
@@ -120,8 +122,9 @@ class LandingLine(Sandbox):
         self.assertEqual(answer["reason"], sentence)
         with patch.object(menu, "seat_row_state", return_value=answer):
             info = menu.v5o_seat_info(self.cfg, 1, session, [(directory, state)], {}, {}, 200000)
-        self.assertEqual(menu._last_text(info, 40), sentence)
-        self.assertEqual(menu.last_column("working", sentence, 1, 3), sentence)
+        # working includes landing: its row keeps its line, its squares saying it lands (the
+        # owner's word of 19 Oct 2026)
+        self.assertEqual(terminal.plain(menu._last_text(info, 40)).split()[-3:], ["1", "of", "3"])
 
     def test_job_follows_members_to_their_ending_including_after_merge(self):
         for after_merge in (False, True):

@@ -29,8 +29,8 @@ seat's own status bar and its window title.  `ak orch why <seat>` says what deci
 
 A row is one line: number, name, orchestrator, state, and one last column, its progress line
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
-any name a rename led from, else from its unfinished jobs) while it is not at rest -- for
-`working` its place in the landing line or what the owner left unsent instead -- else empty.
+any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
+waiting to land too -- for `working` what the owner left unsent instead -- else empty.
 What a seat asks or did, else who builds and reviews and each task's squares (`crew`,
 `squares`), open under the row (`detail`).  Never two state words on one row, never `N running`, and never a time estimate.
 
@@ -1230,11 +1230,12 @@ def _styled_cell(plain_text, width, kind=None, right=False):
 
 
 def last_column(word, reason, done, total, room=8, narrow=False, tmux=False, unsent=""):
-    """The one last column of a seat's row, and of its status bar's line one: for `working` its
-    place in the landing line, else what the owner left unsent (`unsent`, the state function's
-    own field: a run's title in the reason can say anything); else its progress
+    """The one last column of a seat's row, and of its status bar's line one: for `working` what
+    the owner left unsent (`unsent`, the state function's own field: a run's title in the reason
+    can say anything); else its progress
     (`terminal.plan_bar`, a smooth line and `done of total`) in `room` cells, in its word's
-    colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest; else
+    colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest, its
+    work waiting in the line to land too, which its squares say (`detail`); else
     empty -- never `N running`, and no other sentence: what a seat asks or did opens under its
     row (`detail`).  The line keeps 8 cells at least, which a row too short for them draws
     under itself; where `room` is all there is -- a `narrow` screen's line, each width of a
@@ -1251,9 +1252,8 @@ def last_column(word, reason, done, total, room=8, narrow=False, tmux=False, uns
 
 def tasks_bar(word, reason):
     """Is a seat's last column its progress line (`last_column`), not a sentence?  A working seat's
-    is, but while it waits in the landing line or shows what the owner left unsent, which the
-    column then starts with."""
-    return word == "working" and not (reason or "").startswith(("waiting · ", "unsent: "))
+    is, but while it shows what the owner left unsent, which the column then starts with."""
+    return word == "working" and not (reason or "").startswith("unsent: ")
 
 
 def _last_text(info, room, narrow=False):
