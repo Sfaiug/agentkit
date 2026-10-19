@@ -165,13 +165,18 @@ class SessionModels(Sandbox):
         said = [terminal.plain(line) for line in lines if "spent" in terminal.plain(line)]
         self.assertEqual(len(said), 1)
         self.assertTrue(said[0].strip().startswith("opus runs on Claude · spent · resets"), said)
+        def page(name, top):
+            lines, places = menu.config_body(self.cfg, "fixture", ("model", name), 0,
+                                             self.selected("fix-api"), spent)
+            return lines, menu.matrix_page(lines, places, ("model", name), top, [], "esc back")
         with patch.object(terminal, "layout_width", return_value=40), \
                 patch.object(terminal, "height", return_value=21):
-            lines, places = menu.config_body(self.cfg, "fixture", ("model", "opus"), 0,
-                                             self.selected("fix-api"), spent)
-            top, room = menu.matrix_page(lines, places, ("model", "opus"), 0, [], "esc back")
+            _, (was, _) = page("astra", 0)
+            lines, (top, room) = page("opus", was)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
-        # a page too short for every line keeps opus's own lines on with its row
+        # a page too short for every line keeps opus's own lines on with its row, and the
+        # highlight coming to it from astra moves no row from under the pointer
+        self.assertEqual(top, was)
         shown = [terminal.plain(line) for line in lines[top:top + room]]
         self.assertLess(room, len(lines))
         self.assertTrue(any(line.startswith("› opus") for line in shown), shown)

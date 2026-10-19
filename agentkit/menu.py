@@ -3195,9 +3195,12 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
         said[name] = ([joined] if parts and terminal.cells(joined) <= room - 4 else
                       [terminal.styled(piece, tone) for text, tone in parts
                        for piece in terminal.wrap(text, room - 4)])
-    shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
+    model = at[1] if at and at[0] == "model" else None
+    shown, tallest = said.get(model, []), max(map(len, said.values()))
     for part in (shown + [""] * tallest)[:tallest]:
-        if part:      # its row's own lines, so a page keeps them on with it (matrix_page)
+        # its row's own lines, as many for every model: a page keeps them on with the row
+        # (matrix_page), and the highlight moving between models moves no page
+        if model:
             places[len(lines)] = (at, [])
         lines.append(("    " + part).rstrip())
         if moves is not None:
