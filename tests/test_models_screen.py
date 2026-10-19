@@ -9,8 +9,9 @@ scored ones first by their best quality: config name or id, harness, effort betw
 board names no effort for stands at every effort of its model), quality
 per role at that effort (the recommended row's in `done`'s colour, one as good in the accent,
 `-` without a score) and what Artificial Analysis's index run cost it.  On a phone the harness
-and the cost give way, and the three lines, wrapped past a page, are read one at a time.  `r`
-takes the recommendation as `c`'s line says it
+and the cost give way, and the three lines, wrapped past a page, are read one at a time, a
+page at a time where one is taller than the page.  `r` takes the recommendation as `c`'s line
+says it
 (tests/test_c_recommends_effort.py); Esc returns to `c`.
 
 Offline: a throwaway HOME with a matrix scored from rows written by hand, the catalogs' efforts
@@ -177,6 +178,37 @@ class ModelsScreen(Screen):
         self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
                       "cost is what Artificial Analysis's index run cost it, in dollars", text)
         self.assertIn("› spark xhigh - - -", text)
+
+    def test_a_line_taller_than_the_page_is_read_a_page_at_a_time(self):
+        # seven more models as good to build and review: `as good` wraps past a page at 40
+        # cells.  Up to the knob, then down through every row, and every line of the screen is
+        # on some page drawn
+        self.store(matrix.scored([
+            row("claude", "claude-opus-5-5", "max", 60, 70, 58, 8000, agent=0.2),
+            row("claude", "claude-opus-5-5", "xhigh", 60, 70, 56, 4000),
+            row("codex", "gpt-6-astra", "xhigh", 58, 66, 55, 500, agent=0.19),
+            *[row("opencode", f"acme-model-{n}", "high", 58, 68, 56, 3000 + n, agent=0.19)
+              for n in range(7)]]))
+        bodies, frames, body, frame = [], [], menu.models_body, terminal.frame
+
+        def whole(*args, **kwargs):
+            bodies.append(body(*args, **kwargs))
+            return bodies[-1]
+
+        def framed(name, page=(), keyline="esc back", **kwargs):
+            frames.append(page)
+            return frame(name, page, keyline, **kwargs)
+        with patch.object(menu, "models_body", side_effect=whole), \
+                patch.object(terminal, "frame", side_effect=framed), \
+                patch.object(terminal, "height", return_value=24):
+            self.screens([Key("char", "r"), *[Key("up")] * 4, *[Key("down")] * 20, Key("esc"),
+                          Key("esc")], width=40)
+
+        def said(line):
+            return " ".join(terminal.plain(line, spaced=True).split()).lstrip("› ")
+        shown = {said(line) for page in frames for line in page}
+        self.assertEqual([said(line) for line in bodies[0][0] if said(line) not in shown], [])
+        self.assertGreater(len(bodies[0][0]), 40)       # more than two pages of 17 lines
 
     def test_r_on_the_screen_takes_the_recommendation(self):
         self.screens([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])

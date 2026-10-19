@@ -2945,7 +2945,8 @@ def models_body(cfg, table, levels, shown, at, picks):
     (`picks`, matrix.recommended), then the recommended row per role, said as the cheapest as
     good (CHEAPEST), each row with its quality and cost (_entry) under the configured model `r`
     takes it as; each line a row the highlight rests on and nothing more, so a short screen,
-    where they wrap to more lines than its page holds, shows each in turn.  Then, dim, what
+    where they wrap to more lines than its page holds, shows each in turn, a page at a time
+    where one is taller than the page (matrix_key).  Then, dim, what
     quality and cost are, and under them every model of `table` (models_table) once: its
     label, the config's name for it or its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
@@ -3509,11 +3510,15 @@ def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
 def matrix_page(body, places, here, top, under, keys, over=()):
     """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
-    and how many are.  `top` stays where it was while `here`'s lines are on the page, else
-    moves the least that brings them on, and never past the last page."""
+    and how many are.  `top` stays where it was while the page holds every line of `here`, or
+    any of them for a row taller than the page, else moves the least that makes it so, and
+    never past the last page."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
     drawn = [number for number, (row, _) in places.items() if row == here] or [0]
-    return max(0, min(max(top, drawn[-1] - room + 1), drawn[0], len(body) - room)), room
+    lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
+    if lo > hi:                                   # taller than the page: the tops holding any
+        lo, hi = drawn[0] - room + 1, drawn[-1]
+    return max(0, min(max(top, lo), hi, len(body) - room)), room
 
 
 def note_lines(note):
@@ -3531,7 +3536,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     (first, last, column) counted from 1 as the terminal counts.  On a screen too short for
     every row the part the highlight is on is shown, `over` has lines of its own above it and
     `under`, then `note`, under it, whatever the height; `moves` counts `under`'s on after
-    `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`.  A click on a row
+    `body`'s.  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
+    taller than the page before they leave it.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
     no cell was clicked; a cell that only explains is none.  The pointer does the same and acts
@@ -3583,8 +3589,13 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
             act = "enter" if column < marks else key.col - spot.first
     if act in ("esc", "eof"):
         return "back", here, column, top
-    if terminal.step(key) and rows:
-        here = rows[min(max(rows.index(here) + terminal.step(key), 0), len(rows) - 1)]
+    step = terminal.step(key)
+    if step and rows:
+        mine = [line for line, (row, _) in places.items() if row == here]
+        if mine and (mine[-1] >= top + room if step > 0 else mine[0] < top):
+            top += step * room    # a row taller than the page: its next page before the next row
+        else:
+            here = rows[min(max(rows.index(here) + step, 0), len(rows) - 1)]
     return act, here, column, top
 
 
