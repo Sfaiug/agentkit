@@ -3960,7 +3960,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     tail = pane_tail(pane)
     keys = config.name_owed(name) or keystroke(harness, tail)
     if dry_run:
-        log(f"would resume {name}, stopped with no question, no done and no run, with {keys!r}")
+        log(f"would resume {name}, stopped with work open, no question and no run, with {keys!r}")
         return
     current = pane_text(session)
     if (_decided_state(name, harness, current) != "at_prompt"
@@ -3968,7 +3968,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if type_into(session, keys, log):
         seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
-        log(f"{name}: stopped with no question, no done and no run; typed {keys!r}")
+        log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
 
 
 def _resume_on(cfg, name, log, account, continuing):
