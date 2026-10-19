@@ -31,7 +31,7 @@ class RoleMarks(Sandbox):
         path = config.HOME / config.CONFIG_NAME
         before = path.read_bytes()
         with patch.object(terminal, "layout_width", return_value=80):
-            lines, places = menu.config_body(self.cfg, "fixture")
+            lines, places = menu.config_body(self.cfg)
         self.assertEqual(lines[0].split(), ["effort"])
         for number, (model, cells) in places.items():
             if model[0] == "model":
@@ -129,7 +129,7 @@ class RoleMarks(Sandbox):
         with patch.object(terminal, "layout_width", return_value=80):
             picker, rows, _ = orch.picker_lines(self.cfg, dict.fromkeys(names, ""), selected,
                                                None, 0, 80)
-            matrix, places = menu.config_body(self.cfg, "fixture", selected=selected)
+            matrix, places = menu.config_body(self.cfg, selected=selected)
         self.assertEqual([terminal.plain(picker[row.start]).split()[0] for row in rows], names)
         self.assertEqual([terminal.plain(matrix[line]).split()[0]
                           for line, (hit, _) in places.items() if hit[0] == "model"], names)

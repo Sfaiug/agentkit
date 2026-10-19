@@ -78,7 +78,7 @@ class DiscordRow(unittest.TestCase):
 
     def row(self):
         """The Discord row's value, as the `c` screen draws it."""
-        lines, _ = menu.config_body(config.load(), "abc1234")
+        lines, _ = menu.config_body(config.load())
         return next(re.fullmatch(r"  Discord +(.*)", line).group(1) for line in lines
                     if line.startswith("  Discord "))
 

@@ -2689,9 +2689,8 @@ def show_notices(messages):
 
 
 # The rows under the models, each running its own step.
-CONFIG_ROWS = ("+ add a model", "+ add a provider", "Discord", "Weekly audit", "Version")
+CONFIG_ROWS = ("+ add a model", "+ add a provider", "Discord", "Weekly audit")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
-VERSION = ("row", "Version")    # agentkit's build, read and nothing more
 # What a subscription's meter over `c`'s page offers, each where it applies (config_usage).
 PROVIDER_ACTS = (("− remove", "- remove"),
                  ("↻ spend a reset", "spend a reset"))   # and each without UTF-8
@@ -2714,7 +2713,6 @@ PICKED = ("orchestrate", "build", "review")    # what `ak models` recommends a m
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
-               "still": ("↑↓ move", "arrows move"),
                "label": ("↑↓←→ move   ⏎ open", "arrows move   enter open")}
 # A model's own screen: the values ←/→ step, then the one that asks first; the role whose
 # effort each effort among them sets (its key: config.ROLE_EFFORTS), a worker's reading `same`
@@ -3111,7 +3109,7 @@ def models_screen(cfg, session, selected, providers, held):
                     shown[key] = taken[min(max(at + step, 0), len(taken) - 1)]
 
 
-def config_body(cfg, version, at=None, column=0, selected=None, providers=None, moves=None):
+def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name, a line each: label, the three role
@@ -3122,7 +3120,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim; why is on the line under the page
-    (model_lines).  Then `+ add a model`, `+ add a provider`, `Discord` and `Version` with
+    (model_lines).  Then `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit` with
     their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
@@ -3197,7 +3195,7 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
     lines.append("")
-    values = ("", "", discord_value(), audit_value(cfg), version or "?")
+    values = ("", "", discord_value(), audit_value(cfg))
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row, value in zip(CONFIG_ROWS, values) if value)
     for row, value in zip(CONFIG_ROWS, values):
@@ -3613,7 +3611,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     the meters over the page: one is lit as the main screen lights it, and Enter or a click
     opens what it offers (config_usage).  The row a model, a provider or a subscription was just
     added on glows (motion.glowing); on `Discord` its two
-    secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
+    secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
+    under the rows, dim, on every page.
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so
@@ -3635,27 +3634,29 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         here = here if here in rows else models[0]    # the highlight is the row itself
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # onto a row without marks
-        where = ("still" if here == VERSION else "row" if here[0] in ("row", "usage")
-                 else "effort" if column == 3 else "label" if column < 0 else "mark")
+        where = ("row" if here[0] in ("row", "usage") else "effort" if column == 3
+                 else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
-        body, places = config_body(cfg, version, None if terminal.away() else here, column,
+        body, places = config_body(cfg, None if terminal.away() else here, column,
                                    selected, providers, moves)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
+        # agentkit's build, read under the page so every page shows it, and what was said under it
+        told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
         # on a short screen the note keeps its lines and the page a row; the model's line the rest
-        fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys)[1] - 1
+        fit = matrix_page([], {}, None, 0, note_lines(told), keys)[1] - 1
         said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
         over, meters, body, places, moves = meters_led((over, meters), body, places,
-                                                       [*said, *note_lines(note or standing)],
+                                                       [*said, *note_lines(told)],
                                                        keys, moves)
         # coming up as the highlight comes to a model (`motion.fading`)
         opened = here[1] if any(map(terminal.plain, said)) else None
         moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))
                   for line, text in enumerate(said)]
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
-                                            note or standing, keys, marks=3,
+                                            told, keys, marks=3,
                                             clock=clock, moves=moves, under=said,
                                             over=over, over_places=meters)
         column = column if clicked is None else clicked
@@ -3686,7 +3687,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 if cfg["providers"] != before:  # a provider or a subscription just added
                     clock.touch(here)
         elif here[0] == "row":
-            if here != VERSION and act in ("enter", "space"):
+            if act in ("enter", "space"):
                 if here == AUDIT:
                     config_audit(cfg)
                 else:
@@ -3705,7 +3706,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
             if column == 0 and here[1] != selected.get("orchestrator") and not move_asked(
-                    cfg, version, session, selected, providers, here, column, top, title):
+                    cfg, session, selected, providers, here, column, top, title):
                 continue              # kept: the seat stays on its model
             note = session_mark(cfg, session, selected, here[1], column, providers)
             if note:
@@ -4325,8 +4326,8 @@ def config_audit(cfg):
 def show_config(dry_run=False, keyboard=None, session=None):
     """`c`: every model in one matrix of `session`'s roles -- the seat highlighted on the main
     screen, read from its own record -- and the efforts, under each subscription's meter, then
-    `+ add a model`, `+ add a provider`, `Discord`, `Weekly audit` and `Version`, read with the
-    menu's keyboard (config_matrix), so nothing is typed.
+    `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit`, agentkit's build under
+    them, read with the menu's keyboard (config_matrix), so nothing is typed.
     On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
     and so it is for a record that will not read, saying so under the rows: the screen that
     changes the models still opens.
@@ -4360,20 +4361,21 @@ def show_config(dry_run=False, keyboard=None, session=None):
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame(f"config · {session}" if selected else "config",
                        [*config_meters(cfg)[0],
-                        *config_body(cfg, version, selected=selected, providers=providers)[0]],
+                        *config_body(cfg, selected=selected, providers=providers)[0],
+                        *note_lines(f"Version {version or '?'}")],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
-def move_asked(cfg, version, session, selected, providers, here, column, top, title):
+def move_asked(cfg, session, selected, providers, here, column, top, title):
     """Whether `Move` was picked on the card the orchestrator mark of another model asks on,
     drawn under the rows of the config screen as it stands, the page from `top` giving the card
     its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
     loses its conversation to a handover, so the mark asks first, as `Remove` does."""
     def around(card):     # the screen around the card, drawn again on a resize
         over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-            cfg, version, here, column, selected, providers), card, "esc back")
+            cfg, here, column, selected, providers), card, "esc back")
         first, room = matrix_page(body, places, here, top, card, "esc back", over)
         shown = body[first:first + room]
         terminal.frame(title, [*over, *shown, *card], "esc back")

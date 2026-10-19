@@ -241,7 +241,7 @@ class Screens(Sandbox):
         self.assertEqual({text: at(last, text) for text in rows}, rows)
         # on a screen too short for them all, a click where the pointer found the last model
         # opens it, the page as it was
-        self.stack.enter_context(patch.object(terminal, "height", return_value=26))
+        self.stack.enter_context(patch.object(terminal, "height", return_value=28))
         first = self.matrix()[0]
         label = at(first, names[-1])
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()

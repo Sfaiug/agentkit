@@ -176,7 +176,7 @@ class ConfigHome(unittest.TestCase):
             text = Path(module.__file__).read_text()
             self.assertNotIn("pull", text, module.__name__)
             self.assertNotIn("orch.refresh", text, module.__name__)
-        # no screen asks git what build this is but `c`'s Version row, once a visit
+        # no screen asks git what build this is but `c`, once a visit
         self.assertEqual([path.name for path in (REPO / "agentkit").rglob("*.py")
                           if "installed(" in path.read_text()], [])
         self.assertIn("agentkit_version()", inspect.getsource(menu.show_config))

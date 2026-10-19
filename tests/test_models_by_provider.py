@@ -48,7 +48,7 @@ class ModelsByProvider(unittest.TestCase):
         notes = {name: "" for name in config.offered(config_)}   # as `n` builds them
         selected = {"orchestrator": "fable", "workers": ["fable"], "reviewers": ["astra"]}
         lines, rows, _ = orch.picker_lines(config_, notes, selected, None, 0, 40)
-        body, places = menu.config_body(config_, "fixture", selected=selected)
+        body, places = menu.config_body(config_, selected=selected)
         for drawn, positions in ((lines, [row.start for row in rows]),
                                  (body, [line for line, (hit, _) in places.items()
                                          if hit[0] == "model"])):

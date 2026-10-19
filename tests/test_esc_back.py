@@ -290,7 +290,7 @@ class EscBack(unittest.TestCase):
                     and any("model id" in line for line in lines))
         menu_.press(LEFT + ENTER, model)
         menu_.back("config_model", model)
-        menu_.press(DOWN * 30 + UP * 4, lambda lines: config_(lines) and any(
+        menu_.press(DOWN * 30 + UP * 3, lambda lines: config_(lines) and any(
             line.startswith("›") and "add a model" in line for line in lines))
         menu_.press(ENTER, title("config · add a model"))
         menu_.back("config_add", title("config · add a model"))
