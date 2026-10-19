@@ -2954,7 +2954,8 @@ def models_body(cfg, table, levels, shown, at, picks):
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
     one as good in the accent) and what Artificial Analysis's index run cost it; on a narrow
     screen the harness gives way, then the cost, and where the label would still be cut each
-    model takes two lines, its label and harness over its effort and numbers.  `at`
+    model takes two lines, its label and harness over its effort and numbers, the harness
+    giving way again where the label would still be cut beside it.  `at`
     is the highlighted row; `cells` are the knob's and each effort's text, arrows and all, for
     a click, counted from 1 as the terminal counts.
     """
@@ -3017,13 +3018,16 @@ def models_body(cfg, table, levels, shown, at, picks):
               for n, head in enumerate(MODELS_HEADS)]
     # the columns that fit the screen: the harness gives way first, then the cost; where the
     # label would still be cut, each model takes two lines, its label and harness on the
-    # first, its effort and numbers under them (a 40-cell phone)
+    # first, its effort and numbers under them (a 40-cell phone), and the harness gives way
+    # again where the label would still be cut beside it (a catalog id 35 cells wide)
     kept, under = list(range(len(MODELS_HEADS))), []
     for column in (1, 6):
         if sum(widths[n] + 2 for n in kept) > room:
             kept.remove(column)
     if sum(widths[n] + 2 for n in kept) > room:
         kept, under = [0, 1], kept[1:]
+        if sum(widths[n] + 2 for n in kept) > room:
+            kept.remove(1)
     widths[0] = max(1, min(widths[0], room - sum(widths[n] + 2 for n in kept[1:]) - 2))
     groups = [(columns, indent, {n for n, column in enumerate(columns) if column >= 3})
               for columns, indent in [(kept, "  "), (under, "    ")] if columns]

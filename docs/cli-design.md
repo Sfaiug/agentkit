@@ -340,10 +340,11 @@ one effort), its quality per role at that effort out of 100 -- the recommended r
 Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
 column gives way, then the cost; where the label would still be cut, each model takes two
 lines, its label and harness on the first and its effort and three numbers on the second,
-the highlight on both: a 40-cell phone reads every model whole. ↑/↓, k/j and the wheel move
-between the knob, the three lines that say why, the quality and cost note and the models.
-Each explanation is a row read with no action; a short screen shows it a page at a time
-where it is taller than the page.
+the highlight on both, and the harness gives way again where the label would still be cut
+beside it: a 40-cell phone reads every model whole. ↑/↓, k/j and the wheel move between
+the knob, the three lines that say why, the quality and cost note and the models. Each
+explanation is a row read with no action; a short screen shows it a page at a time where
+it is taller than the page.
 ←/→ on a model step the effort its row shows through its own efforts (the
 catalog's, and any the boards or the config have it at), the numbers and the cost following,
 nothing saved: the effort a model runs at is set on `c`. `r`, or a click on `r take
