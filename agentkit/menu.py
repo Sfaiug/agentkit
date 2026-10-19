@@ -2311,13 +2311,6 @@ def in_hand(prov):
     return f"{held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
 
 
-def resets_held(cfg):
-    """{label: (provider, account)}: each subscription the cached meters say holds a reset,
-    named as its usage row is, in that row's order."""
-    return {label: (name, account) for name, label, prov, account in usage_rows(cfg)
-            if in_hand(prov)}
-
-
 def resets_note(meter, now):
     """`resets Fri 14:00`, `resets 23 Oct` or `resets in 3d`: `ak usage`'s `resets`, as words."""
     when = usage.reset_when(meter, now)
@@ -2594,13 +2587,14 @@ def login_notes(rows, now=None):
     return notes
 
 
-def meter_spots(width, count, first):
+def meter_spots(width, count, first, rows=False):
     """Where each of `count` subscriptions' meters sits on the grid `usage_lines` draws `width`
     wide from line `first`: {line: (None, [(first, last, ("usage", number))])}, `number` from
-    1, the columns counted from 1 as the terminal counts."""
+    1, the columns counted from 1 as the terminal counts; with `rows`, as on `c`, each meter a
+    row of its own (terminal.under), its cell after it again."""
     columns = usage_columns(width)
     return {first + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
-                                   ("usage", line * columns + n + 1))
+                                   *(("usage", line * columns + n + 1),) * (1 + rows))
                                   for n in range(min(columns, count - line * columns))])
             for line in range(-(-count // columns))}
 
@@ -3441,7 +3435,7 @@ def config_meters(cfg, at=None):
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], {**meter_spots(width, len(rows), 0),
+    return [*meters, detail], {**meter_spots(width, len(rows), 0, rows=True),
                                **({len(meters): (("usage", at), [])} if at else {})}
 
 
@@ -3513,7 +3507,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     (first, last, column) counted from 1 as the terminal counts.  On a screen too short for
     every row the part the highlight is on is shown, `over` has lines of its own above it and
     `under`, then `note`, under it, whatever the height; `moves` counts `under`'s on after
-    `body`'s.  `over_places` are `over`'s, a line's cells each one of `rows` (a meter on `c`).  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
+    `body`'s.  `over_places` are `over`'s, a line's cells each a row of its own (a meter on `c`).  ↑/↓, k/j and the wheel move `here` through `rows`, turning the pages of a row
     taller than the page before they leave it.  A click on a row
     makes it `here`, and one on a cell makes that the column, acting `enter` on the first
     `marks` columns and, on another's, the cell of it clicked, from 0; `column` is None where
@@ -3552,8 +3546,6 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     act, column = key.char if key.name == "char" else key.name, None
     if act in ("click", "point"):
         spot = terminal.under(key, spots)
-        if spot.what is None and spot.cell in rows:   # a row that is one cell of its line
-            spot = terminal.Spot(spot.cell)
         if spot.what is not None:
             here, column = spot.what, None if isinstance(spot.cell, tuple) else spot.cell
         if act == "point":
@@ -4147,15 +4139,16 @@ def config_add_provider(cfg, keyboard):
 @terminal.clicks_its_own
 def config_remove_provider(cfg, name, account, label):
     """`− remove` on subscription `label`, `account` of provider `name`: `Remove <provider> and
-    its models?` for its usual login, or `Remove <subscription>?` for another, asked under its
-    name, `Keep` picked and Esc keeping it.  config.remove_provider takes a provider's table,
-    its models and their places in [defaults], and with its table goes its meter; a
-    subscription leaves only the provider's `accounts`.  The last provider is refused without
-    asking.  Either way no login file goes: the login taken out, the provider's usual one for a
-    provider, is recorded (config.keep_login) for `+ add a provider` to offer back.  What to
-    say under the matrix, or "".
+    its models?` for its usual login or its only one, `Remove <subscription>?` for another,
+    asked under its name, `Keep` picked and Esc keeping it.  config.remove_provider takes a
+    provider's table, its models and their places in [defaults], and with its table goes its
+    meter; a subscription leaves only the provider's `accounts`.  The last provider is refused
+    without asking.  Either way no login file goes: the login taken out is recorded
+    (config.keep_login) for `+ add a provider` to offer back.  What to say under the matrix,
+    or "".
     """
-    usual = account in (None, config.DEFAULT_ACCOUNT)
+    # a provider listing no subscription has its usual login, so its last one takes it along
+    usual = account in (None, config.DEFAULT_ACCOUNT) or config.accounts(cfg, name) == [account]
     if usual and len(cfg["providers"]) < 2:
         return "the config needs one provider"
     shown = provider_name(cfg, name) if usual else label
@@ -4180,13 +4173,12 @@ def config_remove_provider(cfg, name, account, label):
     return _saved(cfg, cfg, before)
 
 
-def config_spend_reset(cfg, label):
-    """`↻ spend a reset` on subscription `label`: one usage-limit reset spent, by hand, where
-    the cached meters say it holds one (resets_held).  usage.replenish spends it and reads the
+def config_spend_reset(cfg, name, account, label):
+    """`↻ spend a reset` on subscription `label`, `account` of provider `name`: one usage-limit
+    reset spent, by hand.  usage.replenish spends it where it still holds one and reads the
     meters back into the cache, so its meter shows the week that came back; Esc while it is
     spent lets it finish.  What to say under the matrix: its name and what its cell on the
     `ak` screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
-    name, account = resets_held(cfg)[label]
     try:
         spent, _ = waited(lambda: usage.replenish(cfg, name, account=account),
                           f"config · {label}", doing=f"spending a reset of {label}")
@@ -4194,7 +4186,8 @@ def config_spend_reset(cfg, label):
         return ""
     if not spent:
         return f"{label}: no reset was spent"
-    said = next(said for _, shown, _, said in usage_cells(cfg) if shown == label)
+    said = next(said for provider, shown, _, said in usage_cells(cfg)
+                if (provider, shown) == (name, label))
     return f"{label} · {said}"
 
 
@@ -4207,9 +4200,9 @@ def config_usage(cfg, keyboard, number):
     highlight starting past the reset, which only a move or a click picks.  What to say under
     the matrix, or ""."""
     rows = usage_rows(cfg)
-    name, label, _, account = rows[number - 1]
+    name, label, prov, account = rows[number - 1]
     label = terminal.plain(label)
-    acts = [act for act, offers in enumerate((label in resets_held(cfg),
+    acts = [act for act, offers in enumerate((in_hand(prov),
                                               login_notes(rows)[number - 1], True)) if offers]
     texts = [USAGE_ACTS[act][0 if terminal.utf8() else 1] for act in acts]
     picked = acts[0]
@@ -4222,7 +4215,7 @@ def config_usage(cfg, keyboard, number):
         chosen = terminal.choose(texts, around=listed, default=texts[1 if acts[0] == 0 else 0])
         picked = None if chosen is None else acts[texts.index(chosen)]
     if picked == 0:
-        return config_spend_reset(cfg, label)
+        return config_spend_reset(cfg, name, account, label)
     if picked == 1:
         sign_in(cfg, keyboard, name, account)
         return ""

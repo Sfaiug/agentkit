@@ -113,6 +113,27 @@ class ResetByHand(unittest.TestCase):
         self.offered(1)                                   # Esc on the list spends nothing
         self.assertEqual(self.spent, ["second", ""])
 
+    def test_a_reset_gone_while_its_list_is_open_spends_none_and_says_so(self):
+        usage.collect(self.cfg, refresh=True)
+
+        def spent_elsewhere(choices, **_kw):     # through another `c`, say, meanwhile
+            self.held["second"] = 0
+            (config.STATE / "usage.json").unlink()
+            return "↻ spend a reset"
+        with patch.object(terminal, "choose", side_effect=spent_elsewhere), \
+                patch.object(terminal, "frame"):
+            self.assertEqual(menu.config_usage(self.cfg, None, 2),
+                             "ChatGPT II: no reset was spent")
+        self.assertEqual(self.spent, [])
+
+    def test_of_two_subscriptions_of_one_name_a_meter_spends_its_own(self):
+        rows = [("openai", "ChatGPT", {}, None), ("acme", "ChatGPT", {"resets": 1}, None)]
+        with patch.object(menu, "usage_rows", return_value=rows), \
+                patch.object(usage, "replenish", return_value=(False, 1)) as replenish:
+            self.assertEqual(self.offered(1), ["removed"])      # the other's is not its own
+            self.offered(2, "↻ spend a reset")
+        replenish.assert_called_once_with(self.cfg, "acme", account=None)
+
     def test_a_meter_whose_login_ends_offers_to_sign_in_again(self):
         usage.collect(self.cfg, refresh=True)
         signed = []

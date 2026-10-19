@@ -192,11 +192,10 @@ class QuestionCard(unittest.TestCase):
         with patch.object(terminal, "confirm", side_effect=confirm), \
                 patch.object(terminal, "read_key",
                              side_effect=[*[Key("down")] * 4, Key("enter"), Key("esc")]), \
-                patch.object(terminal, "choose", side_effect=["ChatGPT", "Claude II"]), \
                 redirect_stdout(io.StringIO()):
             menu.config_model(cfg, "opus")
-            self.assertEqual(menu.config_remove_provider(cfg), "")
-            self.assertEqual(menu.config_remove_provider(cfg), "")
+            self.assertEqual(menu.config_remove_provider(cfg, "openai", None, "ChatGPT"), "")
+            self.assertEqual(menu.config_remove_provider(cfg, "anthropic", "b2", "Claude II"), "")
         self.assertEqual(seen, [
             ("Remove opus from the config?", menu.REMOVE_ASK[1], "Remove", "<card>"),
             ("Remove ChatGPT and its models?", menu.REMOVE_PROVIDER_ASK[1], "Remove", "<card>"),

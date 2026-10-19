@@ -153,6 +153,15 @@ class RemoveKeepsLogin(unittest.TestCase):
         self.assertEqual(verbs(home, "login"), [])
         screen.leave()
 
+    def test_a_provider_s_only_subscription_takes_the_provider_with_it(self):
+        # with none listed it would be the usual login, back in ak where nobody chose it
+        only = CLAUDE.replace('mode = "subscription"', 'mode = "subscription"\naccounts = ["a1"]')
+        screen = Screen(self, child=CHILD, text=only + CODEX)
+        open_add(screen)
+        remove(screen, "Claude")
+        self.assertNotIn("anthropic", screen.saved()["providers"])
+        screen.leave()
+
     def test_logins_that_share_a_name_are_each_offered_as_themselves(self):
         claude = CLAUDE.replace('mode = "subscription"',
                                 'mode = "subscription"\naccounts = ["default", "a1", "b2", "d4"]')

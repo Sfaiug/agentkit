@@ -321,7 +321,10 @@ class ProviderScreen(unittest.TestCase):
 
     def test_the_last_provider_stays(self):
         screen = Screen(self, child=CHILD, text=ONE)
-        open_meter(screen, "Claude")
+        row = next(number for number, line in enumerate(screen.frame(), 1)
+                   if line.startswith("  Claude "))
+        # the pointer on its meter is on a row: Enter acts on it, not only bringing the keys back
+        screen.press(b"\x1b[<35;4;%dM" % row, lambda lines: lit(lines) == "Claude")
         before, mark = screen.path.read_bytes(), len(screen.text())
         lines = screen.press(ENTER, lambda lines: "the config needs one provider" in lines[-3])
         self.assertEqual(lit(lines), "Claude")
