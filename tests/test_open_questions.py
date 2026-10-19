@@ -35,7 +35,6 @@ class OpenQuestions(Sandbox):
             "AGENTKIT_SESSION": SEAT, "AGENTKIT_DISCORD_WEBHOOK": "off", "AK_NOTIFY_SINK": "off",
             "AK_RUN_ROLE": ""}))
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", return_value=[]))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         self.stack.enter_context(patch.object(orch, "listing", return_value=[
@@ -72,7 +71,7 @@ class OpenQuestions(Sandbox):
         self.asks(SECOND)
         self.assertEqual(self.kept(), [])
         self.assertEqual(notify.last(SEAT)["text"], FIRST + " Also: " + SECOND)
-        self.assertEqual(self.posts, ["Needs you · " + SEAT])     # still the one card
+        self.assertEqual(self.posts, ["🙋 Needs you · " + SEAT])     # still the one card
 
     def test_one_kept_back_joins_one_asked_at_once_at_its_turns_end(self):
         self.asks(FIRST)                    # kept back for this turn's end

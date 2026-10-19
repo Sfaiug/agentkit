@@ -67,11 +67,10 @@ class AnswerClosesQuestion(Sandbox):
                      "attached": False, "exited": False, "legacy": False}
         config.save_session(self.cfg, SEAT, "opus", ["astra"],
                             {"cwd": str(self.root), "session_title": SEAT})
-        self.pane, self.typed, self.edits = PROMPT, [], []
+        self.pane, self.typed = PROMPT, []
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [self.seat]))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
-        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=self.close))
         self.bin = self.root / "bin"
         self.bin.mkdir()
         for name, script in (("tmux", FAKE_TMUX), ("python3", PYTHON)):
@@ -94,18 +93,11 @@ class AnswerClosesQuestion(Sandbox):
             return 0, ""
         return 1, "unsupported fake tmux command"
 
-    def close(self, previous, status):
-        self.edits.extend((receipt["message_id"], status)
-                          for receipt in previous.get("open_needs", []))
-        return []
-
     def notice(self, **extra):
         name = self.seat["name"]
-        pending = [{"message_id": "1"}]
-        notify.record(name, "needs", QUESTION, open_needs=pending, **extra)
+        notify.record(name, "needs", QUESTION, **extra)
         notify._card_write(name, {"word": "needs you", "since": 10000, "began": 10000,
-                                  "episode": "acme-question", "sent": True,
-                                  "open_needs": pending})
+                                  "episode": "acme-question", "sent": True})
 
     def wait_look(self, finished):
         deadline = time.monotonic() + 20
@@ -162,7 +154,6 @@ class AnswerClosesQuestion(Sandbox):
         self.assertEqual((answer["word"], answer["reason"]),
                          ("needs you", "stopped with work open: the parser parses"))
         self.assertEqual(notify.transition(name, answer=answer, seat=self.seat), 0)
-        self.assertEqual(self.edits, [("1", "Answered")])
         # The answer ended its episode: the seat waiting now is one of its own, not carded yet.
         card = notify._card_read(name)
         self.assertNotEqual(card["episode"], "acme-question")
@@ -177,8 +168,7 @@ class AnswerClosesQuestion(Sandbox):
         self.assertTrue(watch.owner_question(notice))
         self.assertFalse(notify.resolved(notice))
         self.assertEqual(notify.transition(name, seat=self.seat), 0)
-        self.assertEqual(self.edits, [])
-        self.assertNotIn("closed", notify._card_read(name))
+        self.assertEqual(notify._card_read(name)["episode"], "acme-question")
         self.assertEqual(watch.session_state(name, session=self.seat, cfg=self.cfg)["reason"],
                          QUESTION)
 
@@ -235,15 +225,13 @@ class AnswerClosesQuestion(Sandbox):
         self.prompt(message="Use the second schema.")
         self.assert_answered()
 
-    def test_owner_prompt_closes_a_card_no_notice_asked(self):
+    def test_owner_prompt_ends_a_card_no_notice_asked(self):
         # The screen alone said needs you and its card went out: no notice holds the answer.
         notify._card_write(SEAT, {"word": "needs you", "since": 10000, "began": 10000,
-                                  "episode": "acme-dialog", "sent": True,
-                                  "open_needs": [{"message_id": "1"}]})
+                                  "episode": "acme-dialog", "sent": True})
         self.prompt()
         answer = {"word": "needs you", "since": 10000, "reason": "waiting for you"}
         self.assertEqual(notify.transition(SEAT, answer=answer, seat=self.seat), 0)
-        self.assertEqual(self.edits, [("1", "Answered")])
         card = notify._card_read(SEAT)
         self.assertNotEqual(card["episode"], "acme-dialog")
         self.assertFalse(card["sent"])
@@ -258,8 +246,7 @@ class AnswerClosesQuestion(Sandbox):
                 self.assertNotIn("answered_at", notice)
                 self.assertFalse(notify.resolved(notice))
                 self.assertEqual(notify.transition(SEAT, seat=self.seat), 0)
-                self.assertEqual(self.edits, [])
-                self.assertNotIn("closed", notify._card_read(SEAT))
+                self.assertEqual(notify._card_read(SEAT)["episode"], "acme-question")
         # Recovery still owns the alert's ending.
         notify.clear(SEAT, notice=QUESTION)
         self.assertTrue(notify.resolved(notify.last(SEAT, include_seen=True)))
@@ -335,17 +322,6 @@ class AnswerClosesQuestion(Sandbox):
         self.notice()
         self.assert_open()
 
-    def test_a_failed_card_edit_is_retried(self):
-        self.notice()
-        self.prompt()
-        self.hook("Stop")
-        with patch.object(notify, "close_needs", side_effect=lambda card, _: card["open_needs"]):
-            notify.transition(SEAT, seat=self.seat)
-        self.assertEqual(notify._card_read(SEAT)["open_needs"], [{"message_id": "1"}])
-        notify.transition(SEAT, seat=self.seat)
-        self.assertEqual(self.edits, [("1", "Answered")])
-        self.assertEqual(notify._card_read(SEAT)["open_needs"], [])
-
     def test_an_answer_does_not_close_a_later_question_episode(self):
         self.notice()
         turn = self.prompt()
@@ -355,8 +331,7 @@ class AnswerClosesQuestion(Sandbox):
         permission = {"word": "needs you", "since": turn + 1, "reason": "Allow the command?"}
         with patch.object(watch, "session_state", return_value=permission):
             notify.transition(SEAT, answer=permission, seat=self.seat)
-        self.assertEqual(self.edits, [])
-        self.assertNotIn("closed", notify._card_read(SEAT))
+        self.assertEqual(notify._card_read(SEAT)["episode"], "acme-permission")
 
     def test_opening_through_ak_and_output_after_it_answer_nothing(self):
         self.notice()

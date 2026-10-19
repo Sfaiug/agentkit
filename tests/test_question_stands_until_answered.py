@@ -38,18 +38,13 @@ class QuestionStands(unittest.TestCase):
             "HOME": str(self.root), "AGENTKIT_SESSION": "seat", "AGENTKIT_DISCORD_WEBHOOK": "off",
             "AK_NOTIFY_SINK": "off", "AK_RUN_ROLE": ""}, clear=False))
         config.ensure_dirs()
-        self.posts, self.closed = [], []
+        self.posts = []
 
         def post(payload, files, message, receipt):
             self.posts.append(payload)
             receipt.update(status="disabled", message_id=str(len(self.posts)), webhook="sink")
             return 0
-
-        def close_needs(previous, status):
-            self.closed.extend(status for _ in previous.get("open_needs") or ())
-            return []
         self.stack.enter_context(patch.object(notify, "post", side_effect=post))
-        self.stack.enter_context(patch.object(notify, "close_needs", side_effect=close_needs))
         self.stack.enter_context(patch.object(notify, "terminal_notice"))
         self.client = (0, "")
         self.stack.enter_context(patch.object(orch, "tmux_out",
@@ -72,14 +67,16 @@ class QuestionStands(unittest.TestCase):
 
     def test_switching_into_the_seat_leaves_its_question_open(self):
         self.sent_card(watcher=False)
+        episode = self.card()["episode"]
         self.client = (0, "seat\t170")      # he switched in and pressed keys there
         for now in (180, 240, 600):
             self.needs_you(now=now)
-        self.assertEqual(self.closed, [])
-        self.assertNotIn("closed", self.card())
+        self.assertEqual(self.card()["episode"], episode)
+        self.assertFalse(notify.resolved(notify.last("seat")))
         notify.answered("seat", 650)          # his prompt
         self.needs_you(now=660)
-        self.assertEqual(self.closed, ["Answered"])
+        self.assertNotEqual(self.card()["episode"], episode)
+        self.assertEqual(len(self.posts), 1)
 
     def test_a_watchers_alert_leaves_an_open_question_standing(self):
         question, alert = "Ship the acme parser today?", "seat needs login"
@@ -104,10 +101,10 @@ class QuestionStands(unittest.TestCase):
                         lambda *_a, **_k: {"word": "needs you", "since": 100, "page": True,
                                            "reason": "Allow the command?"})))
                 self.sent_card(**notice)
+                episode = self.card()["episode"]
                 self.client = (0, "seat\t170")
                 self.needs_you(now=180)
-                self.assertEqual(self.closed, [])
-                self.assertNotIn("closed", self.card())
+                self.assertEqual(self.card()["episode"], episode)
 
     def test_output_after_an_open_answers_nothing_where_prompts_are_reported(self):
         notify.record("seat", "needs", "Ship the acme parser today?", time=100)
