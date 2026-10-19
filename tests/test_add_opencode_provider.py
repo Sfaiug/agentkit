@@ -154,10 +154,10 @@ class AddOpenCodeProvider(unittest.TestCase):
         screen.press(ENTER, lambda lines: "  effort" in lines)
         screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         self.assertEqual(screen.saved()["providers"]["mimo"], SHIPPED["providers"]["mimo"])
-        # one OpenCode meter; `+ add a provider` offers it again, and no second login of a
-        # provider on it, since it keeps one
+        # no meter for OpenCode's own models, which are free; `+ add a provider` offers it
+        # again, and no second login of a provider on it, since it keeps one
         lines = open_add(screen)
-        self.assertEqual(sorted(meters(lines)), ["Claude", "MiMo", "OpenCode"])
+        self.assertEqual(sorted(meters(lines)), ["Claude", "MiMo"])
         mark = len(screen.text())
         _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered[4:], ["  OpenCode", "  Claude II"])

@@ -3477,15 +3477,23 @@ def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
                                          for part in (shown + [""] * tallest)[:tallest]]
 
 
+def row_lines(places, here):
+    """The lines of a matrix screen's `places` the page keeps on for `here`: the one it is a
+    cell of, as a meter on `c` is, else its own.  A meter's line under the grid is its own
+    too, but on a short screen other meters stand between the two."""
+    return ([line for line, (_, cells) in places.items()
+             if any(cell[-1] == here for cell in cells)]
+            or [line for line, (row, _) in places.items() if row == here])
+
+
 def matrix_page(body, places, here, top, under, keys, over=()):
     """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
     own above and below the rows, and its key line: (top, room), the first line of `body` shown
-    and how many are.  `top` stays where it was while the page holds every line of `here` --
-    its own and those it is a cell of -- or any of them for a row taller than the page, else
-    moves the least that makes it so, and never past the last page."""
+    and how many are.  `top` stays where it was while the page holds every line of `here`
+    (row_lines), or any of them for a row taller than the page, else moves the least that makes
+    it so, and never past the last page."""
     room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(under) - len(over))
-    drawn = [number for number, (row, cells) in places.items()
-             if row == here or any(cell[-1] == here for cell in cells)] or [0]
+    drawn = row_lines(places, here) or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
     if lo > hi:                                   # taller than the page: the tops holding any
         lo, hi = drawn[0] - room + 1, drawn[-1]
@@ -3561,7 +3569,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         return "back", here, column, top
     step = terminal.step(key)
     if step and rows:
-        mine = [line for line, (row, _) in places.items() if row == here]
+        mine = row_lines(places, here)
         if mine and (mine[-1] >= top + room if step > 0 else mine[0] < top):
             top += step * room    # a row taller than the page: its next page before the next row
         else:
