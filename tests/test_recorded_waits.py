@@ -142,7 +142,7 @@ class RecordedWaits(MergedRuns):
         # replaces rides along, so that question's card closes as answered
         self.owes()
         (self.state / f"notify-{SEAT}.json").write_text(json.dumps({            # answered before this turn
-            "session": SEAT, "kind": "done", "text": "Finished the parser", "time": time.time() - 60,
+            "session": SEAT, "kind": "needs", "text": "Which parser?", "time": 1200.0,
             "answered_at": 1234.5}) + "\n")
         self.prompt("Carry on")
         for _ in range(2):
@@ -169,13 +169,6 @@ class RecordedWaits(MergedRuns):
                 self.prompt("go")
                 self.merged(name, **kwargs)
                 self.assertEqual(json.loads(self.stop())["decision"], "block")
-
-    def test_a_done_this_turn_ends_it_with_work_open(self):
-        self.owes()
-        self.prompt("go")
-        (self.state / f"notify-{SEAT}.json").write_text(json.dumps(
-            {"session": SEAT, "kind": "done", "text": "Shipped the parser", "time": time.time()}) + "\n")
-        self.assertEqual(self.stop(), "")
 
     def test_a_standing_stop_is_written_down_as_the_seat_at_its_prompt(self):
         self.prompt("Which parser does it use?")

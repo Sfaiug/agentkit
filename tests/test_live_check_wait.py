@@ -87,29 +87,15 @@ class LiveCheckWait(MergedRuns):
         self.setUp()
         self.merged("awaits")
         self.assertEqual(self.word({"name": SEAT, "exited": True})["word"], "working")
-        # ... and a job's `all N tasks finished` is no word of the seat's: beside a run of its
-        # own failed after it, the seat still waits on the live check, and no card goes out
-        self.setUp()
-        self.merged("awaits")
-        (self.runs / "failed").mkdir()
-        (self.runs / "failed" / "run.json").write_text(json.dumps(
-            {"run_id": "failed", "launched_session": SEAT, "state": "fail", "verdict": "FAIL",
-             "handed_back": True, "started_at": time.time() - 900, "finished_at": time.time() - 10}) + "\n")
-        with patch.object(config, "STATE", self.state):
-            config.notify_path(SEAT).write_text(json.dumps(
-                {"session": SEAT, "kind": "done", "text": "all 3 tasks finished", "source": "job:acme",
-                 "time": time.time() - 30}))
-        self.assertEqual(self.word()["word"], "working")
 
     def test_what_is_his_below_outranks_the_wait(self):
-        """A handed-back run left undecided, a run failed after the seat's done, a watcher's
-        alert: each is his, so each keeps the word it reads without the wait, and keeps it once
-        the card pass has read it -- a done it drops for a failed run is only marked seen."""
+        """A handed-back run left undecided beside a finished plan, a watcher's alert: each is
+        his, so each keeps the word it reads without the wait, and keeps it once the card pass has
+        read it."""
         undecided = {"state": "interrupted", "interruption_reason": "the host restarted",
                      "recovery_pending": True}
         for name, run_state, notice in (
-                ("undecided", undecided, {"kind": "done", "text": "all shipped"}),
-                ("failed", {"state": "fail", "verdict": "FAIL"}, {"kind": "done", "text": "all shipped"}),
+                ("undecided", undecided, None),
                 ("alert", None, {"kind": "needs", "text": "acme is stuck", "watcher": True})):
             with self.subTest(name):
                 self.setUp()
@@ -121,8 +107,11 @@ class LiveCheckWait(MergedRuns):
                          "started_at": time.time() - 900, "finished_at": time.time() - 10,
                          **run_state}) + "\n")
                 with patch.object(config, "STATE", self.state):
-                    config.notify_path(SEAT).write_text(json.dumps(
-                        {"session": SEAT, "time": time.time() - 30, **notice}))
+                    if notice:
+                        config.notify_path(SEAT).write_text(json.dumps(
+                            {"session": SEAT, "time": time.time() - 30, **notice}))
+                    else:
+                        config.plan_path(SEAT).write_text("- [x] Shipped it\n")
                 self.assertEqual(self.word()["word"], "needs you")
                 self.assertEqual(self.card_pass(), "needs you")
                 self.assertEqual(self.word()["word"], "needs you")

@@ -71,6 +71,15 @@ class SeatNeedsYouForParkedRuns(unittest.TestCase):
         record.save_state(late, {**record.read_state(late), "recovery_acknowledged_at": NOW - 30})
         self.assertEqual(self.decide()["word"], "done")
 
+    def test_a_seat_whose_plan_is_done_with_an_undecided_run_needs_you(self):
+        self.receipt("fix-api", state="interrupted", recovery_pending=True,
+                     interrupted_at=NOW - 3600, handed_back=NOW - 3500,
+                     interruption_reason="the loop died mid-review")
+        config.plan_path("acme").write_text("- [x] Shipped it\n")
+        found = self.decide()
+        self.assertEqual(found["word"], "needs you")
+        self.assertEqual(found["reason"], "run fix-api parked: the loop died mid-review")
+
     def test_a_stalled_run_needs_you_and_says_how_to_resume_it(self):
         # a long id and a long step: the recorded error is cut short, the command never is
         name = "20261001-0100-fix-api-a-long-integration-command-in-the"

@@ -2264,7 +2264,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     * otherwise it is at its prompt with nothing running: the owner's again where a watcher's
       alert or a question on its screen says so, or where something of its own is still theirs
       (`still_owed`: work its plan owes, a question kept back); with nothing asked or owed it
-      is `done` where its plan proves every line, else `idle`.
+      is `done` where its plan proves every line -- unless a run of its own still sits parked
+      and undecided, which is him -- else `idle`.
 
     An ended run is its orchestrator's business: the run hands its ending back to the seat
     that launched it, so no reason ever names a run or sends him to one -- unless the
@@ -2729,6 +2730,15 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "since": found.get("began"), "reason": owed}
     finished = plan_mod.finished(name)
     if finished:
+        # nothing above is going, so a run still undecided waits on him: the stop hook's third
+        # stop stands on it, and this is where he hears
+        if index is None:
+            index = transitions.supersession_index(records)
+        unfinished = [(d, state) for d, state in mine if transitions.unfinished(state, index=index)]
+        if unfinished:
+            run_dir, state = unfinished[0]
+            return {"word": "needs you", "since": found.get("began"), "reason":
+                    f"run {run_dir.name} parked: {handback.handback_reason(state)}"}
         return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
     return {"word": "idle", "reason": "", "since": found.get("began")}
 

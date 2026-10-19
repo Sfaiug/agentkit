@@ -130,7 +130,7 @@ class HealthAfterMerge(unittest.TestCase):
 
     def notified(self, when, **extra):
         config.notify_path(SEAT).write_text(json.dumps(
-            {"session": SEAT, "kind": "done", "text": "Shipped the parser", "time": when,
+            {"session": SEAT, "kind": "needs", "text": "Ship the parser today?", "time": when,
              **extra}) + "\n")
 
     def test_a_live_change_is_recorded_on_the_run_and_the_seat_is_never_told(self):
