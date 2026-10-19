@@ -3605,14 +3605,16 @@ def quiet_prompt(session, held, cfg=None):
 
     One capture under that lock, right before the first key, says all of it: the seat at its
     prompt, no question up, and its composer read empty -- never onto the owner's draft, short
-    or wrapped, a dialog, or a screen whose composer cannot be read.
+    or wrapped, a dialog, or a screen whose composer cannot be read -- and no text of the
+    owner's on its way back into it (`bring_back`).
     """
     pane = pane_text(session)
     try:
         harness = seat_model(config.load() if cfg is None else cfg, held)[0]
     except (config.Error, OSError):
         return False
-    return bool(harness and takes_line(session, cfg=cfg, pane=pane)
+    return bool(harness and not seat_read(held).get("back")
+                and takes_line(session, cfg=cfg, pane=pane)
                 and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
 
@@ -3633,12 +3635,19 @@ def _aside_kept(session, pane):
     return aside_editor.kept(pane["id"]) in out.split("\n") if rc == 0 else None
 
 
-def _edit(session, held, pane, keys, mode, settled, log):
-    """Ask ak's editor for `out` or `back` in that pane, open its composer in it with `keys`,
-    and True once `settled` reads true.  The ask is taken back from that pane however the wait
-    ends -- the owner may have moved to another since -- so that one the harness has not acted
-    on never moves the composer of an edit the owner opens."""
-    server = orch.seat_socket(session)
+def _drawn(session, harness, pane):
+    """Whether that pane is still the seat's, its composer read holding text."""
+    return bool(harness and composer_draft(harness, pane_text(session))) and _pane(session) == pane
+
+
+def _edit(session, held, keys, mode, settled, log):
+    """Ask ak's editor for `out` or `back` in the seat's pane, open its composer in it with
+    `keys`, and True once `settled` reads true.  The ask is taken back from that pane however
+    the wait ends -- the owner may have moved to another since -- so that one the harness has
+    not acted on never moves the composer of an edit the owner opens."""
+    pane, server = _pane(session), orch.seat_socket(session)
+    if not pane:
+        return False
     orch.tmux_out("set-option", "-p", "-t", pane["id"], aside_editor.ASK,
                   aside_editor.request(mode), socket=server)
     rc, out = orch.tmux_out("send-keys", "-t", pane["id"], *keys, socket=server)
@@ -3652,26 +3661,40 @@ def _edit(session, held, pane, keys, mode, settled, log):
 def bring_back(session, held, log, cfg=None):
     """Under the seat's send lock: the owner's text ak's editor set aside back in the seat's
     composer, once that reads empty with no unread input; never beside the owner's newer text
-    or an unsent line of ak's."""
+    or an unsent line of ak's.  Its harness draws what the editor hands it only once the editor
+    is gone, so from the ask until that pane is read holding it -- or the text is still with
+    ak, or the seat has another pane -- the seat's `back` names the pane, and no line goes in
+    on the empty composer its screen still shows (`quiet_prompt`)."""
     pane = _pane(session)
-    if (not pane or not _aside_kept(session, pane) or pane_unread(session)
-            or composer_holds(held, session, "", cfg) != "empty"):
+    if not pane:
         return
     harness = seat_model(config.load() if cfg is None else cfg, held)[0]
     keys = screen(harness)["editor"] if harness else ()
-    # back once the editor let the text go and the harness drew it: the lock is held until then,
-    # so no line goes in on the empty composer the screen still shows
-    if keys and not _edit(session, held, pane, keys, "back", lambda _: (
-            _aside_kept(session, pane) is False
-            and composer_holds(held, session, "", cfg) != "empty"), log):
-        log(f"WARN {held}: the owner's text ak set aside is not back yet")
+    kept = _aside_kept(session, pane)
+    sent = seat_read(held).get("back")
+    if sent and (sent != pane or kept or _drawn(session, harness, pane)):
+        seat_write(held, back=None)
+        sent = None
+    if (sent or not keys or not kept or pane_unread(session)
+            or composer_holds(held, session, "", cfg) != "empty"):
+        return
+    seat_write(held, back=pane)
+    if _edit(session, held, keys, "back", lambda _: (
+            _aside_kept(session, pane) is False and _drawn(session, harness, pane)), log):
+        seat_write(held, back=None)
+        return
+    log(f"WARN {held}: the owner's text ak set aside is not back yet")
+    if _aside_kept(session, pane):
+        seat_write(held, back=None)     # the editor never took it: nothing is on its way
 
 
 def drafts_back(cfg, log):
     """Each tick: the owner's text set aside from a seat back in it (`bring_back`), whatever
-    pass set it aside and whether that pass lived to; text kept from a pane gone is let go."""
+    pass set it aside and whether that pass lived to, and text on its way back watched until
+    it is seen; text kept from a pane gone is let go."""
     seats = [session for session in orch.sessions() if not session.get("legacy")
              and not any(session.get(key) for key in orch.CLOSED)]
+    owed = [session for session in seats if seat_read(session["name"]).get("back")]
     for server in {orch.seat_socket(session) for session in seats}:
         rc, names = orch.tmux_out("list-buffers", "-F", "#{buffer_name}", socket=server)
         kept = [name for name in names.split() if name.startswith(aside_editor.kept(""))]
@@ -3682,10 +3705,11 @@ def drafts_back(cfg, log):
         for name in kept if live == 0 else ():
             if name not in owners:
                 orch.tmux_out("delete-buffer", "-b", name, socket=server)
-            for session in seats:
-                if session["name"] == owners.get(name) and orch.seat_socket(session) == server:
-                    with seat_held(session["name"]) as held:
-                        bring_back(session, held, log, cfg)
+            owed += [session for session in seats if session not in owed and
+                     session["name"] == owners.get(name) and orch.seat_socket(session) == server]
+    for session in owed:
+        with seat_held(session["name"]) as held:
+            bring_back(session, held, log, cfg)
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,

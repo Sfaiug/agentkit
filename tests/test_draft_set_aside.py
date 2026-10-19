@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fixtures.seats import SEAT, Seats
+from fixtures.seats import LINE, SEAT, Seats
 from agentkit import aside_editor, watch
 
 DRAFT = "and add these posts"
@@ -94,6 +94,18 @@ class DraftSetAside(Seats):
         watch.drafts_back(self.cfg, lambda _: None)
         # drawn before the lock lets another line at the composer
         self.assertEqual((self.keys, self.composer, self.buffers), (["C-g"], DRAFT, {}))
+
+    def test_no_line_goes_in_before_the_harness_draws_the_text_handed_back(self):
+        self.buffers = {aside_editor.kept(PANE): DRAFT.encode()}
+        self.show("")
+        with patch.object(watch.time, "sleep"):     # not drawn within the wait
+            watch.drafts_back(self.cfg, lambda _: None)
+        # its screen still shows the empty composer the harness is about to fill
+        self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None, self.cfg))
+        self.draw(0)
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.assertEqual((self.typed, self.composer, watch.seat_read(SEAT).get("back")),
+                         ([], DRAFT, None))
 
     def test_an_ask_its_harness_never_acts_on_is_taken_back_before_the_owners_edit(self):
         self.buffers, self.deaf = {aside_editor.kept(PANE): DRAFT.encode()}, True
