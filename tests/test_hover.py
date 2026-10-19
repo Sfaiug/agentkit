@@ -240,7 +240,7 @@ class Screens(Sandbox):
         self.assertEqual({text: at(last, text) for text in rows}, rows)
         # on a screen too short for them all, a click where the pointer found the last model
         # opens it, the page as it was
-        self.stack.enter_context(patch.object(terminal, "height", return_value=21))
+        self.stack.enter_context(patch.object(terminal, "height", return_value=22))
         first = self.matrix()[0]
         label = at(first, names[-1])
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()
@@ -248,6 +248,20 @@ class Screens(Sandbox):
             screens = self.matrix(move(*label), click + ESC)
         self.assertEqual(at(screens[1], names[-1]), label)
         opened.assert_called_once()
+
+    def test_on_a_short_screen_the_highlighted_model_s_line_stays_under_the_page(self):
+        # too short for every row: no page leaves the line off, and the page keeps its place
+        self.stack.enter_context(patch.object(terminal, "height", return_value=19))
+        first = self.matrix()[0]
+        names = menu.config_models(self.cfg)
+        shown = [name for name in names if name in "\n".join(texts(first))]
+        self.assertLess(len(shown), len(names))
+        rows = {name: at(first, name) for name in shown}
+        for name in shown:
+            last = self.matrix(move(*rows[name]) + ESC)[-1]
+            self.assertIn(f"{name} {menu.model_said(self.cfg, name)}",
+                          [text.strip() for text in texts(last)])
+            self.assertEqual({text: at(last, text) for text in shown}, rows)
 
     def test_moves_sent_while_the_rule_glides_are_one_draw(self):
         checkout = self.root / "code" / "ACME"

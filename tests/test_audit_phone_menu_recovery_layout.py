@@ -811,9 +811,10 @@ class Phone(Sandbox):
         phone.settled()                      # its screen goes before its process does
         phone.keys("C-b", "d")
         phone.until("esc leave", prompt="esc leave")
-        # `c` lists the config, `i` and `r` are no keys and say nothing
+        # `c` lists the config, `i` and `r` are no keys and say nothing; its title, as a phone's
+        # first page of rows ends over the highlighted model's line, before `+ add a model`
         phone.press("c")
-        phone.until("add a model", "esc back")
+        phone.until("agentkit · config", "esc back")
         phone.keys("Escape")
         phone.until("esc leave", prompt="esc leave")
         phone.press("i")
