@@ -8,10 +8,11 @@ scored ones first by their best quality: config name or id, harness, effort betw
 (←/→ step it through the model's own efforts, the numbers following, nothing saved; a row every
 board names no effort for stands at every effort of its model), quality
 per role at that effort (the recommended row's in `done`'s colour, one as good in the accent,
-`-` without a score) and what Artificial Analysis's index run cost it.  On a phone the harness
-and the cost give way, and the three lines and the quality and cost note are read one at a
-time, a page at a time where one is taller than the page.  `r` takes the recommendation as
-`c`'s line says it (tests/test_c_recommends_effort.py); Esc returns to `c`.
+`-` without a score) and what Artificial Analysis's index run cost it.  On a phone the cost
+gives way, each model takes two lines (tests/test_models_screen_phone.py), and the three lines
+and the quality and cost note are read one at a time, a page at a time where one is taller
+than the page.  `r` takes the recommendation as `c`'s line says it
+(tests/test_c_recommends_effort.py); Esc returns to `c`.
 
 Offline: a throwaway HOME with a matrix scored from rows written by hand, the catalogs' efforts
 faked, the keys fed in, the usage faked.
@@ -158,14 +159,15 @@ class ModelsScreen(Screen):
         self.assertIn("recommended the cheapest as good: orch opus @ max 100 $8000 · builds opus @ max "
                       "100 $8000 · reviews opus @ max 100 $8000", text)
 
-    def test_on_a_phone_the_harness_and_the_cost_give_way_and_every_line_fits(self):
+    def test_on_a_phone_the_cost_gives_way_and_every_line_fits(self):
         # 24 lines hold a page shorter than the lines above the table, wrapped at 40 cells: up
         # through the note and the three that say why, each a row, then down through the models
         with patch.object(terminal, "height", return_value=24):
             text = self.screens([Key("char", "r"), Key("right"), *[Key("up")] * 5, *[Key("down")] * 9,
                                  Key("esc"), Key("esc")], width=40)
-        self.assertIn("model effort orch builds reviews › opus ‹ max › 100 100 100", text)
-        self.assertNotIn("harness", text.split("models · fix-api")[1])
+        self.assertIn("model harness effort orch builds reviews › opus claude ‹ max › 100 100 100",
+                      text)
+        self.assertNotIn("cost $", text.split("models · fix-api")[1])
         # each line is read whole on the page it is highlighted on, with no arrows to offer
         self.assertRegex(text, r"› best orch opus @ max 100 \$8000 · builds opus @ max 100 \$8000 · "
                                r"reviews opus @ max 100 \$8000 .*? ↑↓ move r take recommended esc back")
@@ -176,7 +178,7 @@ class ModelsScreen(Screen):
                                r"↑↓ move r take recommended esc back")
         self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
                       "cost is what Artificial Analysis's index run cost it, in dollars", text)
-        self.assertIn("› spark xhigh - - -", text)
+        self.assertIn("› spark muse xhigh - - -", text)
 
     def test_a_line_taller_than_the_page_is_read_a_page_at_a_time(self):
         # seven more models as good to build and review: `as good` wraps past a page at 40
