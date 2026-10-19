@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, notify, run, status, transitions, watch
+from agentkit import config, menu, run, status, transitions, watch
 from agentkit import record
 
 WEEK = 604800
@@ -132,25 +132,6 @@ class SupersededPark(unittest.TestCase):
         self.assertTrue(menu.v5o_needs_look(state, index=index, now=self.now))
         self.assertEqual(status.status_state_word(state, index), "needs you")
 
-    def test_failed_run_with_a_merged_from_relaunch_does_not_block_notify_done(self):
-        failed = self.receipt("20260925-1308-failed", title="Fix the parser",
-                              state="fail", verdict="FAIL", branch="ak/parser",
-                              error="the done-when failed",
-                              finished_at=self.now - 10)
-        notify.record("seat", "done", "Shipped it", time=self.now - 30)
-        facts = dict(session={"name": "seat"}, cfg=self.cfg, live={}, harness="claude",
-                     auth_out={}, gh_out={}, token_out={}, previous={})
-        found = watch.session_state("seat", self.now, records=self.records(), **facts)
-        self.assertEqual(found["word"], "needs you")
-        self.assertIn(f"run {failed.name} failed; declaration dropped", found["reason"])
-        self.receipt("20260925-1713-relaunch", title="Fix the parser (continued)",
-                     state="pass", verdict="PASS", merged=True, branch="ak/parser-2",
-                     **{"from": "ak/parser", "repo": str(self.root)},
-                     round_summaries=[{}], error=None,
-                     started_at=self.now - 300, finished_at=self.now - 5)
-        found = watch.session_state("seat", self.now, records=self.records(), **facts)
-        self.assertEqual((found["word"], found["reason"]), ("done", "Shipped it"))
-
     def test_tick_does_not_resume_a_run_whose_replacement_merged(self):
         quota = self.receipt("20260925-1257-quota", title="Fix the parser",
                              quota_dry=True, error="every provider is out of budget")
@@ -186,7 +167,7 @@ class SupersededPark(unittest.TestCase):
         self.assertEqual(status.status_state_word(quota_state, index), "done")
         self.assertEqual(status.status_state_word(errored_state, index), "done")
         # ... and the seat's standing done is done, not working above it
-        notify.record("seat", "done", "Shipped it", time=self.now)
+        config.plan_path("seat").write_text("- [x] Shipped it\n")
         found = watch.session_state(
             "seat", self.now, session={"name": "seat"}, cfg=self.cfg,
             records=self.records(), live={}, harness="claude", auth_out={}, gh_out={},
