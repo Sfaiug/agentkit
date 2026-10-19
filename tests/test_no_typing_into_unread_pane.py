@@ -165,7 +165,7 @@ class UnreadPane(Seats):
             with self.subTest(reply=reply):
                 self.tty_reply = reply
                 self.assertTrue(watch._send_line(self.seat, "Run finished.", lambda _: None))
-                self.assertTrue(watch._send_enter(self.seat, lambda _: None))
+                self.assertTrue(watch._send_keys(self.seat, ("Enter",), lambda _: None))
                 self.assertEqual(self.typed[-1], "Run finished.")
 
 

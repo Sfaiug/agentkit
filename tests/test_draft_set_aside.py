@@ -7,11 +7,12 @@ its line, and brings the text back.  Offline: fixtures.seats' throwaway seats, i
 as a composer with Claude Code's prompt history.
 """
 
+from contextlib import contextmanager
 import unittest
 from unittest.mock import patch
 
-from fixtures.seats import LINE, NOW, SEAT, Seats
-from agentkit import watch
+from fixtures.seats import LINE, NOW, REPO, SEAT, Seats
+from agentkit import orch, watch
 
 DRAFT = "and add these posts"
 
@@ -58,7 +59,6 @@ class DraftSetAside(Seats):
         self.assertEqual(self.typed, [LINE])
         self.assertEqual(self.composer, DRAFT)
         self.assertTrue(self.told())
-        self.assertIsNone(watch.seat_read(SEAT).get("aside"))
 
     def test_a_draft_still_changing_is_left_alone(self):
         self.wait_line()
@@ -81,6 +81,91 @@ class DraftSetAside(Seats):
         self.assertEqual(self.keys, ["C-c", "Up"])
         self.assertEqual(self.typed, [])
         self.assertEqual(self.composer, DRAFT)
+        self.assertFalse(self.told())
+
+    def test_a_draft_edited_or_emptied_starts_its_two_minutes_again(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL - 1)
+        self.composer = ""
+        self.show()
+        with patch.object(watch, "pane_unread", return_value=True):
+            self.tick()
+        for edit in (DRAFT, DRAFT + " "):
+            self.composer = edit
+            self.show()
+            self.later(2 * watch.DRAFT_STILL)
+            self.tick()
+        self.assertEqual(self.keys, [])
+
+    def test_a_turn_started_before_the_lock_gets_no_key(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        held = watch.seat_held
+        working = (REPO / "tests/fixtures/claude-draft-while-working-pane.txt").read_text(
+            encoding="utf-8").replace("draft typed while working", DRAFT)
+
+        @contextmanager
+        def started(name):
+            with held(name) as seat:
+                self.pane, self.free = working, False
+                yield seat
+        with patch.object(watch, "seat_held", side_effect=started):
+            self.tick()
+        self.assertEqual(self.keys, [])
+
+    def test_a_pass_stopped_before_its_line_puts_the_draft_back_next(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        with patch.object(watch, "_send_line", side_effect=InterruptedError):
+            self.assertRaises(InterruptedError, self.tick)
+        self.tick()
+        self.assertEqual(self.composer, DRAFT)
+        self.assertTrue(self.told())
+
+    def test_a_key_that_could_not_bring_the_draft_back_is_pressed_next_pass(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        tmux = orch.tmux_out
+        with patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (
+                (1, "no server") if args[0] == "send-keys" and args[-1] == "Up"
+                else tmux(*args, **kw))):
+            self.tick()
+        self.assertFalse(self.told())
+        self.tick()
+        self.assertEqual(self.composer, DRAFT)
+        self.assertTrue(self.told())
+
+    def test_a_delivery_the_caller_missed_is_still_delivered_next_pass(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        mark = watch.wait_mark
+        with patch.object(watch, "wait_mark", side_effect=lambda name, wait, **marks: (
+                mark(name, wait, **marks) if "told" not in marks else False)):
+            self.tick()
+        self.tick()
+        self.assertEqual(self.keys, ["C-c", "text", "Enter", "Up", "Up"])
+        self.assertTrue(self.told())
+
+    def test_the_draft_back_before_any_enter_delivers_nothing(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        tmux = orch.tmux_out
+
+        def owner_takes_it_back(*args, **kw):
+            done = tmux(*args, **kw)
+            if args[0] == "send-keys" and "-l" in args:
+                for key in ("C-c", "Up", "Up"):     # ak's unsent line out, their draft back
+                    self.tmux("send-keys", "-t", f"={SEAT}:", key)
+            return done
+        with patch.object(orch, "tmux_out", side_effect=owner_takes_it_back):
+            self.tick()
+        self.assertNotIn("Enter", self.keys)
         self.assertFalse(self.told())
 
 

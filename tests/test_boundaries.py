@@ -189,7 +189,7 @@ RULES = [
     {"name": "typing into a seat",
      "flags": (),
      "pattern": r"\"(send-keys|paste-buffer|send-prefix)\"|"
-                r"watch\.(_send_line|_send_enter|type_into|type_checked|type_at_prompt|revive|"
+                r"watch\.(_send_line|_send_keys|type_into|type_checked|type_at_prompt|revive|"
                 r"ask_inbox|after_merge_deliver|sync_title)\(",
      "home": ("agentkit/watch.py", "agentkit/guard.py"),
      "max": 8},

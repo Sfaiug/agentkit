@@ -274,7 +274,7 @@ class QuestionWaitsForTheStop(Sandbox):
         with patch.object(watch, "hook_facts", return_value=fact), \
                 patch.object(watch, "pane_text", return_value=PROMPT), \
                 patch.object(watch, "_send_line", return_value=True), \
-                patch.object(watch, "_send_enter", return_value=True), \
+                patch.object(watch, "_send_keys", return_value=True), \
                 patch.object(watch, "_wait_sent", return_value=True), \
                 patch.object(watch, "pane_unread", return_value=False):
             watch.type_at_prompt({"name": SEAT, "attached": False},
@@ -295,7 +295,7 @@ class QuestionWaitsForTheStop(Sandbox):
         with patch.object(watch, "hook_facts", return_value=fact), \
                 patch.object(watch, "pane_text", return_value=PROMPT), \
                 patch.object(watch, "composer_holds", return_value="line"), \
-                patch.object(watch, "_send_enter", side_effect=lambda *_a, **_k: asked.append(
+                patch.object(watch, "_send_keys", side_effect=lambda *_a, **_k: asked.append(
                     (notify.last(SEAT) or {}).get("text"))):
             watch.type_at_prompt(seat, line, lambda _line: None, cfg=self.cfg,
                                  typed={"line": line, "seat": 1})

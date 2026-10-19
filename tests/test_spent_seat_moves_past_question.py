@@ -38,7 +38,7 @@ class SpentSeat(SeatAccount):
         with patch.object(watch, "type_into", TYPE_INTO), \
                 patch.object(watch, "_send_line", side_effect=lambda s, text, *a, **k:
                              sent.append(text) or True), \
-                patch.object(watch, "_send_enter", return_value=True), \
+                patch.object(watch, "_send_keys", return_value=True), \
                 patch.object(watch, "_wait_sent", return_value=True):
             step()
         return sent

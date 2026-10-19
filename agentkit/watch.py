@@ -3136,11 +3136,6 @@ def pane_unread(session):
     return False
 
 
-def _send_enter(session, log):
-    """One Enter completing a line already begun; False where the send failed."""
-    return _send_keys(session, ("Enter",), log)
-
-
 def _send_keys(session, keys, log):
     """Those tmux keys into the seat, KEY_GAP apart; False where a send failed."""
     name = session["name"]
@@ -3262,7 +3257,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not sent:
                 return sent
             time.sleep(KEY_GAP)
-        if not _wait_ready(ready, held if held is not None else name) or not _send_enter(seat, log):
+        if not _wait_ready(ready, held if held is not None else name) or not _send_keys(seat, ("Enter",), log):
             return False
     if not confirm or _wait_sent(seat, harness, text):
         return True
@@ -3270,7 +3265,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         if (veto(held if held is not None else name)
                 or not ready(held if held is not None else name)):
             return False
-        if not _send_enter(seat, log):
+        if not _send_keys(seat, ("Enter",), log):
             return False
     if _wait_sent(seat, harness, text):
         return True
@@ -3420,6 +3415,16 @@ def _cropped_composer_rows(harness, pane):
     return _unscrolled(screen(harness), [_inside_box(row) for row in tail])
 
 
+def _composer_read(harness, pane, *, exact=False):
+    """The composer's rows (`_composer_rows`), or where none is found and the pane has more
+    rows than the read, its top above it: the rows over its bottom chrome
+    (`_cropped_composer_rows`), None where those are none.  `exact` reads no cropped composer."""
+    rows = _composer_rows(harness, pane, exact=exact)
+    if rows is None and not exact and len(_content_rows(pane)) > PANE_LINES:
+        return _cropped_composer_rows(harness, pane) or None
+    return rows
+
+
 def composer_holds(name, session, line, cfg=None, *, exact=False):
     """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
     anything else, nothing read, or a question to the owner on the screen, as a dialog that
@@ -3442,12 +3447,10 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     pane = pane_text(session)
     if not harness or not pane.strip() or asking(name, harness, pane):
         return "other"
-    rows = _composer_rows(harness, pane, exact=exact)
+    rows = _composer_read(harness, pane, exact=exact)
     if rows is not None and not re.sub(r"\s+", "", "".join(rows)):
         return "empty"
     chrome = screen(harness)
-    if not exact and rows is None and len(_content_rows(pane)) > PANE_LINES:
-        rows = _cropped_composer_rows(harness, pane)
     held, whole = re.sub(r"\s+", "", "".join(rows or ())), re.sub(r"\s+", "", line)
     folded = (chrome["folded"] is not None and chrome["folds_over"] is not None
               and len(line) > chrome["folds_over"])
@@ -3641,35 +3644,33 @@ DRAFT_STILL = 120       # how long the owner's unsent text stands unchanged befo
                         # aside for a line of its own: text being typed changes within that
 
 
-def _digest(draft):
-    return hashlib.sha256(draft.encode()).hexdigest()[:16]
+def _digest(text):
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 def _standing_text(harness, pane):
     """The composer's text without whitespace, "" when empty, None where none is read: all of
     it, or its last rows where its top is above the read, as an inline paste taller than the
     read leaves it (Codex 0.163.0, Muse 1.4.10)."""
-    text = composer_draft(harness, pane)
-    if text is None and len(_content_rows(pane)) > PANE_LINES:
-        text = re.sub(r"\s+", "", "".join(_cropped_composer_rows(harness, pane))) or None
-    return text
+    rows = _composer_read(harness, pane)
+    return None if rows is None else re.sub(r"\s+", "", "".join(rows))
 
 
-def draft_standing(session, cfg=None):
-    """The owner's unsent text in that seat's composer, read without whitespace, once it has
-    stood unchanged DRAFT_STILL at a prompt that would take ak's line but for it, where its
-    harness can set it aside (`[screen] aside`), else None: a prompt a rule or hook reads as
-    a draft or as free, since a draft rule does not find every draft (a pasted block reads at
-    the prompt in Codex 0.163.0 and Muse 1.4.10).  Each look records the text it read, so the
-    time counts from its last change.  The owner: text they left in a seat never stops what ak
-    has to tell it (19 Oct 2026)."""
-    name = session["name"]
+def _drawn(harness, pane):
+    """The pane's last rows as drawn, spaces kept and the rows its chrome patterns name left
+    out: an edit to the composer changes them where its text read without whitespace may not."""
+    chrome = screen(harness)
+    rows = [strip_sgr(row) for row in pane.splitlines() if strip_sgr(row).strip()]
+    return "\n".join(row for row in rows[-PANE_LINES:] if not chrome_line(chrome, row))
+
+
+def _draft_at_prompt(session, harness, pane, cfg=None):
+    """The owner's unsent text in that seat's composer, read without whitespace, where the
+    seat would take ak's line but for it, else None: no unread input, and a prompt a rule or
+    hook reads as free, or as a draft with its composer open, since a draft rule does not find
+    every draft (a pasted block reads at the prompt in Codex 0.163.0 and Muse 1.4.10)."""
+    draft = _standing_text(harness, pane) if pane.strip() else None
     try:
-        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
-        if not harness or not screen(harness)["aside"]:
-            return None
-        pane = pane_text(session)
-        draft = _standing_text(harness, pane) if pane.strip() else None
         found = live_state(session, harness, pane=pane, cfg=cfg) if draft else {}
     except (config.Error, OSError):
         return None
@@ -3677,9 +3678,29 @@ def draft_standing(session, cfg=None):
             _free(harness, found) or found.get("state") == "draft" and found.get("authority")
             and _composer_open(harness, found)):
         return None
+    return draft
+
+
+def draft_standing(session, cfg=None):
+    """The owner's unsent text in that seat's composer (`_draft_at_prompt`) once the screen has
+    stood unchanged DRAFT_STILL with it there, where its harness can set it aside (`[screen]
+    aside`), else None.  Each look records the screen as drawn (`_drawn`), or forgets it where
+    no such draft is read, so the time counts from the draft's last change, a space or its
+    emptying among them.  The owner: text they left in a seat never stops what ak has to tell
+    it (19 Oct 2026)."""
+    name = session["name"]
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+        if not harness or not screen(harness)["aside"]:
+            return None
+        pane = pane_text(session)
+        draft = _draft_at_prompt(session, harness, pane, cfg)
+        drawn = _digest(_drawn(harness, pane))
+    except (config.Error, OSError):
+        return None
     seen, now = seat_read(name).get("draft_seen"), time.time()
-    if not isinstance(seen, dict) or seen.get("draft") != _digest(draft):
-        seat_write(name, draft_seen={"draft": _digest(draft), "at": now})
+    if not draft or not isinstance(seen, dict) or seen.get("screen") != drawn:
+        seat_write(name, draft_seen=draft and {"screen": drawn, "at": now})
         return None
     return draft if now - seen.get("at", now) >= DRAFT_STILL else None
 
@@ -3687,10 +3708,11 @@ def draft_standing(session, cfg=None):
 def set_aside(session, held, line, draft, log, cfg=None):
     """Under the seat's send lock: move the owner's standing draft out of its composer with
     the harness's `out` keys, so ak's `line` can go in, recorded first (`aside`) for
-    `bring_back`.  Nothing is pressed unless the composer still reads that draft and the
-    terminal holds no unread input."""
+    `bring_back`.  Nothing is pressed unless that draft still stands where the seat would take
+    the line but for it (`_draft_at_prompt`), read again under the lock: a turn started since
+    the look gets no key."""
     harness = seat_model(config.load() if cfg is None else cfg, held)[0]
-    if _standing_text(harness, pane_text(session)) != draft or pane_unread(session):
+    if _draft_at_prompt(session, harness, pane_text(session), cfg) != draft:
         return
     seat_write(held, aside={"line": line, "draft": _digest(draft), "at": time.time()})
     if _send_keys(session, screen(harness)["aside"]["out"], log):
@@ -3698,11 +3720,13 @@ def set_aside(session, held, line, draft, log, cfg=None):
 
 
 def bring_back(session, held, log, cfg=None, *, typed=True):
-    """Under the send lock, after ak's line went in over the owner's draft set aside: True once
-    that line is delivered -- gone from a composer read empty, or holding the draft again where
-    the harness restores it itself, with no unread input -- and the draft is brought back with
-    `back`, or with `undo` where the line was never `typed`.  False, the record kept, while
-    the line still sits in the composer for a later pass to send."""
+    """Under the send lock, the owner's draft set aside for ak's line brought back: with `back`
+    and True once that line is delivered -- an Enter pressed over it (`sent`), then the line
+    gone from a composer read empty, or holding the draft again where the harness restores it
+    itself, with no unread input --, or with `undo` and False where the line was never `typed`.
+    False too, the record kept for a later pass, while the line is not delivered or a key could
+    not be pressed.  Back after a delivery, the record says so (`back`) until another draft is
+    set aside: the caller marks the delivery only after this returns."""
     aside = seat_read(held).get("aside")
     harness = seat_model(config.load() if cfg is None else cfg, held)[0]
     keys = screen(harness)["aside"]
@@ -3713,12 +3737,13 @@ def bring_back(session, held, log, cfg=None, *, typed=True):
     def delivered(_held):
         text = draft()
         return text == "" or text is not None and _digest(text) == aside["draft"]
-    if typed and not (_wait_ready(delivered, held) and not pane_unread(session)):
+    if typed and not (aside.get("sent") and _wait_ready(delivered, held)
+                      and not pane_unread(session)):
         return False
     pressed = keys["back" if typed else "undo"]
-    if draft() == "":
-        _send_keys(session, pressed, log)
-    seat_write(held, aside=None)
+    if draft() == "" and not _send_keys(session, pressed, log):
+        return False
+    seat_write(held, aside=dict(aside, back=time.time()) if typed else None)
     # a draft taller than the read comes back unread: anything there but empty or ak's line
     if not _wait_ready(lambda _: composer_holds(held, session, aside["line"], cfg)
                        not in ("empty", "line"), held):
@@ -3761,21 +3786,39 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     mark = {"line": text, "seat": session.get("created")}
 
     def aside(held):
-        return (seat_read(held).get("aside") or {}).get("line") == text
+        found = seat_read(held).get("aside") or {}
+        return found if found.get("line") == text else {}
+
+    def sending(held):
+        # an Enter goes over the line now: past a draft set aside, the record says so, as the
+        # draft back in the composer is no proof of a send
+        if aside(held):
+            seat_write(held, aside=dict(aside(held), sent=True))
+        return True
     if typed == mark:
         with seat_held(session["name"]) as held:
             if stale(held):
                 return False    # the screen is somebody else's: next pass
+            if aside(held).get("back"):
+                return True     # delivered, its draft back: the caller's mark of it was missed
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty" and not aside(held):
                 return not pane_unread(session)
-            if holds == "line":
+            if holds == "line" and sending(held):
                 kept_asked_first(dict(session, name=held))
-                _send_enter(session, log)
+                _send_keys(session, ("Enter",), log)
             # the next pass reads whether that Enter sent it, unless a draft waits to come back
-            return aside(held) and bring_back(session, held, log, cfg)
+            return bool(aside(held)) and bring_back(session, held, log, cfg)
     if aside(session["name"]):
-        seat_write(session["name"], aside=None)     # left by a pass that ended before it came back
+        # a record a pass left: its draft back with `undo` where it is still out, as the line
+        # never went in, else only forgotten
+        with seat_held(session["name"]) as held:
+            if aside(held).get("back"):
+                seat_write(held, aside=None)
+            elif aside(held):
+                bring_back(session, held, log, cfg, typed=False)
+            if aside(held):
+                return False    # a key could not be pressed: next pass
     draft = draft_standing(session, cfg)
     if not draft and not takes_line(session, cfg=cfg):
         return False
@@ -3798,7 +3841,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     sent = type_checked(session, text, log, None,
                         guard=lambda: seat_held(session["name"]), veto=veto,
                         typed=typed_in, source=source,
-                        ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+                        ready=lambda held: composer_holds(held, session, text, cfg) == "line"
+                        and sending(held))
     if draft:
         with seat_held(session["name"]) as held:
             if aside(held):

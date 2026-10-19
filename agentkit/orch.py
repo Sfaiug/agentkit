@@ -2595,7 +2595,7 @@ def rulebook_prepare(name):
     conversation a code for it, which its next prompt carries.  The file is the seat's own,
     never the one its harness was launched from, and follows it through a rename.  A prompt's
     hook does this itself when it gets the lock; it never waits for it, so every Enter typed
-    under it does it first (`watch._send_enter`).  A failed write only means the next prompt
+    under it does it first (`watch._send_keys`).  A failed write only means the next prompt
     tries again."""
     try:
         found = rulebook_due(name)
