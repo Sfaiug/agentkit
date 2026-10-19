@@ -91,11 +91,11 @@ class ModelsScreen(Sandbox):
         text = self.screens([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)
         self.assertIn("as good as the best: within ‹ 5 ›", text)
-        self.assertIn("recommended orch opus @ xhigh · exec astra @ xhigh · review astra @ xhigh", text)
-        self.assertIn("as good exec opus @ xhigh · review opus @ xhigh", text)
+        self.assertIn("recommended orch opus @ xhigh · builds astra @ xhigh · reviews astra @ xhigh", text)
+        self.assertIn("as good builds opus @ xhigh · reviews opus @ xhigh", text)
         self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
                       "cost is what Artificial Analysis's index run cost it, in dollars", text)
-        self.assertIn("model harness effort orch exec review cost $", text)
+        self.assertIn("model harness effort orch builds reviews cost $", text)
         # the scored models first by their best quality, each at the effort the config runs
         # it at, else its best; a model with one effort has no arrows; mimo's one row at none
         # shows on its first level; spark, which no board has, last at the effort the config
@@ -106,9 +106,9 @@ class ModelsScreen(Sandbox):
                               r"mimo-pro opencode ‹ none › - 51 51 100 "
                               r"spark muse xhigh - - - -")
         self.assertIn("↑↓ move ←→ effort r take recommended esc back", text)
-        # back on `c`, whose line names the rows and whose key opens the screen
-        self.assertRegex(text, r"esc back.*ak recommends orch opus @ xhigh · exec astra @ xhigh · "
-                               r"review astra @ xhigh.*⏎ mark r recommended esc back")
+        # back on `c`, whose key opens the screen
+        self.assertRegex(text, r"esc back.*fable runs on [^·]+ ↑↓←→ move ⏎ mark r recommended "
+                               r"esc back")
         self.assertNotIn("r takes exec and review", text)
 
     def test_the_arrows_step_a_model_s_effort_and_the_numbers_follow_nothing_saved(self):
@@ -139,16 +139,16 @@ class ModelsScreen(Sandbox):
         self.assertIn("as good as the best: within ‹ 4 ›", text)
         self.assertEqual(config.load()["within"], 4)
         # within 4, astra's 96 is no longer as good as opus's 100: opus @ xhigh everywhere
-        self.assertIn("recommended orch opus @ xhigh · exec opus @ xhigh · review opus @ xhigh "
+        self.assertIn("recommended orch opus @ xhigh · builds opus @ xhigh · reviews opus @ xhigh "
                       "as good none", text)
         text = self.screens([Key("char", "r"), Key("up"), *[Key("left")] * 6, Key("esc"), Key("esc")])
         self.assertIn("as good as the best: within ‹ 0 ›", text)
         self.assertEqual(config.load()["within"], 0)
-        self.assertIn("recommended orch opus @ max · exec opus @ max · review opus @ max", text)
+        self.assertIn("recommended orch opus @ max · builds opus @ max · reviews opus @ max", text)
 
     def test_on_a_phone_the_harness_and_the_cost_give_way_and_every_line_fits(self):
         text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")], width=40)
-        self.assertIn("model effort orch exec review › opus ‹ max › 100 100 100 astra xhigh", text)
+        self.assertIn("model effort orch builds reviews › opus ‹ max › 100 100 100 astra xhigh", text)
         self.assertNotIn("harness", text.split("models · fix-api")[1])
 
     def test_r_on_the_screen_takes_the_recommendation(self):

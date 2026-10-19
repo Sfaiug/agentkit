@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, gate, menu, run, staffing, terminal, update, usage
+from agentkit import config, gate, menu, orch, run, staffing, terminal, update, usage
 from agentkit import record as run_record
 
 
@@ -81,7 +81,7 @@ class SessionModels(Sandbox):
         self.assertNotIn("reviewers", config.load_session(self.cfg, "old"))
         with patch.object(terminal, "layout_width", return_value=100):
             lines, places = menu.config_body(self.cfg, "fixture", selected=self.selected("old"))
-        self.assertEqual(lines[0].split(), ["orch", "exec", "review", "effort"])
+        self.assertEqual(lines[0].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(self.rows(lines)["opus"], "●■■")
         self.assertEqual(self.rows(lines)["fable"], "○□□")
         cells = next(cells for row, cells in places.values() if row == ("model", "opus"))
@@ -98,7 +98,7 @@ class SessionModels(Sandbox):
         with patch.object(usage, "unready", return_value=""):
             self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "opus", 1, {}), "")
         self.assertEqual(menu.session_mark(self.cfg, "solo", selected, "astra", 2, {}),
-                         "review needs one model")
+                         "at least one model reviews")
         self.assertEqual(config.load_session(self.cfg, "solo")["workers"], [])
         config.save_session(self.cfg, "tight", "opus", ["opus"],
                             {"reviewers": ["opus", "astra"]})
@@ -153,23 +153,31 @@ class SessionModels(Sandbox):
         self.assertEqual(run.run_workers(self.cfg, going), ["opus", "astra"])
         self.assertEqual(staffing.run_reviewers(self.cfg, going), ["astra"])
 
-    def test_the_body_holds_the_current_groups_and_a_spent_note(self):
+    def test_the_body_holds_the_current_groups_and_why_a_model_is_spent_is_on_its_line(self):
         spent = usage.Readings({"anthropic": {"meters": [{
             "name": "weekly_all", "used": 100, "exhausted": True, "resets_at": 10000 + 86400}]}})
+        note = orch.spent_note(self.cfg, "opus", spent)
         with patch.object(terminal, "layout_width", return_value=100):
             lines, _ = menu.config_body(self.cfg, "fixture", ("model", "opus"), 1,
                                         self.selected("fix-api"), spent)
+            opus = menu.model_lines(self.cfg, ("model", "opus"), spent)
+            astra = menu.model_lines(self.cfg, ("model", "astra"), spent)
         self.assertEqual(self.rows(lines)["opus"], "●■□")
         self.assertEqual(self.rows(lines)["astra"], "○■■")
-        row = next(terminal.plain(line) for line in lines if "opus" in terminal.plain(line))
-        self.assertIn("spent · resets", row)
-        self.assertNotIn("spent", next(terminal.plain(line) for line in lines
-                                       if "astra" in terminal.plain(line)))
+        # its row is its marks and effort; why it is spent is on its line, in amber
+        self.assertTrue(note.startswith("spent · resets "), note)
+        self.assertFalse(any(note in terminal.plain(line) for line in lines))
+        self.assertEqual(terminal.plain(opus[1]).strip(),
+                         f"opus {menu.model_said(self.cfg, 'opus')[0][0]} · {note}")
+        self.assertIn(terminal.styled(note, "amber"), opus[1])
+        self.assertNotIn("spent", terminal.plain(astra[1]))
+        # on a phone it takes a line of its own, and the page as many as opus's
         with patch.object(terminal, "layout_width", return_value=40):
-            lines, _ = menu.config_body(self.cfg, "fixture", None, 0, self.selected("fix-api"),
-                                        spent)
-        self.assertTrue(all(terminal.cells(line) <= 40 for line in lines))
-        self.assertTrue(any("spent · resets" in terminal.plain(line) for line in lines))
+            opus = menu.model_lines(self.cfg, ("model", "opus"), spent)
+            astra = menu.model_lines(self.cfg, ("model", "astra"), spent)
+        self.assertTrue(all(terminal.cells(line) <= 40 for line in opus))
+        self.assertEqual(terminal.plain(opus[-1]).strip(), note)
+        self.assertEqual(len(astra), len(opus))
 
     def test_the_models_line_names_the_provider_once_and_is_as_tall_as_the_tallest(self):
         rows = [("anthropic", "Claude " + number, {}, number) for number in ("I", "II", "III")]

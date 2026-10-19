@@ -670,7 +670,7 @@ class Phone(Sandbox):
         phone.press("n")
         phone.until("tab models", prompt="esc back")
         phone.keys("Tab")
-        screen = phone.until("agentkit · new session", "orch", "exec", "review",
+        screen = phone.until("agentkit · new session", "orch", "builds", "reviews",
                              prompt="esc back")
         self.fits(screen, width, height)
         phone.keys("Down", "Space")          # astra orchestrates, from the row below opus
