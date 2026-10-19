@@ -79,6 +79,22 @@ class IntentOncePerDelivery(Sandbox):
         self.done(NOW - 2 * HOUR)
         self.assertEqual(self.intent(), (2, 5.0))        # four hours and six
 
+    def test_a_line_from_an_older_plan_is_read_without_waiting_on_the_seat_lock_the_done_holds(self):
+        flock = notify.fcntl.flock
+
+        def never_waits(fd, operation):     # nobody else locks this HOME: a wait is on itself
+            try:
+                return flock(fd, operation | notify.fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise AssertionError("the done waited on the seat lock it holds") from None
+        self.harness.said.append(NOW - 12 * HOUR)
+        # its project named bare: asking which run delivered it takes the seat's lock
+        plan.write("fix-api", ["- [x] exports finish · check: `make test` · acme · deferred · "
+                               "written 2026-10-20 09:00 · done 1a2b3c4 2026-10-20 10:00"])
+        with patch.object(notify.fcntl, "flock", never_waits):
+            self.done(NOW - 10 * HOUR)
+        self.assertEqual(self.intent(), (2, 3.0))        # four hours and two
+
 
 if __name__ == "__main__":
     unittest.main()

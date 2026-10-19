@@ -1418,7 +1418,10 @@ def _intent(name, done_at):
     records = menu.run_records()
     merged = sorted(directory.name for directory, state in records
                     if state.get("merged") and transitions.launched_session(state) == name)
-    work = hashlib.sha256(json.dumps([plan.outcomes(name), merged]).encode()).hexdigest()
+    # every line ticked, a run's too: asking which run has one (`taken`) takes the seat lock
+    # this caller holds
+    ticked = plan.outcomes(name, runs=False)
+    work = hashlib.sha256(json.dumps([ticked, merged]).encode()).hexdigest()
     asked = [at for at in owner_said(name, seat) if at <= done_at]
     last, since, then = known
     fresh = [at for at in asked if last is None or at > last]

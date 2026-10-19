@@ -439,8 +439,9 @@ def finished(name):
     return found["what"] if found else done[-1].partition("] ")[2]
 
 
-def outcomes(name):
-    """The plan's done work, independent of order, repetition, checks and renewed proof stamps.
+def outcomes(name, runs=True):
+    """The plan's done work, independent of order, repetition, checks and renewed proof stamps;
+    without `runs`, the lines a run has or delivered (`taken`) count too: every line ticked.
 
     An open line is no done work yet. Keep format knowledge here: old eye lines and hand-kept
     outcomes count as work too.
@@ -449,7 +450,7 @@ def outcomes(name):
     for line in lines(name):
         line = line.strip()
         found = LINE.match(line)
-        if found and (is_open(line) or taken(name, line, delivered=True)):
+        if found and (is_open(line) or runs and taken(name, line, delivered=True)):
             continue        # not done, or a run's: it has the line, or delivered it
         if found:
             result.append((found["project"], found["what"]))
