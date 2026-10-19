@@ -235,7 +235,7 @@ class Editor(unittest.TestCase):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config · fix-api"), screen)
         for bit in ("orch  builds  reviews  effort", "Claude", "opus     ●", "●", "■", "□",
-                    "▰▰▰▰▱", "add a model", "Discord", "Version        abc1234 · 2026-09-29",
+                    "▰▰▰▰▱", "add a model", "Discord", "Version       abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
         self.assertNotIn("Update", screen)

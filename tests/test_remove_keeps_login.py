@@ -18,8 +18,8 @@ import unittest
 from unittest import mock
 
 from test_add_subscription import CLAUDE, CODEX, rows
-from test_config_matrix import DOWN, ENTER, ESC, LEFT, RIGHT, Screen
-from test_provider_screen import (ADD, GIVE, KEYS, MATRIX, ONE, REMOVE, SHIPPED,
+from test_config_matrix import DOWN, ENTER, ESC, Screen
+from test_provider_screen import (ADD, GIVE, KEYS, MATRIX, ONE, SHIPPED, open_meter,
                                   open_providers, pick, title)
 from agentkit import config, menu
 
@@ -75,12 +75,12 @@ def verbs(home, verb):
             if asked == verb]
 
 
-def remove(screen, down, count):
-    """`− remove` on the Providers row, the one `down` rows into its `count`, and `Remove`."""
-    pick(screen, RIGHT + ENTER, REMOVE, count)
-    screen.press(DOWN * down + ENTER, lambda lines: lines[-1] == KEYS["ask"])
+def remove(screen, name):
+    """`− remove` on `name`'s meter and `Remove`, then back down to `+ add a provider`."""
+    open_meter(screen, name)
+    screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
     screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
-    screen.press(LEFT, lambda lines: title(lines) == MATRIX)          # back onto `+ add`
+    open_providers(screen)
 
 
 class RemoveKeepsLogin(unittest.TestCase):
@@ -88,8 +88,7 @@ class RemoveKeepsLogin(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=SEVERAL)
         home = screen.path.parent.parent
         login = logged_in(home, "claude", "b2", "bo@acme.test")
-        open_providers(screen)
-        remove(screen, 2, 4)                                         # Claude III
+        remove(screen, "Claude III")
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["default", "a1"])
         self.assertTrue(login.exists())
         self.assertEqual(rows(home), ["Claude I", "Claude II", "ChatGPT"])
@@ -114,8 +113,7 @@ class RemoveKeepsLogin(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=CLAUDE + CODEX)
         home = screen.path.parent.parent
         login = logged_in(home, "codex", "default")                 # it says nobody
-        open_providers(screen)
-        remove(screen, 1, 2)                                         # ChatGPT, whole
+        remove(screen, "ChatGPT")                                    # whole
         self.assertNotIn("openai", screen.saved()["providers"])
         self.assertTrue(login.exists())
         _, offered = pick(screen, ENTER, ADD, 7)
@@ -135,9 +133,8 @@ class RemoveKeepsLogin(unittest.TestCase):
         home = screen.path.parent.parent
         logged_in(home, "claude", "a1", "al@acme.test")
         logged_in(home, "claude", "default")                         # it says nobody
-        open_providers(screen)
-        remove(screen, 1, 4)                                         # Claude II
-        remove(screen, 0, 3)                                         # Claude, whole
+        remove(screen, "Claude II")
+        remove(screen, "Claude I")                                   # whole
         _, offered = pick(screen, ENTER, ADD, 8)
         # the usual login by the row it had beside another: `Claude I`
         self.assertEqual(offered[-2:], ["  Use al@acme.test", "  Use Claude I"])
@@ -163,10 +160,9 @@ class RemoveKeepsLogin(unittest.TestCase):
                                       ("claude", "d4", "bo@acme.test"),
                                       ("codex", "c3", "bo@acme.test")):
             logged_in(home, harness, account, who)
-        open_providers(screen)
-        for down, count in ((1, 6), (1, 5), (1, 4)):                 # Claude II, three times
-            remove(screen, down, count)
-        remove(screen, 2, 3)                                         # ChatGPT II
+        for _ in range(3):
+            remove(screen, "Claude II")
+        remove(screen, "ChatGPT II")
         _, offered = pick(screen, ENTER, ADD, 10)
         self.assertEqual(offered[-4:], ["  Use Claude II", "  Use Claude II (2)",
                                         "  Use bo@acme.test (Claude II)",
@@ -201,9 +197,8 @@ class RemoveKeepsLogin(unittest.TestCase):
         for path in kept:                        # its files, but no login the fake `auth` takes
             path.parent.mkdir()
             path.write_text("{}")
-        open_providers(screen)
-        remove(screen, 2, 4)                                         # Claude III
-        remove(screen, 2, 3)                                         # ChatGPT, whole
+        remove(screen, "Claude III")
+        remove(screen, "ChatGPT")                                    # whole
         self.assertEqual(list(screen.saved()["providers"]), ["anthropic"])
         mark = len(screen.text())
         _, offered = pick(screen, ENTER, ADD, 6)

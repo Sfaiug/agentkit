@@ -366,6 +366,7 @@ def load():
     for key in ("models", "providers"):
         if not isinstance(cfg.get(key), dict):
             raise Error(f"{path}: missing [{key}] table")
+    drop_bare_free(cfg)     # one an older removal of its last model left behind
     names = offered(cfg)
     if not names:
         raise Error(f"{path}: no [models.*] entry names a provider with a [providers.*] table")
@@ -459,8 +460,9 @@ def remove_provider(cfg, name):
 def remove_model(cfg, name):
     """Take one model out of `cfg`, the way remove_provider takes one provider's: [defaults]
     stays, and the last model cannot go.  Its provider stays, settings and all, so another of
-    its models can be added; a `usage_model` naming it goes, and that usage call falls to the
-    provider's first model.  The caller saves.
+    its models can be added, but a free one, which goes with its last (drop_bare_free); a
+    `usage_model` naming it goes, and that usage call falls to the provider's first model.
+    The caller saves.
     """
     left = [model for model in offered(cfg) if model != name]
     if not left:
@@ -468,6 +470,17 @@ def remove_model(cfg, name):
     provider = cfg["providers"][cfg["models"].pop(name)["provider"]]
     if provider.get("usage_model") == name:
         del provider["usage_model"]
+    return drop_bare_free(cfg)
+
+
+def drop_bare_free(cfg):
+    """`cfg` without each `mode = "free"` provider no model names: a free provider is nothing
+    but its models -- no meter, login or price -- so with none it would be a table no screen
+    shows or removes."""
+    named = {entry.get("provider") for entry in cfg["models"].values() if isinstance(entry, dict)}
+    for name in [name for name, entry in cfg["providers"].items()
+                 if isinstance(entry, dict) and entry.get("mode") == "free" and name not in named]:
+        del cfg["providers"][name]
     return cfg
 
 
@@ -484,7 +497,7 @@ def provider_harnesses(cfg, provider):
 
 def provider_hosts():
     """{harness: its name} for each harness that runs any provider it can log in to, as its
-    manifest's `[providers] label` says: `+ add` on Providers offers it by that name, then
+    manifest's `[providers] label` says: `+ add a provider` offers it by that name, then
     each provider its adapter lists (listed_providers)."""
     hosts = {}
     for harness, found in manifests():
