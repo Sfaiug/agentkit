@@ -1917,14 +1917,15 @@ def follow_run(run_dir, cfg, offset=0):
 
 
 def pr_view(url):
-    """The PR as GitHub describes it, its head commit as `pr_head` reads it."""
-    data, why = gh_json(config.RUNS, "pr", "view", url, "--json",
-                        "number,title,body,author,baseRefName,url,state,isDraft")
+    """The PR as GitHub describes it, its state, base and head as one `pr_head` read gives them:
+    a state from another read beside that head could name a merge of a commit that never merged."""
+    data, why = gh_json(config.RUNS, "pr", "view", url, "--json", "number,title,body,author,url,isDraft")
     if not isinstance(data, dict):
         raise config.Error(f"gh pr view {url} failed: {why}")
-    author = data.get("author") or {}
-    data["author"] = author.get("login") or "?"
-    data["headRefOid"] = pr_head(config.RUNS, url)["head"]["sha"]
+    author, current = data.get("author") or {}, pr_head(config.RUNS, url)
+    data.update(author=author.get("login") or "?", headRefOid=current["head"]["sha"],
+                baseRefName=(current.get("base") or {}).get("ref"),
+                state="MERGED" if current.get("merged") else (current.get("state") or "?").upper())
     return data
 
 

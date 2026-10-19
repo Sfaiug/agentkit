@@ -16,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from fixtures.own_pr import OwnPr
+from fixtures.own_pr import URL, OwnPr
 from agentkit import gitcall, record, run, turns, worker
 
 PR_VIEW = run.pr_view       # the fixture stands one in; these tests read the PR as ak does
@@ -93,6 +93,14 @@ class PrHeadFromGit(OwnPr):
         self.assertEqual(state["state"], "fail")
         self.assertIn("the PR head moved while the fix was made", state["error"])
         self.assertEqual((len(self.prompts), self.merges, self.remote_head()), (1, [], self.heads[2]))
+
+    def test_a_merge_another_read_shows_is_never_put_on_the_pushed_head(self):
+        """`gh pr view` already shows the PR merged on its old head; the REST read, still open,
+        names the branch git reads: state and head come from that one read."""
+        self.hand_push(1)
+        with patch.object(self, "view", return_value={**self.pr, "state": "MERGED"}):
+            view = run.pr_view(URL)
+        self.assertEqual((view["state"], view["headRefOid"]), ("OPEN", self.heads[1]))
 
 
 if __name__ == "__main__":

@@ -1193,10 +1193,12 @@ class Limits(unittest.TestCase):
         run.git(state["repo"], "branch", state["branch"], state["delivery_sha"])
         run.git(state["repo"], "worktree", "add", state["worktree"], state["branch"])
         (self.root / "slow-gh").write_text("pr merge")
-        real_gh = gitcall.gh
+        real_gh, tried = gitcall.gh, []
 
         def confirm_gh(cwd, *args, **kwargs):
-            if args[0] == "api" and args[1].endswith("/pulls/7"):
+            if args[:2] == ("pr", "merge"):
+                tried.append(args)
+            elif tried and args[0] == "api" and args[1].endswith("/pulls/7"):
                 return 0, json.dumps({"state": "closed", "merged": True, "base": {"ref": "main"},
                                       "head": {"sha": state["delivery_sha"]}})
             return real_gh(cwd, *args, **kwargs)
