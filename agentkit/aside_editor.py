@@ -6,14 +6,16 @@ editor on the keys its manifest names (`[screen] editor`), and `edit` does what 
 pane just before (`request`, a pane option the edit clears): `out` keeps the composer's text in a
 tmux buffer of the pane's (`kept`) and hands back an empty composer; `back` hands the kept text
 back, ahead of whatever the composer holds by then.  No text is ever dropped: a second `out` adds
-to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's, as
-it starts on every edit the owner opens.
+to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
+`host`, which imports nothing itself, as it starts on every edit the owner opens.
 """
 
 import os
 import subprocess
 import time
 from pathlib import Path
+
+from . import host
 
 EDITOR = Path(__file__).resolve().parent.parent / "tools" / "aside-editor"
 OWNER = "AK_OWNER_EDITOR"       # the owner's own editor, as the seat's launch found it
@@ -38,17 +40,35 @@ def kept(pane):
     return f"{ASK[1:]}-{pane.lstrip('%')}"
 
 
-def launched(pid):
-    """Whether the seat pane whose process has that id was launched with this editor as its
-    $VISUAL.  The launch execs into the pane's process, so its environment is the one the harness
-    below it inherits, where a tool the harness runs may have been given another; a seat
-    started before opens the owner's editor over its composer."""
+def launched(pid, tty):
+    """Whether the seat pane whose process has that id, on that terminal, was launched with this
+    editor as its $VISUAL.  The harness inherits its environment from the last process down from
+    there still on the pane's terminal: the launch, execed into the harness's wrapper, which
+    runs the harness on a terminal of its own -- whether or not the shell tmux runs the pane's
+    command in is still above it.  A tool the harness runs may have been given another, and a
+    seat started before opens the owner's editor over its composer.  Each process's parent is
+    read, as a kernel built without CONFIG_PROC_CHILDREN lists no task's children."""
     try:
-        env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if pid.isdigit() else []
+        parents = {entry.name: str(stat.ppid) for entry in host.PROC.iterdir()
+                   if entry.name.isdigit() and (stat := host.proc_stat(entry.name)) is not None}
+        while pid.isdigit():
+            below = [child for child, parent in parents.items()
+                     if parent == pid and _stdin(child) == tty]
+            if not below:
+                env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+                return any(entry.startswith(b"VISUAL=")
+                           and Path(os.fsdecode(entry[7:])).resolve() == EDITOR for entry in env)
+            pid = below[0]
     except OSError:
-        return False
-    return any(entry.startswith(b"VISUAL=") and Path(os.fsdecode(entry[7:])).resolve() == EDITOR
-               for entry in env)
+        pass
+    return False
+
+
+def _stdin(pid):
+    try:
+        return os.readlink(f"/proc/{pid}/fd/0")
+    except OSError:
+        return None
 
 
 def _tmux(*args, data=None):
