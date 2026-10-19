@@ -3684,7 +3684,7 @@ def parse(argv):
 CHARACTERS = tuple("""
     ahsoka anakin skywalker kenobi yoda windu plo fisto luminara barriss aayla shaak quinlan
     mundi koth gallia piell ropal sinube nahdar vebb jocasta huyang katooni petro zatt ganodi
-    byph gungi kalifa jinx
+    byph gungi kalifa jinx tiplar tiplee krell
     rex cody wolffe gregor fives echo hevy cutup droidbait jesse kix hardcase tup dogma appo
     waxer boil bly gree ponds thire fox denal sinker boost comet colt slick keeli hunter
     wrecker crosshair tech nala lama taun
@@ -3693,12 +3693,12 @@ CHARACTERS = tuple("""
     tamson riff karina
     padme amidala bail organa mothma chuchi riyo onaconda farr clovis rush deechi burtoni
     amedda lott dod tarkin yularen argyus ackbar nossor tandin
-    satine korkie almec vizsla kryze bokatan ursa wren rook kast saxon gar
+    satine korkie almec vizsla kryze bokatan rook kast saxon gar
     steela gerrera saw lux bonteri mina dendup rash cham syndulla numa gobi binks tarpals
     lyonie tarfful chewbacca garnac dar smug
-    bane embo aurra bossk latts dengar highsinger robonino sugi seripas rumi moralo derrown
-    shahan twazzi todo boba gorr hondo pilf mukmuk falso
-    jabba ziro rotta gardulla arok oruba marlo snootles miraj scintel agruss atai
+    bane embo aurra bossk latts dengar highsinger robonino sugi seripas rumi moralo derrown castas
+    shahan twazzi todo boba hondo gwarm pilf mukmuk falso
+    jabba ziro rotta arok oruba marlo snootles miraj scintel agruss atai
     lawquane suu jek shaeeah zillo sionver boll gascon meebur wac artoo threepio letta jackar
     cassie cryar trace rafa martez
 """.split())

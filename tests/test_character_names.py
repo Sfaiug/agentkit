@@ -20,6 +20,10 @@ class CharacterNames(unittest.TestCase):
             self.assertRegex(name, r"^[a-z]+$")
             self.assertEqual(orch.session_name(name), name)
 
+    def test_none_is_from_another_show(self):
+        # Rebels' (Wullffwarro, Ursa and Sabine Wren) and names the show never had
+        self.assertFalse({"wullffwarro", "ursa", "wren", "gardulla", "gorr"} & set(orch.CHARACTERS))
+
     def test_a_free_one_is_picked_at_random(self):
         free = orch.CHARACTERS[:3]
         offered = []
@@ -32,10 +36,6 @@ class CharacterNames(unittest.TestCase):
     def test_once_every_one_is_taken_one_is_made_unique(self):
         taken = set(orch.CHARACTERS) | {"rex-2"}
         self.assertEqual(orch.character_name(taken, pick=lambda names: "rex"), "rex-3")
-
-    def test_rebels_only_wullffwarro_is_not_used(self):
-        taken = set(orch.CHARACTERS) - {"wullffwarro"}
-        self.assertNotEqual(orch.character_name(taken), "wullffwarro")
 
 
 if __name__ == "__main__":
