@@ -268,9 +268,6 @@ def said_nothing(out_dir):
 
 
 PREAMBLES = {
-    "reader": ("You are the reader.\n"
-               "[worker judgement] Read the supplied text and return the requested answer. "
-               "Do not use tools or edit files."),
     "executor": (
         "You are the executor.\n"
         "[worker judgement] Work only inside {workspace} on the current branch; never push.\n"

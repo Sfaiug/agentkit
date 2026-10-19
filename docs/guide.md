@@ -54,13 +54,9 @@ unless the harness's question prompt is still unanswered (input in the owner's w
 back, and a stop sent back reads `working`. A harness
 with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the tick types `continue` instead (a question mark on its screen ends nothing there either; `ak notify needs` this turn does, and so does one still unanswered from before it, as on a hooked harness, since a hand-back or a wait's end opens turns while a question stands), never ahead of the line telling a waiting seat its wait is over, never after a turn you stopped with Esc, and at most twice for the same parked run until the seat has a newer notice.
 
-After a hooked orchestrator turn really ends without a recorded question, one headless model
-reads its last assistant message for a still-open question to the owner. A question found there
-is recorded in the seat's own words as its `needs`, and sent and answered as usual. The hook
-returns without waiting for this reader; stops sent back, stops on background work, workers
-and turns that already asked make no call. ak chooses the model from the seat's marked workers
-in its normal order. A failed or unavailable call records no question and leaves one line in
-`~/.agentkit/state/log-<seat>.txt`.
+A hooked orchestrator turn that would end on a last message ending in `?`, with no question
+asked through the question prompt or `ak notify needs`, is sent back once: a question left in
+prose reaches nobody but the terminal, so the seat asks it there or goes on without it.
 
 Every line ak types shares a check of the pane's own terminal and, when named, its wrapper's inner terminal: each tty reports how many input bytes wait unread. Before starting the harness, the wrapper names its inner tty once in the pane's `@ak_input_tty` option; it follows pane renames. A successful respawn clears the old name in the same tmux command list, before a new wrapper's publishing client can run; a failed respawn keeps the old guard. Older wrappers and harnesses without a wrapper keep the pane-only check, including after switching from a wrapped harness. Each relay poll writes newly read input in that same poll, retrying interrupted and partial writes until the terminal stops accepting bytes. When a non-reading harness backs up the relay, the inner tty holds unread input for the guard to see. While either tty holds any, no further line begins, even over a screen showing an empty composer; notices and nudges wait for the harness to read them. The check also holds confirmation of a typed notice while input is unread; its Enter keeps the existing composer checks. Unread-input deferrals spend none of the retries for reboot or account-switch notices. A terminal that cannot be asked keeps the previous typing behavior. Delivery stays at least once: a crash after Enter but before recording delivery can repeat a line.
 

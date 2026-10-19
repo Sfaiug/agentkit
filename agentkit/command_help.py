@@ -2,7 +2,7 @@
 
 WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--session ID]\n"
                 "       [--role executor|reviewer|fixer|reviewer-pr|executor-scratch|"
-                "fixer-scratch|reviewer-scratch|reader]")
+                "fixer-scratch|reviewer-scratch]")
 NOTIFY_NEEDS = 'ak notify needs "QUESTION" [--session NAME] [--dry-run]'
 NOTIFY_DONE = ('ak notify done "SUMMARY" [--pr URL] '
                '[--session NAME] [--dry-run]')

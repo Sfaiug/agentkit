@@ -183,7 +183,6 @@ Path.write_text = paused_write
         self.assertEqual(codex.conversation(record), 'acme-thread')
         self.assertEqual(json.loads((home / 'fake-working.json').read_text())['event'], 'UserPromptSubmit')
         self.assertEqual(json.loads((config.STATE / 'hook-acme-seat.json').read_text())['event'], 'Stop')
-        self.assertNotIn('prose', json.loads(config.seat_file('stop', 'acme-seat').read_text()))
         config.update_session('acme-seat', session_title='acme-seat')
         record = config.session_records()['acme-seat']
         (home / 'session_index.jsonl').write_text(json.dumps({

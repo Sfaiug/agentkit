@@ -827,7 +827,7 @@ def normalize_session(name):
 # rename moves them, a stop and the daily collector find them by this table.  Its locks and
 # temporaries share the stem.
 SEAT_FILES = {
-    "log": "txt",        # detached prose-question checks that could not finish
+    "log": "txt",        # left by the retired prose-question reader; goes with its seat
     "session": "json",   # the seat's record, or a pointer a rename left at an old name
     "notify": "json",    # the last notification it sent, for the menu's state column
     "card": "json",      # its notification transition latch

@@ -15,11 +15,10 @@ JSON on stdin, in a temporary HOME, with card delivery and tmux faked.
 
 import json
 import os
+import subprocess
 import time
 import unittest
 from unittest.mock import patch
-
-from fixtures import hooks
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, notify, orch, transitions, watch
@@ -66,7 +65,7 @@ class QuestionWaitsForTheStop(Sandbox):
 
     def hook(self, event, script="seat-state.sh", **payload):
         """One hook call the way the harness makes it; the seat's record as it stands after."""
-        done = hooks.run(
+        done = subprocess.run(
             ["bash", str(REPO / "hooks" / script)], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": event, **payload}),
             env={"PATH": os.environ["PATH"], "HOME": str(self.root), "AGENTKIT_SESSION": SEAT,

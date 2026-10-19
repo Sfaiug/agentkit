@@ -10,10 +10,9 @@ temporary HOME; the screens are real captures with invented names
 
 import json
 import os
+import subprocess
 import unittest
 from unittest.mock import patch
-
-from fixtures import hooks
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, watch
@@ -37,7 +36,7 @@ class QuestionCameDown(Sandbox):
 
     def hook(self, event, script="seat-state.sh", **payload):
         """One hook call the way the harness makes it; the seat's record as it stands after."""
-        done = hooks.run(
+        done = subprocess.run(
             ["bash", str(REPO / "hooks" / script)], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": event, **payload}),
             env={"PATH": os.environ["PATH"], "HOME": str(self.root), "AGENTKIT_SESSION": SEAT,
@@ -91,7 +90,7 @@ class QuestionCameDown(Sandbox):
         self.hook("Notification", notification_type="permission_prompt",
                   message="Claude needs your permission")
         fact = self.hook("Stop", script="orchestrator-stop.sh", background_tasks=[],
-                         last_assistant_message="Which schema should acme use?")
+                         last_assistant_message="acme uses the first schema.")
         self.assertNotEqual(self.looked(PROMPT, fact)[0], "working")
         self.hook("UserPromptSubmit", prompt="The second one.")
         self.hook("Notification", notification_type="permission_prompt",

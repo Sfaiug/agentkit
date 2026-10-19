@@ -278,8 +278,7 @@ sys.exit(1)
     # --- (d) every preamble keeps the opener the adapters route on ------------
 
     def test_v5ab_preambles_keep_their_pinned_openers(self):
-        openers = {"reader": "You are the reader.",
-                   "executor": "You are the executor.",
+        openers = {"executor": "You are the executor.",
                    "fixer": "You are the executor, continuing",
                    "reviewer": "You are the reviewer.",
                    "reviewer-pr": "You are the reviewer of a pull request by another author.",

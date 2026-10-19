@@ -18,19 +18,19 @@
 # Anything else is sent back to work with the harness's own block decision, which Claude Code
 # 2.1.263, Codex 0.153.4 and Grok Build 1.0.40 spell the same way: `{"decision": "block",
 # "reason": "..."}` on stdout.  "Here is my recommendation, let me know if I should continue"
-# then costs the user nothing but one turn. A question mark in prose changes no stop decision.
-# Once a turn really ends, without a recorded question, a detached model reads its last message
-# and records any still-open owner question as `needs`. The harness never waits for that reader;
-# held stops, background work and workers start none.
+# then costs the user nothing but one turn.  A turn that would end on a last message ending in
+# a question mark, with nothing asked through the question prompt or `ak notify needs`, is sent
+# back once: a question left in prose reaches nobody but the terminal, so the seat asks it there
+# or goes on without it.
 #
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
 #
-# It blocks at most twice in one turn.  The counter lives beside the turn's own start in
-# ~/.agentkit/state/stop-<seat>.json, which hooks/seat-state.sh writes fresh on every
-# UserPromptSubmit; the third stop stands, and one with work open and nothing recorded becomes
-# a question to the owner carrying the seat's last words, so a model that truly cannot proceed
-# is heard rather than looping forever.
+# It blocks at most twice in one turn, and once more for a question left in prose.  The counter
+# lives beside the turn's own start in ~/.agentkit/state/stop-<seat>.json, which
+# hooks/seat-state.sh writes fresh on every UserPromptSubmit; the third stop stands, and one
+# with work open and nothing recorded becomes a question to the owner carrying the seat's last
+# words, so a model that truly cannot proceed is heard rather than looping forever.
 #
 # On that same harness this is also what writes the Stop down, in the record hooks/seat-state.sh
 # keeps for every other event: the two run side by side, and only this one knows whether the
@@ -71,7 +71,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.handback import handback_reason
-from agentkit.prose import start as read_prose
 from agentkit.stop import recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, start_look, turn_ended
 
@@ -79,6 +78,9 @@ LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
           "prompt or ak notify needs, no ak notify done, no run or pull request you are waiting on. "
           "Continue: decide the next step and do it.")
+ASK = ("Your last message ends in a question, but it went through no question prompt, so the "
+       "owner is not told. Ask it through the question prompt (ak notify needs where there is "
+       "none), or go on without it.")
 STUCK = "How should this seat go on? It stopped three times with work open:"
 HOME = Path(os.path.expanduser("~")) / ".agentkit"
 STATE = HOME / "state"
@@ -176,12 +178,11 @@ def last_message(payload):
     return None
 
 
-def questioned(payload, unanswered=True):
+def questioned(payload):
     """Only an unanswered question still needs the owner; its result ends that wait.
 
     Input in the owner's words, as their harness tells them from its bookkeeping
     (`harness.prompt`), ends the scan: what was asked before it is answered or set aside.
-    With `unanswered=False`, answered prompts count too: this turn already asked its owner.
     """
     answered, accepted = set(), set()
     for entry in transcript(payload):
@@ -206,7 +207,7 @@ def questioned(payload, unanswered=True):
         if entry.get("type") == "assistant" and isinstance(content, list) and any(
                 isinstance(part, dict) and part.get("type") == "tool_use"
                 and part.get("name") == "AskUserQuestion"
-                and (not unanswered or part.get("id") not in answered)
+                and part.get("id") not in answered
                 for part in content):
             return True
         name = item.get("name")
@@ -216,9 +217,21 @@ def questioned(payload, unanswered=True):
         if (item.get("type") == "function_call" and tool in ("request_user_input",
                                                              "request_user_input_async")
                 and (item.get("call_id") in accepted if tool.endswith("_async")
-                     else not unanswered or item.get("call_id") not in answered)):
+                     else item.get("call_id") not in answered)):
             return True
     return False
+
+
+def trails_question(said):
+    """The message ends in a question mark, past any closing emphasis, quote or bracket."""
+    return (said or "").rstrip().rstrip("*_`'\")]").endswith("?")
+
+
+def latched(latch, record):
+    """The turn's latch rewritten whole in one replace, so a reader never sees half of it."""
+    tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(record) + "\n")
+    tmp.replace(latch)
 
 
 def tells(payload):
@@ -288,7 +301,7 @@ def held(launched, payload):
     background work and the third stop stand past a parked run as they always did, while a
     done, a run going, a merged run not yet live or an `ak wait` ends the turn only with none
     of this seat's runs parked and undecided, and nothing at all is owed with no open line in
-    the seat's plan.
+    the seat's plan.  A turn that ends so on a question in prose alone goes back once to ask it.
     """
     # The latch is this seat's own file, under the name its harness was launched with, the way
     # hooks/seat-state.sh writes it.  What it reads is the toolkit's, and that moved when the
@@ -307,22 +320,22 @@ def held(launched, payload):
     # a hand-back opens turns on a seat while it stands (`watch.stop_nudge`), and one the
     # seat kept back for this turn's end (`watch.keeps_back`) is in its record
     kept = isinstance(seat_read(seat).get("unasked"), dict)
+    asked = (questioned(payload) or told(seat, turn, "needs") or kept
+             or owner_question(notify.last(seat)))
     ends, undecided = recorded_ending(
-        seat, question=(questioned(payload) or told(seat, turn, "needs") or kept
-                        or owner_question(notify.last(seat))),
-        completion=lambda: told(seat, turn, "done"), since=turn)
+        seat, question=asked, completion=lambda: told(seat, turn, "done"), since=turn)
     if ends:
-        return ""
+        if asked or record.get("asked_back") or not trails_question(last_message(payload)):
+            return ""
+        latched(latch, {**record, "asked_back": True})
+        return ASK
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
         if not undecided:
             asked_owner(seat, last_message(payload))
         return ""    # the third stop stands: the owner is paged with what the seat is stuck on
-    kept = {"session": launched, "turn": turn, "blocks": blocks}
-    tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
-    tmp.write_text(json.dumps(kept) + "\n")
-    tmp.replace(latch)
+    latched(latch, {**record, "session": launched, "turn": turn, "blocks": blocks})
     return parked_reason(undecided) if undecided else config.name_owed(seat) or REASON
 
 
@@ -340,7 +353,6 @@ def written(launched, kind):
 def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
-    turn = moment(read(config.seat_file("stop", launched)).get("turn"))
     back = held(launched, payload)
     if not back:
         # the stop stands: the turn a kept question was asked in has ended, and that is on
@@ -352,8 +364,6 @@ def main():
         start_look(launched)
     if back:
         print(json.dumps({"decision": "block", "reason": back}))
-    elif not background(payload) and not questioned(payload, unanswered=False):
-        read_prose(launched, turn, last_message(payload))
 
 
 main()

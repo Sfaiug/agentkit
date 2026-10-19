@@ -18,7 +18,6 @@ import time
 import unittest
 from unittest.mock import patch
 
-from fixtures import hooks
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -124,7 +123,7 @@ class StopHook(unittest.TestCase):
 
     # --- driving the hook the way the harness does --------------------------
 
-    def stop(self, said=RECOMMENDATION, env=None, hook=HOOK, read_prose=False, **payload):
+    def stop(self, said=RECOMMENDATION, env=None, hook=HOOK, **payload):
         """One end-of-turn hook call; the answer is what the harness reads off stdout."""
         if said is not None and "transcript_path" not in payload:
             payload["transcript_path"] = str(self.transcript(said))
@@ -134,8 +133,8 @@ class StopHook(unittest.TestCase):
                        "PYTHONPATH": f"{self.home}:{REPO}",
                        "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
         environment.update(env or {})
-        done = hooks.run(["bash", str(hook)], input=json.dumps(payload), text=True,
-                         capture_output=True, env=environment, timeout=30, read_prose=read_prose)
+        done = subprocess.run(["bash", str(hook)], input=json.dumps(payload), text=True,
+                              capture_output=True, env=environment, timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
 

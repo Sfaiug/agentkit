@@ -29,7 +29,6 @@ class WorkerRulesMarked(unittest.TestCase):
                 expected = ("You are the reviewer of a pull request by another author." if role == "reviewer-pr"
                             else "You are the reviewer." if role.startswith("reviewer")
                             else "You are the executor, continuing." if role.startswith("fixer")
-                            else "You are the reader." if role == "reader"
                             else "You are the executor.")
                 self.assertEqual(opener, expected)
                 self.assertTrue(separator and rules)

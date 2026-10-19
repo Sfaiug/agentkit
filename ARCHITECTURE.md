@@ -141,9 +141,6 @@
   Offers `shaped`, `record`, `transition`, `page` (about no seat). Used by run, job, orch,
   watch, menu, logins. Leak: calls
   up into menu, run, watch and orch.
-- `prose.py`: detached last-message reader after a real Stop without a question; picks a
-  worker, records its verbatim owner question through notify, or writes one seat-log line
-  on failure. For the orchestrator stop hook.
 - `update.py`: `[update]` upgrades, rollback (a versioned reinstall, or the harness's own
   `snapshot`); `go_live` once `tests/live.sh` passed. Used by menu, orch, run, watch.
 - `history.py`: SQLite `history.db`: runs, their steps and waits (`phase`, `phases`), reviews with round, verdict and effort, the owner's seatless moments (`owner_time`) and dones by conversation (`done`) from notify; `ended_runs`, `merged`, `parks` (`parked_at`), `owner`, `dones` for the scoreboard, `reviewed_runs` for the matrix.
@@ -223,7 +220,6 @@
   `landing.py` lands a crafted run through its line and lander verdict, `sandbox.py`'s
   `Sandbox` is the throwaway ak HOME that in-process tests run in, `tick.py`'s `only_passes` a
   test's tick that runs only the passes it names, and `tick.py` itself smoke's `ak watch`.
-  `hooks.py` stubs detached prose readers when other tests run real hooks.
   `check_harness_contract.py`: standalone live contract check, also smoke's check 3;
   discovers adapter manifests and shares login/quota checks with smoke's later live calls.
 - Also: `config.default.toml` (model to harness and provider), `orchestrator.md` (the seat

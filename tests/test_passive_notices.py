@@ -15,7 +15,6 @@ import time
 import unittest
 from unittest.mock import patch
 
-from fixtures import hooks
 
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, watch
@@ -40,7 +39,7 @@ class PassiveNotices(Sandbox):
                     "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator"}
 
     def hook(self, event, script="seat-state.sh", env=None, **payload):
-        done = hooks.run(
+        done = subprocess.run(
             ["bash", str(REPO / "hooks" / script)], text=True, capture_output=True,
             input=json.dumps({"hook_event_name": event, **payload}),
             env=self.env if env is None else env, timeout=20)
