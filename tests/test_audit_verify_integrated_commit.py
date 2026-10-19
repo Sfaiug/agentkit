@@ -214,7 +214,10 @@ sys.exit(0 if ok else 1)
         if args[:2] == ("pr", "view"):
             if "mergeStateStatus" in args:
                 return 0, "BEHIND" if self.merge_mode == "retry" else "BLOCKED"
-            return 0, json.dumps({"headRefOid": self.pr_head, "baseRefName": "main", "state": "OPEN"})
+            return 0, json.dumps({"baseRefName": "main", "state": "OPEN"})
+        if args[:2] == ("api", "repos/fixture/repo/pulls/1"):      # its head is what git reads
+            return 0, json.dumps({"state": "open", "base": {"ref": "main"}, "head": {
+                "sha": "0" * 40, "ref": "ak/task", "repo": {"clone_url": str(self.remote)}}})
         if args[:2] == ("pr", "merge"):
             head = args[args.index("--match-head-commit") + 1]
             self.assertEqual(head, self.pr_head)
@@ -530,7 +533,7 @@ sys.exit(0 if ok else 1)
         self.assertEqual(code, 1)
         self.assertIn("required checks failed", state["merge_note"])
         self.assertEqual(len(self.events("merge")), 0)
-        self.pr_head = "a" * 40
+        run.git(self.target, "push", "-q", "-f", "origin", "main:refs/heads/ak/task")
         code, state = self.retry()
         self.assertEqual(code, 1)
         self.assertIn("PR head or target changed", state["merge_note"])

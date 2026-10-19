@@ -34,6 +34,14 @@ GITHUB_504 = ('non-200 OK status code: 504 Gateway Timeout body: "{\\"message\\"
               'resubmitting your request and contact us if the problem persists.\\"}"')
 
 
+def on_github(repo, state="open", head="f" * 40, base="main", mergeable=True):
+    """GitHub's REST answer for the fixture PR, `state` open, closed or merged: an open one's
+    head is what git reads off ak/test in `repo`, a closed one's the `head` GitHub kept."""
+    return json.dumps({"state": "open" if state == "open" else "closed", "merged": state == "merged",
+                       "mergeable": mergeable, "base": {"ref": base},
+                       "head": {"sha": head, "ref": "ak/test", "repo": {"clone_url": str(repo)}}})
+
+
 def make_repos(root):
     """A bare origin, an owner clone that moves it, and a work clone on ak/test."""
     remote = root / "origin.git"
@@ -730,10 +738,9 @@ class MergeStep(unittest.TestCase):
                 self.assertNotEqual(args[-1], old)
                 self.assertEqual(events[-2], ("checks", args[-1]))
                 return 0, ""
-            if args[:2] == ("pr", "view"):
+            if args[0] == "api" and len(args) == 2:
                 events.append(("view", old))
-                return 0, json.dumps({"state": "OPEN", "mergeable": "MERGEABLE",
-                                      "headRefOid": old, "baseRefName": "main"})
+                return 0, on_github(wt)
             if args[:3] == ("api", "-X", "PATCH"):
                 self.assertEqual(args[3:5], ("repos/fixture/repo/pulls/7", "-F"))
                 self.assertEqual(Path(args[5].removeprefix("body=@")).read_text(),
@@ -775,9 +782,8 @@ class MergeStep(unittest.TestCase):
             if args[:2] == ("pr", "merge"):
                 merges.append(args)
                 return 1, BASE_RACE
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "OPEN", "mergeable": "MERGEABLE",
-                                      "headRefOid": lp.state["delivery_sha"], "baseRefName": "main"})
+            if args[0] == "api":
+                return 0, on_github(wt)
             raise AssertionError(f"unexpected gh: {args[:4]}")
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
@@ -799,18 +805,16 @@ class MergeStep(unittest.TestCase):
         seen = []
 
         def fake_gh(cwd, *args, **kwargs):
-            seen.append(args[1])
+            seen.append(args[0])
             if args[:2] == ("pr", "merge"):
                 return (1, BASE_RACE) if len(seen) == 1 else (0, "merged")
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
-                                      "baseRefName": "main", "mergeable":
-                                      "UNKNOWN" if seen.count("view") == 1 else "MERGEABLE"})
+            if args[0] == "api":
+                return 0, on_github(wt, mergeable=seen.count("api") > 1 or None)
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["merge", "view", "view", "merge"])
+        self.assertEqual(seen, ["pr", "api", "api", "pr"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60, 300])
 
@@ -822,17 +826,16 @@ class MergeStep(unittest.TestCase):
         seen = []
 
         def fake_gh(cwd, *args, **kwargs):
-            seen.append(args[1])
+            seen.append(args[0])
             if args[:2] == ("pr", "merge"):
                 return 1, GITHUB_504
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"],
-                                      "baseRefName": "main", "mergeable": "UNKNOWN"})
+            if args[0] == "api":
+                return 0, on_github(wt, "merged", lp.state["delivery_sha"], mergeable=None)
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["merge", "view"])
+        self.assertEqual(seen, ["pr", "api"])
         self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60])
@@ -843,17 +846,16 @@ class MergeStep(unittest.TestCase):
         seen = []
 
         def fake_gh(cwd, *args, **kwargs):
-            seen.append(args[1])
+            seen.append(args[0])
             if args[:2] == ("pr", "merge"):
                 return (1, GITHUB_504) if len(seen) == 1 else (0, "merged")
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
-                                      "baseRefName": "main", "mergeable": "MERGEABLE"})
+            if args[0] == "api":
+                return 0, on_github(wt)
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["merge", "view", "merge"])
+        self.assertEqual(seen, ["pr", "api", "pr"])
         self.assertTrue(record.read_state(run_dir)["merged"])
 
     def test_a_merge_github_refused_before_it_saw_the_pushed_head_is_tried_again(self):
@@ -877,9 +879,8 @@ class MergeStep(unittest.TestCase):
                         return (1, NOT_YET) if seen.count("merge") == 1 else (0, "merged")
                     if args[:2] == ("pr", "view") and "mergeStateStatus" in args:
                         return 0, next(asked)
-                    if args[:2] == ("pr", "view"):
-                        return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
-                                              "baseRefName": "main", "mergeable": "MERGEABLE"})
+                    if args[0] == "api":
+                        return 0, on_github(wt)
                     raise AssertionError(args)
 
                 with patch.object(gitcall, "gh", side_effect=fake_gh), \
@@ -903,24 +904,23 @@ class MergeStep(unittest.TestCase):
             with self.subTest(head=head):
                 root = self.root / head[:4]
                 root.mkdir()
-                _, _, wt = make_repos(root)
+                _, owner, wt = make_repos(root)
                 lp, run_dir, _ = make_loop(root, wt)
+                run.git(owner, "branch", "ak/test")         # another commit than the delivery
                 seen = []
 
                 def fake_gh(cwd, *args, **kwargs):
-                    seen.append(args[1])
+                    seen.append(args[0])
                     if args[:2] == ("pr", "merge"):
                         return (1, HEAD_RACE) if len(seen) == 1 else (0, "merged")
-                    if args[:2] == ("pr", "view"):
-                        sha = lp.state["delivery_sha"] if merged else head
-                        return 0, json.dumps({"state": "OPEN", "headRefOid": sha,
-                                              "baseRefName": "main", "mergeable": "MERGEABLE"})
+                    if args[0] == "api":
+                        return 0, on_github(wt if merged else owner)
                     raise AssertionError(args)
 
                 with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
                     self.assertEqual(bool(landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))),
                                      merged)
-                self.assertEqual(seen, ["merge", "view", "merge"] if merged else ["merge", "view"])
+                self.assertEqual(seen, ["pr", "api", "pr"] if merged else ["pr", "api"])
                 state = record.read_state(run_dir)
                 self.assertEqual(bool(state.get("merged")), merged)
                 if not merged:
@@ -934,14 +934,10 @@ class MergeStep(unittest.TestCase):
 
         def fake_gh(cwd, *args, **kwargs):
             if args[:2] == ("api", "repos/fixture/repo/pulls/7"):
-                return 0, json.dumps({"state": "open", "head": {"sha": lp.state["delivery_sha"]},
-                                      "base": {"ref": "main"}})
+                return 0, on_github(wt)
             if args[:2] == ("pr", "merge"):
                 merges.append(args)
                 return (1, GITHUB_504) if len(merges) == 1 else (0, "merged")
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
-                                      "baseRefName": "main", "mergeable": "MERGEABLE"})
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), \
@@ -966,12 +962,10 @@ class MergeStep(unittest.TestCase):
             if args[:2] == ("pr", "merge"):
                 merges.append(args)
                 return 1, GITHUB_504
-            if args[:2] == ("pr", "view") and "state,headRefOid,baseRefName" in args:
-                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"],
-                                      "baseRefName": "main"})
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "OPEN", "headRefOid": lp.state["delivery_sha"],
-                                      "baseRefName": "main", "mergeable": "MERGEABLE"})
+            if args[0] == "api" and len(merges) > delivery.GITHUB_RETRIES:
+                return 0, on_github(wt, "merged", lp.state["delivery_sha"])
+            if args[0] == "api":
+                return 0, on_github(wt)
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
@@ -995,9 +989,8 @@ class MergeStep(unittest.TestCase):
                            "exist (https://api.github.com/repos/fixture/repo/git/refs/heads/ak/x)")
             if args[:2] == ("pr", "view") and "-q" in args:
                 return 0, "UNKNOWN"
-            if args[:2] == ("pr", "view"):
-                return 0, json.dumps({"state": "MERGED", "headRefOid": lp.state["delivery_sha"],
-                                      "baseRefName": "main"})
+            if args[0] == "api":        # merged, its branch gone: what GitHub kept is the answer
+                return 0, on_github(self.root / "gone", "merged", lp.state["delivery_sha"])
             raise AssertionError(args)
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
@@ -1018,17 +1011,16 @@ class MergeStep(unittest.TestCase):
                 root = Path(tempfile.mkdtemp(dir=self.root))
                 _, _, wt = make_repos(root)
                 lp, run_dir, _ = make_loop(root, wt)
-                pr = {"state": "MERGED", "mergeable": "UNKNOWN", "mergeStateStatus": "UNKNOWN",
-                      "headRefOid": "0" * 40 if replaced == "head" else lp.state["delivery_sha"],
-                      "baseRefName": "release" if replaced == "target" else "main"}
+                head = "0" * 40 if replaced == "head" else lp.state["delivery_sha"]
+                pr = on_github(wt, "merged", head, "release" if replaced == "target" else "main", None)
 
                 def fake_gh(cwd, *args, **kwargs):
                     if args[:2] == ("pr", "merge"):
                         return answer
                     if args[:2] == ("pr", "view") and "-q" in args:
-                        return 0, pr[args[args.index("-q") + 1].removeprefix(".")]
-                    if args[:2] == ("pr", "view"):
-                        return 0, json.dumps(pr)
+                        return 0, "UNKNOWN"
+                    if args[0] == "api":
+                        return 0, pr
                     raise AssertionError(args)
 
                 with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
@@ -1071,13 +1063,10 @@ class MergeStep(unittest.TestCase):
 
                 def fake_gh(cwd, *args, **kwargs):
                     if args[:2] == ("api", "repos/fixture/repo/pulls/7"):
-                        return 0, json.dumps({"state": "open", "head": {"sha": lp.state["delivery_sha"]},
-                                              "base": {"ref": "main"}})
+                        return answer if merges else (0, on_github(wt))
                     if args[:2] == ("pr", "merge"):
                         merges.append(args)
                         return 1, GITHUB_504
-                    if args[:2] == ("pr", "view"):
-                        return answer
                     raise AssertionError(args)
 
                 with patch.object(gitcall, "gh", side_effect=fake_gh), \

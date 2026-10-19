@@ -180,8 +180,10 @@ sys.exit(0 if ok else 1)
         if args[:2] == ("pr", "create"):
             return 0, URL
         if args[:2] == ("pr", "view"):
-            head = run.git(self.wt, "rev-parse", "HEAD")
-            return 0, json.dumps({"headRefOid": head, "baseRefName": "main", "state": "OPEN"})
+            return 0, json.dumps({"baseRefName": "main", "state": "OPEN"})
+        if args[:2] == ("api", "repos/fixture/repo/pulls/1"):      # its head is what git reads
+            return 0, json.dumps({"state": "open", "base": {"ref": "main"}, "head": {
+                "sha": "0" * 40, "ref": "ak/task", "repo": {"clone_url": str(self.remote)}}})
         if args[:2] == ("pr", "merge"):
             if self.merge_mode == "blocked":
                 return 1, "approvals missing"

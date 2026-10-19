@@ -461,7 +461,7 @@ sys.exit(row.get("code", 0))
         self.assertIn("truncated", deliver.pr_body(state))
         lp = run.Loop({}, self.root, state, {}, lambda *_: None, self.workspace, "", [], "", [])
         lp.findings = hand_in.Review([self.rows()[1]] * 30 + [{"kind": "done"}]).text
-        with patch.object(run, "gh_json", return_value=({"headRefOid": "abc123", "state": "OPEN"}, "")), patch.object(gitcall, "gh", return_value=(0, "")), patch.object(lp, "write"):
+        with patch.object(run, "pr_view", return_value={"headRefOid": "abc123", "state": "OPEN"}), patch.object(gitcall, "gh", return_value=(0, "")), patch.object(lp, "write"):
             self.assertTrue(run.post_review(lp, "https://github.com/acme/api/pull/1", "PASS"))
         self.assertLess(len((self.root / "review.md").read_text()), 65536)
         self.assertIn("truncated", (self.root / "review.md").read_text())

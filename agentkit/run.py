@@ -1917,29 +1917,15 @@ def follow_run(run_dir, cfg, offset=0):
 
 
 def pr_view(url):
+    """The PR as GitHub describes it, its head commit as `pr_head` reads it."""
     data, why = gh_json(config.RUNS, "pr", "view", url, "--json",
-                        "number,title,body,author,baseRefName,headRefOid,url,state,isDraft")
+                        "number,title,body,author,baseRefName,url,state,isDraft")
     if not isinstance(data, dict):
         raise config.Error(f"gh pr view {url} failed: {why}")
     author = data.get("author") or {}
     data["author"] = author.get("login") or "?"
+    data["headRefOid"] = pr_head(config.RUNS, url)["head"]["sha"]
     return data
-
-
-PR_READ_LAG = 2.0       # seconds between reads of a PR whose head GitHub does not show yet
-PR_READ_TRIES = 5       # reads after the first, before the last one is taken as it stands
-
-
-def pr_view_past(url, info, stale):
-    """`info`, the PR as just read, or read again PR_READ_TRIES times PR_READ_LAG apart while
-    it is open on `stale`, the head before this run's own push: the last read stands, for
-    the caller to judge as it would."""
-    for _ in range(PR_READ_TRIES):
-        if info.get("state") != "OPEN" or info.get("headRefOid") != stale:
-            break
-        time.sleep(PR_READ_LAG)
-        info = pr_view(url)
-    return info
 
 
 def fetch_pr(repo, number, base, log):
@@ -2059,12 +2045,15 @@ def post_review(lp, url, verdict):
     an error.
     """
     head = lp.state["head_sha"]
-    current, why = gh_json(lp.run_dir, "pr", "view", url, "--json", "headRefOid,state")
     lp.state["review_posted"] = False
     lp.state.pop("review_stale", None)
     lp.state.pop("review_error", None)
-    if not isinstance(current, dict) or not current.get("headRefOid"):
-        lp.state["review_error"] = f"cannot verify the PR head: {why}"
+    try:
+        current = pr_view(url)
+    except Stopped:
+        raise
+    except config.Error as exc:
+        lp.state["review_error"] = f"cannot verify the PR head: {exc}"
         lp.write()
         return False
     if current["headRefOid"] != head or current.get("state") != "OPEN":
@@ -2180,7 +2169,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
     state.update(state="running", **run_record.process_owner(), finished_at=None)
     run_record.save_state(run_dir, state)
 
-    current = pr_head(lp, url)
+    current = pr_head(lp.run_dir, url)
     if current.get("state") != "open":
         pr_review_failed(lp, f"{url} is {current.get('state', '?')}, not open")
         return False
@@ -2243,7 +2232,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
         head = git(lp.wt, "rev-parse", "HEAD")
         # the PR as it stands after the fix, whatever the fix left: a closed PR or a head
         # pushed meanwhile ends the run, never a review of what the fixer did not see
-        current = pr_head(lp, url)
+        current = pr_head(lp.run_dir, url)
         remote = current["head"]
         if current.get("state") != "open":
             pr_review_failed(lp, f"{url} is {current.get('state', '?')}, not open")
@@ -2318,11 +2307,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     session_at_launch = launch_session(run_dir)
     info = pr_view(url)
     prior = run_record.read_state(run_dir) or {}
-    pushed = prior.get("delivery_sha")
-    if prior.get("own_pr") and pushed and pushed != prior.get("head_sha"):
-        # GitHub's read may lag the fix this run just pushed: never take the head this run
-        # reviewed for the PR having moved under it
-        info = pr_view_past(url, info, prior.get("head_sha"))
     if info.get("state") != "OPEN":
         raise config.Error(f"{url} is {info.get('state', '?')}, not open")
     is_own, orchestrator, writer_effort = pr_writer(cfg, prior, session_at_launch, info["author"])
@@ -2336,8 +2320,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     landing_fix = bool(is_own and prior.get("landing_fix")
                        and info["headRefOid"] in own_pr_heads(prior))
     if is_own and prior.get("landing_fix") and not landing_fix:
-        # off the record as it stands now, under its lock: `prior` was read before the wait on
-        # GitHub, and a whole save of it would put the old record over a watcher's write since
+        # off the record as it stands now, under its lock: a whole save of `prior` would put
+        # the record as it was read over a watcher's write since
         prior.pop("landing_fix")
         with run_record.record(run_dir) as current:
             current.pop("landing_fix", None)
@@ -2597,9 +2581,13 @@ def settle_pr_round(lp, url, info):
             write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
             return state
         green, why = checks(lp, url)
-        current, _ = gh_json(run_dir, "pr", "view", url, "--json", "headRefOid,state")
-        if (green and isinstance(current, dict) and current.get("headRefOid") == head
-                and current.get("state") == "OPEN"):
+        try:
+            current = pr_view(url)
+        except Stopped:
+            raise
+        except config.Error:
+            current = {}
+        if green and current.get("headRefOid") == head and current.get("state") == "OPEN":
             question = f"PR #{number} by {info['author']}: {info['title']}. Merge? yes/no"
             pending = {"question": question, "url": url, "sha": head, "asked": False}
             if watch.ask_inbox(cfg, question, url, head, log,

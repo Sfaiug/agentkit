@@ -77,8 +77,9 @@ class MergeTrailer(unittest.TestCase):
 
     def gh(self, cwd, *args, **_kw):
         if args[0] == "api" and "repos/acme/widget/pulls/7" in args:
-            return 0, json.dumps({"state": "open", "head": {"sha": self.git("rev-parse", "HEAD")},
-                                  "base": {"ref": "main"}})
+            return 0, json.dumps({"state": "open", "base": {"ref": "main"}, "head": {
+                "sha": self.git("rev-parse", "HEAD"), "ref": "ak/fix-api",
+                "repo": {"clone_url": str(self.repo)}}})
         if args[0] == "api" and "graphql" in args:
             query = next(arg for arg in args if arg.startswith("query="))
             self.assertIn("viewerMergeBodyText(mergeType:$method)", query)
