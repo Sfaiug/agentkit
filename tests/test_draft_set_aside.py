@@ -8,6 +8,7 @@ as a composer with Claude Code's prompt history.
 """
 
 from contextlib import contextmanager
+import re
 import unittest
 from unittest.mock import patch
 
@@ -167,6 +168,118 @@ class DraftSetAside(Seats):
             self.tick()
         self.assertNotIn("Enter", self.keys)
         self.assertFalse(self.told())
+
+    def keyed(self, key, done):
+        """tmux with `key` answered by `done(args)`, None passing it on to the composer."""
+        tmux = orch.tmux_out
+        return patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (
+            done(args) if args[0] == "send-keys" and args[-1] == key else None)
+            or tmux(*args, **kw))
+
+    def test_a_draft_half_brought_back_is_finished_from_where_it_stands(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        ups = []
+        with self.keyed("Up", lambda _: ups.append(1) or (1, "no server") if ups else
+                        ups.append(1)):
+            self.tick()
+        self.assertEqual(self.composer, LINE)
+        self.tick()
+        self.assertEqual(self.composer, DRAFT)
+        self.assertEqual(self.keys.count("Enter"), 1)
+        self.assertTrue(self.told())
+
+    def test_a_key_the_composer_did_not_take_is_pressed_again_before_the_line_is_told(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        with self.keyed("Up", lambda _: (0, "")):
+            self.tick()
+        self.assertFalse(self.told())
+        self.tick()
+        self.assertEqual(self.composer, DRAFT)
+        self.assertTrue(self.told())
+
+    def test_another_line_waits_for_the_draft_to_come_back(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        with self.keyed("Up", lambda _: (1, "no server")):
+            self.tick()
+        watch.type_at_prompt(self.seat, "The acme docs build ended.", lambda _: None,
+                             cfg=self.cfg)
+        self.tick()
+        self.assertEqual(self.composer, DRAFT)
+        self.assertTrue(self.told())
+
+    def test_an_enter_that_failed_delivers_nothing_when_the_owner_takes_the_line_back(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        with self.keyed("Enter", lambda _: (1, "no server")):
+            self.tick()
+        for key in ("C-c", "Up", "Up"):
+            self.tmux("send-keys", "-t", f"={SEAT}:", key)
+        self.tick()
+        self.assertEqual(self.composer, DRAFT)
+        self.assertFalse(self.told())
+
+    def test_the_line_the_owner_sent_brings_the_draft_back(self):
+        self.wait_line()
+        self.tick()
+        self.later(watch.DRAFT_STILL)
+        tmux = orch.tmux_out
+
+        def owner_sends_it(*args, **kw):
+            done = tmux(*args, **kw)
+            if args[0] == "send-keys" and "-l" in args:
+                self.tmux("send-keys", "-t", f"={SEAT}:", "Enter")
+            return done
+        with patch.object(orch, "tmux_out", side_effect=owner_sends_it):
+            self.tick()
+        self.assertEqual(self.composer, DRAFT)
+        self.assertTrue(self.told())
+
+    def test_a_row_or_space_added_to_the_draft_starts_its_two_minutes_again(self):
+        for edit in ("\n", "\n  ? for shortcuts"):
+            with self.subTest(edit=edit):
+                self.composer, self.keys = DRAFT, []
+                self.show()
+                self.later(0)
+                self.wait_line()
+                self.tick()
+                self.later(watch.DRAFT_STILL)
+                self.composer += edit
+                self.show()
+                self.tick()
+                self.assertEqual(self.keys, [])
+        held = watch.seat_held
+
+        @contextmanager
+        def edited(name):
+            with held(name) as seat:
+                self.composer += " "
+                self.show()
+                yield seat
+        self.later(3 * watch.DRAFT_STILL)
+        with patch.object(watch, "seat_held", side_effect=edited):
+            self.tick()
+        self.assertEqual(self.keys, [])
+
+    def test_the_trays_clock_does_not_hold_the_draft(self):
+        self.base = (REPO / "tests/fixtures/claude-tray-idle-pane.txt").read_text(
+            encoding="utf-8")
+        self.empty = re.search(r"(?m)^.*❯\xa0.*\n", self.base).group()
+        self.show()
+        self.wait_line()
+        self.tick()
+        for seconds in (watch.DRAFT_STILL, 2 * watch.DRAFT_STILL):
+            self.later(seconds)
+            self.base = re.sub(r"\d+s · ↓", f"{seconds}s · ↓", self.base)
+            self.show()
+            self.tick()
+        self.assertTrue(self.told())
 
 
 if __name__ == "__main__":
