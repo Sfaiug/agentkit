@@ -477,7 +477,7 @@ def drop_bare_free(cfg):
     """`cfg` without each `mode = "free"` provider no model names: a free provider is nothing
     but its models -- no meter, login or price -- so with none it would be a table no screen
     shows or removes."""
-    named = {entry.get("provider") for entry in cfg["models"].values() if isinstance(entry, dict)}
+    named = {cfg["models"][name]["provider"] for name in offered(cfg)}
     for name in [name for name, entry in cfg["providers"].items()
                  if isinstance(entry, dict) and entry.get("mode") == "free" and name not in named]:
         del cfg["providers"][name]

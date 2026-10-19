@@ -318,6 +318,19 @@ class ProviderScreen(unittest.TestCase):
             path.write_text(ONE + free + "\n[models.draft]\n")     # an older removal's, say
             self.assertEqual(list(config.load()["providers"]), ["anthropic"])
 
+    def test_draft_provider_values_do_not_break_loading(self):
+        with tempfile.TemporaryDirectory(prefix="config-draft-") as home, \
+                mock.patch.object(config, "HOME", Path(home)):
+            path = Path(home) / config.CONFIG_NAME
+            for extra in ("", '\n[providers.acme]\nmode = "free"\n'):
+                for value in ('["acme"]', '{name = "acme"}'):
+                    with self.subTest(free=bool(extra), provider=value):
+                        path.write_text(ONE + extra + "\n[models.draft]\nprovider = " + value + "\n")
+                        cfg = config.load()
+                        self.assertEqual(config.offered(cfg), ["opus"])
+                        self.assertIn("draft", cfg["models"])
+                        self.assertEqual(list(cfg["providers"]), ["anthropic"])
+
     def test_the_last_provider_stays(self):
         screen = Screen(self, child=CHILD, text=ONE)
         open_meter(screen, "Claude")
