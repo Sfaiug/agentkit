@@ -72,6 +72,29 @@ class BarsFromLiveCode(Sandbox):
             self.assertEqual(menu.loop(self.cfg), 0)
         self.assertEqual(said, ["install.sh failed", "restart"])
 
+    def test_a_menu_whose_own_update_never_starts_still_restarts_on_new_code(self):
+        stamp = config.STATE / "installed-at"
+        for live in (False, True):                       # no live checkout; its updater refused
+            with self.subTest(live=live):
+                if live:
+                    (config.Path.home() / "agentkit").symlink_to(config.REPO)
+                stamp.unlink(missing_ok=True)
+                steps, notices = [None, terminal.Key("esc")], []
+                def moving(*_a, **_kw):                  # the tick installs after the first frame
+                    stamp.write_text(str(int(config.STARTED) + 5))
+                    return steps.pop(0)
+                with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
+                                                   "return_value.asking.return_value": None}), \
+                        patch.object(terminal, "Keyboard", Keyboard), \
+                        patch.object(terminal, "sense", lambda: None), \
+                        patch.object(menu, "moving", moving), \
+                        patch.object(menu, "show_notices", notices.extend), \
+                        patch.object(menu.subprocess, "Popen", side_effect=OSError("no fork")), \
+                        patch.object(menu.os, "execve") as restart, redirect_stdout(io.StringIO()):
+                    self.assertEqual(menu.loop(self.cfg), 0)
+                self.assertEqual(restart.call_count, 1)
+                self.assertEqual(notices, ["update: no fork"] if live else [])
+
     def test_an_open_menu_starts_again_once_new_code_is_installed_under_it(self):
         def restarts():
             with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
