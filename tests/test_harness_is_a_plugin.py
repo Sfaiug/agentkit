@@ -24,7 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted
-from agentkit import config, gitcall, harness, host, menu, notify, orch, run, terminal, update, usage, watch
+from agentkit import aside_editor, config, gitcall, harness, host, menu, notify, orch, run, terminal, update, usage, watch
 from agentkit import record as run_record, statusbar
 from agentkit.harness import codex as codex_plugin
 
@@ -349,7 +349,8 @@ class Seats(Fixture):
         self.assertEqual(printed[1], "orch: echo (--model)")
         self.assertIn("session echo-seat in ", printed[2])
         self.assertEqual(shlex.split(printed[-1]),
-                         ["env", "AGENTKIT_ACCOUNT=", os.environ.get("SHELL") or "/bin/sh"])
+                         ["env", "AGENTKIT_ACCOUNT=", *aside_editor.launch_env(os.environ),
+                          os.environ.get("SHELL") or "/bin/sh"])
         # a dry run records nothing; the seat it planned, really started, is given no id:
         # its TUI cannot be told one (echo.sh exits 3)
         self.assertNotIn("echo-seat", config.session_records())
