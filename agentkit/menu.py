@@ -2688,10 +2688,9 @@ def show_notices(messages):
             message.replace(os.path.expanduser("~") + "/", "~/"), terminal.width() - 1)))
 
 
-# The rows under the models, each running its own step.
-CONFIG_ROWS = ("+ add a model", "+ add a provider", "Discord", "Weekly audit", "Version")
+# The rows under the models, each running its own step; agentkit's build is read under them.
+CONFIG_ROWS = ("+ add a model", "+ add a provider", "Discord", "Weekly audit")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
-VERSION = ("row", "Version")    # agentkit's build, read and nothing more
 # What a subscription's meter over `c`'s page offers, each where it applies (config_usage).
 PROVIDER_ACTS = (("− remove", "- remove"),
                  ("↻ spend a reset", "spend a reset"))   # and each without UTF-8
@@ -2714,7 +2713,6 @@ PICKED = ("orchestrate", "build", "review")    # what `ak models` recommends a m
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
-               "still": ("↑↓ move", "arrows move"),
                "label": ("↑↓←→ move   ⏎ open", "arrows move   enter open")}
 # A model's own screen: the values ←/→ step, then the one that asks first; the role whose
 # effort each effort among them sets (its key: config.ROLE_EFFORTS), a worker's reading `same`
@@ -3122,8 +3120,8 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
     A model `providers` read as spent is dim; why is on the line under the page
-    (model_lines).  Then `+ add a model`, `+ add a provider`, `Discord` and `Version` with
-    their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
+    (model_lines).  Then `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit`
+    with their values, and `Version`, dim and no row. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
     column), for a click, counted from 1 as the terminal counts. On a phone the cells give
@@ -3197,15 +3195,19 @@ def config_body(cfg, version, at=None, column=0, selected=None, providers=None, 
             lines.append(terminal.highlight(line.rstrip()) if at == ("model", name)
                          else line.rstrip())
     lines.append("")
-    values = ("", "", discord_value(), audit_value(cfg), version or "?")
+    named = [*zip(CONFIG_ROWS, ("", "", discord_value(), audit_value(cfg))),
+             ("Version", version or "?")]
     # the values line up past the widest row that has one
-    wide = max(terminal.cells(row) for row, value in zip(CONFIG_ROWS, values) if value)
-    for row, value in zip(CONFIG_ROWS, values):
+    wide = max(terminal.cells(row) for row, value in named if value)
+    for row, value in named:
         # the value wraps once at a word under itself, and is cut only past that
         for number, part in enumerate(terminal.title_lines(value, room - 2 - wide - 2) or [""]):
             line = terminal.table_row([row if number == 0 else "", part],
                                       [wide, room - 2 - wide - 2], indent="  ") if value else (
                 "  " + terminal.cut(row, room - 2))
+            if row not in CONFIG_ROWS:      # read, so no row the highlight stops on
+                lines.append(terminal.styled(line, "dim"))
+                continue
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
     return lines, places
@@ -3613,7 +3615,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     the meters over the page: one is lit as the main screen lights it, and Enter or a click
     opens what it offers (config_usage).  The row a model, a provider or a subscription was just
     added on glows (motion.glowing); on `Discord` its two
-    secrets are typed on the same keys (config_discord).  `Version` is read, and does nothing.
+    secrets are typed on the same keys (config_discord).  `Version` is read, and no row.
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
     lines of its own under it, whatever the height, until the next key; `note` is said so
@@ -3635,8 +3637,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         here = here if here in rows else models[0]    # the highlight is the row itself
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # onto a row without marks
-        where = ("still" if here == VERSION else "row" if here[0] in ("row", "usage")
-                 else "effort" if column == 3 else "label" if column < 0 else "mark")
+        where = ("row" if here[0] in ("row", "usage") else "effort" if column == 3
+                 else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         moves = []
@@ -3686,7 +3688,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 if cfg["providers"] != before:  # a provider or a subscription just added
                     clock.touch(here)
         elif here[0] == "row":
-            if here != VERSION and act in ("enter", "space"):
+            if act in ("enter", "space"):
                 if here == AUDIT:
                     config_audit(cfg)
                 else:
