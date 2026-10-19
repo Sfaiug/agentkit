@@ -431,6 +431,16 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         screen.leave()
 
+    def test_a_short_screen_leads_its_page_with_the_meters_so_the_model_s_line_has_room(self):
+        # over the page, six meters on 40 by 12 would leave none for the highlighted model's line
+        screen = Screen(self, workers=["opus"], rows=12, cols=40)
+        lines = screen.frame()
+        self.assertLessEqual(len(lines), 12, lines)
+        self.assertTrue(highlighted(lines).startswith("› fable"), lines)
+        self.assertTrue(any(line.startswith("    fable runs on ") for line in lines), lines)
+        self.assertTrue(lines[-1].endswith("esc back"), lines)
+        screen.leave()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3447,6 +3447,16 @@ def config_meters(cfg):
     return [*meters, ""] if meters else []
 
 
+def meters_led(over, body, places, under, keys, moves=()):
+    """`over`, `body`, `places` and `moves` as the `c` screen draws its page with `under` under
+    it: the meters (config_meters) over the page while they leave it LEAST rows, else its first
+    lines, which scroll with it, so a short screen keeps its room for what is under the page."""
+    if matrix_page([], {}, None, 0, under, keys, over)[1] >= LEAST:
+        return over, body, places, list(moves)
+    return [], [*over, *body], {line + len(over): place for line, place in places.items()}, [
+        (line + len(over), *rest) for line, *rest in moves]
+
+
 def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
     """The `c` screen's line for the highlighted model, `at` (`model_said`: `providers` read for
     why it is spent, `found` for what it is recommended for), a blank line over it: its parts
@@ -3607,7 +3617,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                    selected, providers, moves)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
-        over = config_meters(cfg)
+        over, body, places, moves = meters_led(config_meters(cfg), body, places,
+                                               note_lines(note or standing), keys, moves)
         # on a short screen the note keeps its lines and the page a row; the model's line the rest
         fit = matrix_page([], {}, None, 0, note_lines(note or standing), keys, over)[1] - 1
         said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
@@ -4344,8 +4355,8 @@ def move_asked(cfg, version, session, selected, providers, here, column, top, ti
     its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
     loses its conversation to a handover, so the mark asks first, as `Remove` does."""
     def around(card):     # the screen around the card, drawn again on a resize
-        body, places = config_body(cfg, version, here, column, selected, providers)
-        over = config_meters(cfg)
+        over, body, places, _ = meters_led(config_meters(cfg), *config_body(
+            cfg, version, here, column, selected, providers), card, "esc back")
         first, room = matrix_page(body, places, here, top, card, "esc back", over)
         shown = body[first:first + room]
         terminal.frame(title, [*over, *shown, *card], "esc back")
