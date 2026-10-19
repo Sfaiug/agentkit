@@ -6,14 +6,16 @@ editor on the keys its manifest names (`[screen] editor`), and `edit` does what 
 pane just before (`request`, a pane option the edit clears): `out` keeps the composer's text in a
 tmux buffer of the pane's (`kept`) and hands back an empty composer; `back` hands the kept text
 back, ahead of whatever the composer holds by then.  No text is ever dropped: a second `out` adds
-to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's, as
-it starts on every edit the owner opens.
+to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
+`host`, which imports nothing itself, as it starts on every edit the owner opens.
 """
 
 import os
 import subprocess
 import time
 from pathlib import Path
+
+from . import host
 
 EDITOR = Path(__file__).resolve().parent.parent / "tools" / "aside-editor"
 OWNER = "AK_OWNER_EDITOR"       # the owner's own editor, as the seat's launch found it
@@ -44,11 +46,14 @@ def launched(pid, tty):
     there still on the pane's terminal: the launch, execed into the harness's wrapper, which
     runs the harness on a terminal of its own -- whether or not the shell tmux runs the pane's
     command in is still above it.  A tool the harness runs may have been given another, and a
-    seat started before opens the owner's editor over its composer."""
+    seat started before opens the owner's editor over its composer.  Each process's parent is
+    read, as a kernel built without CONFIG_PROC_CHILDREN lists no task's children."""
     try:
+        parents = {entry.name: str(stat.ppid) for entry in host.PROC.iterdir()
+                   if entry.name.isdigit() and (stat := host.proc_stat(entry.name)) is not None}
         while pid.isdigit():
-            below = [child for task in Path(f"/proc/{pid}/task").glob("*/children")
-                     for child in task.read_text().split() if _stdin(child) == tty]
+            below = [child for child, parent in parents.items()
+                     if parent == pid and _stdin(child) == tty]
             if not below:
                 env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
                 return any(entry.startswith(b"VISUAL=")

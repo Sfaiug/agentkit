@@ -7,8 +7,10 @@ composer to $VISUAL; this editor takes the text out on ak's ask and back on the 
 tmux faked in memory; the processes are this test's own.
 """
 
+import io
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -114,8 +116,17 @@ class AsideEditor(unittest.TestCase):
             self.addCleanup(seat.wait)
             self.addCleanup(os.killpg, seat.pid, 9)
             self.assertEqual(seat.stdout.readline(), b"up\n")
-        self.assertEqual([aside_editor.launched(str(seat.pid), os.ttyname(pane)) for seat in seats],
-                         [True, False, True, False])
+        opened = io.open
+
+        def without_children(file, *args, **kwargs):
+            # a kernel built without CONFIG_PROC_CHILDREN lists no task's children
+            if re.fullmatch(r"/proc/\d+/task/\d+/children", str(file)):
+                raise FileNotFoundError(2, "No such file or directory", str(file))
+            return opened(file, *args, **kwargs)
+
+        with patch.object(io, "open", without_children):
+            self.assertEqual([aside_editor.launched(str(seat.pid), os.ttyname(pane))
+                              for seat in seats], [True, False, True, False])
 
     def test_the_script_a_harness_runs_opens_the_owners_editor(self):
         owner = self.root / "owners-editor"
