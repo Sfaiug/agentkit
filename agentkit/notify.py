@@ -1401,11 +1401,13 @@ def _intent(name, done_at):
     lines out).  Read here, from facts already decided, never stamped by a prompt's hook: hook
     order, renames and reused names moved such stamps after they were written.  The start is
     unknown, and the done still the next one's boundary, with no message of theirs since, where
-    the harness reads no messages or cannot read them now, and for the first done of a
+    the harness reads no messages or cannot read them now, for the first done of a
     conversation begun before dones were kept: its earlier dones were never recorded, and a
-    notice keeps only a seat's latest.  A known start keeps the runs the seat started from it
-    to the done."""
-    from . import menu
+    notice keeps only a seat's latest, and where the seat's finished work, its plan's done lines
+    and the runs it launched that merged, is what that conversation's previous done recorded:
+    an answer about finished work finished nothing.  A known start keeps the runs the seat
+    started from it to the done."""
+    from . import menu, plan
     seat = conversation_of(name)
     if seat is None:
         return
@@ -1413,18 +1415,22 @@ def _intent(name, done_at):
     known = history.last_done(f"{plugin.name}:{conversation}") if conversation else None
     if known is None:
         return
+    records = menu.run_records()
+    merged = sorted(directory.name for directory, state in records
+                    if state.get("merged") and transitions.launched_session(state) == name)
+    work = hashlib.sha256(json.dumps([plan.outcomes(name), merged]).encode()).hexdigest()
     asked = [at for at in owner_said(name, seat) if at <= done_at]
-    last, since = known
+    last, since, then = known
     fresh = [at for at in asked if last is None or at > last]
-    if not fresh or (last is None and min(asked) < since):
-        history.done(f"{plugin.name}:{conversation}", done_at, None)
+    if not fresh or (last is None and min(asked) < since) or work == then:
+        history.done(f"{plugin.name}:{conversation}", done_at, None, work=work)
         return
     began = min(fresh)
     # the runs the seat started for it, whose going live is the intent's
     history.done(f"{plugin.name}:{conversation}", done_at, began,
-                 [directory.name for directory, state in menu.run_records()
+                 [directory.name for directory, state in records
                   if transitions.launched_session(state) == name
-                  and began <= (state.get("started_at") or 0) <= done_at])
+                  and began <= (state.get("started_at") or 0) <= done_at], work=work)
 
 
 def ask_kept(name, ended=False):

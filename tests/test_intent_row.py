@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, menu, notify, orch, scoreboard, terminal
+from agentkit import config, history, menu, notify, orch, plan, scoreboard, terminal
 
 NOW = 1_800_000_000
 WEEK = 7 * 86400
@@ -53,6 +53,7 @@ class IntentRow(Sandbox):
 
     def done(self, seat, at):
         with notify.session_lock(seat) as name:
+            plan.write(name, [*plan.lines(name), f"- [x] step {at}"])   # each finishes something
             notify._intent(name, at)
 
     def test_a_done_starts_at_the_owner_s_first_message_since_the_conversation_s_last_done(self):
@@ -78,7 +79,7 @@ class IntentRow(Sandbox):
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY, final_state TEXT, finished_at REAL)")
         with patch.object(history.time, "time", return_value=1000.0):
-            self.assertEqual(history.last_done("claude:c1"), (None, 1000.0))
+            self.assertEqual(history.last_done("claude:c1"), (None, 1000.0, None))
         self.harness.said = [(50.0, "c1"), (1100.0, "c1")]
         self.done("fix-api", 1200.0)            # its done at 100 went unrecorded: no start
         self.harness.said += [(1300.0, "c1")]

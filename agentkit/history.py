@@ -114,9 +114,10 @@ CREATE TABLE IF NOT EXISTS owner (
 """
 # A seat's done, one row each, keyed by its harness and conversation so a rename or a reused
 # name moves nothing: `began` is the owner's first message there since its previous done, NULL
-# where ak cannot know it.  `kept` holds since when dones are kept: 0 for a history begun with
-# them, else the moment an older one first met them, before which a conversation's dones went
-# unrecorded.
+# where ak cannot know it or the done finished nothing new.  `work` fingerprints the seat's
+# finished work at that done (`notify._intent`), NULL on a row from before it.  `kept` holds
+# since when dones are kept: 0 for a history begun with them, else the moment an older one first
+# met them, before which a conversation's dones went unrecorded.
 DONES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS dones (
     conversation TEXT,
@@ -124,6 +125,7 @@ CREATE TABLE IF NOT EXISTS dones (
     began REAL
 )
 """
+DONE_MIGRATIONS = (("work", "TEXT"),)
 KEPT_SCHEMA = "CREATE TABLE IF NOT EXISTS kept (since REAL)"
 # The runs a seat started between its owner's first message and its done, one row each: the
 # changes whose going live is the intent's.
@@ -163,7 +165,8 @@ def _connect(*, readonly=False):
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
-    for table, migrations in (("runs", MIGRATIONS), ("reviews", REVIEW_MIGRATIONS)):
+    for table, migrations in (("runs", MIGRATIONS), ("reviews", REVIEW_MIGRATIONS),
+                              ("dones", DONE_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
             if name not in have:
@@ -472,19 +475,20 @@ def owner(since, until):
 
 
 def last_done(conversation):
-    """`(last, since)`: that conversation's last done, None before its first, and since when
-    dones are kept; None where the database cannot answer."""
+    """`(last, since, work)`: that conversation's last done, None before its first, since when
+    dones are kept, and that done's `work`; None where the database cannot answer."""
     return _write(lambda connection: connection.execute(
-        "SELECT (SELECT MAX(at) FROM dones WHERE conversation = ?), (SELECT since FROM kept)",
-        (conversation,)).fetchone())
+        "SELECT (SELECT MAX(at) FROM dones WHERE conversation = ?), (SELECT since FROM kept), "
+        "(SELECT work FROM dones WHERE conversation = ? ORDER BY at DESC LIMIT 1)",
+        (conversation, conversation)).fetchone())
 
 
-def done(conversation, at, began, runs=(), *, log=None):
-    """A seat's done in that conversation, the owner's first message since its previous one, and
-    the runs the seat started in between."""
+def done(conversation, at, began, runs=(), *, work=None, log=None):
+    """A seat's done in that conversation, the owner's first message since its previous one, the
+    runs the seat started in between and the seat's finished work."""
     def insert(connection):
-        connection.execute("INSERT INTO dones (conversation, at, began) VALUES (?, ?, ?)",
-                           (conversation, at, began))
+        connection.execute("INSERT INTO dones (conversation, at, began, work) VALUES (?, ?, ?, ?)",
+                           (conversation, at, began, work))
         connection.executemany("INSERT INTO done_runs (conversation, at, run_id) VALUES (?, ?, ?)",
                                [(conversation, at, run) for run in runs])
     _write(insert, log)
