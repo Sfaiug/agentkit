@@ -54,8 +54,7 @@ class FirstInLineHalfAnHour(unittest.TestCase):
             f"slot:{API}:{NOW - 3000}", "the stall of the slot queue",
             f"ak stalled: {API} has been first in line for a slot for 50m, more than 30m, with 1 "
             "behind it; `ak run status` shows what it waits on. Find why and build the smallest "
-            "change to ak that keeps it from happening again, through the line, and ak notify "
-            "done once it is live.")])
+            "change to ak that keeps it from happening again, through the line.")])
         self.assertEqual(self.found(NOW - 1), [f"slot:{API}:{NOW - 3000}"])  # polled after `now`
         self.assertEqual(self.found(NOW + 150), [])     # four polls missed: nobody polls it
         self.polls(API, [API, WEB], NOW + 180, NOW + 1970)     # and a new wait starts
