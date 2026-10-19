@@ -52,7 +52,7 @@ def owed_line(name):
         for line in plan.lines(name):
             if plan.owed(name, line):
                 found = plan.LINE.match(line.strip())
-                return found["what"] if found else line.strip().partition("] ")[2]
+                return found["what"] if found else plan.BOX.sub("", line, count=1).strip()
     except config.Error:
         return ""
     return None
