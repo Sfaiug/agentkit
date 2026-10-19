@@ -50,8 +50,6 @@ class DraftSetAside(Seats):
         if command == "set-option":
             self.options[args[-2]] = args[-1]
             return 0, ""
-        if command == "show-options":
-            return 0, self.options.get(args[-1], "")
         if command == "list-buffers":
             return 0, "\n".join(self.buffers)
         if command == "list-panes":

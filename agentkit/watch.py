@@ -3618,8 +3618,6 @@ def quiet_prompt(session, held, cfg=None):
 
 DRAFT_STILL = 120       # how long the owner types nothing into a seat before ak sets its text
                         # aside for a line of its own: a draft being typed changes within that
-EMPTIED = "@ak_emptied"     # when ak last read a pane's composer empty, with no input unread,
-                            # before putting the owner's text back in it (`bring_back`)
 
 
 def _pane(session):
@@ -3689,16 +3687,6 @@ def set_aside(session, held, log, cfg=None):
               lambda _: composer_holds(held, session, "", cfg) == "empty", log)
 
 
-def _emptied(session):
-    """When ak last read that seat's composer empty before putting text back (`EMPTIED`), or 0."""
-    rc, out = orch.tmux_out("show-options", "-pqv", "-t", f"={session['name']}:", EMPTIED,
-                            socket=orch.seat_socket(session))
-    try:
-        return float(out) if rc == 0 else 0.0
-    except ValueError:
-        return 0.0
-
-
 def bring_back(session, held, log, cfg=None):
     """Under the seat's send lock: the owner's text ak set aside back in its composer, once that
     reads empty with no unread input -- after ak's line went in, or on a later tick's look; never
@@ -3708,8 +3696,7 @@ def bring_back(session, held, log, cfg=None):
             or composer_holds(held, session, "", cfg) != "empty"):
         return
     # that read is every earlier line's delivery, which the text put back hides from its own
-    orch.tmux_out("set-option", "-p", "-t", f"={session['name']}:", EMPTIED,
-                  f"{time.time():.3f}", socket=orch.seat_socket(session))
+    seat_write(held, emptied=time.time())
     harness = seat_model(config.load() if cfg is None else cfg, held)[0]
     if harness and screen(harness)["editor"] and not _edit(
             session, held, screen(harness)["editor"], "back",
@@ -3768,14 +3755,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     answer, which only the owner's own prompt gives (`notify.progress`).  Nor does text the
     owner left standing in the composer (`draft_standing`): ak's editor sets it aside for the
     line and brings it back once the composer reads empty (`set_aside`, `bring_back`), that
-    read the delivery of every line typed before it (`EMPTIED`, which a mark's `at` is held to).
+    read the delivery of every line typed before it (the seat's `emptied`, held to a mark's `at`).
     """
     mark = {"line": text, "seat": session.get("created")}
     if typed and {key: typed.get(key) for key in mark} == mark:
         with seat_held(session["name"]) as held:
             if stale(held):
                 return False    # the screen is somebody else's: next pass
-            if typed.get("at", time.time()) < _emptied(session):
+            if typed.get("at", time.time()) < seat_read(held).get("emptied", 0):
                 return True     # that read delivered it, whatever the text put back reads as
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
