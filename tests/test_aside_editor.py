@@ -30,6 +30,7 @@ class AsideEditor(unittest.TestCase):
         self.root = Path(tmp.name)
         self.composer = self.root / "composer.md"
         self.options, self.buffers, self.opened = {}, {}, []
+        self.unreadable = False
         for name, fake in (("_tmux", self.tmux),
                            ("execvp", lambda *argv: self.opened.append(argv))):
             patcher = patch.object(aside_editor if name == "_tmux" else aside_editor.os, name,
@@ -41,9 +42,11 @@ class AsideEditor(unittest.TestCase):
         """The pane's option, read and cleared at once, and its buffers."""
         if args[0] == "show-options":
             return self.options.pop(args[args.index("-t") + 2], "").encode()
+        if args[0] == "list-buffers":
+            return "".join(f"{name}\n" for name in self.buffers).encode()
         name = args[args.index("-b") + 1]
         if args[0] == "save-buffer":
-            return self.buffers.get(name)
+            return None if self.unreadable else self.buffers.get(name)
         if args[0] == "load-buffer":
             self.buffers[name] = data
         else:
@@ -66,6 +69,12 @@ class AsideEditor(unittest.TestCase):
                          "and add these posts\nthen this\nnewest")
         self.assertEqual((self.buffers, self.opened), ({}, []))
 
+    def test_text_kept_that_cannot_be_read_is_neither_replaced_nor_lost(self):
+        self.edit("and add these posts", aside_editor.request("out"))
+        self.unreadable = True      # tmux timed out on the buffer
+        self.assertEqual(self.edit("then this", aside_editor.request("out")), "then this")
+        self.assertEqual(self.buffers, {aside_editor.kept(PANE): b"and add these posts"})
+
     def test_without_a_fresh_ask_it_opens_the_owners_editor_and_keeps_nothing(self):
         stale = f"out {time.time() - aside_editor.FRESH - 5:.0f}"
         with patch.dict(os.environ, {aside_editor.OWNER: "owners-editor"}):
@@ -82,14 +91,17 @@ class AsideEditor(unittest.TestCase):
         inside = {"VISUAL": str(aside_editor.EDITOR), aside_editor.OWNER: "vim"}
         self.assertEqual(aside_editor.launch_env(inside)[2], f"{aside_editor.OWNER}=vim")
 
-    def test_a_harness_below_its_launch_is_found_started_with_aks_editor(self):
-        env = {key: value for key, value in os.environ.items() if key != "VISUAL"}
-        seats = [subprocess.Popen(["sh", "-c", f"{launch}sleep 30 & wait"], env=env)
-                 for launch in (f"env VISUAL={aside_editor.EDITOR} ", "")]
+    def test_a_seat_is_told_by_its_launch_not_by_what_its_harness_runs(self):
+        # each seat's harness starts a tool given ak's editor; only the first was launched with it
+        tool = f"env VISUAL={aside_editor.EDITOR} sh -c 'echo up; exec sleep 30' & wait"
+        seats = [subprocess.Popen(["env", f"VISUAL={visual}", "sh", "-c", tool],
+                                  stdout=subprocess.PIPE, start_new_session=True)
+                 for visual in (aside_editor.EDITOR, "nano")]
         for seat in seats:
+            self.addCleanup(seat.stdout.close)
             self.addCleanup(seat.wait)
-            self.addCleanup(seat.kill)
-        time.sleep(0.5)
+            self.addCleanup(os.killpg, seat.pid, 9)
+            self.assertEqual(seat.stdout.readline(), b"up\n")
         self.assertEqual([aside_editor.launched(str(seat.pid)) for seat in seats], [True, False])
 
     def test_the_script_a_harness_runs_opens_the_owners_editor(self):

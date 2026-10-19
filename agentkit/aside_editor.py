@@ -39,25 +39,16 @@ def kept(pane):
 
 
 def launched(pid):
-    """Whether the harness in the seat pane whose process has that id -- under it, as every
-    seat's runs under its launch script and idle-compact.py -- was started with this editor as
-    its $VISUAL: one started before opens the owner's editor over its composer."""
-    stack, seen = [pid] if pid.isdigit() else [], set()
-    while stack:
-        each = stack.pop()
-        if each in seen:
-            continue
-        seen.add(each)
-        try:
-            env = Path(f"/proc/{each}/environ").read_bytes().split(b"\0")
-            stack += [child for task in Path(f"/proc/{each}/task").glob("*/children")
-                      for child in task.read_text().split()]
-        except OSError:
-            continue
-        if any(entry.startswith(b"VISUAL=") and Path(os.fsdecode(entry[7:])).resolve() == EDITOR
-               for entry in env):
-            return True
-    return False
+    """Whether the seat pane whose process has that id was launched with this editor as its
+    $VISUAL.  The launch execs into the pane's process, so its environment is the one the harness
+    below it inherits, where a tool the harness runs may have been given another; a seat
+    started before opens the owner's editor over its composer."""
+    try:
+        env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0") if pid.isdigit() else []
+    except OSError:
+        return False
+    return any(entry.startswith(b"VISUAL=") and Path(os.fsdecode(entry[7:])).resolve() == EDITOR
+               for entry in env)
 
 
 def _tmux(*args, data=None):
@@ -81,7 +72,14 @@ def edit(argv):
         fresh = False
     if fresh and mode in ("out", "back"):
         path, name = Path(argv[-1]), kept(pane)
-        text, held = path.read_bytes(), _tmux("save-buffer", "-b", name, "-") or b""
+        # tmux fails to save a buffer it lacks as it fails for any other reason, so only one it
+        # lists is read: what cannot be read leaves both the buffer and the composer as they are
+        listed = _tmux("list-buffers", "-F", "#{buffer_name}")
+        held = None if listed is None else (
+            _tmux("save-buffer", "-b", name, "-") if name.encode() in listed.splitlines() else b"")
+        if held is None:
+            return 0
+        text = path.read_bytes()
         both = b"\n".join(part for part in (held, text) if part.strip())
         if mode == "out" and text.strip():
             if _tmux("load-buffer", "-b", name, "-", data=both) is not None:
