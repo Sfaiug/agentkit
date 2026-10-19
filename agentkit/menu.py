@@ -2000,30 +2000,21 @@ def new_session(cfg, dry_run, keyboard=None, found=None):
     return name
 
 
-def born(cursor, groups, found):
-    """What `n` makes on a terminal: a seat born in its place under the highlighted seat's
-    project, or heading's, with that seat's executors and reviewers (`orch.default_crew`),
-    named as typed (`born_key`).  Off the listing in hand and the usage cache, so the row is up
-    on the next frame; Back where Esc ends a slow read."""
-    ordered = groups[0] if groups else []
-    home = next((project for project in ordered
-                 if cursor in (project["checkout"], ("project", project["name"]))
-                 or any(info["name"] == cursor for info in project["seats"])), None)
-    like = cursor if home and isinstance(cursor, str) else None
+def born(found):
+    """What `n` makes on a terminal, wherever the highlight is: a seat born in its place under
+    no project, which its runs or its orchestrator file it under once it knows the job
+    (`orch.file_projectless`, `ak orch project`), with the last creation's executors and
+    reviewers (`orch.default_crew`), named as typed (`born_key`).  Off the listing in hand and
+    the usage cache, so the row is up on the next frame; Back where Esc ends a slow read."""
     cfg = config.load()           # the last creation's [defaults], whichever process made it
     providers = waited(lambda: usage.collect(cfg), "new session", doing=LEFT)
     default, reason = orch.choose(cfg, providers)
-    try:
-        own = config.load_session(cfg, like, required=False) if like else None
-    except config.Error:
-        own = None            # one that no longer reads: the last creation's, as with none
-    _notes, selected = orch.default_crew(cfg, providers, default, own)
+    _notes, selected = orch.default_crew(cfg, providers, default)
     # every model spent: launched anyway, as `orch.choose` launches its default
     selected["orchestrator"] = selected["orchestrator"] or default
     selected["reviewers"] = selected["reviewers"] or [selected["orchestrator"]]
-    return {"cfg": cfg, "typed": "", "like": like, "own": own, "repo": home and home["checkout"],
-            "taken": orch.taken_names(found), "providers": providers, "selected": selected,
-            "default": default, "reason": reason}
+    return {"cfg": cfg, "typed": "", "repo": None, "taken": orch.taken_names(found),
+            "providers": providers, "selected": selected, "default": default, "reason": reason}
 
 
 def born_groups(groups, born):
@@ -2079,13 +2070,12 @@ def born_refusal(born):
 
 
 def born_lines(info, room):
-    """What the born row opens under itself: who will build and review (`crew`) and whose they
-    are -- or, amber on lines of its own, wrapped whole for a phone, why Enter makes nothing."""
-    born, refusal = info["born"], born_refusal(info["born"])
+    """What the born row opens under itself: who will build and review (`crew`) -- or, amber on
+    lines of its own, wrapped whole for a phone, why Enter makes nothing."""
+    refusal = born_refusal(info["born"])
     if refusal:
         return [terminal.styled(line, "amber") for line in terminal.wrap(refusal, room)]
-    line = "   ".join(part for part in (crew(info), born["like"] and terminal.styled(
-        f"as in {born['like']}", "dim")) if part)
+    line = crew(info)
     return [line if terminal.cells(line) <= room else terminal.cut(line, room)]
 
 
@@ -2110,8 +2100,8 @@ def born_key(born, key, drawn):
 
 def born_models(born):
     """Tab on the born row: its models chosen on `orch.pick`'s screen, which starts from the
-    seat the row's crew is as -- "start" with Enter there, None with Esc, back to the row."""
-    picked = orch.pick(born["cfg"], born["providers"], born["default"], born["own"])
+    last creation's -- "start" with Enter there, None with Esc, back to the row."""
+    picked = orch.pick(born["cfg"], born["providers"], born["default"])
     if picked is None or picked is orch.BACK:
         return None
     born["selected"] = dict(zip(("orchestrator", "workers", "reviewers"), picked))
@@ -5002,7 +4992,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 continue
             if key == "n" and drawn is not None and cfg:
                 try:
-                    newborn = born(cursor, groups, found)     # typed where it will be
+                    newborn = born(found)     # typed where it will be
                 except Back:
                     pass
                 except config.Error as exc:

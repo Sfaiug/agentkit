@@ -30,6 +30,11 @@ readings.harnesses = {harness: f"{harness} is not logged in" for harness in ("cl
 menu.usage.collect = lambda cfg, **kwargs: readings
 """
 
+# /c/acme a project's checkout, which only a checkout under ~/code is otherwise
+ACME = """
+orch.checkout_of = lambda repo, stands=None: Path(repo) if repo else None
+"""
+
 
 def seat(name, number, repo=None):
     return {"number": str(number), "name": name, "orchestrator": "opus", "count": "working",
@@ -49,6 +54,26 @@ class Keys(unittest.TestCase):
         shown.frame(lambda lines: "fix-api▏" in shown.highlighted(lines), keys="esc back")
         mark = shown.mark()
         shown.send(ENTER)
+        shown.saw("<made fix-api under None by ", "<opened fix-api>", after=mark)
+        shown.leave()
+
+    def test_n_starts_under_no_project_whatever_the_highlight_is_on(self):
+        filed = CHILD.replace('{"name": name, "repo": None,',
+                              '{"name": name, "repo": "/c/acme" if name == "alpha" else None,'
+                              ).replace("sys.exit(menu.loop(", ACME + "sys.exit(menu.loop(")
+        with patch.object(test_close_and_info, "CHILD", filed):
+            shown = Menu(self, {"alpha": "working", "beta": "working"})
+        lines = shown.frame()
+        self.assertIn("alpha", shown.highlighted(lines))           # a seat of acme's
+        shown.send(b"n")
+        lines = shown.frame(keys="esc back")
+        row = lines.index(shown.highlighted(lines))
+        self.assertIn("a name, or", lines[row])
+        heading = next(line for line in reversed(lines[:row]) if line and line[0] not in " ›")
+        self.assertEqual(heading.strip(), "no project")
+        self.assertNotIn("as in", "\n".join(lines))                 # nor alpha's crew
+        mark = shown.mark()
+        shown.send(b"fix-api" + ENTER)
         shown.saw("<made fix-api under None by ", "<opened fix-api>", after=mark)
         shown.leave()
 
@@ -92,7 +117,7 @@ class Row(unittest.TestCase):
         groups = ([{"name": "acme", "checkout": acme, "seats": [seat("fix-api", 1, acme)]},
                    {"name": "docs", "checkout": docs, "seats": [seat("blog", 2, docs)]}],
                   [], 0, {})
-        born = {"typed": "", "like": "fix-api", "repo": acme, "taken": set(), "selected": {
+        born = {"typed": "", "repo": acme, "taken": set(), "selected": {
             "orchestrator": "opus", "workers": ["astra"], "reviewers": ["fable"]}}
         ordered, *_ = menu.born_groups(groups, born)
         self.assertEqual([[(info["number"], info["name"]) for info in project["seats"]]
