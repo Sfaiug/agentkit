@@ -1067,14 +1067,13 @@ def _remember_card(event, previous=None):
 
 def _send_card(session, kind, card, answer, completion=None):
     """Queue once under the session lock; the outbox owns any further attempts.  A done
-    covers `completion`, else what the seat's done declared."""
+    covers `completion`."""
     previous = last(session, include_seen=True)
     text = answer["reason"]
     # the seat's word shows its notice on one line; the card carries the notice as written
     if previous and ((kind == "done" and previous["kind"] == "done")
                      or " ".join(str(previous["text"]).split()) == text):
         text = previous["text"]
-    completion = completion or (previous.get("completion") if previous else None)
     payload = card_payload(kind, session)
     key = hashlib.sha256(json.dumps(["card", card["episode"], sink() is not None]).encode()).hexdigest()
     with outbox_lock():
@@ -1160,21 +1159,21 @@ def _done_events(session):
             continue
 
 
-def _carded(session, declared):
-    """The existing done receipt covering this declaration, if any.
+def _carded(session, completion, declared=None):
+    """The existing done receipt covering this work, if any.
 
     Recorded identities compare the checked work through later handbacks and renames.
-    Identity-free receipts keep their text/time comparison: their original work cannot
-    be reconstructed from a plan that has since changed.
+    Identity-free receipts keep their text/time comparison with the declaration: their
+    original work cannot be reconstructed from a plan that has since changed.
     """
-    stamp = declared.get("time")
-    if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
-        return None
+    stamp = (declared or {}).get("time")
+    dated = isinstance(stamp, (int, float)) and not isinstance(stamp, bool)
     for event in _done_events(session):
         try:
-            same = (event.get("completion") == declared["completion"]
-                    if event.get("completion") and declared.get("completion") else
-                    event.get("text") == declared["text"] and event.get("created_at", 0) >= stamp)
+            same = (event.get("completion") == completion
+                    if event.get("completion") and completion else
+                    dated and event.get("text") == declared["text"]
+                    and event.get("created_at", 0) >= stamp)
             if same:
                 return event
         except (TypeError, KeyError):
@@ -1233,11 +1232,12 @@ def needs_transition(session, card, answer, now, seat=None):
     return _send_card(session, "needs", card, answer)
 
 
-def done_transition(session, card, answer, now):
+def done_transition(session, card, answer, now, completion):
     """One completion when the state function says done, after editing open questions.
 
-    Never for an episode that is history, a seat the owner closed himself, or a declaration
-    already carded -- which latches this episode as sent, so the outbox is read once.
+    Never for an episode that is history, a seat the owner closed himself, work already
+    carded -- which latches this episode as sent, so the outbox is read once -- or a done
+    nobody declared that covers none of the seat's verified work (`completion`).
     """
     from . import watch
     if card.get("sent") or _history(card) or watch.seat_closed_by_owner(session):
@@ -1248,17 +1248,15 @@ def done_transition(session, card, answer, now):
     declared = last(session, include_seen=True)
     if not (declared and declared["kind"] == "done" and not declared.get("seen")):
         declared = None
-    # a done its plan reads, nobody declaring it, covers the plan's verified work
-    completion = declared.get("completion") if declared else _completion(session)
-    receipt = _carded(session, declared) if declared else None
-    if (completion and card.get("completed") == completion) or receipt:
+    receipt = _carded(session, completion, declared)
+    if (completion and card.get("completed") == completion) or receipt or not (completion or declared):
         card["sent"] = True
         if receipt and receipt.get("completion"):
             card["completed"] = receipt["completion"]
         _card_write(session, card)
         return 0
-    if declared is None:
-        _intent(session, now)
+    if not (declared and declared.get("completion") == completion):
+        _intent(session, now)     # work the plan proved since any declaration: nobody declared it
     return _send_card(session, "done", card, answer, completion)
 
 
@@ -1323,8 +1321,9 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
                 since = max(since, asked)
                 if began is not None:
                     began = max(began, asked)
-            completion = (declared.get("completion") if declared and declared["kind"] == "done"
-                          else _completion(name) if word == "done" else None)
+            # a done covers the seat's verified work now, whoever declared it or none did
+            completion = ((_completion(name) or (declared or {}).get("completion"))
+                          if word == "done" else None)
             if card.get("word") != word or (
                     word == "done" and completion and card.get("completed") and card.get("sent")
                     and card.get("completed") != completion):
@@ -1347,7 +1346,7 @@ def transition(session, answer=None, now=None, dry_run=False, log=print, seat=No
             if word == "needs you":
                 return needs_transition(name, card, answer, at, seat)
             if word == "done":
-                return done_transition(name, card, answer, at)
+                return done_transition(name, card, answer, at, completion)
         return 0
     except (OSError, ValueError, config.Error) as exc:
         log(f"WARN card transition for {session} failed ({type(exc).__name__}); retry required")
