@@ -1286,6 +1286,12 @@ def record_decision(run_dir, state, reason, merged=False):
     return state
 
 
+def live_line(state, run_dir):
+    """The live notice shared by a prompt's context and the tick's typed delivery."""
+    return seat_notice(f"run {run_dir.name} is live: {state['pr']}.", state, run_dir,
+                       f"run {run_dir.name} is live.")
+
+
 def handback_line(state, run_dir, cfg=None):
     """The one line a finished run types into the seat that launched it.
 
@@ -1394,13 +1400,14 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
 
 
 def riding(session):
-    """The deferred hand-backs a prompt starting a turn in `session` carries, told as it does.
+    """The deferred run notices a prompt starting a turn in `session` carries, told as it does.
 
     A hand-back waits for a quiet prompt, but a seat can start its next turn first -- the
     owner's message, or another ending typed -- and find the run ended by itself; the line
     typed after that turn was old news, one turn each (19 Oct: 40 minutes late, and a seat
     fed 30 endings a turn at a time).  So every ending still waiting for this seat goes with
-    the prompt that does start one, and is told for good.  One whose lock is held is being
+    the prompt that does start one, and is told for good.  A merged change's live notice
+    still owed to this seat goes with it too.  One whose lock is held is being
     typed this moment, perhaps as this very prompt, and one whose line waits in the composer
     for its Enter is the typed path's: both are left to it.  The prompt never waits: a held
     lock is passed over, and its checkout goes with the sweep, never here.
@@ -1409,19 +1416,26 @@ def riding(session):
     for run_dir in run_record.run_dirs():
         try:
             state = run_record.read_state(run_dir)
-            if (not state or not state.get("handback_pending") or state.get("handback_typed")
-                    or transitions.launched_session(state) != session):
+            if (not state or transitions.launched_session(state) != session
+                    or not (state.get("handback_pending")
+                            or state.get("live_at") and not state.get("live_notified"))):
                 continue
             with delivery_lock(run_dir, wait=False) as held:
                 said = held and run_record.read_state(run_dir)
-                if (not said or not same_attempt(state, said) or already_handed_back(said)
-                        or not said.get("handback_pending") or said.get("handback_typed")):
+                if not said or not same_attempt(state, said):
                     continue
-                line = handback_line(said, run_dir)
-                if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
-                                 handback_pending=None, handback_note=None,
-                                 handback_wait_reason=None, notification_pending=None):
-                    lines.append(line)
+                if (said.get("handback_pending") and not said.get("handback_typed")
+                        and not already_handed_back(said)):
+                    line = handback_line(said, run_dir)
+                    if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
+                                     handback_pending=None, handback_note=None,
+                                     handback_wait_reason=None, notification_pending=None):
+                        lines.append(line)
+                if (said.get("merged") and said.get("live_at") and not said.get("live_notified")
+                        and not said.get("live_typed") and not seat_owes_nothing(said)):
+                    line = live_line(said, run_dir)
+                    if mark_delivery(run_dir, said, live_notified=time.time()):
+                        lines.append(line)
         except (config.Error, OSError, ValueError, KeyError, TypeError):
             continue        # left waiting: the tick types it at the next quiet prompt
     if not lines:

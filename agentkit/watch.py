@@ -6375,34 +6375,37 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes)
         else:
             return "failed", f"health: {command}", (
                 f"{pr_url}\n{health.get('output') or 'command exited nonzero without output'}")
-    if not dry_run:
-        history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
-    if not st.get("live_notified"):
-        line = f"run {run_dir.name} is live: {pr_url}."
-        if dry_run:
-            log(f"would tell its launching seat: {line}")
+    if dry_run:
+        if not st.get("live_notified"):
+            log(f"would tell its launching seat: run {run_dir.name} is live: {pr_url}.")
+        return "passed", None, None
+    history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
+    # A prompt may have carried the notice since this tick read the run. The deciding,
+    # typing and mark share its delivery lock, so either path tells it once.
+    with handback.delivery_lock(run_dir):
+        current = run_record.read_state(run_dir)
+        if (not current or not handback.same_attempt(st, current)
+                or current.get("live_notified")):
             return "passed", None, None
+        st.clear()
+        st.update(current)
+        line = f"run {run_dir.name} is live: {pr_url}."
         session = transitions.launched_session(st)
         if handback.seat_owes_nothing(st):
             # no turn of its seat's waits on this (`awaiting_live`), a repair's included:
             # recorded, never typed, and a line an earlier pass typed and never saw sent is sent
             if handback.finish_typed(session, st.get("live_typed"), log):
-                with run_record.record(run_dir) as current:
-                    current["live_notified"] = now
-                    current.pop("live_typed", None)
+                handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
                 log(f"{line} Recorded, not typed")
             return "passed", None, None
         seat = orch.find(session)
         if after_merge_live(seat):
             def kept(mark):
-                with run_record.record(run_dir) as current:
-                    current["live_typed"] = mark
+                handback.mark_delivery(run_dir, st, live_typed=mark)
 
-            line = handback.seat_notice(line, st, run_dir, f"run {run_dir.name} is live.")
+            line = handback.live_line(st, run_dir)
             if type_at_prompt(seat, line, log, typed=st.get("live_typed"), receipt=kept):
-                with run_record.record(run_dir) as current:
-                    current["live_notified"] = now
-                    current.pop("live_typed", None)
+                handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
                 log(f"told the {seat['name']} seat: {line}")
     return "passed", None, None
 
