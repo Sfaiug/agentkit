@@ -180,7 +180,7 @@ class WaitHistory(unittest.TestCase):
             flock(holder, fcntl.LOCK_EX)
 
             def take_lock(lock, operation):
-                if operation == fcntl.LOCK_EX and lock.name == str(turn):
+                if operation == fcntl.LOCK_EX and getattr(lock, "name", None) == str(turn):
                     self.clock[0] += 20
                     flock(holder, fcntl.LOCK_UN)
                 return flock(lock, operation)
