@@ -1287,6 +1287,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                                                             lp.review_sid, lp.log,
                                                             lp.turn_limit,
                                                             handover=handover, findings=listed,
+                                                            base=lp.base_sha,
                                                             **resume)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
