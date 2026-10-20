@@ -2708,12 +2708,13 @@ CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
+               "for": ("↑↓←→ move   ⏎ choose", "arrows move   enter choose"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open")}
-# What another model's orchestrator mark asks of a seat, and what moving means.
-MOVE_ASK = ("Move {} to {}?",
-            "Its conversation starts again on {}, handed its plan, its runs and the last "
-            "exchange; its runs keep going.")
+# Whom `c`'s marks are for, the For row's first scope: [defaults], what the next `n` starts
+# from; then each open seat by name, its own record.
+FOR_SCOPES = ("new seats",)
+FOR_ROW = ("for", "For")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2788,7 +2789,7 @@ def take_advice(cfg, name, selected, providers, found):
     at the entry's effort or at none leaves it following the effort, _follows), saved to the
     config (_saved) and then to the seat's record at once as a flipped mark is (marks_saved);
     a config that cannot be saved changes no mark and says why.  The orchestrator is only
-    said, since moving the seat is the owner's (the orchestrator mark asks first).  What to
+    said, since moving the seat is its orchestrator mark's.  What to
     say under the rows, or ""."""
     taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN}
     if not any(model for model, _ in taken.values()):
@@ -3066,8 +3067,19 @@ def models_screen(cfg, session, selected, providers, held):
                     shown[key] = taken[min(max(at + step, 0), len(taken) - 1)]
 
 
+def for_parts(scope):
+    """The For row's words for `scope` (FOR_SCOPES or a seat's name): what comes before it, it,
+    and what comes after, an arrow either side."""
+    left, right = ("‹", "›") if terminal.utf8() else ("<", ">")
+    return f"For  {left} ", scope, f" {right}"
+
+
+def for_text(scope):
+    return "".join(for_parts(scope))
+
+
 def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
-                lit=None):
+                lit=None, scope=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name, a line each: label, the three role
@@ -3086,6 +3098,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     the cell on it the keys act on.  `cells` are a model row's (first, last,
     column), for a click, counted from 1 as the terminal counts. On a phone the cells give
     way, then the label.
+    A `scope` -- `new seats`, whose `selected` is [defaults], or a seat's name -- is the For row
+    over the headings (for_text), FOR_ROW: its `‹` a cell of its own (-2), the rest one (-3).
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -3116,6 +3130,17 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
+    if scope is not None:
+        # the scope cut, never its arrows or `For`, to the screen's width
+        pointer, named, end = for_parts(terminal.cut(
+            scope, max(1, room - 2 - terminal.cells(for_text("")))))
+        line = ("  " + terminal.styled(pointer, "dim")
+                + terminal.styled(named, "reverse" if at == FOR_ROW else "bold")
+                + terminal.styled(end, "dim"))
+        # counted from 1, past the two spaces: `‹` alone, then the scope through `›`
+        places[0] = (FOR_ROW, [(len(pointer) + 1, len(pointer) + 1, -2),
+                               (len(pointer) + 3, 2 + terminal.cells(pointer + named + end), -3)])
+        lines.insert(0, terminal.highlight(line) if at == FOR_ROW else line)
     for provider in dict.fromkeys(models[name]["provider"] for name in names):
         lines.append(model_heading(cfg, provider))
         for name in (name for name in names if models[name]["provider"] == provider):
@@ -3402,14 +3427,16 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
 
 
 @terminal.clicks_its_own
-def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note=""):
+def config_matrix(cfg, keyboard, version, session=None, selected=None, providers=None, note="",
+                  seats=()):
     """The `c` screen read with the keys until Esc; the config as it left it, each
     subscription's meter over its page (config_meters).
 
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
-    a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
+    a click flips one (for_mark), the orchestrator moving the seat at once, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
-    and one refused shaking (motion.toggled).  With no session there are no marks.
+    and one refused shaking (motion.toggled).  The For row over them turns, with ←/→, Enter or
+    a click (`‹` back), to new seats, whose marks are [defaults], or to another of `seats`.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved and drawn
@@ -3432,24 +3459,28 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     """
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
-    columns = (0, 1, 2, 3) if selected else (3,)    # the marks, the effort
-    title = f"config · {session}" if selected else "config"
-    here, column, top, clock = None, columns[0], 0, motion.Clock(page=True)
+    scopes = for_scopes(seats, session)
+    scope = scopes.index(session) if session else 0
+    if not session:
+        selected = for_selected(cfg, scopes[0])[0]
+    here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
-        found = advice(cfg, held) if selected else None   # against the config as it stands
+        columns = (0, 1, 2, 3) if selected else (3,)    # the marks, the effort
+        # what `r` recommends is a seat's to take, against the config as it stands
+        found = advice(cfg, held) if selected and scopes[scope] not in FOR_SCOPES else None
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         subs, spans = usage_rows(cfg), {}
         over, meters = config_meters(cfg, lit, subs, spans)
         models = [*(("model", name) for name in config.offered(cfg)),
                   *(("row", row) for row in CONFIG_ROWS)]
-        rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
+        rows = [cell for _, cells in meters.values() for *_, cell in cells] + [FOR_ROW, *models]
         here = here if here in rows else models[0]    # the highlight is the row itself
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # onto a row without marks
-        where = ("row" if here[0] in ("row", "usage") else "effort" if column == 3
-                 else "mark")
+        where = ("for" if here == FOR_ROW else "row" if here[0] in ("row", "usage")
+                 else "effort" if column == 3 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
@@ -3457,16 +3488,21 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
                  for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves, subs, lit)
+                                   selected, providers, moves, subs, lit, scopes[scope])
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
                                                        note_lines(told), keys, moves)
-        act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
+        act, here, clicked, top = matrix_key("config", body, places, rows, here, top,
                                             told, keys, marks=3,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters)
-        column = column if clicked is None else clicked
+        if here == FOR_ROW and act in ("left", "right", "enter", "space"):
+            # turned, round the ends: ← and a click on `‹` back, the rest forward
+            scope = (scope + (-1 if act == "left" or clicked == -2 else 1)) % len(scopes)
+            selected, note = for_selected(cfg, scopes[scope])
+            continue
+        column = column if clicked is None or here == FOR_ROW else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
         note = ""
@@ -3474,7 +3510,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             return cfg
         if act == "r" and found:
             clock.forget()            # another screen: the matrix back from it replays nothing
-            models_screen(cfg, session, selected, providers, held)
+            models_screen(cfg, scopes[scope], selected, providers, held)
             continue
         if act in ("enter", "space") and here[0] in ("row", "usage"):
             clock.forget()            # another screen: the matrix back from it replays nothing
@@ -3503,10 +3539,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             at = columns.index(column) + (1 if act == "right" else -1)
             column = columns[min(max(at, 0), len(columns) - 1)]
         elif act in ("enter", "space") and column < 3:
-            if column == 0 and here[1] != selected.get("orchestrator") and not move_asked(
-                    cfg, session, selected, providers, here, column, top, title):
-                continue              # kept: the seat stays on its model
-            note = session_mark(cfg, session, selected, here[1], column, providers)
+            note = for_mark(cfg, scopes[scope], selected, here[1], column, providers)
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act in ("enter", "space") or isinstance(act, int):     # the effort column
@@ -4135,14 +4168,14 @@ def config_audit(cfg):
     config_page("weekly audit", page)
 
 
-def show_config(dry_run=False, keyboard=None, session=None):
+def show_config(dry_run=False, keyboard=None, session=None, seats=()):
     """`c`: every model in one matrix of `session`'s roles -- the seat highlighted on the main
     screen, read from its own record -- and the efforts, under each subscription's meter, then
     `Models`, `Subscriptions`, `Discord` and `Weekly audit`, agentkit's build under
     them, read with the menu's keyboard (config_matrix), so nothing is typed.
-    On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
-    and so it is for a record that will not read, saying so under the rows: the screen that
-    changes the models still opens.
+    On a heading, with no seats, or for a seat with no record, the marks are new seats', and a
+    record that will not read has the efforts alone, saying so under the rows: the screen that
+    changes the models still opens.  `seats` are the open ones the For row turns to.
 
     Providers, models, efforts and the two Discord secrets live here, the way they live in
     ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's
@@ -4158,42 +4191,70 @@ def show_config(dry_run=False, keyboard=None, session=None):
             keyboard.give()
         pause(f"config: {exc}")
         return None
-    try:
-        selected, note = (config.load_session(cfg, session, required=False)
-                          if session else None), ""
-    except config.Error as exc:
-        selected, note = None, f"{session}'s roles are not shown: {exc}"
-    try:                      # what a flip is refused on, and spent; Esc while it is read
-        providers = waited(lambda: usage.collect(cfg), f"config · {session}",
-                           keyboard=keyboard, doing=LEFT) if selected else {}
+    # a seat made by hand has no record to give models to
+    seats = [name for name in seats if config.session_path(name).is_file()]
+    selected, note = for_selected(cfg, session or FOR_SCOPES[0])
+    if selected is None and not note:     # a seat with no record has no marks to show
+        session, selected = None, for_selected(cfg, FOR_SCOPES[0])[0]
+    try:                      # what a seat's flip is refused on, and spent; Esc while it is read
+        providers = waited(lambda: usage.collect(cfg), "config", keyboard=keyboard,
+                           doing=LEFT) if session or seats else {}
     except Back:
         return cfg
     # one git call a visit, not a draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
-        terminal.frame(f"config · {session}" if selected else "config",
+        terminal.frame("config",
                        [*config_meters(cfg)[0],
-                        *config_body(cfg, selected=selected, providers=providers)[0],
-                        *note_lines(f"Version {version or '?'}")],
+                        *config_body(cfg, selected=selected, providers=providers,
+                                     scope=session or FOR_SCOPES[0])[0],
+                        *note_lines("\n".join(filter(None, (f"Version {version or '?'}",
+                                                            note))))],
                        "esc back")
         return cfg
-    return config_matrix(cfg, keyboard, version, session, selected, providers, note)
+    return config_matrix(cfg, keyboard, version, session, selected, providers, note, seats)
 
 
-def move_asked(cfg, session, selected, providers, here, column, top, title):
-    """Whether `Move` was picked on the card the orchestrator mark of another model asks on,
-    drawn under the rows of the config screen as it stands, the page from `top` giving the card
-    its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
-    loses its conversation to a handover, so the mark asks first, as `Remove` does."""
-    def around(card):     # the screen around the card, drawn again on a resize
-        over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-            cfg, here, column, selected, providers), card, "esc back")
-        first, room = matrix_page(body, places, here, top, card, "esc back", over)
-        shown = body[first:first + room]
-        terminal.frame(title, [*over, *shown, *card], "esc back")
-        return 3 + len(over) + len(shown)
-    return terminal.confirm(MOVE_ASK[0].format(session, here[1]), MOVE_ASK[1].format(here[1]),
-                            "Move", around)
+def for_scopes(seats, session=None):
+    """Whom the For row turns through: FOR_SCOPES, then `session` and the rest of `seats` on
+    down the main screen from it, round the end -- so ← from the seat `c` opened on is always
+    new seats, however many seats are open."""
+    seats = [*dict.fromkeys(name for name in (*seats, session) if name)]
+    at = seats.index(session) if session else 0
+    return [*FOR_SCOPES, *seats[at:], *seats[:at]]
+
+
+def for_selected(cfg, scope):
+    """The marks `c` shows for the For row's `scope`, and what to say about them: [defaults]
+    for FOR_SCOPES, else that seat's record -- None for one with none, and for one that will
+    not read, said so."""
+    if scope in FOR_SCOPES:
+        return copy.deepcopy(cfg["defaults"]), ""
+    try:
+        return config.load_session(cfg, scope, required=False), ""
+    except config.Error as exc:
+        return None, f"{scope}'s roles are not shown: {exc}"
+
+
+def for_mark(cfg, scope, selected, model, column, providers):
+    """Act on one of `c`'s marks for whom the For row says, at once and asking nothing.
+
+    New seats: [defaults], saved (config.remember_defaults) and into `cfg` and `selected`; no
+    open seat changes.  A seat: its record (session_mark), the orchestrator moving it there
+    and then.  What to say under the rows, or "".
+    """
+    if scope not in FOR_SCOPES:
+        return session_mark(cfg, scope, selected, model, column, providers)
+    # a new seat's crew is read as it is made (orch.default_crew), so nothing now refuses one
+    changed, note = orch.role_mark(cfg, selected, model, column, {})
+    if note or changed == selected:
+        return note
+    note = config.remember_defaults(changed)
+    if note:
+        return f"config: {note}"
+    cfg["defaults"] = copy.deepcopy(changed)
+    selected.update(changed)
+    return ""
 
 
 def session_mark(cfg, name, selected, model, column, providers):
@@ -4201,7 +4262,7 @@ def session_mark(cfg, name, selected, model, column, providers):
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
-    under the same name (the screen has asked first, `move_asked`), and a harness that is not installed or not logged in, or a meter
+    under the same name, asking nothing, and a harness that is not installed or not logged in, or a meter
     that is spent, is refused in one line with the seat as it was, and so is a record naming
     a model removed on this screen. Reviewers keep one model, executors may be empty, and a
     flip leaving no allowed pair is refused. A run launched afterwards reads the record as
@@ -4427,6 +4488,13 @@ def show_features(checkout, dry_run=False):
             flipped = ("mark", here[1], column)
             flip = Fetch(lambda feature=here[1], column=column:
                          features_flip(checkout, feature, column))
+
+
+def open_seats(found):
+    """The names of the seats among `found` that are up, in their order: none the owner
+    stopped, none whose harness has ended (orch.CLOSED)."""
+    return [session["name"] for session in found if not session.get("closed")
+            and not any(session.get(key) for key in orch.CLOSED)]
 
 
 def past_offered(found):
@@ -4870,7 +4938,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             elif key == "c":
                 # read with the keys, too; the looks and probes go on with what it saved
                 cfg = live.cfg = show_config(dry_run, keyboard,
-                                             seat if isinstance(seat, str) else None) or cfg
+                                             seat if isinstance(seat, str) else None,
+                                             open_seats(found)) or cfg
             elif key == "p" and past:
                 show_past(cfg, found, dry_run, keyboard)    # read with the keys, too
             elif key in ("j", "k") and pages > 1:

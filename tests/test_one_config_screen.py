@@ -1,7 +1,6 @@
 """`c` is the one model screen: on a seat its matrix holds that seat's own roles, flipped and
 saved to its record, and its row and the next run it starts read the same record; on a heading
-only the efforts show; `m` is no key; and `n` starts from what the last session was created
-with, the one thing that writes `[defaults]`.
+its marks are new seats', `[defaults]`; `m` is no key; and `n` starts from `[defaults]`.
 
 Each test runs `menu.loop` in a child process on a pty of its own, the way
 tests/test_session_models_screen.py does, in a temporary HOME holding the shipped config, the
@@ -238,8 +237,8 @@ class OneConfigScreen(unittest.TestCase):
         self.assertIn("fix-api", highlighted(lines))
         self.assertIn("opus", highlighted(lines).split())
         defaults = menu.defaults()
-        lines = menu.press(b"c", title("config · fix-api"))
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        lines = menu.press(b"c", title("config"))
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(marks(model(lines, "opus")), "●■□")
         self.assertEqual(marks(model(lines, "astra")), "○■■")
         # fable executes, then opus and astra stop: fable alone executes, astra alone reviews
@@ -248,8 +247,8 @@ class OneConfigScreen(unittest.TestCase):
         menu.press(DOWN + ENTER + DOWN + ENTER,
                    lambda lines: marks(model(lines, "astra")) == "○□■")
         self.assertEqual(menu.record()["workers"], ["fable"])
-        # and fable takes the seat, once Move is picked on the card the mark asks on
-        lines = menu.press(UP * 2 + LEFT + ENTER + DOWN + ENTER,
+        # and fable takes the seat at once, asking nothing
+        lines = menu.press(UP * 2 + LEFT + ENTER,
                            lambda lines: marks(model(lines, "fable")) == "●■□")
         self.assertEqual(marks(model(lines, "opus")), "○□□")
         record = menu.record()
@@ -268,7 +267,7 @@ class OneConfigScreen(unittest.TestCase):
     def test_a_refusal_is_one_line_and_leaves_the_record_alone(self):
         menu = Menu(self, down="claude")
         menu.screen()
-        menu.press(b"c", title("config · fix-api"))
+        menu.press(b"c", title("config"))
         menu.press(DOWN + RIGHT + RIGHT + SPACE,          # opus joins the reviewers
                    lambda lines: marks(model(lines, "opus")) == "●■■")
         # Claude is down in this child, so astra leaving executes leaves no runnable
@@ -291,8 +290,8 @@ class OneConfigScreen(unittest.TestCase):
         cfg = tomllib.loads(shipped)
         del cfg["models"]["opus"]                         # removed while fix-api orchestrates on it
         menu.config.write_text(config.dump(cfg))
-        lines = menu.press(b"c", title("config · fix-api"))
-        self.assertEqual(lines[2].split(), ["orch", "builds", "reviews", "effort"])
+        lines = menu.press(b"c", title("config"))
+        self.assertEqual(lines[3].split(), ["orch", "builds", "reviews", "effort"])
         self.assertEqual(marks(model(lines, "astra")), "○■■")   # its roles, off what is left
         self.assertEqual(marks(model(lines, "fable")), "○□□")
         self.assertFalse(any("●" in marks(line) for line in lines), lines)
@@ -303,16 +302,17 @@ class OneConfigScreen(unittest.TestCase):
         menu.config.write_text(shipped)                   # for the pick the child ends on
         menu.leave()
 
-    def test_on_a_heading_only_the_efforts_show(self):
+    def test_on_a_heading_the_marks_are_new_seats(self):
         menu = Menu(self)
         menu.screen()
         lines = menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
                            and "ACME" in highlighted(lines))
         lines = menu.press(b"c", title("config"))
-        self.assertEqual(lines[2].split(), ["effort"])
-        self.assertEqual(model(lines, "fable").split(), ["›", "fable", "▰▰▰▰▱", "xhigh"])
-        self.assertFalse(any(marks(line) for line in lines), lines)
-        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ effort   esc back")
+        self.assertEqual(lines[2].split(), ["For", "‹", "new", "seats", "›"])
+        # the shipped [defaults]: opus orchestrates, and it and astra build and review
+        self.assertEqual([marks(model(lines, name)) for name in ("fable", "opus", "astra")],
+                         ["○□□", "●■■", "○■■"])
+        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         menu.press(ESC)
         menu.leave()
 
@@ -344,7 +344,8 @@ class OneConfigScreen(unittest.TestCase):
             'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
         elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
         self.assertEqual(menu.defaults(), elsewhere)
-        menu.press(ENTER, lambda lines: model(lines, "fable").endswith(" max"))   # an effort saved
+        menu.press(RIGHT * 3 + ENTER,                     # an effort saved
+                   lambda lines: model(lines, "fable").endswith(" max"))
         self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["fable"]["effort"],
                          "max")
         self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before

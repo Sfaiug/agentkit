@@ -203,13 +203,15 @@ class Matrix(unittest.TestCase):
     def test_the_screen_is_the_models_under_their_providers_then_four_rows(self):
         screen = Screen(self)
         lines = screen.frame()
-        self.assertTrue(lines[0].startswith("agentkit · config · fix-api "), lines[0])
+        self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
+        # whom the marks are for, over their headings: the seat it was opened on
+        self.assertEqual(lines[headings(lines) - 1].split(), ["For", "‹", "fix-api", "›"])
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews", "effort"])
         # each subscription's meter over the models, as on the main screen, once
-        meters = " ".join(" ".join(lines[2:headings(lines)]).split())
+        meters = " ".join(" ".join(lines[2:headings(lines) - 1]).split())
         for name in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertEqual(meters.count(f"{name} — no reading yet"), 1, meters)
-        self.assertEqual(lines[headings(lines) - 1], "")
+        self.assertEqual(lines[headings(lines) - 2], "")
         body = "\n".join(lines)
         for heading in ("Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"):
             self.assertIn(f"\n{heading}\n", body)
@@ -233,17 +235,15 @@ class Matrix(unittest.TestCase):
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
         self.assertNotIn("<harness version>", screen.text())
 
-    def test_without_a_session_the_matrix_is_the_efforts_alone(self):
+    def test_without_a_session_the_marks_are_new_seats(self):
         screen = Screen(self, session=None)
         before = screen.path.read_bytes()
         lines = screen.frame()
         self.assertTrue(lines[0].startswith("agentkit · config "), lines[0])
-        self.assertEqual(lines[headings(lines)].split(), ["effort"])
-        self.assertEqual(row(lines, "fable")[1].split(), ["›", "fable", "▰▰▰▰▱", "xhigh"])
-        self.assertEqual(lines[-1], EFFORT_KEYS)          # the effort is the first cell
-        self.assertFalse(any(mark in line for line in lines for mark in "●○■□"), lines)
-        # the effort is the one column: neither arrow leaves it
-        lines = screen.press(LEFT + RIGHT, lambda lines: lines[-1] == EFFORT_KEYS)
+        self.assertEqual(lines[headings(lines) - 1].split(), ["For", "‹", "new", "seats", "›"])
+        self.assertEqual(row(lines, "opus")[1].split()[1:4], ["●", "■", "■"])
+        self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
+        lines = screen.press(RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
@@ -267,20 +267,15 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         self.assertEqual("\n".join(lines).count("●"), 1)
-        # another model's mark asks first: Esc keeps the seat, Move moves it
-        lines = screen.press(ENTER, lambda lines: "Move fix-api to fable?" in "\n".join(lines))
-        self.assertIn(menu.MOVE_ASK[1].format("fable")[:40], " ".join(lines))
-        lines = screen.press(ESC, lambda lines: "Move fix-api" not in "\n".join(lines))
-        self.assertEqual(screen.record()["orchestrator"], "opus")
-        lines = screen.press(ENTER + DOWN + ENTER, lambda lines: "●" in row(lines, "fable")[1])
+        # another model's mark moves the seat at once, asking nothing
+        lines = screen.press(ENTER, lambda lines: "●" in row(lines, "fable")[1])
         self.assertEqual("\n".join(lines).count("●"), 1)
         self.assertEqual(screen.record()["orchestrator"], "fable")
         before = screen.session.read_bytes()
         lines = screen.press(b" ")                        # the one there is cannot be unmarked
         self.assertIn("●", row(lines, "fable")[1])
         self.assertEqual(screen.session.read_bytes(), before)
-        lines = screen.press(DOWN * 3 + ENTER + DOWN + ENTER,
-                             lambda lines: "●" in row(lines, "astra")[1])
+        lines = screen.press(DOWN * 3 + ENTER, lambda lines: "●" in row(lines, "astra")[1])
         self.assertEqual("\n".join(lines).count("●"), 1)
         self.assertEqual(screen.record()["orchestrator"], "astra")
         screen.leave()
@@ -352,7 +347,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(TAB)                         # on fable's orchestrator mark
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         self.assertEqual(screen.path.read_bytes(), before)
-        screen.press(ENTER + DOWN + ENTER,                 # still that mark: its card, Move
+        screen.press(ENTER,                               # still that mark: it moves the seat
                      lambda lines: "●" in row(lines, "fable")[1])
         screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         before = screen.path.read_bytes()
@@ -372,9 +367,8 @@ class Matrix(unittest.TestCase):
         self.assertIn("astra", highlighted(lines))
         self.assertEqual(screen.record()["workers"], ["opus"])
         number, line = row(lines, "spark")
-        screen.click(line.index("○") + 1, number,          # asks first, as the key does
-                     lambda lines: "Move fix-api to spark?" in "\n".join(lines))
-        lines = screen.press(DOWN + ENTER, lambda lines: "●" in row(lines, "spark")[1])
+        lines = screen.click(line.index("○") + 1, number,  # moves the seat, as the key does
+                             lambda lines: "●" in row(lines, "spark")[1])
         self.assertEqual(screen.record()["orchestrator"], "spark")
         number, line = row(lines, "opus")                 # a click on an effort's word steps it
         lines = screen.click(line.index("xhigh") + 1, number,

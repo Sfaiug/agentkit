@@ -31,12 +31,19 @@ from unittest.mock import Mock, call, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, orch, terminal
-from test_config_matrix import Screen, headings
+from test_config_matrix import Screen
 from test_menu_keys import Menu
 from fixtures.sandbox import Sandbox
 
 ESC, RIGHT, DOWN, ENTER = b"\x1b", b"\x1b[C", b"\x1b[B", b"\r"
 Cell = namedtuple("Cell", "char lit reverse")
+
+
+def for_row(lines):
+    """Where the For row is: under the meters, over the column headings."""
+    return next(number for number, line in enumerate(lines) if line.split()[:1] == ["For"])
+
+
 FEATURES = [
     {"id": "dark", "name": "Dark mode", "you": False, "everyone": False, "you_switchable": True},
     {"id": "beta", "name": "Beta search", "you": True, "everyone": False, "you_switchable": True},
@@ -259,16 +266,16 @@ class Screens(Sandbox):
     def test_on_a_short_screen_the_meters_stay_over_every_page(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
         first, names = self.matrix()[0], config.offered(self.cfg)
-        heads = next(row for row, text in enumerate(texts(first)) if text.split()[-1:] == ["effort"])
+        scope = for_row(texts(first))           # the first of the page, under the meters
         last = self.matrix(DOWN * (len(names) - 1) + ESC)[-1]
         self.assertIn(names[-1], highlighted(last)[0])
         self.assertNotIn(names[0], "\n".join(texts(last)))
-        self.assertGreater(heads, 3)
-        self.assertEqual(texts(last)[2:heads], texts(first)[2:heads])
+        self.assertGreater(scope, 3)
+        self.assertEqual(texts(last)[2:scope], texts(first)[2:scope])
 
     def test_leaving_a_meter_clears_its_detail_and_keeps_the_keyboards_position(self):
         first = self.matrix()[0]
-        line = headings(texts(first)) - 1
+        line = for_row(texts(first)) - 1        # a meter's detail, over the page
         screens = self.matrix(move(*at(first, "Claude")), move(1, 1), RIGHT, ESC)
         details = [texts(grid)[line].strip() for grid in screens]
         self.assertIn("Claude", details[1])

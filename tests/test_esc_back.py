@@ -237,8 +237,8 @@ class EscBack(unittest.TestCase):
     def test_esc_still_goes_back_after_the_menu_is_descheduled(self):
         menu_ = Menu(self)
         menu_.screen()
-        menu_.press(b"c", title("config · alpha"))
-        menu_.press(DOWN * 30 + UP * 3, lambda lines: title("config · alpha")(lines) and any(
+        menu_.press(b"c", title("config"))
+        menu_.press(DOWN * 30 + UP * 3, lambda lines: title("config")(lines) and any(
             line.startswith("› Models") for line in lines))
         models = title("config · models")
         menu_.press(ENTER, models)
@@ -259,7 +259,7 @@ class EscBack(unittest.TestCase):
 
         with patch.object(menu_, "send", side_effect=queued):
             menu_.back("config_models", models)
-        menu_.back("config_matrix", title("config · alpha"))
+        menu_.back("config_matrix", title("config"))
         menu_.leave()
 
     def test_esc_decoder_waits_for_nothing_after_a_lone_esc(self):
@@ -284,7 +284,7 @@ class EscBack(unittest.TestCase):
     def test_the_config_screen_and_every_row_it_opens_go_back_on_esc(self):
         menu_ = Menu(self)
         menu_.screen()
-        config_ = title("config · alpha")        # the highlighted seat's
+        config_ = title("config")        # the highlighted seat's
         menu_.press(b"c", config_)
 
         menu_.press(DOWN * 30 + UP * 3, lambda lines: config_(lines) and any(
@@ -325,7 +325,7 @@ class EscBack(unittest.TestCase):
     def test_the_popup_goes_back_from_its_models_and_esc_closes_it(self):
         menu_ = Menu(self, own="alpha")
         menu_.screen()
-        config_ = title("config · alpha")        # its own seat's, wherever the highlight is
+        config_ = title("config")        # its own seat's, wherever the highlight is
         menu_.press(b"c", config_)
         menu_.back("config_matrix", config_)
         menu_.leave()
