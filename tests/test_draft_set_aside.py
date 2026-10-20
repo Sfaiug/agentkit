@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.editor_seat import EditorSeat
-from fixtures.seats import LINE, NOW, REPO
-from agentkit import aside_editor, orch, watch
+from fixtures.seats import LINE, NOW, REPO, SEAT
+from agentkit import aside_editor, config, orch, watch
 
 DRAFT = "and add these posts"
 DOCS = "The docs finished."
@@ -67,6 +67,28 @@ class DraftSetAside(EditorSeat):
                                                      cfg=self.cfg))
                 watch.drafts_back(self.cfg, lambda _: None)
                 self.assertEqual((self.sent[-1:], self.composer, self.buffers), ([line], own, {}))
+
+    def test_a_line_sent_before_is_never_the_text_where_no_prompt_hook_marks_it_sent(self):
+        # Muse's screen, and Antigravity's, whose footer drops its key hint over text typed
+        for model, name, mark, hint in (("spark", "muse", "❯", None),
+                                        ("gemini", "antigravity", ">", "? for shortcuts")):
+            with self.subTest(harness=name):
+                config.save_session(self.cfg, SEAT, model, ["astra"],
+                                    {"cwd": str(self.root), "conversation": "thread"})
+                base = (REPO / f"tests/fixtures/{name}-prompt-pane.txt").read_text()
+
+                def show(text, base=base, mark=mark, hint=hint):
+                    self.composer, self.free = text, not text
+                    self.pane = base.replace(f"{mark}\n", f"{mark} {text}\n") if text else base
+                    if text and hint:
+                        self.pane = self.pane.replace(hint, " " * len(hint))
+
+                self.show = show
+                show("")
+                self.assertTrue(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg))
+                show("Decide the next\n  step.")       # ends the way that line does
+                self.assertTrue(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg))
+                self.assertEqual((self.sent[-2:], self.composer), ([LINE, DOCS], ""))
 
     def test_text_comes_back_past_a_failed_enter_an_ignored_key_and_unread_input(self):
         self.wait_line()
