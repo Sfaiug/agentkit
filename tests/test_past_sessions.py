@@ -106,7 +106,7 @@ class Lines(unittest.TestCase):
                                               lambda repo, **_kw: repo and Path(repo)))
         self.stack.enter_context(patch.object(menu, "selection_of", lambda cfg, name: {
             "orchestrator": "opus"} if name == "omega" else None))
-        self.stack.enter_context(patch.object(menu, "past_said", lambda session: {
+        self.stack.enter_context(patch.object(menu, "past_said", lambda cfg, session: {
             "omega": ("Ship the docs site", "2 tasks · took 3 hours")}.get(
                 session["name"], ("", "took under an hour"))))
 
@@ -204,12 +204,12 @@ class Said(Sandbox):
         self.stack.enter_context(patch.object(notify, "conversation_of", return_value=(
             type("Plugin", (), {"name": "claude"}), {}, "/", "acme-thread")))
         session = {"name": "acme-docs", "created": 1000, "closed": 40000}
-        self.assertEqual(menu.past_said(session),
+        self.assertEqual(menu.past_said(self.cfg, session),
                          ("Ship the docs site", "2 of 3 tasks · took 11 hours"))
         history.done("claude:acme-thread", 1000 + 5 * 3600, None)     # the end, not its stop
-        self.assertEqual(menu.past_said(session)[1], "2 of 3 tasks · took 5 hours")
+        self.assertEqual(menu.past_said(self.cfg, session)[1], "2 of 3 tasks · took 5 hours")
         config.plan_path("acme-docs").unlink()
-        self.assertEqual(menu.past_said(session), ("", "took 5 hours"))
+        self.assertEqual(menu.past_said(self.cfg, session), ("", "took 5 hours"))
 
     def test_how_long_is_hours_then_days_and_hours_and_never_minutes(self):
         for seconds, said in ((0, "under an hour"), (40 * 60, "under an hour"), (3600, "1 hour"),

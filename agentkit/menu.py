@@ -4750,9 +4750,10 @@ def took(seconds):
                         for n, unit in zip(divmod(hours, 24), ("day", "hour")) if n)
 
 
-def past_said(session):
+def past_said(cfg, session):
     """(sentence, stats) a past session's row opens with: its plan's first done line, then its
-    tasks and how long it took, from its start to its last done, else to its stop."""
+    tasks, how long it took, from its start to its last done, else to its stop, and the models it
+    used (past_models)."""
     name, start, stop = session["name"], session.get("created"), session["closed"]
     seat = notify.conversation_of(name)
     last = seat and seat[3] and (history.last_done(f"{seat[0].name}:{seat[3]}") or [None])[0]
@@ -4762,7 +4763,23 @@ def past_said(session):
              f"{total} task{'s' * (total != 1)}") if total else ""
     end = last if last and start and start < last <= stop else stop
     return plan.first_done(name) or "", " · ".join(part for part in (
-        tasks, start and "took " + took(end - start)) if part)
+        tasks, start and "took " + took(end - start), ", ".join(past_models(cfg, session))) if part)
+
+
+def past_models(cfg, session):
+    """The models a past session used: its orchestrator, then, once each and by name, every other
+    its runs between its start and its stop ran on -- orchestrating, building, a builder its turn
+    went from (`executor_history`), reviewing -- under the name each run recorded, a reviewer by
+    the name the config runs it under, else its own."""
+    runs, reviews = history.seat_runs(plan.names(session["name"]), session.get("created") or 0,
+                                      session["closed"]) or ((), ())
+    used = {model for _run_id, *models in runs for model in models}
+    used |= {entry.get(key) for run_id, *_ in runs for entry in (record.read_state(
+        config.RUNS / str(run_id)) or {}).get("executor_history") or () for key in ("from", "to")}
+    used |= {next(iter(_runs(cfg, harness, model, effort) or _runs(cfg, harness, model)), model)
+             for harness, model, effort in reviews}
+    first = (selection_of(cfg, session["name"]) or {}).get("orchestrator")
+    return [first] * bool(first) + sorted(model for model in used - {first} if model)
 
 
 def past_body(past, at=None, models=None, room=None, said=None):
@@ -4852,7 +4869,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         keys = PAST_KEYS[0 if terminal.utf8() else 1]
         room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
         if here not in said:      # read once a row, as the pointer comes and goes on it
-            said[here] = past_said(next(session for _, session in past if session["name"] == here))
+            said[here] = past_said(cfg, next(session for _, session in past
+                                             if session["name"] == here))
         body, places = past_body(past, here, models, room,
                                  {} if terminal.away() else {here: said[here]})
         act, row, _column, top = matrix_key("past sessions", body, places,
