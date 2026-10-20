@@ -2,7 +2,8 @@
 
 The switch refused while a draft was up, even after the owner said yes.  Now it lifts the text
 into the pane's kept buffer, which a respawn keeps with the pane, and the next tick hands it to
-the new harness: through ak's editor, or as a paste where the new one opens none.  Offline:
+the new harness byte for byte, with any set aside for a line of ak's the switch ends: through
+ak's editor, or as a paste where the new one opens none.  Offline:
 fixtures.editor_seat's seat; `watch.carry_draft` before the respawn, the tick's
 `watch.drafts_back` after it.
 """
@@ -52,6 +53,22 @@ class SwitchCarriesDraft(EditorSeat):
         watch.drafts_back(self.cfg)
         self.assertEqual((self.composer, self.pasted, self.buffers, self.keys),
                          (DRAFT, [DRAFT], {}, []))
+
+    def test_a_draft_lifted_through_the_editor_is_pasted_back_byte_for_byte(self):
+        self.show("first line\nlast line  \n\n")
+        self.switched()
+        self.launched = False           # the new harness opens no editor of ak's
+        watch.drafts_back(self.cfg)
+        self.assertEqual((self.composer, self.buffers), ("first line\nlast line  \n\n", {}))
+
+    def test_a_draft_already_set_aside_for_ak_s_line_goes_on_too(self):
+        watch._edit(self.seat, watch.seat_editor(self.seat, self.cfg), "line", "ak notice")
+        self.show("ak notice")          # ak's line, not yet sent when the switch ends it
+        self.switched()
+        self.assertEqual(self.buffers, self.carried())
+        self.launched = False
+        watch.drafts_back(self.cfg)
+        self.assertEqual((self.composer, self.buffers), (DRAFT, {}))
 
 
 if __name__ == "__main__":

@@ -124,7 +124,10 @@ class SeatMove(Sandbox):
             self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])
             self.pane = ""                       # a capture that failed moves it as well
             self.assertEqual(self.move("opus"), "")
-        self.assertEqual((len(carried), len(self.respawned)), (1, 2))
+            self.pane = capture("claude-draft-while-working-pane.txt")    # typed mid-turn
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual(carried[1:], [("claude", self.pane, self.respawned[:2])])
+        self.assertEqual(len(self.respawned), 3)
 
     def test_a_redress_while_the_new_harness_comes_up_draws_the_new_model(self):
         self.move("fable")

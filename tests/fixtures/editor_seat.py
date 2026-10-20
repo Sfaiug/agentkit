@@ -1,9 +1,9 @@
 """fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose Ctrl-G hands
 its composer to the real agentkit/aside_editor.py, takes what that hands back at once and draws
 it a few reads late, and whose Enter sends what its composer holds, one composer for any pane
-ak names; a paste lands in it whole.  Whether it hears the key (`deaf`), the seat's launch, the panes of its session
-(PANE the one selected), unread input and when its terminal last took keys are the test's to
-set."""
+ak names; a paste lands in it whole.  Whether it hears the key (`deaf`), the seat's launch, the
+panes of its session (PANE the one selected), unread input and when its terminal last took keys
+are the test's to set."""
 
 import os
 from pathlib import Path
@@ -55,10 +55,15 @@ class EditorSeat(Seats):
         return self.pane
 
     def editor_tmux(self, *args, data=None):
-        rc, out = self.tmux(*args, data=data)
+        rc, out = self.server(*args, data=data)
         return out.encode() if rc == 0 else None
 
-    def tmux(self, *args, data=None, **kwargs):
+    def tmux(self, *args, **kwargs):
+        """The seat's server as ak asks it, its output stripped as `orch.tmux_out` strips it."""
+        rc, out = self.server(*args, **kwargs)
+        return rc, out.strip()
+
+    def server(self, *args, data=None, **kwargs):
         """The seat's server, as ak and the editor in its pane ask it."""
         name = args[args.index("-b") + 1] if "-b" in args else None
         target = args[args.index("-t") + 1] if "-t" in args else ""
@@ -76,12 +81,14 @@ class EditorSeat(Seats):
             return 0, "".join(f"{each}\n" for each in self.panes)
         elif args[0] == "list-buffers":
             return 0, "".join(f"{each}\n" for each in self.buffers)
+        elif args[0] == "save-buffer" and name not in self.buffers:
+            return 1, "no buffer"
+        elif args[0] == "save-buffer" and args[-1] != "-":
+            Path(args[-1]).write_bytes(self.buffers[name])
         elif args[0] == "save-buffer":
-            return (0, self.buffers[name].decode()) if name in self.buffers else (1, "no buffer")
+            return 0, self.buffers[name].decode()
         elif args[0] == "load-buffer":
             self.buffers[name] = data if data is not None else Path(args[-1]).read_bytes()
-        elif args[0] == "set-buffer":
-            self.buffers[name] = args[-1].encode()
         elif args[0] == "paste-buffer":
             self.pasted.append(self.buffers[name].decode())
             self.show(self.composer + (self.buffers.pop(name) if "-d" in args

@@ -3770,43 +3770,65 @@ def drafts_back(cfg):
 
 
 def carry_draft(session, harness, pane, cfg=None):
-    """Lift the owner's unsent text out of that seat's composer before a switch ends its harness:
-    into its pane's kept buffer, set aside for no line of ak's (`aside_editor.pack`), which the
-    respawn keeps with the pane and `drafts_back` hands the harness launched there next.  Through
-    ak's editor where the harness opens one, which reads the composer whole; else as `pane`
-    draws it, a line a row.  Text already set aside there and not yet back stays, this unkept."""
+    """Lift the owner's unsent text out of that seat's composer before a switch ends its harness,
+    on any turn: into its pane's kept buffer, set aside for no line of ak's (`aside_editor.pack`),
+    which the respawn keeps with the pane and `drafts_back` hands the harness launched there next.
+    Through ak's editor where the harness opens one, which reads the composer whole; else as
+    `pane` draws it, a line a row.  Text already set aside there for a line of ak's, which the
+    respawn ends, goes too, before any the owner typed since."""
     with seat_held(session["name"]):
-        where = seat_editor(session, cfg)
+        typed = bool(harness and composer_draft(harness, pane))
+        where = typed and seat_editor(session, cfg)
         if where and _edit(session, where, "line") == "line":
             return
-        rows = _composer_rows(harness, pane) if harness else None
         server = orch.seat_socket(session)
         rc, at = orch.tmux_out("display-message", "-p", "-t", _pane(session), "#{pane_id}",
                                socket=server)
         kept = _editor_kept(session)
-        if not rows or rc != 0 or not at.startswith("%") or kept is None or (
-                kept.get(at, ("",))[0] == aside_editor.ASIDE):
+        if rc != 0 or not at.startswith("%") or kept is None:
             return
-        fd, path = tempfile.mkstemp(dir=config.TMP)    # only this user reads it, and only now
-        try:
-            with os.fdopen(fd, "wb") as out:
-                out.write(aside_editor.pack(aside_editor.ASIDE, b"", "\n".join(rows).encode()))
-            orch.tmux_out("load-buffer", "-b", aside_editor.kept(at), path, socket=server)
-        finally:
-            os.unlink(path)
+        stored = _buffer(server, aside_editor.kept(at)) if at in kept else b""
+        if stored is None:
+            return
+        state, put, held = aside_editor.unpack(stored)
+        held = held if state == aside_editor.ASIDE else b""
+        text = "\n".join(_composer_rows(harness, pane) or []).encode() if typed else b""
+        if re.sub(rb"\s+", b"", text) not in {re.sub(rb"\s+", b"", word) for word in (put, held)}:
+            held = b"\n".join(part for part in (held, text) if part)   # not ak's line, nor kept
+        if held:
+            _load(server, aside_editor.kept(at), aside_editor.pack(aside_editor.ASIDE, b"", held))
+
+
+def _buffer(server, name):
+    """That tmux buffer's bytes as it keeps them, whose trailing blanks `tmux_out` strips, or
+    None."""
+    fd, path = tempfile.mkstemp(dir=config.TMP)    # only this user reads it, and only now
+    os.close(fd)
+    try:
+        return (Path(path).read_bytes()
+                if orch.tmux_out("save-buffer", "-b", name, path, socket=server)[0] == 0 else None)
+    finally:
+        os.unlink(path)
+
+
+def _load(server, name, data):
+    """Whether tmux now keeps `data` in that buffer, byte for byte."""
+    fd, path = tempfile.mkstemp(dir=config.TMP)    # only this user reads it, and only now
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(data)
+        return orch.tmux_out("load-buffer", "-b", name, path, socket=server)[0] == 0
+    finally:
+        os.unlink(path)
 
 
 def _paste_back(session):
     """Text a switch carried, into the empty composer of a harness opening no editor of ak's: as
     a bracketed paste, so a newline in it sends nothing, and then kept no more."""
     server, name = orch.seat_socket(session), aside_editor.kept(session["pane"])
-    rc, stored = orch.tmux_out("save-buffer", "-b", name, "-", socket=server)
-    state, put, held = aside_editor.unpack(stored.encode()) if rc == 0 else ("", b"", b"")
-    if state != aside_editor.ASIDE or put or not held:
-        return
+    state, put, held = aside_editor.unpack(_buffer(server, name) or b"")
     paste = f"{name}-paste"
-    if (orch.tmux_out("set-buffer", "-b", paste, "--", orch.tmux_literal(held.decode()),
-                      socket=server)[0] == 0
+    if (state == aside_editor.ASIDE and not put and held and _load(server, paste, held)
             and orch.tmux_out("paste-buffer", "-p", "-d", "-b", paste, "-t", session["pane"],
                               socket=server)[0] == 0):
         orch.tmux_out("delete-buffer", "-b", name, socket=server)

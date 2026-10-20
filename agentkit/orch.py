@@ -4037,8 +4037,8 @@ def switch_orchestrator(cfg, name, model, providers=None):
         old_harness = config.model(cfg, old_model)["harness"]
     except config.Error:
         old_harness = None    # its model is gone: nothing names its harness or transcript
-    if live.get("state") == "draft":
-        # the owner moved it mid-sentence: what they typed waits in the new composer
+    if pane:
+        # the owner moved it mid-sentence, on any turn: what they typed waits in the new composer
         watch.carry_draft(session, old_harness, pane, cfg)
     owned = seat_conversation(record, old_harness) if old_harness else None
     kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
