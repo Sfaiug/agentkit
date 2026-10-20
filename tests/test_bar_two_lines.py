@@ -124,11 +124,11 @@ class TwoLines(Sandbox):
         bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
         self.assertTrue(self.options[statusbar.TOP].endswith(f"fable#[default]   {bar}"))
 
-    def test_d_a_done_seat_offers_the_close_key(self):
+    def test_d_a_done_seat_offers_the_menu_key(self):
         top, why, key, title = statusbar.lines("fix-api", "fable", "done", "", "astra builds")
         self.assertIn("#[fg=#a6e3a1]✓ done#[default]", top)
         self.assertEqual(drawn(why), "  astra builds")
-        self.assertEqual(drawn(key), "Ctrl-b m  x close ")
+        self.assertEqual(drawn(key), "Ctrl-b m  menu ")
         self.assertEqual(title, "fix-api · done")
 
     def test_e_a_client_short_of_room_keeps_its_tasks_over_who_builds(self):

@@ -9,8 +9,8 @@ lets it be.  Its right end, while another seat on ak's own server needs you, say
 the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
 cut.  Line two is what its row
 opens under itself: who builds and who reviews, and each task in flight as its squares
-(`whys`), with the one key at its right end: `Ctrl-b m  menu`, or `Ctrl-b m  x close` once
-done.  It never moves: the seat is where the owner reads and types.
+(`whys`), with the one key at its right end, `Ctrl-b m  menu`, whatever the seat's word: the
+bar is in the seat, where `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
 The bar draws on the terminal's own background and foreground and never tmux's green.  The
 `needs you` chip carries its own background, so it reads on any terminal; the rest is
@@ -34,7 +34,6 @@ import fcntl
 from . import config, menu, orch, terminal, update
 
 HINT = "Ctrl-b m  menu"            # line two's right end: the one key
-CLOSE_HINT = "Ctrl-b m  x close"   # ... and a done seat's, which that menu's `x` closes at once
 TOP, WHY, KEY = "@ak_top", "@ak_why", "@ak_key"   # line one, line two, and line two's key
 NEED, FOLD = "@ak_need", "@ak_fold"   # line one's right end: how many other seats need you,
                                       # and the same short, where it would cut this seat's name
@@ -126,7 +125,7 @@ def lines(name, model, word=None, last="", why=""):
     if last:
         sentence = word == "working" and not menu.tasks_bar(word, last)
         top += f"   {orch.tmux_text(last) if sentence else last}"
-    key, verb = (CLOSE_HINT if word == "done" else HINT).split("  ", 1)
+    key, verb = HINT.split("  ", 1)
     title = f"{name} · {word}" if word else name
     # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
     return (top, f"  {why}" if why else "", f"{key}#[fg=#{DIM}]  {verb} #[default]",
