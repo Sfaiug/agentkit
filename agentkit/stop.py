@@ -58,6 +58,38 @@ def owed_line(name):
     return None
 
 
+DONE_ASKING = ("Your plan is done: every line is proven, and the owner has written nothing since, "
+               "so a question would hold only their attention. Say it in your last message "
+               "instead; they read it when they come back.")
+
+
+def question_refused(name):
+    """Why the seat's question prompt goes nowhere, or None where it may ask: its plan is done
+    (`plan.finished`) and the owner has written nothing in its conversation since the plan's
+    last write, which ticked its last line, so the question would block nothing but the owner.
+    A word from the owner since opens new work to align on, and a run of its own parked
+    undecided is the seat's to settle, which the owner may be asked about."""
+    from . import notify, plan
+    if plan.finished(name) is None:
+        return None
+    try:
+        done_at = plan.path(name).stat().st_mtime
+    except (OSError, config.Error):
+        return None     # a plan nothing can date proves nothing done
+    if any(at > done_at for at in notify.owner_said(name)):
+        return None
+    if _parked(*_ending_work(name, None)):
+        return None
+    return DONE_ASKING
+
+
+def _parked(records, mine):
+    """Those of the seat's runs parked undecided: ended unsettled, or stalled."""
+    return [(directory, state) for directory, state in mine
+            if (not transitions.going(state) or state.get("state") == "stalled")
+            and transitions.unfinished(state, records)]
+
+
 def recorded_ending(name, records=None, *, question=False, since=None):
     """(the turn may end, parked records), from the evidence its caller can see.
 
@@ -73,9 +105,7 @@ def recorded_ending(name, records=None, *, question=False, since=None):
         return False, []
     supplied = records
     records, mine = _ending_work(name, records)
-    parked = [(directory, state) for directory, state in mine
-              if (not transitions.going(state) or state.get("state") == "stalled")
-              and transitions.unfinished(state, records)]
+    parked = _parked(records, mine)
     if parked:
         return False, parked
     if not owed(name):

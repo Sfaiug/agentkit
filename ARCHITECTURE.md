@@ -199,8 +199,8 @@
 ## hooks/, tools/, tests/
 
 - `hooks/seat-state.sh`: every harness's lifecycle hook; writes a seat's `hook-`/`stop-`
-  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, via config, handback, stop and
-  watch. `hooks/sub-agent.jq`: what tells both a sub-agent's own prompt or Stop, which they
+  facts. `hooks/orchestrator-stop.sh`: the end-of-turn rule, and a done seat's question refused
+  before it goes up, via config, handback, stop and watch. `hooks/sub-agent.jq`: what tells both a sub-agent's own prompt or Stop, which they
   leave alone. `hooks/opencode-seat/`: OpenCode's plugin, feeding seat-state.sh. Leaks: the first
   two rebuild config.py's seat file names, and seat-state.sh its rename chain.
 - `tools/`: `shim`, the one sh body of every PATH shim -- the real binary is the first on PATH after

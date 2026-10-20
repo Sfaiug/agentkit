@@ -22,6 +22,11 @@
 # back once: a question left in prose reaches nobody but the terminal, so the seat asks it there
 # or goes on without it.
 #
+# Before the harness draws its question prompt (PreToolUse, where its adapter installs it) this
+# refuses the question of a seat whose plan is done with nothing from the owner since
+# (`stop.question_refused`): it would block nothing but the owner, so its last message says it,
+# and a turn ending on it in prose stands.
+#
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
 #
@@ -70,7 +75,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, notify
 from agentkit.handback import handback_reason
-from agentkit.stop import recorded_ending, ways_out
+from agentkit.stop import question_refused, recorded_ending, ways_out
 from agentkit.watch import owner_question, seat_read, start_look, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
@@ -324,7 +329,8 @@ def held(launched, payload):
              or owner_question(notify.last(seat)))
     ends, undecided = recorded_ending(seat, question=asked, since=turn)
     if ends:
-        if asked or record.get("asked_back") or not trails_question(last_message(payload)):
+        if (asked or record.get("asked_back") or not trails_question(last_message(payload))
+                or question_refused(seat)):
             return ""
         latched(latch, {**record, "asked_back": True})
         return ASK
@@ -352,6 +358,13 @@ def written(launched, kind):
 def main():
     launched = sys.argv[1] if len(sys.argv) > 1 else ""
     payload = loads(sys.stdin.read())
+    if payload.get("hook_event_name") == "PreToolUse":
+        refused = question_refused(resolve(launched))
+        if refused:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse", "permissionDecision": "deny",
+                "permissionDecisionReason": refused}}))
+        return
     back = held(launched, payload)
     if not back:
         # the stop stands: the turn a kept question was asked in has ended, and that is on

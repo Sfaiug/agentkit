@@ -140,6 +140,9 @@ class Heard(Sandbox):
             with self.subTest(event=event):
                 self.assertEqual(hooks[event], groups)
         self.assertNotIn("async", json.dumps(hooks["Stop"]))
+        # waited on, since it decides whether the question goes up
+        self.assertEqual(hooks["PreToolUse"], [{"matcher": "AskUserQuestion", "hooks": [
+            {"type": "command", "command": f"bash {REPO}/hooks/orchestrator-stop.sh"}]}])
 
 
 class Read(unittest.TestCase):

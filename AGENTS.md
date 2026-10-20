@@ -21,7 +21,7 @@ This section changes only with the owner's yes. Every other line has one home, a
 
 - Python 3.11 standard library and bash. No dependency is added, ever.
 - One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
-- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). Either failure fails it. `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python that 3.11's grammar refuses, f-strings aside: a newer `python3` accepts f-strings 3.11 rejects (`f"{data["key"]}"`), so `python3.11 -m py_compile` what you touch that holds one. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
+- The `tests:` gate (`tests/landing.py`) runs `bash tests/smoke.sh` beside `tests/every_file.py` (remaining `tests/test_*.py`; see its docstring). `AK_SHARD=k/N` selects both parts' k-th share (1-based); unset or `1/1` runs all. It refuses Python that 3.11's grammar refuses, f-strings aside: a newer `python3` accepts f-strings 3.11 rejects (`f"{data["key"]}"`), so `python3.11 -m py_compile` what you touch that holds one. Dependent checks stay together; each piece has a tmux safety guard and sandbox. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail; supported network namespaces allow only loopback.
 - Match the file's style. Read `ARCHITECTURE.md` first; a change that adds, removes, renames or moves a module updates the map. Any task may lower a `max` in `tests/test_boundaries.py` in the area it touches, and no task raises one.
 - `docs/guide.md` follows code changes. `README.md` holds only what ak is, installation and starting.
 - `orchestrator.md` is the rulebook an agentkit session is launched with, not a file for here.
@@ -39,14 +39,14 @@ Mistakes earlier work here made that no check catches and no one area of the cod
 - A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - Decide from exit codes and files, never another program's output text, except the stop hook's `?` at a turn's end.
 - Never re-create another system's semantics for an input nobody uses (Linux's path walk inside Git trees, for a linked AGENTS.md): every review round found one more difference. Refuse the input plainly instead.
-- A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title. A test never asserts a wall-clock duration (under 100 ms, say): host load breaks it at landing. Inject the clock and assert what it read: `tests/fixtures/sandbox.py` and `tests/fixtures/clock.py` say how.
+- A test never asserts a plain word is absent from output that prints paths: worktree paths carry the run's title. A test never asserts a wall-clock duration: host load breaks it at landing. Inject the clock and assert what it read: `tests/fixtures/sandbox.py` and `tests/fixtures/clock.py` say how.
 - When review keeps finding races or recovery paths, delete state or simplify the design.
 - A task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word, and each wider one costs findings.
 - A module removed from agentkit ends every run still on the old install at its next lazy import (`ImportError`, seen when `tell.py` went): keep the module whole until no run of the old install is left, then delete it.
 
 ## Owner rules
 
-- A turn whose last message ends in `?`, with nothing asked through the question prompt, is sent back once; no model reads prose. Reason: the best part is no part. [19 Oct 2026]
+- A turn whose last message ends in `?`, with nothing asked through the question prompt, is sent back once, unless the question prompt refuses it; no model reads prose. Reason: the best part is no part. [19, 20 Oct 2026]
 - Terminal input and output keep moving when both fill at once, for every model and harness, in the shared transport. Held by `tests/test_seat_transport.py`. [8 Oct 2026]
 - A Muse seat keeps its own question tool: its question pages the owner and the seat waits for the answer, until a Muse version lets a hook catch that tool, as Codex's does. Reason: Muse 1.4.7 runs the tool past every PreToolUse hook, and the only way to remove it is a launch allowlist of every tool, which stops a seat from opening once Muse renames one and drops its todos and skills. [13 Oct 2026]
 - Codex pairing is optional and requested when the owner wants app access; opening or resuming a seat sends no setup alert. Optional access does not need the owner or block terminal work. [7 Oct 2026]
