@@ -105,8 +105,8 @@ it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
 a tmux popup: the same rows, keys and acts, its highlight starting on that seat.  What hands
-this client a seat -- a number, Enter, `n`, a past session reopened -- closes the popup, so the
-seat is seen.
+this client a seat -- a number, Enter, `n`, a past session reopened -- and `x` on the popup's
+own seat close the popup, so the seat is seen.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
 server's ssh alias in ~/.agentkit/state/server -- `ak` runs the same menu over `ssh -t <alias>
@@ -126,7 +126,6 @@ import signal
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from contextlib import closing
@@ -365,35 +364,34 @@ class Live:
 
         No read puts the row back while the stop goes, nor after it until one begun since it
         ended lands: that one has the seat stopped, or as it was where the stop was refused,
-        which is said as a notice.  The stop is a process of its own, so the menu leaving --
-        the popup over the seat going with the seat -- ends nothing halfway.
+        which the stop leaves as a notice (`stop_behind`).  The stop is a process of its own, so
+        the menu leaving -- the popup over the seat going first -- ends nothing halfway.  True
+        once it is started; one that cannot start is said here, at once.
         """
         with self.reading:
             self.closing[name] = None
             self.last[:] = without(*self.last, self.closing)
-        log = tempfile.TemporaryFile()   # a file, not a pipe: no reader gone kills the stop
         try:
             proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
                                     env=config.child_env(), stdin=subprocess.DEVNULL,
-                                    stdout=log, stderr=log, start_new_session=True)
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True)
         except OSError as exc:
-            log.close()
-            return self._stopped(name, f"stop: {exc}")
+            self.say(f"stop: {exc}")
+            self._stopped(name)
+            return False
 
         def wait():
-            with log:
-                code = proc.wait()
-                log.seek(0)
-                said = log.read().decode("utf-8", "replace").strip().splitlines()
-            self._stopped(name, code and (said[-1] if said else f"stop {name}: exited {code}"))
+            proc.wait()
+            self._stopped(name)
         threading.Thread(target=wait, daemon=True).start()
+        return True
 
-    def _stopped(self, name, refused):
+    def _stopped(self, name):
         with self.reading:
             self.closing[name] = self.reads
-        if refused:
-            self.say(refused)
         self.ask()
+        self._wake()          # what the stop left (`orch.job_notices`) is shown now
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -1204,7 +1202,8 @@ def without(found, groups, gone):
     if not gone or groups is None:
         return found, groups
     ordered, infos, _, silent_map = groups
-    found = [{**seat, "stopping": True} if seat["name"] in gone else seat for seat in found]
+    found = [{**seat, "closed": None, "stopping": True} if seat["name"] in gone else seat
+             for seat in found]
     ordered = [{**project, "seats": seats} for project in ordered
                if (seats := [info for info in project["seats"] if info["name"] not in gone])]
     return found, tallied(ordered, [info for info in infos if info["name"] not in gone],
@@ -1942,11 +1941,19 @@ def close_seat(name, dry_run, refused=None):
 
 
 def teardown(name, dry_run):
-    """The process `x` stops that seat in (`Live.stop`): `close_seat`, exiting 1 with the reason
-    last where the stop is refused."""
-    return [sys.executable, "-u", "-c", "import sys; from agentkit import menu; "
-            "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=sys.exit)",
-            name, "1" if dry_run else "0"]
+    """The process `x` stops that seat in (`Live.stop`): `stop_behind`."""
+    return [sys.executable, "-c", "import sys; from agentkit import menu; "
+            "menu.stop_behind(sys.argv[1], sys.argv[2] == '1')", name, "1" if dry_run else "0"]
+
+
+def stop_behind(name, dry_run):
+    """`close_seat`, what refuses or breaks it left as a notice (`orch.leave_notice`): the menu
+    that started it may be gone, the popup over its own seat always is."""
+    try:
+        close_seat(name, dry_run, refused=orch.leave_notice)
+    except Exception as exc:
+        orch.leave_notice(f"stop {name}: {exc}")
+        raise
 
 
 def stop_session(found, dry_run):
@@ -4835,8 +4842,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
 
     `overlay` is the menu as a tmux popup over a running seat, the same menu with its highlight
     starting on that seat.  A number, `n` and a past session reopened hand this client to a
-    session, and the popup has to come down for it to be seen, so those return.  Read a line at
-    a time, `j` and `k` turn the pages of a list longer than the screen, and a number is
+    session, and the popup has to come down for it to be seen, so those return, as `x` on the
+    popup's own seat does before the stop ends.  Read a line at a time, `j` and `k` turn the pages of a list longer than the screen, and a number is
     answered from whichever page is up.
 
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
@@ -4884,10 +4891,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
     """
     keys = KEYS
-    cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
+    own = config.current_session() if overlay else None     # the seat the popup is over
+    cursor = os.environ.pop("AK_MENU_CURSOR", "") or own
+    # the owner's main screen, as outside any seat: what it stops it stops as the owner
     if overlay:
-        cursor = cursor or config.current_session()     # the seat the popup is over
-        # the owner's main screen, as outside any seat: what it stops it stops as the owner
         os.environ.pop(config.SESSION_ENV, None)
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
@@ -5075,7 +5082,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                             STOP_ASK.format(seat), means, "Stop", around, wait=lambda: moving(
                                 clock, going=None if counted[0] else runs.is_alive)):
                         continue
-                live.stop(seat, dry_run)      # its row gone at once, the stop behind it
+                # its row gone at once, the stop behind it; over its own seat the popup goes
+                # first, and anything the stop meets is the next menu's notice
+                if live.stop(seat, dry_run) and seat == own:
+                    return 0
                 continue
             if key == "n" and drawn is not None and cfg:
                 try:

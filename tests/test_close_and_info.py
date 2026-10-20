@@ -68,29 +68,35 @@ def cmd_stop(argv):
 
 orch.cmd_stop = cmd_stop
 # The stop `x` starts, in a process of its own as `menu.teardown`'s is: once CLOSE_HOLD is gone,
-# if set, it takes the seat off the listing and names it on the menu's terminal, or refuses as
-# `close_seat` does with CLOSE_REFUSE or where the real stop's owner guard refuses.
+# if set, it takes the seat off the listing, or leaves its refusal as `menu.stop_behind` does
+# with CLOSE_REFUSE or where the real owner guard refuses, and says which on the menu's terminal.
+# CLOSE_PYTHON, set, is the program it is started with: one that is not there never starts.
 STOP = r'''
 import json, os, sys, time
 from pathlib import Path
 sys.path.insert(0, os.environ["CLOSE_REPO"])
-from agentkit import config
+from agentkit import config, orch
 name = sys.argv[1]
+said = lambda what: os.write(os.open(os.environ["CLOSE_TTY"], os.O_WRONLY | os.O_NOCTTY),
+                             f"<{what} {name}>".encode())
 while os.path.exists(os.environ.get("CLOSE_HOLD") or ""):
     time.sleep(0.01)
-if os.environ.get("CLOSE_REFUSE"):
-    sys.exit(f"stop: {name} refused")
 try:
+    if os.environ.get("CLOSE_REFUSE"):
+        raise config.Error(f"{name} refused")
     config.check_stop_owner(name)
 except config.Error as exc:
-    sys.exit(f"stop: {exc}")
+    orch.leave_notice(f"stop: {exc}")
+    said("refused")
+    sys.exit()
 seats = Path(os.environ["CLOSE_SEATS"])
 left = json.loads(seats.read_text())
 left.pop(name, None)
 seats.write_text(json.dumps(left))
-os.write(os.open(os.environ["CLOSE_TTY"], os.O_WRONLY | os.O_NOCTTY), f"<stopped {name}>".encode())
+said("stopped")
 '''
-menu.teardown = lambda name, dry_run: [sys.executable, "-c", STOP, name]
+menu.teardown = lambda name, dry_run: [os.environ.get("CLOSE_PYTHON") or sys.executable, "-c",
+                                       STOP, name]
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
 sys.exit(menu.loop(config.load(), overlay=os.environ.get("CLOSE_OVERLAY") == "1"))
 """
@@ -104,21 +110,25 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 class Menu:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
-    def __init__(self, case, seats, rows=30, cols=100, own=None, hold=None, refuse=False):
+    def __init__(self, case, seats, rows=30, cols=100, own=None, hold=None, refuse=False,
+                 home=None, python=None):
         self.case = case
-        home = tempfile.TemporaryDirectory(prefix="close-info-")
-        case.addCleanup(home.cleanup)
-        self.seats = Path(home.name) / "seats.json"
+        if home is None:            # a menu after another one is handed that one's home
+            held = tempfile.TemporaryDirectory(prefix="close-info-")
+            case.addCleanup(held.cleanup)
+            home = Path(held.name)
+        self.home = home
+        self.seats = home / "seats.json"
         self.seats.write_text(json.dumps(seats))
         self.master, self.slave = os.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         env = {key: value for key, value in os.environ.items() if key not in INHERITED}
-        env.update({"HOME": home.name, "TERM": "xterm-256color", "LANG": "C.UTF-8",
+        env.update({"HOME": str(home), "TERM": "xterm-256color", "LANG": "C.UTF-8",
                     "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                     "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
                     "CLOSE_REPO": str(REPO), "CLOSE_SEATS": str(self.seats),
                     "CLOSE_TTY": os.ttyname(self.slave), "CLOSE_HOLD": str(hold or ""),
-                    "CLOSE_REFUSE": "1" if refuse else ""})
+                    "CLOSE_REFUSE": "1" if refuse else "", "CLOSE_PYTHON": python or ""})
         if own:
             env.update({"CLOSE_OVERLAY": "1", "AGENTKIT_SESSION": own})
         self.leave_key = "esc leave"

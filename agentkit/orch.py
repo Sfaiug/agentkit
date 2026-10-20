@@ -106,6 +106,7 @@ FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
+NOTICES = "notices"        # a file a line any other detached job leaves the next menu, shown once
 AGENT_LOOK_EVERY = 10      # how long one reading of the process table answers for every pane
 # The programs that run a script they are handed, which may be a harness (`node .../bin/codex`),
 # each by its own option grammar: what starts an option, the short letters and long options
@@ -3035,13 +3036,25 @@ def start_update():
 
 def job_notices():
     """What a finished background job left for the menu: shown once, then forgotten."""
-    path = config.STATE / UPDATE_RESULT
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return []
-    path.unlink(missing_ok=True)
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    lines = []
+    for path in (config.STATE / UPDATE_RESULT, *sorted((config.STATE / NOTICES).glob("[!.]*"))):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            continue
+        path.unlink(missing_ok=True)
+        lines += [line.strip() for line in text.splitlines() if line.strip()]
+    return lines
+
+
+def leave_notice(line):
+    """Leave `line` for whichever menu is up or opens next (`job_notices`): a detached job
+    outlives the menu that started it.  Written aside and moved in, so no menu reads half."""
+    folder = config.STATE / NOTICES
+    folder.mkdir(parents=True, exist_ok=True)
+    part = folder / f".{uuid.uuid4().hex}"
+    part.write_text(line + "\n", encoding="utf-8")
+    part.replace(folder / f"{time.time_ns()}-{part.name[1:]}")
 
 
 def rename(old, new, log=print, *, auto=False):
