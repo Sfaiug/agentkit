@@ -164,3 +164,34 @@ def mode(entry):
     plan = (parts.scheme == "https" and "@" not in parts.netloc
             and PLAN_HOST.fullmatch(parts.hostname or ""))
     return "subscription" if plan else "payg"
+
+
+def said(record, cwd, conversation):
+    """opencode.db keeps a session's messages as rows in order, a subagent's in its own session:
+    a user row's `text`, an assistant row's text parts beside its reasoning and tool parts."""
+    from . import rows
+    if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
+        return None
+    share = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    found = rows(share / "opencode/opencode.db",
+                 "SELECT type, data FROM session_message WHERE session_id = ?"
+                 " AND type IN ('user', 'assistant') ORDER BY seq", conversation)
+    if found is None:
+        return None
+    said = []
+    for kind, data in found:
+        try:
+            message = json.loads(data)
+        except (TypeError, ValueError):
+            continue
+        message = message if isinstance(message, dict) else {}
+        if kind == "user":
+            text = message.get("text")
+        else:
+            parts = message.get("content")
+            parts = parts if isinstance(parts, list) else []
+            text = "\n".join(part["text"] for part in parts if isinstance(part, dict)
+                             and part.get("type") == "text" and isinstance(part.get("text"), str))
+        if isinstance(text, str) and text:
+            said.append({"who": "user" if kind == "user" else "model", "text": text})
+    return said
