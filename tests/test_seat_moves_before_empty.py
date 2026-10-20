@@ -67,6 +67,21 @@ class MovesBeforeEmpty(unittest.TestCase):
         self.tick()
         self.assertEqual((self.account(), self.commands), ("default", []))
 
+    def test_a_turn_begun_while_its_new_login_is_proven_is_not_cut_off(self):
+        proven = []
+
+        def begun(*_a, **_kw):
+            # the seat's move proves it, then its reopen does again
+            proven.append(1)
+            if len(proven) == 2:
+                config.record_hook_fact(NAME, {"session": NAME, "event": "UserPromptSubmit",
+                                               "at": self.now, "kind": "", "text": ""})
+            return True, "fake seat login"
+        self.auth.side_effect = begun
+        self.meters(97, 10)
+        self.tick()
+        self.assertEqual((len(proven), self.account(), self.commands), (2, "default", []))
+
     def test_a_worker_turn_starts_on_the_subscription_that_is_not_running_low(self):
         # the usual login is a worker's last pick only while the others have as much room
         self.meters(10, 97)

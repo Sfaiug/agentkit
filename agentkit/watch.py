@@ -4156,9 +4156,9 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
 
 
-def _resume_on(cfg, name, log, account, continuing):
+def _resume_on(cfg, name, log, account, continuing, still=None):
     """Resume that seat's conversation on `account`; a turn it was in goes on there."""
-    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account)
+    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still)
     if continuing and resumed == "resumed":
         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                  "line": ACCOUNT_LINE})
@@ -4265,13 +4265,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                         or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
                         or pane_text(current_seat) != pane):
                     return True
-                # A turn or question begun while the meters were read redraws no pane yet:
-                # only its hooks say so.
-                fresh = observed(name, harness, pane, seat_read(name), time.time())
-                if fresh["state"] != "at_prompt" or _turn_in_flight(harness, fresh)[0]:
-                    return True
+
+                def between_turns():
+                    # A turn or question begun while the meters were read or a login proven
+                    # redraws no pane yet: only its hooks say so.
+                    fresh = observed(name, harness, pane, seat_read(name), time.time())
+                    return fresh["state"] == "at_prompt" and not _turn_in_flight(harness, fresh)[0]
                 try:
-                    _resume_on(cfg, name, log, target, limit_ended(harness, name))
+                    _resume_on(cfg, name, log, target, limit_ended(harness, name), between_turns)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True

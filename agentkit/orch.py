@@ -2204,7 +2204,7 @@ def attach(name, log=print, wait=False, session=None):
 
 
 def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True,
-           account=None):
+           account=None, still=None):
     """Put the orchestrator back in a seat whose process is gone, and hand the terminal over.
 
     Two ways in, and the same ownership check either way. A seat tmux is still holding -- the
@@ -2223,6 +2223,9 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
+
+    `still` is asked last, after every slow step and just before the pane is replaced: False
+    leaves the seat as it is, and resume answers False.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2275,6 +2278,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if dry_run:
         print(shlex.join(cmd))
         return 0
+    if still is not None and not still():
+        return False
     launch(name, orchestrator, cwd, cmd, conversation, session)
     config.update_session(name, account=account)
     if not hand_over:
