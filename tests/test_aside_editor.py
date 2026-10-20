@@ -140,6 +140,8 @@ class AsideEditor(unittest.TestCase):
                 # asked again, then ak's line in where it is not, sent, and the text handed back
                 self.failing = {}
                 now = self.edit(now, aside_editor.request(mode, LINE))
+                if mode == "back":      # a buffer tmux refused to drop is dropped now
+                    self.assertEqual(self.buffers, {})
                 if now != LINE:
                     self.assertEqual(self.edit(now, aside_editor.request("line", LINE)), LINE)
                 self.assertEqual(self.edit("", aside_editor.request("back")), end)

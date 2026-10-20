@@ -138,8 +138,8 @@ def edit(argv):
             # a failed step is undone too, as tmux's server can do one its client then times out on
             elif not (_keep(name, both) and _publish(path, line)):
                 _keep(name, held)
-        elif mode == b"back" and held and not text.strip() and (
-                holds or _publish(path, held + text)):
+        elif mode == b"back" and held and (
+                holds or not text.strip() and _publish(path, held + text)):
             _tmux("delete-buffer", "-b", name)
         return 0
     owner = os.environ.get(OWNER) or "vi"
