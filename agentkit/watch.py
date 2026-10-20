@@ -2850,9 +2850,9 @@ def waiting_on(name):
 def wait_fact(wait):
     """(whether what that wait names is over, the one line saying how): a run once it is no
     longer going, or the run its task was started again as, a pull request once it is merged
-    or closed, or while open, once the newest run reviewing it is over as a wait on that run
-    would be.  (None, why) where nothing can say yet: `wait_over` leaves the wait as it is
-    while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
+    or closed, or while open, once no run reviewing or landing it is going.  (None, why) where
+    nothing can say yet: `wait_over` leaves the wait as it is while that is the owner's login
+    to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
         while True:
@@ -2877,16 +2877,13 @@ def wait_fact(wait):
         return None, why or "GitHub did not answer"
     number = data.get("number")
     if data["state"] == "OPEN":
-        # a review that ends without merging leaves it open, and its ending may reach no seat
-        # (a run launched outside one records none): the newest review run decides, by start,
-        # as a name's `-10` for a tenth launch in one minute sorts before its `-9`
-        key = transitions.pr_key(on)
-        reviews = []
-        for directory in run_record.run_dirs():
-            state = run_record.read_state(directory) or {}
-            if key is not None and key == transitions.pr_key(state.get("review_pr")):
-                reviews.append((state.get("started_at") or 0, directory.name))
-        return wait_fact({"kind": "run", "on": max(reviews)[1]}) if reviews else (False, "")
+        # a run that ends without merging leaves it open, its ending may reach no seat (one
+        # launched outside a seat records none), and one never sent to a run has none at all:
+        # open, it waits only while a run of any seat reviewing or landing it is going
+        if any(transitions.going(state) for state in transitions.runs_on(pr=on)):
+            return False, ""
+        return True, (f"PR #{number} is open with no ak run going on it: "
+                      f"ak run --review-pr {on} --bg takes it")
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
         return True, f"PR #{number} merged" + (f" as {sha}" if sha else "")
@@ -2966,9 +2963,9 @@ def wait_main(argv):
     The seat is the one `ak notify` speaks for, and the wait is written to its own record and
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
-    or closes or the run ends, and tells the seat so (`wait_over`).  One already over is
-    refused with its fact (`wait_fact`): the tick would end it at once and wake the seat for
-    nothing.
+    or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
+    One already over is refused with its fact (`wait_fact`): the tick would end it at once and
+    wake the seat for nothing.
     """
     if command_help.show("wait", argv):
         return 0

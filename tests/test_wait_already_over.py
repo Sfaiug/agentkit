@@ -61,9 +61,9 @@ class AlreadyOver(Sandbox):
         self.refused(RUN, f"run {RUN} stalled: resume it with ak run resume {RUN}")
 
     def test_an_open_pull_request_or_a_going_run_is_waited_on(self):
+        self.receipt(state="running", review_pr=PR)
         self.assertEqual(self.wait(PR), (0, f"{SEAT}: waiting on PR #12\n", ""))
         self.assertEqual(watch.seat_read(SEAT)["wait"]["on"], PR)
-        self.receipt(state="running")
         self.assertEqual(self.wait(RUN), (0, f"{SEAT}: waiting on run {RUN}\n", ""))
         self.assertEqual(watch.seat_read(SEAT)["wait"]["kind"], "run")
 
