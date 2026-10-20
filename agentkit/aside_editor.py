@@ -3,13 +3,14 @@ its composer to.
 
 Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its composer in that
 editor on the keys its manifest names (`[screen] editor`), and `edit` does what ak asked of the
-pane just before (`request`, a pane option the edit clears): `out` keeps the composer's text in a
-tmux buffer of the pane's (`kept`) and hands back an empty composer; `back` hands the kept text
-back, ahead of whatever the composer holds by then.  No text is ever dropped: a second `out` adds
+pane just before (`request`, a pane option the edit clears): `line` keeps the composer's text in a
+tmux buffer of the pane's (`kept`) and hands back ak's line; `back` hands the kept text back to a
+composer handed over empty or blank, each written whole or not at all.  A second `line` adds
 to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
 `host`, which imports nothing itself, as it starts on every edit the owner opens.
 """
 
+import contextlib
 import os
 import subprocess
 import time
@@ -30,9 +31,9 @@ def launch_env(environ):
     return [f"VISUAL={EDITOR}", f"EDITOR={EDITOR}", f"{OWNER}={owner}"]
 
 
-def request(mode):
-    """The pane option's value asking the next edit for `out` or `back`."""
-    return f"{mode} {time.time():.0f}"
+def request(mode, line=""):
+    """The pane option's value asking the next edit for `line`, with that line, or `back`."""
+    return f"{mode} {time.time():.0f} {line}"
 
 
 def kept(pane):
@@ -79,18 +80,36 @@ def _tmux(*args, data=None):
     return proc.stdout if proc.returncode == 0 else None
 
 
+def _publish(path, data):
+    """Whether the composer at `path` now holds `data`: written beside it and moved over it, so no
+    failed write hands the harness part of either."""
+    temp = path.with_name(f".{path.name}.{os.getpid()}.ak")
+    try:
+        mode = os.stat(path).st_mode & 0o777
+        with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode), "wb") as out:
+            os.fchmod(out.fileno(), mode)       # the composer's own, which the umask narrows
+            out.write(data)
+        os.replace(temp, path)
+        return True
+    except OSError:
+        with contextlib.suppress(OSError):
+            temp.unlink(missing_ok=True)
+        return False
+
+
 def edit(argv):
     """The editor's body: the file the harness hands it is its last argument."""
     pane = os.environ.get("TMUX_PANE", "")
     # read and cleared in one call: one ask moves one composer
     said = _tmux("show-options", "-pqv", "-t", pane, ASK, ";",
                  "set-option", "-pu", "-t", pane, ASK) if pane and argv else None
-    mode, _, at = (said or b"").decode(errors="replace").strip().partition(" ")
+    mode, _, rest = (said or b"").removesuffix(b"\n").partition(b" ")
+    at, _, line = rest.partition(b" ")
     try:
         fresh = time.time() - float(at) <= FRESH
     except ValueError:
         fresh = False
-    if fresh and mode in ("out", "back"):
+    if fresh and mode in (b"line", b"back"):
         path, name = Path(argv[-1]), kept(pane)
         # tmux fails to save a buffer it lacks as it fails for any other reason, so only one it
         # lists is read: what cannot be read leaves both the buffer and the composer as they are
@@ -100,12 +119,12 @@ def edit(argv):
         if held is None:
             return 0
         text = path.read_bytes()
-        both = b"\n".join(part for part in (held, text) if part.strip())
-        if mode == "out" and text.strip():
-            if _tmux("load-buffer", "-b", name, "-", data=both) is not None:
-                path.write_bytes(b"")
-        elif mode == "back" and held:
-            path.write_bytes(both)
+        both = b"\n".join(part for part in (held, text) if part)
+        # a composer holding the line already got it from an edit before: nothing in it to keep
+        if mode == b"line" and text != line:
+            if not text or _tmux("load-buffer", "-b", name, "-", data=both) is not None:
+                _publish(path, line)
+        elif mode == b"back" and held and not text.strip() and _publish(path, held + text):
             _tmux("delete-buffer", "-b", name)
         return 0
     owner = os.environ.get(OWNER) or "vi"
