@@ -264,9 +264,9 @@ def background(payload):
     are none.  Each of them wakes the seat again when it settles, so a stop on them is a wait.
     A `monitor` is a watch, not work: the comment watch on an artifact the seat published stays
     in that list for the rest of the session, and counted, it held the seat working for days.
-    Nor is a Claude Code `shell`: a background `sleep` or poll loop is no wait, since the harness
-    kills it under memory pressure; a seat waits through `ak wait`.  Grok Build's
-    `backgroundTasks` count as before, their types never captured.
+    Nor is a `shell` in `background_tasks`: a background `sleep` or poll loop is no wait, since
+    the harness kills it under memory pressure; a seat waits through `ak wait`.  The other
+    spelling's tasks count as before, their types never captured.
     """
     found = tasks(payload)
     idle = ("monitor", "shell") if payload.get("background_tasks") is not None else ("monitor",)
