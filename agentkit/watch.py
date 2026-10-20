@@ -724,6 +724,7 @@ def screen(harness):
     built = {"composer": _pattern(block.get("composer"), path),
              "footer": _pattern(f"(?:{footer})$" if footer else None, path, re.I),
              "ruled": bool(block.get("ruled")),
+             "boxed": bool(block.get("boxed")),
              "folds_over": block.get("folds_over") if isinstance(block.get("folds_over"), int)
              else None,
              "folded": _pattern(block.get("folded"), path),
@@ -1234,6 +1235,37 @@ def dim_rows(raws, colours=()):
         drawn, state = _faint_drawn(raw, state, colours)
         dims.append(drawn)
     return dims
+
+
+def _boxed(pane):
+    """That `-e` capture with each row cut where a box drawn on it ends: where, after cells on
+    another background, the background of its first cell comes back.  A composer drawn as a
+    box on its own background (`[screen] boxed`) ends there, and what is drawn beside it, a
+    sidebar, is none of it -- whatever columns its characters take."""
+    back, rows = None, []
+    for raw in pane.splitlines():
+        first, away, cut, at = True, False, None, 0
+        for found in [*SGR_ALL.finditer(raw), None]:
+            if cut is None and raw[at:found.start() if found else len(raw)]:
+                if first:
+                    start, first = back, False
+                elif back != start:
+                    away = True
+                elif away:
+                    cut = at
+            if found is None:
+                break
+            at = found.end()
+            sgr = SGR_SEQ.fullmatch(found.group())
+            for code in _sgr_codes(sgr.group(1)) if sgr else ():
+                if isinstance(code, str):
+                    back = code if code.startswith("48;") else back
+                elif code in (0, 49):
+                    back = None
+                elif 40 <= code <= 47 or 100 <= code <= 107:
+                    back = code
+        rows.append(raw[:cut])
+    return "\n".join(rows)
 
 
 def in_colour(text):
@@ -3289,6 +3321,7 @@ def _composer_rows(harness, pane, *, exact=False):
     the rule never is, whatever its mark.
     """
     chrome = screen(harness)
+    pane = _boxed(pane) if chrome["boxed"] else pane
     raws, rows = _screen_rows(pane_tail(pane))
     if chrome["draft"]:
         # A composer no `❯›⟩` mark finds: its manifest finds the framed block it holds,
@@ -3358,8 +3391,9 @@ def _unscrolled(chrome, rows, *, exact=False):
 def _cropped_composer_rows(harness, pane):
     """A composer's top is above the read: every row over its bottom chrome is its text,
     read inside a box's edges and without scroll marks, as rows under its prompt are."""
-    tail = content_lines(harness, pane_tail(pane))
-    return _unscrolled(screen(harness), [_inside_box(row) for row in tail])
+    chrome = screen(harness)
+    tail = content_lines(harness, pane_tail(_boxed(pane) if chrome["boxed"] else pane))
+    return _unscrolled(chrome, [_inside_box(row) for row in tail])
 
 
 def composer_holds(name, session, line, cfg=None, *, exact=False):
