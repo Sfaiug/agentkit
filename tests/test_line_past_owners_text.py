@@ -96,9 +96,11 @@ class LinePastOwnersText(EditorSeat):
             self.tick()
         self.assertEqual((self.keys, self.sent, self.buffers, self.told()),
                          (["C-g", "Enter"], [LINE], kept(aside_editor.ASIDE), False))
-        self.show("")                   # answered
+        self.show("")                   # answered, and another line goes in through it first
+        self.assertTrue(self.typed_line())
+        self.show(self.composer)        # the text it gave back, drawn
         self.tick()
-        self.assertEqual((self.keys[2:], self.composer, self.told()), (["C-g"], DRAFT, True))
+        self.assertEqual((self.sent, self.composer, self.told()), ([LINE, DOCS], DRAFT, True))
 
     def test_a_line_drawn_late_is_not_delivered_on_a_composer_drawn_empty(self):
         self.wait_line()
@@ -138,14 +140,18 @@ class LinePastOwnersText(EditorSeat):
         self.untouched(watch.DRAFT_STILL - 10)
         self.assertFalse(self.typed_line())
         self.untouched(watch.DRAFT_STILL)
-        for harness, pane in (("claude", "claude-draft-while-working-pane.txt"),
-                              ("claude", "claude-question-pane.txt"),
-                              ("claude", "claude-dialog-pane.txt"),
-                              ("codex", "codex-model-picker-pane.txt"),
+        for pane in ("claude-draft-while-working-pane.txt", "claude-question-pane.txt",
+                     "claude-dialog-pane.txt"):
+            self.pane = (REPO / "tests/fixtures" / pane).read_text()
+            self.assertFalse(self.typed_line())
+        for harness, pane in (("codex", "codex-model-picker-pane.txt"),
                               ("antigravity", "antigravity-chooser-pane.txt")):
             self.pane = (REPO / "tests/fixtures" / pane).read_text()
             with patch.object(watch, "seat_model", return_value=(harness, "acme")):
                 self.assertFalse(self.typed_line())
+                # nor by the last read before any key of its editor's, the tick's way back's too
+                self.assertIsNone(watch._editor_read(dict(self.seat, pane=PANE), watch.seat_editor(
+                    self.seat, self.cfg), self.cfg))
         self.show(DRAFT)
         self.unread = True
         self.assertFalse(self.typed_line())
