@@ -734,6 +734,8 @@ def screen(harness):
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
+             # a row of a dialog it draws over its transcript, wherever it sits (`observed`)
+             "modal": _pattern(block.get("modal"), path),
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
@@ -2053,6 +2055,13 @@ def observed(name, harness, pane, previous, at):
         ended = None
     found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
                      interrupted=ended)
+    # a dialog the owner opened over the transcript, above the rows `classify` reads, is their
+    # own hand at the composer, as a draft is: a key typed there goes into the dialog
+    modal = screen(harness)["modal"] if found["state"] in ("at_prompt", "draft") else None
+    shown = modal and next((row.strip() for row in strip_sgr(pane).splitlines()
+                            if modal.search(row.rstrip())), None)
+    if shown:
+        found = dict(found, state="draft", authority="screen", rule="modal", evidence=shown[:160])
     # read off this same capture, so a turn since answers it as soon as the screen does; a
     # capture that failed says nothing of it
     found["stall"] = (previous.get("stall") if not pane.strip() else
