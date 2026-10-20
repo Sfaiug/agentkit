@@ -473,23 +473,27 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 
 ## The boards
 
-`ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export, each at most once a day into
-`~/.agentkit/state/matrix.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the scored rows, the
+`ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export (`agentkit/boards.py`), each at most
+once a day into `~/.agentkit/state/boards.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the scored rows, the
 recommendation and each board's `asked_at`, `fetched_at` and `error`. Artificial
 Analysis is asked with the key in `~/.agentkit/secrets/artificialanalysis_key` (free at artificialanalysis.ai/login;
 without it the board says `no key` and the others are still asked): its free endpoint, page by page, one row per model
 and effort, every number it gives as `aa.<field>`, a table's fields under the table's name (`aa.evaluations.artificial_analysis_coding_index`,
 `aa.pricing.price_1m_input_tokens`; the intelligence, coding, agentic and capability indexes, prices, output speed;
-per-benchmark scores are Pro's). Arena Agent is read off its leaderboard's Hugging Face dataset, page by page, the `agent` and
-`agent_steerability` boards as `arena.<board>`. LiveBench 2.0 is read off its newest release whose table answers (the
-dates are in its page's script): each suite as `livebench.<suite>` and `livebench.cost_coding`, the cost of a successful
-coding task as the site counts it; the release's cost file is part of the answer. A board's row is one model at one effort,
+per-benchmark scores are Pro's). Arena is read off its leaderboard's Hugging Face dataset (CC-BY-4.0), page by page,
+each board in `ARENA_BOARDS` at its category as `arena.<board>`, `.<category>` past overall (`arena.webdev`,
+`arena.text_factuality.coding`): the dataset's counts per category say where a category's rows start, as Hugging Face
+serves them grouped, overall first and the others alphabetically, and rows that are not all there and all of it are no
+answer. LiveBench 2.0 is read off its newest release whose table answers (each release is named by its date in its
+page's script, `"20261014"`, its files under `data/<release>/`): each suite as `livebench.<suite>` and
+`livebench.cost_coding`, the cost of a successful coding task as the site counts it; the release's cost file is part of
+the answer. A board's row is one model at one effort,
 read off the bracket in its name (`Claude Opus 5.5 (max)`; `Acme Pro (High) (0813)` is `Acme Pro (0813)` at high; `Acme
 5 (Max, Default Fallback)` is `Acme 5 (Default Fallback)` at max; `(Non-reasoning)` is `none`, a bracket naming no effort
 leaves the row at none). A board that cannot answer keeps its last
 rows with the error beside them and, like one that answered, is not asked again before the day is up. Callers at once
-share one collection: each writer of `state/matrix.json` (`collect`, the stored matrix) holds `matrix.lock` from reading it to replacing it.
-The matrix is stored beside the boards (`refresh`, the tick's boards pass) and computed again only once a board answered anew
+share one collection: each writer of `state/boards.json` holds `boards.lock` from reading it to replacing it.
+The matrix is stored in `state/matrix.json` (`refresh`, the tick's boards pass) and computed again only once a board answered anew
 or the config's models, the harnesses installed or ak's own build (`update.agentkit_version`) changed, so a matching or
 scoring rule that landed holds at the next tick, not a day later.
 
@@ -507,16 +511,16 @@ roles it runs it in (`roles`), every matched board's numbers and which board mod
 
 Every row is scored per role (`scored`), on quality and cost alone: speed is ak's own to fix, and the subscriptions
 follow the choice. A column is the row's share of the best value in that column among the rows (100 for the best; 0 at
-zero or below, still counted: Arena's net improvement can be negative). A model's score for a role is the mean share
+zero or below, still counted: Arena's agent scores can be negative). A model's score for a role is the mean share
 over the role's measures on its row holding the most of them, kept with how many it rests on, and it needs at least
 half of them, else no score; a row's quality is that times what its effort keeps of it (`kept`): its mean share over
 the role's measures whose values differ between the model's efforts, else over the intelligence index, against the
 model's best effort, 1 where nothing tells the efforts apart, and a row lacking what tells the others apart has no
 score (a board naming no effort counts for every effort of its model, so LiveBench's numbers never tell efforts apart;
 Artificial Analysis's indexes do). `ROLES` names each role's measures and why, pinned by `tests/test_matrix_measures.py` so they change only
-with a visible test change and the owner's yes: orchestrate is Arena Agent's net improvement and steerability, Artificial
-Analysis's agentic index and LiveBench's long-horizon suite; execute is Artificial Analysis's coding and agentic indexes,
-LiveBench's coding and long-horizon suites; review, with no public review board exporting its numbers, is the
+with a visible test change and the owner's yes: orchestrate is Arena's sessions ending in the user's confirmed success
+and steerability, Artificial Analysis's agentic index and LiveBench's long agentic suite; execute is Artificial
+Analysis's coding and agentic indexes, LiveBench's coding and long agentic suites; review, with no public review board exporting its numbers, is the
 intelligence and coding indexes and LiveBench's reasoning suite (Artificial Analysis's free endpoint carries its indexes,
 never one benchmark's score, which is Pro only). A row within `within` points of the best for the role counts as as
 good as it (`WITHIN`, 5: the three boards disagree with each other about the differences between the top models by

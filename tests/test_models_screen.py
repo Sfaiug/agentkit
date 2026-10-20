@@ -43,7 +43,7 @@ LEVELS = {"claude-opus-5-5": ["high", "xhigh", "max"], "gpt-6-astra": ["xhigh"],
 def row(harness, model, effort, coding, agentic, intel, cost, agent=None):
     values = {CODING: coding, AGENTIC: agentic, matrix.INTEL: intel, matrix.COST: cost}
     if agent is not None:
-        values["arena.agent"] = agent
+        values["arena.agent_task_outcome_explicit"] = agent
     return {"harness": harness, "model": model, "effort": effort, "name": None, "roles": [],
             "matched": {}, "values": values}
 

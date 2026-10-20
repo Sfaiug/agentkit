@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, matrix
+from agentkit import boards, config, matrix
 
 NAMES = ("Acme 5 (Max, Default Fallback)", "Acme 5 (Low, Default Fallback)", "Acme 4 (high)",
          "Acme 4 (Non-reasoning, High)", "Beta 2 (Fast, max)", "Beta 2 (Slow, max)")
@@ -34,7 +34,7 @@ CATALOGS = {"claude": [{"id": "acme-5", "efforts": ["low", "high", "max"]},
 def board(names):
     """A board's rows off its model names, each valued by its place in `names`."""
     return [{"model": model, "effort": effort, "values": {"aa.score": n}}
-            for n, (model, effort) in enumerate(map(matrix.split_effort, names), 1)]
+            for n, (model, effort) in enumerate(map(boards.split_effort, names), 1)]
 
 
 def index(rows):
@@ -44,15 +44,15 @@ def index(rows):
 
 class QualifiedNames(Sandbox):
     def test_the_effort_is_one_word_of_the_bracket_and_the_others_stay_on_the_name(self):
-        self.assertEqual(matrix.split_effort("Acme 5 (Max, Default Fallback)"),
+        self.assertEqual(boards.split_effort("Acme 5 (Max, Default Fallback)"),
                          ("Acme 5 (Default Fallback)", "max"))
-        self.assertEqual(matrix.split_effort("Acme 5 (Daybreak Blue, xhigh)"),
+        self.assertEqual(boards.split_effort("Acme 5 (Daybreak Blue, xhigh)"),
                          ("Acme 5 (Daybreak Blue)", "xhigh"))
-        self.assertEqual(matrix.split_effort("Acme 4 (Non-reasoning, High)"), ("Acme 4 (High)", "none"))
-        self.assertEqual(matrix.split_effort("Acme 5 (Max, Default Fallback) (0813)"),
+        self.assertEqual(boards.split_effort("Acme 4 (Non-reasoning, High)"), ("Acme 4 (High)", "none"))
+        self.assertEqual(boards.split_effort("Acme 5 (Max, Default Fallback) (0813)"),
                          ("Acme 5 (Default Fallback) (0813)", "max"))
-        self.assertEqual(matrix.split_effort("Acme 5 (max)"), ("Acme 5", "max"))      # as before
-        self.assertEqual(matrix.split_effort("Acme 5 (0813)"), ("Acme 5 (0813)", None))
+        self.assertEqual(boards.split_effort("Acme 5 (max)"), ("Acme 5", "max"))      # as before
+        self.assertEqual(boards.split_effort("Acme 5 (0813)"), ("Acme 5 (0813)", None))
 
     def test_the_one_qualified_name_matches_the_model_the_board_has_no_other_name_for(self):
         held = index(board(NAMES))

@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, matrix, terminal
+from agentkit import boards, config, matrix, terminal
 import test_model_matrix as boards_test
 
 CATALOGS = {"claude": [{"id": "claude-opus-5-5", "efforts": ["low", "medium", "high", "xhigh", "max"]},
@@ -45,7 +45,7 @@ def prepare(case):
     case.addCleanup(lambda: boards_test.AA.__delitem__(slice(-2, None)))
     case.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE
                                           + "muse-spark-1.3-contributor,50.0,\n"))
-    case.stack.enter_context(patch.object(matrix, "fetch_bytes", case.boards))
+    case.stack.enter_context(patch.object(boards, "fetch_bytes", case.boards))
     # acme has a manifest and no binary here: none of its models gets a row
     case.stack.enter_context(patch.object(config, "manifests", return_value=[
         (harness, {}) for harness in (*CATALOGS, "acme")]))
@@ -53,7 +53,7 @@ def prepare(case):
                                           side_effect=lambda harness: harness in CATALOGS))
     case.stack.enter_context(patch.object(config, "catalog", side_effect=CATALOGS.__getitem__))
     case.stack.enter_context(patch.object(terminal, "width", return_value=100))
-    (config.SECRETS / matrix.AA_KEY).write_text("k\n")
+    (config.SECRETS / boards.AA_KEY).write_text("k\n")
     case.cfg["models"]["wonder"] = {"harness": "muse", "model": "muse-wonder-full-1.0",
                                     "effort": "max", "provider": "meta"}
 
@@ -64,7 +64,7 @@ class ModelRows(Sandbox):
         prepare(self)
 
     def table(self):
-        held = matrix.collect(now=10000)
+        held = boards.collect(now=10000)
         return {matrix.row_label(row): row
                 for row in matrix.rows(self.cfg, held, matrix.present())}
 
@@ -85,15 +85,15 @@ class ModelRows(Sandbox):
         # LiveBench names no effort: its numbers count at every effort of the model, its cost
         # of a task beside Artificial Analysis's cost of the run, which only max has
         self.assertEqual(rows["opus @ xhigh"]["values"]["livebench.coding"], 96.3)
-        self.assertEqual(rows["opus @ xhigh"]["values"][matrix.TASK_COST], round(113 / (29 * .963), 2))
+        self.assertEqual(rows["opus @ xhigh"]["values"][boards.TASK_COST], round(113 / (29 * .963), 2))
         self.assertEqual((both["values"][matrix.COST], matrix.COST in rows["opus @ xhigh"]["values"]),
                          (20.69, False))
         # a row at another effort never stands in: the configured xhigh has no Arena numbers
-        self.assertNotIn("arena.agent", rows["opus @ xhigh"]["values"])
+        self.assertNotIn("arena.agent_task_outcome_explicit", rows["opus @ xhigh"]["values"])
         self.assertNotIn("arena.ai", rows["opus @ xhigh"]["matched"])
         # the boards' efforts count only among those the harness offers: Astra's xhigh does
         self.assertIn("astra @ xhigh", rows)
-        self.assertEqual(rows["astra @ xhigh"]["values"]["arena.agent"], 0.137)
+        self.assertEqual(rows["astra @ xhigh"]["values"]["arena.agent_task_outcome_explicit"], 0.137)
         # an effort one role runs it at is a row too, saying which, and Arena's xhigh row never
         # stands in
         self.assertEqual((rows["astra @ medium"]["name"], rows["astra @ medium"]["roles"], rows["astra @ medium"]["matched"]),
@@ -129,7 +129,7 @@ class ModelRows(Sandbox):
                                           "claude-sonnet-5-5", "max"))
 
     def test_the_table_scores_the_rows_the_boards_make_and_names_the_rest(self):
-        held = matrix.collect(now=10000)
+        held = boards.collect(now=10000)
         with patch.object(matrix.time, "time", return_value=10000):
             table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()))
             lines = [terminal.plain(line) for line in matrix.render(table, held).splitlines()]
@@ -146,7 +146,7 @@ class ModelRows(Sandbox):
         self.assertIn("recommended: orchestrate claude-opus-5-5 @ max (100 of 3) · "
                       "execute claude-opus-5-5 @ max (100 of 3)", text)
         self.assertRegex(text, r"no board row: .*claude-opus-4-7")
-        self.assertIn("arena.ai: 2 rows as of", text)
+        self.assertIn("arena.ai: 4 rows as of", text)
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import matrix, terminal
+from agentkit import boards, matrix, terminal
 
 CODING = "aa.evaluations.artificial_analysis_coding_index"
 AGENTIC = "aa.evaluations.artificial_analysis_agentic_index"
@@ -32,15 +32,15 @@ def row(name, model, effort, **values):
 class ModelScores(unittest.TestCase):
     def test_a_score_is_the_mean_share_of_the_best_over_the_measures_the_row_has(self):
         best = row("pro", "acme-pro", "max", **{CODING: 60, AGENTIC: 70, INTELLIGENCE: 58},
-                   **{"livebench.coding": 96.3, "livebench.long_horizon": 85, "livebench.reasoning": 70,
-                      "arena.agent": 0.17, "arena.agent_steerability": 0.2})
+                   **{"livebench.coding": 96.3, "livebench.long_agentic": 85, "livebench.reasoning": 70,
+                      "arena.agent_task_outcome_explicit": 0.17, "arena.agent_steerability": 0.2})
         mini = row(None, "acme-mini", None, **{CODING: 25, AGENTIC: 40, INTELLIGENCE: 53},
-                   **{"livebench.coding": 93.7, "arena.agent": -0.05, "aa.evaluations.hle": 99})
+                   **{"livebench.coding": 93.7, "arena.agent_task_outcome_explicit": -0.05, "aa.evaluations.hle": 99})
         # the model's lower efforts: LiveBench's numbers, naming no effort, and the index at that
         # effort; one with nothing that tells it from the others
         high = row(None, "acme-pro", "high", **{INTELLIGENCE: 52, "livebench.coding": 96.3,
-                                                "livebench.long_horizon": 85, "livebench.reasoning": 70})
-        low = row(None, "acme-pro", "low", **{"livebench.coding": 96.3, "livebench.long_horizon": 85})
+                                                "livebench.long_agentic": 85, "livebench.reasoning": 70})
+        low = row(None, "acme-pro", "low", **{"livebench.coding": 96.3, "livebench.long_agentic": 85})
         tiny = row(None, "acme-tiny", None, **{CODING: 10})
         matrix.scored([best, mini, high, low, tiny])
         self.assertEqual(best["scores"], {role: {"score": 100.0, "measures": len(columns)}
@@ -62,7 +62,7 @@ class ModelScores(unittest.TestCase):
         self.assertEqual(low["scores"], {"orchestrate": None, "execute": None, "review": None})
         self.assertEqual(tiny["scores"], {"orchestrate": None, "execute": None, "review": None})
         # a measure no row has above zero scores 0 and still counts
-        table = [row(None, "acme-x", None, **{"arena.agent": -0.1, "livebench.long_horizon": 40}),
+        table = [row(None, "acme-x", None, **{"arena.agent_task_outcome_explicit": -0.1, "livebench.long_agentic": 40}),
                  row(None, "acme-y", None)]
         matrix.scored(table)
         self.assertEqual(table[0]["scores"]["orchestrate"], {"score": 50.0, "measures": 2})
@@ -76,7 +76,7 @@ class ModelScores(unittest.TestCase):
                                               "livebench.reasoning": 80, matrix.COST: 2000}),
             row(None, "acme-pro", "max", **{CODING: 60, INTELLIGENCE: 58, "livebench.coding": 90,
                                              "livebench.reasoning": 80, matrix.COST: 4057,
-                                             matrix.TASK_COST: 4.05}),
+                                             boards.TASK_COST: 4.05}),
             row(None, "acme-old", None)])
         with patch.object(terminal, "width", return_value=100):
             lines = [terminal.plain(line) for line in matrix.render(table, {}, band=15).splitlines()]
@@ -98,7 +98,7 @@ class ModelScores(unittest.TestCase):
         # the notes stay dim on every line they wrap onto
         with patch.object(terminal, "width", return_value=100), \
                 patch.object(terminal, "colour_depth", return_value=256):
-            notes = matrix.render(table, {}, band=15).splitlines()[6:-1 - len(matrix.BOARDS)]
+            notes = matrix.render(table, {}, band=15).splitlines()[6:-1 - len(boards.BOARDS)]
         self.assertGreater(len(notes), 1 + len(matrix.ROLES))
         self.assertEqual([line for line in notes if not line.startswith("\x1b[")], [])
 

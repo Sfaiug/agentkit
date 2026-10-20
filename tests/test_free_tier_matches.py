@@ -25,8 +25,8 @@ class FreeTierMatches(unittest.TestCase):
                 {"model": "Acme 5", "effort": "max", "values": {"aa.score": 70}},
                 {"model": "Acme 5", "effort": "high", "values": {"aa.score": 60}}]},
             "arena.ai": {"rows": [
-                {"model": "Acme-5", "effort": "max", "values": {"arena.agent": 0.3}},
-                {"model": "Acme-5", "effort": "high", "values": {"arena.agent": 0.2}}]},
+                {"model": "Acme-5", "effort": "max", "values": {"arena.agent_task_outcome_explicit": 0.3}},
+                {"model": "Acme-5", "effort": "high", "values": {"arena.agent_task_outcome_explicit": 0.2}}]},
             "livebench.ai": {"rows": [
                 {"model": "acme-5", "effort": None, "values": {"livebench.coding": 80}}]}}
         with patch.object(config, "catalog", return_value=catalog):
@@ -40,7 +40,7 @@ class FreeTierMatches(unittest.TestCase):
                 with self.subTest(model=model, effort=effort):
                     row = rows[model, effort]
                     self.assertEqual(row["values"],
-                                     {"aa.score": aa, "arena.agent": arena, "livebench.coding": 80})
+                                     {"aa.score": aa, "arena.agent_task_outcome_explicit": arena, "livebench.coding": 80})
                     self.assertEqual(row["matched"], {
                         "artificialanalysis.ai": {"model": "Acme 5", "effort": effort},
                         "arena.ai": {"model": "Acme-5", "effort": effort},

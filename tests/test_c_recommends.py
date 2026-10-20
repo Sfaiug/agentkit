@@ -33,7 +33,7 @@ class Keyboard:
 
 
 # two of each role's measures: half of its own, too few of another's for a score there
-MEASURES = {"orchestrate": ("arena.agent", "arena.agent_steerability"),
+MEASURES = {"orchestrate": ("arena.agent_task_outcome_explicit", "arena.agent_steerability"),
             "execute": ("livebench.coding", "aa.evaluations.artificial_analysis_coding_index"),
             "review": (matrix.INTEL, "livebench.reasoning")}
 
