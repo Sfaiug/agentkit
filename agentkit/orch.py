@@ -1905,8 +1905,11 @@ def tmux_text(text):
 
 
 def popup_command():
-    """What `Ctrl-b m` runs: this checkout's `ak`, on the interpreter it is installed against."""
-    return shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "attach", "--overlay"])
+    """What `Ctrl-b m` runs: this checkout's `ak attach --overlay`, on the interpreter it is
+    installed against, from the warm server (`warm`), started bare: the client imports only
+    what the interpreter is built with."""
+    return shlex.join([sys.executable, "-S", "-I", str(config.REPO / "agentkit" / "warm.py"),
+                       "attach", "--overlay"])
 
 
 def tmux_version():
