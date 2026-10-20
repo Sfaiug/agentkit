@@ -279,7 +279,7 @@ is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, asking nothing, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). The For row over the headings says whom the marks are for, opening on the
-highlighted seat: `For  ‹ new seats ›` is `[defaults]`, what `n` starts from, and ←/→, Enter or a click turn it to each open seat, `‹` back. The highlighted model opens no line: what it
+highlighted seat: `For  ‹ new seats ›` is `[defaults]`, what `n` starts from, `new and open seats` the same and every open seat at once (the line under the rows says how many, and names each seat a flip could not change with why, as many as fit, then `… and N more`), and ←/→, Enter or a click turn it to each open seat, `‹` back. The highlighted model opens no line: what it
 runs on is the meter that lights it. `r recommended` opens the models screen
 (The models screen).
 Under the models `+ add a model`, `+ add a provider` (a list opening in the
