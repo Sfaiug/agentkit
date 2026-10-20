@@ -3595,23 +3595,29 @@ def seat_editor(session, cfg=None):
             if pane.startswith("%") and aside_editor.launched(pid, tty) else None)
 
 
-def _edit(session, where, mode, *, settled):
-    """Ask ak's editor for `line` -- the composer's text kept, an empty composer handed back --
-    or `back` (`aside_editor.request`) and press the keys that open it: whether the screen shows
-    it done (`settled`) within SENT_WAIT, the only word ak takes on it.  The ask is taken back
-    after, for the owner's own edit never to find."""
-    server, pane = orch.seat_socket(session), where["id"]
+def _edit(session, where, mode, line=""):
+    """Ask ak's editor for `line` or `back` with that line (`aside_editor`) and press the keys
+    that open it: its answer, or None where it gives none within SENT_WAIT.  The editor reads
+    the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
+    for the owner's own edit never to find -- one that keys went out for and that went
+    unanswered turned to `none`, which an edit they open late leaves as it is."""
+    server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
+    after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
         if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
-                          orch.tmux_literal(aside_editor.request(mode)), socket=server)[0] == 0
+                          orch.tmux_literal(ask), socket=server)[0] == 0
                 and orch.tmux_out("send-keys", "-t", pane, *where["keys"], socket=server)[0] == 0):
             for _ in range(int(SENT_WAIT / SENT_POLL)):
-                if settled():
-                    break
+                rc, said = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
+                                         socket=server)
+                if rc == 0 and (word := aside_editor.answer(ask, said)):
+                    return word
                 time.sleep(SENT_POLL)
+            after = ("set-option", "-p", "-t", pane, aside_editor.ASK,
+                     orch.tmux_literal(aside_editor.request("none")))
     finally:
-        orch.tmux_out("set-option", "-pu", "-t", pane, aside_editor.ASK, socket=server)
-    return settled()
+        orch.tmux_out(*after, socket=server)
+    return None
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
