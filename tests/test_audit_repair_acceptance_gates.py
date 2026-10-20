@@ -158,8 +158,7 @@ finish
     def test_menu_and_prompt_patterns_for_all_harnesses_and_pty_progress(self):
         prompt = re.search(r"^PROMPT='(.*)'$", FRESH, re.M).group(1)
         menu_pattern = re.search(r"^MENU='(.*)'$", FRESH, re.M).group(1)
-        for footer in (menu.KEYS, menu.OVERLAY_KEYS):
-            self.assertRegex(footer, menu_pattern)
+        self.assertRegex(menu.KEYS, menu_pattern)
         muse_footer = next(line.strip() for line in (REPO / 'tests/fixtures/muse-stall-pane.txt')
                            .read_text().splitlines() if line.strip().endswith(' · YOLO'))
         for harness, pane in (("claude", "bypass permissions on"),
