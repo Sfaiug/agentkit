@@ -3213,11 +3213,11 @@ def off_composer(session):
     a dialog drawn inside that box itself, in a pane too short for it to clear the box, is not
     told apart.  A cursor or pane that cannot be read is outside."""
     try:
-        harness = orch.seat_plugin(config.session_records().get(session["name"], {})).name
-        chrome = screen(harness)
+        harness = seat_model(config.load(), session["name"])[0]
+        chrome = screen(harness) if harness else {}
     except (config.Error, OSError):
         return False
-    if not chrome["cursor"] or not chrome["composer"]:
+    if not chrome.get("cursor") or not chrome["composer"]:
         return False
     server, pane = orch.seat_socket(session), _pane(session)
     rc, at = orch.tmux_out("display-message", "-p", "-t", pane, "#{cursor_y}", socket=server)
