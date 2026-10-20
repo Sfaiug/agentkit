@@ -623,6 +623,13 @@ def trust_here():
         return
 
 
+def first_prompt(cmd):
+    """(options, prompt): a codex line split at the `--` before the seat's first message
+    (adapters/codex.sh), so every option added to the line goes ahead of it."""
+    at = cmd.index("--") if "--" in cmd else len(cmd)
+    return cmd[:at], cmd[at:]
+
+
 def main(argv, launch=None):
     if argv == ["capture"]:
         try:
@@ -662,7 +669,7 @@ def main(argv, launch=None):
         rulebook, argv = argv[1], argv[2:]
     if not argv or argv[0] != "--" or len(argv) < 2:
         raise config.Error("usage: codex-seat.py [--rulebook <file>] -- <codex command> | capture")
-    cmd = argv[1:]
+    cmd, prompt = first_prompt(argv[1:])
     trust_here()
     if os.environ.get(config.ACCOUNT_ENV):
         # A named CODEX_HOME must use its own file login, never the default Keychain
@@ -726,6 +733,7 @@ def main(argv, launch=None):
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)
+    cmd += prompt
     if launch and receipt and os.environ.get(CAPTURE_ENV):
         return launch(cmd, receipt)
     os.execvp(cmd[0], cmd)
