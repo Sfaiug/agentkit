@@ -49,6 +49,7 @@ SEAT_REPO_ENV = "AGENTKIT_SEAT_REPO"      # a new seat's project, for rulebook.p
 # origin/HEAD would win the short one
 RULES_REF = "refs/remotes/origin/HEAD"
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
+FIRST_PROMPT_ENV = "AGENTKIT_FIRST_PROMPT"  # ... and the line its harness opens on, where it takes one
 PROVIDER_ENV = "AGENTKIT_PROVIDER"         # ... and which providers, where a harness runs several's
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 KEPT_LOGINS = "kept-logins.json"           # under STATE: the logins `− remove` left on disk

@@ -310,7 +310,8 @@ any finished one; a resume of it begun before the stop stands down. After a rebo
 back Claude and Codex seats with proven conversations that still owe work, once per boot, but none you closed: one
 that died in a turn or asking you, or with an open plan line, an undecided or going run of its own or an unanswered
 question; the rest stay down and reopen with their number. Runs resume as before. The tick tells one that died
-mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it,
+mid-turn to continue it, as a run is, over at most three ticks, so it reads `working`, unless you prompted or renamed it --
+a seat whose harness takes a first prompt (`[launch] first_prompt`) opens on that line, as one moved to another subscription or model opens on its own, and nothing is typed unless no prompt came of it in three ticks --
 and tells one that was asking you, in a turn or not, by its question on screen or its own unanswered `ak notify needs`,
 to ask it again once it rests at its prompt with nothing running, asked or typed there.
 
@@ -426,7 +427,7 @@ time, with its cheapest turn (`haiku`, one word, no tools, no saved conversation
 and the command line hands it to the harness, adding no instructions of its own, so an orchestrator behaves one way
 whatever runs it. Anything else the launch writes goes beside that path, so a dry run's is thrown away with it. What a harness must check before its pane is replaced is its plugin's `checked`: the launch runs it in its own process and tells the adapter in the environment, so `interactive` starts no Python for it (Claude's settings, `$AGENTKIT_CLAUDE_CHECKED`). A
 variable the seat's launch sets goes under `[launch] seat_env`, and the core drops it from child environments. What the
-harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is named under `[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it.
+harness runs as besides its `[update] version` program, such as Muse's `muse-bin-<build>`, is named under `[launch] programs`: a tmux session made by hand is a seat only while one of those runs in it. `[launch] first_prompt = true` says `interactive` puts `$AGENTKIT_FIRST_PROMPT`, when it is not empty, on the command line as the harness's first prompt: a relaunch's line then goes in as that (`orch.takes_line`).
 
 The manifest names `[worker] state`, the directories keeping its login and sessions (empty if none), and `logins`, credential files and locks that may be lent as symlinks: their targets allow refresh too. Paths accept `~/`, `$VARIABLE` and `${VARIABLE:-default}`; an unset or empty variable with no default skips that path. Include its environment overrides, account directories and shared session stores; ak creates missing state directories and linked login files or locks before the turn. Everything else is data: `[check]` (contract model and effort), `[update]` (version, upgrade, revert, latest commands), `[usage]` flags,
 `[instructions] read_limit` (the bytes of a project's `AGENTS.md` the harness reads on its own before it drops the rest) and `unswitched` (the files under the home it reads on its own with no switch to stop it, and its folders, each named without a suffix, in the same path language, resolved for the environment the harness runs in -- the seat's own command line, where an adapter puts an account's home, or the worker turn's, which names the account; one naming none looks in the usual homes too, as an adapter drops an account's home a seat handed down: a seat opens only while none of them exists, a worker turn finds each empty, and live check 3 plants a word in each),
