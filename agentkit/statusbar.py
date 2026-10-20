@@ -281,7 +281,8 @@ def redress(session, answer, cfg=None, records=None):
         progress = menu.seat_progress(name)
         # each in its own cells and never more (`narrow`), so line one picks by the width it set
         lasts = [menu.last_column(word, answer.get("reason"), *progress, cells,
-                                  narrow=True, tmux=True, unsent=answer.get("unsent"))
+                                  narrow=True, tmux=True, unsent=answer.get("unsent"),
+                                  back=answer.get("resumes_at"))
                  for cells in BARS]
         info = {"crew": menu.seat_crew(selection),
                 "tasks": menu.seat_tasks(name, records)}
