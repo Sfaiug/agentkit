@@ -87,7 +87,12 @@ using its recorded login. The watch tick binds older running seats to their own 
 A Codex seat trusts only agentkit's hooks; other hooks still need Codex's review. It proves its thread through a launch receipt. An OpenCode seat's plugin
 writes its session into one, and Muse and Antigravity open a new conversation each time. A seat moved on `c` to another
 model of its harness goes on with the conversation that harness can resume, without a handover, and a turn it was in
-is told to go on; one moved to another harness, or with no conversation to resume, opens a new one with the handover.
+is told to go on; one moved to another harness, or with no conversation to resume, opens a new one whose rulebook ends
+with the handover (`orch.handover`, kept in its `handover` file): from which model, `ak plan` and `ak run status`, and what
+was said so far, oldest first, as the old harness reads it back (its plugin's `said`: what was typed and the model's
+visible answers, nothing its tools did), what earlier moves handed on first, the latest 60,000 characters of it; where
+that harness reads nothing back, its raw transcript's path. Nothing is typed for it: only a turn it was in is told to go
+on, the line the new harness opens on. A seat moved before its first word hands on nothing.
 Either way its bar and row name the new model from the moment the new harness is up. Nothing on its screen refuses the
 move: text you had typed and not sent waits in the new composer once it is up (read through ak's editor, else off the
 screen a row a line; pasted back where the new harness opens no editor of ak's). A seat whose harness exited

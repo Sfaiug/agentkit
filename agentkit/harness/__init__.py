@@ -428,6 +428,13 @@ class Harness:
         hook = self._hook("transcript")
         return hook(record, cwd, conversation) if hook else None
 
+    def said(self, record, cwd, conversation):
+        """That conversation's messages, oldest first, as {who: "user" | "model", text}: what was
+        typed into it and the model's visible answers, nothing its tools did; None where this
+        harness keeps nothing ak can read back."""
+        hook = self._hook("said")
+        return hook(record, cwd, conversation) if hook else None
+
     def user_messages(self, record, cwd, conversation, *, seat=None):
         """Owner messages, oldest first, as {at: Unix seconds, text: original words}.
 

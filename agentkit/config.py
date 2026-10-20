@@ -862,6 +862,7 @@ SEAT_FILES = {
     "held": "md",        # the rulebook its conversation last said it read
     "launch": "sh",      # the command its pane runs, until that pane starts (`orch.seat_command`)
     "refused": "txt",    # its screen when it read at its prompt yet took no line (`watch.untyped`)
+    "handover": "json",  # what a move to another harness handed it of its conversation (`orch.handover`)
     # written by nothing since seats stopped messaging one another: named so a stop and the daily collector still
     # take the queues a host holds from before, as they take every other file of a gone seat
     "tell": "json",
@@ -1606,9 +1607,35 @@ def seat_rulebook(session, repo=None):
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "
                 f"get the same.\n\n{project}\n")
+    handed = handover_section(session)
+    if handed:
+        body = f"{body.rstrip()}\n\n{handed}"
     if record.get("unnamed"):
         body = f"{body.rstrip()}\n\n{NAME_LINE}\n"
     return body
+
+
+def handover_section(session):
+    """The rulebook's last section on a seat a move to another harness handed its work: from
+    which model, where its runs and plan are, and what was said so far, oldest first."""
+    try:
+        handed = json.loads(seat_file("handover", session).read_text(encoding="utf-8"))
+        model, turns = handed["from"], handed.get("turns") or []
+    except (OSError, ValueError, TypeError, KeyError, Error):
+        return ""
+    when = time.strftime("%d %b %H:%M", time.localtime(handed.get("at") or 0))
+    head = (f"# Where this seat's work stands\n\nThis seat ran on {model} until {when}; you take "
+            "its work over under the same name. Its runs go on and report to you (`ak run "
+            "status`), and its plan is `ak plan`.")
+    if not turns:
+        where = handed.get("transcript")
+        return (f"{head} Its conversation's raw transcript is at {where}.\n" if where else
+                f"{head} Its conversation cannot be read here.\n")
+    left = handed.get("left") or 0
+    said = "\n\n".join(f"**{turn.get('who')}:** {turn.get('text')}" for turn in turns)
+    return (f"{head} What was said in its conversation, oldest first, its tools' calls and "
+            "results left out" + (f", and its {left} earliest messages too" if left else "")
+            + f":\n\n{said}\n")
 
 
 def rulebook_digest(data):

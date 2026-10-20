@@ -3941,25 +3941,37 @@ def role_mark(cfg, selected, name, column, providers):
         role: [peer for peer in group if peer != name] if name in group else [*group, name]})
 
 
-def handover_text(name, old_model, transcript):
-    """The new orchestrator's first prompt: it took over, and where to continue from.
+HANDOVER_CHARS = 60000   # the most of a conversation a move hands on; a longer one, its latest
 
-    From which model, where the seat's plan file is, to read `ak run status`, and where
-    the old conversation's transcript is so it can read the last exchange -- or that the
-    old conversation keeps no file to read, where its harness stores its sessions.
+
+def handover(name, record, old_model, old_harness, owned):
+    """What a seat moving to another harness hands its next model, for the rulebook's last
+    section (`config.handover_section`): from which model, and the conversation so far -- what
+    the move before handed on, then the conversation it leaves as its harness reads it back
+    (`said`), the latest messages that fit HANDOVER_CHARS -- or that conversation's raw
+    transcript where its harness reads none back.  None for a seat whose conversation said
+    nothing and that was handed nothing: a new seat moved before its first word.
     """
+    plugin = harness_plugin(old_harness) if old_harness else None
+    said = plugin.said(record, record.get("cwd"), owned) if plugin and owned else None
     try:
-        where = f"The seat's plan is at {plan.path(name)}."
-    except config.Error as exc:     # a plan nothing can read never costs the handover
-        where = f"The seat's plan cannot be read: {exc}."
-    if transcript:
-        old = (f"The previous conversation's transcript is at {transcript}; "
-               "read the last exchange to continue.")
-    else:
-        old = ("The previous conversation has no transcript file to read; "
-               "continue from the plan and the runs.")
-    return (f"You took over this seat from {old_model}. {where} "
-            f"Run `ak run status` to see its runs. {old}")
+        before = json.loads(config.seat_file("handover", name).read_text(encoding="utf-8"))
+    except (OSError, ValueError, config.Error):
+        before = {}
+    turns = [*(before.get("turns") or []),
+             *({"who": "user" if turn["who"] == "user" else old_model, "text": turn["text"]}
+               for turn in said or [])]
+    if said == [] and not turns:
+        return None
+    left = before.get("left") or 0
+    while len(turns) > 1 and sum(len(turn["text"]) for turn in turns) > HANDOVER_CHARS:
+        turns.pop(0)
+        left += 1
+    if turns and len(turns[0]["text"]) > HANDOVER_CHARS:    # one message longer than all of it
+        turns[0] = {**turns[0], "text": "…" + turns[0]["text"][-HANDOVER_CHARS:]}
+    return {"from": old_model, "at": time.time(), "turns": turns, "left": left,
+            "transcript": None if said is not None or not plugin
+            else plugin.transcript(record, record.get("cwd"), owned)}
 
 
 def _switch_plan(cfg, name, model, providers):
@@ -4039,9 +4051,9 @@ def switch_orchestrator(cfg, name, model, providers=None):
     on. Otherwise the record
     stays on the conversation the new launch owns, and the old harness's per-seat evidence
     goes with it. This is a new conversation under a saved name, so the watch state is reset
-    the way a created seat's is. The handover -- from which model, the plan file, `ak run
-    status`, and the old transcript -- is the line the new harness opens on, as a turn it
-    was in is told to go on (`watch.relaunched`), the way a reopened seat's line goes.
+    the way a created seat's is, and its rulebook ends with what the old one hands on
+    (`handover`), written before the launch writes the rulebook: nothing is typed for it.  A
+    turn it was in is told to go on, the line the new harness opens on (`watch.relaunched`).
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
     there, and their unsent text goes on into the new composer (`watch.carry_draft`). A
@@ -4073,13 +4085,20 @@ def switch_orchestrator(cfg, name, model, providers=None):
         watch.carry_draft(session, old_harness, pane, cfg)
     owned = seat_conversation(record, old_harness) if old_harness else None
     kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
-    transcript = (harness_plugin(old_harness).transcript(record, record.get("cwd"), owned)
-                  if old_harness and not kept else None)
     waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
-    line = (handover_text(name, old_model, transcript) if not kept
-            else watch.MIDTURN_LINE if (watch._turn_in_flight(new_harness, live)[0]
-                                        or (waited or {}).get("continue")) else None)
+    going = (watch._turn_in_flight(old_harness or new_harness, live)[0]
+             or (waited or {}).get("continue"))
+    line = (watch.MIDTURN_LINE if kept else watch.MOVED_LINE) if going else None
+    handed = config.seat_file("handover", name)
     try:
+        before = handed.read_bytes()
+    except FileNotFoundError:
+        before = None
+    try:
+        if not kept:
+            given = handover(name, record, old_model, old_harness, owned)
+            if given:
+                replace_file(handed, json.dumps(given).encode())
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
         at = time.time()
@@ -4088,6 +4107,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
                              else fresh_command(cfg, model, seat=name, account=account,
                                                 line=line))
     except (config.Error, OSError) as exc:
+        unhanded(handed, before)
         return _one_line(exc)
     # Another provider's seat opens anew, and its home is the account it opened on.
     try:
@@ -4100,6 +4120,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
         with watch.announcing(name):   # what every redress reads the record under
             config.update_session(name, **chosen)
     except OSError as exc:
+        unhanded(handed, before)
         return f"session: {_one_line(exc)}"
     try:
         launch(name, model, cwd, cmd, conversation, session)
@@ -4114,6 +4135,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
+        unhanded(handed, before)
         return _one_line(exc)
     if not kept:
         if old_harness:
@@ -4122,6 +4144,17 @@ def switch_orchestrator(cfg, name, model, providers=None):
     if line:
         watch.relaunched(name, new_harness, line, at)
     return ""
+
+
+def unhanded(path, before):
+    """Put back the handover a move that failed wrote over: the seat stays where it was."""
+    try:
+        if before is None:
+            path.unlink(missing_ok=True)
+        else:
+            replace_file(path, before)
+    except OSError:
+        pass       # its rulebook is rewritten on the next launch from whatever is there
 
 
 def picker_lines(cfg, notes, selected, at, column, room, moves=None):
