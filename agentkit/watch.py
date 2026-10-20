@@ -4310,7 +4310,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     refusal = outcome in (SPENT, LIMITED)
     if (not refusal and not waiting and live.get("state") in ("at_prompt", "draft")
             and not _turn_in_flight(harness, live)[0]):
-        # A turn its harness wrapped up for the limit (Claude Code's `wrap_up` note) refused
+        # A turn its harness wrapped up for the limit (`limit_ended`, its own note) refused
         # nothing, but its account is spent all the same, whatever the meters read yet.
         ended = limit_ended(harness, name)
         if ended:
