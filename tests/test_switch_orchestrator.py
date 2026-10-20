@@ -35,6 +35,7 @@ from agentkit import record as run_record
 from agentkit.harness import codex as codex_plugin
 
 CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
+PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()   # what a capture shows
 
 ADAPTER = r'''#!/usr/bin/env bash
 set -uo pipefail
@@ -117,7 +118,7 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
-        return 0, ""
+        return 0, PROMPT if args[0] == "capture-pane" else ""
 
     def selected(self, name="fix-api"):
         record = config.load_session(self.cfg, name)
