@@ -2,8 +2,8 @@
 
 Each case is a pane a live sweep of Codex 0.160.1 seats captured -- the tail ak reads of it,
 names invented -- read beside the hook events Codex fired for it, as the hooks a seat's launch
-installs for them write them down: hooks/seat-state.sh, and a call's end through
-`codex-seat.py answered`, against a temporary HOME.
+installs for them write them down: hooks/seat-state.sh, and a question going up and a call's
+end through `codex-seat.py ask` and `answered`, against a temporary HOME.
 """
 
 import json
@@ -18,7 +18,8 @@ from agentkit import config, watch
 from agentkit.harness import codex
 
 SEAT = "fix-api"
-HOOK = {"PostToolUse": [sys.executable, str(REPO / "tools/codex-seat.py"), "answered"]}
+HOOK = {"PreToolUse": [sys.executable, str(REPO / "tools/codex-seat.py"), "ask"],
+        "PostToolUse": [sys.executable, str(REPO / "tools/codex-seat.py"), "answered"]}
 
 
 def tail(name, *swap):

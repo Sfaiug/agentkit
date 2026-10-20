@@ -223,10 +223,11 @@ class Matrix(unittest.TestCase):
         self.assertIn("Subscriptions", tail)          # each subscription is its meter, above
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
-        # the highlighted model's line under the last row, then the build under the page
-        self.assertEqual(tail[tail.index("Version abc1234 · 2026-09-29") - 3:],
-                         ["", "fable runs on Claude", "", "Version abc1234 · 2026-09-29", "",
-                          "↑↓←→ move   ⏎ mark   esc back"])
+        # the build under the last row, nothing said of the highlighted model
+        version = tail.index("Version abc1234 · 2026-09-29")
+        self.assertTrue(tail[version - 2].startswith("Weekly audit"), tail)
+        self.assertEqual(tail[version - 1:], ["", "Version abc1234 · 2026-09-29", "",
+                                              "↑↓←→ move   ⏎ mark   esc back"])
         self.assertEqual(lines[-1], "  ↑↓←→ move   ⏎ mark   esc back")
         screen.leave()
         self.assertIn("\x1b[?1049l", screen.text())       # the terminal given back
@@ -431,15 +432,13 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         screen.leave()
 
-    def test_a_short_screen_leads_its_page_with_the_meters_so_the_model_s_line_has_room(self):
-        # over the page, six meters on 40 by 12 would leave none for the highlighted model's line,
-        # and on 40 by 16, with that line under the page, fewer than LEAST rows
+    def test_a_short_screen_leads_its_page_with_the_meters(self):
+        # over the page, six meters on 40 by 12 would leave it fewer than LEAST rows
         for rows in (12, 16):
             screen = Screen(self, workers=["opus"], rows=rows, cols=40)
             lines = screen.frame()
             self.assertLessEqual(len(lines), rows, lines)
             self.assertTrue(highlighted(lines).startswith("› fable"), lines)
-            self.assertTrue(any(line.startswith("    fable runs on ") for line in lines), lines)
             self.assertTrue(lines[-1].endswith("esc back"), lines)
             screen.leave()
         self.assertIn("Claude", lines)                    # the provider over the highlight

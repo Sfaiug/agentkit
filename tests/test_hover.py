@@ -223,24 +223,17 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[4], "astra")
         self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
 
-    def test_the_highlighted_model_says_what_it_runs_on_under_the_models_and_nothing_moves(self):
+    def test_the_highlighted_model_opens_no_line_and_nothing_moves(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=40))  # one page
         first = self.matrix()[0]
         names = config.offered(self.cfg)
         rows = {text: at(first, text) for text in (*names, *menu.CONFIG_ROWS)}
-        line = at(first, f"{names[0]} runs on")[1]         # one line, under every model
-        self.assertGreater(line, max(rows[name][1] for name in names))
         for name in names:
-            said = f"{name} {menu.model_said(self.cfg, name)[0][0]}"
             for keys in (move(*rows[name]) + ESC, move(*rows[name]) + RIGHT + ESC):
                 last = self.matrix(keys)[-1]
                 self.assertOneHighlight(last, name)
-                self.assertEqual(texts(last)[line - 1].strip(), said)
+                self.assertFalse(any(" runs on " in text for text in texts(last)))
                 self.assertEqual({text: at(last, text) for text in rows}, rows)
-        # off the models it keeps its place, empty
-        last = self.matrix(move(*rows["Discord"]) + ESC)[-1]
-        self.assertEqual(texts(last)[line - 1], "")
-        self.assertEqual({text: at(last, text) for text in rows}, rows)
         # on a screen too short for them all, a click where the pointer found the last model
         # keeps it highlighted, the page as it was: a model opens no screen of its own
         self.stack.enter_context(patch.object(terminal, "height", return_value=28))
@@ -252,8 +245,7 @@ class Screens(Sandbox):
         self.assertEqual(at(screens[-1], names[-1]), label)
         self.assertOneHighlight(screens[-1], names[-1])
 
-    def test_on_a_short_screen_the_highlighted_model_s_line_stays_under_the_page(self):
-        # too short for every row: no page leaves the line off, and the page keeps its place
+    def test_on_a_short_screen_the_page_keeps_its_place_under_the_highlight(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
         first = self.matrix()[0]
         names = config.offered(self.cfg)
@@ -262,8 +254,6 @@ class Screens(Sandbox):
         rows = {name: at(first, name) for name in shown}
         for name in shown:
             last = self.matrix(move(*rows[name]) + ESC)[-1]
-            self.assertIn(f"{name} {menu.model_said(self.cfg, name)[0][0]}",
-                          [text.strip() for text in texts(last)])
             self.assertEqual({text: at(last, text) for text in shown}, rows)
 
     def test_on_a_short_screen_the_meters_stay_over_every_page(self):

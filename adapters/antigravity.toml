@@ -17,6 +17,10 @@ effort = "low"
 unswitched = ["~/.gemini/GEMINI.md", "~/.gemini/AGENTS.md",
               "~/.gemini/config/GEMINI.md", "~/.gemini/config/AGENTS.md", "~/.gemini/config/rules"]
 
+[launch]
+# `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
+first_prompt = true
+
 [worker]
 state = ["~/.gemini/antigravity-cli", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT", "~/.gemini/config"]
 logins = ["~/.gemini/antigravity-cli/antigravity-oauth-token", "~/.gemini/antigravity-cli-$AGENTKIT_ACCOUNT/antigravity-oauth-token"]
