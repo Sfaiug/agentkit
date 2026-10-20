@@ -258,18 +258,24 @@ def cut(text, room, spaced=False):
         return text
     if room <= 0:
         return ""
-    end, used = 0, 0
-    for c in text:
-        used += cells(c)
-        if used > room - 1:
-            break
-        end += 1
-    prefix = text[:end]
+    prefix = within(text, room - 1)
+    end = len(prefix)
     boundary = prefix.rfind(" ")
     if (end < len(text) and text[end] != " " and boundary > 0
             and cells(prefix[boundary:]) <= 4):
         prefix = prefix[:boundary]
     return prefix.rstrip() + "…"
+
+
+def within(text, room):
+    """`text` as far as its first `room` columns reach: a wide character the edge would split
+    is out, a combining mark on the last one kept is in."""
+    used = 0
+    for at, c in enumerate(text):
+        used += cells(c)
+        if used > room:
+            return text[:at]
+    return text
 
 
 def pad(text, room, right=False):

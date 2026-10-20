@@ -816,6 +816,14 @@ cat "$dir/bridge-eval"
         self.assertEqual(watch.composer_draft("opencode", card), "".join(typed.split()))
         empty = card.replace(typed, " " * len(typed))
         self.assertEqual(watch.composer_draft("opencode", empty), "")
+        # the edge is a column: a wide character takes two, a combining mark none
+        rows = [watch.strip_sgr(row) for row in card.splitlines()]
+        at = next(n for n, row in enumerate(rows) if typed in row)
+        wide, marked = "漢字" * 35, "café " * 30
+        rows[at - 1] = f"  ┃  {wide}{rows[at - 1][145:]}"
+        rows[at] = f"  ┃  {marked}{rows[at][155:]}"
+        self.assertEqual(watch.composer_draft("opencode", "\n".join(rows)),
+                         "".join((wide + marked).split()))
 
     def test_stall_and_auth_panes_answer_in_opencode_s_own_words(self):
         stall = self.pane("stall")

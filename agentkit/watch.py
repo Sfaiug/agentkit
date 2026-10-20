@@ -3299,10 +3299,12 @@ def _composer_rows(harness, pane, *, exact=False):
         # was read.  Its rows are read as drawn: their inset tells its prompt row from text.
         # What a harness draws right of its composer's bottom edge, a sidebar beside it, is
         # none of its text.
+        from . import terminal as terminal_mod
         plain = [strip_sgr(raw).rstrip() for raw in raws]
-        right = next((edge.end() for row in reversed(plain)
+        right = next((terminal_mod.cells(edge[0]) for row in reversed(plain)
                       if chrome["bottom"] and (edge := chrome["bottom"].match(row))), None)
-        source = "\n".join(row[:right].rstrip() for row in plain)
+        source = "\n".join(row if right is None else terminal_mod.within(row, right).rstrip()
+                           for row in plain)
         found = list(chrome["draft"].finditer(source))
         if exact and not found:
             return None
