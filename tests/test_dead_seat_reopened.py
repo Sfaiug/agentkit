@@ -293,6 +293,18 @@ class V5s(Sandbox):
 
     # the real `ensure(saved=True)`: the seat's own conversation, in its own pane, no attach
 
+    def test_v5s_a_seat_brought_back_runs_at_an_effort_of_its_own(self):
+        asked = []
+        self.stack.enter_context(patch.object(orch, "attach",
+                                              side_effect=AssertionError("attached")))
+        self.stack.enter_context(patch.object(orch, "launch"))
+        self.stack.enter_context(patch.object(
+            orch, "command", side_effect=lambda cfg, model, *_a, effort=None, **_kw:
+            asked.append((model, effort)) or [model]))
+        config.update_session(SEAT, effort="high")
+        REAL_ENSURE(self.cfg, SEAT, self.logs.append, saved=True)
+        self.assertEqual(asked[-1], ("fable", "high"))
+
     def test_v5s_ensure_saved_brings_back_the_seats_own_conversation_and_never_attaches(self):
         launched = []
         self.stack.enter_context(patch.object(orch, "attach",

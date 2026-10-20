@@ -55,11 +55,11 @@ class SeatMove(Sandbox):
         self.respawned, self.bar, self.refused = [], [], None
         self.pane = capture("claude-prompt-pane.txt")
 
-        def adapter(cfg, model, conversation=None, fresh=False, **_kw):
+        def adapter(cfg, model, conversation=None, fresh=False, effort=None, **_kw):
             if fresh and conversation and config.model(cfg, model)["harness"] != "claude":
                 return None                      # only Claude Code is told an id to open
             return ["acme-tui", model, *([conversation] if conversation else []),
-                    *(["new"] if fresh else [])]
+                    *(["new"] if fresh else []), *([effort] if effort else [])]
 
         def tmux(*args, **_kw):
             if args[0] == "show-options":
@@ -205,6 +205,21 @@ class SeatMove(Sandbox):
             self.assertEqual(self.move("fable"), "")
         meanwhile.join()
         self.assertEqual((seen, self.record()["orchestrator"]), (["fable"], "fable"))
+
+    def test_an_effort_of_its_own_resumes_it_there_and_a_move_drops_it(self):
+        own = lambda effort: orch.switch_orchestrator(self.cfg, SEAT, "opus", providers={},
+                                                      effort=effort)
+        self.assertEqual(own("high"), "")
+        self.assertEqual(self.respawned, [["acme-tui", "opus", OWN, "high"]])
+        self.assertEqual(self.record()["effort"], "high")
+        self.assertEqual((own("high"), len(self.respawned)), ("", 1))        # already at it
+        self.assertEqual(own(self.cfg["models"]["opus"]["effort"]), "")     # the entry's again
+        self.assertEqual(self.respawned[-1], ["acme-tui", "opus", OWN])
+        self.assertNotIn("effort", self.record())
+        own("high")
+        self.assertEqual(self.move("fable"), "")
+        self.assertEqual((self.respawned[-1], self.record().get("effort")),
+                         (["acme-tui", "fable", OWN], None))
 
     def test_back_to_the_old_model_inside_the_seat_after_a_move_is_followed(self):
         self.ends_on("opus", NOW - 60)

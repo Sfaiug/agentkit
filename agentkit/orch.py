@@ -223,7 +223,7 @@ def account_order(cfg, model, readings, first=None):
     return ordered
 
 
-def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=None):
+def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=None, effort=None):
     """The TUI command line for this model, straight from its harness's adapter.
 
     Every harness can hold the seat: the adapter owns the flags, exactly as it does for a
@@ -240,6 +240,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     it started a second Python with all of agentkit to import on every launch.  `rulebook` is
     that file where the caller wrote it for more than one asking.  What the harness checks
     before a launch is checked here too (its plugin's `checked`), and the adapter told so.
+    `effort` is the seat's own (seat_effort), else the entry's for an orchestrator.
     """
     entry = config.model(cfg, name)
     adapter = config.adapter(entry["harness"])
@@ -247,7 +248,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook)}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
     proc = subprocess.run([str(adapter), "interactive", entry["model"],
-                           config.role_effort(entry, "orchestrator"),
+                           effort or config.role_effort(entry, "orchestrator"),
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
                           capture_output=True, encoding="utf-8", errors="replace",
@@ -301,7 +302,7 @@ def command_env(cmd):
     return values
 
 
-def fresh_command(cfg, name, seat=None, account=None):
+def fresh_command(cfg, name, seat=None, account=None, effort=None):
     """(command, conversation) for a seat opening a conversation of its own.
 
     The id is generated here, before anything starts, and handed to the adapter as one its
@@ -313,10 +314,11 @@ def fresh_command(cfg, name, seat=None, account=None):
     conversation = str(uuid.uuid4())
     with for_seat(seat):
         rulebook = write_rulebook(seat or "")
-        cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook)
+        cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook,
+                      effort=effort)
         if cmd:
             return cmd, conversation
-        return command(cfg, name, account=account, rulebook=rulebook), None
+        return command(cfg, name, account=account, rulebook=rulebook, effort=effort), None
 
 
 # --- tmux sessions ----------------------------------------------------------
@@ -2277,12 +2279,15 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if detached and (not record.get("cwd") or not ran_in.is_dir()):
         raise config.Error(f"{name}: recorded directory is unavailable: {ran_in}")
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
+    effort = seat_effort(record, orchestrator)
     with scratch(dry_run):
         if recorded:
-            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
+            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account,
+                                 effort=effort)
             conversation = recorded
         else:
-            cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
+            cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account,
+                                              effort=effort)
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -2368,7 +2373,14 @@ def seat_conversation(record, harness=None):
     return plugin.conversation(record, record.get("cwd"))
 
 
-def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
+def seat_effort(record, model):
+    """The effort a seat runs `model` at of its own -- `effort` in its record, stepped on `c` or
+    followed from inside it (watch.follow_model) -- while `model` is its orchestrator, else None:
+    the entry's."""
+    return (record or {}).get("effort") if (record or {}).get("orchestrator") == model else None
+
+
+def resume_command(cfg, model, conversation, cwd, seat=None, account=None, effort=None):
     """The TUI command for a seat coming back on the conversation it owns.
 
     Its harness may never have opened one under that id, and then the id is handed over as one
@@ -2379,10 +2391,11 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
         rulebook = write_rulebook(seat or "")
         if not opened(harness, cwd, conversation):
             fresh = command(cfg, model, conversation, fresh=True, account=account,
-                            rulebook=rulebook)
+                            rulebook=rulebook, effort=effort)
             if fresh:
                 return fresh
-        return command(cfg, model, conversation, account=account, rulebook=rulebook)
+        return command(cfg, model, conversation, account=account, rulebook=rulebook,
+                       effort=effort)
 
 
 def launch(name, model, cwd, cmd, conversation, session=None):
@@ -4017,8 +4030,9 @@ LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch
                "codex_history", "opencode_launch", "session_title", "title_sync")
 
 
-def switch_orchestrator(cfg, name, model, providers=None):
-    """Move the open seat to another orchestrator at once, under the same name.
+def switch_orchestrator(cfg, name, model, providers=None, effort=None):
+    """Move the open seat to another orchestrator at once, under the same name, or to an
+    `effort` of its own on the one it is on (seat_effort; None, the entry's).
 
     The old harness process ends and the new one starts in the seat's directory: a live or
     exited pane is respawned, a seat tmux has lost is started again. The runs it launched
@@ -4044,7 +4058,9 @@ def switch_orchestrator(cfg, name, model, providers=None):
     name = config.resolve_session(name)    # a screen open across a rename has the old name
     record = dict(config.session_records().get(name) or {})
     old_model = record["orchestrator"]
-    if old_model == model:
+    if effort == config.role_effort(config.model(cfg, model), "orchestrator"):
+        effort = None             # the entry's own: nothing of the seat's to keep
+    if (old_model, record.get("effort")) == (model, effort):
         return ""
     # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind,
     # and a capture that failed is no evidence that nothing is on its screen.
@@ -4069,8 +4085,9 @@ def switch_orchestrator(cfg, name, model, providers=None):
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
         cmd, conversation = ((resume_command(cfg, model, kept, ran_in, seat=name,
-                                             account=account), kept) if kept
-                             else fresh_command(cfg, model, seat=name, account=account))
+                                             account=account, effort=effort), kept) if kept
+                             else fresh_command(cfg, model, seat=name, account=account,
+                                                effort=effort))
     except (config.Error, OSError) as exc:
         return _one_line(exc)
     # Another provider's seat opens anew, and its home is the account it opened on.
@@ -4078,7 +4095,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
         moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
-    chosen = {"orchestrator": model, "account": account,
+    chosen = {"orchestrator": model, "account": account, "effort": effort,
               **({"home_account": account} if moved else {})}
     # Under what every redress and look reads the record under, till the new harness is up: a
     # look before it would follow the old model's last answer back (watch.follow_model).

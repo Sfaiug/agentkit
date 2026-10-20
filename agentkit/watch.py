@@ -1525,8 +1525,9 @@ def follow_model(cfg, name):
     in the seat was launched counts (`launched` in its record, written once it is up), so a
     move on `c` is not undone by the old model's last answer; a seat launched before launches
     were written down counts every answer.  The model is the configured entry running it on
-    that harness, the seat's own first, at the effort the answer recorded where one does; a
-    model no entry runs, a seat on its harness's own model, or an answer that cannot be read
+    that harness, the seat's own first, else one at the answer's effort; that effort, where the
+    harness records one, becomes the seat's own where it is not the entry's (orch.seat_effort).
+    A model no entry runs, a seat on its harness's own model, or an answer that cannot be read
     leaves the record as it is."""
     try:
         record = config.load_session(cfg, name, required=False)
@@ -1546,10 +1547,15 @@ def follow_model(cfg, name):
     kept, models = record["orchestrator"], cfg["models"]
     runs = [each for each in (kept, *config.offered(cfg))
             if (models[each]["harness"], models[each]["model"]) == (entry["harness"], ran[0])]
-    chosen = next((each for each in runs if models[each].get("effort") == ran[1]),
-                  runs[0] if runs else kept)
-    if chosen != kept:
-        config.update_session(name, orchestrator=chosen)
+    if not runs:
+        return
+    chosen = runs[0] if runs[0] == kept else next(
+        (each for each in runs if config.role_effort(models[each], "orchestrator") == ran[1]),
+        runs[0])
+    effort = (orch.seat_effort(record, chosen) if ran[1] is None else
+              None if ran[1] == config.role_effort(models[chosen], "orchestrator") else ran[1])
+    if (chosen, effort) != (kept, record.get("effort")):
+        config.update_session(name, orchestrator=chosen, effort=effort)
 
 
 def cancelled(harness, name, pane):

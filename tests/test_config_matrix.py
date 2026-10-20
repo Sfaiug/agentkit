@@ -52,7 +52,7 @@ if session:     # the seat whose roles the marks are, with no reviewers of its o
     config.save_session(config.load(), session, "opus", json.loads(os.environ["MATRIX_WORKERS"]),
                         {"cwd": "/", "created": 0})
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
-orch.switch_orchestrator = lambda cfg, name, model, providers=None: (
+orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
     config.update_session(name, orchestrator=model), "")[1]
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
