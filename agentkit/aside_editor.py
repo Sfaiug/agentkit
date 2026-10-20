@@ -6,10 +6,10 @@ editor on the keys its manifest names (`[screen] editor`), and `edit` takes the 
 the pane just before (`request`, a pane option the edit clears) on what the composer holds, which
 no screen draws late or cropped, and answers in that option once it is done (`answer`).  `line`
 hands back ak's line, what else the composer holds kept in a tmux buffer of the pane's (`kept`,
-`ASIDE`) beside any text kept before, and answers `line`.  `back` answers what the composer it is
-handed after that line's Enter holds -- nothing (`sent`), the line (`unsent`) or other text -- and
-over either of the first two hands the kept text back, kept on as given back (`GIVEN`): whatever
-the next `line` finds in the composer then is the owner's.  Each is written whole or not at all;
+`ASIDE`) beside any text kept before, even none, and answers `line`.  `back` answers what the
+composer it is handed after that line's Enter holds -- nothing (`sent`), the line (`unsent`) or
+other text -- and over either of the first two hands the kept text back, kept on as given back
+(`GIVEN`) where there is any: whatever the next `line` finds in the composer then is the owner's.  Each is written whole or not at all;
 a step that fails is undone and answers nothing.  tmux refusing to mark text given back leaves it
 in the composer and kept as set aside, and the next `line` keeps a composer holding just that text
 once, so it is given back again at worst, never lost.  An ask ak gave up on (`none`), however long
@@ -157,9 +157,10 @@ def edit(argv):
             if not (ours and state == ASIDE):
                 # one holding just the text set aside got it from a `back` tmux refused to mark:
                 # the text kept once, as the composer holds it
-                keep = (ASIDE.encode() + (held + b"\n" + text
-                                          if state == ASIDE and not _holds(text, held) else text)
-                        if text else stored if state == ASIDE else b"")
+                # kept even where it is nothing: a composer holding the line got it from an edit
+                keep = (ASIDE.encode() + (held + b"\n" + text if state == ASIDE and held
+                                          and not _holds(text, held) else text)
+                        if text or state != ASIDE else stored)
                 # a failed step is undone too, as tmux's server can do one its client then
                 # times out on
                 if not ((keep == stored or _keep(name, keep)) and _publish(path, line)):
@@ -170,7 +171,7 @@ def edit(argv):
             if state == ASIDE and word != b"other":
                 if not _publish(path, held):
                     return 0
-                _keep(name, GIVEN.encode() + held)
+                _keep(name, held and GIVEN.encode() + held)
         _tmux("set-option", "-p", "-t", pane, ASK, f"did {os.fsdecode(at)} {os.fsdecode(word)}")
         return 0
     owner = os.environ.get(OWNER) or "vi"

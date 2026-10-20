@@ -80,26 +80,21 @@ class LinePastOwnersText(EditorSeat):
         self.tick()
         self.assertEqual((self.sent, self.composer, self.told()), ([LINE], DRAFT, True))
 
-    def test_a_line_its_enter_and_way_back_left_in_the_composer_keeps_its_mark(self):
-        press, marks = self.press, []
+    def test_a_line_whose_enter_and_answer_back_were_lost_goes_in_again_on_its_mark(self):
+        marks, tmux = [], self.editor_tmux
 
-        def lost(key):
-            if key == "Enter":
-                self.keys.append(key)
-                self.deaf = True
-            else:
-                press(key)
+        def answer_lost(*args, data=None):       # the text given back over the line
+            return None if args[-1].endswith(" unsent") else tmux(*args, data=data)
 
-        with patch.object(self, "press", side_effect=lost):
+        with patch.object(watch, "_send_enter", return_value=False), \
+                patch.object(aside_editor, "_tmux", side_effect=answer_lost):
             self.assertFalse(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg,
                                                   receipt=marks.append))
-        # its mark's pass sends it, never another line past it, and the text comes back after
-        self.deaf = False
-        for _ in range(2):
-            watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg, typed=marks[-1])
-        watch.drafts_back(self.cfg, lambda _: None)
-        self.assertEqual((marks, self.sent, self.composer),
-                         ([{"line": DOCS, "seat": self.seat["created"]}], [DOCS], DRAFT))
+        # never an Enter on a screen that still draws the line over the text given back
+        self.assertTrue(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg,
+                                             typed=marks[-1]))
+        self.assertEqual((self.sent, self.composer, self.buffers),
+                         ([DOCS], DRAFT, {KEPT: f"{aside_editor.GIVEN}{DRAFT}".encode()}))
 
     def test_text_whose_way_back_went_unanswered_comes_back_on_a_later_tick(self):
         self.wait_line()

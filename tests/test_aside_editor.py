@@ -96,6 +96,8 @@ class AsideEditor(unittest.TestCase):
                 self.assertEqual(self.step("back", left), (DRAFT, word))
                 # kept as given back: what the next line finds in the composer is the owner's
                 self.assertEqual(self.kept(), G + DRAFT)
+        self.buffers = {NAME: A.encode()}       # nothing kept is nothing given back
+        self.assertEqual((self.step("back", ""), self.kept()), (("", "sent"), None))
         self.assertEqual(self.opened, [])
 
     def test_text_comes_back_over_nothing_else_and_once(self):
@@ -112,7 +114,7 @@ class AsideEditor(unittest.TestCase):
     def test_what_a_line_finds_in_the_composer_is_kept_once(self):
         ours = f"{LINE}\n"     # the line, as an edit before left it
         # composer, kept before, kept after
-        for composer, before, after in (("", None, None),
+        for composer, before, after in (("", None, A),     # nothing, and kept as nothing
                                         (" \n", None, A + " \n"),    # blanks too
                                         ("", A + DRAFT, A + DRAFT),
                                         (ours, A + DRAFT, A + DRAFT),
@@ -122,7 +124,7 @@ class AsideEditor(unittest.TestCase):
                                         (DRAFT, A + DRAFT, A + DRAFT),
                                         (f"{DRAFT}\n", A + DRAFT, f"{A}{DRAFT}\n"),
                                         # given back, then sent or emptied, or still there
-                                        ("", G + DRAFT, None),
+                                        ("", G + DRAFT, A),
                                         (DRAFT, G + DRAFT, A + DRAFT)):
             with self.subTest(composer=composer, before=before):
                 self.buffers = {} if before is None else {NAME: before.encode()}

@@ -3682,10 +3682,13 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
     """Under the seat's send lock: the line in through ak's editor, which keeps what else the
     composer holds, its Enter, and the kept text handed back over what that Enter left -- the
     line delivered on the editor's word that the composer was empty after its Enter, or where
-    it gives none, on the screen's: the line drawn there, then gone.  `receipt` holds the mark
-    while the line can still be in the composer, as `type_at_prompt`'s keys do."""
+    it gives none, on the screen's: the line drawn there, then gone.  `receipt` is handed a
+    mark of this route's own before the editor is asked, as its word that the line is in can be
+    lost: given back, it sends the line through here again, never with an Enter on the screen's
+    read (`type_at_prompt`), which can draw a give-back late."""
     text = mark["line"]
-    if not _send_line(session, text, log, lambda: receipt(mark), source=source,
+    receipt(dict(mark, editor=where["id"]))
+    if not _send_line(session, text, log, source=source,
                       put=lambda: _edit(session, where, "line", text) == "line"):
         return False
     gone = False
@@ -3693,8 +3696,6 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
         _send_enter(session, log)
         gone = _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
     word = _edit(session, where, "back", text)
-    if word == "unsent":
-        receipt(None)           # the kept text came back over the line: none of it is left
     return word == "sent" or word is None and gone
 
 
@@ -3744,7 +3745,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     empty with no unread terminal input, the first pass's as a mark's: one the owner edited
     while its Enter was confirmed no longer reads whole there, and is still theirs to send.
     Text left standing in the composer of a seat launched with ak's editor holds none of it
-    back either: the line goes in through that editor (`_past_text`, `_line_through`), and no
+    back either: the line goes in through that editor (`_past_text`, `_line_through`, whose
+    mark is its own), and no
     line goes in as keys while that editor keeps text of the seat's, nor any where tmux cannot
     say whether the seat is one launched with it (`seat_editor`).  A question the seat
     asked with `ak notify needs` holds none of this back: the seat works on what does not wait
