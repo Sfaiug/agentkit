@@ -87,8 +87,10 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
-def user_messages(record, cwd, conversation):
-    """The durable UI record keeps prompts and times through model-context compaction."""
+def messages(record, cwd, conversation):
+    """The durable UI record's messages, oldest first, as (who, {at, text}), "user" or
+    "model": the chunks of one joined, a host turn's, a shell command's and every other update
+    left out.  It keeps prompts and times through model-context compaction."""
     from . import entries, user_message
     where = cwd or record.get("cwd")
     if not conversation or not where:
@@ -103,15 +105,16 @@ def user_messages(record, cwd, conversation):
         meta = meta if isinstance(meta, dict) else {}
         content = update.get("content")
         content = content if isinstance(content, dict) else {}
-        human = (entry.get("method") == "session/update"
-                 and params.get("sessionId") == conversation
-                 and update.get("sessionUpdate") == "user_message_chunk"
-                 and not meta.get("hostTurn"))
-        chunk_key = (meta.get("promptIndex"), meta.get("interjection", False))
-        if current and (not human or chunk_key != key or meta.get("interjection")):
-            yield current
+        who = {"user_message_chunk": "user", "agent_message_chunk": "model"}.get(
+            update.get("sessionUpdate"))
+        spoken = (entry.get("method") == "session/update"
+                  and params.get("sessionId") == conversation
+                  and who and not meta.get("hostTurn"))
+        chunk_key = (who, meta.get("promptIndex"), meta.get("interjection", False))
+        if current and (not spoken or chunk_key != key or meta.get("interjection")):
+            yield key[0], current
             current = None
-        if not human or content.get("type") != "text":
+        if not spoken or content.get("type") != "text":
             continue
         content_meta = content.get("_meta")
         content_meta = content_meta if isinstance(content_meta, dict) else {}
@@ -125,7 +128,21 @@ def user_messages(record, cwd, conversation):
             else:
                 current, key = kept, chunk_key
     if current:
-        yield current
+        yield key[0], current
+
+
+def user_messages(record, cwd, conversation):
+    return (message for who, message in messages(record, cwd, conversation) if who == "user")
+
+
+def said(record, cwd, conversation):
+    """Read from the UI record, not chat_history.jsonl: that is the model's context, which a
+    compaction rewrites and which wraps every prompt in tags of its own."""
+    where = cwd or record.get("cwd")
+    if not conversation or not where or not session_dir(where, conversation).is_dir():
+        return None
+    return [{"who": who, "text": message["text"]}
+            for who, message in messages(record, cwd, conversation)]
 
 def opened(cwd, conversation):
     """Has Grok written that conversation down yet, where it keeps them?

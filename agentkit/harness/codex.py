@@ -141,20 +141,38 @@ def transcript(record, cwd, conversation):
 
 def prompt(entry):
     """The owner's words one rollout line holds, or None for anything else."""
-    payload = entry.get("payload")
     # Response items also contain rules and environment text with the user role.
     # The completed UserMessage item keeps the original prompt exactly once.
+    return completed(entry, "UserMessage")
+
+
+def answer(entry):
+    """The model's visible words one rollout line holds -- its commentary and its final
+    answer -- or None for its reasoning, its tool calls and anything else."""
+    return completed(entry, "AgentMessage")
+
+
+def completed(entry, kind):
+    """The text of the completed item of that kind one rollout line holds, or None."""
+    payload = entry.get("payload")
     if (entry.get("type") != "event_msg" or not isinstance(payload, dict)
             or payload.get("type") != "item_completed"):
         return None
     item = payload.get("item")
-    if not isinstance(item, dict) or item.get("type") != "UserMessage":
+    if not isinstance(item, dict) or item.get("type") != kind:
         return None
     content = item.get("content")
     if not isinstance(content, list):
         return None
+    # A UserMessage's parts are `text`, an AgentMessage's `Text` (Codex 0.163).
     return "\n".join(part["text"] for part in content if isinstance(part, dict)
-                     and part.get("type") == "text" and isinstance(part.get("text"), str)) or None
+                     and part.get("type") in ("text", "Text")
+                     and isinstance(part.get("text"), str)) or None
+
+
+def said(record, cwd, conversation):
+    from . import turns
+    return turns(transcript(record, cwd, conversation), prompt, answer)
 
 
 def user_messages(record, cwd, conversation):

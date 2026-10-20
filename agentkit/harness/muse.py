@@ -355,13 +355,41 @@ def usage_policy(entry, effort):
             and isinstance(effort, str) and bool(effort))
 
 
+def session_logs(session):
+    """Where Muse logs that session: its session.jsonl, under ~/.local/share/muse/sessions/
+    YYYY/MM/DD/<session>/."""
+    root = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "muse/sessions"
+    return sorted(root.glob(f"*/*/*/{session}/session.jsonl"))
+
+
+def said(record, cwd, conversation):
+    """Each run of the session starts with the prompt it was given and commits every answer it
+    showed as an event of its own; its reasoning, tool batches and reminders are other events,
+    and a child session is a log of its own."""
+    from . import turns
+    if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
+        return None
+    logs = session_logs(conversation)
+    return turns(logs[0] if logs else None, lambda entry: run_said(entry, "started", "prompt"),
+                 lambda entry: run_said(entry, "assistant_message_committed", "text"))
+
+
+def run_said(entry, kind, key):
+    """What one session.jsonl line's run event of that kind holds under `key`, or None."""
+    payload = entry.get("payload")
+    run = isinstance(payload, dict) and payload.get("kind") == "run"
+    event = payload.get("event") if run else None
+    text = event.get(key) if isinstance(event, dict) and event.get("kind") == kind else None
+    return text if isinstance(text, str) else None
+
+
 def tokens(out):
     """What the turn in `out` spent, read from Muse's own session store, or None.
 
     `muse exec --json` streams no usage at all.  The stream names the session and the run the
-    turn opened; the session's session.jsonl, under ~/.local/share/muse/sessions/YYYY/MM/DD/,
-    records a provider usage for every model request, owned by that run -- earlier turns of a
-    resumed session are other runs.  Input tokens already include the cached prefix.
+    turn opened; the session's log (`session_logs`) records a provider usage for every model
+    request, owned by that run -- earlier turns of a resumed session are other runs.  Input
+    tokens already include the cached prefix.
     """
     session, runs = None, set()
     try:
@@ -382,9 +410,8 @@ def tokens(out):
         return None
     if not isinstance(session, str) or not re.fullmatch(r"[\w-]+", session) or not runs:
         return None
-    root = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "muse/sessions"
     total, seen = 0, False
-    for path in root.glob(f"*/*/*/{session}/session.jsonl"):
+    for path in session_logs(session):
         try:
             with path.open(errors="replace") as source:
                 for line in source:
