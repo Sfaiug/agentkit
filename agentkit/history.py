@@ -475,17 +475,21 @@ def owner(since, until):
 
 
 def seat_work(names, conversation, since, until):
-    """`(models, last)` for a seat between `since` and `until`: the models its runs named, by any
-    of its `names` -- orchestrator, builder and reviewer, in the order they first came -- and
-    that conversation's last done; None where the database cannot answer."""
+    """`(runs, reviews, last)` for a seat between `since` and `until`: its runs, by any of its
+    `names`, each `(run_id, orchestrator, executor, reviewer)` as it ended, in the order they
+    started; each finished review of them, `(run_id, harness, model, effort)`, in that order and
+    then by round; and that conversation's last done.  None where the database cannot answer."""
+    seat = (f"session IN ({', '.join('?' * len(names))}) AND started_at >= ? AND started_at <= ? "
+            "ORDER BY started_at")
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
-                runs = connection.execute(
-                    f"SELECT orchestrator, executor, reviewer FROM runs WHERE session IN "
-                    f"({', '.join('?' * len(names))}) AND started_at >= ? AND started_at <= ? "
-                    "ORDER BY started_at", (*names, since, until)).fetchall()
+                runs = connection.execute("SELECT run_id, orchestrator, executor, reviewer "
+                                          f"FROM runs WHERE {seat}", (*names, since, until)).fetchall()
+                reviews = connection.execute(
+                    "SELECT run_id, harness, model, effort FROM reviews JOIN runs USING (run_id) "
+                    f"WHERE {seat}, round", (*names, since, until)).fetchall()
                 last = connection.execute(
                     "SELECT MAX(at) FROM dones WHERE conversation = ? AND at >= ? AND at <= ?",
                     (conversation, since, until)).fetchone()[0]
@@ -493,7 +497,7 @@ def seat_work(names, conversation, since, until):
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
-    return list(dict.fromkeys(model for row in runs for model in row if model)), last
+    return runs, reviews, last
 
 
 def last_done(conversation):

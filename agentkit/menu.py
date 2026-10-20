@@ -4626,9 +4626,9 @@ def past_offered(found):
 def took(seconds):
     """How long a past session took, in hours and days and never minutes, as the owner asked:
     `under an hour`, `5 hours`, `1 day and 3 hours`."""
-    hours = round(max(0, seconds) / 3600)
-    if not hours:
+    if seconds < 3600:
         return "under an hour"
+    hours = round(seconds / 3600)
     return " and ".join(f"{n} {unit}{'s' * (n != 1)}"
                         for n, unit in zip(divmod(hours, 24), ("day", "hour")) if n)
 
@@ -4640,15 +4640,30 @@ def past_said(cfg, session):
     owner's three of 20 Oct 2026)."""
     name, start, stop = session["name"], session.get("created"), session["closed"]
     seat = notify.conversation_of(name)
-    work = history.seat_work(plan.names(name), seat and seat[3] and f"{seat[0].name}:{seat[3]}",
-                             start or 0, stop) or ([], None)
-    done, total = seat_progress(name)
+    runs, reviews, last = history.seat_work(
+        plan.names(name), seat and seat[3] and f"{seat[0].name}:{seat[3]}", start or 0,
+        stop) or ([], [], None)
+    from . import watch   # here, not at the top: the menu draws without the tick
+    done, total = watch.plan_progress(name)
     tasks = (f"{done} of {total} tasks" if done < total else
              f"{total} task{'s' * (total != 1)}") if total else ""
+    reviewed = {}         # a run's reviewers, each round's, by the name the config runs it under
+    for run_id, harness, model, effort in reviews:
+        reviewed.setdefault(run_id, []).append(
+            next(iter(_runs(cfg, harness, model, effort) or _runs(cfg, harness, model)), None))
     models = dict.fromkeys(model for model in ((selection_of(cfg, name) or {}).get(
-        "orchestrator"), *work[0]) if model)
+        "orchestrator"), *(model for run_id, orchestrator, executor, reviewer in runs
+                           for model in (orchestrator, *past_builders(run_id), executor,
+                                         *reviewed.get(run_id, ()), reviewer))) if model)
     return plan.first_done(name) or "", " · ".join(part for part in (
-        tasks, start and "took " + took((work[1] or stop) - start), ", ".join(models)) if part)
+        tasks, start and "took " + took((last or stop) - start), ", ".join(models)) if part)
+
+
+def past_builders(run_id):
+    """The models a run's work was handed from, in order (its record's `executor_history`): the
+    builders before its last, whom its history row no longer names."""
+    entries = (record.read_state(config.RUNS / str(run_id)) or {}).get("executor_history")
+    return [entry.get("from") for entry in entries or () if isinstance(entry, dict)]
 
 
 def past_body(past, at=None, models=None, room=None, said=None):
@@ -4657,7 +4672,8 @@ def past_body(past, at=None, models=None, room=None, said=None):
     how long ago it was stopped in the state's column and, where its harness starts it fresh
     and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
     blank line between projects, where `room` lines hold them or no `room` is given; else the
-    page of `room` lines `at` is on, each row under its project's heading (`project_pages`).
+    page of `room` lines `at` is on, each row under its project's heading (`project_pages`),
+    or every page of a row taller than one.
     `at` is the highlighted seat's name, lit while the pointer is on the rows (`terminal.away`).
     `said` is what each row named in it opens under itself (`past_said`), as the main screen's
     do: its sentence wrapped whole, then its stats, dim."""
@@ -4686,7 +4702,10 @@ def past_body(past, at=None, models=None, room=None, said=None):
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
     pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
-    page = next((page for page in pages if any(name == at for _, name in page)), pages[0])
+    # a row opened taller than a page is on several, all of them its own: one body, whose
+    # pages ↑/↓ turn before they leave it (`matrix_key`)
+    page = [line for page in pages if any(name == at for _, name in page) for line in page]
+    page = page or pages[0]
     return ([line for line, _ in page],
             {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
@@ -4704,7 +4723,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
     remove by the numbers on the screen, and an empty line goes back; there every row opens what
     its session did.  A dry run draws it once.
     """
-    here, clock, said = None, motion.Clock(page=True), {}
+    here, clock, said, top = None, motion.Clock(page=True), {}, 0
     while True:
         past = [(number, session) for number, session in enumerate(found, 1)
                 if session.get("closed")]
@@ -4743,9 +4762,9 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                                              if session["name"] == here))
         body, places = past_body(past, here, models, room,
                                  {} if terminal.away() else {here: said[here]})
-        act, row, _column, _top = matrix_key("past sessions", body, places,
-                                             [("row", name) for name in names], ("row", here),
-                                             0, "", keys, clock=clock)
+        act, row, _column, top = matrix_key("past sessions", body, places,
+                                            [("row", name) for name in names], ("row", here),
+                                            top, "", keys, clock=clock)
         here = row[1]
         if act is None:
             continue              # a resize or the pointer: drawn again

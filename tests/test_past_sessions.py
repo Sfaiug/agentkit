@@ -224,6 +224,16 @@ class Said(Sandbox):
             history._write(lambda connection, row=(run, session, *models, at): connection.execute(
                 "INSERT INTO runs (run_id, session, orchestrator, executor, reviewer, started_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)", row))
+        # run 2 was handed from fable to spark, and gemini reviewed its first round: models its
+        # history row, holding only the last pair, no longer names
+        (config.RUNS / "2").mkdir()
+        (config.RUNS / "2" / "run.json").write_text(
+            '{"executor_history": [{"from": "fable", "to": "spark", "reason": "dry"}]}')
+        for review, (harness, model, effort) in enumerate((
+                ("antigravity", "gemini-3.8-flash", "high"), ("codex", "gpt-6-astra", "xhigh")), 1):
+            history.record_review("2", f"review-{review}", harness=harness, model=model,
+                                  blocking=0, followup=0, note=0, round=review, verdict="PASS",
+                                  effort=effort)
         self.stack.enter_context(patch.object(notify, "conversation_of", return_value=(
             type("Plugin", (), {"name": "claude"}), {}, "/", "acme-thread")))
         self.session = {"name": "acme-docs", "created": 1000, "closed": 40000}
@@ -232,15 +242,22 @@ class Said(Sandbox):
         # its last done is the end: the hours it then sat stopped are not its work
         history.done("claude:acme-thread", 1000 + 5 * 3600, None)
         self.assertEqual(menu.past_said(self.cfg, self.session), (
-            "Ship the docs site", "2 of 3 tasks · took 5 hours · opus, astra, spark"))
+            "Ship the docs site",
+            "2 of 3 tasks · took 5 hours · opus, astra, fable, spark, gemini"))
 
     def test_with_no_done_it_took_until_it_was_stopped(self):
         self.assertEqual(menu.past_said(self.cfg, self.session)[1],
-                         "2 of 3 tasks · took 11 hours · opus, astra, spark")
+                         "2 of 3 tasks · took 11 hours · opus, astra, fable, spark, gemini")
+
+    def test_with_no_plan_it_counts_no_tasks_whatever_its_jobs_say(self):
+        config.plan_path("acme-docs").unlink()
+        with patch.object(menu, "job_for_seat", return_value=(1, 2, 0)):
+            self.assertEqual(menu.past_said(self.cfg, self.session), (
+                "", "took 11 hours · opus, astra, fable, spark, gemini"))
 
     def test_how_long_is_hours_then_days_and_hours_and_never_minutes(self):
-        for seconds, said in ((0, "under an hour"), (29 * 60, "under an hour"),
-                              (40 * 60, "1 hour"), (5 * 3600, "5 hours"),
+        for seconds, said in ((0, "under an hour"), (40 * 60, "under an hour"),
+                              (3600, "1 hour"), (5 * 3600, "5 hours"),
                               (27 * 3600, "1 day and 3 hours"), (48 * 3600, "2 days"),
                               (49 * 3600 + 20 * 60, "2 days and 1 hour")):
             with self.subTest(seconds=seconds):
@@ -302,6 +319,19 @@ class Layout(Sandbox):
                         rows = [terminal.plain(lines[n]) for n in places]
                         self.assertTrue(any("stopped 120d ago" in row for row in rows), rows)
                         self.assertTrue(all(terminal.cells(line) <= width for line in lines))
+
+    def test_a_row_opened_taller_than_a_page_keeps_its_every_line(self):
+        sentence = " ".join(["The docs site ships"] * 20)
+        with patch.object(terminal, "width", return_value=40), \
+                patch.object(orch, "age", return_value="1h"), \
+                patch.object(orch, "listed", dict), \
+                patch.object(orch, "checkout_of", return_value=None):
+            lines, places = menu.past_body(
+                [(1, {"name": "fix-api", "repo": None, "closed": 1})], at="fix-api", room=8,
+                said={"fix-api": (sentence, "2 tasks · took 5 hours · opus")})
+        self.assertGreater(len(lines), 8)
+        self.assertEqual(terminal.plain(lines[-1]).strip(), "2 tasks · took 5 hours · opus")
+        self.assertEqual(list(places.values()), [(("row", "fix-api"), [])] * len(lines))
 
     def test_past_rows_match_the_main_screens_rows(self):
         session = {"name": "fix-api", "repo": None, "closed": 1}
