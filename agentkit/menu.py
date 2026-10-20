@@ -127,6 +127,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import closing
@@ -223,6 +224,8 @@ class Live:
         self.read_from = None            # the seats and runs it read them from, a pass's too
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
+        self.reads = 0                   # how many reads have begun, the last one's number
+        self.closing = {}                # seats `stop` took off: the last read begun as it ended
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -343,6 +346,8 @@ class Live:
             if not self.watching.is_set():
                 return
             leaves = self.leaves
+            self.reads += 1
+            began = self.reads
         found = orch.listing()
         records = run_records()           # one pass over run.json a read: filing, looking, drawing
         orch.file_projectless(found, [state for _, state in records])
@@ -352,7 +357,45 @@ class Live:
                 return
             self.read_from = found, records
             self.meet(look)
-            self.last[:] = found, groups
+            for name, ended in list(self.closing.items()):
+                if ended is not None and began > ended:
+                    del self.closing[name]    # read since its stop ended: as it now stands
+            self.last[:] = without(found, groups, self.closing)
+
+    def stop(self, name, dry_run=False):
+        """Take that seat's row off the screen now, and stop it behind it (`teardown`).
+
+        No read puts the row back while the stop goes, nor after it until one begun since it
+        ended lands: that one has the seat stopped, or as it was where the stop was refused,
+        which is said as a notice.  The stop is a process of its own, so the menu leaving --
+        the popup over the seat going with it -- ends nothing halfway.
+        """
+        with self.reading:
+            self.closing[name] = None
+            self.last[:] = without(*self.last, self.closing)
+        log = tempfile.TemporaryFile()   # a file, not a pipe: no reader gone kills the stop
+        try:
+            proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
+                                    env=config.child_env(), stdin=subprocess.DEVNULL,
+                                    stdout=log, stderr=log, start_new_session=True)
+        except OSError as exc:
+            log.close()
+            return self._stopped(name, f"stop: {exc}")
+
+        def wait():
+            with log:
+                code = proc.wait()
+                log.seek(0)
+                said = log.read().decode("utf-8", "replace").strip().splitlines()
+            self._stopped(name, code and (said[-1] if said else f"stop {name}: exited {code}"))
+        threading.Thread(target=wait, daemon=True).start()
+
+    def _stopped(self, name, refused):
+        with self.reading:
+            self.closing[name] = self.reads
+        if refused:
+            self.say(refused)
+        self.ask()
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -1142,14 +1185,32 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     for checkout in orch.checkouts(stands=stands):     # a project with no seat shown has no heading
         if str(checkout) in groups and switches_command(checkout):
             groups[str(checkout)]["switches"] = switches(checkout) or []
-    for project in groups.values():
+    return tallied(list(groups.values()), infos, silent_map)    # each where its first seat is
+
+
+def tallied(ordered, infos, silent_map):
+    """`v5o_groups`' answer for those projects and rows: each project's seats that need the owner
+    and its word, and the top line's count of them all."""
+    for project in ordered:
         project["needing"] = sum(1 for info in project["seats"] if info["word"] == "needs you")
         project["has_needs"] = bool(project["needing"])
         project["word"] = rollup([info["word"] for info in project["seats"]])
-    ordered = list(groups.values())       # each where its first seat is
-    total_needing = sum(project["needing"] for project in ordered)
     # The top line counts the seats whose word is `needs you`, each once, and says so once.
-    return ordered, infos, total_needing, silent_map
+    return ordered, infos, sum(project["needing"] for project in ordered), silent_map
+
+
+def without(found, groups, gone):
+    """`found` and `groups` with the seats named in `gone` stopped, as the read after their stop
+    has them: each closed, its row gone, and its project's heading once it has no row left."""
+    if not gone or groups is None:
+        return found, groups
+    ordered, infos, _, silent_map = groups
+    found = [{**seat, "closed": seat.get("closed") or time.time()} if seat["name"] in gone
+             else seat for seat in found]
+    ordered = [{**project, "seats": seats} for project in ordered
+               if (seats := [info for info in project["seats"] if info["name"] not in gone])]
+    return found, tallied(ordered, [info for info in infos if info["name"] not in gone],
+                          silent_map)
 
 
 def by_project(infos, stands, unfiled=UNFILED):
@@ -1864,12 +1925,14 @@ def stop_question(name):
     return f"stop {name} and everything it is running? [y/N] "
 
 
-def close_seat(name, dry_run):
-    """End that seat and everything it runs, asking nothing: `x` on a done seat, or `Stop`;
-    on a stopped seat, `x` on the past screen, take it off the list.
+def close_seat(name, dry_run, refused=None):
+    """End that seat and everything it runs, asking nothing: `x` on a done seat, or `Stop`, in
+    a process of their own (`teardown`); on a stopped seat, `x` on the past screen, take it off
+    the list.
 
     Its runs stop first, as `stop_session` stops them, then `orch.cmd_stop` takes their
-    checkouts and the tmux session and keeps the seat -- or, stopped already, takes it.
+    checkouts and the tmux session and keeps the seat -- or, stopped already, takes it.  A
+    refusal goes to `refused`, a notice waiting for its Enter unless it says otherwise.
     """
     stop_session_runs(name, dry_run)
     if dry_run:
@@ -1878,7 +1941,15 @@ def close_seat(name, dry_run):
     try:
         orch.cmd_stop([name])
     except config.Error as exc:
-        pause(f"stop: {exc}")
+        (refused or pause)(f"stop: {exc}")
+
+
+def teardown(name, dry_run):
+    """The process `x` stops that seat in (`Live.stop`): `close_seat`, exiting 1 with the reason
+    last where the stop is refused."""
+    return [sys.executable, "-u", "-c", "import sys; from agentkit import menu; "
+            "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=sys.exit)",
+            name, "1" if dry_run else "0"]
 
 
 def stop_session(found, dry_run):
@@ -5021,8 +5092,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                             STOP_ASK.format(seat), means, "Stop", around, wait=lambda: moving(
                                 clock, going=None if counted[0] else runs.is_alive)):
                         continue
-                keyboard.give()
-                close_seat(seat, dry_run)
+                live.stop(seat, dry_run)      # its row gone at once, the stop behind it
+                if overlay:
+                    return 0                  # its own seat: the popup over it goes first
                 continue
             if key == "n" and drawn is not None and cfg:
                 try:
