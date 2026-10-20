@@ -26,7 +26,7 @@ from fixtures import scores
 from fixtures.sandbox import Sandbox
 from agentkit import config, matrix, menu, terminal, update, usage
 from agentkit.terminal import Key
-from test_c_recommends import Keyboard, row
+from test_c_recommends import Keyboard, Landed, row
 
 
 class RecommendsEffort(Sandbox):
@@ -38,6 +38,10 @@ class RecommendsEffort(Sandbox):
         self.stack.enter_context(patch.object(usage, "collect", return_value=usage.Readings({})))
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=100))
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
+        # the models screen reads the boards as it opens: here the stored rows
+        self.stack.enter_context(patch.object(matrix, "refresh", side_effect=lambda cfg, **_kw: (
+            {}, matrix.stored().get("rows") or [])))
+        self.stack.enter_context(patch.object(menu, "Fetch", Landed))
 
     def store(self, rows):
         scores.store(rows)
@@ -76,8 +80,7 @@ class RecommendsEffort(Sandbox):
         self.store([row("claude", "claude-opus-5-5", "max", execute=100, review=100)])
         text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         said = f"{config.model_name(self.cfg, 'opus-max')} @ max 100"
-        self.assertIn(f"best builds {said} · reviews {said} as good none recommended the "
-                      f"cheapest as good: builds {said} · reviews {said}", text)
+        self.assertIn(f"builds {said} reviews {said}", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus-max"], ["opus-max"]))
         self.assertNotIn("exec_effort", self.entry("opus-max"))

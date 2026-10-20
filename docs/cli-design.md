@@ -327,43 +327,36 @@ screen), `terminal.state_text`.
 
 ## The models screen
 
-`r recommended` on `c` -- the key stands while a matrix is computed and the seat has a
-record -- opens `agentkit · models · <seat>`: every model the installed harnesses offer
-against the public boards, as `ak models` scores them, with nothing typed. Its first row is
-the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
-under 0, saved to config.toml at once, and the lines under it follow. Then the formula,
-each row said with its quality and cost (`opus @ max 100 $5.98`): `best`, dim, the row of the
-highest quality per role; `as good`, dim, the rows within the knob of it, cheapest first; and
-`recommended`, the cheapest as good, said so (`recommended  the cheapest as good: orch opus @
-xhigh 97 $2.95 · builds opus @ xhigh 96 $2.95 · reviews gpt-sol @ max 95 $0.72`), then, dim,
-what quality and cost are. Under them one model a row, the scored ones first by their best
-quality: its config
-name, or its id where the config does not run it (dim where no board scores it), its
-harness (dim), its effort between the arrows that step it (`‹ xhigh ›`; the word alone with
-one effort), its quality per role at that effort out of 100 -- the recommended row's in
-`done`'s colour, one as good in the accent, `-` without a score -- and what a task of
-Artificial Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
-column gives way, then the cost; where the label would still be cut, each model takes two
-lines, its label and harness on the first and its effort and three numbers on the second,
-the highlight on both, and the harness gives way again where the label would still be cut
-beside it: a 40-cell phone reads every model whole. ↑/↓, k/j and the wheel move between
-the knob, the three lines that say why, the quality and cost note and the models. Each
-explanation is a row read with no action; a short screen shows it a page at a time where
-it is taller than the page.
-←/→ on a model step the effort its row shows through its own efforts (the
-catalog's, and any the boards or the config have it at), the numbers and the cost following,
-nothing saved: the effort a model runs at is set on `c`. `r`, or a click on `r take
-recommended`, takes the recommendation: the seat's executors and reviewers become the
-recommended rows' models at their efforts, the orchestrator only said, and what it could not
-do stands under the rows until the next key. The pointer lights the knob's and an effort's
-arrows, and a click on one steps it. A screen too short shows the part the highlight is on.
-Esc returns to `c`, whose marks show the change. The key line reads `↑↓ move   ←→ effort
-r take recommended   esc back`, `←→ as good` on the knob and no arrows on a model with one
-effort.
+`r recommended` on `c` -- the key stands while the seat has a record -- opens `agentkit ·
+models · <seat>` and reads the public boards at once, the rule gliding meanwhile (`reading
+the boards` in the line under the models), nothing typed; what came stands when the boards
+land, and `c` shows it on the way back. A line per role (`orch`, `builds`, `reviews`): the
+recommended row by the full name of the configured model `r` takes it as, or its id, and
+its effort (`Opus 5.5 @ xhigh`), its quality out of 100, what a task of Artificial Analysis's index run cost it (`$3.46
+a task`, dim) and how many more rows are as good (`2 more as good`, dim); `mark a model`
+where none is marked, `no board row yet` where no board has a row ak can run. On a screen too
+narrow for the line the rows as good give way, then the cost. Under them the one knob, `as
+good within ‹ 5 › points of the best; the cheapest of those wins`, the number between the
+arrows that step it: ←/→ step `within` a point, never under 0, saved to config.toml at once,
+and the lines above follow. Then every model the installed harnesses offer, each under its
+harness's heading (accent), two columns where the names fit twice, one on a phone: its mark,
+filled (`■`, `#` in ASCII) where it is assessed, empty (`□`, `-`) where not, its full name
+where the config runs it or else its id, and the id after a full name that differs from it,
+dim, cut where the columns leave it too little room. Space, Enter or a click on a model flips
+its mark, saved to config.toml as `[assess]` at once, and the recommendation follows; a config
+that cannot be saved changes no mark and says why under the knob. The last line, dim, counts
+`N of M marked` and says when the boards were last read (`boards read 20 Oct 13:04`) or `no
+board read yet`. ↑/↓, k/j and the wheel move between the roles, the knob and the models;
+←/→ on a model cross to the other column. `r`, or a click on `r take recommended`, takes the
+recommendation: the seat's executors and reviewers become the recommended rows' models at
+their efforts, the orchestrator only said, and what it could not do stands under the rows
+until the next key. The pointer lights the knob's arrows, and a click on one steps it. A
+screen too short shows the part the highlight is on. Esc returns to `c`, whose marks show
+the change. The key line reads `↑↓ move   r take recommended   esc back` on a role, `↑↓
+move   ←→ as good` on the knob and `↑↓←→ move   space mark` on a model.
 
-Helpers: `menu.models_body`, `menu.models_screen`, `menu.matrix_key`, `terminal.frame`.
-
-Example: `› opus      claude   ‹ xhigh ›   97   97   97   4000`.
+Helpers: `menu.models_body`, `menu.models_columns`, `menu.models_screen`, `menu.matrix_key`,
+`terminal.frame`.
 
 ## The new-session screen
 
