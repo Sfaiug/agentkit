@@ -270,9 +270,9 @@ class SeatNeverSaysWorking(Sandbox):
         # and the send is watched until the line leaves it.
         draft = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8", errors="replace")
         prompt = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8", errors="replace")
-        ok, events = self.check_v5n_delivery([draft, prompt], "Fix the login redirect")
+        ok, events = self.check_v5n_delivery([prompt, draft, prompt], "Fix the login redirect")
         self.assertTrue(ok)
-        self.assertGreaterEqual(events.count("capture"), 2)
+        self.assertGreaterEqual(events.count("capture"), 3)
 
     def test_v5n_delivery_without_composer_counts_as_sent(self):
         ok, events = self.check_v5n_delivery(["sleep 600\n"], "continue")
