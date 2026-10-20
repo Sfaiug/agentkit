@@ -52,8 +52,8 @@ if session:     # the seat whose roles the marks are, with no reviewers of its o
     config.save_session(config.load(), session, "opus", json.loads(os.environ["MATRIX_WORKERS"]),
                         {"cwd": "/", "created": 0})
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
-orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
-    config.update_session(name, orchestrator=model), "")[1]
+orch.switch_orchestrator = lambda cfg, name, model, providers=None, effort=None, **_kw: (
+    config.update_session(name, orchestrator=model, effort=effort), "")[1]
 with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
 print("<left>", flush=True)
@@ -309,7 +309,7 @@ class Matrix(unittest.TestCase):
         screen.leave()
 
     def test_enter_steps_an_effort_up_and_round_from_its_highest(self):
-        screen = Screen(self)
+        screen = Screen(self, session=None)      # For new seats: each entry's own effort
         screen.frame()
         efforts = lambda: {name: model["effort"] for name, model in screen.saved()["models"].items()}
         # opus takes low to max: up from xhigh is max, and up from max is low again
@@ -330,8 +330,16 @@ class Matrix(unittest.TestCase):
         self.assertEqual(efforts()["fable"], "xhigh")
         screen.leave()
 
+    def test_for_a_seat_its_orchestrators_effort_is_its_own(self):
+        screen = Screen(self)                    # For fix-api, on opus
+        screen.frame()
+        screen.press(DOWN + RIGHT * 3 + ENTER, lambda lines: effort(lines, "opus") == "max")
+        self.assertEqual(json.loads(screen.session.read_text()).get("effort"), "max")
+        self.assertEqual(screen.saved()["models"]["opus"]["effort"], "xhigh")    # every other's
+        screen.leave()
+
     def test_a_click_on_an_effort_s_cell_takes_that_level(self):
-        screen = Screen(self)
+        screen = Screen(self, session=None)
         lines = screen.frame()
         number, line = row(lines, "opus")                 # low, medium, high: its third
         lines = screen.click(line.index("▰") + 3, number,
