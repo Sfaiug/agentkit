@@ -30,8 +30,14 @@ LABEL = "com.agentkit.macbridge"
 REQUEST_ID = re.compile(r"[a-f0-9]{16}\Z")
 
 
+def home():
+    """The bridge's folder, on the Mac and the server alike: its requests, and in `inbox` the
+    files it fetched."""
+    return Path.home() / ".agentkit/macbridge"
+
+
 def directories():
-    root = Path.home() / ".agentkit/macbridge"
+    root = home()
     for path in (root, root / "requests", root / "inbox", root / "reads", root / "staged"):
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return root

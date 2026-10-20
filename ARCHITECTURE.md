@@ -65,7 +65,7 @@
   and the state words' groups (`ACTIVE`, `FAILED`, `ENDED`, `GOING`). `read_state`,
   `save_state`, `record`, `stop_check`, `process_active`, `writing`. For run, gate, job,
   menu, orch, watch, gc, retention, history and worker.
-- `gc.py`: plans/schedules cleanup of seats, stamps, temps, worktrees, runs and jobs.
+- `gc.py`: plans/schedules cleanup of seats, stamps, temps, worktrees, runs, jobs and the rest of ak's home.
   Harness `tmp_rule` owns temps and live sessions; retention deletes.
   `cmd_gc` for bin/ak, run, menu, watch and retention; `stop_ended_logins`, the tick's pass
   that has logind stop a login ended a day ago that still runs something, on the server.

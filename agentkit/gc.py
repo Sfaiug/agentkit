@@ -17,8 +17,8 @@ import subprocess
 import sys
 import time
 
-from . import (config, gitcall, handback, host, job as jobs, land, orch, proc_snapshot, record,
-               retention, run, stop, transitions, turns, watch, worktrees)
+from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, proc_snapshot,
+               record, retention, run, stop, transitions, turns, watch, worktrees)
 from .harness import load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
@@ -221,18 +221,21 @@ def tmp_tree_newest(path):
     return newest
 
 
-def tmp_entry_stale(path, now, paths):
-    """Why that top-level /tmp entry goes, or None when it stays.
-
-    Ours, untouched for two days, and held by nobody: anything a running
-    process holds stays where it is.
-    """
-    if tmp_protected(path.name) or retention.busy(path, paths):
+def untouched(path, now, paths, age):
+    """Why that entry goes, or None when it stays: ours alone (`tmp_tree_newest`), nothing in
+    it changed for `age`, and held by nobody."""
+    if retention.busy(path, paths):
         return None
     newest = tmp_tree_newest(path)
-    if newest is None or not retention.expired(newest, now, TMP_AGE):
+    if newest is None or not retention.expired(newest, now, age):
         return None
     return f"untouched for {int((now - newest) // 86400)} days"
+
+
+def tmp_entry_stale(path, now, paths):
+    """Why that top-level /tmp entry goes, or None when it stays: untouched for two days, and
+    held by nobody, since anything a running process holds stays where it is."""
+    return None if tmp_protected(path.name) else untouched(path, now, paths, TMP_AGE)
 
 
 def tmp_harness_rules(table):
@@ -336,6 +339,58 @@ def stale_repo_tmp_entries(now):
                    "why": f"not a canonical path directly under {VAR_TMP_BASE}"}
             continue
         yield from stale_tmp_entries(now, base)
+
+
+def home_folders():
+    """Each folder of ak's home that keeps nothing forever, and how long an entry stays there
+    unchanged: at its top, anything not ak's own (`config.OWN`) a week, as the notes, backups
+    and scripts seats once left there; a task file, and a file fetched from the Mac, as long as
+    a run directory."""
+    return ((config.HOME, GC_AGE), (config.HOME / "tasks", RUN_DIR_AGE),
+            (macbridge.home() / "inbox", RUN_DIR_AGE))
+
+
+def job_task_files():
+    """Every task file a job still names: a queued task's is read when its turn comes."""
+    named = set()
+    if retention.safe(config.JOBS):
+        for directory in retention.children(config.JOBS):
+            for task in (jobs.read_job_safely(directory) or {}).get("tasks") or ():
+                if isinstance(task, dict) and isinstance(task.get("task_file"), str):
+                    named.add(task["task_file"])
+    return named
+
+
+def stale_home_entries(now):
+    """The largest parts of each home folder nothing changed for its age, whole.
+
+    An entry with something newer inside is looked into, so a project's old task files go
+    while its new ones stay.  What a process holds, and a task file a job still names, stay.
+    """
+    paths = retention.process_paths()
+    if paths is None:
+        return
+    paths |= job_task_files()
+    for folder, age in home_folders():
+        yield from home_entries(folder, age, now, paths)
+
+
+def home_entries(folder, age, now, paths):
+    try:
+        names = tmp_listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        path = folder / name
+        # the partition keeps the journal sqlite writes beside history.db
+        if folder == config.HOME and name.partition("-")[0] in config.OWN:
+            continue
+        why = untouched(path, now, paths, age)
+        if why:
+            yield {"action": "remove", "kind": "home-entry", "path": str(path), "age": age,
+                   "why": why}
+        elif path.is_dir() and retention.safe(path):
+            yield from home_entries(path, age, now, paths)
 
 
 def leftovers():
@@ -670,6 +725,7 @@ def gc_candidates(now=None):
     yield from retention.harness_plan()
     yield from stale_tmp_entries(now)
     yield from stale_repo_tmp_entries(now)
+    yield from stale_home_entries(now)
 
 
 def gc_plan(now=None):
@@ -912,6 +968,13 @@ def gc(report, automatic=False):
                                 done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
+                    elif item["kind"] == "home-entry":
+                        paths = retention.process_paths()
+                        if paths is None or not untouched(path, time.time(),
+                                                          paths | job_task_files(), item["age"]):
+                            continue
+                        retention.remove(path, directory=path.is_dir())
+                        done = not retention.present(path)
                     elif item["kind"] == "tmp-entry" or item.get("tmp"):
                         # One fresh inventory for the batch, then recheck each tree's age.
                         if tmp_inventory is None:
