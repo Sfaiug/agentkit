@@ -1,14 +1,14 @@
 """`ak models` recommends, per role, the cheapest row as good as the best: among the rows with a
 score for the role, those within `within` (5 unless config.toml says) of the best row's quality,
 cheapest first, one per model at its cheapest such effort, the first of them the recommendation
-and the rest beside it (`as good:`).  Cheapest by what Artificial Analysis's index run cost on
-the row (`cost`), a row it has not run after every priced one, by LiveBench's cost of a coding
-task (`$/task`), unpriced last; rows alike on cost go by the higher quality (exact, not as the
-table rounds it), then the row the config runs in the role, then the higher effort, then the
-first by harness and model name, so the pick is the same however the table is ordered; a role no
-row has a score for gets none.  The table says the recommendation under the rows, `--json`
-carries each role's rows, and a table with no scored row says so.  `within` in config.toml is a
-number of points, 0 or more, else the config is refused."""
+and the rest beside it (`as good:`).  Cheapest by what a task of Artificial Analysis's index run
+cost on the row (`cost`), a row it has not run after every priced one, by LiveBench's cost of a
+coding task (`$/task`), unpriced last; rows alike on cost go by the higher quality (exact, not
+as the table rounds it), then the row the config runs in the role, then the higher effort, then
+the first by harness and model name, so the pick is the same however the table is ordered; a
+role no row has a score for gets none.  The table says the recommendation under the rows,
+`--json` carries each role's rows, and a table with no scored row says so.  `within` in
+config.toml is a number of points, 0 or more, else the config is refused."""
 
 from contextlib import redirect_stdout
 import io
@@ -93,8 +93,9 @@ class ModelRecommends(unittest.TestCase):
         self.assertIn("recommended: orchestrate pro @ high (100 of 2) · execute acme-mini (100 of 3) · "
                       "review acme-mini (100 of 3)", " ".join(text.split()))
         self.assertIn("a row within 5 of the best counts as as good (`within` in config.toml), and the "
-                      "cheapest of those is recommended: by `cost`, what Artificial Analysis's index run "
-                      "cost on it, then `$/task`, LiveBench's cost of a coding task, unpriced last, then "
+                      "cheapest of those is recommended: by `cost`, what a task of Artificial "
+                      "Analysis's index run cost on it, then `$/task`, LiveBench's cost of a "
+                      "coding task, unpriced last, then "
                       "the higher quality, the one the config runs in the role, the higher effort, the "
                       "first by name", " ".join(text.split()))
         self.assertIn("no recommendation yet: no board has a row ak can run", none)
