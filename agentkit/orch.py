@@ -2406,6 +2406,13 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
         return command(cfg, model, conversation, account=account, rulebook=rulebook)
 
 
+# What a launch writes about the conversation it owns: the launcher's own id, each
+# harness's receipt, and the title that launch takes. A restart that fails puts these
+# back from the record as it was, so the seat keeps its own conversation.
+LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
+               "codex_history", "opencode_launch", "session_title", "title_sync")
+
+
 def launch(name, model, cwd, cmd, conversation, session=None):
     """Put the harness in the seat, and write down the conversation it was launched with.
 
@@ -2414,7 +2421,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     Codex's per-invocation receipt among them, is carried into the command as environment.
     """
     plugin = seat_plugin({"orchestrator": model})
-    before = config.session_records().get(name, {}) if plugin.title_command(name) else {}
+    before = config.session_records().get(name, {})
     env = plugin.launched(name, cwd, conversation)
     if env:
         cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
@@ -2448,7 +2455,10 @@ def launch(name, model, cwd, cmd, conversation, session=None):
         try:
             _start_harness(name, model, cwd, cmd, session)
         except BaseException:
-            config.update_session(current, **held)   # the harness that read the old one stays
+            # the harness that read the old one stays, and goes on writing to its own receipt
+            plugin.retire(config.session_records().get(current) or {})
+            config.update_session(current, **held,
+                                  **{key: before.get(key) for key in LAUNCH_KEYS})
             try:
                 os.link(last, facts)        # refused where that harness wrote one since
             except OSError:
@@ -2456,6 +2466,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             raise
         finally:
             last.unlink(missing_ok=True)
+    plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
         # title stays the echo, so the next tick retypes this name instead of taking
@@ -4049,13 +4060,6 @@ def _one_line(exc):
     return " ".join(str(exc).split())
 
 
-# What a launch writes about the conversation it owns: the launcher's own id, each
-# harness's receipt, and the title that launch takes. A restart that fails puts these
-# back from the record as it was, so the seat keeps its own conversation.
-LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
-               "codex_history", "opencode_launch", "session_title", "title_sync")
-
-
 def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     """Move the open seat to another orchestrator at once, under the same name.
 
@@ -4130,12 +4134,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     try:
         launch(name, model, cwd, cmd, conversation, session)
     except (config.Error, OSError) as exc:
-        put = {key: record.get(key) for key in chosen}
-        if not kept:   # a resumed launch re-recorded the conversation the seat still owns
-            harness_plugin(new_harness).forget(config.session_records().get(name) or {})
-            put.update({key: record.get(key) for key in LAUNCH_KEYS})
         try:
-            config.update_session(name, **put)
+            config.update_session(name, **{key: record.get(key) for key in chosen})
             if session:
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
