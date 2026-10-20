@@ -380,15 +380,26 @@ def trust(hooks, matchers=None):
 
 
 def ask(event):
-    """The PreToolUse hook's answer to that event: the seat's question asked through ak, and
-    the call refused with what became of it -- the question itself too, as Codex draws a
-    refusal's reason in the seat (`Blocked by hook`) and the question nowhere else.  None lets
-    the call through: it asks nothing, or nobody's seat is there to ask for."""
-    if not isinstance(event, dict) or event.get("tool_name") != QUESTION_TOOL:
+    """The PreToolUse hook's answer to that event: a question of a seat whose plan is done
+    refused, as on every harness that lets a hook refuse one (`stop.question_refused`); else
+    the seat's question that waits for nobody asked through ak, and the call refused with what
+    became of it -- the question itself too, as Codex draws a refusal's reason in the seat
+    (`Blocked by hook`) and the question nowhere else.  None lets the call through: a Plan-mode
+    dialog, which `main` writes down as the seat asking, a call that asks nothing, or nobody's
+    seat there to ask for."""
+    if not isinstance(event, dict) or not re.fullmatch(QUESTIONS, str(event.get("tool_name"))):
         return None
     if os.environ.get("AK_RUN_ROLE") == "worker" or not config.current_session():
         return None
-    from .. import notify
+    from .. import notify, stop
+    try:
+        refused = stop.question_refused(config.resolve_session(config.current_session()))
+    except config.Error:
+        refused = None
+    if refused:
+        return {"decision": "block", "reason": refused.rstrip(".")}     # Codex adds its own
+    if event["tool_name"] != QUESTION_TOOL:
+        return None
     questions = (event.get("tool_input") or {}).get("questions")
     text = " ".join(question_line(item) for item in questions
                     if isinstance(item, dict)) if isinstance(questions, list) else ""
@@ -605,12 +616,21 @@ def main(argv, launch=None):
             pass
         return 0
     if argv == ["ask"]:
+        payload = sys.stdin.read()
         try:
-            answer = ask(json.load(sys.stdin))
+            answer = ask(json.loads(payload))
         except ValueError:
             answer = None
         if answer:
             print(json.dumps(answer))
+        else:
+            # the call goes up, so the seat asks: written down only now, as a refused one asks
+            # nothing; stdout is Codex's to read the decision from, and nothing else
+            try:
+                subprocess.run(["bash", str(config.REPO / SEAT_STATE)], input=payload, text=True,
+                               stdout=subprocess.DEVNULL)
+            except OSError:
+                pass
         return 0
     if argv == ["answered"]:
         payload = sys.stdin.read()
@@ -672,10 +692,10 @@ def main(argv, launch=None):
             hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
             # The seat's question goes to its owner through ak (`ask`); 10s, as recording it
             # can take the notice's lock behind a card being posted.  A Plan-mode question
-            # going up is written down beside it, and a call's end only while the seat's record
-            # holds a question (`answered`).
+            # going up is written down by it, once it lets the call through, and a call's end
+            # only while the seat's record holds a question (`answered`).
             hooks["PreToolUse"] = [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10), seat]
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10)]
             hooks["PostToolUse"] = [(shlex.join(
                 [sys.executable, str(config.REPO / "tools/codex-seat.py"), "answered"]), 3)]
             matchers = {"PreToolUse": QUESTIONS}
