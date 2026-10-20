@@ -75,6 +75,9 @@ class AsideEditor(unittest.TestCase):
             self.assertEqual(self.edit(text, aside_editor.request("line", LINE)), LINE)
         self.assertEqual(self.edit("newest", aside_editor.request("back")), "newest")
         self.assertEqual(self.edit("", aside_editor.request("back")), f"first\n{DRAFT}\n{DRAFT}")
+        self.assertEqual((self.buffers, self.opened), ({}, []))
+
+    def test_text_of_blanks_alone_is_kept_and_given_back_too(self):
         self.assertEqual(self.edit(" \n", aside_editor.request("line", LINE)), LINE)
         self.assertEqual(self.edit("", aside_editor.request("back")), " \n")
         self.assertEqual((self.buffers, self.opened), ({}, []))
