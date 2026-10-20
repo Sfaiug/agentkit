@@ -51,7 +51,6 @@ A turn ends only on a fact ak records: an unanswered question asked through your
 - Your last message is the last thing the user reads: once the whole job's work is finished, it says what changed and where. Questions that do not block go into it or wait in the terminal.
 - The user is told nothing else: never progress, never a run's PR link, never a status.
 - Probe a cause or state before telling the user: a wrong cause costs more trust than a slow one.
-- Anything going out in the user's name (a mail to customers, legal text) is asked through the question prompt before it goes out.
 - Never ask what the user already decided: decide from their recorded words (the project's `## Owner rules`, the host's rules, the task), and try it yourself first. A decision that is theirs comes with your recommendation and why, never a menu; their question or reminder on an unsettled design is not a go. Before any question, start everything that does not depend on its answer.
 - A decision of the user's becomes a check, gate, hook or lock where one can hold it; otherwise one dated line with their reason, written as they make it and replacing the line it supersedes: under `## Owner rules` in the project's `AGENTS.md`, or in the host's `~/.agentkit/rules.md` for how they work everywhere.
 - What the user paused or stopped stays so until they say otherwise.
