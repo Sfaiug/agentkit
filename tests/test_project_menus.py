@@ -187,21 +187,18 @@ class Projects(Sandbox):
         self.assertNotIn("↳", collapsed)
         self.assertIn("ATOLL", collapsed)
         self.assertGreater(pages[1], 1)
-        for keys in (menu.KEYS, menu.OVERLAY_KEYS):
-            for width, height in ((40, 12), (38, 10), (30, 14), (40, 24)):
-                for page in range(self.draw(width, height, keys=keys)[1][1]):
-                    screen, (_, pages) = self.draw(width, height, page, keys)
-                    self.assertLessEqual(len(screen.splitlines()) + 2, height, screen)
-                    self.assertTrue(all(terminal.cells(line) <= width for line in screen.splitlines()), screen)
-                    for key in (keys + ("   " + menu.PAGE_KEYS if pages > 1 else "")).split("   "):
-                        self.assertIn(key, screen)
+        keys = menu.KEYS
+        for width, height in ((40, 12), (38, 10), (30, 14), (40, 24)):
+            for page in range(self.draw(width, height, keys=keys)[1][1]):
+                screen, (_, pages) = self.draw(width, height, page, keys)
+                self.assertLessEqual(len(screen.splitlines()) + 2, height, screen)
+                self.assertTrue(all(terminal.cells(line) <= width for line in screen.splitlines()), screen)
+                for key in (keys + ("   " + menu.PAGE_KEYS if pages > 1 else "")).split("   "):
+                    self.assertIn(key, screen)
 
     def test_very_short_pages_keep_each_number_once_and_leave_room_for_the_prompt(self):
-        # the overlay's four keys wrap to a line more than the menu's at tiny widths,
-        # so its shortest screens stand a line taller; the room for the prompt is the same
-        sizes = {menu.KEYS: ((40, 7), (30, 8), (61, 6), (28, 8)),
-                 menu.OVERLAY_KEYS: ((40, 8), (30, 9), (61, 6), (28, 9))}
-        for keys in (menu.KEYS, menu.OVERLAY_KEYS):
+        sizes = {menu.KEYS: ((40, 7), (30, 8), (61, 6), (28, 8))}
+        for keys in (menu.KEYS,):
             for width, height in sizes[keys]:
                 with self.subTest(width=width, height=height, keys=keys):
                     numbers = []

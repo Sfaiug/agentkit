@@ -104,10 +104,9 @@ turn, from a pipe the one `j` and `k` turn to -- and a row keeps the number it h
 it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
-a tmux popup: a number switches this client to that session and `n` starts one and switches to
-it, both of which close the popup, `c` opens this session's models as `c` does on the menu,
-`x` stops this session -- or, done, closes it at once -- and Esc closes the popup.  The
-popup offers those four keys and the numbers.
+a tmux popup: the same rows, keys and acts, its highlight starting on that seat.  What hands
+this client a seat -- a number, Enter, `n`, a past session reopened -- and `x` on the popup's
+own seat close the popup, so the seat is seen.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
 server's ssh alias in ~/.agentkit/state/server -- `ak` runs the same menu over `ssh -t <alias>
@@ -137,7 +136,6 @@ from . import command_help, config, gitcall, history, matrix, motion, notify, or
 from . import record
 
 KEYS = "n new   x stop   c config   esc leave"
-OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
 PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs to more pages
 BORN = " new"            # the name of the row `n` makes: none of a seat's, which holds no space
@@ -1445,7 +1443,7 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
     return [[line.rstrip() for line in block] for block in blocks]
 
 
-def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=None, look=True,
+def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=True,
          records=None, groups=None, clock=None, updating=None, pointing=True):
     """The menu at rest, and (page, pages) as drawn.
 
@@ -1475,8 +1473,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     (`terminal.away`) or the row moves from under it (`terminal.pointer`), and stays closed
     until the pointer or ↑/↓ moves onto a row (`drawn["pointing"]`).
 
-    `x` acts on the highlighted seat, or on `own`, the popup's own, and the key line says
-    `x close` while that seat is done; `p past` is on it while a seat the owner stopped is
+    `x` acts on the highlighted seat, and the key line says `x close` while that seat is done; `p past` is on it while a seat the owner stopped is
     offered (`closed` on its row, `orch.ghost`), the past screen's.  `ask` is the seat `x` is
     asking about and the card it
     asks on (`terminal.confirm`): the card is drawn under its row, the rows below moving down,
@@ -1511,7 +1508,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
                       order[0] if order else None)      # a seat before any heading
     if past_offered(found):
         keys = keys.replace("c config", "p past   c config", 1)
-    if owned and words.get(own or cursor) == "done":
+    if owned and words.get(cursor) == "done":
         keys = keys.replace("x stop", "x close", 1)
     asking, card = ask or (None, ())
     asked = list(card) if asking in words else []
@@ -1985,23 +1982,6 @@ def stop_session(found, dry_run):
         return
     stop_session_runs(session["name"])
     orch.cmd_stop([session["name"]])
-
-
-def stop_this_session(dry_run):
-    """`x` in the overlay read a line at a time: stop the session this menu was opened from,
-    after the one question."""
-    current = config.current_session()
-    if not current:
-        pause("stop: this menu was not opened from a session")
-        return
-    terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
-    if dry_run:
-        stop_session_runs(current, dry_run=True)
-        print(f"would stop {current}")
-        return
-    if read(stop_question(current), "") != "y":
-        return
-    orch.cmd_stop([current])
 
 
 def open_session(cfg, session, dry_run):
@@ -4733,8 +4713,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
     (`past_body`), for the one you want back, the page the highlight is on where they fill more
     than one.  ↑/↓, k/j and the wheel move the highlight; Enter or a
-    click reopens one where it stopped (`open_session`, what its number does on the main screen)
-    and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
+    click reopens one where it stopped (`open_session`, what its number does on the main screen),
+    True said, and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
     (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
     while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
     remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
@@ -4759,7 +4739,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             if line.isdecimal() and line.isascii() and 1 <= int(line) <= len(found):
                 if found[int(line) - 1].get("closed"):
                     open_session(cfg, found[int(line) - 1], dry_run)
-                    return
+                    return True
                 pause(f"no past session {line}", keys)
             elif line.lower() == "x":
                 choice = terminal.ask("Remove", names[0], names, read=read,
@@ -4785,7 +4765,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             keyboard.give()       # the seat has the terminal while he is in it
             open_session(cfg, next(session for _, session in past if session["name"] == here),
                          dry_run)
-            return
+            return True
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
             clock.forget()        # another screen: the page back from it is drawn as it is
@@ -4853,10 +4833,10 @@ def pressed(key, drawn, found):
 def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     """The menu until Esc, or from a pipe until an empty line or the end of input.
 
-    `overlay` is the menu as a tmux popup over a running seat, offering the five keys and
-    the numbers.  A number and `n` both hand this client to a session, and the popup has
-    to come down for it to be seen, so those two return; `c` opens this session's models and
-    `x` stops it, both leaving it up, acting on this session wherever the highlight is.  Read a line at a time, `j` and `k` turn the pages of a list
+    `overlay` is the menu as a tmux popup over a running seat, the same menu with its highlight
+    starting on that seat.  A number, `n` and a past session reopened hand this client to a
+    session, and the popup has to come down for it to be seen, so those return, as `x` on the
+    popup's own seat does before the stop ends.  Read a line at a time, `j` and `k` turn the pages of a list
     longer than the screen, and a number is answered from whichever page is up.
 
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
@@ -4903,8 +4883,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     stdin that never delivers EOF redraws forever instead of finishing.  It leaves `Live`'s
     probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
     """
-    keys = OVERLAY_KEYS if overlay else KEYS
-    cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
+    keys = KEYS
+    own = config.current_session() if overlay else None     # the seat the popup is over
+    cursor = os.environ.pop("AK_MENU_CURSOR", "") or own
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
     page, ahead, look, updating, updated = 0, None, False, None, False
@@ -4949,13 +4930,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 os.execve(sys.executable, [sys.executable, *sys.argv],
                           {**os.environ, "AK_MENU_CURSOR": str(cursor or "")})
             found, groups = last          # after any notice: what changed under it is drawn as is
-            past = not overlay and past_offered(found)
+            past = past_offered(found)
             actions = ("n", "x", "c", "p") if past else ("n", "x", "c")
             drawn = {} if keyboard.take() else None
-            own = config.current_session() if overlay else None
             listed = (keys if drawn is None else BORN_KEYS if newborn
                       else f"{move_keys()}   {keys}")
-            page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn, own,
+            page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn,
                                look=False, groups=born_groups(groups, newborn) if newborn
                                else groups, clock=clock, updating=updating, pointing=pointing)
             if drawn and not newborn:     # the seat he sees highlighted, and if he points at it
@@ -5047,7 +5027,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         if more is None and time.monotonic() < until:
                             # a resize or the pointer: drawn anew, so the dots breathe on where
                             # they now are
-                            page, pages = draw(cfg, found, listed, page, cursor, drawn, own,
+                            page, pages = draw(cfg, found, listed, page, cursor, drawn,
                                                look=False, groups=groups, clock=clock,
                                                updating=updating, pointing=pointing)
                             pointing = drawn["pointing"]
@@ -5064,9 +5044,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             if terminal.is_sequence(key):
                 continue          # an arrow key is neither Esc nor a key: draw again, silently
             key = key.lower()
-            if key in ("x", "c") and not overlay and terminal.unseen():
+            if key in ("x", "c") and terminal.unseen():
                 continue          # it acts on the highlighted seat: brought back, to be seen first
-            seat = own if overlay else cursor
+            seat = cursor
             if key == "x" and isinstance(seat, Path):
                 continue          # a heading is no seat to stop
             pointing = False      # the key opens something: the menu back opens no line
@@ -5085,7 +5065,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                         return stop_means(runs.got.get("answer"))
 
                     def around(card):     # the menu around the card, drawn again on a resize
-                        draw(cfg, found, "esc back", page, cursor, drawn, own, ask=(seat, card),
+                        draw(cfg, found, "esc back", page, cursor, drawn, ask=(seat, card),
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
                     if not terminal.confirm(
@@ -5093,7 +5073,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                                 clock, going=None if counted[0] else runs.is_alive)):
                         continue
                 live.stop(seat, dry_run)      # its row gone at once, the stop behind it
-                if overlay:
+                if seat == own:
                     return 0                  # its own seat: the popup over it goes first
                 continue
             if key == "n" and drawn is not None and cfg:
@@ -5123,16 +5103,14 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 except config.Error as exc:
                     pause(f"new session: {exc}")
             elif key == "x":
-                if overlay:
-                    stop_this_session(dry_run)
-                else:
-                    stop_session(found, dry_run)
+                stop_session(found, dry_run)
             elif key == "c":
                 # read with the keys, too; the looks and probes go on with what it saved
                 cfg = live.cfg = show_config(dry_run, keyboard,
                                              seat if isinstance(seat, str) else None) or cfg
             elif key == "p" and past:
-                show_past(cfg, found, dry_run, keyboard)    # read with the keys, too
+                if show_past(cfg, found, dry_run, keyboard) and overlay:   # read with the keys
+                    return 0              # a seat reopened: the popup's client is on it
             elif key in ("j", "k") and pages > 1:
                 page = (page + (1 if key == "j" else -1)) % pages
             elif key:
