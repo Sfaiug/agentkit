@@ -130,17 +130,10 @@ def write(name, text_lines):
 
 
 def project_of(name):
-    """The checkout the seat is filed under, from its own record by the name it goes by now:
-    one file, which a rename writes whole under the new name before the old one points there,
-    so no rename meanwhile hides it as one can from a read of every record; met as a pointer,
-    it is looked for again.  A read, which never takes the seat's lock -- a caller may hold it
-    already, as a done's card reading the plan does."""
-    while True:
-        record = config._read_json(config.session_path(config.resolve_session(name)))
-        record = record if isinstance(record, dict) else {}
-        if "renamed" not in record:
-            break
-    repo = record.get("repo")
+    """The checkout the seat is filed under, from its own record (`config.session_record`): a
+    read, which never takes the seat's lock -- a caller may hold it already, as a done's card
+    reading the plan does."""
+    repo = config.session_record(name).get("repo")
     if not repo or not (Path(repo) / ".git").exists():
         raise config.Error(f"{name} is filed under no project; run `ak orch project <checkout>` "
                            "first")
