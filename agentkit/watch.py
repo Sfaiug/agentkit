@@ -3738,20 +3738,16 @@ def drafts_back(cfg):
     ended.  A line still in the composer is the mark's pass to send first."""
     seats = [session for session in orch.sessions() if not session.get("legacy")
              and not any(session.get(key) for key in orch.CLOSED)]
-    for server in {orch.seat_socket(session) for session in seats}:
-        rc, names = orch.tmux_out("list-buffers", "-F", "#{buffer_name}", socket=server)
-        if rc != 0 or not any(name.startswith(aside_editor.kept("")) for name in names.split("\n")):
+    for session in seats:
+        if not _editor_kept(session):   # most ticks keep nothing: no seat's send lock waited on
             continue
-        for session in seats:
-            if orch.seat_socket(session) != server or not _editor_kept(session):
-                continue
-            with seat_held(session["name"]):
-                for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
-                    bound = dict(session, pane=pane)
-                    where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
-                    read = where and _editor_read(bound, where, cfg)
-                    if read and composer_draft(read[0], read[1]) == "":
-                        _edit(bound, where, "back")
+        with seat_held(session["name"]):
+            for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
+                bound = dict(session, pane=pane)
+                where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
+                read = where and _editor_read(bound, where, cfg)
+                if read and composer_draft(read[0], read[1]) == "":
+                    _edit(bound, where, "back")
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
