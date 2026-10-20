@@ -3640,7 +3640,7 @@ def draft_standing(session, where, cfg=None):
     return bool(composer_draft(harness, pane)) and not pane_unread(session)
 
 
-def _kept(session, where):
+def _set_aside(session, where):
     """The text ak's editor keeps from that seat's pane (`seat_editor`), "" where it keeps none,
     None where tmux cannot say: it fails to save a buffer it lacks as it fails for any reason."""
     server, buffer = orch.seat_socket(session), aside_editor.kept(where["id"])
@@ -3659,7 +3659,7 @@ def _landed(session, held, text, log, aside, cfg=None):
     text on its way back, nor does the text come back over a line still being read sent."""
     if aside:
         where = seat_editor(session, cfg)
-        kept = _kept(session, where) if where else None
+        kept = _set_aside(session, where) if where else None
         if not kept:
             # none kept is the text back, which only ever follows the line's going
             return kept == ""
