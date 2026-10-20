@@ -1518,6 +1518,38 @@ def interrupted_at(harness, name):
         return None
 
 
+def follow_model(cfg, name):
+    """Make the model that seat's harness says its latest answer ran on its orchestrator:
+    `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
+    nothing restarted (the owner's word of 20 Oct 2026).  Only a change the harness recorded
+    is followed -- `ran` in the record is what it said last -- so a move made on `c`, whose
+    resumed conversation still ends on the old model's answer, is not undone.  The model is
+    the configured entry running it on that harness, at the effort it recorded where one does;
+    a model no entry runs, or a seat on the harness's own model, leaves the record as it is."""
+    try:
+        record = config.load_session(cfg, name, required=False)
+        entry = record and config.model(cfg, record["orchestrator"])
+    except config.Error:
+        return
+    if not entry or entry["model"] in ("", config.DEFAULT_MODEL):
+        return
+    plugin = orch.harness_plugin(entry["harness"])
+    cwd = record.get("cwd")
+    try:
+        ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return
+    if not ran or list(ran) == record.get("ran"):
+        return
+    model, effort = ran
+    kept, models = record["orchestrator"], cfg["models"]
+    runs = [each for each in config.offered(cfg)
+            if (models[each]["harness"], models[each]["model"]) == (entry["harness"], model)]
+    same = [each for each in runs if models[each].get("effort") == effort]
+    config.update_session(name, ran=list(ran),
+                          orchestrator=(same + ([kept] if kept in runs else runs) + [kept])[0])
+
+
 def cancelled(harness, name, pane):
     """Did the owner cancel that seat's turn before any answer?  Its harness records nothing
     then and sends no hook, so its record is that of a turn not yet answered; but it puts the
@@ -2423,6 +2455,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     with announcing(name):
         if look:
             facts["harness"], facts["live"] = look_at(session, cfg=cfg)
+            follow_model(config.load() if cfg is None else cfg, name)
         previous = seat_read(name)
         if facts.get("live") is None:
             facts["live"] = previous

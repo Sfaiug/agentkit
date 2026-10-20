@@ -171,6 +171,19 @@ def unanswered(record, cwd, conversation):
     return user_message(entry.get("timestamp"), said) if said else None
 
 
+def running(record, cwd, conversation):
+    """The model and effort of that conversation's last answer: each answer records its own
+    (`message.model`, `effort`), so `/model` typed in the seat shows at its next answer.  An
+    answer Claude Code made up itself (`<synthetic>`) or a subagent's ran on neither."""
+    from . import last_entry
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, lambda entry: entry.get("type") == "assistant"
+                                and not entry.get("isSidechain")
+                                and isinstance(entry.get("message"), dict)
+                                and entry["message"].get("model") not in (None, "<synthetic>"))
+    return (entry["message"]["model"], entry.get("effort")) if entry else None
+
+
 def resumable(record, cwd, conversation):
     from . import LAUNCHER
     return bool(conversation) and record.get("id_source") in (LAUNCHER, SOURCE)
