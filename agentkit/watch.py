@@ -552,17 +552,27 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             state["boot_resume"] = {"id": boot, "attempted": attempted}
             _write_state(state)       # a failed or interrupted launch is never repeated this boot
             try:
+                at = time.time()
                 back = orch.resume(cfg, name, log=lambda _: None, detached=True,
-                                   hand_over=False)
+                                   hand_over=False, line=line)
                 log(f"resumed {name} after reboot")
                 if line and back == "resumed":
-                    seat_write(name, midturn={"boot": boot, "at": time.time(), "name": name,
-                                              "line": line})
+                    relaunched(name, seat_model(cfg, name)[0], line, at, boot)
             except (config.Error, OSError) as exc:
                 log(f"WARN could not resume {name} after reboot: {exc}")
         if not dry_run:
             state["boot_id"] = boot
             _write_state(state)
+
+
+def relaunched(name, harness, line, at, boot=None):
+    """Mark the line a seat relaunched at `at` goes on with, for `continue_turns`.
+
+    Where its harness took the line as its first prompt (`orch.takes_line`) the mark only
+    waits for that prompt; elsewhere the tick types it once the TUI is listening.
+    """
+    seat_write(name, midturn={"boot": boot or boot_id(), "at": at, "name": name, "line": line,
+                              **({"launched": True} if orch.takes_line(harness) else {})})
 
 
 def prompted_since(name, at):
@@ -594,6 +604,9 @@ def continue_turns(cfg, log, accounts=False):
     lock too: nothing running, asked or typed there.
     A seat renamed since loses its mark: its harness stamps prompts under the name it was
     started with.
+    A line the relaunch gave its harness as its first prompt is never typed while that prompt
+    can still come: the mark comes off once it has, and only where none came in
+    MIDTURN_TRIES passes is the line typed, as any other is.
     """
     boot = boot_id()
     for name in config.session_records():
@@ -603,6 +616,11 @@ def continue_turns(cfg, log, accounts=False):
         at = mark.get("at") if isinstance(mark.get("at"), (int, float)) else 0
         line = mark.get("line") or MIDTURN_LINE
         session = orch.find(name) if mark.get("boot") == boot else None
+        waited = mark.get("tries") or 0
+        if (session and not session.get("exited") and mark.get("launched")
+                and not prompted_since(name, at) and waited < MIDTURN_TRIES):
+            replace_midturn(name, mark, {**mark, "tries": waited + 1})
+            continue
         if session and not session.get("exited"):
             wait = at + INBOX_WARMUP - time.time()
             if wait > 0:
@@ -4330,10 +4348,11 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
 
 def _resume_on(cfg, name, log, account, continuing, still=None):
     """Resume that seat's conversation on `account`; a turn it was in goes on there."""
-    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still)
-    if continuing and resumed == "resumed":
-        seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
-                                 "line": ACCOUNT_LINE})
+    at, line = time.time(), ACCOUNT_LINE if continuing else None
+    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still,
+                          line=line)
+    if line and resumed == "resumed":
+        relaunched(name, seat_model(cfg, name)[0], line, at)
 
 
 def between_turns(name, harness, record, opened_at, pane=None):

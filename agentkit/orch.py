@@ -248,7 +248,7 @@ def account_order(cfg, model, readings, first=None):
     return ordered
 
 
-def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=None):
+def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=None, line=None):
     """The TUI command line for this model, straight from its harness's adapter.
 
     Every harness can hold the seat: the adapter owns the flags, exactly as it does for a
@@ -265,11 +265,14 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     it started a second Python with all of agentkit to import on every launch.  `rulebook` is
     that file where the caller wrote it for more than one asking.  What the harness checks
     before a launch is checked here too (its plugin's `checked`), and the adapter told so.
+    `line` is what the harness opens on as its first prompt, in $AGENTKIT_FIRST_PROMPT, where
+    its manifest says it takes one (`takes_line`); none is passed on from this process.
     """
     entry = config.model(cfg, name)
     adapter = config.adapter(entry["harness"])
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
-    told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook)}
+    told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook),
+            config.FIRST_PROMPT_ENV: line or ""}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
     proc = subprocess.run([str(adapter), "interactive", entry["model"],
                            config.role_effort(entry, "orchestrator"),
@@ -306,6 +309,13 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     return cmd
 
 
+def takes_line(harness):
+    """Does that harness open on a first prompt its adapter puts on the command line?  Then a
+    relaunch's line goes in as that, and nothing is typed into a TUI still loading."""
+    block = config.manifest(harness).get("launch")
+    return isinstance(block, dict) and block.get("first_prompt") is True
+
+
 def command_env(cmd):
     """This process's environment as a command line's leading `env` words leave it: each
     `NAME=value` set, each `-u NAME` unset, through every `env` the line starts with."""
@@ -326,7 +336,7 @@ def command_env(cmd):
     return values
 
 
-def fresh_command(cfg, name, seat=None, account=None):
+def fresh_command(cfg, name, seat=None, account=None, line=None):
     """(command, conversation) for a seat opening a conversation of its own.
 
     The id is generated here, before anything starts, and handed to the adapter as one its
@@ -338,10 +348,11 @@ def fresh_command(cfg, name, seat=None, account=None):
     conversation = str(uuid.uuid4())
     with for_seat(seat):
         rulebook = write_rulebook(seat or "")
-        cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook)
+        cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook,
+                      line=line)
         if cmd:
             return cmd, conversation
-        return command(cfg, name, account=account, rulebook=rulebook), None
+        return command(cfg, name, account=account, rulebook=rulebook, line=line), None
 
 
 # --- tmux sessions ----------------------------------------------------------
@@ -2260,7 +2271,7 @@ def attach(name, log=print, wait=False, session=None):
 
 
 def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True,
-           account=None, still=None):
+           account=None, still=None, line=None):
     """Put the orchestrator back in a seat whose process is gone, and hand the terminal over.
 
     Two ways in, and the same ownership check either way. A seat tmux is still holding -- the
@@ -2279,7 +2290,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
-    `still` is `_start_harness`'s.
+    `still` is `_start_harness`'s.  `line` is what the conversation, where it comes back with
+    its past, opens on.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2321,7 +2333,8 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     cwd = ran_in if ran_in.is_dir() else seat_cwd()
     with scratch(dry_run):
         if recorded:
-            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account)
+            cmd = resume_command(cfg, orchestrator, recorded, ran_in, seat=name, account=account,
+                                 line=line)
             conversation = recorded
         else:
             cmd, conversation = fresh_command(cfg, orchestrator, seat=name, account=account)
@@ -2410,11 +2423,12 @@ def seat_conversation(record, harness=None):
     return plugin.conversation(record, record.get("cwd"))
 
 
-def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
-    """The TUI command for a seat coming back on the conversation it owns.
+def resume_command(cfg, model, conversation, cwd, seat=None, account=None, line=None):
+    """The TUI command for a seat coming back on the conversation it owns, opening on `line`.
 
     Its harness may never have opened one under that id, and then the id is handed over as one
-    to open instead of one to resume; the seat keeps what it owns either way.
+    to open instead of one to resume, with no line: it has no turn to go on with.  The seat
+    keeps what it owns either way.
     """
     harness = config.model(cfg, model)["harness"]
     with for_seat(seat):
@@ -2424,7 +2438,7 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
                             rulebook=rulebook)
             if fresh:
                 return fresh
-        return command(cfg, model, conversation, account=account, rulebook=rulebook)
+        return command(cfg, model, conversation, account=account, rulebook=rulebook, line=line)
 
 
 # What a launch writes about the conversation it owns: the launcher's own id, each
@@ -4148,8 +4162,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     stays on the conversation the new launch owns, and the old harness's per-seat evidence
     goes with it. This is a new conversation under a saved name, so the watch state is reset
     the way a created seat's is. The handover -- from which model, the plan file, `ak run
-    status`, and the old transcript -- is marked for the tick, which types it after the
-    new TUI is listening through the confirmed send, the way a reopened seat's line goes.
+    status`, and the old transcript -- is the line the new harness opens on, as a turn it
+    was in is told to go on (`watch.relaunched`), the way a reopened seat's line goes.
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
     there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
@@ -4181,12 +4195,18 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
     transcript = (harness_plugin(old_harness).transcript(record, record.get("cwd"), owned)
                   if old_harness and not kept else None)
+    waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
+    line = (handover_text(name, old_model, transcript) if not kept
+            else watch.MIDTURN_LINE if (watch._turn_in_flight(new_harness, live)[0]
+                                        or (waited or {}).get("continue")) else None)
     try:
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
+        at = time.time()
         cmd, conversation = ((resume_command(cfg, model, kept, ran_in, seat=name,
-                                             account=account), kept) if kept
-                             else fresh_command(cfg, model, seat=name, account=account))
+                                             account=account, line=line), kept) if kept
+                             else fresh_command(cfg, model, seat=name, account=account,
+                                                line=line))
     except (config.Error, OSError) as exc:
         return _one_line(exc)
     # Another provider's seat opens anew, and its home is the account it opened on.
@@ -4209,19 +4229,13 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
                 config.update_session(name, **chosen)
             except OSError as exc:
                 return f"session: {_one_line(exc)}"
-            waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
             try:
                 launch(name, model, cwd, cmd, conversation, session)
                 failed = None
             except (config.Error, OSError) as exc:
                 failed = exc
-        line = None if failed else (
-            handover_text(name, old_model, transcript) if not kept else watch.MIDTURN_LINE
-            if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue")
-            else None)
-        if line:
-            watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
-                                            "name": name, "line": line})
+        if line and not failed:
+            watch.relaunched(name, new_harness, line, at)
     if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
