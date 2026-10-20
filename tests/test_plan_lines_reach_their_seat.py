@@ -26,40 +26,49 @@ WRITERS = {
 }
 
 
-def plan_writers(path):
-    """The (module, function) pairs of that module that call `plan.add`, by any name it was
-    imported under."""
-    tree = ast.parse(path.read_text(), str(path))
-    modules, functions = set(), {"add"} if path.stem == "plan" else set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        for alias in node.names:
-            if alias.name == "plan" and node.module in (None, "agentkit"):
-                modules.add(alias.asname or alias.name)
-            elif alias.name == "add" and node.module in ("plan", "agentkit.plan"):
-                functions.add(alias.asname or alias.name)
+def plan_writers(root):
+    """The (module, function) pairs under `root`/agentkit that call `plan.add`, however it was
+    imported: each call's dotted name is resolved through its module's imports, and a name
+    imported from nowhere is the module's own."""
     found = set()
+    for path in sorted((root / "agentkit").rglob("*.py")):
+        parts = path.relative_to(root).with_suffix("").parts
+        package = parts[:-1]
+        module = ".".join(package if parts[-1] == "__init__" else parts)
+        names = {}
+        tree = ast.parse(path.read_text(), str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    names[alias.asname or alias.name.split(".")[0]] = (
+                        alias.name if alias.asname else alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                base = ".".join(package[:len(package) - node.level + 1] if node.level else ())
+                source = ".".join(filter(None, (base, node.module)))
+                for alias in node.names:
+                    names[alias.asname or alias.name] = f"{source}.{alias.name}"
 
-    def visit(node, where):
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.Call):
-                func = child.func
-                if ((isinstance(func, ast.Attribute) and func.attr == "add"
-                     and isinstance(func.value, ast.Name) and func.value.id in modules)
-                        or (isinstance(func, ast.Name) and func.id in functions)):
-                    found.add((path.stem, where))
-            defines = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
-            visit(child, child.name if defines else where)
+        def dotted(node):
+            if isinstance(node, ast.Name):
+                return names.get(node.id, f"{module}.{node.id}")
+            if isinstance(node, ast.Attribute):
+                return f"{dotted(node.value)}.{node.attr}"
+            return ""
 
-    visit(tree, None)
+        def visit(node, where):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.Call) and dotted(child.func) == "agentkit.plan.add":
+                    found.add((module.removeprefix("agentkit."), where))
+                defines = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                visit(child, child.name if defines else where)
+
+        visit(tree, None)
     return found
 
 
 class PlanLinesReachTheirSeat(unittest.TestCase):
     def test_every_writer_of_a_plan_line_says_how_its_seat_hears_of_it(self):
-        found = set().union(*(plan_writers(path)
-                              for path in sorted((REPO / "agentkit").glob("*.py"))))
+        found = plan_writers(REPO)
         self.assertEqual(sorted(found - set(WRITERS)), [],
                          "a new writer of plan lines: say how its seat hears of the line")
         self.assertEqual(sorted(set(WRITERS) - found), [], "a writer that is gone")
@@ -67,12 +76,22 @@ class PlanLinesReachTheirSeat(unittest.TestCase):
     def test_a_call_under_any_import_name_is_found(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        source = Path(folder.name) / "acme_writer.py"
-        source.write_text("from . import plan as notes\nfrom .plan import add as put\n\n\n"
-                          "def one():\n    notes.add('acme-api', 'x', 'false')\n\n\n"
-                          "def two():\n    def inner():\n        put('acme-api', 'x', 'false')\n"
-                          "    return inner\n\n\nseen = set()\nseen.add(1)\n")
-        self.assertEqual(plan_writers(source), {("acme_writer", "one"), ("acme_writer", "inner")})
+        root = Path(folder.name)
+        (root / "agentkit" / "harness").mkdir(parents=True)
+        (root / "agentkit" / "acme_writer.py").write_text(
+            "from . import plan as notes\nfrom .plan import add as put\n"
+            "import agentkit.plan as jot\nimport agentkit.plan\n\n\n"
+            "def one():\n    notes.add('acme-api', 'x', 'false')\n\n\n"
+            "def two():\n    def inner():\n        put('acme-api', 'x', 'false')\n"
+            "    return inner\n\n\n"
+            "def three():\n    jot.add('acme-api', 'x', 'false')\n\n\n"
+            "def four():\n    agentkit.plan.add('acme-api', 'x', 'false')\n\n\n"
+            "seen = set()\nseen.add(1)\n")
+        (root / "agentkit" / "harness" / "acme.py").write_text(
+            "from .. import plan\n\n\ndef five():\n    plan.add('acme-api', 'x', 'false')\n")
+        self.assertEqual(plan_writers(root), {
+            ("acme_writer", "one"), ("acme_writer", "inner"), ("acme_writer", "three"),
+            ("acme_writer", "four"), ("harness.acme", "five")})
 
 
 if __name__ == "__main__":
