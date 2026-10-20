@@ -37,6 +37,8 @@ class NoReplay(Sandbox):
         self.stack.enter_context(patch.object(orch, "listing", lambda *a, **k: list(self.rows)))
         self.stack.enter_context(patch.object(
             orch, "tmux_out", side_effect=AssertionError("tmux was called")))
+        # a seat launched without ak's editor
+        self.stack.enter_context(patch.object(watch, "seat_editor", return_value=None))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               return_value=("claude", "anthropic")))
         self.stack.enter_context(patch.object(
