@@ -3,7 +3,8 @@ one screen is no click on the next; a seat stopped twice leaves no rulebook and 
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
-probe faked, and `orch.cmd_stop` reduced to a line saying which seat it was handed.  The stop
+probe faked, and the stop `x` starts reduced to a process of its own that says on the menu's
+terminal which seat it was handed and takes it off the listing.  The stop
 tests call the real `orch.cmd_stop` in a throwaway HOME with tmux faked and no runs to stop.
 Nothing here starts a seat or a tmux server, and the only process signalled is the test's own
 child.
@@ -54,16 +55,24 @@ menu.seat_row_state = lambda cfg, session, **facts: {
 menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
-menu.stop_session_runs = lambda name, dry_run=False: None
-
-def cmd_stop(argv):
-    print(f"<stopped {argv[0]}>", flush=True)
-    left = seats()
-    left.pop(argv[0], None)
-    SEATS.write_text(json.dumps(left))
-    return 0
-
-orch.cmd_stop = cmd_stop
+# The stop, in a process of its own as `menu.teardown`'s is: once CLOSE_HOLD is gone, if set,
+# it takes the seat off the listing and names it on the menu's terminal, or refuses as
+# `close_seat` does with CLOSE_REFUSE.
+STOP = r'''
+import json, os, sys, time
+from pathlib import Path
+name = sys.argv[1]
+while os.path.exists(os.environ.get("CLOSE_HOLD") or ""):
+    time.sleep(0.01)
+if os.environ.get("CLOSE_REFUSE"):
+    sys.exit(f"stop: {name} refused")
+seats = Path(os.environ["CLOSE_SEATS"])
+left = json.loads(seats.read_text())
+left.pop(name, None)
+seats.write_text(json.dumps(left))
+os.write(os.open(os.environ["CLOSE_TTY"], os.O_WRONLY | os.O_NOCTTY), f"<stopped {name}>".encode())
+'''
+menu.teardown = lambda name, dry_run: [sys.executable, "-c", STOP, name]
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
 sys.exit(menu.loop(config.load(), overlay=os.environ.get("CLOSE_OVERLAY") == "1"))
 """
@@ -77,7 +86,7 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 class Menu:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
-    def __init__(self, case, seats, rows=30, cols=100, own=None):
+    def __init__(self, case, seats, rows=30, cols=100, own=None, hold=None, refuse=False):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="close-info-")
         case.addCleanup(home.cleanup)
@@ -89,7 +98,9 @@ class Menu:
         env.update({"HOME": home.name, "TERM": "xterm-256color", "LANG": "C.UTF-8",
                     "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                     "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
-                    "CLOSE_REPO": str(REPO), "CLOSE_SEATS": str(self.seats)})
+                    "CLOSE_REPO": str(REPO), "CLOSE_SEATS": str(self.seats),
+                    "CLOSE_TTY": os.ttyname(self.slave), "CLOSE_HOLD": str(hold or ""),
+                    "CLOSE_REFUSE": "1" if refuse else ""})
         if own:
             env.update({"CLOSE_OVERLAY": "1", "AGENTKIT_SESSION": own})
         self.leave_key = "esc leave"
