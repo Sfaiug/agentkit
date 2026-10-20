@@ -24,7 +24,9 @@ class Keyboard:
         return True
 
 
-class ForRow(Sandbox):
+class Seats(Sandbox):
+    """Two seats on opus, and a switch that writes the record alone."""
+
     def setUp(self):
         super().setUp()
         for name in SEATS:
@@ -57,15 +59,19 @@ class ForRow(Sandbox):
         return [config.load()["defaults"]["orchestrator"],
                 *(config.load_session(config.load(), name)["orchestrator"] for name in SEATS)]
 
+
+class ForRow(Seats):
     def test_it_turns_from_new_seats_or_the_seat_it_opened_on_round_the_seats(self):
         # ↑ from the first model is the row; → turns it on, round the end, and ← back
-        self.assertEqual(self.screen("up", *["right"] * 3, "left"),
-                         ["new seats", "fix-api", "acme", "new seats", "acme"])
+        self.assertEqual(self.screen("up", *["right"] * 4, "left"),
+                         ["new seats", "new and open seats", "fix-api", "acme", "new seats",
+                          "acme"])
         self.assertEqual(self.screen("up", "left", "left", *["right"] * 3, session="acme"),
-                         ["acme", "new seats", "fix-api", "new seats", "acme", "fix-api"])
+                         ["acme", "new and open seats", "new seats", "new and open seats",
+                          "acme", "fix-api"])
 
     def test_on_a_seat_a_flip_moves_that_seat_alone_asking_nothing(self):
-        self.screen("up", "right", "down", "enter")
+        self.screen("up", "right", "right", "down", "enter")
         self.assertEqual(self.moved, [("fix-api", "fable")])
         self.assertEqual(self.orchestrators(), ["opus", "fable", "opus"])
 
