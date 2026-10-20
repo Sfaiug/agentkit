@@ -171,7 +171,7 @@ class AsideEditor(unittest.TestCase):
             return moved(*args)
 
         old, both, failed = "kept before", f"kept before\n{DRAFT}", ("failed",)
-        done, refused = ("done",), ("refused",)
+        done, refused, another = ("done",), ("refused",), "run acme-api ended"
         # mode, composer, kept, failing steps; composer, kept and answer left; text back in the end
         for mode, composer, kept, failing, left, end in (
                 ("line", DRAFT, old, {"load-buffer": done}, (DRAFT, rec(A, old), None), both),
@@ -183,19 +183,25 @@ class AsideEditor(unittest.TestCase):
                 ("line", DRAFT, None, {"load-buffer": done, "delete-buffer": refused},
                  (DRAFT, rec(A, DRAFT), None), DRAFT),
                 ("back", "", old, {"move": failed}, ("", rec(A, old), None), old),
-                ("back", "", old, {"load-buffer": done}, (old, rec(G, old), "sent"), old),
-                # back, and tmux refusing to mark it so: kept once by the next line
-                ("back", "", old, {"load-buffer": refused}, (old, rec(A, old), "sent"), old)):
+                # the line forgotten before the text comes back
+                ("back", "", old, {"load-buffer": done}, ("", rec(A, old), None), old),
+                ("back", "", old, {"load-buffer": (None, "done")}, (old, rec(G, old), "sent"), old),
+                # back, and tmux refusing to mark it so: kept once by the next line, the owner's
+                # text matching the line too
+                ("back", "", old, {"load-buffer": (None, "refused")},
+                 (old, rec(A, old, ""), "sent"), old),
+                ("back", "", LINE, {"load-buffer": (None, "refused")},
+                 (LINE, rec(A, LINE, ""), "sent"), LINE)):
             with self.subTest(mode=mode, kept=kept, failing=failing):
                 self.buffers = {} if kept is None else {NAME: rec(A, kept).encode()}
                 self.failing = {step: list(steps) for step, steps in failing.items()}
                 with patch.object(aside_editor.os, "replace", side_effect=move):
                     now, word = self.step(mode, composer)
                 self.assertEqual((now, self.kept(), word), left)
-                # asked again: ak's line in, sent, and the text handed back
+                # asked again: another line of ak's in, sent, and the text handed back
                 self.failing = {}
-                self.assertEqual(self.step("line", now), (LINE, "line"))
-                self.assertEqual(self.step("back", ""), (end, "sent"))
+                self.assertEqual(self.step("line", now, line=another), (another, "line"))
+                self.assertEqual(self.step("back", "", line=another), (end, "sent"))
 
     def test_an_ask_given_up_on_leaves_the_composer_and_answers_another_ask_never(self):
         ask = aside_editor.request("line", LINE)

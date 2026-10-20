@@ -14,11 +14,11 @@ into an empty one hands the kept text back, kept on as given back (`GIVEN`): wha
 `line` finds in the composer then is the owner's.  Text kept for a line still in the composer
 stays kept, as that line is ak's to send first.  Each is written whole or not at all;
 a step that fails is undone and answers nothing.  tmux refusing to mark text given back leaves it
-in the composer and kept as set aside, and the next `line` keeps a composer holding just that text
-once, so it is given back again at worst, never lost.  An ask ak gave up on (`none`), however long
-ago, hands the composer back as it is, to an edit its keys opened late.  Asked nothing, it opens
-the owner's own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as
-it starts on every edit the owner opens.
+in the composer and kept as set aside for no line, and the next `line` keeps a composer holding
+just that text once, so it is given back again at worst, never lost.  An ask ak gave up on
+(`none`), however long ago, hands the composer back as it is, to an edit its keys opened late.
+Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but `host`, which
+imports nothing itself, as it starts on every edit the owner opens.
 """
 import contextlib
 import os
@@ -183,7 +183,10 @@ def edit(argv):
         else:
             word = b"sent" if not text else b"unsent" if mine and put == line else b"other"
             if state == ASIDE and not text:
-                if held and not _publish(path, held):
+                # the line it put forgotten first: text given back that tmux refuses to mark so,
+                # matching that line or not, is then never taken for it
+                if held and not (_keep(name, pack(ASIDE, b"", held)) and _publish(path, held)):
+                    _keep(name, stored)
                     return 0
                 _keep(name, held and pack(GIVEN, put, held))
         _tmux("set-option", "-p", "-t", pane, ASK, f"did {os.fsdecode(at)} {os.fsdecode(word)}")
