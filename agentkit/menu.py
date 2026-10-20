@@ -374,7 +374,7 @@ class Live:
             self.last[:] = without(*self.last, self.closing)
         try:
             proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
-                                    env=config.child_env(), stdin=subprocess.DEVNULL,
+                                    env=config.owner_env(), stdin=subprocess.DEVNULL,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True)
         except OSError as exc:
@@ -1994,8 +1994,9 @@ def close_seat(name, dry_run, refused=None):
 
 
 def teardown(name, dry_run):
-    """The process `x` stops that seat in (`Live.stop`): `close_seat`, leaving a refusal as a
-    job's notice (`orch.job_notices`), since the popup it came from may be gone by then."""
+    """The process `x` stops that seat in (`Live.stop`, and the past screen's `x` removes a
+    stopped one in): `close_seat`, leaving a refusal as a job's notice (`orch.job_notices`),
+    since the popup it came from may be gone by then."""
     return [sys.executable, "-c", "import sys; from agentkit import menu, orch; "
             "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=orch.leave_notice)",
             name, "1" if dry_run else "0"]
@@ -4942,7 +4943,9 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
             clock.forget()        # another screen: the page back from it is drawn as it is
-            close_seat(here, dry_run)
+            # the owner's, as `x` on the main screen is: a refusal waits there as a notice
+            subprocess.run(teardown(here, dry_run), cwd=config.REPO, env=config.owner_env(),
+                           stdin=subprocess.DEVNULL)
             keyboard.take()
             found = [session for session in found if session["name"] != here]
 

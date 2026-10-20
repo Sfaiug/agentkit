@@ -57,13 +57,19 @@ menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
 # The stop, in a process of its own as `menu.teardown`'s is: once CLOSE_HOLD is gone, if set,
 # it takes the seat off the listing and names it on the menu's terminal, or refuses as
-# `close_seat` does with CLOSE_REFUSE.
+# `close_seat` does with CLOSE_REFUSE -- and, first, as `orch.cmd_stop` does where the
+# environment it was handed makes it another seat's stop (`config.check_stop_owner`).
 STOP = r'''
 import json, os, sys, time
 from pathlib import Path
+from agentkit import config
 name = sys.argv[1]
 while os.path.exists(os.environ.get("CLOSE_HOLD") or ""):
     time.sleep(0.01)
+try:
+    config.check_stop_owner(name)
+except config.Error as exc:
+    sys.exit(f"stop: {exc}")
 if os.environ.get("CLOSE_REFUSE"):
     from agentkit import orch
     sys.exit(orch.leave_notice(f"stop: {name} refused"))
@@ -220,6 +226,27 @@ class CloseAndInfo(unittest.TestCase):
         menu.leave()
         self.assertNotIn("everything it runs", menu.text())
         self.assertEqual(menu.text().count("<stopped"), 1)
+
+    def test_the_popup_over_a_seat_stops_another_and_removes_a_past_one(self):
+        """x is the owner's in Ctrl-b m too: the seat it is over stops no other seat's work,
+        but the person at its keys does."""
+        menu = Menu(self, {"alpha": "working", "omega": "done", "atoll": "stopped"}, own="alpha")
+        menu.frame()
+        menu.send(b"j")
+        menu.frame(lambda lines: "omega" in menu.highlighted(lines))
+        mark = menu.mark()
+        menu.send(b"x")
+        menu.saw("<stopped omega>", after=mark)
+        menu.frame(lambda lines: not any("omega" in line for line in lines), after=mark)
+        mark = menu.mark()
+        menu.send(b"p")
+        menu.frame(lambda lines: "atoll" in menu.highlighted(lines), after=mark, keys="esc back")
+        menu.send(b"x")
+        menu.saw("<stopped atoll>", after=mark)
+        menu.send(ESC)
+        menu.frame(after=menu.mark())
+        menu.leave()
+        self.assertNotIn("owned by seat", menu.text())
 
     def test_x_on_a_working_seat_asks_under_its_row_and_esc_keeps(self):
         menu = Menu(self, {"beta": "needs you", "alpha": "working", "omega": "done"})
