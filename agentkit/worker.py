@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -96,11 +97,35 @@ REAL_USERS = ("[worker judgement] This repository has real users: new user-visib
               "do that they could not before; an improvement to an existing feature is not) that "
               "is not behind the project's feature switch, or is on for anyone but the owner by "
               "default, is also a blocking finding.")
+# The commit a turn's `users:` line is read at, handed in the turn's env like the findings
+# path and taken out of it before the harness starts.
+BASE_ENV = "AK_USERS_BASE"
+
+
+def users_declared(workspace, base=None):
+    """The `users:` answer, `real` or `none`, or None until the owner is asked.
+
+    Read at `base`, the target the work lands on, as `gitcall.declared_suite` reads `tests:`:
+    a branch cannot switch off the rule its own review is held to, and the `users: real` it
+    adds holds once it has merged.  A workspace with no base, a scratch
+    run's, says it as written.  Read as the YAML scalar it is: `users: "real"  # launched in
+    May` says `real`, and a comment or quotes left on the word would quietly drop the
+    reviewer's rule for it.
+    """
+    value = (gitcall.declared_at(workspace, base, "users") if base
+             else gitcall.declared(workspace, "users"))
+    value = re.sub(r"(^|\s)#.*", "", value or "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1].strip()
+    return value or None
 # The owner's own words for how much to build and how, in every executor and fixer.
-LEAST = ("[worker judgement] Minimum change that solves the task completely; the best part is no part. Less is "
-         "more: brutal elimination, the least possible steps. Make it as if the system had been "
-         "designed for it: each piece of knowledge in one home, no special case inside general "
-         "code, nothing callers must do that a module could, and what the change makes dead deleted.")
+LEAST = ("[worker judgement] Minimum change that solves the task completely; the best part is no part. "
+         "Less is more, and the best process is no process: brutal elimination, the least possible steps. "
+         "Nothing that exists is sacred and nothing from the past counts as truth: rebuild from "
+         "scratch when that is best. Make it beautifully simple, intuitive and natural, so nobody "
+         "needs a manual. Make it as if the system had been designed for it: each piece of knowledge "
+         "in one home, in code, tests and comments rather than prose; no special case inside general "
+         "code; nothing callers must do that a module could; and what the change makes dead deleted.")
 COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
 PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
              "when your turn ends and asks once to finish in the foreground.")
@@ -711,8 +736,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     is raised at once: waiting out twenty minutes and spending three retries on a wall is how
     one expired token turned into three dead runs and an hour apiece.
 
-    The gate carries REAL_USERS when the workspace's AGENTS.md says `users: real`, read by the
-    loop's own reader on every turn that has the gate: a reviewer's first turn, its retries, and
+    The gate carries REAL_USERS when `users_declared` says `real` at the commit `env` names
+    under BASE_ENV, read by the loop's own reader on every turn that has the gate: a reviewer's first turn, its retries, and
     a follow-up that starts a new conversation all hold it.  No other preamble has the gate.
 
     `places` are directories the turn may write beside its workspace, out dir and harness state.
@@ -732,9 +757,10 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     out_dir.mkdir(parents=True, exist_ok=True)
     turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
+    base = turn_env.pop(BASE_ENV, None)
     preamble = PREAMBLES[role].format(workspace=workspace)
     if GATE in preamble:
-        if gitcall.users_declared(workspace) == "real":
+        if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")
     prompt = out_dir / "prompt.md"
     prompt.write_text(f"{preamble}\n\n{body}")

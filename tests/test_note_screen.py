@@ -116,7 +116,7 @@ class NoteScreen(unittest.TestCase):
         self.assertEqual(list((screen.seats.parent / ".agentkit/state").glob("session-*.json")), [])
         screen.leave()
 
-    def test_a_note_under_config_returns_to_the_whole_config_screen(self):
+    def test_a_failed_write_is_said_on_its_page_and_esc_returns_to_the_whole_config_screen(self):
         screen = Screen(self)
         screen.frame()
         screen.send(b"c")
@@ -130,9 +130,9 @@ class NoteScreen(unittest.TestCase):
         screen.send(ENTER)
         screen.screen("config · discord")
         mark = len(screen.text())
-        screen.send(b"https://acme.invalid/hook\rowner\r")
-        lines = screen.screen("note", after=mark)
-        self.assertTrue(" ".join(line.strip() for line in lines[2:-2]).startswith("discord: "))
+        screen.send(DOWN + ENTER + b"https://acme.invalid/hook\r")     # typed under Webhook
+        screen.screen("config · discord", after=mark, where=lambda lines: any(
+            line.strip().startswith("discord: ") for line in lines[2:-2]))
         self.assertNotIn("\x1b[?1049l", screen.text()[mark:])
         mark = len(screen.text())
         screen.send(ESC)

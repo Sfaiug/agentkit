@@ -1,10 +1,9 @@
 """The weekly audit is a config setting: `[audit]` in config.toml says whether it runs and which
 models orchestrate, execute and review it, `[defaults]`'s for whatever it leaves out, and the
-`c` screen's `Weekly audit` row shows and edits it.
+`c` screen's `Weekly audit` row shows it and opens its page, a row a key.
 
-Offline: a temporary HOME holding the shipped default config, the screen read from a pipe, and
-the row's questions answered through the menu's `read` seam, so no terminal, tmux or key is
-touched.
+Offline: a temporary HOME holding the shipped default config, and the screen read from a pipe
+with its keys fed in, so no terminal, tmux or key is touched.
 """
 
 from contextlib import redirect_stdout
@@ -20,8 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, terminal
-
-ESC = "\x1b"
+from agentkit.terminal import Key
 
 
 class AuditSetting(unittest.TestCase):
@@ -79,70 +77,71 @@ class AuditSetting(unittest.TestCase):
         self.assertEqual(menu.audit_value(config.load()),
                          "off · orch opus · builds nobody · reviews astra")
 
-    def step(self, *answers):
-        with patch.object(menu, "read", side_effect=list(answers)) as read, \
-                patch.object(menu, "pause") as pause, patch.object(terminal, "width", return_value=40), \
-                patch.object(terminal, "frame") as frame, redirect_stdout(io.StringIO()):
+    def page(self, *keys):
+        """The page against `keys`, then Esc until it is gone, on a phone's 40 columns; the
+        lines of each frame it drew."""
+        out = io.StringIO()
+        with patch.object(terminal, "read_key", side_effect=[*map(Key, keys), *[Key("esc")] * 2]), \
+                patch.object(terminal, "width", return_value=40), redirect_stdout(out):
             menu.config_audit(config.load())
-        # a phone's 40 columns hold every line the screen draws and every question with room to type
-        self.assertTrue(all(terminal.cells(line) <= 40 for line in frame.call_args.args[1]))
-        self.assertTrue(all(terminal.cells(call.args[0]) <= 20 for call in read.call_args_list))
-        return read, pause
+        frames = [frame.splitlines() for frame in terminal.ANSI.sub("", out.getvalue()).split(
+            "agentkit · config · weekly audit")[1:]]
+        # a phone's 40 columns hold every line the page draws
+        self.assertTrue(all(terminal.cells(line) <= 40 for frame in frames for line in frame))
+        return frames
 
     def table(self):
         return tomllib.loads(self.path.read_text()).get("audit")
 
-    def test_enter_asks_four_questions_and_writes_the_table_keeping_what_was_not_answered(self):
-        read, pause = self.step("off", "fable", "", "astra")
-        self.assertEqual([call.args[0] for call in read.call_args_list],
-                         ["On (on/off): ", "Orchestrator: ", "Executors: ", "Reviewers: "])
-        self.assertEqual(pause.call_count, 0)
-        self.assertEqual(self.table(), {"on": False, "orchestrator": "fable", "reviewers": ["astra"]})
-        self.assertEqual(config.audit(config.load()), {
-            "on": False, "orchestrator": "fable", "workers": ["opus", "astra"], "reviewers": ["astra"]})
-        # the next edit keeps the table's other values; `none` empties the executors
-        read, pause = self.step("", "", "none", "")
-        self.assertEqual(self.table(), {"on": False, "orchestrator": "fable", "workers": [],
-                                        "reviewers": ["astra"]})
-        before = self.path.read_text()
-        read, pause = self.step("on", "", "opus astra", "opus")
-        self.assertEqual(self.table(), {"on": True, "orchestrator": "fable",
-                                        "workers": ["opus", "astra"], "reviewers": ["opus"]})
-        self.assertNotEqual(self.path.read_text(), before)
+    def test_each_row_writes_its_key_at_once_keeping_the_rest(self):
+        self.page("enter")                                   # On: off
+        self.assertEqual(self.table(), {"on": False})
+        # Orchestrator's list opens on the one it is, opus: fable is the one over it
+        self.page("down", "enter", "up", "enter")
+        self.assertEqual(self.table(), {"on": False, "orchestrator": "fable"})
+        # Reviews' opens on the first reviewer; Enter takes it out, and the list stays open
+        frames = self.page("down", "down", "down", "enter", "enter", "down", "down", "enter")
+        self.assertEqual(self.table(), {"on": False, "orchestrator": "fable",
+                                        "reviewers": ["astra", "spark"]})
+        self.assertIn("    □ opus", frames[-2])       # the last key's frame, before the Esc
+        self.assertIn("›   ■ spark", frames[-2])
         self.assertEqual(oct(self.path.stat().st_mode & 0o777), "0o600")
-        # an [audit] that is not a table is shown as its error, and the answers replace it
+        # both builders out: the orchestrator builds alone
+        frames = self.page("down", "down", "enter", "enter", "down", "enter")
+        self.assertEqual(self.table()["workers"], [])
+        self.assertIn("› Builds        nobody", frames[-1])     # Esc: its row lit again
+        self.assertEqual(config.audit(config.load()), {
+            "on": False, "orchestrator": "fable", "workers": [], "reviewers": ["astra", "spark"]})
+
+    def test_esc_closes_a_list_and_a_refused_change_writes_nothing(self):
+        before = self.path.read_text()
+        frames = self.page("down", "enter", "up")
+        self.assertIn("    ● opus", frames[-2])         # the list, opus marked and fable lit
+        self.assertIn("›   ○ fable", frames[-2])
+        self.assertNotIn("○ fable", "\n".join(frames[-1]))   # Esc closed it, on the page still
+        self.assertEqual(self.path.read_text(), before)
+        self.write('reviewers = ["astra"]\n')
+        before = self.path.read_text()
+        frames = self.page("down", "down", "down", "enter", "enter")   # the last reviewer out
+        said = " ".join(" ".join(frames[-2]).split())
+        self.assertIn("weekly audit: ~/.agentkit/config.toml: [audit].reviewers must name a model",
+                      said)
+        self.assertEqual(self.path.read_text(), before)
+
+    def test_a_table_the_tick_cannot_read_is_mended_by_the_first_change(self):
+        self.write('on = false\norchestrator = "nova"\n')
+        frames = self.page()
+        said = " ".join(" ".join(frames[-1]).split())
+        self.assertIn("unknown model 'nova'", said)
+        self.assertIn("On ○ off", said)                     # what reads is shown as it reads
+        self.assertIn("Orchestrator opus", said)
+        self.page("down", "down", "enter", "down", "enter")   # astra out of the builders
+        self.assertEqual(self.table(), {"on": False, "workers": ["opus"]})
+        # an [audit] that is not a table has nothing to keep
         self.path.write_text('audit = "broken"\n' + (REPO / config.DEFAULT_CONFIG_NAME).read_text())
         self.assertIn("[audit] must be a table", menu.audit_value(config.load()))
-        read, pause = self.step("off", "", "", "")
-        self.assertEqual(pause.call_count, 0)
+        self.page("enter")
         self.assertEqual(self.table(), {"on": False})
-
-    def test_esc_and_a_refused_answer_write_nothing(self):
-        before = self.path.read_text()
-        for answers in ((ESC,), ("on", ESC), ("on", "opus", ESC), ("on", "opus", "", ESC)):
-            read, pause = self.step(*answers)
-            self.assertEqual(read.call_count, len(answers))
-            self.assertEqual(pause.call_count, 0)
-            self.assertEqual(self.path.read_text(), before)
-        for answers, words in ((("yes", "", "", ""), "on or off, not 'yes'"),
-                               (("", "nova", "", ""), "unknown model 'nova'"),
-                               (("", "", "opus none", ""), "unknown model 'none'"),
-                               (("", "", "", "none"), "unknown model 'none'")):
-            read, pause = self.step(*answers)
-            self.assertEqual(pause.call_count, 1)
-            self.assertIn(words, pause.call_args.args[0])
-            self.assertEqual(self.path.read_text(), before)
-
-    def test_none_empties_the_executors_only_as_the_whole_answer(self):
-        # a model named none is a name like any other: it reviews, and executes beside another
-        cfg = config.load()
-        cfg["models"]["none"] = dict(cfg["models"]["astra"])
-        config.save(cfg)
-        self.step("", "", "opus none", "none")
-        self.assertEqual(self.table(), {"workers": ["opus", "none"], "reviewers": ["none"]})
-        self.assertEqual(config.audit(config.load())["reviewers"], ["none"])
-        self.step("", "", "none", "")
-        self.assertEqual(self.table(), {"workers": [], "reviewers": ["none"]})
 
     def test_c_shows_the_row_with_its_value_from_a_pipe(self):
         out = io.StringIO()

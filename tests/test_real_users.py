@@ -156,7 +156,7 @@ sys.exit(1)
                 checkout = Path(tempfile.mkdtemp(dir=self.root))
                 if text is not None:
                     (checkout / "AGENTS.md").write_text(text)
-                self.assertEqual(gitcall.users_declared(checkout), want)
+                self.assertEqual(worker.users_declared(checkout), want)
         # the `tests:` command is a shell line, quotes and `#` included, and stays as written
         (checkout / "AGENTS.md").write_text(
             "---\nusers: 'real'\ntests: bash -c 'make check' # all of it\n---\n")

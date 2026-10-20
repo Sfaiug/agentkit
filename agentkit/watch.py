@@ -640,8 +640,9 @@ def finish_own_lines(cfg, log):
     """Finish a fixed ak line left in its composer, even after its retries were spent.
 
     The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
-    `continue_turns` mark is the one exception: its line was typed past an open question, so
-    its Enter is too, and once it lands the mark comes off, as that pass's own send takes it.
+    `continue_turns` mark is the one exception: its line, a handover's too, was typed past an
+    open question, so its Enter is too, and once it lands the mark comes off, as that pass's
+    own send takes it; its composer holding that line defers `continue_turns` until then.
     Delivery remains at least once, as it does for every line ak types.
     """
     for session in orch.sessions():
@@ -655,7 +656,7 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
@@ -2850,9 +2851,9 @@ def waiting_on(name):
 def wait_fact(wait):
     """(whether what that wait names is over, the one line saying how): a run once it is no
     longer going, or the run its task was started again as, a pull request once it is merged
-    or closed, or while open, once the newest run reviewing it is over as a wait on that run
-    would be.  (None, why) where nothing can say yet: `wait_over` leaves the wait as it is
-    while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
+    or closed, or while open, once no run reviewing or landing it is going.  (None, why) where
+    nothing can say yet: `wait_over` leaves the wait as it is while that is the owner's login
+    to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
         while True:
@@ -2877,16 +2878,18 @@ def wait_fact(wait):
         return None, why or "GitHub did not answer"
     number = data.get("number")
     if data["state"] == "OPEN":
-        # a review that ends without merging leaves it open, and its ending may reach no seat
-        # (a run launched outside one records none): the newest review run decides, by start,
-        # as a name's `-10` for a tenth launch in one minute sorts before its `-9`
-        key = transitions.pr_key(on)
-        reviews = []
-        for directory in run_record.run_dirs():
-            state = run_record.read_state(directory) or {}
-            if key is not None and key == transitions.pr_key(state.get("review_pr")):
-                reviews.append((state.get("started_at") or 0, directory.name))
-        return wait_fact({"kind": "run", "on": max(reviews)[1]}) if reviews else (False, "")
+        # a run that ends without merging leaves it open, its ending may reach no seat (one
+        # launched outside a seat records none), and one never sent to a run has none at all:
+        # open, it waits while a wait on any going run of any seat reviewing or landing it
+        # would, and one such run that would not (a stalled one) ends it with its own line
+        facts = [wait_fact({"kind": "run", "on": state["run_id"]})
+                 for state in transitions.runs_on(pr=on) if transitions.going(state)]
+        if not all(over for over, _ in facts):
+            return False, ""
+        if facts:
+            return facts[0]
+        return True, (f"PR #{number} is open with no ak run going on it: "
+                      f"ak run --review-pr {on} --bg takes it")
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
         return True, f"PR #{number} merged" + (f" as {sha}" if sha else "")
@@ -2966,9 +2969,9 @@ def wait_main(argv):
     The seat is the one `ak notify` speaks for, and the wait is written to its own record and
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
-    or closes or the run ends, and tells the seat so (`wait_over`).  One already over is
-    refused with its fact (`wait_fact`): the tick would end it at once and wake the seat for
-    nothing.
+    or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
+    One already over is refused with its fact (`wait_fact`): the tick would end it at once and
+    wake the seat for nothing.
     """
     if command_help.show("wait", argv):
         return 0
@@ -3134,7 +3137,7 @@ def pane_unread(session):
         rc, paths = orch.tmux_out("display-message", "-p", "-t", _pane(session),
                                   "#{pane_tty}\t#{" + orch.INPUT_TTY_OPTION + "}",
                                   socket=orch.seat_socket(session), timeout=5)
-    except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, AttributeError):
         return False
     if rc != 0:
         return False
@@ -3233,9 +3236,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap, and the first
     Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means unread input deferred the line before its text went in. The tty
-    check gates new text, never the Enter completing it: withholding that Enter would leave
-    a draft the caller cannot recover, or let a retry append the same text to itself.
+    never sent. None means the owner's input deferred the line before its text went in:
+    keys its terminal has not read yet, or text in its composer, which a line typed after it
+    would join and send. Those checks gate new text, never the Enter completing it:
+    withholding that Enter would leave a draft the caller cannot recover, or let a retry
+    append the same text to itself.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -3250,6 +3255,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     # a line left pending was read in its composer, whatever chrome is drawn around it
     confirm = pending
     if harness is not None and not confirm:
+        pane = pane_text(seat)
+        if composer_draft(harness, pane):
+            return None     # the owner's text: a line typed after it joins it, and sends both
         try:
             pattern = screen(harness).get("composer")
         except config.Error:
@@ -3261,7 +3269,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             # the smoke suite's inbox seat holds a `sleep`, and a delivered send is
             # all there is.
             confirm = any(pattern.search(strip_sgr(line))
-                          for line in pane_tail(pane_text(seat)).splitlines())
+                          for line in pane_tail(pane).splitlines())
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):

@@ -23,11 +23,19 @@ from tools import rulebook
 RULEBOOK = (REPO / "orchestrator.md").read_text()
 MINIMUM = "Minimum change that solves the task completely; the best part is no part."
 # The owner's own words, and the standing rules each in the section of the rulebook it belongs to.
-PHRASES = ("the best part is no part", "Less is more", "brutal elimination", "the least possible steps",
-           "each piece of knowledge in one home", "no special case inside general code",
+PHRASES = ("the best part is no part", "the best process is no process", "Less is more",
+           "brutal elimination", "the least possible steps",
+           "nothing from the past counts as truth", "rebuild from scratch when that is best",
+           "beautifully simple, intuitive and natural", "nobody needs a manual",
+           "each piece of knowledge in one home", "in code, tests and comments rather than prose",
+           "no special case inside general code",
            "nothing callers must do that a module could", "what the change makes dead deleted")
+# The same words every seat builds by, in the rulebook's own section for them.
+SEAT_PHRASES = ("the best process is no process", "nothing from the past counts as truth",
+                "rebuild from scratch when that is best", "beautifully simple, intuitive and natural",
+                "nobody needs a manual", "in code, tests and comments rather than prose")
 RULES = (("Understand first", "unknown knowns, "),
-         ("Understand first", "show options or a small prototype and let them react"),
+         ("Understand first", "show a small prototype, or options with your pick, and let them react"),
          ("Decide and delegate", "Three review rounds per change is the budget, counted across runs"),
          ("Decide and delegate", "only when a default is wrong (`repo`, `from`)"),
          ("Decide and delegate", "never `done_when_minutes`"),
@@ -160,6 +168,12 @@ class Rulebook(unittest.TestCase):
             for words in PHRASES:
                 with self.subTest(role=role, words=words):
                     self.assertIn(words, worker.PREAMBLES[role])
+
+    def test_every_seat_builds_by_the_owner_s_words(self):
+        less = re.search(r"^## Less is more\n(.*?)(?=^## |\Z)", RULEBOOK, re.S | re.M).group(1)
+        for words in SEAT_PHRASES:
+            with self.subTest(words=words):
+                self.assertIn(words, less)
 
     def test_the_rulebook_carries_every_standing_rule(self):
         sections = dict(re.findall(r"^## (.+?)\n(.*?)(?=^## |\Z)", RULEBOOK, re.S | re.M))

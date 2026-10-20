@@ -409,6 +409,22 @@ class Parked(unittest.TestCase):
         self.assertEqual(found["word"], "needs you")
         self.assertEqual(found["reason"], want)
 
+    def test_a_told_error_says_how_it_ended_never_parked(self):
+        # a refusal its own `ak run` printed, or an ending handed back, is its seat's already:
+        # the row reads `done`, and the line under it says how it ended, never that it waits
+        # on anyone (20 Oct 2026)
+        run_dir = self.receipt("20261020-1349-refused", worktree=False,
+                               error="4 done-when checks: a task has at most 3; split it",
+                               handed_back=self.now - 30)
+        state = record.read_state(run_dir)
+        self.assertEqual(status.status_state_word(state), "done")
+        self.assertEqual(status.parked_line(state, run_dir.name),
+                         "error: 4 done-when checks: a task has at most 3; split it")
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(status.cmd_status([]), 0)
+        self.assertIn("error: 4 done-when checks", out.getvalue())
+        self.assertNotIn("parked", out.getvalue())
+
     def test_parked_settled_errors_do_not_override_the_seat(self):
         directory = self.receipt("20260923-0300-old-error", worktree=False,
                                   launched_session="seat")
@@ -623,9 +639,11 @@ class Parked(unittest.TestCase):
                     original = record.read_state(directory)
                     self.assertFalse(transitions.going(original))
                     self.assertEqual(menu.run_state_word(original), "needs you")
-                    self.assertIn(f"run {directory.name} parked:",
-                                  status.parked_line(original, now=self.now))
-                    self.assertNotIn("retry", status.parked_line(original, now=self.now))
+                    # never a retry; an ending already its seat's waits on nobody
+                    reason = handback.handback_reason(original)
+                    self.assertEqual(status.parked_line(original, now=self.now),
+                                     f"error: {reason}" if transitions.settled(original)
+                                     else f"run {directory.name} parked: {reason}")
                     self.logs.clear()
                     with patch.object(run, "spawn_bg",
                                       side_effect=AssertionError("history stays stopped")):
@@ -659,7 +677,8 @@ class Parked(unittest.TestCase):
                 self.assertFalse(transitions.going(state))
                 self.assertEqual(menu.run_state_word(state), "needs you")
                 self.assertEqual(status.parked_line(state),
-                                 f"run {directory.name} parked: transport failed")
+                                 "error: transport failed" if transitions.settled(state)
+                                 else f"run {directory.name} parked: transport failed")
 
     def test_parked_explicit_acknowledgement_cancels_error_retry(self):
         directory = self.receipt("20260923-1211-ack", error_retry_at=self.now - 1,
@@ -676,7 +695,7 @@ class Parked(unittest.TestCase):
         self.assertEqual(self.logs, [])
         with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(status.cmd_status([directory.name]), 0)
-        self.assertIn(f"run {directory.name} parked:", out.getvalue())
+        self.assertIn(f"error: {state['error']}", out.getvalue())
         self.assertNotIn("retry due", out.getvalue())
 
     def test_parked_ineligible_waiting_run_is_not_resumed(self):

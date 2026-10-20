@@ -17,9 +17,9 @@ import subprocess
 import sys
 import time
 
-from . import (config, gitcall, handback, host, job as jobs, land, orch, proc_snapshot, record,
-               retention, run, stop, transitions, turns, watch, worktrees)
-from .harness import load as harness_plugin
+from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, proc_snapshot,
+               record, retention, run, stop, transitions, turns, watch, worktrees)
+from .harness import conversation_stores, end_conversation, load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
 GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
@@ -221,18 +221,21 @@ def tmp_tree_newest(path):
     return newest
 
 
-def tmp_entry_stale(path, now, paths):
-    """Why that top-level /tmp entry goes, or None when it stays.
-
-    Ours, untouched for two days, and held by nobody: anything a running
-    process holds stays where it is.
-    """
-    if tmp_protected(path.name) or retention.busy(path, paths):
+def untouched(path, now, paths, age):
+    """Why that entry goes, or None when it stays: ours alone (`tmp_tree_newest`), nothing in
+    it changed for `age`, and held by nobody."""
+    if retention.busy(path, paths):
         return None
     newest = tmp_tree_newest(path)
-    if newest is None or not retention.expired(newest, now, TMP_AGE):
+    if newest is None or not retention.expired(newest, now, age):
         return None
     return f"untouched for {int((now - newest) // 86400)} days"
+
+
+def tmp_entry_stale(path, now, paths):
+    """Why that top-level /tmp entry goes, or None when it stays: untouched for two days, and
+    held by nobody, since anything a running process holds stays where it is."""
+    return None if tmp_protected(path.name) else untouched(path, now, paths, TMP_AGE)
 
 
 def tmp_harness_rules(table):
@@ -338,6 +341,78 @@ def stale_repo_tmp_entries(now):
         yield from stale_tmp_entries(now, base)
 
 
+def home_folders():
+    """Each folder of ak's home that keeps nothing forever, and how long an entry stays there
+    unchanged: at its top, anything not ak's own (`config.OWN`) a week, as the notes, backups
+    and scripts seats once left there; a task file, and a file fetched from the Mac, as long as
+    a run directory."""
+    return ((config.HOME, GC_AGE), (config.HOME / "tasks", RUN_DIR_AGE),
+            (macbridge.home() / "inbox", RUN_DIR_AGE))
+
+
+def job_task_files():
+    """Every task file a job still names: a queued task's is read when its turn comes."""
+    named = set()
+    if retention.safe(config.JOBS):
+        for directory in retention.children(config.JOBS):
+            for task in (jobs.read_job_safely(directory) or {}).get("tasks") or ():
+                if isinstance(task, dict) and isinstance(task.get("task_file"), str):
+                    named.add(task["task_file"])
+    return named
+
+
+def stale_home_entries(now):
+    """The largest parts of each home folder nothing changed for its age, whole.
+
+    An entry with something newer inside is looked into, so a project's old task files go
+    while its new ones stay.  What a process holds, and a task file a job still names, stay.
+    """
+    paths = tmp_processes()[0]
+    if paths is None:
+        return
+    paths |= job_task_files()
+    for folder, age in home_folders():
+        yield from home_entries(folder, age, now, paths)
+
+
+def home_entries(folder, age, now, paths):
+    try:
+        names = tmp_listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        path = folder / name
+        if folder == config.HOME and name in config.OWN:
+            continue
+        why = untouched(path, now, paths, age)
+        if why:
+            yield {"action": "remove", "kind": "home-entry", "path": str(path), "age": age,
+                   "why": why}
+        elif path.is_dir() and retention.safe(path):
+            yield from home_entries(path, age, now, paths)
+
+
+def stale_conversations(now):
+    """Each conversation a harness keeps and never ends itself (`conversation_stores`) that
+    nobody wrote to for a run directory's age and nobody holds open."""
+    paths = tmp_processes()[0]
+    if paths is None:
+        return
+    for store in conversation_stores():
+        for path in sorted(Path(store["root"]).rglob(store["pattern"])):
+            why = conversation_stale(path, now, paths)
+            if why:
+                yield {"action": "remove", "kind": "conversation", "path": str(path),
+                       "harness": store["harness"], "why": why}
+
+
+def conversation_stale(path, now, paths):
+    if (not retention.safe(path) or not path.is_file() or retention.busy(path, paths)
+            or not retention.expired(path.lstat().st_mtime, now, RUN_DIR_AGE)):
+        return None
+    return f"untouched for {int((now - path.lstat().st_mtime) // 86400)} days"
+
+
 def leftovers():
     """{path: when reported} of checkouts gc could not take whole and will not try again."""
     return retention.read_json(config.STATE / "gc-leftovers.json") or {}
@@ -383,15 +458,27 @@ def stale_worktree(wt, now, paths, left):
 
 
 def last_used(wt):
-    """When a checkout was last used: its folder changed, or git wrote its index or moved its
-    HEAD (an add, a commit, a checkout, a reset), whichever is newest."""
+    """When a checkout was last used: its folder changed, git wrote its index (an add, a
+    commit, a checkout, a reset) or moved its HEAD (an empty commit, an amend, a soft reset),
+    whichever is newest.
+
+    HEAD's move is the time its reflog's newest entry holds, not that log's file time: the
+    repository's own housekeeping (`git gc`, `git reflog expire --all`) rewrites every
+    checkout's log at once, keeping its entries, and 75 checkouts a day unused waited another
+    day for it.
+    """
     times = [wt.lstat().st_mtime]
-    code, out = orch.git_in(wt, "rev-parse", "--path-format=absolute", "--git-path", "index",
-                            "--git-path", "logs/HEAD")
-    for path in out.removesuffix(b"\n").split(b"\n") if code == 0 else ():
+    code, out = orch.git_in(wt, "rev-parse", "--path-format=absolute", "--git-path", "index")
+    if code == 0:
         try:
-            times.append(os.lstat(path).st_mtime)
+            times.append(os.lstat(out.removesuffix(b"\n")).st_mtime)
         except OSError:
+            pass
+    code, out = orch.git_in(wt, "log", "-g", "-1", "--date=unix", "--format=%gd")
+    if code == 0:
+        try:
+            times.append(int(out.rstrip(b"}\n").rpartition(b"{")[2]))
+        except ValueError:
             pass
     return max(times)
 
@@ -532,7 +619,7 @@ def drop_tree(state, tree, report, keep_branch=None, with_run=False):
     going, a tree that is not the run's own, one reached through a link or under ~/code --
     is never followed by a removal by hand.
     """
-    allowed = (tree is not None and own_tree(state) == tree and worktrees.provably_final(state)
+    allowed = (tree is not None and own_tree(state) == tree and worktrees.tree_released(state, with_run)
                and clearable(tree)
                and (tree.parent == config.WORK and with_run if state.get("scratch")
                     else worktrees.checkout_removable(state)))
@@ -580,8 +667,10 @@ def gc_candidates(now=None):
         # runs however old they are; the seat is what they belong to. Pending
         # hand-backs and cards are not consulted: with the session gone there is
         # no seat left to tell, and the directory goes with them untold.
-        if (state and state.get("run_id") == directory.name and worktrees.provably_final(state)
-                and run_aged_out(directory, state, now)
+        interrupted = idle_interrupted(state, now)
+        if (state and state.get("run_id") == directory.name
+                and (interrupted or worktrees.provably_final(state)
+                     and run_aged_out(directory, state, now))
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
                 and not record.writing(directory) and retention.safe(directory)):
             try:
@@ -593,7 +682,8 @@ def gc_candidates(now=None):
                 keep_for_seat = session_lives(owner)
             if not keep_for_seat:
                 yield {"action": "remove", "kind": "old-run", "path": str(directory),
-                       "run": str(directory), "whole": True, "final": True,
+                       "run": str(directory), "whole": True, "final": not interrupted,
+                       "interrupted_at": interrupted,
                        "state_identity": retention.fingerprint(directory / "run.json")}
                 continue
         # A failed, blocked, stopped or error checkout goes when the seat has been
@@ -670,6 +760,8 @@ def gc_candidates(now=None):
     yield from retention.harness_plan()
     yield from stale_tmp_entries(now)
     yield from stale_repo_tmp_entries(now)
+    yield from stale_home_entries(now)
+    yield from stale_conversations(now)
 
 
 def gc_plan(now=None):
@@ -860,6 +952,7 @@ def before_run(log):
 def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []
+    balked = set()     # a harness whose own way of ending a conversation failed this pass
     # Serialize automatic passes without creating a lock file (dry-run never takes this lock).
     try:
         with retention.reading(config.HOME, directory=True) as lock:
@@ -890,6 +983,16 @@ def gc(report, automatic=False):
                             continue
                         retention.remove(path)
                         done = True
+                    elif item["kind"] == "conversation":
+                        if (item["harness"] in balked
+                                or not conversation_stale(path, time.time(), tmp_processes()[0])):
+                            continue
+                        try:
+                            end_conversation(item["harness"], path)
+                        except (OSError, subprocess.SubprocessError):
+                            balked.add(item["harness"])    # one failure, not one per conversation
+                            raise
+                        done = not retention.present(path)
                     elif item["kind"] in ("orphan-worktree", "unmerged-worktree"):
                         # A resume commits under the run's recovery lock: it lands before
                         # the second look, and the tree stays, or finds the tree gone.
@@ -912,7 +1015,7 @@ def gc(report, automatic=False):
                                 done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
-                    elif item["kind"] == "tmp-entry" or item.get("tmp"):
+                    elif item["kind"] in ("tmp-entry", "home-entry") or item.get("tmp"):
                         # One fresh inventory for the batch, then recheck each tree's age.
                         if tmp_inventory is None:
                             paths, table = tmp_processes()
@@ -920,6 +1023,9 @@ def gc(report, automatic=False):
                         paths, rules = tmp_inventory
                         if item["kind"] == "tmp-entry":
                             ok = tmp_top_stale(path, time.time(), paths, rules)[0] is not None
+                        elif item["kind"] == "home-entry":
+                            ok = paths is not None and untouched(path, time.time(),
+                                paths | job_task_files(), item["age"]) is not None
                         else:
                             ok = any((answer := rule(path, time.time(), paths, top=False))
                                      is not None and answer[0] is not None for rule in rules)
@@ -955,7 +1061,11 @@ def gc(report, automatic=False):
                                     owner = transitions.launched_session(state or {})
                                 except config.Error:
                                     continue
-                                if session_lives(owner) or not worktrees.provably_final(state or {}):
+                                # a run resumed since says so, or is interrupted at another time
+                                if session_lives(owner) or not (
+                                        worktrees.provably_final(state or {})
+                                        if item["final"] else item["interrupted_at"]
+                                        == idle_interrupted(state, time.time())):
                                     continue
                                 # The directory is going. Its checkout would otherwise
                                 # stay behind with nothing pointing at it. A dirty tree
@@ -1035,7 +1145,7 @@ def gc(report, automatic=False):
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
                 except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError,
-                        subprocess.TimeoutExpired) as exc:
+                        subprocess.SubprocessError) as exc:
                     report(f"gc: kept {path}: {exc}")
     except (OSError, BlockingIOError):
         pass                           # another tick owns collection, or ownership is uncertain
@@ -1187,6 +1297,17 @@ def run_aged_out(directory, state, now):
         except OSError:
             return False
     return when <= now - RUN_DIR_AGE
+
+
+def idle_interrupted(state, now):
+    """The `interrupted_at` of a run interrupted longer than a run directory's age whose loop is
+    gone, by its record alone; None for any other.  The old-run rule takes it as it takes an
+    ended run of that age: nobody resumed it in a month."""
+    when = (state or {}).get("interrupted_at")
+    if (state and state.get("state") == "interrupted" and isinstance(when, (int, float))
+            and not isinstance(when, bool) and when <= now - RUN_DIR_AGE and worktrees.pid_gone(state)):
+        return when
+    return None
 
 
 def gone_jobs(now):

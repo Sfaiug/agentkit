@@ -384,7 +384,7 @@ class Projects(Sandbox):
         self.assertEqual(shown(statusbar.KEY), "Ctrl-b m  menu")
         self.assertEqual(title, "state")
         self.assertNotIn("#[", title)
-        self.assertIn('terminal-features ",*:RGB"', orch.tmux_conf().read_text())
+        self.assertIn('terminal-features ",*:RGB:hyperlinks"', orch.tmux_conf().read_text())
         with patch.dict(os.environ, {key: value for key, value in env.items() if key != "NO_COLOR"}, clear=True), \
                 patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (0, tmux(*args))):
             for word in terminal.STATES:

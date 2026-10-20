@@ -6,13 +6,10 @@ Offline: the checkout's own AGENTS.md.
 """
 
 from pathlib import Path
-import sys
 import textwrap
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
-from agentkit import config  # noqa: E402
 
 VISION = textwrap.dedent("""\
     ## What ak is for
@@ -31,7 +28,8 @@ VISION = textwrap.dedent("""\
 
 class Vision(unittest.TestCase):
     def test_the_vision_is_the_owners_text(self):
-        self.assertEqual(config.vision((REPO / "AGENTS.md").read_text()), VISION)
+        # the whole section: the next one starts right after its last line
+        self.assertIn(f"\n{VISION}\n\n## ", (REPO / "AGENTS.md").read_text())
 
 
 if __name__ == "__main__":

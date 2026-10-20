@@ -35,19 +35,23 @@ class CeilingRewritten(Installer):
         self.assertEqual(result.returncode, 0, result.stderr)
         # 16 GiB of MemTotal on this host, and the file still says shares
         written = (home / ".config/systemd/user/agentkit.slice.d/limits.conf").read_text()
-        self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)
+        self.assertIn("MemoryMax=70%\n", written)
+        # no MemoryHigh: above it the kernel throttles the whole slice and never kills
+        self.assertNotIn("MemoryHigh", written)
 
     def test_c_a_pin_replaces_its_derived_value(self):
         home = self.root / "pinned-home"
         (home / ".agentkit").mkdir(parents=True)
         (home / ".agentkit/config.toml").write_text(
             'slice_tasks_max = 1024  # a bare number, verbatim\n'
-            'slice_cpu_quota = "200%"\n')
+            'slice_cpu_quota = "200%"\n'
+            'slice_memory_high = "9G"\n')
         result = self.install(home, AK_SLICE_USER_TASKS="8192", AK_SLICE_CPUS="4")
         self.assertEqual(result.returncode, 0, result.stderr)
         written = (home / ".config/systemd/user/agentkit.slice.d/limits.conf").read_text()
         self.assertIn("TasksMax=1024\n", written)
         self.assertIn("CPUQuota=200%\n", written)
+        self.assertIn("MemoryHigh=9G\n", written)   # only a pin writes one
         self.assertIn("MemoryMax=70%\n", written)   # everything else is still derived
 
     def test_d_a_file_without_aks_first_line_is_left_byte_identical(self):
@@ -80,7 +84,8 @@ class CeilingRewritten(Installer):
         self.assertEqual(result.returncode, 0, result.stderr)
         rewritten = limits.read_text()
         self.assertIn("TasksMax=6144\n", rewritten)
-        self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", rewritten)
+        self.assertIn("MemoryMax=70%\n", rewritten)
+        self.assertNotIn("MemoryHigh", rewritten)
         self.assertTrue(rewritten.startswith("# Written by agentkit's install.sh"))
 
 

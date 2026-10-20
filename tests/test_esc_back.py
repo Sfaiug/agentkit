@@ -298,7 +298,7 @@ class EscBack(unittest.TestCase):
         menu_.back("config_add_provider", title("config · add a provider"))
         menu_.press(DOWN + ENTER, title("config · discord"))
         menu_.back("config_discord", title("config · discord"))
-        self.assertEqual(list(menu_.home.rglob("discord_*")), [])   # the typed `q` is not saved
+        self.assertEqual(list(menu_.home.rglob("discord_*")), [])   # a `q` there writes nothing
         menu_.press(DOWN + ENTER, title("config · weekly audit"))
         menu_.back("config_audit", title("config · weekly audit"))
         self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is an [audit] written

@@ -28,6 +28,12 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image")
 
 
+# The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
+# hold.  A floor, not a target: past it a body only shrinks, so what a branch would add there
+# moves into the test, check or comment that holds it by itself, and no file ever needs a cleanup.
+BODY_WORDS = 300
+
+
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
 
@@ -87,6 +93,13 @@ class Loop:
     @property
     def base_sha(self):
         return self.state["base_sha"]
+
+    @property
+    def upstream(self):
+        """`origin/<target>`, the branch the work lands on, or None for a scratch run."""
+        if self.target:
+            return self.target if self.target.startswith("origin/") else f"origin/{self.target}"
+        return None
 
     @property
     def round_dir(self):
@@ -264,7 +277,8 @@ def files_scope(lp):
 
 def rules_check(lp):
     """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
-    Git filter, more than a harness reads of it, or a front matter line ak does not read.
+    Git filter, more than a harness reads of it, or a front matter line ak does not read; or
+    one that grows its body past `BODY_WORDS` and past what the base holds.
     A branch that leaves the file alone, or deletes it, passes."""
     if lp.scratch or not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames",
                              f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
@@ -290,6 +304,12 @@ def rules_check(lp):
     if ceiling and len(held) > ceiling[0]:
         return (f"AGENTS.md is {len(held)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
                 "reads of it: tighten it.")
+    words = len(gitcall.agents_body(lp.wt, "HEAD").split())
+    before = len(gitcall.agents_body(lp.wt, lp.base_sha).split())
+    if words > max(BODY_WORDS, before):
+        return (f"AGENTS.md's body grows from {before} to {words} words; past {BODY_WORDS} it "
+                "only shrinks. Move what this adds into a test, a check or a comment at the code "
+                "it is about.")
     text = held.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
     unread = unknown_front_lines(text.strip())
     if not unread:
@@ -1287,6 +1307,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                                                             lp.review_sid, lp.log,
                                                             lp.turn_limit,
                                                             handover=handover, findings=listed,
+                                                            base=lp.state.get("target_sha") or lp.upstream,
                                                             **resume)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
@@ -1510,8 +1531,7 @@ def rounds(lp, execv=None):
     if pending and pending.get("record") is False:
         # A landing gate may be waiting on a changed target, not another task
         # round. Bring that target in before verifying or reviewing the fixes.
-        upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-        if not integrate(lp, upstream) and lp.state.get("merge_failed"):
+        if not integrate(lp, lp.upstream) and lp.state.get("merge_failed"):
             # An unreachable target needs the tick's error retry, not a task verdict.
             raise config.Error(lp.state["merge_note"])
         return
