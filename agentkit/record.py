@@ -159,7 +159,8 @@ def _write_state(run_dir, state, temp=_RUN_TEMP, onto=None):
     from . import history
     with _write_lock(run_dir):
         previous = read_state(run_dir)
-        if onto is not None and (state := onto(previous)) is None:
+        # A copy: `previous` stays the before against which the line starts below are decided.
+        if onto is not None and (state := onto(copy.deepcopy(previous))) is None:
             return False
         previous = previous or {}
         now = time.time()
