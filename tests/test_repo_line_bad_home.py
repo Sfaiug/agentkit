@@ -29,7 +29,6 @@ class RepoLineBadHome(Sandbox):
         super().setUp()
         for name in ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG"):
             os.environ.pop(name, None)     # Sandbox's patch.dict puts them back
-        self.stack.enter_context(patch.object(config, "JOBS", self.root / "jobs"))
         self.stack.enter_context(patch.dict(os.environ, {
             config.RUN_DIR_ENV: "", config.SESSION_ENV: "fix-api", "AK_RUN_DEPTH": "0"}))
         self.acme = self.checkout("acme")
@@ -77,7 +76,7 @@ class RepoLineBadHome(Sandbox):
                 self.assertIn(f"repo {BAD}", str(refused.exception))
                 self.assertNotIn("\n", str(refused.exception))
                 self.assertEqual(list(config.RUNS.iterdir()), [])
-                self.assertFalse(config.JOBS.exists())
+                self.assertEqual(list(config.JOBS.iterdir()), [])
         # the loop's own read of it, for a run whose receipt came before this refusal
         with self.assertRaisesRegex(config.Error, f"repo {BAD}"):
             run.task_repo({"repo": BAD}, bad)
