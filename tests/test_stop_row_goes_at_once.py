@@ -111,6 +111,21 @@ class StopBehindTheRow(unittest.TestCase):
             self.assertEqual(orch.job_notices(),
                              ["stop: owned by seat fix-api; a seat stops only its own runs"])
 
+    def test_a_menu_collecting_while_a_notice_is_left_loses_none(self):
+        state = Path(tempfile.mkdtemp(dir=self.hold.parent))
+        collected, real_open = [], open
+
+        def collect_once_opened(path, mode="r", *args, **kwargs):
+            stream = real_open(path, mode, *args, **kwargs)
+            if mode == "a":
+                collected.extend(orch.job_notices())    # before its line is written
+            return stream
+        with patch.object(config, "STATE", state), patch.object(config, "ensure_dirs"), \
+                patch("builtins.open", collect_once_opened):
+            orch.leave_notice("stop: acme refused")
+            collected.extend(orch.job_notices())
+        self.assertEqual(collected, ["stop: acme refused"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,7 @@ in a popup over whatever is running.
 
 import atexit
 import difflib
+import fcntl
 import fnmatch
 import json
 import math
@@ -3053,26 +3054,28 @@ def start_update():
 
 def job_notices():
     """What a finished background job left for the menu: shown once, then forgotten."""
-    lines = []
-    for name in (UPDATE_RESULT, NOTICES):
-        path = config.STATE / name
-        taken = path.with_name(f".{name}-{uuid.uuid4().hex}")   # a line left meanwhile stays
-        try:
-            path.rename(taken)
-            text = taken.read_text(encoding="utf-8")
-        except (OSError, ValueError):
-            continue
-        finally:
-            taken.unlink(missing_ok=True)
-        lines += [line.strip() for line in text.splitlines() if line.strip()]
-    return lines
+    path = config.STATE / UPDATE_RESULT
+    try:
+        text = path.read_text(encoding="utf-8")
+        path.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        text = ""
+    try:
+        with open(config.STATE / NOTICES, "r+", encoding="utf-8") as notices:
+            fcntl.flock(notices, fcntl.LOCK_EX)    # a line being left is taken whole, or after
+            text += notices.read()
+            notices.truncate(0)
+    except (OSError, ValueError):
+        pass
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def leave_notice(line):
     """Leave the next menu `line` to show once (`job_notices`)."""
     config.ensure_dirs()
     with open(config.STATE / NOTICES, "a", encoding="utf-8") as notices:
-        notices.write(line + "\n")      # one append: lines left at once stay whole
+        fcntl.flock(notices, fcntl.LOCK_EX)        # held until the line is written, at close
+        notices.write(line + "\n")
 
 
 def rename(old, new, log=print, *, auto=False):
