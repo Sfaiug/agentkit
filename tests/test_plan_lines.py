@@ -683,16 +683,28 @@ class PlanLines(Sandbox):
         self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [x]"))
 
-    def test_the_seat_is_looked_up_under_the_lock_a_rename_takes(self):
-        found = []
-        with notify.session_lock("fix-api"):            # a rename holds it
-            looking = threading.Thread(target=lambda: found.append(plan.project_of("fix-api")))
-            looking.start()
-            time.sleep(0.5)
-            self.assertTrue(looking.is_alive(), "the lookup ran beside the rename")
-            config.rename_session("fix-api", "fix-api-renamed")
-        looking.join(10)
-        self.assertEqual(found, [self.repo])
+    def test_the_seat_is_looked_up_again_when_a_rename_lands_meanwhile(self):
+        records, renames = config.session_records, ["fix-api-renamed"]
+
+        def read():     # the name resolved, then the records read after the seat moved on
+            while renames:
+                config.rename_session("fix-api", renames.pop())
+            return records()
+
+        with patch.object(config, "session_records", side_effect=read):
+            self.assertEqual(plan.project_of("fix-api"), self.repo)
+
+    def test_the_seat_is_looked_up_under_its_own_lock_without_taking_it_again(self):
+        # a done's card reads the plan under the lock its transition holds
+        flock = notify.fcntl.flock
+
+        def never_wait(fd, operation):  # one taking it again finds it taken, never waits
+            return flock(fd, operation | notify.fcntl.LOCK_NB if operation & notify.fcntl.LOCK_EX
+                         else operation)
+
+        with notify.session_lock("fix-api"), \
+                patch.object(notify.fcntl, "flock", side_effect=never_wait):
+            self.assertEqual(plan.project_of("fix-api"), self.repo)
 
     def test_a_check_run_in_another_repository_s_tree_proves_nothing(self):
         # the checkout is swapped for another project's between the lookup and the check
