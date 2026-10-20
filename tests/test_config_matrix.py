@@ -16,6 +16,7 @@ test's own child.
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import struct
 import subprocess
@@ -75,7 +76,8 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 
 class Lines(list):
     """A drawn screen's lines as they show, and `lit`: (the line, its text) of the cell the keys
-    reverse, or None -- the one place the screen says which cell is at hand."""
+    reverse -- bracket, without colour -- or None: the one place the screen says which cell is
+    at hand."""
     lit = None
 
 
@@ -158,7 +160,9 @@ class Screen:
                 raw = part.split("\x1b[J")[0].split("\n")[:-1]
                 lines = Lines(terminal.ANSI.sub("", line).rstrip("\r") for line in raw)
                 lines.lit = next(((number, line.split("\x1b[7m")[1].split("\x1b[")[0].strip())
-                                  for number, line in enumerate(raw) if "\x1b[7m" in line), None)
+                                  for number, line in enumerate(raw) if "\x1b[7m" in line),
+                                 next(((number, cell.group(1)) for number, line in enumerate(lines)
+                                       for cell in [re.search(r"\[(\S+)\]", line)] if cell), None))
                 if lines and "agentkit · config" in lines[0]:
                     return lines if where is None or where(lines) else None
             return None
@@ -262,7 +266,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(lines[headings(lines) - 1].split(), ["For", "‹", "new", "seats", "›"])
         self.assertEqual(row(lines, "opus")[1].split()[1:4], ["●", "■", "■"])
         self.assertEqual(lines[-1], KEYS)
-        lines = screen.press(RIGHT * 3, lambda lines: on_effort(lines, "opus"))
+        lines = screen.press(RIGHT * 3, lambda lines: on_effort(lines, "fable"))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.press(DOWN + ENTER, lambda lines: effort(lines, "opus") == "max")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "max")
