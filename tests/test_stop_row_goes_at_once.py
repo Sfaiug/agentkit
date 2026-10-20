@@ -1,6 +1,7 @@
 """`x` takes a seat's row off the screen at once and stops the seat behind it: no read puts the row
 back while the stop goes, a refused stop says why and gives the row back, and the popup over its
-own seat goes before the stop ends, a refusal then left for the next menu.
+own seat goes before the stop ends, no menu offering the seat until it does and a refusal
+then left for the next menu.
 
 Each test runs the real menu loop on a pty of its own through tests/test_close_and_info.py's
 `Menu`, the stop a process of its own that waits while the test holds it; nothing here stops a
@@ -87,6 +88,29 @@ class StopBehindTheRow(unittest.TestCase):
         self.assertNotIn("<stopped", menu.text())
         self.hold.unlink()
         menu.saw("<stopped omega>")       # and the stop goes on without it
+
+    def test_a_stop_still_going_after_the_popup_went_is_offered_by_no_menu(self):
+        popup = Menu(self, {"alpha": "working", "omega": "done"}, own="omega", hold=self.hold)
+        popup.frame()
+        popup.send(b"x")
+        self.assertEqual(popup.proc.wait(15), 0, popup.text()[-3000:])
+        menu = Menu(self, {"alpha": "working", "omega": "done"}, home=popup.home)
+        self.assertFalse([line for line in menu.frame() if "omega" in line])
+        # the stop marks it stopped before its end: still no past seat, and its number opens
+        # nothing
+        menu.seats.write_text(json.dumps({"alpha": "needs you", "omega": "stopped"}))
+        moved = Path(menu.home) / ".agentkit" / "state" / "runs-moved"
+        moved.parent.mkdir(parents=True, exist_ok=True)
+        moved.touch()
+        lines = menu.frame(lambda lines: any("needs you" in line for line in lines))
+        self.assertNotIn("p past", lines[-1])
+        menu.send(b"2")
+        menu.saw("no session 2")
+        menu.send(ENTER)
+        menu.leave()
+        self.assertNotIn("<opened omega>", menu.text())
+        self.hold.unlink()
+        popup.saw("<stopped omega>")
 
     def test_a_stop_refused_after_the_popup_went_is_left_for_the_next_menu(self):
         menu = Menu(self, {"omega": "done"}, own="omega", hold=self.hold, refuse=True)

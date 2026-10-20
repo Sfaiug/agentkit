@@ -860,6 +860,7 @@ SEAT_FILES = {
     "input": "jsonl",    # each line ak typed, with its source and conversation
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
+    "closing": "lock",   # held by its stop from the menu's `x` until that ends (`menu.Live.stop`)
     "rules": "md",       # the rulebook its prompt names once that one is out of date
     "change": "md",      # what changed from the rulebook it holds to that one, as a diff
     "held": "md",        # the rulebook its conversation last said it read

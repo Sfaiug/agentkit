@@ -118,6 +118,7 @@ key uses.
 import colorsys
 import copy
 import errno
+import fcntl
 import json
 import os
 import re
@@ -224,7 +225,7 @@ class Live:
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
         self.reads = 0                   # how many reads have begun, the last one's number
-        self.closing = {}                # seats `stop` took off: the last read begun as it ended
+        self.closing = {}                # seats `stop` took off: how many reads had begun then
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -347,6 +348,7 @@ class Live:
             leaves = self.leaves
             self.reads += 1
             began = self.reads
+        stopping = stops_under_way()      # before the listing: one freed since has it stopped
         found = orch.listing()
         records = run_records()           # one pass over run.json a read: filing, looking, drawing
         orch.file_projectless(found, [state for _, state in records])
@@ -356,37 +358,45 @@ class Live:
                 return
             self.read_from = found, records
             self.meet(look)
-            for name, ended in list(self.closing.items()):
-                if ended is not None and began > ended:
-                    del self.closing[name]    # read since its stop ended: as it now stands
-            self.last[:] = without(found, groups, self.closing)
+            for name, before in list(self.closing.items()):
+                if began > before:
+                    del self.closing[name]    # this read saw its stop's lock, held or freed
+            self.last[:] = without(found, groups, stopping | set(self.closing))
 
     def stop(self, name, dry_run=False):
         """Take that seat's row off the screen now, and stop it behind it (`teardown`).
 
-        No read puts the row back while the stop goes, nor after it until one begun since it
-        ended lands: that one has the seat stopped, or as it was where the stop was refused.
-        The stop is a process of its own, so the menu leaving -- the popup over the seat going
-        with it -- ends nothing halfway, and a refusal is a job's notice, which this menu or
-        the next shows.
+        The stop holds the seat's `closing` lock until it ends, handed it before it starts, and
+        every menu's read sees it held (`stops_under_way`): no read puts the seat back, nor
+        offers it to reopen or remove, nor takes another stop of it, while it goes -- this
+        menu's, the popup's after it went, or another one's -- and a read whose lock was freed
+        has it stopped, or as it was where the stop was refused.  The stop is a process of its
+        own, so the menu leaving -- the popup over the seat going with it -- ends nothing
+        halfway, and a refusal is a job's notice, which this menu or the next shows.
         """
-        with self.reading:
-            self.closing[name] = None
-            self.last[:] = without(*self.last, self.closing)
-        try:
-            proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
-                                    env=config.child_env(), stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    start_new_session=True)
-        except OSError as exc:
-            self.say(f"stop: {exc}")
-            return self._stopped(name)
-        threading.Thread(target=lambda: (proc.wait(), self._stopped(name)), daemon=True).start()
-
-    def _stopped(self, name):
-        with self.reading:
-            self.closing[name] = self.reads
-        self.ask()
+        config.ensure_dirs()
+        with config.seat_file("closing", name).open("a") as held:
+            try:
+                fcntl.flock(held, fcntl.LOCK_SH | fcntl.LOCK_NB)   # raises while a stop has it
+            except BlockingIOError:
+                ours = False              # another menu's stop of it goes on: hidden as there
+            else:
+                ours = True
+                fcntl.flock(held, fcntl.LOCK_EX)    # waits out only a read's look at it
+            with self.reading:            # after the lock: a read begun since sees it held
+                self.closing[name] = self.reads
+                self.last[:] = without(*self.last, self.closing)
+            if not ours:
+                return
+            try:
+                proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
+                                        env=config.child_env(), stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        start_new_session=True, pass_fds=(held.fileno(),))
+            except OSError as exc:
+                self.say(f"stop: {exc}")
+                return self.ask()
+        threading.Thread(target=lambda: (proc.wait(), self.ask()), daemon=True).start()
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -1190,14 +1200,30 @@ def tallied(ordered, infos, silent_map):
     return ordered, infos, sum(project["needing"] for project in ordered), silent_map
 
 
+def stops_under_way():
+    """The seats whose stop is still going, `Live.stop`'s from this menu or any other: each
+    one's `closing` lock is held, by its stop alone, until that ends however it ends."""
+    held = set()
+    for name, path in config.seat_files("closing"):
+        try:
+            with path.open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            held.add(name)
+        except OSError:
+            pass                  # gone since it was listed: no stop holds it
+    return held
+
+
 def without(found, groups, gone):
-    """`found` and `groups` with the seats named in `gone` stopped, as the read after their stop
-    has them: each closed, its row gone, and its project's heading once it has no row left."""
+    """`found` and `groups` with the seats named in `gone` offered nowhere while their stop goes:
+    each `stopping`, keeping the numbers after it, no past seat and no number's to open, its
+    row gone, and its project's heading once it has no row left."""
     if not gone or groups is None:
         return found, groups
     ordered, infos, _, silent_map = groups
-    found = [{**seat, "closed": seat.get("closed") or time.time()} if seat["name"] in gone
-             else seat for seat in found]
+    found = [{**seat, "closed": None, "stopping": True} if seat["name"] in gone else seat
+             for seat in found]
     ordered = [{**project, "seats": seats} for project in ordered
                if (seats := [info for info in project["seats"] if info["name"] not in gone])]
     return found, tallied(ordered, [info for info in infos if info["name"] not in gone],
@@ -1957,7 +1983,7 @@ def stop_session(found, dry_run):
     keeps the seat.
     """
     offered = {number: session for number, session in enumerate(found, 1)
-               if not session.get("closed")}
+               if not session.get("closed") and not session.get("stopping")}
     if not offered:
         pause("no session to stop")
         return
@@ -5183,7 +5209,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 back = True               # each can hand the owner a seat, where nothing is read
                 live.away()
             if key.isdigit():
-                if 1 <= int(key) <= len(found):
+                if 1 <= int(key) <= len(found) and not found[int(key) - 1].get("stopping"):
                     open_session(cfg, found[int(key) - 1], dry_run)
                     if overlay:
                         return 0
