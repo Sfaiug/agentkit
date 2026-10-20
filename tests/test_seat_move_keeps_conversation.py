@@ -120,8 +120,8 @@ class SeatMove(Sandbox):
         [cmd] = self.respawned
         self.assertEqual(cmd[-2:], ["acme-tui", "astra"])     # after its launch receipt's env
         self.assertEqual(self.record()["orchestrator"], "astra")
-        self.assertIn("You took over this seat from opus",
-                      watch.seat_read(SEAT)["midturn"]["line"])
+        self.assertIn("This seat ran on opus", config.rulebook_path(SEAT).read_text())
+        self.assertIsNone(watch.seat_read(SEAT).get("midturn"))        # nothing typed
 
     def test_a_conversation_its_harness_cannot_resume_opens_fresh_with_the_handover(self):
         config.update_session(SEAT, id_source=None)     # nothing the launcher handed out
@@ -129,8 +129,7 @@ class SeatMove(Sandbox):
         [cmd] = self.respawned
         self.assertEqual((cmd[:2], cmd[-1]), (["acme-tui", "fable"], "new"))
         self.assertNotEqual(cmd[2], OWN)
-        self.assertIn("You took over this seat from opus",
-                      watch.seat_read(SEAT)["midturn"]["line"])
+        self.assertIn("This seat ran on opus", config.rulebook_path(SEAT).read_text())
 
     def test_a_seat_moved_mid_turn_is_told_to_go_on(self):
         watch.seat_write(SEAT, state="at_prompt")     # its last reading, a prompt behind

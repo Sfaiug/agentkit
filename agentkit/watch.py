@@ -60,6 +60,9 @@ ASKED_LINE = ("The host restarted while your question to the owner was still ope
               "Ask it again.")
 ACCOUNT_LINE = ("Your subscription ran out. This seat has resumed the same conversation on "
                 "an account of the same provider with usage available. Continue where you stopped.")
+# ... and one moved mid-turn to a model of another harness: its rulebook hands the turn on
+MOVED_LINE = ("This seat moved to you in the middle of a turn. Continue that turn from where "
+              "the handover at the end of your instructions leaves it; do not start over.")
 CONTINUE_LINE = "continue"
 MIDTURN_TRIES = 3       # passes that may type it before a seat is left at its prompt
 MARKER = "agentkit review of"
@@ -677,7 +680,8 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
+                     key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
