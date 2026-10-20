@@ -517,9 +517,10 @@ black -- and the blank line under the grid says the rest, joined with ` · ` and
 each only when it applies: that login, in amber, `login owner@acme.test ends Mon 26 Oct
 04:47 (in 2 days)` or `ended <when>` (`menu.login_notes`), which a short line keeps before
 the name, and `click to log in again`: a click there hands the terminal to its harness's
-`login again`, and the screen is back as soon as that ends, or once what a failed one said
-has been read (`menu.sign_in`); the tick asks an amber login again every time it runs, so
-its meter turns grey at the next tick once a new login stands; `resets <weekday> <HH:MM>` in local
+`login again`, and the screen is back as soon as that ends, its meter grey once the login
+it made stands (`logins.renewed`), or once what a failed one said has been read
+(`menu.sign_in`); the tick asks an amber login again every time it runs, so one made
+elsewhere turns its meter grey at the next tick; `resets <weekday> <HH:MM>` in local
 time from that meter (`resets 23 Oct` more than six days out in a window longer
 than a week, such as MiMo's 30-day plan; `resets in 3d` when only a duration is
 known); the credits; `1 reset in hand` (`2 resets in hand`) while the subscription holds

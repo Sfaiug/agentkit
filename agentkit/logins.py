@@ -6,8 +6,9 @@ which only a new login brings it back; null where the harness writes no such day
 answers are kept in `state/logins.json` as {provider: {account: {email, ends, checked_at}}},
 for every screen and reminder that warns before a login ends.  The tick asks each one at
 most once an hour, answered or not, since a login's end moves only when somebody logs in
-again; but one whose meter is amber (`ending`) every time it runs, so a new login shows on
-the ak screen at the next tick.
+again; but one whose meter is amber (`ending`) every time it runs, so a new login made
+elsewhere shows on the ak screen at the next tick.  One made from the ak screen is asked as
+it closes (`renewed`), so its meter turns back at once.
 """
 
 from datetime import date
@@ -90,7 +91,9 @@ def refresh(cfg, now=None):
 
     An adapter that answers nothing, or a provider no harness names, leaves its last answer
     standing, so a briefly unrunnable one neither raises a warning nor lifts one.  A
-    subscription the config no longer lists is dropped with its answer.
+    subscription the config no longer lists is dropped with its answer.  The asks take seconds
+    with nothing locked, so a login `renewed` meanwhile stands over this refresh's answer,
+    which may be from before it.
     """
     now = time.time() if now is None else now
     old, kept = read(), {}
@@ -105,8 +108,35 @@ def refresh(cfg, now=None):
             kept.setdefault(provider, {})[account] = last if fresh else {
                 **last, **(asker and _ask(asker, account) or {}), "checked_at": now}
     if kept != old:
-        config._write_json(path(), kept)
+        def over(standing):
+            for provider, accounts in kept.items():
+                for account in accounts:
+                    theirs = (standing.get(provider) or {}).get(account)
+                    if theirs is not None and theirs != (old.get(provider) or {}).get(account):
+                        accounts[account] = theirs
+            return kept
+        _write(over)
     return kept
+
+
+def renewed(cfg, provider, account, now=None):
+    """Ask a login just made afresh on the ak screen, at once, and keep its answer over the one
+    standing, which is older, so its meter turns back without waiting for the tick.  An ask
+    that answers nothing writes nothing: the tick asks an amber login every time it runs."""
+    now = time.time() if now is None else now
+    asker = harness(cfg, provider)
+    said = asker and _ask(asker, account)
+    if said:
+        _write(lambda standing: {**standing, provider: {
+            **(standing.get(provider) or {}), account: {**said, "checked_at": now}}})
+
+
+def _write(change):
+    """Keep what `change` makes of the logins standing, under the record's lock: the tick and a
+    login renewed on the ak screen each write after asks that take seconds."""
+    config.ensure_dirs()
+    with config._record_lock(path()):
+        config._write_json(path(), change(read()), prepare=False)
 
 
 def remind(cfg, now=None):

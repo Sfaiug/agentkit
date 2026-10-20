@@ -195,6 +195,30 @@ class Refresh(unittest.TestCase):
             logins.refresh(self.cfg, now=1000)
         self.assertFalse(self.reader_outlived_the_ask())
 
+    def test_i_a_login_renewed_while_the_tick_asks_stands_over_its_older_answer(self):
+        soon = {"email": "owner@acme.test", "ends": 1000 + 86400}
+        self.answer("default", soon)
+        self.answer("second", {**soon, "email": "two@acme.test"})
+        logins.refresh(self.cfg, now=1000)                # both amber: the next tick asks both
+        ask = logins._ask
+
+        def asked(harness, account):
+            if account == "second":   # the tick has its answer for default, from before the login
+                self.answer("default", {**soon, "ends": FAR})
+                logins.renewed(self.cfg, "anthropic", "default", now=1001)
+            return ask(harness, account)
+        with patch.object(logins, "_ask", side_effect=asked):
+            logins.refresh(self.cfg, now=1001)
+        self.assertEqual(logins.read()["anthropic"]["default"]["ends"], FAR)
+        self.assertEqual(logins.refresh(self.cfg, now=1002)["anthropic"]["default"]["ends"], FAR)
+
+    def test_j_a_renewed_login_that_answers_nothing_writes_nothing(self):
+        logins.refresh(self.cfg, now=1000)
+        before = logins.read()
+        (self.fake / "fail-default").touch()
+        logins.renewed(self.cfg, "anthropic", "default", now=1001)
+        self.assertEqual(logins.read(), before)
+
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch
         passes = {what: run for what, run, _ in watch.local_passes({}, False, print)}
