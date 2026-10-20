@@ -6,10 +6,13 @@ editor on the keys its manifest names (`[screen] editor`), and `edit` takes the 
 the pane just before (`request`, a pane option the edit clears) on what the composer holds, which
 no screen draws late or cropped, and answers in that option once it is done (`answer`).  `line`
 hands back ak's line, what else the composer holds kept in a tmux buffer of the pane's (`kept`,
-`ASIDE`) beside any text kept before, and answers `line`.  `back` answers what the composer it is
+`ASIDE`) beside any text kept before, with the line it put there, and answers `line`.  A composer
+holding just the line it put there is left as it is, and answers any other line `unsent`: only
+that line is ak's own, whatever the owner's text matches.  `back` answers what the composer it is
 handed after that line's Enter holds -- nothing (`sent`), the line (`unsent`) or other text -- and
-over either of the first two hands the kept text back, kept on as given back (`GIVEN`): whatever
-the next `line` finds in the composer then is the owner's.  Each is written whole or not at all;
+into an empty one hands the kept text back, kept on as given back (`GIVEN`): whatever the next
+`line` finds in the composer then is the owner's.  Text kept for a line still in the composer
+stays kept, as that line is ak's to send first.  Each is written whole or not at all;
 a step that fails is undone and answers nothing.  tmux refusing to mark text given back leaves it
 in the composer and kept as set aside, and the next `line` keeps a composer holding just that text
 once, so it is given back again at worst, never lost.  An ask ak gave up on (`none`), however long
@@ -29,7 +32,7 @@ EDITOR = Path(__file__).resolve().parent.parent / "tools" / "aside-editor"
 OWNER = "AK_OWNER_EDITOR"       # the owner's own editor, as the seat's launch found it
 ASK = "@ak_aside"
 FRESH = 10                      # a step asked longer ago than this was not for the edit now opened
-ASIDE, GIVEN = "a", "g"         # a kept text's first letter: set aside, or given back since
+ASIDE, GIVEN = "a", "g"         # a kept record's first letter: set aside, or given back since
 
 
 def launch_env(environ):
@@ -103,6 +106,18 @@ def _keep(name, data):
             else _tmux("delete-buffer", "-b", name)) is not None
 
 
+def pack(state, put, held):
+    """A kept record: its state, the line it put in the composer, ended by a NUL, which no line
+    holds as each comes in a pane option, and the text it keeps."""
+    return state.encode() + put + b"\0" + held
+
+
+def unpack(stored):
+    """(state, put, held) of a kept record, or of none."""
+    put, _, held = stored[1:].partition(b"\0")
+    return stored[:1].decode(), put, held
+
+
 def _holds(text, what):
     """Whether the composer the harness handed over as `text` holds `what`, as it hands it over:
     ending in a newline or not."""
@@ -149,27 +164,28 @@ def edit(argv):
             _tmux("save-buffer", "-b", name, "-") if name.encode() in listed.splitlines() else b"")
         if stored is None:
             return 0
-        state, held, text = stored[:1].decode(), stored[1:], path.read_bytes()
-        ours = bool(line) and _holds(text, line)
+        (state, put, held), text = unpack(stored), path.read_bytes()
+        mine = state == ASIDE and bool(put) and _holds(text, put)   # just the line it put
         if mode == b"line":
-            word = b"line"
-            if not ours:            # a composer holding the line got it from an edit before
+            word = b"line" if not mine or put == line else b"unsent"
+            if not mine:
                 # one holding just the text set aside got it from a `back` tmux refused to mark:
                 # the text kept once, as the composer holds it
-                keep = (ASIDE.encode() + (held + b"\n" + text
-                                          if state == ASIDE and not _holds(text, held) else text)
-                        if text else stored if state == ASIDE else b"")
+                keep = ((held + b"\n" + text if state == ASIDE and held
+                         and not _holds(text, held) else text)
+                        if text else held if state == ASIDE else b"")
+                now = pack(ASIDE, line, keep)
                 # a failed step is undone too, as tmux's server can do one its client then
                 # times out on
-                if not ((keep == stored or _keep(name, keep)) and _publish(path, line)):
+                if not ((now == stored or _keep(name, now)) and _publish(path, line)):
                     _keep(name, stored)
                     return 0
         else:
-            word = b"sent" if not text else b"unsent" if ours else b"other"
-            if state == ASIDE and word != b"other":
-                if not _publish(path, held):
+            word = b"sent" if not text else b"unsent" if mine and put == line else b"other"
+            if state == ASIDE and not text:
+                if held and not _publish(path, held):
                     return 0
-                _keep(name, GIVEN.encode() + held)
+                _keep(name, held and pack(GIVEN, put, held))
         _tmux("set-option", "-p", "-t", pane, ASK, f"did {os.fsdecode(at)} {os.fsdecode(word)}")
         return 0
     owner = os.environ.get(OWNER) or "vi"

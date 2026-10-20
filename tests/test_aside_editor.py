@@ -32,6 +32,11 @@ A, G = aside_editor.ASIDE, aside_editor.GIVEN
 NAME = aside_editor.kept(PANE)
 
 
+def rec(state, held, line=LINE):
+    """The record kept for that line put in the composer, as text."""
+    return aside_editor.pack(state, line.encode(), held.encode()).decode()
+
+
 class AsideEditor(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="ak-aside-editor-")
@@ -87,15 +92,19 @@ class AsideEditor(unittest.TestCase):
     def kept(self):
         return self.buffers[NAME].decode() if NAME in self.buffers else None
 
-    def test_text_set_aside_for_the_line_comes_back_over_what_its_enter_left(self):
-        self.assertEqual((self.step("line", DRAFT), self.kept()), ((LINE, "line"), A + DRAFT))
-        # the line sent, or still in the composer as the harness hands it over
-        for left, word in (("", "sent"), (f"{LINE}\n", "unsent")):
-            with self.subTest(word):
-                self.buffers = {NAME: (A + DRAFT).encode()}
-                self.assertEqual(self.step("back", left), (DRAFT, word))
-                # kept as given back: what the next line finds in the composer is the owner's
-                self.assertEqual(self.kept(), G + DRAFT)
+    def test_text_set_aside_for_the_line_comes_back_once_its_enter_sent_it(self):
+        self.assertEqual((self.step("line", DRAFT), self.kept()), ((LINE, "line"), rec(A, DRAFT)))
+        # the line still in the composer, as the harness hands it over, is ak's to send first,
+        # another line of ak's or not
+        ours = f"{LINE}\n"
+        for mode, line, word in (("back", LINE, "unsent"), ("line", "run acme-api ended", "unsent"),
+                                 ("line", LINE, "line")):
+            with self.subTest(mode=mode, line=line):
+                self.assertEqual((self.step(mode, ours, line), self.kept()),
+                                 ((ours, word), rec(A, DRAFT)))
+        self.assertEqual(self.step("back", ""), (DRAFT, "sent"))
+        # kept as given back: what the next line finds in the composer is the owner's
+        self.assertEqual(self.kept(), rec(G, DRAFT))
         self.assertEqual(self.opened, [])
 
     def test_text_comes_back_over_nothing_else_and_once(self):
@@ -106,35 +115,41 @@ class AsideEditor(unittest.TestCase):
         self.assertEqual(self.step("back", ""), (f"{DRAFT}\ntyped since", "sent"))
         # a composer sent or emptied since gets none of it again
         self.assertEqual((self.step("back", ""), self.kept()),
-                         (("", "sent"), f"{G}{DRAFT}\ntyped since"))
+                         (("", "sent"), rec(G, f"{DRAFT}\ntyped since")))
         self.assertEqual(self.step("back", "", line=""), ("", "sent"))
 
     def test_what_a_line_finds_in_the_composer_is_kept_once(self):
         ours = f"{LINE}\n"     # the line, as an edit before left it
         # composer, kept before, kept after
-        for composer, before, after in (("", None, None),
-                                        (" \n", None, A + " \n"),    # blanks too
-                                        ("", A + DRAFT, A + DRAFT),
-                                        (ours, A + DRAFT, A + DRAFT),
-                                        ("more", A + DRAFT, f"{A}{DRAFT}\nmore"),
-                                        (f"{LINE} \t", None, f"{A}{LINE} \t"),
+        for composer, before, after in (("", None, rec(A, "")),
+                                        (" \n", None, rec(A, " \n")),    # blanks too
+                                        ("", rec(A, DRAFT), rec(A, DRAFT)),
+                                        (ours, rec(A, DRAFT), rec(A, DRAFT)),
+                                        ("more", rec(A, DRAFT), rec(A, f"{DRAFT}\nmore")),
+                                        (f"{LINE} \t", None, rec(A, f"{LINE} \t")),
+                                        # the owner's text matching the line, which no edit
+                                        # put there
+                                        (LINE, None, rec(A, LINE)),
+                                        (ours, rec(A, DRAFT, "earlier"),
+                                         rec(A, f"{DRAFT}\n{ours}")),
                                         # given back, and tmux refusing to mark it so
-                                        (DRAFT, A + DRAFT, A + DRAFT),
-                                        (f"{DRAFT}\n", A + DRAFT, f"{A}{DRAFT}\n"),
+                                        (DRAFT, rec(A, DRAFT), rec(A, DRAFT)),
+                                        (f"{DRAFT}\n", rec(A, DRAFT), rec(A, f"{DRAFT}\n")),
                                         # given back, then sent or emptied, or still there
-                                        ("", G + DRAFT, None),
-                                        (DRAFT, G + DRAFT, A + DRAFT)):
+                                        ("", rec(G, DRAFT), rec(A, "")),
+                                        (DRAFT, rec(G, DRAFT), rec(A, DRAFT))):
             with self.subTest(composer=composer, before=before):
                 self.buffers = {} if before is None else {NAME: before.encode()}
+                left = ours if composer == ours and before == rec(A, DRAFT) else LINE
                 self.assertEqual((self.step("line", composer), self.kept()),
-                                 ((ours if composer == ours else LINE, "line"), after))
+                                 ((left, "line"), after))
 
     def test_text_tmux_fails_to_read_or_keep_is_neither_replaced_nor_lost(self):
         self.step("line", DRAFT)
         for step in ("list-buffers", "save-buffer", "load-buffer"):
             self.failing = {step: ["refused"] * 2}      # tmux timed out on the buffer
             self.assertEqual(self.step("line", "more"), ("more", None))
-            self.assertEqual(self.kept(), A + DRAFT)
+            self.assertEqual(self.kept(), rec(A, DRAFT))
         self.assertEqual(self.step("back", ""), (DRAFT, "sent"))
 
     def test_the_composer_is_written_whole_in_its_own_mode_or_not_at_all(self):
@@ -159,20 +174,20 @@ class AsideEditor(unittest.TestCase):
         done, refused = ("done",), ("refused",)
         # mode, composer, kept, failing steps; composer, kept and answer left; text back in the end
         for mode, composer, kept, failing, left, end in (
-                ("line", DRAFT, A + old, {"load-buffer": done}, (DRAFT, A + old, None), both),
-                ("line", DRAFT, A + old, {"move": failed}, (DRAFT, A + old, None), both),
+                ("line", DRAFT, old, {"load-buffer": done}, (DRAFT, rec(A, old), None), both),
+                ("line", DRAFT, old, {"move": failed}, (DRAFT, rec(A, old), None), both),
                 # tmux refusing the undo too: the text kept twice
-                ("line", DRAFT, A + old, {"move": failed, "load-buffer": (None, "refused")},
-                 (DRAFT, f"{A}{both}", None), f"{both}\n{DRAFT}"),
+                ("line", DRAFT, old, {"move": failed, "load-buffer": (None, "refused")},
+                 (DRAFT, rec(A, both), None), f"{both}\n{DRAFT}"),
                 # once, where it was all that was kept
                 ("line", DRAFT, None, {"load-buffer": done, "delete-buffer": refused},
-                 (DRAFT, A + DRAFT, None), DRAFT),
-                ("back", "", A + old, {"move": failed}, ("", A + old, None), old),
-                ("back", "", A + old, {"load-buffer": done}, (old, G + old, "sent"), old),
+                 (DRAFT, rec(A, DRAFT), None), DRAFT),
+                ("back", "", old, {"move": failed}, ("", rec(A, old), None), old),
+                ("back", "", old, {"load-buffer": done}, (old, rec(G, old), "sent"), old),
                 # back, and tmux refusing to mark it so: kept once by the next line
-                ("back", "", A + old, {"load-buffer": refused}, (old, A + old, "sent"), old)):
+                ("back", "", old, {"load-buffer": refused}, (old, rec(A, old), "sent"), old)):
             with self.subTest(mode=mode, kept=kept, failing=failing):
-                self.buffers = {} if kept is None else {NAME: kept.encode()}
+                self.buffers = {} if kept is None else {NAME: rec(A, kept).encode()}
                 self.failing = {step: list(steps) for step, steps in failing.items()}
                 with patch.object(aside_editor.os, "replace", side_effect=move):
                     now, word = self.step(mode, composer)
