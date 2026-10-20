@@ -127,7 +127,6 @@ import signal
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from contextlib import closing
@@ -366,35 +365,27 @@ class Live:
         """Take that seat's row off the screen now, and stop it behind it (`teardown`).
 
         No read puts the row back while the stop goes, nor after it until one begun since it
-        ended lands: that one has the seat stopped, or as it was where the stop was refused,
-        which is said as a notice.  The stop is a process of its own, so the menu leaving --
-        the popup over the seat going with it -- ends nothing halfway.
+        ended lands: that one has the seat stopped, or as it was where the stop was refused.
+        The stop is a process of its own, so the menu leaving -- the popup over the seat going
+        with it -- ends nothing halfway, and a refusal is a job's notice, which this menu or
+        the next shows.
         """
         with self.reading:
             self.closing[name] = None
             self.last[:] = without(*self.last, self.closing)
-        log = tempfile.TemporaryFile()   # a file, not a pipe: no reader gone kills the stop
         try:
             proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
                                     env=config.child_env(), stdin=subprocess.DEVNULL,
-                                    stdout=log, stderr=log, start_new_session=True)
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True)
         except OSError as exc:
-            log.close()
-            return self._stopped(name, f"stop: {exc}")
+            self.say(f"stop: {exc}")
+            return self._stopped(name)
+        threading.Thread(target=lambda: (proc.wait(), self._stopped(name)), daemon=True).start()
 
-        def wait():
-            with log:
-                code = proc.wait()
-                log.seek(0)
-                said = log.read().decode("utf-8", "replace").strip().splitlines()
-            self._stopped(name, code and (said[-1] if said else f"stop {name}: exited {code}"))
-        threading.Thread(target=wait, daemon=True).start()
-
-    def _stopped(self, name, refused):
+    def _stopped(self, name):
         with self.reading:
             self.closing[name] = self.reads
-        if refused:
-            self.say(refused)
         self.ask()
 
     def meet(self, look=False):
@@ -1945,10 +1936,10 @@ def close_seat(name, dry_run, refused=None):
 
 
 def teardown(name, dry_run):
-    """The process `x` stops that seat in (`Live.stop`): `close_seat`, exiting 1 with the reason
-    last where the stop is refused."""
-    return [sys.executable, "-u", "-c", "import sys; from agentkit import menu; "
-            "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=sys.exit)",
+    """The process `x` stops that seat in (`Live.stop`): `close_seat`, leaving a refusal as a
+    job's notice (`orch.job_notices`), since the popup it came from may be gone by then."""
+    return [sys.executable, "-c", "import sys; from agentkit import menu, orch; "
+            "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=orch.leave_notice)",
             name, "1" if dry_run else "0"]
 
 

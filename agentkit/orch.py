@@ -111,6 +111,7 @@ FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
+NOTICES = "notices"        # the lines other jobs leave the menu (`leave_notice`), a stop's refusal
 AGENT_LOOK_EVERY = 10      # how long one reading of the process table answers for every pane
 # The programs that run a script they are handed, which may be a harness (`node .../bin/codex`),
 # each by its own option grammar: what starts an option, the short letters and long options
@@ -3052,13 +3053,26 @@ def start_update():
 
 def job_notices():
     """What a finished background job left for the menu: shown once, then forgotten."""
-    path = config.STATE / UPDATE_RESULT
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return []
-    path.unlink(missing_ok=True)
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    lines = []
+    for name in (UPDATE_RESULT, NOTICES):
+        path = config.STATE / name
+        taken = path.with_name(f".{name}-{uuid.uuid4().hex}")   # a line left meanwhile stays
+        try:
+            path.rename(taken)
+            text = taken.read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            continue
+        finally:
+            taken.unlink(missing_ok=True)
+        lines += [line.strip() for line in text.splitlines() if line.strip()]
+    return lines
+
+
+def leave_notice(line):
+    """Leave the next menu `line` to show once (`job_notices`)."""
+    config.ensure_dirs()
+    with open(config.STATE / NOTICES, "a", encoding="utf-8") as notices:
+        notices.write(line + "\n")      # one append: lines left at once stay whole
 
 
 def rename(old, new, log=print, *, auto=False):

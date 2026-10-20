@@ -48,7 +48,6 @@ seats = lambda: json.loads(SEATS.read_text())
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0,
      "closed": 1 if word == STOPPED else None} for name, word in seats().items()]
-orch.job_notices = lambda: []
 menu.seat_row_state = lambda cfg, session, **facts: {
     "word": seats().get(session["name"], "working").replace(STOPPED, "idle"),
     "reason": "", "since": None}
@@ -65,7 +64,8 @@ name = sys.argv[1]
 while os.path.exists(os.environ.get("CLOSE_HOLD") or ""):
     time.sleep(0.01)
 if os.environ.get("CLOSE_REFUSE"):
-    sys.exit(f"stop: {name} refused")
+    from agentkit import orch
+    sys.exit(orch.leave_notice(f"stop: {name} refused"))
 seats = Path(os.environ["CLOSE_SEATS"])
 left = json.loads(seats.read_text())
 left.pop(name, None)
