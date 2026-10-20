@@ -4,6 +4,7 @@ Offline: fixtures.seats' seats, their tmux faked as a harness whose Ctrl-G hands
 to the real agentkit/aside_editor.py, and draws what that hands back a few reads late.
 """
 
+from contextlib import contextmanager
 import os
 import unittest
 from unittest.mock import patch
@@ -98,6 +99,47 @@ class DraftSetAside(Seats):
         self.tick()
         self.assertEqual((self.keys, self.sent, self.composer, self.buffers, self.told()),
                          (["C-g", "C-g", "Enter", "C-g"], [LINE], DRAFT, {}, True))
+
+    def test_text_the_line_ends_with_or_its_paste_fold_is_never_taken_for_the_line(self):
+        long = "run acme finished FAIL: " + "a finding in detail " * 50
+        for own, line, row in (("Decide the next\n  step.", LINE, None),
+                               ("Private notes. " * 60, long, "❯ [Pasted text #1]\n")):
+            with self.subTest(own=own[:15]):
+                self.show(own)
+                if row:
+                    self.pane = self.base.replace(self.empty, row)
+                self.deaf = True        # the editor never opens: the owner's text stays shown
+                watch.type_at_prompt(self.seat, line, lambda _: None, cfg=self.cfg)
+                self.assertEqual((self.sent, self.ask), ([], None))
+
+    def test_text_not_back_with_its_line_comes_back_on_a_later_pass(self):
+        self.wait_line()
+        with patch.object(watch, "_send_enter", return_value=False):
+            self.tick()                 # the line's Enter fails
+        self.deaf = True
+        self.tick()                     # its Enter, from its mark
+        self.tick()                     # the editor never opens to bring the text back
+        with patch.object(watch, "pane_unread", return_value=True):
+            self.tick()                 # input the seat has not read yet
+        self.assertEqual((self.sent, self.composer, self.told()), ([LINE], "", False))
+        self.deaf = False
+        self.tick()
+        self.assertEqual((self.composer, self.buffers, self.told()), (DRAFT, {}, True))
+
+    def test_no_line_goes_in_between_a_line_and_its_text_coming_back(self):
+        self.wait_line()
+        held, other = watch.seat_held, "The docs finished."
+
+        @contextmanager
+        def then_another(name):
+            with held(name) as current:
+                yield current
+            if self.sent == [LINE]:
+                watch.type_at_prompt(self.seat, other, lambda _: None, cfg=self.cfg)
+
+        with patch.object(watch, "seat_held", then_another):
+            self.tick()
+        self.assertEqual((self.sent, self.composer, self.told()), ([LINE, other], DRAFT, True))
 
     def test_a_composer_holding_nothing_takes_the_line_as_keys(self):
         self.show("")
