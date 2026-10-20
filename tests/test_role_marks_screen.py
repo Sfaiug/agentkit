@@ -120,7 +120,7 @@ class RoleMarks(Sandbox):
         self.assertTrue(all([cell[2] for cell in own] == [0, 1, 2] for own in cells))
         self.assertIn("[.]", lines[rows[1].start])
 
-    def test_new_session_and_config_share_model_names_and_provider_headings(self):
+    def test_new_session_and_config_share_model_names_and_harness_headings(self):
         self.cfg["models"]["gpt-sol"] = {**self.cfg["models"]["astra"], "model": "gpt-6.1-sol"}
         self.cfg["providers"]["acme-cloud"] = {}
         self.cfg["models"]["keep-Case"] = {**self.cfg["models"]["opus"], "provider": "acme-cloud"}
@@ -137,8 +137,8 @@ class RoleMarks(Sandbox):
                      if line and not terminal.ANSI.sub("", line).startswith(" ")]
                     for body in (picker, matrix)]
         self.assertEqual(headings[0], headings[1])
-        self.assertEqual(headings[0], ["Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo",
-                                      "Acme-Cloud"])
+        # Acme Cloud's model under Claude Code, the harness that runs it
+        self.assertEqual(headings[0], ["Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity", "OpenCode"])
 
     def test_click_chooses_its_column_instead_of_the_previous_column(self):
         selected = {"orchestrator": "opus", "workers": ["opus", "astra"],

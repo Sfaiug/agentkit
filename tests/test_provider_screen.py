@@ -205,7 +205,7 @@ class ProviderScreen(unittest.TestCase):
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
         self.assertEqual(sorted(subscriptions(lines)), ["Claude", "Grok"])
         lines = back(screen)
-        self.assertIn("Grok", lines)
+        self.assertIn("Grok Build", lines)               # its harness, over its model
         self.assertEqual(providers(lines), ["Claude", "Grok"])
         # a program already there is logged in and never installed
         open_providers(screen)
