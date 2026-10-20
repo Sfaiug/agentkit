@@ -184,11 +184,12 @@ class RebootDrill(Sandbox):
         self.assertEqual(gate.slot_order(state[SLOT]), slot, "the slot waiter lost its place")
         self.assertEqual(state[LANDING]["state"], "waiting")
         self.assertTrue(land.member(state[LANDING]))
-        # 2. the seats that owe work come back and are told why; the rest stay closed
-        self.assertEqual(sorted(call.args[1] for call in self.resume.call_args_list),
-                         ["asking", "midturn"])
-        self.assertEqual(sorted(self.told), [("asking", watch.ASKED_LINE),
-                                             ("midturn", watch.MIDTURN_LINE)])
+        # 2. the seats that owe work come back and are told why, as the first prompt Claude
+        # Code opens on, nothing typed; the rest stay closed
+        self.assertEqual(sorted((call.args[1], call.kwargs["line"])
+                                for call in self.resume.call_args_list),
+                         [("asking", watch.ASKED_LINE), ("midturn", watch.MIDTURN_LINE)])
+        self.assertEqual(self.told, [])
         self.assertEqual(watch.session_state("idle")["word"], "idle")
         self.assertTrue(watch.seat_read("closed")["closed_by_owner"])
         # 3. and nobody pages the owner

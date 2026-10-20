@@ -110,7 +110,7 @@ class SeatMove(Sandbox):
         self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])
         self.assertEqual(watch.seat_read(SEAT)["midturn"],
                          {"boot": watch.boot_id(), "at": NOW, "name": SEAT,
-                          "line": watch.MIDTURN_LINE})
+                          "line": watch.MIDTURN_LINE, "launched": True})
 
     def test_a_seat_its_usage_cut_off_mid_turn_is_told_to_go_on(self):
         # `⇄ Go on now` under a seat out of usage: the turn the refusal ended goes on
