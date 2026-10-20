@@ -3710,8 +3710,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     under the rows, dim, on every page.
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
-    lines of its own under it, whatever the height, until the next key; `note` is said so
-    before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
+    lines of its own under it, as many whole as leave the page a row (note_fitted), until the
+    next key; `note` is said so before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
     """
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
