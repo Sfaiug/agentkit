@@ -1166,9 +1166,17 @@ def seat_model(cfg, name):
 
 
 def _pane(session):
-    """The tmux target a seat is read at: the pane a step on it is bound to (`drafts_back`), or
-    `=name:` -- that session exactly, and its current pane."""
+    """The tmux target a seat is read at and typed into: the pane a pass or step on it is bound
+    to (`pinned`, `drafts_back`), or `=name:` -- that session exactly, and its current pane."""
     return session.get("pane") or f"={session['name']}:"
+
+
+def pinned(session):
+    """That seat held to the pane it shows now, by id: what is read and typed for one line goes
+    to that pane, whichever pane the owner selects meanwhile; as it was where tmux cannot say."""
+    rc, pane = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:", "#{pane_id}",
+                             socket=orch.seat_socket(session))
+    return dict(session, pane=pane) if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else session
 
 
 def pane_text(session):
@@ -3148,7 +3156,7 @@ def pane_unread(session):
 def _send_enter(session, log):
     """One Enter completing a line already begun; False where the send failed."""
     name = session["name"]
-    rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "Enter",
+    rc, out = orch.tmux_out("send-keys", "-t", _pane(session), "Enter",
                             socket=orch.seat_socket(session))
     if rc != 0:
         log(f"WARN could not type into the {name} seat: {out[-200:]}")
@@ -3178,7 +3186,7 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
         # A restart between text and Enter must still know whose line is in the composer.
         fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
         fh.flush()
-        rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "-l", text,
+        rc, out = orch.tmux_out("send-keys", "-t", _pane(session), "-l", text,
                                 socket=orch.seat_socket(session))
         if rc != 0:
             fh.truncate(before)
@@ -3776,11 +3784,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     empty with no unread terminal input, the first pass's as a mark's: one the owner edited
     while its Enter was confirmed no longer reads whole there, and is still theirs to send.
     No line goes in as keys while ak's editor keeps text of any pane of the seat's, which its
-    composer can draw late, nor where tmux cannot say whether it does (`_editor_kept`).  A
+    composer can draw late, nor where tmux cannot say whether it does (`_editor_kept`).  Every
+    read and key of a pass goes to the pane the seat showed as it began (`pinned`): a composer
+    read empty is the one typed into, whichever pane the owner selects meanwhile.  A
     question the seat asked with
     `ak notify needs` holds none of this back: the seat works on what does not wait on the
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
+    session = pinned(session)
     mark = {"line": text, "seat": session.get("created")}
     if typed == mark:
         with seat_held(session["name"]) as held:

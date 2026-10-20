@@ -19,6 +19,7 @@ SENDER, SEAT = "fix-api", "acme-docs"
 NOW = 1_000_000.0
 RUN = "20260101-0900-acme-parser"
 LINE = f"run {RUN} ended PASS, merged; your wait is over. Decide the next step."
+PANE = "%7"     # the receiving seat's pane, which a line's reads and keys go to by id
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text(encoding="utf-8")
 
 
@@ -61,7 +62,11 @@ class Seats(unittest.TestCase):
     def tmux(self, *args, **_kw):
         if args[0] == "list-buffers":
             return 0, ""        # no text ak's editor keeps
-        self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
+        target = args[args.index("-t") + 1]
+        if args[0] == "display-message" and args[-1] == "#{pane_id}":
+            self.assertEqual(target, f"={self.seat['name']}:")
+            return 0, PANE
+        self.assertIn(target, (f"={self.seat['name']}:", PANE))
         if args[0] == "display-message" and args[-1].startswith("#{pane_tty}"):
             return 1, "no tty in this screen fixture"
         self.assertEqual(args[0], "send-keys")
