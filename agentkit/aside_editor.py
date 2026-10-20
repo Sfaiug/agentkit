@@ -149,14 +149,14 @@ def edit(argv):
             word = b"line"
             if not ours:            # a composer holding the line got it from an edit before
                 keep = (ASIDE.encode() + (held + b"\n" + text if state == ASIDE else text)
-                        if text.strip() else stored if state == ASIDE else b"")
+                        if text else stored if state == ASIDE else b"")
                 # a failed step is undone too, as tmux's server can do one its client then
                 # times out on
                 if not ((keep == stored or _keep(name, keep)) and _publish(path, line)):
                     _keep(name, stored)
                     return 0
         else:
-            word = b"sent" if not text.strip() else b"unsent" if ours else b"other"
+            word = b"sent" if not text else b"unsent" if ours else b"other"
             if state == ASIDE and word != b"other" and _publish(path, held):
                 _keep(name, GIVEN.encode() + held)
         _tmux("set-option", "-p", "-t", pane, ASK, f"did {os.fsdecode(at)} {os.fsdecode(word)}")

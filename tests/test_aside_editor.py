@@ -100,9 +100,10 @@ class AsideEditor(unittest.TestCase):
 
     def test_text_comes_back_over_nothing_else_and_once(self):
         self.step("line", DRAFT)
-        self.assertEqual(self.step("back", "typed since"), ("typed since", "other"))
+        for since in ("typed since", " \n"):        # blanks too are the owner's
+            self.assertEqual(self.step("back", since), (since, "other"))
         self.assertEqual(self.step("line", "typed since"), (LINE, "line"))
-        self.assertEqual(self.step("back", " \n"), (f"{DRAFT}\ntyped since", "sent"))
+        self.assertEqual(self.step("back", ""), (f"{DRAFT}\ntyped since", "sent"))
         # a composer sent or emptied since gets none of it again
         self.assertEqual((self.step("back", ""), self.kept()),
                          (("", "sent"), f"{G}{DRAFT}\ntyped since"))
@@ -112,7 +113,7 @@ class AsideEditor(unittest.TestCase):
         ours = f"{LINE}\n"     # the line, as an edit before left it
         # composer, kept before, kept after
         for composer, before, after in (("", None, None),
-                                        (" \n", None, None),          # blanks are no text
+                                        (" \n", None, A + " \n"),    # blanks too
                                         ("", A + DRAFT, A + DRAFT),
                                         (ours, A + DRAFT, A + DRAFT),
                                         ("more", A + DRAFT, f"{A}{DRAFT}\nmore"),
