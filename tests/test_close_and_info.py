@@ -57,15 +57,20 @@ menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
 # The stop, in a process of its own as `menu.teardown`'s is: once CLOSE_HOLD is gone, if set,
 # it takes the seat off the listing and names it on the menu's terminal, or refuses as
-# `close_seat` does with CLOSE_REFUSE.
+# `close_seat` does with CLOSE_REFUSE -- and, first, as `orch.cmd_stop` does where the
+# environment it was handed makes it another seat's stop (`config.check_stop_owner`).
 STOP = r'''
 import json, os, sys, time
 from pathlib import Path
+from agentkit import config, orch
 name = sys.argv[1]
 while os.path.exists(os.environ.get("CLOSE_HOLD") or ""):
     time.sleep(0.01)
+try:
+    config.check_stop_owner(name)
+except config.Error as exc:
+    sys.exit(orch.leave_notice(f"stop: {exc}"))
 if os.environ.get("CLOSE_REFUSE"):
-    from agentkit import orch
     sys.exit(orch.leave_notice(f"stop: {name} refused"))
 seats = Path(os.environ["CLOSE_SEATS"])
 left = json.loads(seats.read_text())
@@ -226,6 +231,26 @@ class CloseAndInfo(unittest.TestCase):
         self.assertNotIn("everything it runs", menu.text())
         self.assertEqual(menu.text().count("<stopped"), 1)
 
+    def test_the_popup_over_a_seat_stops_another_and_removes_a_past_one(self):
+        """x is the owner's in Ctrl-b m too: the seat it is over stops no other seat's work,
+        but the person at its keys does."""
+        menu = Menu(self, {"alpha": "working", "omega": "done", "atoll": "stopped"}, own="alpha")
+        menu.frame()
+        mark = menu.mark()
+        menu.send(b"p")
+        menu.frame(lambda lines: "atoll" in menu.highlighted(lines), after=mark, keys="esc back")
+        menu.send(b"x")
+        menu.saw("<stopped atoll>", after=mark)
+        menu.frame(after=mark)                    # the last past seat gone: back by itself
+        menu.send(b"j")
+        menu.frame(lambda lines: "omega" in menu.highlighted(lines))
+        mark = menu.mark()
+        menu.send(b"x")
+        menu.saw("<stopped omega>", after=mark)
+        menu.frame(lambda lines: not any("omega" in line for line in lines), after=mark)
+        menu.leave()
+        self.assertNotIn("owned by seat", menu.text())
+
     def test_x_on_a_working_seat_asks_under_its_row_and_esc_keeps(self):
         menu = Menu(self, {"beta": "needs you", "alpha": "working", "omega": "done"})
         lines = menu.frame()
@@ -290,32 +315,6 @@ class CloseAndInfo(unittest.TestCase):
         lines = menu.frame(lambda lines: "alpha" in menu.highlighted(lines))
         self.assertIn("   x stop   ", lines[-1])
         menu.leave()
-
-    def test_the_popup_closes_its_own_done_seat_and_asks_under_its_own_row(self):
-        menu = Menu(self, {"alpha": "working", "omega": "done"}, own="omega")
-        lines = menu.frame()
-        self.assertIn("alpha", menu.highlighted(lines))
-        self.assertIn("x close this session", "\n".join(lines))
-        mark = menu.mark()
-        menu.send(b"x")                           # its own seat, wherever the highlight is
-        menu.saw("<stopped omega>", after=mark)
-        menu.leave()
-        menu = Menu(self, {"alpha": "working", "omega": "done"}, own="alpha")
-        menu.frame()
-        menu.send(b"j")
-        lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
-        self.assertIn("x stop this session", "\n".join(lines))
-        mark = menu.mark()
-        menu.send(b"x")
-        asked = menu.frame(keys="esc back", after=mark)
-        row = next(number for number, line in enumerate(asked, 1) if "alpha" in line)
-        self.assertEqual(asked[row + 1], "  Stop alpha and everything it runs?")
-        mark = menu.mark()
-        menu.send(ESC)
-        menu.frame(after=mark)
-        menu.leave()
-        self.assertNotIn("<stopped", menu.text())
-
 
     def test_a_press_begun_on_another_screen_answers_nothing_on_this_one(self):
         """The button down on one screen and up on the next is no click: not on `Stop` under
