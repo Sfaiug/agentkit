@@ -2,9 +2,10 @@
 
 A seat's own pull request never sent to `ak run --review-pr`, or one whose run ended failed or
 stopped, stays open, and before, the seat's `ak wait <pull request>` held for good.  While the
-pull request is open, the wait holds only while a run reviewing it (`review_pr`) or landing it
-(`pr`) is going and not stalled (`watch.wait_fact`), a stalled one telling its resume; after that the seat is told it is open with nothing on it
-and which command takes it, and `ak wait` on one already so refuses with the same words.
+pull request is open, the wait holds only while a wait on a going run reviewing it
+(`review_pr`) or landing it (`pr`) would (`watch.wait_fact`), a stalled one telling its resume;
+after that the seat is told it is open with nothing on it and which command takes it, and
+`ak wait` on one already so refuses with the same words.
 Offline: a faked `gh pr view`, fake run receipts and a throwaway HOME.
 """
 

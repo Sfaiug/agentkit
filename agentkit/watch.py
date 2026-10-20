@@ -2879,13 +2879,14 @@ def wait_fact(wait):
     if data["state"] == "OPEN":
         # a run that ends without merging leaves it open, its ending may reach no seat (one
         # launched outside a seat records none), and one never sent to a run has none at all:
-        # open, it waits only while a run of any seat reviewing or landing it is going; a
-        # stalled one moves only by its resume, so it ends the wait as a wait on it would
-        going = [state for state in transitions.runs_on(pr=on) if transitions.going(state)]
-        if any(state.get("state") != "stalled" for state in going):
+        # open, it waits while a wait on any going run of any seat reviewing or landing it
+        # would, and one such run that would not (a stalled one) ends it with its own line
+        facts = [wait_fact({"kind": "run", "on": state["run_id"]})
+                 for state in transitions.runs_on(pr=on) if transitions.going(state)]
+        if not all(over for over, _ in facts):
             return False, ""
-        if going:
-            return wait_fact({"kind": "run", "on": going[0]["run_id"]})
+        if facts:
+            return facts[0]
         return True, (f"PR #{number} is open with no ak run going on it: "
                       f"ak run --review-pr {on} --bg takes it")
     if data["state"] == "MERGED":
