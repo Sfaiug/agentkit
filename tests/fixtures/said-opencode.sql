@@ -1,12 +1,4 @@
-CREATE TABLE `session_message` (
-          `id` text PRIMARY KEY,
-          `session_id` text NOT NULL,
-          `type` text NOT NULL,
-          `seq` integer NOT NULL,
-          `time_created` integer NOT NULL,
-          `time_updated` integer NOT NULL,
-          `data` text NOT NULL
-        );
+CREATE TABLE `session_message` (`id` text PRIMARY KEY,`session_id` text NOT NULL,`type` text NOT NULL,`seq` integer NOT NULL,`time_created` integer NOT NULL,`time_updated` integer NOT NULL,`data` text NOT NULL);
 INSERT INTO session_message VALUES ('msg_01', 'ses_0fa1c2d3e4ffAcmeFixture01', 'user', 1, 1, 1, '{"time": {"created": 1}, "text": "Rename the acme report to fix-api.", "files": [], "agents": []}');
 INSERT INTO session_message VALUES ('msg_02', 'ses_0fa1c2d3e4ffAcmeFixture01', 'assistant', 2, 2, 2, '{"time": {"created": 2}, "agent": "build", "model": {"id": "mimo-v2.6-pro", "providerID": "mimo"}, "content": [{"type": "reasoning", "text": "The report lives under acme/.", "state": {"reasoningField": "reasoning_content"}}, {"type": "text", "text": "I''ll look at the report first."}, {"type": "tool", "id": "call_1", "name": "shell", "executed": false, "state": {"status": "completed", "input": {"command": "mv acme/report.md acme/fix-api.md"}, "content": [{"type": "text", "text": "renamed"}]}}]}');
 INSERT INTO session_message VALUES ('msg_03', 'ses_0fa1c2d3e4ffAcmeFixture01', 'assistant', 3, 3, 3, '{"time": {"created": 3}, "agent": "build", "content": [{"type": "text", "text": "Renamed acme/report.md to acme/fix-api.md."}]}');

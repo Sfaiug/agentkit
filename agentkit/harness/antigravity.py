@@ -26,11 +26,7 @@ def said(record, cwd, conversation):
     said = []
     for kind, payload in found:
         who, step, words = WORDS[kind]
-        text = field(field(payload, step), words)
-        try:
-            text = text.decode() if text else ""
-        except UnicodeDecodeError:
-            continue
+        text = (field(field(payload, step), words) or b"").decode(errors="replace")
         if text:
             said.append({"who": who, "text": text})
     return said
@@ -39,11 +35,9 @@ def said(record, cwd, conversation):
 def field(message, number):
     """The first length-delimited field of that number in a protocol buffer message, as bytes,
     or None where it has none or the message is not one."""
-    if not isinstance(message, bytes):
-        return None
     at = 0
     try:
-        while at < len(message):
+        while isinstance(message, bytes) and at < len(message):
             key, at = varint(message, at)
             if key & 7 == 2:
                 size, at = varint(message, at)
@@ -58,7 +52,6 @@ def field(message, number):
                 return None
     except IndexError:
         return None
-    return None
 
 
 def varint(message, at):

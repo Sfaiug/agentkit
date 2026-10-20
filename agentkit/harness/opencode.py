@@ -174,8 +174,8 @@ def said(record, cwd, conversation):
     from . import rows
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
-    data = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-    found = rows(data / "opencode/opencode.db",
+    share = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+    found = rows(share / "opencode/opencode.db",
                  "SELECT type, data FROM session_message WHERE session_id = ?"
                  " AND type IN ('user', 'assistant') ORDER BY seq", conversation)
     if found is None:
@@ -187,11 +187,13 @@ def said(record, cwd, conversation):
         except (TypeError, ValueError):
             continue
         message = message if isinstance(message, dict) else {}
-        parts = message.get("content")
-        text = (message.get("text") if kind == "user" else "\n".join(
-            part["text"] for part in parts if isinstance(part, dict)
-            and part.get("type") == "text" and isinstance(part.get("text"), str))
-            if isinstance(parts, list) else None)
+        if kind == "user":
+            text = message.get("text")
+        else:
+            parts = message.get("content")
+            parts = parts if isinstance(parts, list) else []
+            text = "\n".join(part["text"] for part in parts if isinstance(part, dict)
+                             and part.get("type") == "text" and isinstance(part.get("text"), str))
         if isinstance(text, str) and text:
             said.append({"who": "user" if kind == "user" else "model", "text": text})
     return said

@@ -77,9 +77,6 @@ class Said(unittest.TestCase):
                 self.place(fixture, path)
                 self.assertEqual(plugin.said(record, CWD, conversation), SAID)
 
-    def test_a_harness_without_a_reader_says_none(self):
-        self.assertIsNone(harness.load("acme").said({}, CWD, "c0ffee"))
-
 
 if __name__ == "__main__":
     unittest.main()

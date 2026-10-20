@@ -147,8 +147,7 @@ def prompt(entry):
 
 
 def answer(entry):
-    """The model's visible words one rollout line holds -- its commentary and its final
-    answer -- or None for its reasoning, its tool calls and anything else."""
+    """The model's visible words one rollout line holds, commentary or final, or None."""
     return completed(entry, "AgentMessage")
 
 
