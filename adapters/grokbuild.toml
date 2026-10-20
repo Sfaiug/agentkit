@@ -115,8 +115,13 @@ state = "working"
 # narrow pane cuts the border's words short of its corner (`· always-appro─╯`, 1.0.46).
 [screen]
 composer = '(?:│ ❯\s*│|╰─+ .*─╯)$'
-# the first Esc on a draft turns the hints into `Esc:press again to clear` (1.0.46)
-footer = ['Shift\+Tab:mode.*', 'Enter:send.*', 'Esc:press again to clear']
+# the first Esc on a draft turns the hints into `Esc:press again to clear`, and a suggestion
+# into `Tab/→:accept suggestion` (1.0.46)
+footer = ['Shift\+Tab:mode.*', 'Enter:send.*', 'Esc:press again to clear',
+          'Tab/→:accept suggestion.*']
+# After a turn an empty box suggests the last prompt, italic in 240, and goes on suggesting its
+# rest after what is typed over its start, which is typed text in 254 (1.0.46)
+faint = ["38;5;240"]
 # A line taller than the box scrolls inside it, the box's last rows showing, with a scrollbar
 # drawn just inside its right edge (captured 1.0.46 at 40 columns): never typed text.  Its
 # thumb ends in whichever block its scroll position needs (`▄` and `▂` captured), so the
@@ -164,10 +169,8 @@ state = "working"
 lines = 8
 any = ["responding…", "ctrl+c:cancel", "compacting…"]
 
-# A composer holding bright, typed text is a draft never sent.  Grok has no
-# suggestion feature: its suggestion fixture is its placeholder, the empty box.
-# A dim-only composer is empty, so the suggestion rule reads at_prompt like the
-# other harnesses' -- the rule's dim shape is exercised by Codex's real placeholder.
+# A composer holding bright, typed text is a draft never sent; one holding only its faint
+# suggestion is empty, so the suggestion rule reads at_prompt like the other harnesses'.
 # The prompt row it reads has the box's closing border right under it, so it is at most the
 # fourth row up, over that border, a status line and the key hints: a slash command's dropdown,
 # drawn above the box with a bare rule under its last row, is never read for the draft (1.0.46).

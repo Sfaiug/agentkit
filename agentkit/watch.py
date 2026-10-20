@@ -1198,23 +1198,46 @@ def _sgr_codes(params):
         i += 1
 
 
-def _faint_drawn(raw, state=(False, False), colours=()):
-    """(whether faint text is drawn in that raw `-e` row, the (faint, muted) state at its end),
-    from that state at its start: a code that turns either on and another that ends it before
-    any visible text draws nothing faint.  Faint is SGR 2; muted is a foreground colour its
-    harness draws only placeholders in (`[screen] faint`), which reads the same."""
-    faint, muted = state
-    drawn, at = False, 0
+def _faint_runs(raw, state=(False, False), colours=()):
+    """(that raw `-e` row's runs of text between its codes, each as (text, whether faint,
+    whether reversed), the (faint, muted) state at its end), from that state at its start.
+    Faint is SGR 2; muted is a foreground colour its harness draws only placeholders in
+    (`[screen] faint`), which reads the same."""
+    faint, muted, reverse = *state, False
+    runs, at = [], 0
     for found in SGR_SEQ.finditer(raw):
-        drawn = drawn or ((faint or muted) and bool(raw[at:found.start()].strip()))
+        runs.append((raw[at:found.start()], faint or muted, reverse))
         for code in _sgr_codes(found.group(1)):
             faint = True if code == 2 else False if code in (0, 22) else faint
+            reverse = True if code == 7 else False if code in (0, 27) else reverse
             if isinstance(code, str):
                 muted = code in colours if code.startswith("38;") else muted
             elif code in (0, 39) or 30 <= code <= 37 or 90 <= code <= 97:
                 muted = False
         at = found.end()
-    return drawn or ((faint or muted) and bool(raw[at:].strip())), (faint, muted)
+    return [*runs, (raw[at:], faint or muted, reverse)], (faint, muted)
+
+
+def _faint_drawn(raw, state=(False, False), colours=()):
+    """(whether faint text is drawn in that raw `-e` row, the (faint, muted) state at its end),
+    from that state at its start (`_faint_runs`): a code that turns either on and another that
+    ends it before any visible text draws nothing faint."""
+    runs, state = _faint_runs(raw, state, colours)
+    return any(dim and text.strip() for text, dim, _ in runs), state
+
+
+def _bright_rows(raws, colours=()):
+    """Each raw `-e` row as plain text, its faint text blanked, the state carried as `dim_rows`
+    carries it: what is left is what was typed, a suggestion drawn on after it none of it, nor
+    the cursor's cell, drawn reversed, on its first letter."""
+    state, rows = (False, False), []
+    for raw in raws:
+        runs, state = _faint_runs(raw, state, colours)
+        shown = [at for at, (text, _, _) in enumerate(runs) if strip_sgr(text).strip()]
+        under = {at for at, after in zip(shown, shown[1:]) if runs[at][2] and runs[after][1]}
+        rows.append(strip_sgr("".join(" " * len(text) if dim or at in under else text
+                                      for at, (text, dim, _) in enumerate(runs))).strip())
+    return rows
 
 
 def has_dim(line, colours=()):
@@ -1293,10 +1316,9 @@ def in_colour(text):
     return lines
 
 
-def _draft_text(raw, plain, composer, colours=()):
-    """Typed, unsent text after the prompt mark, or "": dim-only and empty are not drafts."""
-    if has_dim(raw, colours):
-        return ""
+def _draft_text(plain, composer):
+    """Typed, unsent text after the prompt mark, or "": a row read with its faint text blanked
+    (`_bright_rows`), as a suggestion or placeholder is no draft."""
     # A quoted transcript (`● it said '❯ ...'`) is not a composer: only a line that
     # starts at the prompt holds a draft. The harness's own composer pattern names
     # its empty box and placeholders, so no list of them lives here: a line the
@@ -3440,15 +3462,14 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
 
 def _composer_parts(chrome, raws, rows, at, stop):
     """What is typed in a composer from its prompt row `at` down to `stop`, a part a row, none
-    empty: the draft rule and `composer_draft` both read it here.  Bright rows only, and a boxed
-    composer's edges -- chrome on every row of it -- left out."""
+    empty: the draft rule and `composer_draft` both read it here.  Bright text only -- what is
+    typed over the start of a suggestion is a draft, the rest of it drawn faint after it none --
+    and a boxed composer's edges, chrome on every row of it, left out."""
     boxed = rows[at].startswith("│") and rows[at].endswith("│")
-    parts = [_draft_text(raws[at], rows[at][:-1].rstrip() if boxed else rows[at],
-                         chrome["composer"], chrome["faint"])]
-    dims = dim_rows(raws, chrome["faint"])
-    for dim, plain in zip(dims[at + 1:stop], rows[at + 1:stop]):
-        if not dim:
-            parts.append(_inside_box(plain) if boxed else plain)
+    bright = _bright_rows(raws, chrome["faint"])
+    parts = [_draft_text(bright[at][:-1].rstrip() if boxed else bright[at], chrome["composer"])]
+    for plain in bright[at + 1:stop]:
+        parts.append(_inside_box(plain) if boxed else plain)
     return [part for part in parts if part]
 
 

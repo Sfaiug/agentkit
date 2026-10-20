@@ -99,6 +99,15 @@ class SeatStates(GrokSandbox):
             with self.subTest(name=name):
                 self.assertEqual(self.seen(name, {})[0], ("draft", "prompt.draft", draft))
 
+    def test_a_suggestion_of_the_last_prompt_is_an_empty_composer_and_no_part_of_a_draft(self):
+        # an ending's line waited behind it as behind a draft; what is typed over its start is one
+        for name, state, draft in (("suggestion", "at_prompt", ""),
+                                   ("suggestion-typed", "draft", "Replywith")):
+            with self.subTest(name=name):
+                pane = (FIX / f"grokbuild-{name}-pane.txt").read_text(encoding="utf-8")
+                self.assertEqual((self.seen(name, {})[1]["state"],
+                                  watch.composer_draft("grokbuild", pane)), (state, draft))
+
 
 if __name__ == "__main__":
     unittest.main()
