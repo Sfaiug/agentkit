@@ -3619,16 +3619,21 @@ def quiet_prompt(session, held, cfg=None):
 
 def seat_editor(session, cfg=None):
     """{"id", "tty", "keys"} of that seat's pane, whose editor `_edit` asks a step: a seat its
-    launch gave ak's, of a harness naming the keys that open it (`[screen] editor`), or None."""
+    launch gave ak's, of a harness naming the keys that open it (`[screen] editor`); None for any
+    other, or False where tmux cannot say which."""
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         keys = screen(harness)["editor"] if harness else ()
     except (config.Error, OSError):
         return None
-    rc, out = (orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
-                             "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
-                             socket=orch.seat_socket(session)) if keys else (1, ""))
-    pane, pid, tty = (out.split("\t") + ["", ""])[:3] if rc == 0 else ("", "", "")
+    if not keys:
+        return None
+    rc, out = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
+                            "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
+                            socket=orch.seat_socket(session))
+    if rc != 0:
+        return False
+    pane, pid, tty = (out.split("\t") + ["", ""])[:3]
     return ({"id": pane, "tty": tty, "keys": keys}
             if pane.startswith("%") and aside_editor.launched(pid, tty) else None)
 
@@ -3658,6 +3663,22 @@ def _edit(session, where, mode, line=""):
     return None
 
 
+def _editor_keeps(session, where):
+    """(state, line it put) of what ak's editor keeps of that seat's pane (`aside_editor.pack`),
+    ("", "") for nothing, or None where tmux cannot say."""
+    server, name = orch.seat_socket(session), aside_editor.kept(where["id"])
+    rc, names = orch.tmux_out("list-buffers", "-F", "#{buffer_name}", socket=server)
+    if rc != 0:
+        return None
+    if name not in names.split("\n"):
+        return "", ""
+    rc, stored = orch.tmux_out("save-buffer", "-b", name, "-", socket=server)
+    if rc != 0 or not stored:
+        return None
+    state, put, _ = aside_editor.unpack(stored.encode())
+    return state, put.decode()
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -3683,7 +3704,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     in the gap before it is never sent.  The line is delivered only once its composer reads
     empty with no unread terminal input, the first pass's as a mark's: one the owner edited
     while its Enter was confirmed no longer reads whole there, and is still theirs to send.
-    A question the seat asked with
+    No line goes in as keys while ak's editor keeps text of the seat's (`_editor_keeps`), which
+    its composer can draw late, nor any where tmux cannot say whether the seat is one launched
+    with that editor (`seat_editor`).  A question the seat asked with
     `ak notify needs` holds none of this back: the seat works on what does not wait on the
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
@@ -3699,6 +3722,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
+    where = seat_editor(session, cfg)
+    if where is False:
+        return False            # no telling whether ak's editor keeps text of the seat's
     if not takes_line(session, cfg=cfg):
         return False
     composed = []
@@ -3709,7 +3735,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it
         composed.append(True)
-        return not quiet_prompt(session, held, cfg)
+        # text ak's editor keeps, or gave back, can be drawn late: only that editor reads it
+        return (not quiet_prompt(session, held, cfg)
+                or bool(where) and _editor_keeps(session, where) != ("", ""))
 
     return (type_checked(session, text, log, None,
                          guard=lambda: seat_held(session["name"]), veto=veto,

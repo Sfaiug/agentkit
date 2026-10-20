@@ -65,6 +65,8 @@ class ReceiptNeedsEnter(Sandbox):
     def tmux(self, *args, **kwargs):
         self.assertEqual(args[args.index("-t") + 1], f"={SEAT}:")
         self.assertEqual(kwargs.get("socket"), orch.seat_socket(self.seat))
+        if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
+            return 0, ""      # a seat launched without ak's editor
         if args[0] == "display-message":
             self.assertEqual(args[-1], "#{pane_tty}\t#{" + orch.INPUT_TTY_OPTION + "}")
             self.assertIsNotNone(kwargs.get("timeout"))

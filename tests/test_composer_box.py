@@ -53,8 +53,10 @@ class ComposerBox(Sandbox):
                 screen[0] = pane
             return 0, ""
 
+        # a seat launched without ak's editor
         with patch.object(watch, "pane_text", side_effect=lambda *_a: screen[0]), \
-                patch.object(orch, "tmux_out", side_effect=typed):
+                patch.object(orch, "tmux_out", side_effect=typed), \
+                patch.object(watch, "seat_editor", return_value=None):
             free = watch.at_prompt({"name": SEAT}, cfg=self.cfg)
             watch.type_at_prompt({"name": SEAT}, "The acme tests passed.", lambda _: None,
                                  cfg=self.cfg)

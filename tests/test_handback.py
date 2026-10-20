@@ -150,6 +150,8 @@ class HandBack(Sandbox):
                                               side_effect=lambda *a, **k: self.pane))
         self.stack.enter_context(patch.object(watch, "type_checked", side_effect=self.send))
         self.stack.enter_context(patch.object(watch, "pane_unread", return_value=False))
+        # a seat launched without ak's editor
+        self.stack.enter_context(patch.object(watch, "seat_editor", return_value=None))
         self.stack.enter_context(patch.object(
             watch, "type_into",
             side_effect=lambda session, text, log, **_kw: self.typed.append(
