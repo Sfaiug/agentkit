@@ -4,7 +4,8 @@ Artificial Analysis is asked with the owner's key alone, Arena through its datas
 of its boards at its category, and LiveBench 2.0 off its newest release that answers; a board's
 row is one model at one effort, or at none where the board names no effort; within a day nothing
 is asked again, `--refresh` asks now, and a board that fails keeps its last rows with the error
-beside them.
+beside them.  An install upgraded from before 20 Oct 2026 reads them once out of
+`state/matrix.json`, where they were kept beside the matrix, whole.
 
 Offline: the boards' answers are handed in as bytes, counted, and a throwaway HOME holds the
 cache and the key.  Artificial Analysis answers in pages of three, Arena's dataset in pages of
@@ -207,6 +208,26 @@ class ModelBoards(Sandbox):
         self.boards.hold = None
         boards.collect(now=10000, refresh=True)                  # what one collection asks
         self.assertEqual(sum("huggingface" in u for u, _ in self.boards.asked), 2 * asked)
+
+    def test_the_boards_kept_beside_the_matrix_move_whole_to_their_own_file(self):
+        # until 20 Oct 2026 the boards were kept beside the matrix in `state/matrix.json`: an
+        # install upgraded reads them from there once, whole, so a board down on the first ask
+        # after keeps what it last said and its day goes on; the matrix's next write leaves them
+        first = boards.collect(now=10000)
+        matrix.cache_path().write_text(json.dumps({**first, "matrix": {"rows": []}}))
+        boards.cache_path().unlink()
+        hosts = ("artificialanalysis.ai", "datasets-server.huggingface.co", "livebench.ai")
+        self.boards.down.update(hosts)
+        asked = len(self.boards.asked)
+        self.assertEqual(boards.collect(now=10000 + boards.FRESH_FOR - 1), first)
+        self.assertEqual(len(self.boards.asked), asked)
+        self.assertEqual(boards.collect(now=10000 + boards.FRESH_FOR),
+                         {board: {**first[board], "asked_at": 10000 + boards.FRESH_FOR,
+                                  "error": f"{host} refused"}
+                          for board, host in zip(boards.BOARDS, hosts)})
+        self.stack.enter_context(patch.object(config, "manifests", return_value=[]))
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR)
+        self.assertEqual(list(json.loads(matrix.cache_path().read_text())), ["matrix"])
 
     def test_the_command_says_what_each_board_gave_and_when(self):
         self.stack.enter_context(patch.object(config, "manifests", return_value=[]))

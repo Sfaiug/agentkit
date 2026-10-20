@@ -1,8 +1,8 @@
 """Among a session's marks, a run's executor and reviewer follow the matrix's rank for the role,
 then what their providers have left; the writer's own model last.
 
-The matrix every pick reads is the one `ak models` or the tick last computed and stored beside
-the boards in `state/matrix.json` (`matrix.refresh`), computed again only once a board answered
+The matrix every pick reads is the one `ak models` or the tick last computed and stored in
+`state/matrix.json` (`matrix.refresh`), computed again only once a board answered
 anew or the config's models or the harnesses installed changed; `matrix.rank` reads each
 configured model's place for a role off it, None where the boards have nothing on it.
 `usage.pick_order` puts the ranked models first: those within `within` of the best of them, the

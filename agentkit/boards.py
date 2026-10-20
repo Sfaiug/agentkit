@@ -215,11 +215,15 @@ def _locked():
 
 
 def _held():
-    """`boards.json` as it is, {} where it is not or unreadable."""
+    """`boards.json` as it is, or while there is none yet the boards as `state/matrix.json` held
+    them beside the matrix until 20 Oct 2026, so an install upgraded keeps what they last said
+    and its day's pace; {} where the file is unreadable."""
+    path = cache_path() if cache_path().exists() else config.STATE / "matrix.json"
     try:
-        return json.loads(cache_path().read_text())
+        held = json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
+    return {board: held[board] for board in BOARDS if board in held}
 
 
 def _write(cache):

@@ -75,7 +75,7 @@ def cache_path():
 @contextlib.contextmanager
 def _locked():
     """One writer of `matrix.json`, the matrix as last computed, at a time: `matrix.lock` held
-    from reading it to replacing it, so no write loses another's."""
+    while its `.tmp` is written and moved in, so two writers never share the `.tmp`."""
     cache_path().parent.mkdir(parents=True, exist_ok=True)
     with cache_path().with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -369,8 +369,8 @@ def stored():
 
 
 def refresh(cfg, *, refresh=False, now=None):
-    """The boards (`collect`) and the matrix computed from them and the config, written beside
-    the boards in `state/matrix.json` so every pick reads one computed truth; computed again
+    """The boards (`collect`) and the matrix computed from them and the config, written to
+    `state/matrix.json` so every pick reads one computed truth; computed again
     only once a board answered anew, the config's models changed, the harnesses installed are
     not the ones it rowed or ak's own build is not the one that computed it (a matching rule
     that landed holds at the next tick, not a day later), since the harness catalogs it asks
@@ -387,10 +387,8 @@ def refresh(cfg, *, refresh=False, now=None):
         return boards, held["rows"]
     table = scored(rows(cfg, boards, harnesses))
     with _locked():
-        cache = _held()
-        cache["matrix"] = {"computed_at": now, "config": config_key(cfg), "harnesses": harnesses,
-                           "build": build, "rows": table}
-        _write(cache)
+        _write({"matrix": {"computed_at": now, "config": config_key(cfg), "harnesses": harnesses,
+                           "build": build, "rows": table}})
     return boards, table
 
 
