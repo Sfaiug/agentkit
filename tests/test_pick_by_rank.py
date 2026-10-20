@@ -31,7 +31,7 @@ import test_model_rows as rows_test
 
 # Artificial Analysis rows with the index per effort, Terminal-Bench, which builds, and two
 # measures of review
-OPUS = {"terminalBench40": 0.6, "deepsecBench": 0.27, "omniscienceHallucinationRate": 0.59}
+OPUS = {"terminalBench40": 0.6, "deepsecBench": 0.27, "omniscience": 46}
 MORE = [{"name": "Claude Opus 5.5 (max)", **OPUS,
          "evaluations": {"artificial_analysis_intelligence_index": 58},
          "performance": {"median_output_tokens_per_second": 95}},

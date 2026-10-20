@@ -17,9 +17,10 @@ row's own effort.
 
 Every row is scored per role, on quality and cost alone: speed is ak's own to fix, and the
 subscriptions follow the choice.  Each measure is the points the row is behind the best value
-on its whole board (`SCALES`), a measure read off a higher effort adding its drop, and the role's
-score is 100 less the mean over the role's measures, weighted alike, given at least half of them
-(`ROLES` names them and what each tests), said with how many it rests on (`97 of 3`).  A row
+on its whole board (`SCALES`), a measure read off a higher effort adding its drop and one the
+board never ran the model on counting as the board's typical gap, and the role's score is 100
+less the mean over the role's measures, weighted alike, given at least half of them (`ROLES`
+names them and what each tests), said with how many it has (`97 of 3`).  A row
 within `within` of the best counts as as good as it, and the cheapest of those is recommended,
 the others beside it: by what Artificial Analysis's index run cost on the row, a row it has not
 run by LiveBench's cost of a coding task after every priced one, unpriced last, then the higher
@@ -33,6 +34,7 @@ import contextlib
 import fcntl
 import json
 import re
+import statistics
 import sys
 import time
 
@@ -49,12 +51,11 @@ PRICES = (COST, TASK_COST)          # what a row reads only off a board's row at
 WITHIN = 5
 # How a value is behind its board's best, in points out of 100, per kind of number: (which
 # value is the best, the points behind it).  A percent in percentage points, a share from 0 to 1
-# in hundredths, a rate of mistakes the same with the lowest the best, and a rating as how far
-# under half its wins against the best would be (35 behind is 45% of wins, 5 points).
+# in hundredths, and a rating as how far under half its wins against the best would be (35
+# behind is 45% of wins, 5 points).
 SCALES = {
     "percent": (max, lambda best, value: best - value),
     "share": (max, lambda best, value: 100 * (best - value)),
-    "mistakes": (min, lambda best, value: 100 * (value - best)),
     "rating": (max, lambda best, value: 100 * (0.5 - 1 / (1 + 10 ** ((best - value) / 400)))),
 }
 # What each role is scored on: a column (board.field), its kind (`SCALES`) and, in plain words,
@@ -82,8 +83,8 @@ ROLES = {
                 "coding answers people pick, their length and formatting aside"),
                ("aa.deepsecBench", "share",
                 "reviewing files for bugs, each report judged a true or a false finding"),
-               ("aa.omniscienceHallucinationRate", "mistakes",
-                "how often it guesses wrong instead of saying it does not know")),
+               ("aa.omniscience", "percent",
+                "right answers less wrong guesses, an admitted unknown counting neither")),
 }
 # the config's word for each role ak scores: `config.ROLE_EFFORTS` keys its efforts by these
 CONFIG_ROLES = {"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
@@ -270,30 +271,42 @@ def effort_rank(effort):
 
 
 def bests(boards):
-    """Per measure a role is scored on, the best value on its whole board (`SCALES`)."""
+    """Per measure a role is scored on, {"best": the best value on its whole board (`SCALES`),
+    "typical": the median points behind it over the board's rows}."""
     found = {}
     for held in boards.values():
         for row in held.get("rows") or []:
             for column, kind, _ in (measure for measures in ROLES.values() for measure in measures):
                 if column in row["values"]:
-                    value = row["values"][column]
-                    found[column] = SCALES[kind][0](found.get(column, value), value)
-    return found
+                    found.setdefault(column, []).append(row["values"][column])
+    return {column: {"best": SCALES[kind][0](values),
+                     "typical": statistics.median(SCALES[kind][1](SCALES[kind][0](values), value)
+                                                  for value in values)}
+            for column, kind, _ in (measure for measures in ROLES.values() for measure in measures)
+            for values in [found.get(column)] if values}
+
+
+def behind(row, column, kind, best):
+    """The points `row` is behind `best` (`bests`) on one measure: its own value's, a measure read
+    off a higher effort adding its `drops`, else the board's typical gap, as a model the board
+    never tested on it is as likely above as below the ones it did."""
+    if column not in row["values"]:
+        return best[column]["typical"]
+    return (SCALES[kind][1](best[column]["best"], row["values"][column])
+            + (row.get("drops") or {}).get(column, 0))
 
 
 def scored(table, best):
     """Each row's `scores`: per role, {"score", "measures"}: 100 less the mean of the points it
-    is behind `best` (`bests`) on each of the role's measures it has, a measure read off a higher
-    effort adding its `drops`, with how many it rests on; None under half the role's measures."""
+    is `behind` the best on each of the role's measures, with how many of them it has; None
+    under half of them."""
     for row in table:
         row["scores"] = {}
         for role, measures in ROLES.items():
-            behind = [SCALES[kind][1](best[column], row["values"][column])
-                      + (row.get("drops") or {}).get(column, 0)
-                      for column, kind, _ in measures if column in row["values"] and column in best]
-            row["scores"][role] = ({"score": 100 - sum(behind) / len(behind),
-                                    "measures": len(behind)}
-                                   if behind and 2 * len(behind) >= len(measures) else None)
+            points = [behind(row, column, kind, best) for column, kind, _ in measures if column in best]
+            have = sum(column in row["values"] for column, _, _ in measures)
+            row["scores"][role] = ({"score": 100 - sum(points) / len(points), "measures": have}
+                                   if points and 2 * have >= len(measures) else None)
     return table
 
 
@@ -413,12 +426,12 @@ def cell(found):
 
 
 def stored():
-    """The matrix as last computed, {"computed_at", "config", "harnesses", "build", "best",
+    """The matrix as last computed, {"computed_at", "config", "harnesses", "build", "bests",
     "rows"}, or {}, its rows scored afresh against the boards' bests it saved: the catalogs `rows`
     asks are what the file saves, and scoring is cheap, so a scoring rule changed since the
     matrix was computed holds at once."""
     held = _held().get("matrix") or {}
-    scored(held.get("rows") or [], held.get("best") or {})
+    scored(held.get("rows") or [], held.get("bests") or {})
     return held
 
 
@@ -443,7 +456,7 @@ def refresh(cfg, *, refresh=False, now=None):
     table = scored(rows(cfg, boards, harnesses), best)
     with _locked():
         _write({"matrix": {"computed_at": now, "config": config_key(cfg), "harnesses": harnesses,
-                           "build": build, "best": best, "rows": table}})
+                           "build": build, "bests": best, "rows": table}})
     return boards, table
 
 
@@ -520,7 +533,8 @@ def render(table, boards, own=None, band=WITHIN):
              "a share in hundredths, a rating as how far under half its wins against the best "
              "would be; a board row at a higher effort adds what Artificial Analysis's "
              "intelligence index loses down to the row's, one naming no effort stands at the "
-             f"model's highest; a row within {band:g} of the best counts as as good "
+             "model's highest, and a measure the board never ran the model on counts as the "
+             f"board's typical gap; a row within {band:g} of the best counts as as good "
              "(`within` in config.toml), and the cheapest of those is recommended: by `cost`, "
              "what Artificial Analysis's index run cost on it, then `$/task`, LiveBench's cost "
              "of a coding task, unpriced last, then the higher quality, the one the config runs "

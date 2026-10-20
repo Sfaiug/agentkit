@@ -20,7 +20,7 @@ MEASURES = {
                 ("aa.terminalBench40", "share")),
     "review": (("livebench.reasoning", "percent"), ("arena.text_factuality.coding", "rating"),
                ("arena.text_style_control.coding", "rating"), ("aa.deepsecBench", "share"),
-               ("aa.omniscienceHallucinationRate", "mistakes")),
+               ("aa.omniscience", "percent")),
 }
 
 
