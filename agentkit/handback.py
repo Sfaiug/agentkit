@@ -876,30 +876,31 @@ def mark_delivery(run_dir, state, **marks):
     Never the caller's whole snapshot: two processes can be holding one each, and a whole
     save would put the older one back over the newer's marks -- including the `handed_back`
     that is the only thing stopping a second line.  The read and the write are one stretch
-    under `delivery_lock`, so nothing can land between them either, and the record has to
-    still be the attempt the caller decided about -- see `same_attempt` -- or nothing is
-    written at all.  A mark given as None is removed; `pending_inbox`, the merge question a
+    under the record's write lock, so no write can land between them either, and the record
+    has to still be the attempt the caller decided about -- see `same_attempt` -- or nothing
+    is written at all.  A mark given as None is removed; `pending_inbox`, the merge question a
     run still owes the inbox, is written the same way and for the same reason.  The caller's
     own copy is updated too, so what it does next reads what the record says.  False when the
     record had moved on and the marks were dropped.
     """
-    with delivery_lock(run_dir):
-        current = run_record.read_state(run_dir)
+    def onto(current):
         if current is None:
             current = dict(state)
         elif not same_attempt(state, current):
-            return False
+            return None
         for key, value in marks.items():
             if value is None:
                 current.pop(key, None)
                 state.pop(key, None)
             else:
                 current[key] = state[key] = value
+        return current
+
+    with delivery_lock(run_dir):
         # Past `save_state`'s guard on purpose: these are endings a stop always
         # refuses, so no stop can race them, and this lock plus that one in this
         # order would invert the order `reap` takes them in.  See `save_state`.
-        run_record._write_state(run_dir, current, run_record.DELIVERY_TEMP)
-        return True
+        return run_record._write_state(run_dir, state, run_record.DELIVERY_TEMP, onto=onto)
 
 
 ROUTINE_NOTE = "routine ending: recorded, not typed"

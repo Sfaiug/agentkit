@@ -126,9 +126,30 @@ def _in_line(state):
     return land.member(state) and "fix" not in state["waiting_on"]
 
 
-def _write_state(run_dir, state, temp=_RUN_TEMP):
-    """The bare record write every save ends in; the guard and the lock live in `save_state`.
+@contextmanager
+def _write_lock(run_dir):
+    """Held for one read and replace of run.json and nothing else, so it never waits on another lock.
 
+    `mark_delivery` writes under `delivery_lock` and every other writer under `recovery_lock`:
+    without this one, either could read the record before the other's write and put its older
+    copy back over it -- a rename erasing a notice's told mark, and the notice said twice.  On
+    the run's directory, which no write replaces, so no lock file is left in it.
+    """
+    directory = os.open(run_dir, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(directory)
+
+
+def _write_state(run_dir, state, temp=_RUN_TEMP, onto=None):
+    """The bare record write every save ends in; the stop guard lives in `save_state`.
+
+    The record on disk is read and replaced in one stretch under `_write_lock`.  With `onto`,
+    what is written is `onto(record)`, the record as it stands then (None when unreadable),
+    and nothing at all when that returns None: a writer that changes some keys keeps every
+    other writer's, even one that wrote after it read.  Returns whether it wrote.
     One temporary file per lock a writer holds: `mark_delivery` writes under another lock
     than a save, and two writers filling one temporary file would put a torn record in place.
     A place in the line counts from the write that gives it to the write that ends it, its
@@ -136,17 +157,21 @@ def _write_state(run_dir, state, temp=_RUN_TEMP):
     adds it to the run's history.
     """
     from . import history
-    previous = read_state(run_dir) or {}
-    now = time.time()
-    since = previous.get("line_since")
-    if _in_line(state):
-        state["line_since"] = now if since is None else since
-    else:
-        state.pop("line_since", None)
-    record_limits(state)
-    tmp = run_dir / temp
-    tmp.write_text(json.dumps(state, indent=2))
-    tmp.replace(run_dir / "run.json")
+    with _write_lock(run_dir):
+        previous = read_state(run_dir)
+        if onto is not None and (state := onto(previous)) is None:
+            return False
+        previous = previous or {}
+        now = time.time()
+        since = previous.get("line_since")
+        if _in_line(state):
+            state["line_since"] = now if since is None else since
+        else:
+            state.pop("line_since", None)
+        record_limits(state)
+        tmp = run_dir / temp
+        tmp.write_text(json.dumps(state, indent=2))
+        tmp.replace(run_dir / "run.json")
     if since is not None and "line_since" not in state:
         history.add_wait(state.get("run_id"), "merge", now - since)
     waits = [wait if isinstance(wait := saved.get("waiting_on"), dict) else {}
@@ -158,6 +183,7 @@ def _write_state(run_dir, state, temp=_RUN_TEMP):
         # A wake's bookkeeping must not put another suite ahead of its delivery.
         for name in {wait["line"] for wait in waits if isinstance(wait.get("line"), str)}:
             land.start_line(config.RUNS / name)
+    return True
 
 
 def save_state(run_dir, state):
@@ -198,13 +224,25 @@ class Record(dict):
         """Write now what changed since the read or the last flush, and only if something did.
 
         For a caller whose next step reads this write's time.  The guard is `save_state`'s: a
-        record that says `stopped` never goes back to anything else.
+        record that says `stopped` never goes back to anything else.  Only the changed keys go
+        onto the record as it stands, so a mark `mark_delivery` wrote since the read stays.
         """
         if self == self.written:
             return
         if self.stopped and self.get("state") != "stopped":
             raise StopRequested(f"{self.run_dir.name} was stopped")
-        _write_state(self.run_dir, self)
+        changed = {key: value for key, value in self.items()
+                   if key not in self.written or self.written[key] != value}
+        removed = self.written.keys() - self.keys()
+
+        def onto(current):
+            current = copy.deepcopy(self.written) if current is None else current
+            for key in removed:
+                current.pop(key, None)
+            current.update(copy.deepcopy(changed))
+            return current
+
+        _write_state(self.run_dir, self, onto=onto)
         self.written = copy.deepcopy(dict(self))
 
 

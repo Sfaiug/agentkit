@@ -345,11 +345,11 @@ class FollowupRuns(unittest.TestCase):
         delivery = threading.Thread(target=lambda: marked.append(handback.mark_delivery(
             directory, record.read_state(directory), handed_back=123)))
 
-        def write(run_dir, current, *args):
+        def write(run_dir, current, *args, **kw):
             if run_dir == directory and "followup_runs" in current and not delivery.ident:
                 delivery.start()     # the tick hands the ending back while the receipt is written
                 delivery.join(1)
-            return real(run_dir, current, *args)
+            return real(run_dir, current, *args, **kw)
 
         with patch.object(record, "_write_state", side_effect=write):
             self.start(directory, state)
