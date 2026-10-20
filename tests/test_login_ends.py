@@ -177,6 +177,23 @@ class Refresh(unittest.TestCase):
         self.assertEqual(logins.read(), kept)
         self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
 
+    def test_j_a_tick_that_failed_as_a_login_was_read_leaves_that_login_standing(self):
+        self.answer("default", {"email": "owner@acme.test", "ends": 1000 + 86400})
+        logins.refresh(self.cfg, now=1000)
+        self.answer("default", {"email": "owner@acme.test", "ends": FAR})   # logged in again
+        ask, fail = logins._ask, self.fake / "fail-default"
+
+        def asking(harness, account):   # as the ak screen reads the new login, a later tick fails
+            answer = ask(harness, account)
+            if not fail.exists():
+                fail.touch()
+                logins.refresh(self.cfg, now=1002)
+            return answer
+        with patch.object(logins, "_ask", side_effect=asking):
+            kept = logins.refresh(self.cfg, now=1001, renewed=("anthropic", "default"))
+        self.assertEqual(kept["anthropic"]["default"]["ends"], FAR)
+        self.assertEqual(logins.read(), kept)
+
     def hang(self):
         """The default account's adapter leaves a reader that this process adopts, orphaned."""
         import ctypes

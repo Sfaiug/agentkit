@@ -111,22 +111,24 @@ def refresh(cfg, now=None, renewed=None):
         config.ensure_dirs()
         with config._record_lock(path()):
             # The tick and the ak screen, for a login just made there, can refresh at once: an
-            # answer written since this one read stands unless this one asked it later.
+            # entry written since this one read stands, unless only this one learned something
+            # new (an ask that answered nothing, or asked before the login, learns nothing).
             standing = read()
             for provider, accounts in kept.items():
                 for account, login in accounts.items():
+                    then = (old.get(provider) or {}).get(account)
                     theirs = (standing.get(provider) or {}).get(account)
-                    if (isinstance(theirs, dict) and theirs != (old.get(provider) or {}).get(account)
-                            and _asked(theirs) >= _asked(login)):
+                    if (isinstance(theirs, dict) and theirs != then
+                            and (_said(theirs) != _said(then) or _said(login) == _said(then))):
                         accounts[account] = theirs
             config._write_json(path(), kept, prepare=False)
     return kept
 
 
-def _asked(login):
-    """When `login`, one of `read`'s, was last asked; -inf for one never asked."""
-    checked = login.get("checked_at")
-    return checked if isinstance(checked, (int, float)) else float("-inf")
+def _said(login):
+    """Whose `login`, one of `read`'s, is and when it ends."""
+    login = login if isinstance(login, dict) else {}
+    return login.get("email"), login.get("ends")
 
 
 def remind(cfg, now=None):
