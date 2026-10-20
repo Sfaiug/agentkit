@@ -1,9 +1,9 @@
 """A branch cannot switch its own reviewer's real-users rule on or off.
 
-The `users:` line is read at the base the work is judged against, never the branch's
-files: a branch that turns origin's `users: real` into `users: none` is still reviewed
-with REAL_USERS, and one that turns `users: none` into `users: real` is not until it has
-merged.  Offline: a throwaway repository and its bare origin, a fake adapter for every
+The `users:` line is read at the target the work lands on, never the branch's files: a
+branch that turns origin's `users: real` into `users: none` is still reviewed with
+REAL_USERS, one that turns `users: none` into `users: real` is not until it has merged, and
+one whose target took `users: real` after the branch was cut is.  Offline: a throwaway repository and its bare origin, a fake adapter for every
 harness, a temporary HOME.
 """
 
@@ -24,7 +24,8 @@ from agentkit import config, gc, gitcall, run, worker
 
 TASK = "# Acme users\n\n## Goal\nTouch AGENTS.md.\n\n## Done when\n```bash\ntrue\n```\n"
 
-# The executor commits the branch's AGENTS.md; the reviewer passes.  Every prompt is kept.
+# The executor commits the branch's AGENTS.md, and with `target.md` moves origin's main to
+# it as well, after the branch was cut; the reviewer passes.  Every prompt is kept.
 ADAPTER = '''import json, os, pathlib, subprocess, sys
 root = pathlib.Path(os.environ["USERS_BASE_FIXTURE"])
 if sys.argv[1] == "auth":
@@ -39,6 +40,15 @@ if prompt.startswith("You are the reviewer"):
 else:
     (cwd / "AGENTS.md").write_text((root / "branch.md").read_text())
     subprocess.run(["git", "-C", str(cwd), "commit", "-qam", "acme users"], check=True)
+    if (root / "target.md").exists():
+        url = subprocess.run(["git", "-C", str(cwd), "remote", "get-url", "origin"], check=True,
+                             capture_output=True, text=True).stdout.strip()
+        moved = root / "moved"
+        subprocess.run(["git", "clone", "-q", url, str(moved)], check=True)
+        (moved / "AGENTS.md").write_text((root / "target.md").read_text())
+        subprocess.run(["git", "-C", str(moved), "commit", "-qam", "acme target"], check=True)
+        subprocess.run(["git", "-C", str(moved), "push", "-q", "origin", "main"], check=True)
+        subprocess.run(["git", "-C", str(cwd), "fetch", "-q", "origin"], check=True)
     text = "## Summary\\nChanged the users line."
 (out / "final.md").write_text(text)
 '''
@@ -80,9 +90,12 @@ class RealUsersFromBase(unittest.TestCase):
     def git(self, cwd, *args):
         subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
 
-    def reviews(self, origin_users, branch_users):
-        """Every reviewer prompt of one run whose branch changes origin's `users:` line."""
+    def reviews(self, origin_users, branch_users, target_users=None):
+        """Every reviewer prompt of one run whose branch changes origin's `users:` line, and
+        whose target, given `target_users`, says that once the branch is cut."""
         (self.root / "prompts.jsonl").unlink(missing_ok=True)
+        if target_users:
+            (self.root / "target.md").write_text(f"---\nusers: {target_users}\n---\n# acme\n")
         case = self.root / origin_users
         origin, repo = case / "origin.git", case / "acme"
         self.git(self.root, "init", "-q", "--bare", "-b", "main", str(origin))
@@ -112,6 +125,11 @@ class RealUsersFromBase(unittest.TestCase):
 
     def test_a_branch_turning_real_into_none_is_still_reviewed_as_real(self):
         for prompt in self.reviews("real", "none"):
+            self.assertIn(f"{worker.GATE}\n{worker.REAL_USERS}", prompt)
+
+    def test_a_target_that_took_real_after_the_branch_was_cut_is_reviewed_as_real(self):
+        # the commit the branch was cut from still says none; the target already says real
+        for prompt in self.reviews("none", "real", target_users="real"):
             self.assertIn(f"{worker.GATE}\n{worker.REAL_USERS}", prompt)
 
     def test_a_branch_turning_none_into_real_is_not_until_it_merges(self):

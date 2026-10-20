@@ -967,7 +967,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     without it, and tries only once -- the waits after that are the run's own.
 
     An executor or fixer of a fix run may also write the run's regression folder.  `base` is
-    the commit the reviewer's `users:` line is read at (`worker.users_declared`).
+    the target ref the reviewer's `users:` line is read at (`worker.users_declared`).
     """
     from . import usage     # here, not at the top: usage reaches turns
     limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit

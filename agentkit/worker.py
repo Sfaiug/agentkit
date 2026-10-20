@@ -105,9 +105,9 @@ BASE_ENV = "AK_USERS_BASE"
 def users_declared(workspace, base=None):
     """The `users:` answer, `real` or `none`, or None until the owner is asked.
 
-    Read at `base`, the commit the work is judged against, as the AGENTS.md body is
-    (`gitcall.repo_rules`): a branch cannot switch off the rule its own review is held to, and
-    the `users: real` it adds holds once it has merged.  A workspace with no base, a scratch
+    Read at `base`, the target the work lands on, as `gitcall.declared_suite` reads `tests:`:
+    a branch cannot switch off the rule its own review is held to, and the `users: real` it
+    adds holds once it has merged.  A workspace with no base, a scratch
     run's, says it as written.  Read as the YAML scalar it is: `users: "real"  # launched in
     May` says `real`, and a comment or quotes left on the word would quietly drop the
     reviewer's rule for it.
