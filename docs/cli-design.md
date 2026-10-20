@@ -166,8 +166,8 @@ and that the session moves to past sessions, where it reopens where it
 stopped; the key line reads `esc back` while it asks. The runs are counted off the draw, so the card is up at
 once: `Its runs stop` until the number lands. The key line says `x close` while
 a done seat is highlighted (in the popup, while its own seat is done) and `x
-stop` otherwise, and a done
-seat's tmux bar reads `Ctrl-b m  x close` at the right end of its second line.
+stop` otherwise; a seat's tmux bar reads `Ctrl-b m  menu` at the right end of its second
+line whatever its word.
 
 A stopped seat has no row under its project: it keeps its number on the past
 screen, `p`, which the key line offers as `p past` while there is one. The
