@@ -70,6 +70,8 @@ class AnswerClosesQuestion(Sandbox):
         self.pane, self.typed = PROMPT, []
         self.stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [self.seat]))
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
+        # no text ak's editor keeps
+        self.stack.enter_context(patch.object(watch, "_editor_kept", return_value={}))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
         self.bin = self.root / "bin"
         self.bin.mkdir()

@@ -3679,6 +3679,33 @@ def _edit(session, where, mode, line=""):
     return None
 
 
+def _editor_kept(session):
+    """{pane: (state, line it put)} of each pane of that seat whose text ak's editor keeps
+    (`aside_editor.pack`), or None where tmux cannot say.  The editor writes one only for a step
+    asked under the seat's send lock, so one read under that lock holds whichever of them the
+    owner selects meanwhile."""
+    server = orch.seat_socket(session)
+    rc, names = orch.tmux_out("list-buffers", "-F", "#{buffer_name}", socket=server)
+    if rc != 0:
+        return None
+    if not any(name.startswith(aside_editor.kept("")) for name in names.split("\n")):
+        return {}
+    rc, panes = orch.tmux_out("list-panes", "-s", "-t", f"={session['name']}:", "-F",
+                              "#{pane_id}", socket=server)
+    if rc != 0:
+        return None
+    found = {}
+    for pane in panes.split("\n"):
+        if pane and aside_editor.kept(pane) in names.split("\n"):
+            rc, stored = orch.tmux_out("save-buffer", "-b", aside_editor.kept(pane), "-",
+                                       socket=server)
+            if rc != 0 or not stored:
+                return None
+            state, put, _ = aside_editor.unpack(stored.encode())
+            found[pane] = (state, put.decode())
+    return found
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -3704,7 +3731,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     in the gap before it is never sent.  The line is delivered only once its composer reads
     empty with no unread terminal input, the first pass's as a mark's: one the owner edited
     while its Enter was confirmed no longer reads whole there, and is still theirs to send.
-    A question the seat asked with
+    No line goes in as keys while ak's editor keeps text of any pane of the seat's, which its
+    composer can draw late, nor where tmux cannot say whether it does (`_editor_kept`).  A
+    question the seat asked with
     `ak notify needs` holds none of this back: the seat works on what does not wait on the
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
@@ -3730,7 +3759,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         if composed:
             return False        # the text is typed; what is left is the Enter that sends it
         composed.append(True)
-        return not quiet_prompt(session, held, cfg)
+        # text ak's editor keeps, or gave back, can be drawn late: only that editor reads it
+        return not quiet_prompt(session, held, cfg) or _editor_kept(session) != {}
 
     return (type_checked(session, text, log, None,
                          guard=lambda: seat_held(session["name"]), veto=veto,

@@ -63,6 +63,8 @@ class ReceiptNeedsEnter(Sandbox):
         return PROMPT.replace("❯\u00a0\n", "❯ " + line + "\n")
 
     def tmux(self, *args, **kwargs):
+        if args[0] == "list-buffers":
+            return 0, ""      # no text ak's editor keeps
         self.assertEqual(args[args.index("-t") + 1], f"={SEAT}:")
         self.assertEqual(kwargs.get("socket"), orch.seat_socket(self.seat))
         if args[0] == "display-message":
