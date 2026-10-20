@@ -81,7 +81,7 @@ def mark_return(module, name):
     setattr(module, name, screen)
 
 for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
-                     (menu, "config_add_provider"),
+                     (menu, "config_subscriptions"), (menu, "config_add_provider"),
                      (menu, "config_discord"), (menu, "config_audit"), (menu, "show_features"),
                      (menu, "new_session"), (orch, "pick"),
                      (menu, "pause"), (terminal, "choose")):
@@ -294,8 +294,12 @@ class EscBack(unittest.TestCase):
             line.startswith("›") and "add a model" in line for line in lines))
         menu_.press(ENTER, title("config · add a model"))
         menu_.back("config_add", title("config · add a model"))
-        menu_.press(DOWN + ENTER, title("config · add a provider"))
-        menu_.back("config_add_provider", title("config · add a provider"))
+        menu_.press(DOWN + ENTER, title("config · subscriptions"))
+        menu_.press(DOWN * 20, lambda lines: title("config · subscriptions")(lines) and any(
+            line.startswith("›") and "add a subscription" in line for line in lines))
+        menu_.press(ENTER, title("config · add a subscription"))
+        menu_.back("config_add_provider", title("config · add a subscription"))
+        menu_.back("config_subscriptions", title("config · subscriptions"))
         menu_.press(DOWN + ENTER, title("config · discord"))
         menu_.back("config_discord", title("config · discord"))
         self.assertEqual(list(menu_.home.rglob("discord_*")), [])   # a `q` there writes nothing

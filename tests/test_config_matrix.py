@@ -220,7 +220,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("+ add a model", tail)
-        self.assertIn("+ add a provider", tail)       # each subscription is its meter, above
+        self.assertIn("Subscriptions", tail)          # each subscription is its meter, above
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
         # the highlighted model's line under the last row, then the build under the page
@@ -389,7 +389,7 @@ class Matrix(unittest.TestCase):
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)
         lines = screen.frame()
-        # past every model, `+ add a model` and `+ add a provider`
+        # past every model, `+ add a model` and `Subscriptions`
         models = lines[headings(lines) + 1:next(n for n, line in enumerate(lines)
                                                 if "+ add a model" in line)]
         down = sum(1 for line in models if line.startswith(("  ", "›"))) + 2

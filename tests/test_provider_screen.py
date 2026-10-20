@@ -1,8 +1,9 @@
-"""`+ add a provider` in `c` adds a provider the way it ships and a meter removes one: `+ add`
-offers the shipped default's providers the config has not, installs the picked one's harness when
-its program is missing, logs it in on the terminal, then adds its shipped table and its first
-catalog model; a meter's `− remove` asks with `Keep` picked and takes its models, the last
-provider stays, and a free provider, which has no meter, goes with its last model.
+"""`Subscriptions` in `c` adds a provider the way it ships and removes one: `+ add a
+subscription` offers the shipped default's providers the config has not, installs the picked
+one's harness when its program is missing, logs it in on the terminal, then adds its shipped table
+and its first catalog model; `− remove` under a subscription's row asks with `Keep` picked and
+takes its models, the last provider stays, and a free provider, which has no meter, goes with its
+last model.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  The adapters are
@@ -84,7 +85,8 @@ provider = "anthropic"
 mode = "subscription"
 """
 SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
-MATRIX, ADD = "agentkit · config", "agentkit · config · add a provider"
+MATRIX, PAGE = "agentkit · config", "agentkit · config · subscriptions"
+ADD = "agentkit · config · add a subscription"
 KEYS = {"row": "  ↑↓ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
         "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
@@ -101,26 +103,65 @@ def providers(lines):
                   for name in line.split("— no reading yet") if name.strip())
 
 
-def open_providers(screen):
-    """Down the matrix to `+ add a provider`: the screen with it highlighted."""
+def subscriptions(lines):
+    """The subscriptions `Subscriptions` lists, by name, as its rows are drawn."""
+    rows = lines[2:next(number for number, line in enumerate(lines)
+                        if line[2:] == "+ add a subscription")]
+    return [re.split(r"\s{2,}", line[2:])[0] for line in rows if line[2:3] != " "]
+
+
+def named(lines):
+    """The name on the highlighted row of `Subscriptions`."""
+    return re.split(r"\s{2,}", highlighted(lines)[2:])[0]
+
+
+def open_page(screen):
+    """Down the matrix to `Subscriptions` and into it: its page."""
     lines = screen.frame()
     for _ in range(20):
-        if "› + add a provider" in lines:       # no `›` while a meter is lit
+        if "› Subscriptions" in lines:          # no `›` while a meter is lit
             screen.case.assertEqual(lines[-1], KEYS["row"])
-            return lines
+            return screen.press(ENTER, lambda lines: title(lines) == PAGE)
         lines = screen.press(DOWN)
-    screen.case.fail(f"no `+ add a provider`: {lines}")
+    screen.case.fail(f"no `Subscriptions`: {lines}")
 
 
-def open_meter(screen, name):
-    """↑ onto `name`'s meter over the page, ↓ back if past it: the screen with it lit."""
+def open_row(screen, name):
+    """`name`'s row on `Subscriptions`, from the matrix or the page: the page with it lit."""
     lines = screen.frame()
-    for key in [UP] * 20 + [DOWN] * 10:
-        if lines[headings(lines) - 1].strip().startswith(name + "  "):
-            screen.case.assertEqual(lines[-1], KEYS["row"])
+    lines = lines if title(lines) == PAGE else open_page(screen)
+    for key in [UP] * 20 + [DOWN] * 20:
+        if named(lines) == name:
+            screen.case.assertEqual(lines[-1], KEYS["choose"])
             return lines
         lines = screen.press(key)
-    screen.case.fail(f"no meter of {name}: {lines}")
+    screen.case.fail(f"no row of {name}: {lines}")
+
+
+def open_providers(screen):
+    """`+ add a subscription` on `Subscriptions`, from the matrix or the page: the page with it
+    lit."""
+    return open_row(screen, "+ add a subscription")
+
+
+def removing(screen, where):
+    """Enter on the lit row of `Subscriptions`, then on `− remove`, last in the list under it:
+    the screen `where` accepts."""
+    lines = screen.press(ENTER, lambda lines: highlighted(lines).startswith("›   "))
+    while highlighted(lines) != "›   − remove":
+        lines = screen.press(DOWN)
+    return screen.press(ENTER, where)
+
+
+def remove_asked(screen, name):
+    """`− remove` under `name`'s row on `Subscriptions`: the screen asking."""
+    open_row(screen, name)
+    return removing(screen, lambda lines: lines[-1] == KEYS["ask"])
+
+
+def back(screen):
+    """Esc from `Subscriptions` to the matrix: its screen."""
+    return screen.press(ESC, lambda lines: title(lines) == MATRIX)
 
 
 def choices(screen, after, count):
@@ -143,12 +184,12 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=ONE)
         home = screen.path.parent.parent
         lines = open_providers(screen)
-        self.assertEqual(providers(lines), ["Claude"])
+        self.assertEqual(subscriptions(lines), ["Claude"])
         lines, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(lines[-1], KEYS["add"])
         self.assertEqual(offered[:3], ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build"])
         mark = len(screen.text())
-        lines = screen.press(DOWN * 2 + ENTER, lambda lines: title(lines) == MATRIX)
+        lines = screen.press(DOWN * 2 + ENTER, lambda lines: title(lines) == PAGE)
         # install, because grok was nowhere; then login, on the terminal given back for it
         self.assertEqual((home / "verbs.log").read_text().split("\n"),
                          ["grokbuild install", "grokbuild login", ""])
@@ -162,29 +203,35 @@ class ProviderScreen(unittest.TestCase):
         self.assertEqual(saved["models"]["grok"], {"harness": "grokbuild", "model": "grok-mystery",
                                                    "effort": "xhigh", "provider": "xai"})
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
+        self.assertEqual(sorted(subscriptions(lines)), ["Claude", "Grok"])
+        lines = back(screen)
         self.assertIn("Grok", lines)
         self.assertEqual(providers(lines), ["Claude", "Grok"])
-        self.assertTrue(highlighted(lines).startswith("› + add a provider"))
         # a program already there is logged in and never installed
+        open_providers(screen)
         pick(screen, ENTER, ADD, 6)
-        screen.press(ENTER, lambda lines: title(lines) == MATRIX and "ChatGPT" in lines)
+        screen.press(ENTER,
+                     lambda lines: title(lines) == PAGE and "ChatGPT" in subscriptions(lines))
         self.assertEqual((home / "verbs.log").read_text().split("\n")[2:], ["codex login", ""])
         saved = screen.saved()
         self.assertEqual(saved["providers"]["openai"], SHIPPED["providers"]["openai"])
         # under the name the shipped default gives it, whatever its catalog label
         self.assertEqual(saved["models"]["astra"], {"harness": "codex", "model": "gpt-7",
                                                     "effort": "xhigh", "provider": "openai"})
+        back(screen)
         screen.leave()
 
     def test_an_added_provider_s_usage_model_names_the_model_it_added(self):
         screen = Screen(self, child=CHILD, text=ONE)
         open_providers(screen)
         pick(screen, ENTER, ADD, 6)
-        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX and "Muse" in lines)
+        screen.press(DOWN + ENTER,
+                     lambda lines: title(lines) == PAGE and "Muse" in subscriptions(lines))
         saved = screen.saved()
         self.assertEqual(saved["providers"]["meta"], SHIPPED["providers"]["meta"])
         self.assertEqual(saved["models"]["spark"], {"harness": "muse", "model": "muse-spark-2",
                                                     "effort": "xhigh", "provider": "meta"})
+        back(screen)
         screen.leave()
         # that name taken: nothing installed, logged in, added or written over
         spark = ('\n[models.spark]\nharness = "claude"\nmodel = "claude-sonnet-5"\n'
@@ -196,6 +243,7 @@ class ProviderScreen(unittest.TestCase):
         screen.press(DOWN + ENTER, lambda lines: "Meta / Muse adds its model as spark, and a "
                                                  "model has that name; nothing added" in lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
+        back(screen)
         screen.leave()
         self.assertFalse((screen.path.parent.parent / "verbs.log").exists())
 
@@ -205,7 +253,8 @@ class ProviderScreen(unittest.TestCase):
         _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered, ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build",
                                    "  Google / Antigravity", "  OpenCode", "  Claude II"])
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)
+        screen.press(ESC, lambda lines: title(lines) == PAGE)
+        back(screen)
         screen.leave()
         # with every shipped provider added, OpenCode -- any provider it logs in to -- and
         # another subscription of each but MiMo, whose OpenCode keeps one login, are offered
@@ -216,31 +265,36 @@ class ProviderScreen(unittest.TestCase):
         self.assertEqual(offered, ["› OpenCode", "  Claude II", "  ChatGPT II", "  Muse II",
                                    "  Grok II", "  Gemini II"])
         self.assertNotIn("MiMo II", screen.text()[mark:])
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)
+        screen.press(ESC, lambda lines: title(lines) == PAGE)
+        back(screen)
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
         home = screen.path.parent.parent
         self.assertFalse((home / "verbs.log").exists())
 
-    def test_a_meter_is_reached_and_asks_to_remove_its_provider(self):
+    def test_a_subscription_s_row_asks_to_remove_it(self):
         screen = Screen(self, child=CHILD)
         before = screen.path.read_bytes()
-        # ↑ past the first model lights the last meter, its line under the meters
-        lines = screen.press(UP, lambda lines: lines[headings(lines) - 1].strip())
-        name = lines[headings(lines) - 1].split()[0]
-        self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
-        # `− remove` is all it offers, so it asks at once, and Enter keeps
-        asked = screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
-        self.assertEqual((title(asked), asked[3]), (f"agentkit · config · {name}",
-                                                    f"  Remove {name} and its models?"))
-        lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
+        # every subscription has its row, and `− remove` under it asks, Enter keeping
+        meters = providers(screen.frame())
+        self.assertEqual(sorted(subscriptions(open_page(screen))), meters)
+        asked = remove_asked(screen, "Grok")
+        self.assertEqual((title(asked), asked[3]), ("agentkit · config · Grok",
+                                                    "  Remove Grok and its models?"))
+        lines = screen.press(ENTER, lambda lines: title(lines) == PAGE)
         self.assertEqual(screen.path.read_bytes(), before)
-        # a click on Claude's meter, on the line it is drawn on, asks for Claude
-        row = next(number for number, line in enumerate(lines, 1) if line.startswith("  Claude "))
-        screen.press(b"\x1b[<0;4;%dM\x1b[<0;4;%dm" % (row, row),
+        # a click on Claude's row, on the line it is drawn on, opens its list, and one on
+        # `− remove` asks for Claude
+        def click(text):
+            row = next(number for number, line in enumerate(lines, 1) if line[2:] == text)
+            return b"\x1b[<0;6;%dM\x1b[<0;6;%dm" % (row, row)
+        lines = screen.press(click("Claude"), lambda lines: "    − remove" in lines)
+        screen.press(click("  − remove"),
                      lambda lines: "  Remove Claude and its models?" in lines)
-        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
+        self.assertNotIn("Claude", subscriptions(lines))
         self.assertNotIn("anthropic", screen.saved()["providers"])
+        back(screen)
         screen.leave()
 
     def test_two_providers_of_one_name_are_told_apart(self):
@@ -248,11 +302,14 @@ class ProviderScreen(unittest.TestCase):
                  'effort = "high"\nprovider = "claude"\n\n[providers.claude]\nmode = "payg"\n')
         screen = Screen(self, child=CHILD, text=ONE + house)
         self.assertEqual(providers(screen.frame()), ["Claude", "Claude"])
-        screen.press(UP + ENTER, lambda lines: "  Remove Claude and its models?" in lines)
-        screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+        self.assertEqual(subscriptions(open_page(screen)), ["Claude", "Claude"])
+        screen.press(DOWN)                  # the second, as its meter is the second
+        removing(screen, lambda lines: "  Remove Claude and its models?" in lines)
+        screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
         saved = screen.saved()
         self.assertEqual(list(saved["providers"]), ["anthropic"])
         self.assertEqual(list(saved["models"]), ["opus"])
+        back(screen)
         screen.leave()
 
     def test_the_menu_s_probe_goes_on_with_the_providers_the_screen_left(self):
@@ -282,9 +339,9 @@ class ProviderScreen(unittest.TestCase):
 
     def test_a_removed_provider_takes_its_models_and_its_usage_row(self):
         screen = Screen(self, child=CHILD)
-        open_meter(screen, "Claude")
-        screen.press(ENTER, lambda lines: "  Remove Claude and its models?" in lines)
-        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
+        remove_asked(screen, "Claude")
+        screen.press(DOWN + ENTER, lambda lines: title(lines) == PAGE)
+        lines = back(screen)
         self.assertNotIn("Claude", lines)
         for name in ("fable", "opus", "haiku"):
             self.assertFalse(any(line[2:].startswith(f"{name} ") for line in lines), name)
@@ -333,11 +390,12 @@ class ProviderScreen(unittest.TestCase):
 
     def test_the_last_provider_stays(self):
         screen = Screen(self, child=CHILD, text=ONE)
-        open_meter(screen, "Claude")
+        open_row(screen, "Claude")
         before, mark = screen.path.read_bytes(), len(screen.text())
-        screen.press(ENTER, lambda lines: "the config needs one provider" in lines[-3])
+        removing(screen, lambda lines: "the config needs one provider" in lines[-3])
         self.assertNotIn("and its models?", screen.text()[mark:])      # nothing asked
         self.assertEqual(screen.path.read_bytes(), before)
+        back(screen)
         screen.leave()
         self.assertEqual(list(screen.saved()["providers"]), ["anthropic"])
 
@@ -345,16 +403,18 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, rows=24, cols=40)
         lines = screen.frame()
         self.assertEqual(providers(lines), ["ChatGPT", "Claude", "Gemini", "Grok", "MiMo", "Muse"])
-        for line in lines + open_providers(screen):      # the meters scroll off above the row
+        for line in lines + open_providers(screen):
             self.assertLessEqual(terminal.cells(line), 40, line)
+        back(screen)
         screen.leave()
         screen = Screen(self, child=CHILD, text=ONE, rows=24, cols=40)
         open_providers(screen)
-        lines, offered = pick(screen, ENTER, ADD, 6)
+        lines, offered = pick(screen, ENTER, "agentkit · config · add a subscri…", 6)   # cut
         for line in lines + offered:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(offered[-2], "  OpenCode")
-        screen.press(ESC, lambda lines: title(lines) == MATRIX)
+        screen.press(ESC, lambda lines: title(lines) == PAGE)
+        back(screen)
         screen.leave()
 
 

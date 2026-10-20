@@ -289,14 +289,16 @@ coming up as the highlight comes to it: one place for every model, outside the r
 none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
 so no row moves from under the pointer or the keys. `r recommended` opens the models screen
 (The models screen).
-Under the models `+ add a model`, `+ add a provider` (a list opening in the
-frame) and `Discord` (connected or not); under the page, dim and on every page,
-`Version` with the commit and its date, which the highlight never stops on. Each meter over
-the page is a row ↑ past the first model reaches, and the pointer too, lit as on
-the main screen with its line under the meters; Enter or a click lists what it
-offers, `↻ spend a reset` while it holds one and `− remove`, the highlight on
-`− remove`, which asks at once where it is all there is. A free provider has no
-meter: it goes with its last model. A reset spent, the
+Under the models `+ add a model`, `Subscriptions` and `Discord` (connected or not); under
+the page, dim and on every page, `Version` with the commit and its date, which the highlight
+never stops on. `Subscriptions` opens a page of rows (`menu.config_subscriptions`): each
+subscription, saying when its login ends where it soon does and the resets it holds, Enter
+opening under it `↻ log in again`, `↻ spend a reset` while it holds one and `− remove`; then
+`+ add a subscription` (a list opening in the frame). Each meter over the page is a row ↑ past
+the first model reaches, and the pointer too, lit as on the main screen with its line under
+the meters; Enter or a click on it, here and on the ak screen alike, lists `↻ log in again`
+and `↻ spend a reset` while it holds one, the highlight on the first, and never `− remove`
+(`menu.meter_acts`). A free provider has no meter: it goes with its last model. A reset spent, the
 line under the rows says that subscription's week as its usage row reads it:
 `Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`. Enter
 or a click on `+ add a model` opens `config · add a model`: `harness`, then
@@ -520,8 +522,9 @@ background a light grey is drawn as its mirror tone, so ChatGPT's white reads
 black -- and the blank line under the grid says the rest, joined with ` · ` and
 each only when it applies: that login, in amber, `login owner@acme.test ends Mon 26 Oct
 04:47 (in 2 days)` or `ended <when>` (`menu.login_notes`), which a short line keeps before
-the name, and `click to log in again`: a click there hands the terminal to its harness's
-`login again`, and the screen is back as soon as that ends, its meter grey once the login
+the name, and `click to log in again`: a click there lists what its meter offers
+(`menu.meter_acts`), and `↻ log in again` hands the terminal to its harness's
+`login again`, the screen back as soon as that ends, its meter grey once the login
 it made stands (`logins.renewed`), or once what a failed one said has been read
 (`menu.sign_in`); the tick asks an amber login again every time it runs, so one made
 elsewhere turns its meter grey at the next tick; `resets <weekday> <HH:MM>` in local
