@@ -60,8 +60,10 @@ class Seats(unittest.TestCase):
 
     def tmux(self, *args, **_kw):
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
-        if args[0] == "display-message" and args[-1].startswith(("#{pane_tty}", "#{pane_id}")):
+        if args[0] == "display-message" and args[-1].startswith("#{pane_tty}"):
             return 1, "no tty in this screen fixture"
+        if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
+            return 0, ""        # a seat launched without ak's editor
         self.assertEqual(args[0], "send-keys")
         if "-l" in args:
             self.typed.append(args[-1])

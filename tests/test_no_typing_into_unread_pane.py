@@ -42,7 +42,7 @@ class UnreadPane(Seats):
     def tmux(self, *args, **kwargs):
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
         if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
-            return 1, "a seat launched without ak's editor"
+            return 0, ""      # a seat launched without ak's editor
         if args[0] == "display-message":
             self.assertEqual(args, ("display-message", "-p", "-t",
                                     f"={self.seat['name']}:",

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from fixtures.editor_seat import PANE, EditorSeat
 from fixtures.seats import LINE, NOW, REPO
-from agentkit import aside_editor, watch
+from agentkit import aside_editor, orch, watch
 
 DRAFT = "and add these posts"
 DOCS = "The docs finished."
@@ -65,6 +65,10 @@ class LinePastOwnersText(EditorSeat):
         self.untouched(watch.DRAFT_STILL - 10)
         self.assertFalse(self.typed_line())
         self.untouched(watch.DRAFT_STILL)
+        # nor where tmux cannot say which pane is the seat's
+        with patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (
+                (1, "no server") if args[-1].startswith("#{pane_id}") else self.tmux(*args, **kw))):
+            self.assertFalse(self.typed_line())
         self.assertTrue(self.typed_line())
         self.assertEqual((self.typed, self.sent, self.composer), ([], [LINE, DOCS], DRAFT))
 
@@ -75,6 +79,27 @@ class LinePastOwnersText(EditorSeat):
         self.assertEqual((self.sent, self.composer, self.told()), ([], DRAFT, False))
         self.tick()
         self.assertEqual((self.sent, self.composer, self.told()), ([LINE], DRAFT, True))
+
+    def test_a_line_its_enter_and_way_back_left_in_the_composer_keeps_its_mark(self):
+        press, marks = self.press, []
+
+        def lost(key):
+            if key == "Enter":
+                self.keys.append(key)
+                self.deaf = True
+            else:
+                press(key)
+
+        with patch.object(self, "press", side_effect=lost):
+            self.assertFalse(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg,
+                                                  receipt=marks.append))
+        # its mark's pass sends it, never another line past it, and the text comes back after
+        self.deaf = False
+        for _ in range(2):
+            watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg, typed=marks[-1])
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.assertEqual((marks, self.sent, self.composer),
+                         ([{"line": DOCS, "seat": self.seat["created"]}], [DOCS], DRAFT))
 
     def test_text_whose_way_back_went_unanswered_comes_back_on_a_later_tick(self):
         self.wait_line()
@@ -111,9 +136,9 @@ class LinePastOwnersText(EditorSeat):
             self.assertFalse(self.typed_line())
         self.assertEqual((self.keys, self.composer), ([], DRAFT))
 
-    def test_text_the_line_ends_with_or_its_paste_fold_is_set_aside_never_sent(self):
+    def test_text_the_line_is_ends_with_or_its_paste_fold_is_set_aside_never_sent(self):
         long = "run acme finished FAIL: " + "a finding in detail " * 50
-        for own, line, row in (("Decide the next\n  step.", LINE, None),
+        for own, line, row in ((LINE, LINE, None), ("Decide the next\n  step.", LINE, None),
                                ("Private notes. " * 60, long, "❯ [Pasted text #1]\n")):
             with self.subTest(own=own[:15]):
                 self.show(own)

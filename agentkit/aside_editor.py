@@ -153,7 +153,8 @@ def edit(argv):
         ours = bool(line) and _holds(text, line)
         if mode == b"line":
             word = b"line"
-            if not ours:            # a composer holding the line got it from an edit before
+            # a composer holding the line while text is set aside got it from an edit before
+            if not (ours and state == ASIDE):
                 # one holding just the text set aside got it from a `back` tmux refused to mark:
                 # the text kept once, as the composer holds it
                 keep = (ASIDE.encode() + (held + b"\n" + text

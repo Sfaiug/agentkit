@@ -3588,16 +3588,21 @@ DRAFT_STILL = 120       # text left in a composer untouched this long goes aside
 
 def seat_editor(session, cfg=None):
     """{"id", "tty", "keys"} of that seat's pane, whose editor `_edit` asks a step: a seat its
-    launch gave ak's, of a harness naming the keys that open it (`[screen] editor`), or None."""
+    launch gave ak's, of a harness naming the keys that open it (`[screen] editor`); None for any
+    other, or False where tmux cannot say which."""
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         keys = screen(harness)["editor"] if harness else ()
     except (config.Error, OSError):
         return None
-    rc, out = (orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
-                             "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
-                             socket=orch.seat_socket(session)) if keys else (1, ""))
-    pane, pid, tty = (out.split("\t") + ["", ""])[:3] if rc == 0 else ("", "", "")
+    if not keys:
+        return None
+    rc, out = orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
+                            "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
+                            socket=orch.seat_socket(session))
+    if rc != 0:
+        return False
+    pane, pid, tty = (out.split("\t") + ["", ""])[:3]
     return ({"id": pane, "tty": tty, "keys": keys}
             if pane.startswith("%") and aside_editor.launched(pid, tty) else None)
 
@@ -3673,12 +3678,14 @@ def _past_text(session, where, cfg=None):
     return draft != "" or _aside(session, where) != ""
 
 
-def _line_through(session, where, held, text, log, cfg=None, *, source="ak"):
+def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source="ak"):
     """Under the seat's send lock: the line in through ak's editor, which keeps what else the
     composer holds, its Enter, and the kept text handed back over what that Enter left -- the
     line delivered on the editor's word that the composer was empty after its Enter, or where
-    it gives none, on the screen's: the line drawn there, then gone."""
-    if not _send_line(session, text, log, source=source,
+    it gives none, on the screen's: the line drawn there, then gone.  `receipt` holds the mark
+    while the line can still be in the composer, as `type_at_prompt`'s keys do."""
+    text = mark["line"]
+    if not _send_line(session, text, log, lambda: receipt(mark), source=source,
                       put=lambda: _edit(session, where, "line", text) == "line"):
         return False
     gone = False
@@ -3686,6 +3693,8 @@ def _line_through(session, where, held, text, log, cfg=None, *, source="ak"):
         _send_enter(session, log)
         gone = _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
     word = _edit(session, where, "back", text)
+    if word == "unsent":
+        receipt(None)           # the kept text came back over the line: none of it is left
     return word == "sent" or word is None and gone
 
 
@@ -3736,7 +3745,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     while its Enter was confirmed no longer reads whole there, and is still theirs to send.
     Text left standing in the composer of a seat launched with ak's editor holds none of it
     back either: the line goes in through that editor (`_past_text`, `_line_through`), and no
-    line goes in as keys while that editor keeps text of the seat's.  A question the seat
+    line goes in as keys while that editor keeps text of the seat's, nor any where tmux cannot
+    say whether the seat is one launched with it (`seat_editor`).  A question the seat
     asked with `ak notify needs` holds none of this back: the seat works on what does not wait
     on the answer, which only the owner's own prompt gives (`notify.progress`).
     """
@@ -3753,12 +3763,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
                 _send_enter(session, log)
         return False            # the next pass reads whether that Enter sent it
     where = seat_editor(session, cfg)
+    if where is False:
+        return False            # no telling whether ak's editor keeps text of the seat's
     if where and _past_text(session, where, cfg):
         with seat_held(session["name"]) as held:
             if stale(held) or not _past_text(session, where, cfg):
                 return False
             kept_asked_first(dict(session, name=held))
-            return _line_through(dict(session, name=held), where, held, text, log, cfg,
+            return _line_through(dict(session, name=held), where, held, mark, log, receipt, cfg,
                                  source=source)
     if not takes_line(session, cfg=cfg):
         return False

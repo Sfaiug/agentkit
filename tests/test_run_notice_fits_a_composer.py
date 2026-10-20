@@ -44,7 +44,7 @@ class RunNotice(Sandbox):
 
     def tmux(self, *args, **_kw):
         if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
-            return 1, "a seat launched without ak's editor"
+            return 0, ""      # a seat launched without ak's editor
         self.assertEqual(args[0], "send-keys")
         self.keys.append(args[-1])
         if "-l" in args:
