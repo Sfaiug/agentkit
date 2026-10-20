@@ -23,7 +23,8 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, notify
-from agentkit.harness.codex import main, pairing_home, remote_home, seat_conversations
+from agentkit.harness.codex import (first_prompt, main, pairing_home, remote_home,
+                                    seat_conversations)
 
 
 CONVERSATIONS = ("sessions", "archived_sessions")
@@ -298,7 +299,8 @@ def serve(cmd, receipt, parent):
 def connected(cmd, home, alive):
     env = {**os.environ, "CODEX_HOME": str(home)}
     env.pop("CODEX_SQLITE_HOME", None)
-    cmd = [*cmd, "-c", "sqlite_home=" + json.dumps(str(home))]
+    cmd, prompt = first_prompt(cmd)
+    cmd += ["-c", "sqlite_home=" + json.dumps(str(home))]
     runtime = tempfile.TemporaryDirectory(prefix=".cx-")
     path = Path(runtime.name) / "s"
     server = [cmd[0], "app-server", "--remote-control", "--listen", "unix://" + str(path)]
@@ -337,7 +339,8 @@ def connected(cmd, home, alive):
             # holds the seat's permissions; since 0.160 a remote resume whose TUI asks for
             # its own is refused.
             tui = subprocess.Popen([cmd[0], "--remote", "unix://" + str(path),
-                                    *(word for word in cmd[1:] if word != "--yolo")], env=env)
+                                    *(word for word in cmd[1:] if word != "--yolo"), *prompt],
+                                   env=env)
             with (home / "connection.json").open("w") as fh:
                 json.dump({"socket": str(path)}, fh)
             check_at = 0

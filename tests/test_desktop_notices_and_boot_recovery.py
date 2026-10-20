@@ -335,7 +335,7 @@ class DesktopAndBoot(Sandbox):
         self.boot_fixture()
         with patch.object(config, "server_alias", return_value=None), \
                 patch("agentkit.macbridge.start_background"), patch.object(menu, "loop", return_value=0), \
-                patch.object(menu, "show_notices") as notices:
+                patch.object(menu.os, "_exit"), patch.object(menu, "show_notices") as notices:
             menu.main(["--overlay"])
             self.assertEqual(notices.call_args.args[0],
                              ["resumed claude after reboot", "resumed codex after reboot"])

@@ -2395,8 +2395,10 @@ PYRUNSCOPE
     SCOPERC=$?
     if [ "$SCOPERC" = 0 ] && python3 "$REPO/tests/test_memory_cap.py" \
         MemoryCap.check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure \
+        >>"$WORK/run-scope.log" 2>&1 && python3 "$REPO/tests/test_job_cap.py" \
+        JobCap.check_a_runaway_dies_alone_and_its_seat_and_the_next_seat_go_on \
         >>"$WORK/run-scope.log" 2>&1; then
-      ok "6g a detached run loop is under its agentkit-run scope and its memory cap holds"
+      ok "6g a detached run loop is under its agentkit-run scope and its memory cap holds; a seat's runaway dies alone"
     else
       no "6g detached run scope"; sed 's/^/      /' "$WORK/run-scope.log"
     fi ;;

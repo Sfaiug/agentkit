@@ -89,16 +89,20 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 # the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
 # pane's own tmux lock, so two popups over one pane never count, keep or put back over each
 # other, and every lock is let go by a command of its own, which a command failing before it
-# cannot skip.  It ends in `true` whatever failed (a pane stopped under it), because tmux shows
-# a job that ends otherwise over the pane.
-FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
+# cannot skip.  The pane goes dim beside the popup coming up, not before it, and the popup
+# down waits for it to have; every call is the real tmux (`guard.real`), since the shim a
+# seat's PATH starts with costs each a Python start, and the key waited on all of them.  It
+# ends in `true` whatever failed (a pane stopped under it), because tmux shows a job that ends
+# otherwise over the pane.
+FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
+         'o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
-         'l() { tmux wait-for "$1" "ak-float$p"; }; l -L; n=$(o @ak_floats); '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); '
          'for s in window-style window-active-style; do '
          'if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; '
          'tmux set-option -p -t "$p" $s %(dim)s; done; '
-         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; '
-         'tmux %(popup)s -c "$c" -t "$p" %(command)s; l -L; n=$(o @ak_floats); '
+         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; '
+         'tmux %(popup)s -c "$c" -t "$p" %(command)s; wait $d; l -L; n=$(o @ak_floats); '
          'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
          'else for s in window-style window-active-style; do '
          'if h @ak_was_$s; then tmux set-option -p -t "$p" $s "$(o @ak_was_$s)" \\; '
@@ -1901,8 +1905,11 @@ def tmux_text(text):
 
 
 def popup_command():
-    """What `Ctrl-b m` runs: this checkout's `ak`, on the interpreter it is installed against."""
-    return shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "attach", "--overlay"])
+    """What `Ctrl-b m` runs: this checkout's `ak attach --overlay`, on the interpreter it is
+    installed against, from the warm server (`warm`), started bare: the client imports only
+    what the interpreter is built with."""
+    return shlex.join([sys.executable, "-S", "-I", str(config.REPO / "agentkit" / "warm.py"),
+                       "attach", "--overlay"])
 
 
 def tmux_version():
@@ -1932,6 +1939,9 @@ def tmux_conf():
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs.
+    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
+    wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
+    one attached before this file was loaded gets the rows apart until it attaches again.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -1956,8 +1966,8 @@ def tmux_conf():
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
-                FLOAT % {"dim": shlex.quote(DIM), "popup": popup,
-                         "command": shlex.quote(popup_command())}))
+                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
+                         "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border}",
                           f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
@@ -1967,7 +1977,7 @@ def tmux_conf():
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             "set -g allow-passthrough on\n"
-            'set -as terminal-features ",*:RGB"\n'
+            'set -as terminal-features ",*:RGB:hyperlinks"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
     try:

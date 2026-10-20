@@ -93,6 +93,13 @@ def update_first(*args, **kwargs):
     return proc
 
 menu.draw, menu.update_first = draw, update_first
+real_exit = os._exit
+
+def leave(code):         # past Python's own teardown, as the overlay ends
+    print("<os._exit>\n<exit>", flush=True)
+    real_exit(code)
+
+os._exit = leave
 print(f"<start {BUILD}>", flush=True)
 print("<begin>", flush=True)
 code = menu.main(sys.argv[1:])
@@ -398,6 +405,8 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
                 screen = self.opened(flag)
                 screen.leave()
                 self.assertEqual(self.updaters(), [])
+                # the popup is down as its menu ends, not after Python's teardown
+                self.assertEqual("<os._exit>" in screen.text(), flag == "--overlay")
         self.assertEqual(self.installs(), 0)
 
     def test_a_client_connects_at_once_and_its_next_ak_opens_on_the_new_code(self):

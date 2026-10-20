@@ -40,6 +40,8 @@ latest = ["curl", "-fsSL", "https://opencode.ai/update/api/latest/cli/npm"]
 # (agentkit/harness/opencode.py) is the seat's alone the same way.
 [launch]
 seat_env = ["OPENCODE_CONFIG_CONTENT", "AGENTKIT_OPENCODE_RECEIPT"]
+# `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
+first_prompt = true
 
 # MiMo's plan meter is the console page's own API, replayed as the page's own fetch
 # through a shared-browser tab (GET tokenPlan/usage and tokenPlan/detail): the login

@@ -1,12 +1,14 @@
 """ak's colours fit the terminal they are on, and a usage bar's colour says what is left; offline.
 
-A pty stands in for the terminal: `sense` asks it for its background and the test has answered,
-or has not.  tmux is a faked `subprocess.run`; nothing real is asked.
+A pty stands in for the terminal: `sense` asks it for its background and its attributes and the
+test has answered, or has not, on a clock that stands still while `sense` waits, so only the wait
+running out ends it.  tmux is a faked `subprocess.run`; nothing real is asked.
 """
 
 import json
 import os
 import pty
+import select
 import subprocess
 import sys
 import time
@@ -17,8 +19,26 @@ import unittest
 from fixtures.sandbox import Sandbox
 from agentkit import config, guard, menu, terminal
 
-QUERY = b"\033]11;?\033\\"
+QUERY = b"\033]11;?\033\\\033[c"
 WHITE = b"\033]11;rgb:ffff/ffff/ffff\033\\"
+ATTRIBUTES = b"\033[?62;22c"   # DA1's answer, which a terminal sends after any answer before it
+
+
+class Still:
+    """`time` as `terminal` sees it, standing still: `sense`'s wait ends only by running out."""
+
+    def monotonic(self):
+        return 0.0
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+class Waits:
+    """`select` as `terminal` sees it, each wait going through `select`."""
+
+    def __init__(self, select):
+        self.select = select
 
 
 class Palette(unittest.TestCase):
@@ -40,14 +60,21 @@ class Palette(unittest.TestCase):
         self.addCleanup(environ.stop)
 
     def sense(self, *sent):
-        """`terminal.sense` on a terminal that has sent `sent` already; how long it took."""
+        """`terminal.sense` on a terminal that has sent `sent` already; whether its wait ran out."""
         for part in sent:
             os.write(self.master, part)
-        began = time.monotonic()
-        terminal.sense()
-        took = time.monotonic() - began
+        ready = []
+
+        def waited(*args):
+            found = select.select(*args)
+            ready.append(found[0])
+            return found
+
+        with patch.object(terminal, "select", Waits(waited)), \
+                patch.object(terminal, "time", Still()):
+            terminal.sense()
         self.assertEqual(os.read(self.master, 64), QUERY)   # what it asked the terminal
-        return took
+        return not all(ready)
 
     def test_tmux_reporting_rgb_gives_true_colour_with_colorterm_unset(self):
         with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1,0"}), \
@@ -74,7 +101,7 @@ class Palette(unittest.TestCase):
         self.assertFalse(terminal._RGB)
 
     def test_a_white_answer_picks_the_light_palette_and_none_in_time_the_dark(self):
-        self.assertLess(self.sense(WHITE), 0.1)
+        self.assertFalse(self.sense(WHITE, ATTRIBUTES))
         self.assertTrue(terminal._LIGHT)
         with patch.object(terminal, "colour_depth", return_value=24):
             for kind, rgb in (("accent", "30;102;245"), ("working", "30;102;245"),
@@ -83,30 +110,39 @@ class Palette(unittest.TestCase):
                 self.assertIn(f"38;2;{rgb}m", terminal.styled("x", kind), kind)
             self.assertIn("38;2;30;102;245m", terminal.highlight(" row"))
         # a dark answer, BEL-ended, and no answer at all within a tenth of a second: dark
-        self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007")
+        self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007", ATTRIBUTES)
         self.assertFalse(terminal._LIGHT)
         terminal._LIGHT = True
-        self.assertGreaterEqual(self.sense(), 0.1)
+        self.assertTrue(self.sense())
         self.assertFalse(terminal._LIGHT)
         with patch.object(terminal, "colour_depth", return_value=24):
             self.assertIn("38;2;137;180;250m", terminal.styled("x", "accent"))
 
-    def test_the_answer_never_reaches_read_key_as_keys(self):
-        # a key typed while the answer was awaited is kept for read_key, the answer is not
-        self.sense(b"j", WHITE)
-        self.assertTrue(terminal._LIGHT)
-        self.assertEqual(terminal.read_key(0.2), terminal.Key("char", "j"))
+    def test_attributes_alone_end_the_wait_at_once_and_read_as_dark(self):
+        # tmux, in a popup: no answer to OSC 11, its own to DA1 at once
+        terminal._LIGHT = True
+        self.assertFalse(self.sense(b"\033[?1;2;4c"))
+        self.assertFalse(terminal._LIGHT)
         self.assertIsNone(terminal.read_key(0.2))
-        # an answer come after its tenth of a second is swallowed whole by read_key
+
+    def test_the_answer_never_reaches_read_key_as_keys(self):
+        # a key typed while the answers were awaited is kept for read_key, the answers are not,
+        # and one typed after them is the keyboard's own
+        self.sense(b"j", WHITE, b"k", ATTRIBUTES, b"l")
+        self.assertTrue(terminal._LIGHT)
+        for char in "jkl":
+            self.assertEqual(terminal.read_key(0.2), terminal.Key("char", char))
+        self.assertIsNone(terminal.read_key(0.2))
+        # answers come after their tenth of a second are swallowed whole by read_key
         self.sense()
         self.assertFalse(terminal._LIGHT)
-        os.write(self.master, WHITE + b"k")
+        os.write(self.master, WHITE + ATTRIBUTES + b"k")
         self.assertEqual(terminal.read_key(0.5), terminal.Key("char", "k"))
         os.write(self.master, b"\033]11;rgb:ffff/ffff/ffff\007")
         self.assertIsNone(terminal.read_key(0.2))
         # and one cut short by the tenth of a second is swallowed from where it was cut
         self.sense(WHITE[:9])
-        os.write(self.master, WHITE[9:] + b"q")
+        os.write(self.master, WHITE[9:] + ATTRIBUTES + b"q")
         self.assertEqual(terminal.read_key(0.5), terminal.Key("char", "q"))
         self.assertIsNone(terminal.read_key(0.2))
 
