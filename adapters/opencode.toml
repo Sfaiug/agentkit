@@ -99,9 +99,9 @@ enforce = "nudge"
 # chrome too; the asking rule below matches first, so it never reads as a prompt.
 composer = '[┃╹].*'
 # A dialog it draws over the transcript, centred wherever that leaves it -- its models,
-# commands, sessions, themes -- ends its title row on `esc`: what is typed goes into its search
-# and Enter picks a row (2.0.32)
-modal = '\S {5,}esc(?: {2,}|$)'
+# commands, sessions, themes -- on a background of its own, its title row padded by four and
+# ending on `esc`: what is typed goes into its search and Enter picks a row (2.0.32)
+modal = ' {4}\S.*\S {5,}esc {4}'
 # and the key hints under it: the working, resting and fresh footers all end on this --
 # and the release stamp alone on the fresh prompt's last line, `2.0.13` bottom-right --
 # and the finished-turn footer under a turn's last line: `<agent> · <model> · <duration>`,

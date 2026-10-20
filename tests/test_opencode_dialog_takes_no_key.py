@@ -52,6 +52,38 @@ class DialogOverTheTranscript(unittest.TestCase):
         self.assertEqual(self.read("working")[:2], ("working", "working.interrupt"))
         self.assertEqual(self.read("dialog")[:2], ("asking", "asking.permission"))
 
+    def test_text_like_its_title_in_the_transcript_is_none(self):
+        # a reply drawn on the screen's own background, however it is spaced
+        pane = (FIX / "opencode-prompt-pane.txt").read_text(encoding="utf-8")
+        for said in ("Close dialog          esc", "    Select model                     esc    "):
+            with self.subTest(said=said):
+                self.assertIsNone(watch.modal_row("opencode", f"{said}\n{pane}"))
+
+    def keys(self, name, send):
+        """The keys `send` puts into a seat showing that capture, and what it returned."""
+        pane = (FIX / f"opencode-{name}-pane.txt").read_text(encoding="utf-8")
+        sent = []
+
+        def tmux(*args, **_kw):
+            if args[0] != "capture-pane":
+                sent.append(args)
+            return 0, pane if args[0] == "capture-pane" else ""
+        with patch.object(watch.orch, "tmux_out", tmux), \
+                patch.object(watch, "pane_unread", return_value=False):
+            done = send()
+        return [args for args in sent if args[0] == "send-keys"], done
+
+    def test_no_key_goes_into_one(self):
+        # every sender's line and Enter, the merge question's, a parked run's notice and the
+        # Enter a receipt owes alike, go through these two
+        line = "and add these posts"
+        mark = {"line": line, "seat": SEAT["created"]}
+        for send in (lambda: watch._send_line(SEAT, line, print),
+                     lambda: watch._send_enter(SEAT, print),
+                     lambda: watch.type_at_prompt(SEAT, line, print, cfg=self.cfg, typed=mark)):
+            self.assertEqual(self.keys("command-dialog", send)[0], [])
+        self.assertTrue(self.keys("prompt", lambda: watch._send_enter(SEAT, print))[0])
+
 
 if __name__ == "__main__":
     unittest.main()

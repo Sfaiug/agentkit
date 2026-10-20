@@ -1294,16 +1294,47 @@ def _boxed(pane):
             if found is None:
                 break
             at = found.end()
-            sgr = SGR_SEQ.fullmatch(found.group())
-            for code in _sgr_codes(sgr.group(1)) if sgr else ():
-                if isinstance(code, str):
-                    back = code if code.startswith("48;") else back
-                elif code in (0, 49):
-                    back = None
-                elif 40 <= code <= 47 or 100 <= code <= 107:
-                    back = code
+            back = _back_after(back, found.group())
         rows.append(raw[:cut])
     return "\n".join(rows)
+
+
+def _back_after(back, escape):
+    """The background cells are drawn on after that escape, `back` before it."""
+    sgr = SGR_SEQ.fullmatch(escape)
+    for code in _sgr_codes(sgr.group(1)) if sgr else ():
+        if isinstance(code, str):
+            back = code if code.startswith("48;") else back
+        elif code in (0, 49):
+            back = None
+        elif 40 <= code <= 47 or 100 <= code <= 107:
+            back = code
+    return back
+
+
+def modal_row(harness, pane):
+    """The row of a dialog its harness draws over its transcript (`[screen] modal`) on that `-e`
+    capture, or None.  The dialog is drawn on a background of its own, wherever centring leaves
+    it, so only a run of text on a background other than its row's first one is read, each run
+    whole: what a reply or the composer says in the screen's own background never is."""
+    modal, back = screen(harness)["modal"], None
+    for raw in pane.splitlines() if modal else ():
+        runs, at = [], 0        # [background, text] of each run, in order
+        for found in [*SGR_ALL.finditer(raw), None]:
+            text = raw[at:found.start() if found else len(raw)]
+            if text and runs and runs[-1][0] == back:
+                runs[-1][1] += text
+            elif text:
+                runs.append([back, text])
+            if found is None:
+                break
+            at = found.end()
+            back = _back_after(back, found.group())
+        shown = next((text.strip() for on, text in runs[1:]
+                      if on != runs[0][0] and modal.fullmatch(text)), None)
+        if shown:
+            return shown
+    return None
 
 
 def in_colour(text):
@@ -2057,9 +2088,7 @@ def observed(name, harness, pane, previous, at):
                      interrupted=ended)
     # a dialog the owner opened over the transcript, above the rows `classify` reads, is their
     # own hand at the composer, as a draft is: a key typed there goes into the dialog
-    modal = screen(harness)["modal"] if found["state"] in ("at_prompt", "draft") else None
-    shown = modal and next((row.strip() for row in strip_sgr(pane).splitlines()
-                            if modal.search(row.rstrip())), None)
+    shown = found["state"] in ("at_prompt", "draft") and modal_row(harness, pane)
     if shown:
         found = dict(found, state="draft", authority="screen", rule="modal", evidence=shown[:160])
     # read off this same capture, so a turn since answers it as soon as the screen does; a
@@ -3162,9 +3191,22 @@ def pane_unread(session):
     return False
 
 
+def _under_dialog(session):
+    """Is a dialog its harness draws over its transcript open on that seat's pane: a key ak
+    sends now goes into its search, and Enter picks one of its rows."""
+    try:
+        harness = orch.seat_plugin(config.session_records().get(session["name"], {})).name
+        return bool(screen(harness)["modal"] and modal_row(harness, pane_text(session)))
+    except (config.Error, OSError):
+        return False
+
+
 def _send_enter(session, log):
-    """One Enter completing a line already begun; False where the send failed."""
+    """One Enter completing a line already begun; False where the send failed or a dialog over
+    the transcript would take it."""
     name = session["name"]
+    if _under_dialog(session):
+        return False
     rc, out = orch.tmux_out("send-keys", "-t", _pane(session), "Enter",
                             socket=orch.seat_socket(session))
     if rc != 0:
@@ -3178,9 +3220,10 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak"):
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
-    None means unread input deferred this line before any receipt or key was written.
+    None means unread input, or a dialog over the transcript, deferred this line before any
+    receipt or key was written.
     """
-    if pane_unread(session):
+    if pane_unread(session) or _under_dialog(session):
         return None
     name = session["name"]
     record = config.session_records().get(name, {})
