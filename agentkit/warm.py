@@ -1,28 +1,38 @@
-"""`Ctrl-b m`'s menu, warm: started by a process that was up before the key.
+"""`Ctrl-b m`'s menu, warm: its first frame drawn by a process that was up before the key.
 
-A cold `ak attach --overlay` spends a good part of a second on a busy host starting Python and
-importing the menu.  `serve` is up with that done, one per HOME and checkout.  The popup's
-`client`, Python without its site or agentkit, hands it the popup's terminal, directory,
-environment and words over a socket in STATE; the server forks a menu onto that terminal under
-a fork that waits for it and hands the client its code.  The menu is in no session of the
-terminal's, so the client forwards the terminal's signals, a resize, a hang-up, a Ctrl-C, to the
-menu's process group: what the menu runs, a login, hears them as it would cold.
+A cold `ak attach --overlay` starts Python, imports the menu and reads every seat, run and plan
+before it draws: a second or more on a busy host.  `serve` is up with the imports done, one per
+HOME and checkout, and beside it a reader keeps the last read of the seats (`menu.rows`), read
+again when what a read reads changes (`menu.Live.recorded`), its reads spending at most DUTY of
+one core.  The popup's `client`, Python without its site or agentkit, hands the server the
+popup's terminal, directory, environment and words over a socket in STATE; the server forks a
+menu onto that terminal under a fork that waits for it and hands the client its code.  The menu
+draws the last read at once and reads again behind it, as a menu back from a seat does
+(`menu.Live.back`), where the popup's environment is the reader's in what a seat's is made of
+(`orch.seat_env`).  The menu is in no session of the terminal's, so the client forwards the
+terminal's signals, a resize, a hang-up, a Ctrl-C, to the menu's process group: what the menu
+runs, a login, hears them as it would cold.
 
 Anything amiss goes cold: with no server, or one silent for WAIT, the client runs `bin/ak` as
 the popup always did, and starts a server where an install is stamped -- only there can one
 tell its code is old (`update.outdated`).  A server leaves once the install is newer than its
 code, starting the next, or once its socket is not its own or its checkout is gone: an update
 never serves old code, and a dead server costs one slow open, never a broken one.  It stays one
-thread, so each fork is a whole copy of it.  This file is the client too, run as a script, so
+thread, so each fork is a whole copy of it: the reads, whose feature switches run in threads of
+their own, are the reader's, a process apart.  This file is the client too, run as a script, so
 nothing above `serve` imports agentkit.
 """
 
 import os
 import sys
+import time
 
 WAIT = 1.0      # how long a client waits on the server before it goes cold
+DUTY = 0.05     # the reader's share of one core at most: a read's CPU / DUTY before the next
+NICE = 10       # ... and it gives way to the rest of the host meanwhile
 # What the terminal signals the process in its session, the client, and the menu has to hear.
 FORWARDED = ("SIGWINCH", "SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT", "SIGTSTP", "SIGCONT")
+_PRIMED = None  # in a forked menu: the reader's last read, for its first frame
 
 
 def place(repo):
@@ -106,15 +116,25 @@ def _start(repo):
         pass             # the menu opens all the same, and the next popup starts one
 
 
+def primed():
+    """The reader's last read, once, in a menu the server forked; None in any other."""
+    global _PRIMED
+    taken, _PRIMED = _PRIMED, None
+    return taken
+
+
 def serve(lock):
     """The warm server, holding `lock`, its checkout's, until it leaves (see above)."""
     import select
     import signal
     import socket
-    import time
     # the menu, and what `menu.main` imports on the way to its first frame
     from . import config, macbridge, menu, notify, orch, terminal, update, watch  # noqa: F401
     config.load()                      # what it parses with, imported once here
+    for name in (config.SESSION_ENV, "TMUX", "TMUX_PANE", terminal.PAD_ENV):
+        os.environ.pop(name, None)     # the popup's that started it: no seat is the reader's
+    names = sorted(set(orch.seat_env("", "")) - {config.SESSION_ENV})
+    own = [os.environ.get(name) for name in names]
     state, base = place(str(config.REPO))
     os.chdir(state)                    # never made here: a HOME taken away stays away
     sock = base + ".sock"
@@ -128,17 +148,33 @@ def serve(lock):
     listener.bind(sock)                # in STATE, its owner's alone
     listener.listen(16)
     ino = os.stat(sock).st_ino
+    reads, written = os.pipe()
+    reader = os.fork()
+    if reader == 0:
+        listener.close()
+        os.close(lock)
+        os.close(reads)
+        _read(written)
+    os.close(written)
     signal.signal(signal.SIGCHLD, signal.SIG_IGN)   # each menu's fork reaped as it ends
-    moved = False
+    latest, heard, moved = None, b"", False
     while True:
-        ready = select.select([listener], [], [], menu.STIR)[0]
+        ready = select.select([listener, reads], [], [], menu.STIR)[0]
         try:
             moved = update.outdated()
             if moved or os.stat(sock).st_ino != ino or not os.path.exists(__file__):
                 break
         except OSError:
             break
-        if ready:
+        if reads in ready:
+            chunk = os.read(reads, 1 << 16)
+            if not chunk:
+                break                  # the reader is gone
+            heard += chunk             # each read framed by its length (`_read`)
+            while len(heard) >= 4 and len(heard) >= 4 + int.from_bytes(heard[:4], "big"):
+                end = 4 + int.from_bytes(heard[:4], "big")
+                latest, heard = heard[4:end], heard[end:]
+        if listener in ready:
             try:
                 conn, _ = listener.accept()
             except OSError:
@@ -146,7 +182,8 @@ def serve(lock):
             if os.fork() == 0:
                 listener.close()
                 os.close(lock)
-                _menu(conn)
+                os.close(reads)
+                _menu(conn, latest, names, own)
             conn.close()
     try:
         if os.stat(sock).st_ino == ino:
@@ -154,6 +191,12 @@ def serve(lock):
     except OSError:
         pass
     listener.close()
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # the reader waited on: gone before the lock
+    try:
+        os.kill(reader, signal.SIGTERM)
+        os.waitpid(reader, 0)
+    except OSError:
+        pass                           # gone already
     os.close(lock)
     # the new code's, but for an install stamped ahead of the clock: the next would be as stale
     # as this one, and start another
@@ -162,13 +205,43 @@ def serve(lock):
     os._exit(0)
 
 
-def _menu(conn):
+def _read(out):
+    """The reader, forked from the server: each read framed onto `out` as it lands."""
+    import pickle
+    from . import config, menu
+    os.nice(NICE)
+    server = os.getppid()
+    live = menu.Live(config.load())    # for `recorded`: what a read is news to
+    seen, due = None, 0.0
+    while os.getppid() == server:
+        noted = live.recorded() if time.monotonic() >= due else seen
+        if noted != seen:
+            began = sum(os.times()[:4])    # its CPU, its ended children's with it
+            try:
+                found, _, groups = menu.rows(config.load())
+                frame = pickle.dumps([found, groups])
+                frame = len(frame).to_bytes(4, "big") + frame
+                while frame:
+                    frame = frame[os.write(out, frame):]
+                seen = noted
+            except (config.Error, OSError, ValueError, TypeError, KeyError):
+                pass    # as a menu's read: what cannot be read now stays as last read
+            due = time.monotonic() + (sum(os.times()[:4]) - began) / DUTY
+        time.sleep(menu.STIR)
+    os._exit(0)
+
+
+def _menu(conn, latest, names, own):
     """In a fork of the server: the menu `conn`'s client asked for, in a fork of this one, on
-    the client's terminal; this one waits and tells the client its code.  Never returns."""
+    the client's terminal, its first frame `latest`, the reader's last read, where the client's
+    environment is the reader's on `names` (`own`); this one waits and tells the client its
+    code.  Never returns."""
+    import pickle
     import runpy
     import signal
     import socket
     from . import config
+    global _PRIMED
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # the menu waited on, and what it starts
     try:
         conn.settimeout(WAIT)
@@ -215,6 +288,8 @@ def _menu(conn):
     os.environb.update((key, value) for key, _, value in
                        (item.partition(b"=") for item in fields[2 + count:]) if key)
     sys.argv = [str(config.REPO / "bin" / "ak"), *map(os.fsdecode, fields[2:2 + count])]
+    if latest and [os.environ.get(name) for name in names] == own:
+        _PRIMED = pickle.loads(latest)
     sys.stdout.reconfigure(line_buffering=True)   # a terminal's now, as a cold menu's is
     try:
         runpy.run_path(sys.argv[0], run_name="__main__")

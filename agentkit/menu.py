@@ -134,6 +134,7 @@ from pathlib import Path
 
 from . import command_help, config, gitcall, history, matrix, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
 from . import record
+from . import warm
 
 KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
@@ -182,6 +183,14 @@ def read(prompt, default=None):
     if not sys.stdout.isatty():
         print()    # the prompt was answered from a pipe: keep the transcript on separate lines
     return default if answer is None else answer.strip()
+
+
+def rows(cfg):
+    """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
+    found = orch.listing()
+    records = run_records()           # one pass over run.json a read: filing, looking, drawing
+    orch.file_projectless(found, [state for _, state in records])
+    return found, records, v5o_groups(cfg, found, records, look=False)
 
 
 class Live:
@@ -343,10 +352,7 @@ class Live:
             if not self.watching.is_set():
                 return
             leaves = self.leaves
-        found = orch.listing()
-        records = run_records()           # one pass over run.json a read: filing, looking, drawing
-        orch.file_projectless(found, [state for _, state in records])
-        groups = v5o_groups(self.cfg, found, records, look=False)
+        found, records, groups = rows(self.cfg)
         with self.reading:
             if self.leaves != leaves:
                 return
@@ -369,9 +375,10 @@ class Live:
         self.asked.set()
 
     def watch(self, last):
-        """Read into `last` once, now, for the first draw, then again in a thread within STIR
-        of any record changing, or when asked (`ask`): the seats and their groups, for each
-        draw to draw.
+        """Read into `last` once, now, for the first draw -- in a menu the warm server forked, its
+        last read is the first draw's (`warm`), read again within STIR -- then again in a thread
+        within STIR of any record changing, or when asked (`ask`): the seats and their groups,
+        for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
@@ -384,8 +391,14 @@ class Live:
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
-        self.last, self.seen = last, self.recorded()
-        self.read(look=True)
+        self.last, primed = last, warm.primed()
+        if primed:
+            # the warm server's last read, read again at the watcher's first look: a read
+            # beside the first frame would hold it back, the two on one interpreter
+            last[:], self.seen, self.looking = primed, None, True
+        else:
+            self.seen = self.recorded()
+            self.read(look=True)
         if self.watcher is None:
             self.watcher = threading.Thread(target=self._watch, daemon=True)
             self.watcher.start()
@@ -848,6 +861,9 @@ class Task(tuple):
         task = super().__new__(cls, (stage, state))
         task.run = run
         return task
+
+    def __getnewargs__(self):
+        return (*self, self.run)      # pickled whole: the warm server's read (`warm`)
 
 
 def seat_tasks(name, records=None, now=None):

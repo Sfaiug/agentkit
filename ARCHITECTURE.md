@@ -104,7 +104,8 @@
   `tally`) and a seat's last column, crew and task squares (`seat_tasks`), for watch, run,
   orch, notify, statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
 - `warm.py`: `Ctrl-b m`'s menu, warm: a server per HOME and checkout, imports done, forks a
-  menu onto the terminal its bare `client` hands over a STATE socket; a miss goes cold. For orch.
+  menu onto the terminal its bare `client` hands over a STATE socket, its first frame the last
+  read of a reader beside it; a miss goes cold. For orch, menu (`primed`).
 - `statusbar.py`: a seat's two tmux status lines, line one ending in how many other seats
   need the owner and the click that switches to the first; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
