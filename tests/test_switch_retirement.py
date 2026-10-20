@@ -1,6 +1,6 @@
 """Every feature switch on for everyone for two weeks becomes, once a day while it is still
-listed, an open line in the plan of the newest open seat filed under its checkout, to take out
-of the code; the line's check is the project's own switch list, which fails while the list still
+listed, an open line in the plan of the newest seat at work filed under its checkout, to take
+out of the code; the line's check is the project's own switch list, which fails while the list still
 shows the switch.  Nothing is typed into a seat.
 
 Offline: a temporary HOME whose ~/code/ACME names a fake features command in its AGENTS.md, a
@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, orch, plan, retire
+from agentkit import config, harness, orch, plan, retire, watch
 
 DAY = 86400
 NOW = 1_800_000_000.0
@@ -92,10 +92,11 @@ class Retire(unittest.TestCase):
                            capture_output=True)
         return checkout
 
-    def seat(self, name, checkout, created, **closed):
+    def seat(self, name, checkout, created, word="working", **closed):
         config.save_session(self.cfg, name, "opus", ["astra"], {
             "cwd": str(checkout), "conversation": "thread", "id_source": harness.LAUNCHER})
         config.update_session(name, repo=str(checkout) if checkout else None)
+        watch.seat_write(name, word=word)
         self.seats.append({"name": name, "created": created, "legacy": False, **closed})
 
     def switches(self, *rows):
@@ -174,6 +175,28 @@ class Retire(unittest.TestCase):
         self.assertEqual(self.lines("acme-new"), ["region_gb_rff"])
         self.assertIn("ACME: proven switches help_chat, region_gb, region_gb_rff, vat_fee; "
                       "planned in acme-help, acme-gb, acme-new", self.logged)
+
+    def test_a_switch_goes_to_a_seat_at_work_never_one_at_rest(self):
+        self.seat("acme-moving", self.acme, created=10)
+        self.seat("acme-gb", self.acme, created=20, word="idle")
+        self.seat("acme-done", self.acme, created=30, word="done")
+        config.plan_path("acme-gb").write_text(
+            "- [ ] The region_gb switch is gone · check: `true` · ACME · written 2026-10-06 12:00\n")
+        self.switches(row("older", 60), row("region_gb", 50))
+        self.hand()
+        self.assertEqual([self.lines(name) for name in ("acme-moving", "acme-gb", "acme-done")],
+                         [["older"], ["The region_gb switch is gone", "region_gb"], []])
+        # ... with every seat at rest, a switch no plan names waits for one at work
+        watch.seat_write("acme-moving", word="done")
+        self.switches(row("older", 60), row("region_gb", 50), row("newer", 30))
+        self.hand(NOW + retire.AGAIN)
+        self.assertEqual(self.lines("acme-done"), [])
+        self.assertIn("ACME: proven switches older, region_gb, newer; planned in acme-moving, "
+                      "acme-gb; no seat at work to plan newer in", self.logged)
+        self.assertEqual(retire.read()[str(self.acme)], NOW)
+        watch.seat_write("acme-done", word="working")
+        self.hand(NOW + retire.AGAIN + retire.EVERY)
+        self.assertEqual((self.lines("acme-done"), self.lists()), (["newer"], 3))
 
     def test_a_line_is_written_once_and_the_list_is_read_again_a_day_later(self):
         self.seat("acme", self.acme, created=10)
@@ -289,7 +312,8 @@ class Retire(unittest.TestCase):
         self.hand(NOW + retire.EVERY - 1)
         self.assertEqual(self.lists(), 2)
         self.assertEqual(self.lines("other"), ["older"])
-        self.assertIn("ACME: proven switches older; no open seat to plan it in", self.logged)
+        self.assertIn("ACME: proven switches older; no seat at work to plan older in",
+                      self.logged)
 
     def test_projects_listing_alike_keep_their_own_lists(self):
         self.switches()
@@ -314,7 +338,8 @@ class Retire(unittest.TestCase):
     def test_without_an_open_seat_or_a_list_it_is_tried_again_the_next_hour(self):
         self.switches(row("older", 60))
         self.hand()
-        self.assertIn("ACME: proven switches older; no open seat to plan it in", self.logged)
+        self.assertIn("ACME: proven switches older; no seat at work to plan older in",
+                      self.logged)
         self.seat("acme", self.acme, created=10)
         (self.fake / "refuse").write_text("")
         self.hand(NOW + retire.EVERY)

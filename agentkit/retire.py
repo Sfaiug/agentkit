@@ -6,15 +6,17 @@ ISO 8601 UTC) at least PROVEN ago is proven. Once every EVERY the tick reads the
 checkout under ~/code that declares one, and writes an open line into the plan of a seat filed
 under it for every switch that list shows proven, and for every switch on for everyone that it
 cannot prove because its row gives no `everyone_since`. A switch goes to the newest seat whose
-open plan already names it, since that seat has it in hand; the rest go to the newest seat.
+open plan already names it, since that seat has it in hand; the rest go to the newest seat whose
+word is `working`, whose turn's end sends it to its open line: a seat at rest is never told of one,
+so its word would only turn to `needs you`.
 The line's check is the project's own switch list: it fails while the list still shows the
 switch (or, for an unproven one, shows it on for everyone without an `everyone_since`), and the plan ticks it by
 itself once the project's deploy drops the row, which happens once the code no longer reads it.
 An open line that already holds that check is not written twice (`plan.add`), so a seat is told
 nothing again. What a plan line says stands: a switch turned off after is still taken out,
 since turning a proven switch off is a code change (the owner, 5 Oct 2026); the list just no
-longer names it. A list that cannot be read, or a checkout with no open seat, is tried again at
-the next read. Nothing is typed into a seat: a plan line is read when the seat looks at its plan.
+longer names it. A list that cannot be read, or a switch with no seat to go to, is tried again
+at the next read. Nothing is typed into a seat: a plan line is read when the seat looks at its plan.
 
 All that is kept is when each checkout's lines were last written, so nothing here can go
 stale: what is written is what the list shows that moment. A checkout is a project, as
@@ -145,14 +147,16 @@ def planned(name):
 
 def owners(seats, rows):
     """Each row's seat: the newest whose open plan names that switch, since it already has it in
-    hand, else the newest of all."""
+    hand, else the newest whose word, as its row says it, is `working`, else None."""
+    from . import menu   # here, not at the top: the menu is the whole screen
     plans = {seat["name"]: planned(seat["name"]) for seat in seats}
+    working = next((seat["name"] for seat in seats
+                    if menu.seat_row_state(None, seat, look=False)["word"] == "working"), None)
     found = {}
     for row in rows:
         word = re.compile(rf"(?<![\w-]){re.escape(str(row['id']))}(?![\w-])")
-        name = next((seat["name"] for seat in seats if word.search(plans[seat["name"]])),
-                    seats[0]["name"])
-        found[str(row["id"])] = name
+        found[str(row["id"])] = next((seat["name"] for seat in seats
+                                      if word.search(plans[seat["name"]])), working)
     return found
 
 
@@ -182,15 +186,13 @@ def hand(log, now=None):
         about = "; ".join(f"{what} {', '.join(str(row['id']) for row in found)}" for what, found in (
             ("proven switches", proven), ("on for everyone with no everyone_since", unproven))
             if found)
-        seats = seats_for(checkout)
-        if not seats:
-            log(f"{checkout.name}: {about}; no open seat to plan it in")
-            continue
-        owner = owners(seats, proven + unproven)
+        owner = owners(seats_for(checkout), proven + unproven)
         written, refused = [], []
         for rows_of, is_proven in ((proven, True), (unproven, False)):
             for row in rows_of:
                 name = owner[str(row["id"])]
+                if name is None:
+                    continue
                 try:
                     plan.add(name, outcome(checkout.name, row, is_proven),
                              check(row, is_proven), repo=checkout)
@@ -202,7 +204,12 @@ def hand(log, now=None):
         if refused:
             log(f"WARN {checkout.name}: {about}; not planned: {'; '.join(refused)}")
             continue
+        done = f"; planned in {', '.join(written)}" if written else ""
+        left = [switch for switch, name in owner.items() if name is None]
+        if left:
+            log(f"{checkout.name}: {about}{done}; no seat at work to plan {', '.join(left)} in")
+            continue
         record[key] = now
         write(record)
-        log(f"{checkout.name}: {about}; planned in {', '.join(written)}")
+        log(f"{checkout.name}: {about}{done}")
     write(record)
