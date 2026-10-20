@@ -88,7 +88,10 @@ writes its session into one, and Muse and Antigravity open a new conversation ea
 model of its harness goes on with the conversation that harness can resume, without a handover, and a turn it was in
 is told to go on; one moved to another harness, or with no conversation to resume, opens a new one with the handover.
 Either way its bar and row name the new model from the moment the new harness is up, and a draft or a question on its
-screen refuses the move in one line. A seat whose harness exited
+screen refuses the move in one line. The other way round, a model changed inside a Claude Code or Codex seat
+(`/model`) becomes its orchestrator at its next answer, the configured model running it there at the effort that answer
+recorded where one does (`watch.follow_model`); a model no entry runs, or an answer from before the harness in the seat
+was launched (the old model's last, after a move), leaves it as it was. A seat whose harness exited
 keeps its window; the harness's own scope ends with it, and what it left running there (a shell's background
 job, a test's helper, a server) is stopped with the scope. A dead, detached seat nobody has opened for seven days is retired, and a record seven days gone from
 tmux, or seven days after you stopped its seat, is swept, unless a run of the seat's is unfinished or a question in it is unread; then the name is free again. A seat you stopped is listed under the menu's `p`, past sessions, until `x` on it there or the sweep takes its record, whether or not its conversation can be resumed, and Enter there or its number reopens it where it stopped. Main and past rows keep at least eight cells for each name and orchestrator, or its full width if shorter, beside the state or stopped age; otherwise that column wraps below and the labels use the freed space. A Codex seat's conversations are its own, under `~/.codex/agentkit-seats/<id>` whichever subscription it runs on, where they stay after the seat is removed and a switch's handover still reads them, so its server never imports the host's other Codex history; startup waits as long as the server needs while the seat is open, and closing it meanwhile leaves the next start working.

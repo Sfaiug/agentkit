@@ -89,16 +89,20 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 # the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
 # pane's own tmux lock, so two popups over one pane never count, keep or put back over each
 # other, and every lock is let go by a command of its own, which a command failing before it
-# cannot skip.  It ends in `true` whatever failed (a pane stopped under it), because tmux shows
-# a job that ends otherwise over the pane.
-FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
+# cannot skip.  The pane goes dim beside the popup coming up, not before it, and the popup
+# down waits for it to have; every call is the real tmux (`guard.real`), since the shim a
+# seat's PATH starts with costs each a Python start, and the key waited on all of them.  It
+# ends in `true` whatever failed (a pane stopped under it), because tmux shows a job that ends
+# otherwise over the pane.
+FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
+         'o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
-         'l() { tmux wait-for "$1" "ak-float$p"; }; l -L; n=$(o @ak_floats); '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); '
          'for s in window-style window-active-style; do '
          'if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; '
          'tmux set-option -p -t "$p" $s %(dim)s; done; '
-         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; '
-         'tmux %(popup)s -c "$c" -t "$p" %(command)s; l -L; n=$(o @ak_floats); '
+         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; '
+         'tmux %(popup)s -c "$c" -t "$p" %(command)s; wait $d; l -L; n=$(o @ak_floats); '
          'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
          'else for s in window-style window-active-style; do '
          'if h @ak_was_$s; then tmux set-option -p -t "$p" $s "$(o @ak_was_$s)" \\; '
@@ -1901,8 +1905,11 @@ def tmux_text(text):
 
 
 def popup_command():
-    """What `Ctrl-b m` runs: this checkout's `ak`, on the interpreter it is installed against."""
-    return shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "attach", "--overlay"])
+    """What `Ctrl-b m` runs: this checkout's `ak attach --overlay`, on the interpreter it is
+    installed against, from the warm server (`warm`), started bare: the client imports only
+    what the interpreter is built with."""
+    return shlex.join([sys.executable, "-S", "-I", str(config.REPO / "agentkit" / "warm.py"),
+                       "attach", "--overlay"])
 
 
 def tmux_version():
@@ -1959,8 +1966,8 @@ def tmux_conf():
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
-                FLOAT % {"dim": shlex.quote(DIM), "popup": popup,
-                         "command": shlex.quote(popup_command())}))
+                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
+                         "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border}",
                           f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
@@ -2428,6 +2435,9 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             raise
         finally:
             last.unlink(missing_ok=True)
+        # The moment from which an answer is this harness's (watch.follow_model): the one it
+        # replaces was sent SIGHUP and its terminal closed when the respawn returned.
+        config.update_session(current, launched=time.time())
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
         # title stays the echo, so the next tick retypes this name instead of taking
@@ -4070,14 +4080,19 @@ def switch_orchestrator(cfg, name, model, providers=None):
         moved = True          # its model is gone: no provider to stay home on
     chosen = {"orchestrator": model, "account": account,
               **({"home_account": account} if moved else {})}
-    try:
-        with watch.announcing(name):   # what every redress reads the record under
+    # Under what every redress and look reads the record under, till the new harness is up: a
+    # look before it would follow the old model's last answer back (watch.follow_model).
+    with watch.announcing(name):
+        try:
             config.update_session(name, **chosen)
-    except OSError as exc:
-        return f"session: {_one_line(exc)}"
-    try:
-        launch(name, model, cwd, cmd, conversation, session)
-    except (config.Error, OSError) as exc:
+        except OSError as exc:
+            return f"session: {_one_line(exc)}"
+        try:
+            launch(name, model, cwd, cmd, conversation, session)
+            failed = None
+        except (config.Error, OSError) as exc:
+            failed = exc
+    if failed:
         put = {key: record.get(key) for key in chosen}
         if not kept:   # a resumed launch re-recorded the conversation the seat still owns
             harness_plugin(new_harness).forget(config.session_records().get(name) or {})
@@ -4088,7 +4103,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
-        return _one_line(exc)
+        return _one_line(failed)
     if kept:
         if watch._turn_in_flight(new_harness, live)[0]:
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),

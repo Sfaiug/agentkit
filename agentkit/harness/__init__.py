@@ -7,15 +7,17 @@ A harness that needs Python puts it in `agentkit/harness/<name>.py` and implemen
 hooks it has something to say about -- `claude.py` the transcript it writes, `codex.py` the
 launch receipt its thread is proven by, `grokbuild.py` the session directory it opens,
 `muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe
-and the session store its tokens are in,
+and the session store its tokens and messages are in,
 `opencode.py` the receipt its seat plugin writes its session into and the endpoint that says
-how a model is paid.  A script its adapter runs on its own sits beside its module, named for
-it: `muse_usage.py` is Muse's billed usage probe.
+how a model is paid,
+`antigravity.py` the database each of its conversations is.  A script its adapter runs on its
+own sits beside its module, named for it: `muse_usage.py` is Muse's billed usage probe.
 
 No module outside this package names a harness: the core asks
 `harness.load(config.model(cfg, m)["harness"]).<hook>(...)` and takes the answer.
 """
 
+import contextlib
 import functools
 import importlib
 import json
@@ -23,6 +25,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 import re
+import sqlite3
 
 from .. import config
 
@@ -164,19 +167,54 @@ def entries(path):
         return
 
 
+def turns(path, prompt, answer):
+    """That JSON-lines record's messages as `said` gives them, oldest first: a line `prompt`
+    reads is the user side's, one `answer` reads the model's.  None where no record is there."""
+    if not path or not Path(path).is_file():
+        return None
+    said = []
+    for entry in entries(path):
+        for who, read in (("user", prompt), ("model", answer)):
+            text = read(entry)
+            if text:
+                said.append({"who": who, "text": text})
+                break
+    return said
+
+
+def rows(path, query, *args):
+    """What `query` reads from that SQLite store, opened read-only: a harness's own database,
+    which ak never writes.  None where there is none, or it cannot be read."""
+    if not Path(path).is_file():
+        return None
+    try:
+        with contextlib.closing(sqlite3.connect(f"{Path(path).absolute().as_uri()}?mode=ro",
+                                                uri=True)) as db:
+            return db.execute(query, args).fetchall()
+    except sqlite3.Error:
+        return None
+
+
+def moment(at):
+    """That time in seconds since the epoch -- a number, or an ISO 8601 time with its zone --
+    or None where it is neither."""
+    if isinstance(at, str):
+        try:
+            stamp = datetime.fromisoformat(at)
+        except ValueError:
+            return None
+        at = stamp.timestamp() if stamp.tzinfo else None
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+        return None
+    return at
+
+
 def user_message(at, text):
     """Keep the recorded text and time, never inventing either for a notice."""
     if not isinstance(text, str) or not text:
         return None
-    if isinstance(at, str):
-        try:
-            stamp = datetime.fromisoformat(at)
-            at = stamp.timestamp() if stamp.tzinfo else None
-        except ValueError:
-            return None
-    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
-        return None
-    return {"at": at, "text": text}
+    at = moment(at)
+    return None if at is None else {"at": at, "text": text}
 
 
 def prompt(entry):
@@ -443,6 +481,14 @@ class Harness:
         hook = self._hook("transcript")
         return hook(record, cwd, conversation) if hook else None
 
+    def said(self, record, cwd, conversation):
+        """That conversation as {who: "user" or "model", text}, oldest first, read from the
+        harness's own store each time: what the user side typed, ak included, and the model's
+        visible answers, never tool calls or results, thinking, subagents, compaction summaries
+        or protocol frames.  None where this harness keeps nothing ak can read."""
+        hook = self._hook("said")
+        return hook(record, cwd, conversation) if hook else None
+
     def user_messages(self, record, cwd, conversation, *, seat=None):
         """Owner messages, oldest first, as {at: Unix seconds, text: original words}.
 
@@ -496,6 +542,13 @@ class Harness:
         one nothing has answered or interrupted yet.  OSError where a record exists and cannot
         be read."""
         hook = self._hook("unanswered")
+        return hook(record, cwd, conversation) if hook else None
+
+    def running(self, record, cwd, conversation):
+        """(model id, effort, when) of that conversation's latest answer, as the harness recorded
+        them -- the effort None where it records none, when in seconds since the epoch (moment)
+        -- or None where it records neither.  OSError where a record exists and cannot be read."""
+        hook = self._hook("running")
         return hook(record, cwd, conversation) if hook else None
 
     @property

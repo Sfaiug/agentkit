@@ -66,10 +66,13 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
+# Lines no one said here: bookkeeping, a compaction's summary, a subagent's, view-only ones.
+UNSAID = ("isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly")
+
+
 def prompt(entry):
     """The owner's words one transcript line holds, or None for anything else."""
-    if any(entry.get(key) for key in (
-            "isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly")):
+    if any(entry.get(key) for key in UNSAID):
         return None
     if entry.get("type") == "attachment":
         attachment = entry.get("attachment")
@@ -104,6 +107,23 @@ def prompt(entry):
             or content in INTERRUPTS):
         return None
     return content if isinstance(content, str) and content else None
+
+
+def answer(entry):
+    """The model's visible words one transcript line holds, or None for its thinking, its tool
+    calls, a subagent's, and an API error Claude Code wrote in its place."""
+    message = entry.get("message")
+    if (entry.get("type") != "assistant" or entry.get("isApiErrorMessage")
+            or any(entry.get(key) for key in UNSAID) or not isinstance(message, dict)
+            or not isinstance(message.get("content"), list)):
+        return None
+    return "\n".join(part["text"] for part in message["content"] if isinstance(part, dict)
+                     and part.get("type") == "text" and isinstance(part.get("text"), str)) or None
+
+
+def said(record, cwd, conversation):
+    from . import turns
+    return turns(transcript(record, cwd, conversation), prompt, answer)
 
 
 def user_messages(record, cwd, conversation):
@@ -169,6 +189,20 @@ def unanswered(record, cwd, conversation):
     entry = path and last_entry(path, lambda entry: entry.get("type") in ("user", "assistant"))
     said = entry and entry.get("type") == "user" and prompt(entry)
     return user_message(entry.get("timestamp"), said) if said else None
+
+
+def running(record, cwd, conversation):
+    """The model and effort of that conversation's last answer: each answer records its own
+    (`message.model`, `effort`), so `/model` typed in the seat shows at its next answer.  An
+    answer Claude Code made up itself (`<synthetic>`) or a subagent's ran on neither."""
+    from . import last_entry, moment
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, lambda entry: entry.get("type") == "assistant"
+                                and not entry.get("isSidechain")
+                                and isinstance(entry.get("message"), dict)
+                                and entry["message"].get("model") not in (None, "<synthetic>"))
+    return ((entry["message"]["model"], entry.get("effort"), moment(entry.get("timestamp")))
+            if entry else None)
 
 
 def resumable(record, cwd, conversation):
