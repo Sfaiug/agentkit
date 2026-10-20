@@ -1,0 +1,30 @@
+‹14    New s   New s   New s   New s   New s   New s   New s   New s   New s   New s   New s   New session            +
+
+  ┃
+  ┃  hi
+  ┃
+
+     Error: OpenCode's free models aren't available from your current network because we've detected abusive traffic
+     from this IP address. This isn't related to your account. If you're on a VPN or proxy, turn it off and try again,
+     or subscribe to OpenCode Go at https://opencode.ai/go to keep building.
+
+     Build · DeepSeek V4.1 Flash Free · 683ms
+
+  ┃
+  ┃  Select model                                     esc
+  ┃
+
+     Error: OpenCode's free models aren't available from your current network because we've detected abusive traffic
+     from this IP address. This isn't related to your account. If you're on a VPN or proxy, turn it off and try again,
+     or subscribe to OpenCode Go at https://opencode.ai/go to keep building.
+
+     Build · DeepSeek V4.1 Flash Free · 584ms
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · DeepSeek V4.1 Flash Free OpenCode · max
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /…/acme:master  shift+tab agents  ctrl+p commands
+
