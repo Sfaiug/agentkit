@@ -919,7 +919,8 @@ def note_turn_meters(cfg, name, out_dir, account, before=()):
 
 
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
-                  fresh_body=None, resume_note=None, handover=None, previous=None, findings=None):
+                  fresh_body=None, resume_note=None, handover=None, previous=None, findings=None,
+                  base=None):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
 
     Returns (code, text, session, dead): `dead` stays False -- a transient answer is resumed
@@ -965,7 +966,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     loop restarts the role fresh; None waits out the growing waits on the same session, as
     without it, and tries only once -- the waits after that are the run's own.
 
-    An executor or fixer of a fix run may also write the run's regression folder.
+    An executor or fixer of a fix run may also write the run's regression folder.  `base` is
+    the target ref the reviewer's `users:` line is read at (`worker.users_declared`).
     """
     from . import usage     # here, not at the top: usage reaches turns
     limit = 60 * run_record.SILENCE_MINUTES if limit is None else limit
@@ -985,6 +987,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
            "AK_RUN_LOG": str(run_dir / "log.txt")}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
+    if base:
+        env[worker.BASE_ENV] = base
     attempt, calls, last_kill, account, span = 1, 0, None, None, None
     handover_tried = False
     last_dir, last_sid = Path(previous) if previous is not None else None, session

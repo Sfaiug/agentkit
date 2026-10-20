@@ -97,7 +97,8 @@ sys.exit(item.get("rc", 0))
     def lp(self):
         d = self.root / "run"
         d.mkdir(exist_ok=True)
-        return SimpleNamespace(run_dir=d, target="origin/release/v4", reviewer="stub",
+        return SimpleNamespace(run_dir=d, target="origin/release/v4", upstream="origin/release/v4",
+                               reviewer="stub",
                                state={"head_sha": SHA}, findings="VERDICT: PASS", log=lambda s: None,
                                write=lambda: None,
                                turn_limit=60 * run_record.SILENCE_MINUTES,
