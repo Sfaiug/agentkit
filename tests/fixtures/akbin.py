@@ -196,9 +196,9 @@ class Home:
         self._spawned.append(proc)
         return proc
 
-    def tmux(self, *args):
-        """Ask this Home's tmux server, as the test and not as ak."""
-        proc = subprocess.run([REAL_TMUX, "-L", SOCKET, *args], capture_output=True, text=True,
+    def tmux(self, *args, server=SOCKET):
+        """Ask one of this Home's tmux servers, ak's unless named, as the test and not as ak."""
+        proc = subprocess.run([REAL_TMUX, "-L", server, *args], capture_output=True, text=True,
                               env=self._env(None), timeout=30)
         return Done(proc.returncode, proc.stdout, proc.stderr)
 
