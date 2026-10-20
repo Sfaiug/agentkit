@@ -395,7 +395,7 @@ def home_entries(folder, age, now, paths):
 def stale_conversations(now):
     """Each conversation a harness keeps and never ends itself (`conversation_stores`) that
     nobody wrote to for a run directory's age and nobody holds open."""
-    paths = retention.process_paths()
+    paths = tmp_processes()[0]
     if paths is None:
         return
     for store in conversation_stores():
@@ -969,14 +969,13 @@ def gc(report, automatic=False):
                         retention.remove(path)
                         done = True
                     elif item["kind"] == "conversation":
-                        paths = retention.process_paths()
-                        if (item["harness"] in balked or paths is None
-                                or not conversation_stale(path, time.time(), paths)):
+                        if (item["harness"] in balked
+                                or not conversation_stale(path, time.time(), tmp_processes()[0])):
                             continue
                         try:
                             end_conversation(item["harness"], path)
-                        except (OSError, subprocess.TimeoutExpired):
-                            balked.add(item["harness"])    # one hang, not one per conversation
+                        except (OSError, subprocess.SubprocessError):
+                            balked.add(item["harness"])    # one failure, not one per conversation
                             raise
                         done = not retention.present(path)
                     elif item["kind"] in ("orphan-worktree", "unmerged-worktree"):
@@ -1127,7 +1126,7 @@ def gc(report, automatic=False):
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
                 except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError,
-                        subprocess.TimeoutExpired) as exc:
+                        subprocess.SubprocessError) as exc:
                     report(f"gc: kept {path}: {exc}")
     except (OSError, BlockingIOError):
         pass                           # another tick owns collection, or ownership is uncertain

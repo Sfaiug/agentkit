@@ -465,11 +465,15 @@ def conversation_store():
 
 
 def end_conversation(path):
-    """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once."""
+    """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once, run
+    on the home `conversation_store` scans, whatever home and database the caller selected."""
     match = ROLLOUT.fullmatch(Path(path).name)
     if match:
+        env = {key: value for key, value in os.environ.items() if key != "CODEX_SQLITE_HOME"}
+        env["CODEX_HOME"] = str(conversation_store()["root"].parent)
         subprocess.run([config.harness_binary("codex") or "codex", "delete", "--force", match[1]],
-                       stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+                       stdin=subprocess.DEVNULL, capture_output=True, timeout=60, env=env,
+                       check=True)
 
 
 def config_entries():

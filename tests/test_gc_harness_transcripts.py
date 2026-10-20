@@ -1,7 +1,8 @@
 """A conversation a harness never ends itself is ended its own way 30 days after its last write.
 
-Offline: HOME, PATH's `codex` and /proc are the fixture's.  The fake `codex delete` records its
-arguments and removes the rollout the way the real one does, with what it indexed.
+Offline: HOME, PATH's `codex` and /proc are the fixture's.  The fake `codex delete` records the
+database it would use and its arguments, and removes the rollout from its home the way the real
+one does, with what it indexed.
 """
 
 import os
@@ -34,10 +35,11 @@ class GcConversations(Sandbox):
         bin_dir = self.root / "fake-bin"
         bin_dir.mkdir()
         self.calls = self.root / "codex-calls"
-        codex = bin_dir / "codex"
-        codex.write_text(f'#!/bin/sh\necho "$*" >> {self.calls}\n'
-                         'find "$HOME/.codex/sessions" -name "rollout-*-$3.jsonl" -delete\n')
-        codex.chmod(0o755)
+        self.codex = bin_dir / "codex"
+        self.codex.write_text(f'#!/bin/sh\nhome=${{CODEX_HOME:-$HOME/.codex}}\n'
+                              f'echo "${{CODEX_SQLITE_HOME:-$home}} $*" >> {self.calls}\n'
+                              'find "$home/sessions" -name "rollout-*-$3.jsonl" -delete\n')
+        self.codex.chmod(0o755)
         self.stack.enter_context(patch.dict(os.environ, {"PATH": f"{bin_dir}:{os.environ['PATH']}"}))
 
     def rollout(self, n, age):
@@ -51,6 +53,9 @@ class GcConversations(Sandbox):
     def holds(self, path):
         proc = self.proc / "1000"
         (proc / "fd").mkdir(parents=True)
+        fields = ["S", "1", *(["0"] * 18)]
+        (proc / "stat").write_text(f"{proc.name} (fixture) " + " ".join(fields))
+        (proc / "status").write_text("Uid:\t" + "\t".join([str(os.getuid())] * 4) + "\n")
         (proc / "cmdline").write_bytes(b"fixture")
         (proc / "cwd").symlink_to(self.root)
         (proc / "fd" / "3").symlink_to(path)
@@ -64,10 +69,25 @@ class GcConversations(Sandbox):
         held = self.rollout(3, 40 * DAY)
         self.holds(held)
         self.assertEqual(self.planned(), {str(old)})
-        gc.gc(lambda _: None)
+        # on the home it scanned, whichever one the caller's environment selects
+        other = str(self.root / ".codex-other")
+        with patch.dict(os.environ, {"CODEX_HOME": other, "CODEX_SQLITE_HOME": other}):
+            gc.gc(lambda _: None)
         self.assertFalse(old.exists())
         self.assertTrue(recent.exists() and held.exists())
-        self.assertEqual(self.calls.read_text(), f"delete --force {THREAD.format(1)}\n")
+        self.assertEqual(self.calls.read_text(),
+                         f"{Path.home() / '.codex'} delete --force {THREAD.format(1)}\n")
+
+    def test_a_process_whose_handles_cannot_be_read_keeps_every_one(self):
+        old = self.rollout(1, 31 * DAY)
+        (self.proc / "1001").mkdir()      # a process nothing of which can be read
+        self.assertEqual(self.planned(), set())
+        with patch.object(gc, "stale_conversations",
+                          return_value=[{"action": "remove", "kind": "conversation",
+                                         "path": str(old), "harness": "codex", "why": "old"}]):
+            gc.gc(lambda _: None)
+        self.assertTrue(old.exists())
+        self.assertFalse(self.calls.exists())
 
     def test_a_harness_that_cannot_end_one_is_tried_once_a_pass(self):
         for n in (1, 2, 3):
@@ -77,6 +97,12 @@ class GcConversations(Sandbox):
             gc.gc(said.append)
         self.assertEqual(end.call_count, 1)
         self.assertEqual(sum("no codex" in line for line in said), 1)
+        self.assertEqual(len(self.planned()), 3)
+        self.codex.write_text(f'#!/bin/sh\necho "$*" >> {self.calls}\nexit 1\n')
+        said.clear()
+        gc.gc(said.append)
+        self.assertEqual(len(self.calls.read_text().splitlines()), 1)
+        self.assertEqual(sum(line.startswith("gc: kept") for line in said), 1)
         self.assertEqual(len(self.planned()), 3)
 
 
