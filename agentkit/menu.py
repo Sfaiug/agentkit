@@ -4274,9 +4274,14 @@ def config_page(name, page):
                 rows, note = page()
                 body = page_body([(("row", number), label, value)
                                   for number, (label, value, _) in enumerate(rows)])[0]
-                terminal.frame(title, [*body[:at + 1], *lines, *body[at + 1:],
-                                       *note_lines(note)], keys)
-                return 4 + at
+                body, under = [*body[:at + 1], *lines, *body[at + 1:]], note_lines(note)
+                # the page matrix_key would show, held on the lines typed in, so a short
+                # screen keeps them, and the cursor, in view
+                top, room = matrix_page(body, {at + 1 + line: (("typed",), [])
+                                               for line in range(len(lines))},
+                                        ("typed",), 0, under, keys)
+                terminal.frame(title, [*body[top:top + room], *under], keys)
+                return 4 + at - top
             said = rows[at][2](draw) or ""
 
 
