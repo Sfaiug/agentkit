@@ -3,9 +3,9 @@
 #
 # An orchestrator turn ends in exactly one of three ways -- an unanswered question through the
 # harness's question prompt or `ak notify needs`, a run or live job it is waiting on, including
-# background work it started in its own harness while the harness still lists it in flight, and
-# a pull request or run it said it waits on with `ak wait`, for as long as `watch.waiting_on`
-# says that is not yet over.  A merged run of its own not yet live, where its project declares
+# background work it started in its own harness, a command aside, while the harness still lists
+# it in flight, and a pull request or run it said it waits on with `ak wait`, for as long as
+# `watch.waiting_on` says that is not yet over.  A merged run of its own not yet live, where its project declares
 # `health:`, is ak's own step and a wait too.  With no open line in the seat's plan nothing is
 # owed, and a plain reply stands.  A run of its own that sits parked and undecided --
 # `unfinished`, so not one a later merged run replaced --
@@ -82,7 +82,8 @@ LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
           "prompt or ak notify needs, no run or pull request you are waiting on, and an open line "
           "in your plan. Continue: decide the next step and do it. ak plan checks every open line "
-          "and ticks the proven ones; nothing else ticks a line between runs.")
+          "and ticks the proven ones; nothing else ticks a line between runs. A background "
+          "command is no wait: wait on a pull request or run with ak wait <PR url or run id>.")
 ASK = ("Your last message ends in a question, but it went through no question prompt, so the "
        "owner is not told. Ask it through the question prompt (ak notify needs where there is "
        "none), or go on without it.")
@@ -263,10 +264,14 @@ def background(payload):
     are none.  Each of them wakes the seat again when it settles, so a stop on them is a wait.
     A `monitor` is a watch, not work: the comment watch on an artifact the seat published stays
     in that list for the rest of the session, and counted, it held the seat working for days.
+    Nor is a Claude Code `shell`: a background `sleep` or poll loop is no wait, since the harness
+    kills it under memory pressure; a seat waits through `ak wait`.  Grok Build's
+    `backgroundTasks` count as before, their types never captured.
     """
     found = tasks(payload)
+    idle = ("monitor", "shell") if payload.get("background_tasks") is not None else ("monitor",)
     return isinstance(found, list) and any(
-        isinstance(task, dict) and task.get("type") != "monitor" for task in found)
+        isinstance(task, dict) and task.get("type") not in idle for task in found)
 
 
 def told(seat, turn, kind):
