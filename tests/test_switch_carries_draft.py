@@ -70,6 +70,15 @@ class SwitchCarriesDraft(EditorSeat):
         watch.drafts_back(self.cfg)
         self.assertEqual((self.composer, self.buffers), (DRAFT, {}))
 
+    def test_text_typed_after_text_set_aside_follows_it_whole(self):
+        watch._edit(self.seat, watch.seat_editor(self.seat, self.cfg), "line", "ak notice")
+        self.show("and add  these posts\n\n")      # typed once ak's line was sent
+        self.switched()
+        self.launched = False
+        watch.drafts_back(self.cfg)
+        self.assertEqual((self.composer, self.buffers),
+                         (f"{DRAFT}\nand add  these posts\n\n", {}))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -15,9 +15,12 @@ would keep that is the line itself answers `other` too, as once back it would re
 the text kept (`sent`), the line (`unsent`) or other text -- and into an empty one hands the
 kept text back, kept on as given back (`GIVEN`): whatever the next `line` finds in the composer
 then is the owner's.  Asked with a line it keeps no text set aside for, it answers `sent`, as a
-record moves past its line only once that line has left.  Each is written whole or not at all;
-a step that fails is undone and answers nothing, and tmux refusing to mark text given back
-leaves it in the composer and kept as set aside, which the next step reads as given back.  An
+record moves past its line only once that line has left.  `carry`, asked as a switch ends the
+harness, keeps the text set aside followed by what the owner typed since -- neither that line
+nor that text -- set aside for no line, empties the composer and answers `carried`.  Each is
+written whole or not at all; a step that fails is undone and answers nothing, and tmux refusing
+to mark text given back leaves it in the composer and kept as set aside, which the next step
+reads as given back.  An
 ask ak gave up on (`none`), however long ago, hands the composer back as it is, to an edit its
 keys opened late.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's
 but `host`, which imports nothing itself, as it starts on every edit the owner opens.
@@ -157,7 +160,7 @@ def edit(argv):
         fresh = False
     if mode == b"none":
         return 0
-    if fresh and mode in (b"line", b"back"):
+    if fresh and mode in (b"line", b"back", b"carry"):
         path, name = Path(argv[-1]), kept(pane)
         # tmux fails to save a buffer it lacks as it fails for any other reason, so only one it
         # lists is read: what cannot be read leaves both the buffer and the composer as they are
@@ -171,7 +174,15 @@ def edit(argv):
         # a composer its line has left, holding nothing or what a `back` tmux refused to mark
         # as given back handed it: what is kept is all there is to keep
         left = state == ASIDE and (not text or _holds(text, held))
-        if mode == b"line":
+        if mode == b"carry":
+            word = b"carried"
+            keep = b"\n".join(part for part in (held if state == ASIDE else b"",
+                                                b"" if mine or left else text) if part)
+            if not ((_keep(name, pack(ASIDE, b"", keep)) if keep else not stored)
+                    and _publish(path, b"")):
+                _keep(name, stored)
+                return 0
+        elif mode == b"line":
             keep = held if mine or left else text
             # text it would keep that is the line itself would read as that line once back
             word = (b"unsent" if mine and put != line else

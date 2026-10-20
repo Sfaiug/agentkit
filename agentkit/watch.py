@@ -3772,14 +3772,15 @@ def drafts_back(cfg):
 def carry_draft(session, harness, pane, cfg=None):
     """Lift the owner's unsent text out of that seat's composer before a switch ends its harness,
     on any turn: into its pane's kept buffer, set aside for no line of ak's (`aside_editor.pack`),
-    which the respawn keeps with the pane and `drafts_back` hands the harness launched there next.
-    Through ak's editor where the harness opens one, which reads the composer whole; else as
-    `pane` draws it, a line a row.  Text already set aside there for a line of ak's, which the
-    respawn ends, goes too, before any the owner typed since."""
+    which the respawn keeps with the pane and `drafts_back` hands the harness launched there next,
+    after any text already set aside there.  Through ak's editor where the harness opens one,
+    which reads the composer whole (`carry`); else as `pane` draws it, a line a row, unless it
+    draws just the line of ak's that text was set aside for."""
     with seat_held(session["name"]):
-        typed = bool(harness and composer_draft(harness, pane))
-        where = typed and seat_editor(session, cfg)
-        if where and _edit(session, where, "line") == "line":
+        # keys go out only for text to carry: on a dialog they could answer it
+        where = ((harness and composer_draft(harness, pane) or _editor_kept(session))
+                 and seat_editor(session, cfg))
+        if where and _edit(session, where, "carry") == "carried":
             return
         server = orch.seat_socket(session)
         rc, at = orch.tmux_out("display-message", "-p", "-t", _pane(session), "#{pane_id}",
@@ -3791,10 +3792,11 @@ def carry_draft(session, harness, pane, cfg=None):
         if stored is None:
             return
         state, put, held = aside_editor.unpack(stored)
-        held = held if state == aside_editor.ASIDE else b""
-        text = "\n".join(_composer_rows(harness, pane) or []).encode() if typed else b""
-        if re.sub(rb"\s+", b"", text) not in {re.sub(rb"\s+", b"", word) for word in (put, held)}:
-            held = b"\n".join(part for part in (held, text) if part)   # not ak's line, nor kept
+        text = "\n".join((_composer_rows(harness, pane) if harness else None) or []).encode()
+        if re.sub(rb"\s+", b"", text) == re.sub(rb"\s+", b"", put):
+            text = b""          # just ak's line, as a screen draws it
+        held = b"\n".join(part for part in (held if state == aside_editor.ASIDE else b"", text)
+                          if part)
         if held:
             _load(server, aside_editor.kept(at), aside_editor.pack(aside_editor.ASIDE, b"", held))
 
