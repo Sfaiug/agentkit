@@ -3096,11 +3096,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
-    A model `providers` read as spent is dim; why is on the line under the page
-    (model_lines).  A model whose provider runs the subscription `lit`, from 1, of `subs`
-    (`usage_rows`) has its label in that company's colour, which the clock washes in and out
-    as `lit` comes and goes (motion.washing).  Then `+ add a model`, `Subscriptions`,
-    `Discord` and `Weekly audit` with
+    A model `providers` read as spent is dim.  A model whose provider runs the subscription
+    `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
+    clock washes in and out as `lit` comes and goes (motion.washing).  Then `+ add a model`,
+    `Subscriptions`, `Discord` and `Weekly audit` with
     their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
