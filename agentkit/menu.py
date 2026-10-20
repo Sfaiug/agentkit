@@ -4429,9 +4429,10 @@ def config_audit(cfg):
 def show_config(dry_run=False, keyboard=None, session=None, seats=()):
     """`c`: every model in one matrix of the roles the For row over it names -- new seats,
     [defaults]; new and open seats, `seats`, the open ones in the main screen's order; or one
-    of them or `session`, read from its own record -- and the efforts, under each subscription's meter, then
-    `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit`, agentkit's build under
-    them, read with the menu's keyboard (config_matrix), so nothing is typed.  It opens on
+    of them or `session`, read from its own record -- and the efforts, under each
+    subscription's meter, then `+ add a model`, `+ add a provider`, `Discord` and `Weekly
+    audit`, agentkit's build under them, read with the menu's keyboard (config_matrix), so
+    nothing is typed.  It opens on
     `session`, the seat highlighted, where it has a record, else on new seats; a seat whose record will not read has the
     efforts alone, saying so under the rows: the screen that changes the models still opens.
 
