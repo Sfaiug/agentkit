@@ -23,6 +23,7 @@ in a popup over whatever is running.
 
 import atexit
 import difflib
+import fcntl
 import fnmatch
 import json
 import math
@@ -111,6 +112,7 @@ FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
+NOTICES = "notices"        # the lines other jobs leave the menu (`leave_notice`), a stop's refusal
 AGENT_LOOK_EVERY = 10      # how long one reading of the process table answers for every pane
 # The programs that run a script they are handed, which may be a harness (`node .../bin/codex`),
 # each by its own option grammar: what starts an option, the short letters and long options
@@ -3055,10 +3057,25 @@ def job_notices():
     path = config.STATE / UPDATE_RESULT
     try:
         text = path.read_text(encoding="utf-8")
+        path.unlink(missing_ok=True)
     except (OSError, ValueError):
-        return []
-    path.unlink(missing_ok=True)
+        text = ""
+    try:
+        with open(config.STATE / NOTICES, "r+", encoding="utf-8") as notices:
+            fcntl.flock(notices, fcntl.LOCK_EX)    # a line being left is taken whole, or after
+            text += notices.read()
+            notices.truncate(0)
+    except (OSError, ValueError):
+        pass
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def leave_notice(line):
+    """Leave the next menu `line` to show once (`job_notices`)."""
+    config.ensure_dirs()
+    with open(config.STATE / NOTICES, "a", encoding="utf-8") as notices:
+        fcntl.flock(notices, fcntl.LOCK_EX)        # held until the line is written, at close
+        notices.write(line + "\n")
 
 
 def rename(old, new, log=print, *, auto=False):
