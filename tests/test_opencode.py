@@ -810,6 +810,13 @@ cat "$dir/bridge-eval"
         # a failed turn is still a prompt: `Error: ` is a stall word, not a state
         self.assertEqual(self.decide("auth")["state"], "at_prompt")
 
+    def test_a_draft_beside_the_sidebar_card_reads_as_with_the_sidebar_hidden(self):
+        # one draft as 2.0.32 draws it beside its `Getting started` card, then with its sidebar
+        # hidden (ctrl+x b): wide characters and emoji level with the card's words
+        typed = "日本語のテキストを書きます" * 9 + "❤️" * 40 + "andaddthesepoststoo" * 9 + "end"
+        self.assertEqual([watch.composer_draft("opencode", self.pane(kind))
+                          for kind in ("draft-beside-card", "draft-sidebar-hidden")], [typed] * 2)
+
     def test_stall_and_auth_panes_answer_in_opencode_s_own_words(self):
         stall = self.pane("stall")
         mark = watch.stalled_on("opencode", watch.pane_tail(stall), "opencode",
