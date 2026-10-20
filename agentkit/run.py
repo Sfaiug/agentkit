@@ -2220,7 +2220,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
             fix = f"{lp.context}\n\n## Reviewer findings to fix\n{without_followups(lp.findings)}"
             try:
                 # what the fixer says stays in its turn's directory, where the next round's
-                # reviewer reads it (`fixer_words`), resumed after a cut or not
+                # record reads it (`fixer_words`), resumed after a cut or not
                 execute(lp, "fixer", fix, name or turn)
             except Blocked as exc:
                 pr_review_blocked(lp, exc)
@@ -2522,7 +2522,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if is_own:
         summary = (f"PR #{number} by {info['author']}: {info['title']}. "
                    f"{orchestrator} wrote this; review its diff.")
-        said = fixer_words(lp.round_dir, turn)      # the fixer's own words on the head it left
+        said = fixer_words(lp.round_dir, turn)      # the fixer's own words, for the record alone
         if said:
             summary += f"\n\n## What the fixer said\n{said}"
     else:

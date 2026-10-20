@@ -1114,7 +1114,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     `record` is off for landing re-review and the merge pipeline's fixer rounds: they are not task rounds
     and must not spend one, so no summary of them enters the rounds' own history.
-    The verdict is recorded either way, because delivery is decided
+    `summary` is the author's own account of its work: it is recorded, never handed to the
+    reviewer, whom it would prime.  The verdict is recorded either way, because delivery is decided
     on it.
     """
     passed_head = passed_review_head(lp.state)
@@ -1216,7 +1217,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     def body_with(section):
         text = (f"{lp.body}\n\n{section}\n\n"
                 + (disputes.text + "\n" if disputes.disputes else "")
-                + f"## Executor summary\n{summary}\n\n{heading}\n"
+                + f"{heading}\n"
                 + (f"{deferred}\n" if deferred else "")
                 + (f"{flaky}\n" if flaky else "")
                 + f"```\n{dw_log}\n```")
