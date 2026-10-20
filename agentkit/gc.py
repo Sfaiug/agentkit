@@ -967,14 +967,7 @@ def gc(report, automatic=False):
                                 done = not left_behind(path, report)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
-                    elif item["kind"] == "home-entry":
-                        paths = tmp_processes()[0]
-                        if paths is None or not untouched(path, time.time(),
-                                                          paths | job_task_files(), item["age"]):
-                            continue
-                        retention.remove(path, directory=path.is_dir())
-                        done = not retention.present(path)
-                    elif item["kind"] == "tmp-entry" or item.get("tmp"):
+                    elif item["kind"] in ("tmp-entry", "home-entry") or item.get("tmp"):
                         # One fresh inventory for the batch, then recheck each tree's age.
                         if tmp_inventory is None:
                             paths, table = tmp_processes()
@@ -982,6 +975,9 @@ def gc(report, automatic=False):
                         paths, rules = tmp_inventory
                         if item["kind"] == "tmp-entry":
                             ok = tmp_top_stale(path, time.time(), paths, rules)[0] is not None
+                        elif item["kind"] == "home-entry":
+                            ok = paths is not None and untouched(path, time.time(),
+                                paths | job_task_files(), item["age"]) is not None
                         else:
                             ok = any((answer := rule(path, time.time(), paths, top=False))
                                      is not None and answer[0] is not None for rule in rules)
