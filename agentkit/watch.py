@@ -1313,11 +1313,13 @@ def _back_after(back, escape):
 
 
 def modal_row(harness, pane):
-    """The row of a dialog its harness draws over its transcript (`[screen] modal`) on that `-e`
-    capture, or None.  The dialog is drawn on a background of its own, wherever centring leaves
-    it, so only a run of text on a background other than its row's first one is read, each run
-    whole: what a reply or the composer says in the screen's own background never is."""
-    modal, back = screen(harness)["modal"], None
+    """The title row of a dialog its harness draws over its transcript (`[screen] modal`) on that
+    `-e` capture, or None.  The dialog is a box on a background of its own, wherever centring
+    leaves it: only runs of text on a background other than their row's first are read, and the
+    pattern is matched at the start of a stack of them, one a row, each as wide as the first and
+    on its background, joined by newlines.  What a reply or the composer draws on the screen's
+    own background never is one, nor a row a reply draws on a block's of its own alone."""
+    modal, back, over = screen(harness)["modal"], None, []
     for raw in pane.splitlines() if modal else ():
         runs, at = [], 0        # [background, text] of each run, in order
         for found in [*SGR_ALL.finditer(raw), None]:
@@ -1330,10 +1332,18 @@ def modal_row(harness, pane):
                 break
             at = found.end()
             back = _back_after(back, found.group())
-        shown = next((text.strip() for on, text in runs[1:]
-                      if on != runs[0][0] and modal.fullmatch(text)), None)
-        if shown:
-            return shown
+        over.append([(on, text) for on, text in runs[1:] if on != runs[0][0]])
+    for top, row in enumerate(over):
+        for on, text in row:
+            stack = [text]
+            for below in over[top + 1:]:
+                text = next((part for under, part in below
+                             if under == on and len(part) == len(stack[0])), None)
+                if text is None:
+                    break
+                stack.append(text)
+            if modal.match("\n".join(stack)):
+                return stack[0].strip()
     return None
 
 

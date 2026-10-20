@@ -53,11 +53,19 @@ class DialogOverTheTranscript(unittest.TestCase):
         self.assertEqual(self.read("dialog")[:2], ("asking", "asking.permission"))
 
     def test_text_like_its_title_in_the_transcript_is_none(self):
-        # a reply drawn on the screen's own background, however it is spaced
+        # a reply drawn on the screen's own background, however it is spaced, or one row of it
+        # on a block's background of its own
         pane = (FIX / "opencode-prompt-pane.txt").read_text(encoding="utf-8")
-        for said in ("Close dialog          esc", "    Select model                     esc    "):
+        title = "    Select model                     esc    "
+        for said in ("Close dialog          esc", title,
+                     f"\x1b[48;2;4;4;4m  \x1b[48;2;12;12;12m{title}\x1b[48;2;4;4;4m"):
             with self.subTest(said=said):
                 self.assertIsNone(watch.modal_row("opencode", f"{said}\n{pane}"))
+
+    def test_one_the_owner_searches_in_is_one(self):
+        pane = (FIX / "opencode-model-dialog-pane.txt").read_text(encoding="utf-8")
+        self.assertEqual(watch.modal_row("opencode", pane.replace("mSearch", "mdeep  ")),
+                         "Select model                                     esc")
 
     def keys(self, name, send):
         """The keys `send` puts into a seat showing that capture, and what it returned."""
