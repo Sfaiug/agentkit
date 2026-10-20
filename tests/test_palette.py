@@ -95,6 +95,12 @@ class Palette(unittest.TestCase):
                                      "\033[38;5;111mworking\033[0m")
                     with patch.dict(os.environ, {"NO_COLOR": ""}):
                         self.assertEqual(terminal.colour_depth(), 0)   # whatever tmux says
+        # a popup handed its client's features asks tmux nothing (`orch.tmux_conf`)
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1,0",
+                                     terminal.FEATURES_ENV: "256,RGB,title"}), \
+                patch.object(terminal.subprocess, "run", side_effect=AssertionError("tmux")):
+            self.sense()
+        self.assertTrue(terminal._RGB)
         # outside tmux nothing is asked of it
         with patch.object(terminal.subprocess, "run", side_effect=AssertionError("tmux")):
             self.sense()
