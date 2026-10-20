@@ -3146,10 +3146,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             ink = colour(cfg, provider)
             kind = ("reverse" if at == ("model", name) and column < 0 else ink if lit in on
                     else "dim" if note else None)
-            if moves is not None:
-                moves += [(len(lines), ("sub", number), number == lit, motion.washing(
-                    [(3, shown, "dim" if note else None)], ink, at == ("model", name)))
-                    for number in on]
+            # one wash a label, so a step between its provider's subscriptions keeps it lit
+            if moves is not None and on:
+                moves.append((len(lines), ("subs", provider), lit in on, motion.washing(
+                    [(3, shown, "dim" if note else None)], ink, at == ("model", name))))
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))
             cells, first = [(3, 2 + terminal.cells(shown), -1)], left + 1

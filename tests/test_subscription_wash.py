@@ -123,11 +123,12 @@ class Wash(Sandbox):
         self.assertIn(terminal.styled("opus", CLAUDE)[:-1],
                       self.row(self.screen((5, 3)), "acme-plan"))
 
-    def test_on_c_the_meter_the_highlight_comes_onto_washes_in_and_its_models_with_it(self):
+    def c_keys(self, names):
+        """What moves on `c`, its last frames, as each of `names`' keys and then Esc is read."""
         week = {"name": "weekly", "resets_at": 10000 + 86400, "window_secs": 604800, "used": 50}
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
             "anthropic": {"meters": [week]}, "openai": {"meters": [week]}}}))
-        keys, drawn = iter([terminal.Key("up"), terminal.Key("esc")]), []
+        keys, drawn = iter([*map(terminal.Key, names), terminal.Key("esc")]), []
 
         def key(clock=None, **_kw):       # what moves on the screen as each key is read
             drawn.append({terminal.plain(animation(until)): animation(until)
@@ -141,11 +142,21 @@ class Wash(Sandbox):
                 patch.object(terminal, "read_key", side_effect=lambda *a, **k: key()), \
                 redirect_stdout(io.StringIO()):
             menu.config_matrix(self.cfg, None, "abc1234")
+        return drawn
+
+    def test_on_c_the_meter_the_highlight_comes_onto_washes_in_and_its_models_with_it(self):
+        drawn = self.c_keys(["up"])
         chatgpt = menu.COLOURS["openai"]     # ↑ from the first model: the last meter, ChatGPT's
         lit = drawn[-1]
         self.assertEqual(lit["astra"], "".join(terminal.styled(char, chatgpt) for char in "astra"))
         self.assertIn("ChatGPT", lit)
         self.assertNotIn("opus", lit)
+
+    def test_on_c_a_step_between_one_company_s_meters_keeps_its_models_lit(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
+        drawn = self.c_keys(["up"] * 7)   # every meter back from ChatGPT, Claude II then I last
+        lit = "".join(terminal.styled(char, CLAUDE) for char in "opus")
+        self.assertEqual(drawn[-1].get("opus", lit), lit)
 
     def test_a_free_slot_on_the_grid_s_last_line_lights_nothing(self):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
