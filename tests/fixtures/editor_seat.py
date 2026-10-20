@@ -1,12 +1,14 @@
 """fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose Ctrl-G hands
 its composer to the real agentkit/aside_editor.py, takes what that hands back at once and draws
-it a few reads late, and whose Enter sends what its composer holds.  Whether it hears the key
-(`deaf`), the seat's launch and the panes of its session are the test's to set."""
+it a few reads late, and whose Enter sends what its composer holds, one composer for any pane
+ak names.  Whether it hears the key (`deaf`), the seat's launch, the panes of its session
+(PANE the one selected), unread input and when its terminal last took keys are the test's to
+set."""
 
 import os
 from unittest.mock import patch
 
-from fixtures.seats import Seats
+from fixtures.seats import NOW, Seats
 from agentkit import aside_editor, watch
 
 PANE = "%7"
@@ -18,17 +20,23 @@ class EditorSeat(Seats):
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
         self.opened = []        # the owner's own editor, opened where ak asked nothing
         self.deaf, self.launched, self.tty, self.panes = False, True, self.root / "tty", [PANE]
+        self.unread = False
         self.tty.write_text("")
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
                                    (aside_editor, "_tmux", lambda *args, data=None:
                                     self.editor_tmux(*args, data=data)),
                                    (aside_editor.os, "execvp",
                                     lambda *argv: self.opened.append(argv)),
-                                   (watch, "pane_text", self.read)):
+                                   (watch, "pane_text", self.read),
+                                   (watch, "pane_unread", lambda _session: self.unread)):
             patcher = patch.object(target, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
         self.show("")
+
+    def untouched(self, seconds):
+        """The seat's terminal, last given keys that long ago."""
+        os.utime(self.tty, (NOW - seconds, NOW - seconds))
 
     def show(self, composer):
         """The composer holding that text, drawn at once."""
@@ -53,8 +61,10 @@ class EditorSeat(Seats):
     def tmux(self, *args, data=None, **kwargs):
         """The seat's server, as ak and the editor in its pane ask it."""
         name = args[args.index("-b") + 1] if "-b" in args else None
+        target = args[args.index("-t") + 1] if "-t" in args else ""
+        pane = target if target.startswith("%") else PANE
         if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
-            return 0, f"{PANE}\t4242\t{self.tty}"
+            return 0, f"{pane}\t4242\t{self.tty}"
         if args[0] == "show-options":
             said = self.ask
             if ";" in args:                 # the editor's: read and cleared in one call
@@ -77,17 +87,17 @@ class EditorSeat(Seats):
             self.show(self.composer + args[-1])
         elif args[0] == "send-keys":
             for key in args[args.index("-t") + 2:]:
-                self.press(key)
+                self.press(key, pane)
         else:
             return super().tmux(*args, **kwargs)
         return 0, ""
 
-    def press(self, key):
+    def press(self, key, pane=PANE):
         self.keys.append(key)
         if key == "C-g" and not self.deaf:
             path = self.root / "composer.md"
             path.write_text(self.composer)
-            with patch.dict(os.environ, {"TMUX_PANE": PANE}):
+            with patch.dict(os.environ, {"TMUX_PANE": pane}):
                 aside_editor.edit([str(path)])
             self.composer, self.late = path.read_text(), 3
         elif key == "Enter" and self.composer:
