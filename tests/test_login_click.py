@@ -13,6 +13,7 @@ import os
 import pty
 import re
 import select
+import shlex
 import shutil
 import struct
 import subprocess
@@ -150,7 +151,7 @@ class LoginClick(Sandbox):
         self.assertTrue(read_until(lambda _: clients()), "no client attached")
         start = len(out)
         popup = subprocess.Popen([*argv, "display-popup", "-c", clients()[0], "-w", "80%",
-                                  "-h", "70%", "-E", f"cat {shown}; sleep 30"], env=env)
+                                  "-h", "70%", "-E", f"cat {shlex.quote(str(shown))}; sleep 30"], env=env)
         self.addCleanup(popup.wait)
         self.addCleanup(popup.kill)       # the popup itself goes with the server
         links = lambda text: set(re.findall(rb"\x1b\]8;[^;]*;([^\x1b\x07]+)", text[start:]))

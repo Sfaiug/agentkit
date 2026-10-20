@@ -108,8 +108,25 @@ def refresh(cfg, now=None, renewed=None):
             kept.setdefault(provider, {})[account] = last if fresh else {
                 **last, **(asker and _ask(asker, account) or {}), "checked_at": now}
     if kept != old:
-        config._write_json(path(), kept)
+        config.ensure_dirs()
+        with config._record_lock(path()):
+            # The tick and the ak screen, for a login just made there, can refresh at once: an
+            # answer written since this one read stands unless this one asked it later.
+            standing = read()
+            for provider, accounts in kept.items():
+                for account, login in accounts.items():
+                    theirs = (standing.get(provider) or {}).get(account)
+                    if (isinstance(theirs, dict) and theirs != (old.get(provider) or {}).get(account)
+                            and _asked(theirs) >= _asked(login)):
+                        accounts[account] = theirs
+            config._write_json(path(), kept, prepare=False)
     return kept
+
+
+def _asked(login):
+    """When `login`, one of `read`'s, was last asked; -inf for one never asked."""
+    checked = login.get("checked_at")
+    return checked if isinstance(checked, (int, float)) else float("-inf")
 
 
 def remind(cfg, now=None):

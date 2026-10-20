@@ -162,6 +162,21 @@ class Refresh(unittest.TestCase):
         self.assertEqual(logins.refresh(self.cfg, now=later)["acme"],
                          {"default": {"ends": FAR, "checked_at": later}})
 
+    def test_i_a_tick_that_asked_before_a_login_was_made_leaves_that_login_standing(self):
+        self.answer("default", {"email": "owner@acme.test", "ends": 1000 + 86400})
+        ask, made = logins._ask, []
+
+        def asking(harness, account):   # as the tick asks the second, the ak screen logs in again
+            if account == "second" and not made:
+                made.append(self.answer("default", {"email": "owner@acme.test", "ends": FAR}))
+                logins.refresh(self.cfg, now=1000, renewed=("anthropic", "default"))
+            return ask(harness, account)
+        with patch.object(logins, "_ask", side_effect=asking):
+            kept = logins.refresh(self.cfg, now=1000)
+        self.assertEqual(kept["anthropic"]["default"]["ends"], FAR)
+        self.assertEqual(logins.read(), kept)
+        self.assertEqual(kept["anthropic"]["second"]["email"], "two@acme.test")
+
     def hang(self):
         """The default account's adapter leaves a reader that this process adopts, orphaned."""
         import ctypes
