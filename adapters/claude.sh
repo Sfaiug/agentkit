@@ -184,9 +184,10 @@ interactive)
   printf 'python3 %q -- ' "$REPO/agentkit/harness/claude.py"
   # The seat's first message, when its launch carries one, goes in as claude's `[prompt]`:
   # sent once the conversation has loaded, never typed into a TUI still loading it.
-  # Single quotes, not %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  # After `--`, so a message starting with `-` is no option; in single quotes, not %q:
+  # shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
-    { sq="'"; first=" '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+    { sq="'"; first=" -- '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
   # Remote Control on, named after the seat: the owner follows his seats from the Claude
   # app, and a seat reopened without it -- a resume, an account move -- would be lost there.
   printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --settings %q --remote-control %q%s\n' \

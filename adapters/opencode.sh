@@ -240,9 +240,10 @@ interactive)
   rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
   # The seat's first message, when its launch carries one, goes in as the TUI's `--prompt`:
   # sent once the conversation has loaded, never typed into a TUI still loading it.
-  # Single quotes, not %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  # Joined by `=`, so a message starting with `-` is still its value; in single quotes, not
+  # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
-    { sq="'"; first=" --prompt '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+    { sq="'"; first=" --prompt='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
   printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %sopencode %s--standalone --auto%s\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "$resume" "$first" ;;
 usage)

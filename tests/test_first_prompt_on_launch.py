@@ -2,15 +2,16 @@
 
 Every adapter whose manifest says `[launch] first_prompt = true` puts $AGENTKIT_FIRST_PROMPT on
 the `interactive` line as its harness's own first prompt, one word whatever quotes, newlines
-or `$` it holds, for a new conversation and a resumed one; every other adapter prints the same
-line with it as without.  The loop reads `adapters/*.toml`, so a harness added later is
-covered.
+or `$` it holds, and no option even when it starts with `-`, for a new conversation and a
+resumed one; every other adapter prints the same line with it as without.  The loop reads
+`adapters/*.toml`, so a harness added later is covered.
 
 Offline: the real adapters, run against a temporary HOME with a fake harness binary on PATH.
 """
 
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -22,6 +23,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config
 
 TEXT = 'say "hi" $HOME'
+DASHED = "--help"
 
 
 class FirstPromptOnLaunch(unittest.TestCase):
@@ -57,13 +59,17 @@ class FirstPromptOnLaunch(unittest.TestCase):
     def test_each_adapter_takes_the_first_prompt_its_manifest_declares(self):
         for harness, data in config.manifests():
             honours = (data.get("launch") or {}).get("first_prompt") is True
-            for conversation in ([], ["0d5f3c1e-6b1a-4c55-9f0e-2a7d8e4b9c10"]):
-                with self.subTest(harness=harness, resumed=bool(conversation)):
+            for conversation, text in (([], TEXT), (["0d5f3c1e-6b1a-4c55-9f0e-2a7d8e4b9c10"], TEXT),
+                                       ([], DASHED)):
+                with self.subTest(harness=harness, resumed=bool(conversation), text=text):
                     plain = self.line(harness, conversation)
-                    given = self.line(harness, conversation, AGENTKIT_FIRST_PROMPT=TEXT)
+                    given = self.line(harness, conversation, AGENTKIT_FIRST_PROMPT=text)
                     if honours:
-                        # the last word, alone or a flag's value
-                        self.assertEqual(given[-1], TEXT)
+                        # the last word, after the `--` that ends the options or as a flag's
+                        # `=` value, so a message starting with `-` is never read as an option
+                        self.assertTrue(given[-2:] == ["--", text] or
+                                        re.fullmatch(r"--[\w-]+=" + re.escape(text), given[-1]),
+                                        given[-2:])
                     else:
                         self.assertEqual(given, plain)
                     # an empty one adds no word (Antigravity's line names a fresh directory

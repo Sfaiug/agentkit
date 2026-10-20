@@ -163,9 +163,10 @@ interactive)
   # screen comes to rest, starts moving or agy exits.
   # The seat's first message, when its launch carries one, goes in as agy's `--prompt-interactive`:
   # sent once the conversation has loaded, never typed into a TUI still loading it.
-  # Single quotes, not %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  # Joined by `=`, so a message starting with `-` is still its value; in single quotes, not
+  # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
-    { sq="'"; first=" --prompt-interactive '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+    { sq="'"; first=" --prompt-interactive='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
   printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions%s\n' \
       "$REPO/tools/idle-compact.py" "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" \
       "$first" ;;

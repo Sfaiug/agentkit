@@ -173,9 +173,10 @@ interactive)
   [ -z "$ACCOUNT" ] || printf 'env -u XAI_API_KEY GROK_HOME=%q ' "$GROK_HOME"
   # The seat's first message, when its launch carries one, goes in as grok's `[PROMPT]`:
   # sent once the conversation has loaded, never typed into a TUI still loading it.
-  # Single quotes, not %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  # After `--`, so a message starting with `-` is no option; in single quotes, not %q:
+  # shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
-    { sq="'"; first=" '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+    { sq="'"; first=" -- '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
   printf 'python3 %q --harness grokbuild -- env %s grok %s%s--trust --always-approve --model %q --reasoning-effort %q%s\n' \
       "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$resume" "$rules" "$1" "$2" "$first" ;;
 usage)
