@@ -352,7 +352,7 @@ until seven days, then retries saving; work that still cannot reach the branch s
 branch is unchanged. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
 with no run record goes a day after its last use (its folder changed, git wrote its index or its HEAD moved, at the time its reflog records, which git's housekeeping keeps): a folder with no `.git`, one ak never finished making, the line's marked scratch whatever it
 holds, any other only on a branch, not locked, with no submodule set up and `git status` listing nothing, untracked files
-included. A seat's checkout with a change not committed, a clone, a detached one and one git cannot read stay. A run directory older than 30 days goes whole, with its checkout and branch, unless
+included. A seat's checkout with a change not committed, a clone, a detached one and one git cannot read stay. A run directory older than 30 days, or interrupted 30 days ago and never resumed, goes whole, with its checkout and branch, unless
 the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
 than a day go, owned `/tmp` entries untouched for two days go and a gone Claude session's scratch folder after a day, a repository `TMPDIR` directly under `/var/tmp` like `/tmp` itself,
 finished jobs after a week (a job whose launcher is gone is stopped, as `ak run stop <job>` stops one, once nothing was written in its directory or its tasks' run directories for 30 days), and a state file named for a seat with no record a day after its last
