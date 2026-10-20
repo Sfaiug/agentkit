@@ -378,7 +378,11 @@ the row's crew: Enter there starts the seat, Esc goes back to the row. Notices a
 while the row is open. The popup's `n` makes the same row, and its client switches to the new
 seat.
 
-The picker is `agentkit · new session`: every model appears once, with the same configured name
+Every screen and a seat's bar name a model by its full name, version and all: `Opus 5.5`, its
+harness's catalog label for its id, else the id (`gpt-6.1-sol`; `config.model_name`), never the
+short name it is configured under.
+
+The picker is `agentkit · new session`: every model appears once, with the same full name
 and provider heading as on `c`: `Claude`, `ChatGPT`, and each other provider's display name in
 the accent style. Each row has `orch` (`●`/`○`) for the one orchestrator, `builds` and `reviews`
 (`■`/`□`) for its two role groups, with its harness and effort dim beside it. Names are no wider
@@ -404,7 +408,7 @@ Helpers: `menu.born`, `menu.born_groups`, `menu.born_key`, `terminal.Keyboard`,
 `menu.model_label`, `menu.model_heading`,
 `terminal.toggle` (every mark, here, on `c` and on a project's switches).
 
-Example under `Claude`: `› opus    ●     ■      ■     claude · xhigh`.
+Example under `Claude`: `› Opus 5.5    ●     ■      ■     claude · xhigh`.
 
 ## Rows are tables
 

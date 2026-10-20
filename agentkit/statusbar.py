@@ -284,7 +284,7 @@ def redress(session, answer, cfg=None, records=None):
                                   narrow=True, tmux=True, unsent=answer.get("unsent"),
                                   back=answer.get("resumes_at"))
                  for cells in BARS]
-        info = {"crew": menu.seat_crew(selection),
+        info = {"crew": menu.seat_crew(cfg, selection),
                 "tasks": menu.seat_tasks(name, records)}
         _write(name, selection["orchestrator"] if selection else None, word, lasts, cfg,
                whys(info))
@@ -302,6 +302,7 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=Fals
     count this one again, in the same call."""
     lasts = lasts or [""] * len(BARS)
     versions = list(versions) or [""] * len(WHYS)
+    model = model and config.model_name(config.load() if cfg is None else cfg, model)
     tops = [lines(name, model, word, last)[0] for last in lasts]
     _, _, key, title = lines(name, model, word, lasts[0])
     whys_drawn = [lines(name, model, word, "", version)[1] for version in versions]
