@@ -100,6 +100,12 @@ def open_add(screen):
     screen.case.fail(f"no `add a model` row: {lines}")
 
 
+def on(lines, cfg, name):
+    """Whether the highlight is on the row of the model configured as `name`, drawn by its full
+    name (config.model_name): the name itself shows on no screen, so `cfg` holds it."""
+    return highlighted(lines).startswith(f"› {config.model_name(cfg, name)} ")
+
+
 def step(screen, keys, name):
     """`keys`, then the screen once step `name` is the one open."""
     return screen.press(keys, lambda lines: title(lines) == ADD and f"  {name}" in lines)
@@ -126,8 +132,8 @@ class AddModel(unittest.TestCase):
         self.assertEqual(listed(lines), [["low"], ["medium"], ["high"]])
         self.assertEqual(lines[-1], KEYS["add"])
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
-        self.assertEqual(highlighted(lines).split()[:2], ["›", "sonnet"])
         saved = screen.saved()
+        self.assertTrue(on(lines, saved, "sonnet"), lines)
         self.assertEqual(saved["models"]["sonnet"],
                          {"harness": "claude", "model": "claude-sonnet-5", "effort": "medium",
                           "provider": "anthropic"})
@@ -144,7 +150,7 @@ class AddModel(unittest.TestCase):
         levels = config.efforts("claude")          # the manifest's `[effort] levels`, no listing
         self.assertEqual(listed(lines), [[level] for level in levels])
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
-        self.assertEqual(highlighted(lines).split()[:2], ["›", "mystery"])
+        self.assertTrue(on(lines, screen.saved(), "mystery"), lines)
         self.assertEqual(screen.saved()["models"]["mystery"],
                          {"harness": "claude", "model": "claude-mystery", "effort": levels[1],
                           "provider": "anthropic"})
@@ -176,7 +182,7 @@ class AddModel(unittest.TestCase):
         step(screen, DOWN + ENTER, "effort")
         lines = screen.press(DOWN + DOWN + ENTER,
                              lambda lines: title(lines) == "agentkit · config")
-        self.assertEqual(highlighted(lines).split()[1], "opus-2")    # `opus` is Opus 5.5's
+        self.assertTrue(on(lines, screen.saved(), "opus-2"), lines)    # `opus` is Opus 5.5's
         self.assertEqual(screen.saved()["models"]["opus-2"],
                          {"harness": "claude", "model": "claude-opus-5", "effort": "high",
                           "provider": "anthropic"})
@@ -185,7 +191,7 @@ class AddModel(unittest.TestCase):
         self.assertEqual(listed(lines)[1], ["Opus 5", "claude-opus-5", "✓ opus-2"])
         step(screen, DOWN + ENTER, "effort")
         lines = screen.press(ENTER, lambda lines: title(lines) == "agentkit · config")
-        self.assertEqual(highlighted(lines).split()[1], "opus-3")
+        self.assertTrue(on(lines, screen.saved(), "opus-3"), lines)
         self.assertEqual(screen.saved()["models"]["opus-3"]["effort"], "low")
         screen.leave()
 
@@ -203,7 +209,7 @@ class AddModel(unittest.TestCase):
         self.assertEqual(title(lines), ADD)                   # nothing added, still choosing
         self.assertEqual(screen.path.read_bytes(), before)
         lines = screen.press(UP + ENTER, lambda lines: title(lines) == "agentkit · config")
-        self.assertEqual(highlighted(lines).split()[1], "opus-2")
+        self.assertTrue(on(lines, screen.saved(), "opus-2"), lines)
         models = screen.saved()["models"]
         self.assertEqual(models["opus-2"], {"harness": "claude", "model": "claude-opus-5-5",
                                             "effort": "high", "provider": "anthropic"})
@@ -234,8 +240,8 @@ class AddModel(unittest.TestCase):
         self.assertEqual(listed(lines), [["low"], ["high"]])
         lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
         self.assertIn("Gemini", lines)
-        self.assertEqual(highlighted(lines).split()[1], "gemini-pro")
         saved = screen.saved()
+        self.assertTrue(on(lines, saved, "gemini-pro"), lines)
         self.assertEqual(saved["models"]["gemini-pro"],
                          {"harness": "antigravity", "model": "gemini-3.1-pro", "effort": "high",
                           "provider": "google"})

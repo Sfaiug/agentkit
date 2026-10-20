@@ -3068,9 +3068,10 @@ def models_at(rows, effort):
 def _entry(cfg, row, role):
     """A row as the lines above the table say it: its label under the configured model `r`
     takes it as in `role` (takes), its quality for the role and what its index run cost
-    (`opus @ xhigh 97 $4057`; the cost left out where Artificial Analysis has not run it)."""
-    cost = row["values"].get(matrix.COST)
-    return (f"{matrix.row_label({**row, 'name': takes(cfg, row, role)})} "
+    (`Opus 5.5 @ xhigh 97 $4057`, by its full name; the cost left out where Artificial Analysis
+    has not run it)."""
+    cost, name = row["values"].get(matrix.COST), takes(cfg, row, role)
+    return (f"{matrix.row_label({**row, 'name': name and config.model_name(cfg, name)})} "
             f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.0f}"))
 
 
@@ -3085,7 +3086,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     where they wrap to more lines than its page holds, shows each in turn, a page at a time
     where one is taller than the page (matrix_key).  Then, dim, what
     quality and cost are, a row read the same way, and under it every model of `table`
-    (models_table) once: its label, the config's name for it or its id, dim
+    (models_table) once: its label, its full name where the config runs it, else its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
@@ -3132,7 +3133,8 @@ def models_body(cfg, table, levels, shown, at, picks):
         line = "  " + terminal.styled(part, "dim")
         lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
-    labels = {key: next(iter(_runs(cfg, *key)), None) or key[1] for key in table}
+    labels = {key: next((config.model_name(cfg, name) for name in _runs(cfg, *key)), key[1])
+              for key in table}
     showing = {key: models_at(rows, shown[key]) for key, rows in table.items()}
     texts, kinds = {}, {}
     for key, row in showing.items():
@@ -3535,8 +3537,9 @@ def config_model(cfg, name):
     keeping it; the last model is refused without asking, and one removed goes back to the
     matrix at once.
     """
-    here, note, title = MODEL_ROWS[0], "", f"config · {name}"
+    here, note = MODEL_ROWS[0], ""
     while name in cfg["models"]:
+        title = f"config · {config.model_name(cfg, name)}"     # a stepped id renames it
         keys = (MODEL_KEYS["remove" if here == "Remove" else "step"][0 if terminal.utf8() else 1]
                 + "   esc back")
         body, places = model_body(cfg, name, None if terminal.away() else here)
@@ -3572,7 +3575,7 @@ def config_model(cfg, name):
                 lines = model_body(cfg, name)[0]
                 terminal.frame(title, [*lines, *card], "esc back")
                 return 3 + len(lines)
-            if terminal.confirm(REMOVE_ASK[0].format(name), REMOVE_ASK[1], "Remove", around):
+            if terminal.confirm(REMOVE_ASK[0].format(config.model_name(cfg, name)), REMOVE_ASK[1], "Remove", around):
                 before = copy.deepcopy(cfg)
                 config.remove_model(cfg, name)
                 note = _saved(cfg, cfg, before)

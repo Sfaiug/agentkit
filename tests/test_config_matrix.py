@@ -181,7 +181,8 @@ class Screen:
 
 # Each model by the full name its row shows (config.model_name), the shipped catalog's labels.
 FULL = {"fable": "Fable 5.1", "opus": "Opus 5.5", "haiku": "Haiku 4.5", "astra": "GPT-6-Astra",
-        "spark": "muse-spark-1.3-contributor"}
+        "spark": "muse-spark-1.3-contributor", "grok": "Grok 4.7", "gemini": "Gemini 3.8 Flash",
+        "mimo": "MiMo V2.6 Pro"}
 
 
 def row(lines, name):
