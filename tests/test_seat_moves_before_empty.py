@@ -22,15 +22,18 @@ class MovesBeforeEmpty(unittest.TestCase):
     setUp, tick, tmux, type_into = (base.SeatAccount.setUp, base.SeatAccount.tick,
                                     base.SeatAccount.tmux, base.SeatAccount.type_into)
 
-    def meters(self, first, second, single=False, gone=2 * HOUR):
-        """Each subscription's 5h window that used%, `gone` of it past, beside a quiet week."""
-        def reading(used):
+    def meters(self, first, second, single=False, gone=2 * HOUR, scoped=0):
+        """Each subscription's 5h window that used%, `gone` of it past, beside a quiet week;
+        the second's Fable week `scoped`% used."""
+        def reading(used, scoped=0):
             return {"provider": "anthropic", "resets": 0, "meters": [usage._normalized(meter, self.now)
                     for meter in ({"name": "session", "used": used, "window_secs": usage.SESSION_SECS,
                                    "resets_at": self.now + usage.SESSION_SECS - gone},
                                   {"name": "weekly_all", "used": 30, "window_secs": 604800,
+                                   "resets_at": self.now + 3 * 86400},
+                                  {"name": "weekly_scoped", "used": scoped, "window_secs": 604800,
                                    "resets_at": self.now + 3 * 86400})]}
-        first, second = reading(first), reading(second)
+        first, second = reading(first), reading(second, scoped)
         anthropic = first if single else {**first, "accounts": {"default": first, "second": second}}
         (config.STATE / "usage.json").write_text(json.dumps({
             "fetched_at": self.now, "reset_checked_at": self.now,
@@ -67,9 +70,12 @@ class MovesBeforeEmpty(unittest.TestCase):
     def test_a_worker_turn_starts_on_the_subscription_that_is_not_running_low(self):
         # the usual login is a worker's last pick only while the others have as much room
         self.meters(10, 97)
-        self.assertEqual(usage.account(self.cfg, "anthropic"), ("default", True))
+        self.assertEqual(usage.account(self.cfg, "anthropic", model="opus"), ("default", True))
         self.meters(97, 10)
-        self.assertEqual(usage.account(self.cfg, "anthropic"), ("second", True))
+        self.assertEqual(usage.account(self.cfg, "anthropic", model="opus"), ("second", True))
+        # Fable's own week running low on the spare leaves an Opus turn there
+        self.meters(10, 10, scoped=97)
+        self.assertEqual(usage.account(self.cfg, "anthropic", model="opus"), ("second", True))
 
 
 if __name__ == "__main__":

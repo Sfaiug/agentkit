@@ -516,19 +516,7 @@ def _gate_flags(providers, now, cfg):
             accounts = _gate_flags({account: accounts[account] for account in listed
                                     if isinstance(accounts.get(account), dict)}, now, cfg)
             if accounts:
-                every = _probe_every(cfg, name)
-
-                # One on credits goes after every one with a window left, the usual login too,
-                # and one running low after every one that is not.
-                def rank(account):
-                    spent = accounts[account]["exhausted"]
-                    unknown = accounts[account]["budget_reason"] is not None
-                    usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
-                    group = 1 if usual else (0 if not spent else 2)
-                    return (spent, accounts[account]["on_credits"],
-                            running_low(accounts[account].get("meters") or [], every), group,
-                            unknown, -accounts[account]["budget"])
-                best = min(accounts, key=rank)
+                best = min(accounts, key=lambda account: _worker_rank(account, accounts[account]))
                 prov.clear()
                 prov.update(accounts[best], accounts=accounts, account=best)
         # A quota the harness recorded when it refused a run is the reading at once: it is a
@@ -1259,20 +1247,34 @@ def holds(provider, account, meter):
             len(pairs))
 
 
-def account(cfg, provider):
+def _worker_rank(account, reading, low=False):
+    """Where an account stands for a worker turn, lowest first: one on credits after every one
+    with a window left, the usual login too, and one running `low` after every one that is not."""
+    spent = reading["exhausted"]
+    unknown = reading["budget_reason"] is not None
+    usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
+    group = 1 if usual else (0 if not spent else 2)
+    return (spent, reading["on_credits"], low, group, unknown, -reading["budget"])
+
+
+def account(cfg, provider, model=None):
     """(the account a worker turn on this provider runs on, whether it has room left).
 
     The one `_gate_flags` put first: another account with room before the usual login,
     the usual one only when none of them has any, then the most budget, then the order
-    the config lists them in.  (None, None) for a provider that lists no accounts,
-    which is asked nothing: it is one login, exactly as it always was.
+    the config lists them in; for a `model`, one running low on the meters gating it
+    (`model_low`) after every one that is not.  (None, None) for a provider that lists no
+    accounts, which is asked nothing: it is one login, exactly as it always was.
     """
     names = config.accounts(cfg, provider)
     if not names:
         return None, None
     prov = collect(cfg).get(provider) or {}
     if prov.get("account") in names:
-        return prov["account"], not prov.get("exhausted")
+        readings = prov["accounts"]
+        best = prov["account"] if model is None else min(readings, key=lambda a: _worker_rank(
+            a, readings[a], model_low(cfg, model, {provider: readings[a]})))
+        return best, not prov.get("exhausted")
     spare = next((a for a in names if a != config.DEFAULT_ACCOUNT), names[0])
     return spare, not prov.get("exhausted")
 

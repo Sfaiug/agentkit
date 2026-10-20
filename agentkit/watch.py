@@ -4225,19 +4225,19 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         cue = error_said(harness, lines)
     refusal = outcome in (SPENT, LIMITED)
     now = time.time()
-    observed = live.get("usage_refusal") or {}
+    seen = live.get("usage_refusal") or {}
     until = turns.try_again_at(line) if refusal else None
-    handled = observed.get("line") == line and observed.get("handled")
+    handled = seen.get("line") == line and seen.get("handled")
     if handled and not waiting and not spent(current):
         return True       # a consumed refusal is still history when its transcript is redrawn
     if refusal and not waiting and not spent(current):
-        if observed.get("line") != line:
+        if seen.get("line") != line:
             if not dry_run:
                 seat_write(name, usage_refusal={"line": line, "at": now})
             return True
-        if now - observed["at"] < STALL_WAIT:
+        if now - seen["at"] < STALL_WAIT:
             return True
-    elif not refusal and observed and not observed.get("handled") and not dry_run:
+    elif not refusal and seen and not seen.get("handled") and not dry_run:
         seat_write(name, usage_refusal=None)
     if not waiting and not refusal and not spent(current):
         # An idle seat comes home once home has a window, and leaves credits for any window; a
@@ -4264,6 +4264,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                         or seat_read(name).get("opened_at") != live.get("opened_at")
                         or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
                         or pane_text(current_seat) != pane):
+                    return True
+                # A turn or question begun while the meters were read redraws no pane yet:
+                # only its hooks say so.
+                fresh = observed(name, harness, pane, seat_read(name), time.time())
+                if fresh["state"] != "at_prompt" or _turn_in_flight(harness, fresh)[0]:
                     return True
                 try:
                     _resume_on(cfg, name, log, target, limit_ended(harness, name))
@@ -4304,23 +4309,23 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             # A bare 429/rate limit is not proof a subscription is empty. Retry the
             # stable error locally; only a spent window or deadline parks an account.
             if until is None and outcome == LIMITED:
-                if observed.get("told") or owner_question(notify.last(name)):
+                if seen.get("told") or owner_question(notify.last(name)):
                     return True     # a stall, and an open question is never a reason to type
-                if now - observed["at"] >= GIVE_UP:
+                if now - seen["at"] >= GIVE_UP:
                     text = stuck_notice(name, harness)
                     if notify.shaped("needs", text, session=name,
-                                     event_id=f"stall:{name}:{observed['at']}") == 0:
-                        seat_write(name, usage_refusal={**observed, "told": now})
-                elif now - observed.get("nudged_at", 0) >= NUDGE_EVERY:
+                                     event_id=f"stall:{name}:{seen['at']}") == 0:
+                        seat_write(name, usage_refusal={**seen, "told": now})
+                elif now - seen.get("nudged_at", 0) >= NUDGE_EVERY:
                     if type_into(session, keystroke(harness, cue), log):
-                        seat_write(name, usage_refusal={**observed, "nudged_at": now})
+                        seat_write(name, usage_refusal={**seen, "nudged_at": now})
                 return True
             until = usage.mark_exhausted(cfg, provider, until=until,
                                          account=current if accounts else None)
             readings[current] = {**readings.get(current, {}), "exhausted_until": until}
         if refusal:
-            observed = {"line": line, "at": now, "handled": True}
-            seat_write(name, usage_refusal=observed)
+            seen = {"line": line, "at": now, "handled": True}
+            seat_write(name, usage_refusal=seen)
         continuing = bool((waiting or {}).get("continue") or refusal
                           or _turn_in_flight(harness, live)[0] or limit_ended(harness, name))
         if target is not None:
@@ -4338,7 +4343,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                                             "since": waiting["since"] if waiting else now,
                                             "continue": continuing})
                 return True
-            seat_write(name, usage_wait=None, usage_refusal=observed or None)
+            seat_write(name, usage_wait=None, usage_refusal=seen or None)
             return True
         # Each account needs all of this model's spent windows back. Scoped meters
         # belonging to another model neither trigger a move nor postpone the reset.

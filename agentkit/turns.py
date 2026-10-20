@@ -998,7 +998,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         """
         nonlocal account, span, last_dir, last_sid
         run_record.stop_check(run_dir)
-        account = usage.account(cfg, entry["provider"])[0]
+        account = usage.account(cfg, entry["provider"], model=name)[0]
         before = usage.reading(entry["provider"], account)
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
@@ -1044,7 +1044,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         """Park the account this turn ran on alone, and whether another of its provider has
         room: the turn goes there, on its own session, before any other model is asked."""
         usage.mark_exhausted(cfg, entry["provider"], until, account)
-        spare, room = usage.account(cfg, entry["provider"])
+        spare, room = usage.account(cfg, entry["provider"], model=name)
         if room and spare != account:
             log(f"{role} {name} ran dry on account {account}: {message}; going on with account "
                 f"{spare}" + (f", resuming session {session}" if session else ""))
