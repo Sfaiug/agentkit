@@ -107,7 +107,7 @@ class Editor(unittest.TestCase):
         self.path.write_text(OWN)
         self.drive("down")
         self.assertEqual(self.path.read_text(), OWN)      # nothing changed: nothing to save
-        self.drive("enter")
+        self.drive("right", "right", "right", "enter")
         saved = tomllib.loads(self.path.read_text())
         self.assertNotIn("tiers", saved)
         self.assertEqual(saved["defaults"], {"orchestrator": "solo", "workers": ["solo"]})
@@ -157,7 +157,7 @@ class Editor(unittest.TestCase):
         levels = [{"id": "claude-fable-5-1", "label": "Fable 5.1",
                    "efforts": ["low", "medium", "high", "xhigh", "max"]}]
         with patch.object(config, "catalog", return_value=levels):
-            self.drive("enter")
+            self.drive("right", "right", "right", "enter")
         again = tomllib.loads(self.path.read_text())
         self.assertEqual(again["mystery"], 7)
         self.assertEqual(again["models"]["fable"]["nickname"], "f")
@@ -207,8 +207,10 @@ class Editor(unittest.TestCase):
 
     def test_main_screen_lists_values(self):
         _, screen = self.drive(session="fix-api")
-        self.assertTrue(screen.startswith("agentkit · config · fix-api"), screen)
-        for bit in ("orch  builds  reviews  effort", "Claude", "opus     ●", "●", "■", "□",
+        self.assertTrue(screen.startswith("agentkit · config "), screen)
+        self.assertIn(menu.for_text("fix-api"), screen)
+        self.assertRegex(screen, r"\n  opus +●")
+        for bit in ("orch  builds  reviews  effort", "Claude", "●", "■", "□",
                     "▰▰▰▰▱", "add a model", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)

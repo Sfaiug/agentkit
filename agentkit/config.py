@@ -1089,9 +1089,9 @@ def discard_session(name, created):
 
 
 def remember_defaults(record):
-    """[defaults] as the seat just created was given: what the next `n` starts from, and the
-    one write of them (save).  The file is read again first, so nothing changed in it since
-    is written back over; a failed write keeps the ones before."""
+    """[defaults] as `record` has them: what the next `n` starts from, and the one write of
+    them (save).  The file is read again first, so nothing changed in it since is written back
+    over; a failed write keeps the ones before and says why, else ""."""
     try:
         cfg = load()
         # a file from before it held the models (max_runs alone) loads as the shipped one: its
@@ -1099,8 +1099,9 @@ def remember_defaults(record):
         cfg.update((key, value) for key, value in (_read_toml(HOME / CONFIG_NAME) or {}).items()
                    if key not in ("defaults", "tiers", "models", "providers"))
         save(cfg, {key: record[key] for key in _DEFAULTS_ORDER if key in record})
-    except (Error, OSError):
-        pass    # the seat is made all the same
+    except (Error, OSError) as exc:
+        return str(exc)     # a seat is made all the same
+    return ""
 
 
 def update_session(name, **fields):

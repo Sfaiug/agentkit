@@ -116,7 +116,7 @@ def open_meter(screen, name):
     """↑ onto `name`'s meter over the page, ↓ back if past it: the screen with it lit."""
     lines = screen.frame()
     for key in [UP] * 20 + [DOWN] * 10:
-        if lines[headings(lines) - 1].strip().startswith(name + "  "):
+        if lines[headings(lines) - 2].strip().startswith(name + "  "):    # over the For row
             screen.case.assertEqual(lines[-1], KEYS["row"])
             return lines
         lines = screen.press(key)
@@ -225,9 +225,9 @@ class ProviderScreen(unittest.TestCase):
     def test_a_meter_is_reached_and_asks_to_remove_its_provider(self):
         screen = Screen(self, child=CHILD)
         before = screen.path.read_bytes()
-        # ↑ past the first model lights the last meter, its line under the meters
-        lines = screen.press(UP, lambda lines: lines[headings(lines) - 1].strip())
-        name = lines[headings(lines) - 1].split()[0]
+        # ↑ past the first model and the For row lights the last meter, its line under them
+        lines = screen.press(UP * 2, lambda lines: lines[headings(lines) - 2].strip())
+        name = lines[headings(lines) - 2].split()[0]
         self.assertEqual(lines[-1], "  ↑↓ move   ⏎ open   esc back")
         # `− remove` is all it offers, so it asks at once, and Enter keeps
         asked = screen.press(ENTER, lambda lines: lines[-1] == KEYS["ask"])
@@ -248,7 +248,7 @@ class ProviderScreen(unittest.TestCase):
                  'effort = "high"\nprovider = "claude"\n\n[providers.claude]\nmode = "payg"\n')
         screen = Screen(self, child=CHILD, text=ONE + house)
         self.assertEqual(providers(screen.frame()), ["Claude", "Claude"])
-        screen.press(UP + ENTER, lambda lines: "  Remove Claude and its models?" in lines)
+        screen.press(UP * 2 + ENTER, lambda lines: "  Remove Claude and its models?" in lines)
         screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         saved = screen.saved()
         self.assertEqual(list(saved["providers"]), ["anthropic"])
