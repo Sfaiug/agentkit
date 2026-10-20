@@ -36,8 +36,9 @@ class SeatEditor(EditorSeat):
         self.assertEqual(self.buffers, {aside_editor.kept(PANE): DRAFT.encode()})
         self.assertTrue(watch._edit(self.seat, where, "back",
                                     settled=lambda: self.holds(DRAFT) == "line"))
+        # still kept, for `bring_back` to drop once it reads the text back
         self.assertEqual((self.keys, self.composer, self.buffers, self.ask),
-                         (["C-g"] * 3, DRAFT, {}, None))
+                         (["C-g"] * 3, DRAFT, {aside_editor.kept(PANE): DRAFT.encode()}, None))
 
     def test_an_ask_is_taken_back_when_the_screen_cannot_be_read(self):
         self.deaf = True
