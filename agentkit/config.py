@@ -230,6 +230,15 @@ def child_env():
     return {k: v for k, v in os.environ.items() if k not in dropped}
 
 
+def owner_env():
+    """`child_env` for a stop the person at the menu's keys asks for: without the seat the menu
+    is over -- Ctrl-b m's popup is inside one -- whose name would make every other seat's stop
+    a seat's, refused (`check_stop_owner`, the guard for what a seat's own model types)."""
+    env = child_env()
+    env.pop(SESSION_ENV, None)
+    return env
+
+
 def harness_binary(name):
     """The binary the way its adapter finds it: PATH first, its own bin dir as fallback.
 

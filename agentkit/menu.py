@@ -374,7 +374,7 @@ class Live:
         log = tempfile.TemporaryFile()   # a file, not a pipe: no reader gone kills the stop
         try:
             proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
-                                    env=config.child_env(), stdin=subprocess.DEVNULL,
+                                    env=config.owner_env(), stdin=subprocess.DEVNULL,
                                     stdout=log, stderr=log, start_new_session=True)
         except OSError as exc:
             log.close()
@@ -1942,8 +1942,8 @@ def close_seat(name, dry_run, refused=None):
 
 
 def teardown(name, dry_run):
-    """The process `x` stops that seat in (`Live.stop`): `close_seat`, exiting 1 with the reason
-    last where the stop is refused."""
+    """The process `x` stops that seat in (`Live.stop`, and the past screen's `x` takes it off
+    the list in): `close_seat`, exiting 1 with the reason last where the stop is refused."""
     return [sys.executable, "-u", "-c", "import sys; from agentkit import menu; "
             "menu.close_seat(sys.argv[1], sys.argv[2] == '1', refused=sys.exit)",
             name, "1" if dry_run else "0"]
@@ -4769,7 +4769,12 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
             keyboard.give()       # the stop says what it did where it can be read
             clock.forget()        # another screen: the page back from it is drawn as it is
-            close_seat(here, dry_run)
+            removed = subprocess.run(teardown(here, dry_run), cwd=config.REPO,
+                                     env=config.owner_env(), stdin=subprocess.DEVNULL,
+                                     stderr=subprocess.PIPE, text=True)
+            if removed.returncode:
+                pause(removed.stderr.strip().splitlines()[-1] if removed.stderr.strip()
+                      else f"stop: {here} was not removed")
             keyboard.take()
             found = [session for session in found if session["name"] != here]
 

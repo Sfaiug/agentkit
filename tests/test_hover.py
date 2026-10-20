@@ -479,7 +479,8 @@ class Screens(Sandbox):
 
     def test_x_remove_clicked_with_the_highlight_out_brings_it_back_and_the_next_removes(self):
         seats = [{"name": name, "repo": None, "closed": 1} for name in ("alpha", "beta")]
-        closed = self.stack.enter_context(patch.object(menu, "close_seat"))
+        closed = self.stack.enter_context(patch.object(menu, "teardown", return_value=[
+            sys.executable, "-c", ""]))          # the stop's process, doing nothing here
 
         def screen():
             return menu.show_past({}, seats, keyboard=Mock())
