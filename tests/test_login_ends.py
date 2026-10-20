@@ -236,6 +236,22 @@ class Refresh(unittest.TestCase):
             logins.renewed(self.cfg, "anthropic", "default", now=1001)
         self.assertEqual(logins.read()["anthropic"]["default"]["email"], "right@acme.test")
 
+    def test_l_a_tick_saving_while_a_renewed_login_asks_keeps_its_older_answer_under_it(self):
+        soon = {"email": "owner@acme.test", "ends": 1000 + 86400}
+        self.answer("default", soon)
+        logins.refresh(self.cfg, now=1000)
+        ask, ticked = logins._ask, []
+
+        def asked(harness, account):
+            if not ticked:
+                ticked.append(True)
+                logins.refresh(self.cfg, now=1001)     # a tick that asked before the login
+                self.answer("default", {**soon, "ends": FAR})
+            return ask(harness, account)
+        with patch.object(logins, "_ask", side_effect=asked):
+            logins.renewed(self.cfg, "anthropic", "default", now=1002)
+        self.assertEqual(logins.read()["anthropic"]["default"]["ends"], FAR)
+
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch
         passes = {what: run for what, run, _ in watch.local_passes({}, False, print)}

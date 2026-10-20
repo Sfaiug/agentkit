@@ -126,17 +126,22 @@ def renewed(cfg, provider, account, now=None):
 
 def _write(old, new):
     """Keep `new`, made from `old`, as the logins standing, under the record's lock, but any
-    entry another writer changed since `old` was read as they left it: the tick and a login
-    renewed on the ak screen each write after asks that take seconds, and one that wrote
-    meanwhile asked later.  A tick writing meanwhile an answer asked before the login stands
-    over the renewed one, until the next tick, which asks again while its meter is amber."""
+    entry another writer changed since `old` was read and asked no earlier (`checked_at`, taken
+    before asking) as they left it: the tick and a login renewed on the ak screen each write
+    after asks that take seconds, so the later write may hold the older answer."""
     config.ensure_dirs()
     with config._record_lock(path()):
         for provider, accounts in read().items():
             for account, theirs in (accounts or {}).items():
-                if theirs != (old.get(provider) or {}).get(account):
+                if theirs != (old.get(provider) or {}).get(account) and (
+                        _asked(theirs) >= _asked((new.get(provider) or {}).get(account))):
                     new.setdefault(provider, {})[account] = theirs
         config._write_json(path(), new, prepare=False)
+
+
+def _asked(login):
+    at = login.get("checked_at") if isinstance(login, dict) else None
+    return at if isinstance(at, (int, float)) else float("-inf")
 
 
 def remind(cfg, now=None):
