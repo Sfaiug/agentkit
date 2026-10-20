@@ -3,6 +3,7 @@
 # Verified against Muse Code 1.2.1 (and the 1.0.3/1.1.1 captures); see tests/fixtures/README.md.
 # A worker turn or seat still loads the trusted workspace's personal rules (Muse 1.4.1 drops them only with the trust its delegation needs), and a seat Claude's and Codex's personal skills too: Muse 1.4.3's TUI takes no --no-foreign-personal-context, only `muse exec` does.
 version = 1
+name = "Muse Code"
 
 [check]
 model = "muse-spark-1.3-contributor"

@@ -1,4 +1,4 @@
-"""Finished, weighed reviews reach history and the model's own screen under a test HOME."""
+"""Finished, weighed reviews reach history, counted for the identity that ran, under a test HOME."""
 
 from contextlib import ExitStack, closing
 import json
@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, history, menu, run, staffing, terminal, transitions, turns, worker
+from agentkit import config, hand_in, history, run, staffing, transitions, turns, worker
 
 
 class CatchCounts(unittest.TestCase):
@@ -104,18 +104,27 @@ class CatchCounts(unittest.TestCase):
         with patch.object(turns, "call_retrying", side_effect=self.turn(list(rows))):
             return run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n", record=record)
 
-    def screen(self, name="reviewer", width=120):
-        with patch.object(terminal, "layout_width", return_value=width):
-            return menu.model_body(self.cfg, name)
+    def counts(self, name):
+        """(reviews, caught, already on main, unproven) history keeps for the identity `name`
+        runs, of real work only (`history.REAL_WORK`); none at all before a database exists."""
+        entry = self.cfg["models"][name]
+        try:
+            with closing(history._connect(readonly=True)) as db:
+                return db.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(blocking),0), COALESCE(SUM(followup),0), "
+                    "COALESCE(SUM(note),0) FROM reviews JOIN runs USING (run_id) "
+                    f"WHERE harness=? AND model=? AND {history.REAL_WORK}",
+                    (entry["harness"], entry["model"])).fetchone()
+        except sqlite3.Error:
+            return (0, 0, 0, 0)
 
     def assert_counts(self, reviewed, caught, already, unproven, name="reviewer"):
-        self.assertIn(f"  Reviewed {reviewed} time{'s' if reviewed != 1 else ''} · caught {caught} · "
-                      f"{already} already on main · {unproven} unproven", self.screen(name)[0])
+        self.assertEqual(self.counts(name), (reviewed, caught, already, unproven))
 
     def assert_unused(self, name="reviewer"):
-        self.assertIn("  Not used as a reviewer yet", self.screen(name)[0])
+        self.assertEqual(self.counts(name)[0], 0)
 
-    def test_weighed_counts_reach_the_database_and_model_screen(self):
+    def test_weighed_counts_reach_the_database(self):
         lp = self.loop()
         self.assertEqual(self.review(lp, self.records()), "FAIL")
         self.assert_counts(1, 1, 1, 1)
@@ -142,19 +151,10 @@ class CatchCounts(unittest.TestCase):
             run.history_finish({**lp.state, "state": "pass"})
         self.assert_counts(2, 1, 1, 1)
 
-    def test_the_model_id_step_and_aliases_read_the_identity_that_ran(self):
-        lp = self.loop()
-        self.review(lp, self.records())
+    def test_aliases_read_the_identity_that_ran(self):
+        self.review(self.loop(), self.records())
         self.assert_counts(1, 1, 1, 1, "alias")
         self.assert_unused("other-harness")
-        catalog = [{"id": model, "efforts": ["high"]} for model in ("judge-1", "judge-2")]
-        with patch.object(menu, "_offered", return_value=catalog):
-            self.assertEqual(menu.config_model_id(self.cfg, "reviewer", 1, ()), "")
-            self.assert_unused()
-            self.review(lp)
-            self.assert_counts(1, 0, 0, 0)
-            self.assertEqual(menu.config_model_id(self.cfg, "reviewer", -1, ()), "")
-        self.assert_counts(1, 1, 1, 1)
 
     def test_suite_and_stopped_runs_never_contribute(self):
         for name, fields in (("smoke", {"repo": str(self.root / "agentkit-smoke")}),
@@ -190,17 +190,6 @@ class CatchCounts(unittest.TestCase):
             with self.assertRaises(run.Exhausted):
                 run.review(lp, "API fixed.", True, "$ true\n[exit 0]\n")
         self.assert_unused()
-
-    def test_phone_wraps_the_plain_line_and_keeps_only_the_action_rows(self):
-        self.review(self.loop(), self.records())
-        lines, places = self.screen(width=40)
-        self.assertEqual([row for row, _ in places.values()], list(menu.MODEL_ROWS))
-        self.assertGreater(len(lines), 6)
-        self.assertEqual(lines[5], "")
-        self.assertEqual(" ".join(line.strip() for line in lines[6:]),
-                         "Reviewed 1 time · caught 1 · 1 already on main · 1 unproven")
-        for line in lines:
-            self.assertLessEqual(terminal.cells(line), 40, line)
 
     def test_an_old_database_and_missing_history_read_as_unused(self):
         self.assert_unused()

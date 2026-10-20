@@ -4,8 +4,8 @@ A temporary HOME holds config.toml and the secrets.  The matrix is driven in-pro
 `terminal.read_key` fed its keys and a keyboard that is always taken (tests/test_config_matrix.py
 drives it on a real pty), and the meters are an empty reading.  What is pinned is the round
 trip: a mark writes the seat `fix-api`'s record and never `[defaults]`, effort steps within its
-model's own words, add writes a whole block off its three lists, and Version asks no harness
-anything.  Discord's page is test_discord_row's.
+model's own words, `Models` ticks a whole block in off its harness's catalog, and Version
+asks no harness anything.  Discord's page is test_discord_row's.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -124,12 +124,12 @@ class Editor(unittest.TestCase):
                     effort = tomllib.loads(self.path.read_text())["models"]["fable"]["effort"]
                     self.assertEqual(effort, want)
 
-    def test_add_model_writes_complete_entry(self):
-        # add a model, then codex, its one model, and its second effort: nothing typed
+    def test_models_ticks_a_complete_entry_in(self):
+        # Models, then Codex, its one model ticked in at astra's effort as near as it goes
         levels = [{"id": "gpt-x", "label": "GPT-X", "efforts": ["low", "high"]}]
         with patch.object(config, "catalog", return_value=levels), \
                 patch.object(menu, "read") as read:
-            self.drive(*["down"] * 7, "enter", "down", "enter", "enter", "down", "enter")
+            self.drive(*["down"] * 7, "enter", "down", "enter", "enter", "esc", "esc")
         self.assertEqual(read.call_count, 0)
         models = tomllib.loads(self.path.read_text())["models"]
         self.assertEqual(models["gpt-x"], {"harness": "codex", "model": "gpt-x",
@@ -145,7 +145,7 @@ class Editor(unittest.TestCase):
         before = self.path.read_bytes()
         levels = [{"id": "gpt-x", "label": "GPT-X", "efforts": ["low", "high"]}]
         with patch.object(config, "catalog", return_value=levels):
-            self.drive(*["down"] * 7, "enter", "enter", "enter", "esc", "esc", "esc")
+            self.drive(*["down"] * 7, "enter", "enter", "esc", "esc")
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_unknown_keys_survive_a_write(self):
@@ -209,7 +209,7 @@ class Editor(unittest.TestCase):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config · fix-api"), screen)
         for bit in ("orch  builds  reviews  effort", "Claude", "opus     ●", "●", "■", "□",
-                    "▰▰▰▰▱", "add a model", "Discord", "Version abc1234 · 2026-09-29",
+                    "▰▰▰▰▱", "Models", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
         self.assertNotIn("Update", screen)

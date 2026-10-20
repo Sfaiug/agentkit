@@ -388,22 +388,6 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
         (review_id, harness, model, blocking, followup, note, round, verdict, effort, run_id)), log)
 
 
-def review_counts(harness, model):
-    """Finished reviews, blocking findings, follow-ups and notes for the identity that ran."""
-    try:
-        with _LOCK:
-            connection = _connect(readonly=True)
-            try:
-                return connection.execute(
-                    "SELECT COUNT(*), COALESCE(SUM(blocking),0), COALESCE(SUM(followup),0), "
-                    "COALESCE(SUM(note),0) FROM reviews JOIN runs USING (run_id) "
-                    f"WHERE harness=? AND model=? AND {REAL_WORK}", (harness, model)).fetchone()
-            finally:
-                connection.close()
-    except (OSError, sqlite3.Error, TypeError, ValueError):
-        return (0, 0, 0, 0)
-
-
 def reviewed_runs(harness, model):
     """Of the runs the identity finished a review of, in whichever round and whatever became of
     the run since (its decision stood once given; a stopped run's never counts, `REAL_WORK`),

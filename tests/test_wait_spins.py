@@ -32,7 +32,7 @@ class Spins(unittest.TestCase):
                 patch.object(terminal, "height", return_value=rows), \
                 patch.object(terminal, "frame", lambda title, lines, keys: drawn.append(lines)), \
                 patch.object(menu, "moving", moving), self.assertRaises(menu.Back):
-            menu.waited(held.wait, "config · add a model", body,
+            menu.waited(held.wait, "config · models", body,
                         doing="reading the models acme offers")
         return drawn[-1], clocks[-1]
 

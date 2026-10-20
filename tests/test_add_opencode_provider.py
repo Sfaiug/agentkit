@@ -15,11 +15,11 @@ and `providers` lists `opencode` (OpenCode's own, which it calls OpenCode Consol
 too.  Nothing reads or writes the owner's ~/.agentkit or OpenCode's own home.
 """
 
+import re
 import unittest
 from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, ESC, Screen, highlighted
-from test_add_model import listed
 from test_provider_screen import (ADD, GIVE, ONE, PAGE, SHIPPED, TAKE, back, open_providers, pick,
                                   providers, subscriptions, title)
 from agentkit import matrix, usage
@@ -84,6 +84,12 @@ def through(screen):
 
 def verbs(screen):
     return (screen.path.parent.parent / "verbs.log").read_text().splitlines()
+
+
+def listed(lines):
+    """The open step's choices as drawn, each one's columns."""
+    return [re.split(r"\s{2,}", line[4:].strip()) for line in lines[2:]
+            if re.match(r"[ ›]   \S", line)]
 
 
 class AddOpenCodeProvider(unittest.TestCase):

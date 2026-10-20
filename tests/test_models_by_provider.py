@@ -14,7 +14,7 @@ from agentkit import config, menu, orch, terminal  # noqa: E402
 
 
 def cfg():
-    """Claude's second model added after every other provider's, as `+ add a model` leaves it."""
+    """Claude's second model added after every other provider's, as `Models` leaves it."""
     return {
         "providers": {"anthropic": {}, "openai": {}, "meta": {}},
         "models": {
@@ -39,9 +39,6 @@ ORDER = ["fable", "sonnet", "astra", "spark"]
 class ModelsByProvider(unittest.TestCase):
     def test_offered_sits_each_model_under_its_provider(self):
         self.assertEqual(config.offered(cfg()), ORDER)
-
-    def test_the_config_screen_lists_the_same_order(self):
-        self.assertEqual(menu.config_models(cfg()), ORDER)
 
     def test_the_new_session_and_config_screens_list_the_same_order(self):
         config_ = cfg()

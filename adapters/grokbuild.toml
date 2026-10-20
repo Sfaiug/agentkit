@@ -4,6 +4,7 @@
 # still untrusted enough to paint it.  Every other string here was seen on the wire.
 # A worker turn or seat still loads the checkout's AGENTS.md and a top-level CLAUDE.md: grok 1.0.40 has no switch for them.
 version = 1
+name = "Grok Build"
 
 [check]
 model = "grok-4.7-build-fast"

@@ -298,7 +298,7 @@ class OneConfigScreen(unittest.TestCase):
         self.assertFalse(any("●" in marks(line) for line in lines), lines)
         said = " ".join(line.strip() for line in lines)
         self.assertNotIn("roles are not shown", said)
-        self.assertTrue(any("+ add a model" in line for line in lines), lines)
+        self.assertTrue(any(line.strip() == "Models" for line in lines), lines)
         menu.press(ESC)
         menu.config.write_text(shipped)                   # for the pick the child ends on
         menu.leave()

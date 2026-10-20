@@ -80,7 +80,7 @@ def mark_return(module, name):
             print(f"<back {name}>", flush=True)
     setattr(module, name, screen)
 
-for module, name in ((menu, "config_matrix"), (menu, "config_model"), (menu, "config_add"),
+for module, name in ((menu, "config_matrix"), (menu, "config_models"),
                      (menu, "config_subscriptions"), (menu, "config_add_provider"),
                      (menu, "config_discord"), (menu, "config_audit"), (menu, "show_features"),
                      (menu, "new_session"), (orch, "pick"),
@@ -96,7 +96,7 @@ import json
 print(json.dumps([{"id": "dark", "name": "Dark mode", "you": False, "everyone": False,
                    "you_switchable": True}]))
 """
-ESC, UP, DOWN, LEFT, RIGHT, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\x1b[D", b"\x1b[C", b"\r"
+ESC, UP, DOWN, ENTER = b"\x1b", b"\x1b[A", b"\x1b[B", b"\r"
 ESC_WAIT = 0.1       # longer than a lone Esc's read, independent of host scheduling
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
@@ -238,8 +238,10 @@ class EscBack(unittest.TestCase):
         menu_ = Menu(self)
         menu_.screen()
         menu_.press(b"c", title("config · alpha"))
-        model = lambda lines: any("model id" in line for line in lines)
-        menu_.press(LEFT + ENTER, model)
+        menu_.press(DOWN * 30 + UP * 3, lambda lines: title("config · alpha")(lines) and any(
+            line.startswith("› Models") for line in lines))
+        models = title("config · models")
+        menu_.press(ENTER, models)
         send = menu_.send
 
         def queued(keys):
@@ -256,7 +258,7 @@ class EscBack(unittest.TestCase):
                 menu_.proc.send_signal(signal.SIGCONT)
 
         with patch.object(menu_, "send", side_effect=queued):
-            menu_.back("config_model", model)
+            menu_.back("config_models", models)
         menu_.back("config_matrix", title("config · alpha"))
         menu_.leave()
 
@@ -285,15 +287,10 @@ class EscBack(unittest.TestCase):
         config_ = title("config · alpha")        # the highlighted seat's
         menu_.press(b"c", config_)
 
-        def model(lines):             # the first model's own screen, opened from its label
-            return (bool(lines) and lines[0].startswith("agentkit · config · ")
-                    and any("model id" in line for line in lines))
-        menu_.press(LEFT + ENTER, model)
-        menu_.back("config_model", model)
         menu_.press(DOWN * 30 + UP * 3, lambda lines: config_(lines) and any(
-            line.startswith("›") and "add a model" in line for line in lines))
-        menu_.press(ENTER, title("config · add a model"))
-        menu_.back("config_add", title("config · add a model"))
+            line.startswith("› Models") for line in lines))
+        menu_.press(ENTER, title("config · models"))
+        menu_.back("config_models", title("config · models"))
         menu_.press(DOWN + ENTER, title("config · subscriptions"))
         menu_.press(DOWN * 20, lambda lines: title("config · subscriptions")(lines) and any(
             line.startswith("›") and "add a subscription" in line for line in lines))

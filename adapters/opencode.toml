@@ -3,6 +3,7 @@
 # format is the adapter contract in docs/guide.md, "Adding a harness".
 # Verified against OpenCode 2.0.14; see tests/fixtures/README.md for the captures.
 version = 1
+name = "OpenCode"
 
 [check]
 model = "mimo/mimo-v2.6-flash"

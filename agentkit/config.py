@@ -489,7 +489,7 @@ def drop_bare_free(cfg):
 
 
 def provider_harnesses(cfg, provider):
-    """The harnesses `provider` runs on, for the `c` screen's `add a model`: the ones its
+    """The harnesses `provider` runs on, for the `c` screen's `Models`: the ones its
     models in `cfg` run on, then the ones the shipped default runs it on, each once.  A
     provider neither names a harness for is offered none, never a guess."""
     models = shipped().get("models")
@@ -622,7 +622,7 @@ def catalog_now(harness):
 
     A listing asks the harness itself and can take fifteen seconds, so it goes on in the
     background and the next key reads it.  Only a step on the `c` screen reads this way;
-    `ak doctor`, a model id's step and `add a model` wait for catalog() as before.
+    `ak doctor`, `Models` and `add a subscription` wait for catalog() as before.
     """
     asking = _ASKING.get(harness)
     if asking is None or not asking.is_alive():
@@ -825,14 +825,18 @@ def worker_effort(cfg, name, role):
         return None
 
 
-def model_label(entry):
-    """The model id to show for one entry, for a model that names no id too.
-
-    `default` -- and an empty id -- mean the harness picks: a Codex on a ChatGPT subscription
-    takes no model of ours at all.  There is still a column to fill, so it says so rather than
-    leaving a blank where an id belongs.
+def model_name(cfg, name):
+    """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
+    running `claude-opus-5-5` -- its harness's catalog label for its id, read off the manifest's
+    table so no draw waits on a listing -- else its id, a provider's prefix off
+    (`deepseek-v4.1-flash-free`).  `name` itself where it is no entry or names no id of its
+    own (`default`: the harness picks).
     """
-    return entry["model"] if entry["model"] not in ("", DEFAULT_MODEL) else f"({DEFAULT_MODEL})"
+    entry = (cfg.get("models") or {}).get(name)
+    if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
+        return name
+    labels = {row["id"]: row["label"] for row in catalog_table(entry.get("harness") or "")}
+    return labels.get(entry["model"]) or entry["model"].rsplit("/", 1)[-1]
 
 
 def normalize_session(name):
@@ -1421,6 +1425,15 @@ def manifests():
             continue
         for path in paths:
             yield path.stem, manifest(path.stem)
+
+
+def harness_name(harness):
+    """What a screen calls that harness: its manifest's `name`, else its id."""
+    try:
+        name = manifest(harness).get("name")
+    except Error:
+        name = None
+    return name if isinstance(name, str) and name else harness
 
 
 def instruction_ceiling():

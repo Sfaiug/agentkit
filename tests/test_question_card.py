@@ -178,7 +178,7 @@ class QuestionCard(unittest.TestCase):
         shown.frame(after=mark)
         shown.leave()
         self.assertNotIn("<stopped", shown.text())
-        # removing a model, a provider and a subscription: each hands the card to its screen
+        # removing a provider and a subscription: each hands the card to its screen
         seen = []
 
         def confirm(question, meaning, answer, around, wait=None):
@@ -190,14 +190,10 @@ class QuestionCard(unittest.TestCase):
         cfg = copy.deepcopy(CFG)
         cfg["providers"]["anthropic"]["accounts"] = ["default", "b2"]
         with patch.object(terminal, "confirm", side_effect=confirm), \
-                patch.object(terminal, "read_key",
-                             side_effect=[*[Key("down")] * 4, Key("enter"), Key("esc")]), \
                 redirect_stdout(io.StringIO()):
-            menu.config_model(cfg, "opus")
             self.assertEqual(menu.config_remove_provider(cfg, ("openai", None, "ChatGPT")), "")
             self.assertEqual(menu.config_remove_provider(cfg, ("anthropic", "b2", "Claude II")), "")
         self.assertEqual(seen, [
-            ("Remove opus from the config?", menu.REMOVE_ASK[1], "Remove", "<card>"),
             ("Remove ChatGPT and its models?", menu.REMOVE_PROVIDER_ASK[1], "Remove", "<card>"),
             ("Remove Claude II?", menu.REMOVE_SUBSCRIPTION_ASK[1], "Remove", "<card>")])
         self.assertEqual(cfg["providers"]["anthropic"]["accounts"], ["default", "b2"])

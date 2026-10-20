@@ -203,15 +203,15 @@ Example: `↑↓ move   ⏎ open   n new   x stop   c config   esc leave`.
 Whatever the pointer is over lights up, on every screen, as it would in a window:
 a row under it -- a seat, a model, a feature, a choice -- takes the keys' own
 highlight, which moves there, and a key-line item or a cell of a row (a mark, an
-effort, a model's label, `+ add`, an arrow on a model's own screen) a subtle
+effort, `+ add`) a subtle
 background, in place of the reverse the keys give a cell, or at eight colours the
 reverse; the keys and the pointer never show two highlights. What lights is what a
 click there acts on. Each loses it when the pointer leaves: off every row -- on a
 key-line item, a header or blank space -- no row or cell is highlighted, a key-line
 item alone lit, until the pointer is on a row again or a key brings the highlight
 back on the row it was last on. The keys go on from there: an arrow moves it on, and
-a key that acts on it -- Enter, space, their key-line items, the menu's `x` and `c`,
-←/→ on a model's own screen -- only brings it back, so nothing unseen is acted on; a
+a key that acts on it -- Enter, space, their key-line items, the menu's `x` and `c` --
+only brings it back, so nothing unseen is acted on; a
 digit names its own row and acts at once. `s` follows the same highlight rule. Any key puts out what the pointer lit, and a
 screen opens, or comes back, with nothing lit: the pointer lights nothing until it
 moves again. A question typed on a screen (`terminal.field`) lights its key line
@@ -289,7 +289,7 @@ coming up as the highlight comes to it: one place for every model, outside the r
 none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
 so no row moves from under the pointer or the keys. `r recommended` opens the models screen
 (The models screen).
-Under the models `+ add a model`, `Subscriptions` and `Discord` (connected or not); under
+Under the models `Models`, `Subscriptions`, `Discord` (connected or not) and `Weekly audit`; under
 the page, dim and on every page, `Version` with the commit and its date, which the highlight
 never stops on. `Subscriptions` opens a page of rows (`menu.config_subscriptions`): each
 subscription, saying when its login ends where it soon does and the resets it holds, Enter
@@ -300,14 +300,14 @@ the meters; Enter or a click on it, here and on the ak screen alike, lists `↻ 
 and `↻ spend a reset` while it holds one, the highlight on the first, and never `− remove`
 (`menu.meter_acts`). A free provider has no meter: it goes with its last model. A reset spent, the
 line under the rows says that subscription's week as its usage row reads it:
-`Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`. Enter
-or a click on `+ add a model` opens `config · add a model`: `harness`, then
-`model`, then `effort`, each a list opening under the one chosen above it, a
-chosen one kept as one line; Enter on the effort adds the model and highlights
-its row, glowing (Motion), Esc steps back one list. A list longer than the screen adds
+`Claude II · 68% left · resets Thu 20:00 (in 2 d 6 h) · lasts at this pace`. An
+`add a subscription` list longer than the screen adds
 `/ find` to the key line: what is typed after `/` keeps the choices holding it, shown as
-`/text` beside the list's name, and Esc lets the whole list back. `Discord` and `Weekly audit`
-each open a page of rows like `c`'s, on the same keys: on `Discord`, `Mention` and `Webhook`,
+`/text` beside the list's name, and Esc lets the whole list back. `Models`
+(`menu.config_models`), `Discord` and `Weekly audit`
+each open a page of rows like `c`'s, on the same keys: on `Models`, each harness by its name
+with the full names of the models the config runs on it, each opening every model its catalog
+offers, `■` where the config runs it, Enter taking one in or out, the last model kept; on `Discord`, `Mention` and `Webhook`,
 each typed anew in a field under its row; on `Weekly audit`, `On`, which Enter turns, then
 `Orchestrator`, `Builds` and `Reviews`, each opening every model under it, `●` or `■` where
 it holds the role, Enter taking one in or out and Esc closing the list. A change is
@@ -316,13 +316,7 @@ line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc or a click on it returns. A
 screen too short shows the part the highlight is on, a row taller than the page a page at a
 time: ↑/↓ turn its pages before they leave it. From a pipe, and in a dry
-run, it is drawn once. ← from the marks reaches the label, and Enter or a click
-there opens `config · <label>`: `model id`, `effort`, `executes at` and `reviews at`
-between the arrows ←→ step (the id and each effort only through what the harness's
-catalog lists, each effort following the id; the last two read `same`, dim, while
-they follow its effort), then `Remove`, whose Enter asks on the question
-card under it, `Keep` picked; each value goes under its
-label on a phone. Esc returns to the matrix on that model's row. Once the worker
+run, it is drawn once. Once the worker
 token's expiry is 14 days away or less, or past, it stands under the rows
 (`claude worker token expires 2026-10-21 (in 7 days)`). There is no `i` page.
 
@@ -675,12 +669,10 @@ empties when cleared over two frames, 80 ms in all: `□ ▣ ■`, `○ ◉ ●`
 the new state saved at the key; without UTF-8 it lands at once. A change ak
 refuses -- the last reviewer, a pair that is not allowed, a switch
 the project refused -- nudges its mark a cell left, right, left and back over
-240 ms, the reason under the rows. A model, provider or subscription just added
-on `c` returns highlighted on a soft glow of the accent that fades into the
-highlight over a second. Each moves on while the rule glides, and the cell under
-the pointer stays lit through it (`terminal.pointed`). A key during any of these
+240 ms, the reason under the rows. Each moves on while the rule glides, and the cell under
+the pointer stays lit through it (`terminal.pointed`). A key during either
 ends it on its last frame and is answered within 100 ms (`terminal.toggle`,
-`motion.toggled`, `motion.glowing`, `motion.Clock.touch`, `settle`).
+`motion.toggled`, `motion.Clock.touch`, `settle`).
 
 The popup's content fades in once, as it opens: from the background to its
 colours over 120 ms, on the same clock. Whatever is drawn or moves in that time

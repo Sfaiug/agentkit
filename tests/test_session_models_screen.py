@@ -85,7 +85,7 @@ class SessionModels(Sandbox):
         self.assertEqual(self.rows(lines)["opus"], "●■■")
         self.assertEqual(self.rows(lines)["fable"], "○□□")
         cells = next(cells for row, cells in places.values() if row == ("model", "opus"))
-        self.assertEqual([cell[2] for cell in cells], [-1, 0, 1, 2, 3])
+        self.assertEqual([cell[2] for cell in cells], [0, 1, 2, 3])
         selected = self.selected("old")
         self.assertEqual(menu.session_mark(self.cfg, "old", selected, "opus", 1, {}), "")
         record = config.load_session(self.cfg, "old")
@@ -182,7 +182,7 @@ class SessionModels(Sandbox):
     def test_the_models_line_names_the_provider_once_and_is_as_tall_as_the_tallest(self):
         rows = [("anthropic", "Claude " + number, {}, number) for number in ("I", "II", "III")]
         rows.append(("openai", "ChatGPT", {}, ""))
-        names = menu.config_models(self.cfg)
+        names = config.offered(self.cfg)
         claude = next(name for name in names if self.cfg["models"][name]["provider"] == "anthropic")
         chatgpt = next(name for name in names if self.cfg["models"][name]["provider"] == "openai")
 

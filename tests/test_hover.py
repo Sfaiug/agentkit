@@ -35,7 +35,7 @@ from test_config_matrix import Screen, headings
 from test_menu_keys import Menu
 from fixtures.sandbox import Sandbox
 
-ESC, RIGHT, DOWN = b"\x1b", b"\x1b[C", b"\x1b[B"
+ESC, RIGHT, DOWN, ENTER = b"\x1b", b"\x1b[C", b"\x1b[B", b"\r"
 Cell = namedtuple("Cell", "char lit reverse")
 FEATURES = [
     {"id": "dark", "name": "Dark mode", "you": False, "everyone": False, "you_switchable": True},
@@ -196,8 +196,10 @@ class Screens(Sandbox):
         last = self.matrix(move(*beside) + ESC)[-1]
         self.assertOneHighlight(last, "astra")
         self.assertEqual(marked(last, "lit"), {})
-        # its label is a cell, Enter's to open
-        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"), {label[1]: "astra"})
+        # its name is no cell: the row takes the highlight and nothing lights
+        last = self.matrix(move(*label) + ESC)[-1]
+        self.assertOneHighlight(last, "astra")
+        self.assertEqual(marked(last, "lit"), {})
         # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
         self.assertOneHighlight(last, "astra")
@@ -224,7 +226,7 @@ class Screens(Sandbox):
     def test_the_highlighted_model_says_what_it_runs_on_under_the_models_and_nothing_moves(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=40))  # one page
         first = self.matrix()[0]
-        names = menu.config_models(self.cfg)
+        names = config.offered(self.cfg)
         rows = {text: at(first, text) for text in (*names, *menu.CONFIG_ROWS)}
         line = at(first, f"{names[0]} runs on")[1]         # one line, under every model
         self.assertGreater(line, max(rows[name][1] for name in names))
@@ -240,21 +242,21 @@ class Screens(Sandbox):
         self.assertEqual(texts(last)[line - 1], "")
         self.assertEqual({text: at(last, text) for text in rows}, rows)
         # on a screen too short for them all, a click where the pointer found the last model
-        # opens it, the page as it was
+        # keeps it highlighted, the page as it was: a model opens no screen of its own
         self.stack.enter_context(patch.object(terminal, "height", return_value=28))
         first = self.matrix()[0]
         label = at(first, names[-1])
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()
-        with patch.object(menu, "config_model") as opened:
-            screens = self.matrix(move(*label), click + ESC)
+        screens = self.matrix(move(*label), click + ESC)
         self.assertEqual(at(screens[1], names[-1]), label)
-        opened.assert_called_once()
+        self.assertEqual(at(screens[-1], names[-1]), label)
+        self.assertOneHighlight(screens[-1], names[-1])
 
     def test_on_a_short_screen_the_highlighted_model_s_line_stays_under_the_page(self):
         # too short for every row: no page leaves the line off, and the page keeps its place
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
         first = self.matrix()[0]
-        names = menu.config_models(self.cfg)
+        names = config.offered(self.cfg)
         shown = [name for name in names if name in "\n".join(texts(first))]
         self.assertLess(len(shown), len(names))
         rows = {name: at(first, name) for name in shown}
@@ -266,7 +268,7 @@ class Screens(Sandbox):
 
     def test_on_a_short_screen_the_meters_stay_over_every_page(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
-        first, names = self.matrix()[0], menu.config_models(self.cfg)
+        first, names = self.matrix()[0], config.offered(self.cfg)
         heads = next(row for row, text in enumerate(texts(first)) if text.split()[-1:] == ["effort"])
         last = self.matrix(DOWN * (len(names) - 1) + ESC)[-1]
         self.assertIn(names[-1], highlighted(last)[0])
@@ -436,27 +438,18 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[2], "ChatGPT")
         self.assertEqual(highlighted(screens[-1]), [])
 
-    def test_add_a_model_and_a_models_own_screen(self):
-        first = run(lambda: menu.config_add(self.cfg), ESC)[1][0]
-        answer, screens = run(lambda: menu.config_add(self.cfg), move(*at(first, "codex")) + ESC)
-        self.assertIsNone(answer)
-        self.assertOneHighlight(screens[-1], "codex")
-        first = run(lambda: menu.config_model(self.cfg, "opus"), ESC)[1][0]
-        right = at(first, "›", 1)                       # the effort's, after the id's
-        last = run(lambda: menu.config_model(self.cfg, "opus"), move(*right) + ESC)[1][-1]
-        self.assertOneHighlight(last, "effort")
-        self.assertEqual(marked(last, "lit"), {right[1]: "›"})
-        # off every row ←/→ only bring the highlight back; a click on an arrow names its row
-        stepped = []
-        click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*right).encode()
-        with patch.object(menu, "config_effort",
-                          lambda cfg, name, step, **_kw: stepped.append(step) or ""):
-            run(lambda: menu.config_model(self.cfg, "opus"), move(*right), move(1, 1), RIGHT,
-                ESC)
-            self.assertEqual(stepped, [])
-            run(lambda: menu.config_model(self.cfg, "opus"), move(*right), move(1, 1),
-                click + ESC)
-        self.assertEqual(stepped, [1])
+    def test_the_models_page_lights_a_harness_and_a_model(self):
+        catalog = [{"id": "claude-opus-5-5", "label": "Opus 5.5", "efforts": ["high"]},
+                   {"id": "claude-sonnet-5-5", "label": "Sonnet 5.5", "efforts": ["high"]}]
+        self.stack.enter_context(patch.object(config, "catalog", return_value=catalog))
+        first = run(lambda: menu.config_models(self.cfg), ESC)[1][0]
+        self.assertOneHighlight(first, "Claude Code")
+        last = run(lambda: menu.config_models(self.cfg), move(*at(first, "Codex")) + ESC)[1][-1]
+        self.assertOneHighlight(last, "Codex")
+        opened = run(lambda: menu.config_models(self.cfg), ENTER + ESC + ESC)[1][1]
+        last = run(lambda: menu.config_models(self.cfg), ENTER,
+                   move(*at(opened, "Sonnet 5.5")) + ESC + ESC)[1][-2]
+        self.assertOneHighlight(last, "Sonnet 5.5")
 
     def test_a_screens_key_line_lights_the_item_under_the_pointer(self):
         def screen():
