@@ -509,7 +509,8 @@ model no board lists at any effort is one row at none. A board's model is found 
 qualifier in brackets (`Acme 5 (Default Fallback)` for `acme-5`; two such names stand for nothing), else by the same
 matches without the id's trailing `-free` pricing tier (`Acme 5` for `acme/acme-5-free`), else, on a board where none
 of these finds it, by `benchmark` on the config entry; a board name ending in an effort word (`acme-5-max`) is the
-model at that effort (`hits`). Each board says of a row what its row at the row's effort says, else its nearest row
+model at that effort, found the same ways (`indexed`). Each board says of a row what its rows at the row's effort say
+together (`Acme 5 (max)` beside `acme-5-max`, the first named at it winning a column they share), else its nearest row
 above, each of those measures adding what Artificial Analysis's intelligence index loses between the two efforts
 (`drops`; nothing from that board where the index is missing at either), else its nearest row below as it is, never
 credited upward; a board row naming no effort stands at the model's highest effort with an index, or at every effort
