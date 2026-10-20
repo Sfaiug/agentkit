@@ -4,6 +4,7 @@ holds it, and keys typed there would join it.  So does a seat tmux cannot say is
 with that editor, or what that editor keeps.  Offline: fixtures.editor_seat.
 """
 
+from contextlib import contextmanager
 import unittest
 from unittest.mock import patch
 
@@ -32,6 +33,24 @@ class KeysWaitOnKeptText(EditorSeat):
         self.assertEqual((self.keys, self.typed), ([], []))
         self.assertTrue(self.typed_line())
         self.assertEqual((self.keys, self.typed, self.sent), (["Enter"], [LINE], [LINE]))
+
+    def test_the_pane_asked_is_the_one_the_owner_selected_while_the_line_waited(self):
+        other, draft, active = "%8", "and add these posts", [PANE]
+        self.buffers = {aside_editor.kept(other): aside_editor.pack(
+            aside_editor.GIVEN, b"an earlier line", draft.encode())}
+        tmux, lock = orch.tmux_out, watch.seat_held
+
+        @contextmanager
+        def selected_meanwhile(name):
+            active[0], self.composer, self.late = other, draft, 3    # given back, not yet drawn
+            with lock(name) as held:
+                yield held
+
+        with patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (
+                0, f"{active[0]}\t4242\t{self.tty}") if args[-1].startswith("#{pane_id}")
+                else tmux(*args, **kw)), patch.object(watch, "seat_held", selected_meanwhile):
+            self.assertFalse(self.typed_line())
+        self.assertEqual((self.typed, self.composer), ([], draft))
 
 
 if __name__ == "__main__":
