@@ -3601,14 +3601,16 @@ def _edit(session, where, mode, *, settled):
     it done (`settled`) within SENT_WAIT, the only word ak takes on it.  The ask is taken back
     after, for the owner's own edit never to find."""
     server, pane = orch.seat_socket(session), where["id"]
-    if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
-                      orch.tmux_literal(aside_editor.request(mode)), socket=server)[0] == 0
-            and orch.tmux_out("send-keys", "-t", pane, *where["keys"], socket=server)[0] == 0):
-        for _ in range(int(SENT_WAIT / SENT_POLL)):
-            if settled():
-                break
-            time.sleep(SENT_POLL)
-    orch.tmux_out("set-option", "-pu", "-t", pane, aside_editor.ASK, socket=server)
+    try:
+        if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
+                          orch.tmux_literal(aside_editor.request(mode)), socket=server)[0] == 0
+                and orch.tmux_out("send-keys", "-t", pane, *where["keys"], socket=server)[0] == 0):
+            for _ in range(int(SENT_WAIT / SENT_POLL)):
+                if settled():
+                    break
+                time.sleep(SENT_POLL)
+    finally:
+        orch.tmux_out("set-option", "-pu", "-t", pane, aside_editor.ASK, socket=server)
     return settled()
 
 

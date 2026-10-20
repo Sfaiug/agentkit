@@ -4,10 +4,10 @@ the ask taken back after for the owner's own edit never to find (19 Oct 2026).  
 fixtures.editor_seat."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fixtures.editor_seat import PANE, EditorSeat
-from agentkit import aside_editor, watch
+from agentkit import aside_editor, config, watch
 
 DRAFT = "and add these posts"
 
@@ -38,6 +38,13 @@ class SeatEditor(EditorSeat):
                                     settled=lambda: self.holds(DRAFT) == "line"))
         self.assertEqual((self.keys, self.composer, self.buffers, self.ask),
                          (["C-g"] * 3, DRAFT, {}, None))
+
+    def test_an_ask_is_taken_back_when_the_screen_cannot_be_read(self):
+        self.deaf = True
+        with self.assertRaises(config.Error):
+            watch._edit(self.seat, watch.seat_editor(self.seat, self.cfg), "line",
+                        settled=Mock(side_effect=config.Error("cannot read adapter manifest")))
+        self.assertIsNone(self.ask)
 
 
 if __name__ == "__main__":
