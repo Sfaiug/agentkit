@@ -44,8 +44,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (browser, command_help, config, gc, gitcall, handback, host, notify, orch, staffing,
-               statusbar, transitions, turns, update, usage, worker)
+from . import (aside_editor, browser, command_help, config, gc, gitcall, handback, host, notify,
+               orch, staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from .harness import LIMITED, SPENT, says
 
@@ -733,6 +733,9 @@ def screen(harness):
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
+             # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
+             "editor": tuple(key for key in block.get("editor") or ()
+                             if isinstance(key, str) and key),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -3574,6 +3577,39 @@ def quiet_prompt(session, held, cfg=None):
         return False
     return bool(harness and takes_line(session, cfg=cfg, pane=pane)
                 and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
+
+
+def seat_editor(session, cfg=None):
+    """{"id", "tty", "keys"} of that seat's pane, whose editor `_edit` asks a step: a seat its
+    launch gave ak's, of a harness naming the keys that open it (`[screen] editor`), or None."""
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
+        keys = screen(harness)["editor"] if harness else ()
+    except (config.Error, OSError):
+        return None
+    rc, out = (orch.tmux_out("display-message", "-p", "-t", f"={session['name']}:",
+                             "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
+                             socket=orch.seat_socket(session)) if keys else (1, ""))
+    pane, pid, tty = (out.split("\t") + ["", ""])[:3] if rc == 0 else ("", "", "")
+    return ({"id": pane, "tty": tty, "keys": keys}
+            if pane.startswith("%") and aside_editor.launched(pid, tty) else None)
+
+
+def _edit(session, where, mode, *, settled):
+    """Ask ak's editor for `line` -- the composer's text kept, an empty composer handed back --
+    or `back` (`aside_editor.request`) and press the keys that open it: whether the screen shows
+    it done (`settled`) within SENT_WAIT, the only word ak takes on it.  The ask is taken back
+    after, for the owner's own edit never to find."""
+    server, pane = orch.seat_socket(session), where["id"]
+    if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
+                      orch.tmux_literal(aside_editor.request(mode)), socket=server)[0] == 0
+            and orch.tmux_out("send-keys", "-t", pane, *where["keys"], socket=server)[0] == 0):
+        for _ in range(int(SENT_WAIT / SENT_POLL)):
+            if settled():
+                break
+            time.sleep(SENT_POLL)
+    orch.tmux_out("set-option", "-pu", "-t", pane, aside_editor.ASK, socket=server)
+    return settled()
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
