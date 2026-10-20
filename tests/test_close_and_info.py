@@ -57,8 +57,8 @@ menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
 menu.stop_session_runs = lambda name, dry_run=False: None
 
+# The past screen's stop, in this process: refused where the real one's owner guard refuses.
 def cmd_stop(argv):
-    """The past screen's stop, in this process: refused as the real one's owner guard refuses."""
     config.check_stop_owner(argv[0])
     print(f"<stopped {argv[0]}>", flush=True)
     left = seats()
