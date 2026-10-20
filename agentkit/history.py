@@ -477,8 +477,8 @@ def owner(since, until):
 def seat_work(names, conversation, since, until):
     """`(runs, reviews, last)` for a seat between `since` and `until`: its runs, by any of its
     `names`, each `(run_id, orchestrator, executor, reviewer)` as it ended, in the order they
-    started; each finished review of them, `(run_id, harness, model, effort)`, in that order and
-    then by round; and that conversation's last done.  None where the database cannot answer."""
+    started; each finished review of them, `(run_id, harness, model, effort, round)`, in that
+    order and then by round; and that conversation's last done.  None where the database cannot answer."""
     seat = (f"session IN ({', '.join('?' * len(names))}) AND started_at >= ? AND started_at <= ? "
             "ORDER BY started_at")
     try:
@@ -488,7 +488,7 @@ def seat_work(names, conversation, since, until):
                 runs = connection.execute("SELECT run_id, orchestrator, executor, reviewer "
                                           f"FROM runs WHERE {seat}", (*names, since, until)).fetchall()
                 reviews = connection.execute(
-                    "SELECT run_id, harness, model, effort FROM reviews JOIN runs USING (run_id) "
+                    "SELECT run_id, harness, model, effort, round FROM reviews JOIN runs USING (run_id) "
                     f"WHERE {seat}, round", (*names, since, until)).fetchall()
                 last = connection.execute(
                     "SELECT MAX(at) FROM dones WHERE conversation = ? AND at >= ? AND at <= ?",

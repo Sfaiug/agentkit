@@ -224,11 +224,11 @@ class Said(Sandbox):
             history._write(lambda connection, row=(run, session, *models, at): connection.execute(
                 "INSERT INTO runs (run_id, session, orchestrator, executor, reviewer, started_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)", row))
-        # run 2 was handed from fable to spark, and gemini reviewed its first round: models its
-        # history row, holding only the last pair, no longer names
+        # fable built run 2's first round, gemini reviewed it and spark took over in the second:
+        # models its history row, holding only the last pair, no longer names
         (config.RUNS / "2").mkdir()
-        (config.RUNS / "2" / "run.json").write_text(
-            '{"executor_history": [{"from": "fable", "to": "spark", "reason": "dry"}]}')
+        (config.RUNS / "2" / "run.json").write_text('{"executor_history": [{"from": "fable", '
+                                                    '"to": "spark", "model": "fable", "rounds": [1, 2]}]}')
         for review, (harness, model, effort) in enumerate((
                 ("antigravity", "gemini-3.8-flash", "high"), ("codex", "gpt-6-astra", "xhigh")), 1):
             history.record_review("2", f"review-{review}", harness=harness, model=model,
@@ -243,17 +243,22 @@ class Said(Sandbox):
         history.done("claude:acme-thread", 1000 + 5 * 3600, None)
         self.assertEqual(menu.past_said(self.cfg, self.session), (
             "Ship the docs site",
-            "2 of 3 tasks · took 5 hours · opus, astra, fable, spark, gemini"))
+            "2 of 3 tasks · took 5 hours · opus, astra, fable, gemini, spark"))
 
     def test_with_no_done_it_took_until_it_was_stopped(self):
         self.assertEqual(menu.past_said(self.cfg, self.session)[1],
-                         "2 of 3 tasks · took 11 hours · opus, astra, fable, spark, gemini")
+                         "2 of 3 tasks · took 11 hours · opus, astra, fable, gemini, spark")
+
+    def test_a_reviewer_no_longer_configured_keeps_its_own_name(self):
+        config.remove_model(self.cfg, "gemini")
+        self.assertEqual(menu.past_said(self.cfg, self.session)[1], "2 of 3 tasks · took 11 "
+                         "hours · opus, astra, fable, gemini-3.8-flash, spark")
 
     def test_with_no_plan_it_counts_no_tasks_whatever_its_jobs_say(self):
         config.plan_path("acme-docs").unlink()
         with patch.object(menu, "job_for_seat", return_value=(1, 2, 0)):
             self.assertEqual(menu.past_said(self.cfg, self.session), (
-                "", "took 11 hours · opus, astra, fable, spark, gemini"))
+                "", "took 11 hours · opus, astra, fable, gemini, spark"))
 
     def test_how_long_is_hours_then_days_and_hours_and_never_minutes(self):
         for seconds, said in ((0, "under an hour"), (40 * 60, "under an hour"),

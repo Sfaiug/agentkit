@@ -4647,23 +4647,33 @@ def past_said(cfg, session):
     done, total = watch.plan_progress(name)
     tasks = (f"{done} of {total} tasks" if done < total else
              f"{total} task{'s' * (total != 1)}") if total else ""
-    reviewed = {}         # a run's reviewers, each round's, by the name the config runs it under
-    for run_id, harness, model, effort in reviews:
-        reviewed.setdefault(run_id, []).append(
-            next(iter(_runs(cfg, harness, model, effort) or _runs(cfg, harness, model)), None))
+    turns = {}            # a run's reviews, each (round, 1, model), beside its builds' 0
+    for run_id, harness, model, effort, round in reviews:
+        # by the name the config runs it under, else by its own where none does any more
+        turns.setdefault(run_id, []).append((round or 1, 1, next(iter(
+            _runs(cfg, harness, model, effort) or _runs(cfg, harness, model)), model)))
     models = dict.fromkeys(model for model in ((selection_of(cfg, name) or {}).get(
         "orchestrator"), *(model for run_id, orchestrator, executor, reviewer in runs
-                           for model in (orchestrator, *past_builders(run_id), executor,
-                                         *reviewed.get(run_id, ()), reviewer))) if model)
+                           for model in (orchestrator, *(turn[2] for turn in sorted(
+                               [*past_builds(run_id, executor), *turns.get(run_id, ())],
+                               key=lambda turn: turn[:2])), reviewer))) if model)
     return plan.first_done(name) or "", " · ".join(part for part in (
         tasks, start and "took " + took((last or stop) - start), ", ".join(models)) if part)
 
 
-def past_builders(run_id):
-    """The models a run's work was handed from, in order (its record's `executor_history`): the
-    builders before its last, whom its history row no longer names."""
+def past_builds(run_id, executor):
+    """(round, 0, model) for each builder of a run, `executor` its last, by the round it began
+    in: its record's `executor_history` names those before, whom its history row no longer
+    does, with the rounds each held (`staffing.note_handover`); an entry without them began in
+    the round its predecessor did."""
     entries = (record.read_state(config.RUNS / str(run_id)) or {}).get("executor_history")
-    return [entry.get("from") for entry in entries or () if isinstance(entry, dict)]
+    began, builds = 1, []
+    for entry in entries or ():
+        if isinstance(entry, dict):
+            rounds = entry.get("rounds") or [began]
+            builds.append((rounds[0], 0, entry.get("model") or entry.get("from")))
+            began = rounds[-1]
+    return [*builds, (began, 0, executor)]
 
 
 def past_body(past, at=None, models=None, room=None, said=None):
