@@ -137,8 +137,9 @@ class HandBack(Sandbox):
         self.stack.enter_context(patch.object(orch, "listing", lambda *a, **k: list(self.rows)))
         self.stack.enter_context(patch.object(
             orch, "tmux_out", side_effect=AssertionError("tmux was called")))
-        # no text ak's editor keeps
+        # no text ak's editor keeps, and no pane named: keys go to the seat's current one
         self.stack.enter_context(patch.object(watch, "_editor_kept", return_value={}))
+        self.stack.enter_context(patch.object(watch, "pinned", side_effect=lambda seat: seat))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               return_value=("claude", "anthropic")))
         self.stack.enter_context(patch.object(
