@@ -640,8 +640,9 @@ def finish_own_lines(cfg, log):
     """Finish a fixed ak line left in its composer, even after its retries were spent.
 
     The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
-    `continue_turns` mark is the one exception: its line was typed past an open question, so
-    its Enter is too, and once it lands the mark comes off, as that pass's own send takes it.
+    `continue_turns` mark is the one exception: its line, a handover's too, was typed past an
+    open question, so its Enter is too, and once it lands the mark comes off, as that pass's
+    own send takes it; its composer holding that line defers `continue_turns` until then.
     Delivery remains at least once, as it does for every line ak types.
     """
     for session in orch.sessions():
@@ -655,7 +656,7 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, ASKED_LINE, CONTINUE_LINE, key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
@@ -3235,9 +3236,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap, and the first
     Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means unread input deferred the line before its text went in. The tty
-    check gates new text, never the Enter completing it: withholding that Enter would leave
-    a draft the caller cannot recover, or let a retry append the same text to itself.
+    never sent. None means the owner's input deferred the line before its text went in:
+    keys its terminal has not read yet, or text in its composer, which a line typed after it
+    would join and send. Those checks gate new text, never the Enter completing it:
+    withholding that Enter would leave a draft the caller cannot recover, or let a retry
+    append the same text to itself.
     """
     try:
         seat = dict(session, name=config.resolve_session(session["name"]))
@@ -3252,6 +3255,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     # a line left pending was read in its composer, whatever chrome is drawn around it
     confirm = pending
     if harness is not None and not confirm:
+        pane = pane_text(seat)
+        if composer_draft(harness, pane):
+            return None     # the owner's text: a line typed after it joins it, and sends both
         try:
             pattern = screen(harness).get("composer")
         except config.Error:
@@ -3263,7 +3269,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             # the smoke suite's inbox seat holds a `sleep`, and a delivered send is
             # all there is.
             confirm = any(pattern.search(strip_sgr(line))
-                          for line in pane_tail(pane_text(seat)).splitlines())
+                          for line in pane_tail(pane).splitlines())
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
