@@ -128,12 +128,18 @@ class OutOfUsageRow(Sandbox):
         [line] = menu.choices(info, 80)
         text = terminal.ANSI.sub("", line)
         self.assertEqual(text, "✓ Wait for 19:20   ⇄ Go on now with gpt-sol")
-        self.assertEqual(menu.choice_cells("     " + text, info),
+        self.assertEqual(menu.choice_cells("     " + text, info, 80),
                          [(6, 21, menu.WAIT), (25, 48, menu.GO_ON)])
         # where both do not fit, each takes a line of its own, where a click still finds it
         wait, go_on = [terminal.ANSI.sub("", line) for line in menu.choices(info, 40)]
         self.assertEqual((wait, go_on), ("✓ Wait for 19:20", "⇄ Go on now with gpt-sol"))
-        self.assertEqual(menu.choice_cells("     " + go_on, info), [(6, 29, menu.GO_ON)])
+        self.assertEqual(menu.choice_cells("     " + go_on, info, 40), [(6, 29, menu.GO_ON)])
+        # and one wider than the room wraps at words, each of its lines a cell of its own
+        lines = [terminal.ANSI.sub("", line) for line in menu.choices(info, 12)]
+        self.assertEqual(lines, ["✓ Wait for", "19:20", "⇄ Go on now", "with gpt-sol"])
+        self.assertEqual([menu.choice_cells("  " + line, info, 12) for line in lines],
+                         [[(3, 12, menu.WAIT)], [(3, 7, menu.WAIT)], [(3, 13, menu.GO_ON)],
+                          [(3, 14, menu.GO_ON)]])
         # with no model that has usage, waiting is all there is, and the line says why
         info = self.info(go_on=None)
         self.assertEqual(menu.detail(cfg, info, 80),

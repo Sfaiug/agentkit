@@ -1364,40 +1364,52 @@ def detail(cfg, info, room, now=None):
 
 
 WAIT, GO_ON = "wait", "go on"     # the choices under a seat out of usage, as the click reads them
+GAP = "   "                       # between them, on a line both fit
+
+
+def choice_lines(info, room):
+    """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
+    on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
+    `⇄ Go on now with gpt-sol`, which moves the seat and its conversation there.  Each drawn
+    line in `room` cells, as its (text, choice) parts: both on one line where they fit, else
+    each on lines of its own wrapped at words, so none runs past the edge of the screen and
+    away from where a click finds it (`choice_cells`).  [] for any other row."""
+    if info.get("word") != "out of usage" or not back_at(info.get("back")):
+        return []
+    said = [(choice_text(choice, info), choice) for choice in (WAIT, GO_ON)
+            if choice == WAIT or info.get("go_on")]
+    if terminal.cells(GAP.join(text for text, _ in said)) <= room:
+        return [said]
+    return [[(piece, choice)] for text, choice in said for piece in terminal.wrap(text, room)]
 
 
 def choices(info, room):
-    """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
-    on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
-    `⇄ Go on now with gpt-sol`, which moves the seat and its conversation there; each a cell a
-    click answers (`choice_cells`).  One line where both fit in `room` cells, else one each, so
-    no choice wraps away from its cell.  [] for any other row."""
-    if info.get("word") != "out of usage" or not back_at(info.get("back")):
-        return []
-    said = [terminal.styled(choice_text(WAIT, info), "ok")]
-    if info.get("go_on"):
-        said.append(terminal.styled(choice_text(GO_ON, info), "amber"))
-    return ["   ".join(said)] if terminal.cells("   ".join(said)) <= room else said
+    """The lines `choice_lines` draws, each choice in its colour."""
+    return [GAP.join(terminal.styled(text, {WAIT: "ok", GO_ON: "amber"}[choice])
+                     for text, choice in line) for line in choice_lines(info, room)]
 
 
 def choice_text(choice, info):
-    """One choice under a seat out of usage, as its line draws it (`choices`)."""
+    """One choice under a seat out of usage, whole (`choice_lines`)."""
     mark = {WAIT: "✓", GO_ON: "⇄"}[choice] if terminal.utf8() else {WAIT: "v", GO_ON: ">"}[choice]
     if choice == WAIT:
         return f"{mark} Wait for {back_at(info.get('back'))}"
     return f"{mark} Go on now with {info.get('go_on')}"
 
 
-def choice_cells(text, info):
-    """Where each choice of `choices` is on its drawn line `text`, as a screen's spots hold a
-    cell: (first, last, choice); [] on any other line."""
-    found = []
-    for choice in (WAIT, GO_ON):
-        said = choice_text(choice, info)
-        if (choice == WAIT or info.get("go_on")) and said in text:
-            first = terminal.cells(text[:text.index(said)]) + 1
-            found.append((first, first + terminal.cells(said) - 1, choice))
-    return found
+def choice_cells(text, info, room):
+    """Where each choice of `choice_lines` in `room` is on its drawn line `text`, as a screen's
+    spots hold a cell: (first, last, choice); [] on any other line."""
+    for line in choice_lines(info, room):
+        drawn = GAP.join(part for part, _ in line)
+        if text.strip() == drawn:
+            first = terminal.cells(text[:text.index(drawn)]) + 1
+            found = []
+            for part, choice in line:
+                found.append((first, first + terminal.cells(part) - 1, choice))
+                first += terminal.cells(part + GAP)
+            return found
+    return []
 
 
 def v5o_column_widths(infos, term_width):
@@ -1766,7 +1778,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
             for column, task in task_cells(line, info.get("tasks") or []):
                 moves.append((("task", getattr(task, "run", None)), tuple(task),
                               (len(out), column), lit))
-        if seat is None and info and (cells := choice_cells(text, info)):
+        if seat is None and info and (cells := choice_cells(text, info, said_room)):
             explains[len(out)] = cells     # the choices under a seat out of usage: a click answers
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
