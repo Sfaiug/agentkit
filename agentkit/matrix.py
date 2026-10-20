@@ -2,13 +2,17 @@
 (`boards`), scored per role.
 
 A row of the matrix is one model at one effort: an effort a board lists for it or the config
-runs it at in any role, so a board naming no effort counts for every effort of its model, and a
-model no board lists at any effort is one row at none.  A board's model is matched by name,
-letters and digits alone (`acme-5` is `Acme 5 (max)` at max), else by the board's name the id
-extends with a version (`acme-pro` for `acme-pro-1.0`), else by the one board name that is the
-id with a qualifier in brackets (`Acme 5 (Default Fallback)`); `benchmark` on a config entry
-names the board's model on a board where none fits.  A board's row at another effort never
-stands in.
+runs it at in any role, and a model no board lists at any effort is one row at none.  A board's
+model is matched by name, letters and digits alone (`acme-5` is `Acme 5 (max)` at max), else by
+the board's name the id extends with a version (`acme-pro` for `acme-pro-1.0`), else by the one
+board name that is the id with a qualifier in brackets (`Acme 5 (Default Fallback)`); `benchmark`
+on a config entry names the board's model on a board where none fits.  A board's name ending in
+an effort word (`acme-5-max`) is the model at that effort.  A board naming no effort stands at
+the model's highest effort Artificial Analysis has an index for, or at every effort where it has
+none.  A row takes each board's row at its effort, else the nearest above, which loses what
+Artificial Analysis's intelligence index loses between the two efforts (`drops`; nothing from
+that board where the index is missing at either), else the nearest below as it is: never
+credited upward.  A price is read only off a board's row at the row's own effort.
 
 Every row is scored per role, on quality and cost alone: speed is ak's own to fix, and the
 subscriptions follow the choice.  A column is the row's share of the best value among the rows
@@ -39,6 +43,7 @@ from .boards import EFFORT_ORDER, TASK_COST, collect, lines as board_lines
 
 INTEL = "aa.evaluations.artificial_analysis_intelligence_index"   # every model has it per effort
 COST = "aa.artificial_analysis_intelligence_index_cost.total_cost"   # dollars its index run cost
+PRICES = (COST, TASK_COST)          # what a row reads only off a board's row at its own effort
 # A row this many points under the best counts as as good: the three boards disagree with each
 # other about differences between the top models by more (a median of 6 to 10 points, 17 Oct
 # 2026), so no row the boards agree is worse gets in.  `within` in config.toml overrides it;
@@ -138,18 +143,40 @@ def found(index, model, benchmark=None):
     return index.get(normal(benchmark), []) if benchmark else []
 
 
-def matching(index, model, effort, benchmark=None):
-    """The board's row for that model at that effort, else its row naming no effort, else None:
-    a row at another effort never stands in."""
-    hits = found(index, model, benchmark)
-    return next((row for row in hits if row["effort"] == effort),
-                next((row for row in hits if row["effort"] is None), None))
+def hits(index, model, benchmark=None):
+    """A board's rows for one model (`found`), and the rows naming no effort under its name
+    and an effort word (`acme-5-max`), as rows at that effort."""
+    return [*found(index, model, benchmark),
+            *({**row, "effort": word} for word in EFFORT_ORDER
+              for row in index.get(normal(model) + word, []) if row["effort"] is None)]
+
+
+def placed(rows, effort, top, intel):
+    """What a board says of a model at `effort`, off its rows for the model (`hits`): (its row,
+    the points it adds to every measure, None at the effort itself), else None.  A row naming
+    no effort stands at `top`, the model's highest effort with an intelligence index, or at
+    every effort where that is None.  The row at `effort`, else the nearest above, adding what
+    the index (`intel`, per effort) loses between the two and None where it is missing at
+    either, else the nearest below as it is."""
+    at = {}
+    for row in sorted(rows, key=lambda row: row["effort"] is None):    # a named effort first
+        at.setdefault(row["effort"] or top, row)
+    if effort in at or None in at:
+        return at.get(effort, at.get(None)), None
+    above = [word for word in at if effort_rank(word) > effort_rank(effort)]
+    if above:
+        word = min(above, key=effort_rank)
+        if word not in intel or effort not in intel:
+            return None
+        return at[word], max(0.0, intel[word] - intel[effort])
+    return (at[max(at, key=effort_rank)], 0.0) if at else None
 
 
 def rows(cfg, boards, harnesses):
     """One row per model and effort `harnesses` (`present`) offer, with the config name that
-    runs it and the roles it runs it in, every board's numbers it matches and which board model
-    and effort each came from."""
+    runs it and the roles it runs it in, the numbers each board says of it there (`placed`; a
+    price only off a board's row at the effort itself), the points a measure read off a higher
+    effort adds (`drops`) and which board model and effort each came from."""
     indexes = {}
     for board, held in boards.items():
         for row in held.get("rows") or []:
@@ -175,20 +202,30 @@ def rows(cfg, boards, harnesses):
             # the efforts worth a row: the boards' for this model, among those the harness
             # offers, and the config's
             efforts = {row["effort"] for index in indexes.values()
-                       for row in found(index, model, benchmark)
+                       for row in hits(index, model, benchmark)
                        if row["effort"] and (not offered or row["effort"] in offered)}
             efforts |= {effort for (h, m, effort) in names if (h, m) == (harness, model)}
+            found_rows = {board: hits(index, model, benchmark) for board, index in indexes.items()}
+            intel = {row["effort"]: row["values"][INTEL] for rows_of in found_rows.values()
+                     for row in rows_of if row["effort"] and INTEL in row["values"]}
+            top = max(intel, key=effort_rank, default=None)
             for effort in sorted(efforts, key=lambda word: -effort_rank(word)) or [None]:
                 row = {"harness": harness, "model": model, "effort": effort,
                        "name": names.get((harness, model, effort)),
                        "roles": [role for role in ROLES
                                  if role in roles.get((harness, model, effort), ())],
-                       "values": {}, "matched": {}}
-                for board, index in indexes.items():
-                    hit = matching(index, model, effort, benchmark)
-                    if hit is not None:
-                        row["values"].update(hit["values"])
-                        row["matched"][board] = {"model": hit["model"], "effort": hit["effort"]}
+                       "values": {}, "drops": {}, "matched": {}}
+                for board, rows_of in found_rows.items():
+                    hit = placed(rows_of, effort, top, intel)
+                    if hit is None:
+                        continue
+                    source, drop = hit
+                    for column, value in source["values"].items():
+                        if drop is None or column not in PRICES:
+                            row["values"][column] = value
+                            if drop:
+                                row["drops"][column] = drop
+                    row["matched"][board] = {"model": source["model"], "effort": source["effort"]}
                 table.append(row)
     return table
 

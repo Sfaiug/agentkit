@@ -502,15 +502,20 @@ scoring rule that landed holds at the next tick, not a day later.
 
 The matrix (`rows`) is one row per model and effort the installed harnesses offer (every `config.manifests` name
 `config.harness_present` says is here, their `config.catalog`, and every configured model): an effort a board lists
-for the model, among those the harness offers, or one the config runs it at in any role (`config.role_effort`), so a
-board naming no effort counts for every effort of its model, and a model no board lists at any effort is one row at
-none. A board's model is found by its letters and digits (`normal`: `claude-opus-5-5` is `Claude Opus 5.5 (max)` at
-max), else by the board's name the id extends with a version only (`muse-wonder-full` for `muse-wonder-full-1.0`;
-`found`), else by the one board name that is the model with a qualifier in brackets (`Acme 5 (Default Fallback)` for
-`acme-5`; two such names stand for nothing), else by the same matches without the id's trailing `-free` pricing tier
-(`Acme 5` for `acme/acme-5-free`), else, on a board where none of these finds it, by `benchmark` on the config entry;
-at the row's effort, else the board's row naming none, never a row at another effort (`matching`). Each row carries the config name that runs it and the
-roles it runs it in (`roles`), every matched board's numbers and which board model and effort each came from.
+for the model, among those the harness offers, or one the config runs it at in any role (`config.role_effort`), and a
+model no board lists at any effort is one row at none. A board's model is found by its letters and digits (`normal`:
+`claude-opus-5-5` is `Claude Opus 5.5 (max)` at max), else by the board's name the id extends with a version only
+(`muse-wonder-full` for `muse-wonder-full-1.0`; `found`), else by the one board name that is the model with a
+qualifier in brackets (`Acme 5 (Default Fallback)` for `acme-5`; two such names stand for nothing), else by the same
+matches without the id's trailing `-free` pricing tier (`Acme 5` for `acme/acme-5-free`), else, on a board where none
+of these finds it, by `benchmark` on the config entry; a board name ending in an effort word (`acme-5-max`) is the
+model at that effort (`hits`). Each board says of a row what its row at the row's effort says, else its nearest row
+above, each of those measures adding what Artificial Analysis's intelligence index loses between the two efforts
+(`drops`; nothing from that board where the index is missing at either), else its nearest row below as it is, never
+credited upward; a board row naming no effort stands at the model's highest effort with an index, or at every effort
+where it has none (`placed`). A price is read only off a board's row at the row's own effort. Each row carries the
+config name that runs it and the roles it runs it in (`roles`), those numbers and which board model and effort each
+came from.
 
 Every row is scored per role (`scored`), on quality and cost alone: speed is ak's own to fix, and the subscriptions
 follow the choice. A column is the row's share of the best value in that column among the rows (100 for the best; 0 at
@@ -519,8 +524,7 @@ over the role's measures on its row holding the most of them, kept with how many
 half of them, else no score; a row's quality is that times what its effort keeps of it (`kept`): its mean share over
 the role's measures whose values differ between the model's efforts, else over the intelligence index, against the
 model's best effort, 1 where nothing tells the efforts apart, and a row lacking what tells the others apart has no
-score (a board naming no effort counts for every effort of its model, so LiveBench's numbers never tell efforts apart;
-Artificial Analysis's indexes do). `ROLES` names each role's measures and why, pinned by `tests/test_matrix_measures.py` so they change only
+score (a lower effort reads a higher one's rows, so those never tell efforts apart; Artificial Analysis's indexes do). `ROLES` names each role's measures and why, pinned by `tests/test_matrix_measures.py` so they change only
 with a visible test change and the owner's yes: orchestrate is Arena's sessions ending in the user's confirmed success
 and steerability, Artificial Analysis's agentic index and LiveBench's long agentic suite; execute is Artificial
 Analysis's coding and agentic indexes, LiveBench's coding and long agentic suites; review, with no public review board exporting its numbers, is the

@@ -2,8 +2,8 @@
 numbers for each.
 
 A row is a model at an effort a board lists or the config runs it at in any role; a board naming
-no effort counts for every effort of its model; a row at another effort never stands in; a
-board's model is matched by its letters and digits, else by the board's name the id extends with
+no effort stands at the model's highest effort with an intelligence index; a row reads a board's
+row at a higher effort, never its price (tests/test_nearest_effort.py); a board's model is matched by its letters and digits, else by the board's name the id extends with
 a version, else, on a board where neither finds it, by `benchmark` on the config entry; the table
 scores each row per role (tests/test_model_scores.py) and names the rows no board has.
 
@@ -82,15 +82,17 @@ class ModelRows(Sandbox):
         self.assertEqual(both["values"]["arena.agent_steerability"], 0.2)
         self.assertEqual(both["values"]["aa.pricing.price_1m_input_tokens"], 4.0)
         self.assertEqual(both["name"], None)
-        # LiveBench names no effort: its numbers count at every effort of the model, its cost
-        # of a task beside Artificial Analysis's cost of the run, which only max has
-        self.assertEqual(rows["opus @ xhigh"]["values"]["livebench.coding"], 96.3)
-        self.assertEqual(rows["opus @ xhigh"]["values"][boards.TASK_COST], round(113 / (29 * .963), 2))
-        self.assertEqual((both["values"][matrix.COST], matrix.COST in rows["opus @ xhigh"]["values"]),
-                         (20.69, False))
-        # a row at another effort never stands in: the configured xhigh has no Arena numbers
-        self.assertNotIn("arena.agent_task_outcome_explicit", rows["opus @ xhigh"]["values"])
-        self.assertNotIn("arena.ai", rows["opus @ xhigh"]["matched"])
+        # LiveBench names no effort: its numbers stand at max, the highest effort Artificial
+        # Analysis has an index for, its cost of a task beside Artificial Analysis's of the run
+        self.assertEqual((both["values"][boards.TASK_COST], both["values"][matrix.COST]),
+                         (round(113 / (29 * .963), 2), 20.69))
+        # the configured xhigh reads LiveBench's and Arena's max rows, adding the 2 points the
+        # index loses from max to xhigh, and never their prices
+        xhigh = rows["opus @ xhigh"]
+        self.assertEqual((xhigh["values"]["livebench.coding"], xhigh["drops"]["livebench.coding"],
+                          xhigh["drops"]["arena.agent_task_outcome_explicit"]), (96.3, 2, 2))
+        self.assertNotIn(boards.TASK_COST, xhigh["values"])
+        self.assertEqual(xhigh["matched"]["arena.ai"], {"model": "Claude Opus 5.5", "effort": "max"})
         # the boards' efforts count only among those the harness offers: Astra's xhigh does
         self.assertIn("astra @ xhigh", rows)
         self.assertEqual(rows["astra @ xhigh"]["values"]["arena.agent_task_outcome_explicit"], 0.137)
@@ -123,10 +125,9 @@ class ModelRows(Sandbox):
         # a shorter board name never stands for a longer id of another version
         index = {"claudesonnet5": [{"model": "Claude Sonnet 5", "effort": None, "values": {}}],
                  "claudesonnet55": [{"model": "Claude Sonnet 5.5", "effort": None, "values": {}}]}
-        self.assertEqual(matrix.matching(index, "claude-sonnet-5-5", "max")["model"],
-                         "Claude Sonnet 5.5")
-        self.assertIsNone(matrix.matching({"claudesonnet5": index["claudesonnet5"]},
-                                          "claude-sonnet-5-5", "max"))
+        self.assertEqual(matrix.found(index, "claude-sonnet-5-5")[0]["model"], "Claude Sonnet 5.5")
+        self.assertEqual(matrix.found({"claudesonnet5": index["claudesonnet5"]},
+                                      "claude-sonnet-5-5"), [])
 
     def test_the_table_scores_the_rows_the_boards_make_and_names_the_rest(self):
         held = boards.collect(now=10000)
@@ -136,11 +137,10 @@ class ModelRows(Sandbox):
         text = "\n".join(lines)
         self.assertEqual(lines[0].split()[:3], ["model", "harness", "id"])
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
-        # the configured xhigh row inherits LiveBench's numbers, which name no effort
-        # the model's score for a role is its best-covered row's: xhigh holds one orchestrate
-        # measure, max three, and nothing tells the two efforts apart; review has one of three
-        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +- +21 +4\.05$")
-        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +100 of 3 +100 of 3 +- +- +4\.05$")
+        # the configured xhigh reads max's rows and keeps 56 of 58 of max's score, as the
+        # intelligence index does, unpriced at its own effort
+        self.assertRegex(lines[1], r"^- +claude +claude-opus-5-5 @ max +100 of 3 +100 of 3 +100 of 2 +21 +4\.05$")
+        self.assertRegex(lines[2], r"^opus +claude +claude-opus-5-5 @ xhigh +97 of 3 +97 of 3 +97 of 2 +- +-$")
         self.assertRegex(text, r"\nastra +codex +gpt-6-astra @ xhigh +- +- +- +- +-\n")
         # the run Artificial Analysis priced before the one it did not, whatever LiveBench charges
         self.assertIn("recommended: orchestrate claude-opus-5-5 @ max (100 of 3) · "
@@ -155,7 +155,7 @@ class ModelRows(Sandbox):
         self.assertNotIn("rows", data["boards"]["arena.ai"])
         rows = {matrix.row_label(row): row for row in data["rows"]}
         self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["orchestrate"], {"score": 100.0, "measures": 3})
-        self.assertIsNone(rows["claude-opus-5-5 @ max"]["scores"]["review"])     # one of three measures
+        self.assertEqual(rows["claude-opus-5-5 @ max"]["scores"]["review"], {"score": 100.0, "measures": 2})
 
     def test_a_board_row_s_effort_is_kept_apart_from_a_bracket_of_its_name(self):
         # a bracket naming no effort stays on the board's name: `Acme Pro (0813)` is at none
