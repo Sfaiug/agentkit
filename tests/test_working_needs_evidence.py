@@ -270,7 +270,8 @@ class SeatNeverSaysWorking(Sandbox):
         # and the send is watched until the line leaves it.
         draft = (FIX / "claude-draft-pane.txt").read_text(encoding="utf-8", errors="replace")
         prompt = (FIX / "claude-prompt-pane.txt").read_text(encoding="utf-8", errors="replace")
-        ok, events = self.check_v5n_delivery([prompt, draft, prompt], "Fix the login redirect")
+        empty = draft.replace("Fix the login redirect", "")    # the same attributes, no text
+        ok, events = self.check_v5n_delivery([empty, draft, prompt], "Fix the login redirect")
         self.assertTrue(ok)
         self.assertGreaterEqual(events.count("capture"), 3)
 
