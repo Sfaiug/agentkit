@@ -159,7 +159,7 @@ gets it from the tick; its line is typed once, and one still sitting in the seat
 while text you typed sits beside it, and counts as delivered only once that composer, read whole, is empty. Text you
 left in a composer two minutes untouched holds no line back where the harness hands its composer to an editor (Ctrl-G
 in Claude Code, Codex, Muse and Antigravity): ak's editor, every seat's `$VISUAL`, sets it aside, the line goes in, and
-the text comes back once the composer reads empty again. Your own Ctrl-G opens your own editor. The tick reads
+the text comes back once the composer reads empty again, before any other line goes in. Your own Ctrl-G opens your own editor. The tick reads
 a seat found off its prompt once a pass for all the endings waiting on it, and the log names a waiting ending once, as it
 is first deferred, again on each pass its seat reads at its prompt yet takes no line, and as it is said. A prompt
 that starts a turn there first carries every ending and live notice still waiting, yours or a line ak typed (never a
