@@ -45,6 +45,13 @@ def provably_final(state):
     return isinstance(state, dict) and state.get("state") in run_record.ENDED and pid_gone(state)
 
 
+def tree_released(state, with_run=False):
+    """Whether `drop_checkout` may take this run's tree: the run provably final, or, for the
+    collection taking the run directory whole (`with_run`), its loop gone, the collector's own
+    rule having proven the run old (an interrupted run nobody resumed for a month)."""
+    return provably_final(state) or (with_run and pid_gone(state))
+
+
 def disposable_workspace(directory, state):
     """This run's own checkout, and not ~/code, the repo itself, or a symlink.
 
@@ -145,7 +152,7 @@ def drop_checkout(state, log=None, keep_branch=None, with_run=False):
     is left, like the stop it funnels through.
     """
     log = log or (lambda _message: None)
-    if not provably_final(state):
+    if not tree_released(state, with_run):
         return False
     if keep_branch is None:
         keep_branch = not state.get("merged")

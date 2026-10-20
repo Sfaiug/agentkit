@@ -75,13 +75,14 @@ class HookTrust(unittest.TestCase):
                         matchers[event] = groups[0]["matcher"]
         trusted = [flag for flag in flags if flag.startswith("hooks.state=")]
         self.assertEqual(len(installed), 7, installed)
-        self.assertEqual(sum(map(len, installed.values())), 10)
+        self.assertEqual(sum(map(len, installed.values())), 9)
         # a compaction's SessionStart reaches the seat's hook (`orch.rulebook_compacted`)
         self.assertIn("hooks/seat-state.sh", installed["SessionStart"][-1][0])
         # the seat's question tools, and only they: the one that waits for nobody goes to its
-        # owner through ak, the Plan-mode dialog's is written down as the seat asking
+        # owner through ak, the Plan-mode dialog's is written down as the seat asking, by the
+        # same hook once it lets the call through
+        self.assertEqual(len(installed["PreToolUse"]), 1)
         self.assertTrue(installed["PreToolUse"][0][0].endswith("tools/codex-seat.py ask"))
-        self.assertIn("hooks/seat-state.sh", installed["PreToolUse"][1][0])
         self.assertEqual(matchers, {"PreToolUse": "request_user_input(_async)?"})
         # a call's end goes through the check that it ends the question, never straight in
         self.assertTrue(installed["PostToolUse"][0][0].endswith("tools/codex-seat.py answered"))

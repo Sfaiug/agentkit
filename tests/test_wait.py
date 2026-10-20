@@ -59,6 +59,8 @@ class Wait(Sandbox):
                                               side_effect=lambda h, seat=False: (True, h)))
         # GitHub, faked: what `gh pr view` answers about the one pull request; None is no answer
         self.gh = {"state": "OPEN", "number": 12, "mergeCommit": None}
+        # ... and a review of it going, launched outside any seat: an open one is waited on
+        self.receipt("20260101-0800-review-pr-api-12", None, review_pr=PR)
         self.stack.enter_context(patch.object(watch, "gh_json", side_effect=lambda *_a, **_k: (
             (self.gh, "") if self.gh is not None else (None, "gh: no route to GitHub"))))
         # Discord, faked: the title of every card it took, which `ak wait` never sends

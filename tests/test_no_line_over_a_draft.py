@@ -6,6 +6,7 @@ faked pane and tmux: no tmux server or real harness.
 """
 
 import unittest
+from unittest import mock
 
 from fixtures.seats import NOW, SEAT, Seats
 from agentkit import watch
@@ -44,6 +45,18 @@ class NoLineOverADraft(Seats):
                 watch.continue_turns(self.cfg, lambda _: None, accounts=accounts)
                 self.assertEqual(self.typed, [line])
                 self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
+
+    def test_a_handover_whose_enter_failed_gets_that_enter_later(self):
+        line = "You took over this seat from astra."
+        watch.seat_write(SEAT, midturn={"boot": watch.boot_id(), "at": NOW - 100,
+                                       "name": SEAT, "line": line})
+        enter, failed = watch._send_enter, []
+        with mock.patch.object(watch, "_send_enter", side_effect=lambda session, log: (
+                enter(session, log) if failed else failed.append(1))):
+            watch.continue_turns(self.cfg, lambda _: None)
+            watch.finish_own_lines(self.cfg, lambda _: None)
+        self.assertEqual(self.typed, [line])
+        self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
 
 
 if __name__ == "__main__":

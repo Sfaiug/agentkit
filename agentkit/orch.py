@@ -52,6 +52,7 @@ from .harness import LAUNCHER, load as harness_plugin
 # tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
 # one call's words may hold, with room left for that header
 TMUX_MESSAGE = 15 * 1024
+TMUX_CEILING = 15          # seconds: tmux answers in milliseconds, so one silent this long never will
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
 PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
 INPUT_TTY_OPTION = "@ak_input_tty"   # the current harness wrapper's inner tty, reset on respawn
@@ -88,16 +89,20 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 # the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
 # pane's own tmux lock, so two popups over one pane never count, keep or put back over each
 # other, and every lock is let go by a command of its own, which a command failing before it
-# cannot skip.  It ends in `true` whatever failed (a pane stopped under it), because tmux shows
-# a job that ends otherwise over the pane.
-FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
+# cannot skip.  The pane goes dim beside the popup coming up, not before it, and the popup
+# down waits for it to have; every call is the real tmux (`guard.real`), since the shim a
+# seat's PATH starts with costs each a Python start, and the key waited on all of them.  It
+# ends in `true` whatever failed (a pane stopped under it), because tmux shows a job that ends
+# otherwise over the pane.
+FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
+         'o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
-         'l() { tmux wait-for "$1" "ak-float$p"; }; l -L; n=$(o @ak_floats); '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); '
          'for s in window-style window-active-style; do '
          'if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; '
          'tmux set-option -p -t "$p" $s %(dim)s; done; '
-         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; '
-         'tmux %(popup)s -c "$c" -t "$p" %(command)s; l -L; n=$(o @ak_floats); '
+         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; '
+         'tmux %(popup)s -c "$c" -t "$p" %(command)s; wait $d; l -L; n=$(o @ak_floats); '
          'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
          'else for s in window-style window-active-style; do '
          'if h @ak_was_$s; then tmux set-option -p -t "$p" $s "$(o @ak_was_$s)" \\; '
@@ -1063,8 +1068,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     cannot be made, the command is run again plainly: a seat outside the ceiling is worth
     more than no seat at all, and the same is true of a job.
 
-    Targets are `={name}:`, as a bare name also matches any longer one; every call on a run's
-    path passes a timeout; and a test's fake tmux answers only what real tmux 3.5a does.
+    Targets are `={name}:`, as a bare name also matches any longer one; and a test's fake tmux
+    answers only what real tmux 3.5a does.  A call that is not answered within its `timeout`
+    (`TMUX_CEILING` unless the caller says) ends as a refusal, 124: a wedged pane holds every
+    client of its server, and the tick that asked goes on without that answer.
     """
     fix_term()
     socket = socket_name() if socket is None else socket
@@ -1076,11 +1083,15 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         env = {**env, "PATH": os.pathsep.join([str(guard.install_shim()), env.get("PATH", "")])}
     if unit:
         argv, env = in_slice(argv, unit, socket, env)
+    timeout = TMUX_CEILING if timeout is None else timeout
     try:
         proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
                               env=env, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
+    except subprocess.TimeoutExpired:
+        # the command's name, never its words: send-keys carries what the owner typed
+        return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
         return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
@@ -1894,8 +1905,11 @@ def tmux_text(text):
 
 
 def popup_command():
-    """What `Ctrl-b m` runs: this checkout's `ak`, on the interpreter it is installed against."""
-    return shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "attach", "--overlay"])
+    """What `Ctrl-b m` runs: this checkout's `ak attach --overlay`, on the interpreter it is
+    installed against, from the warm server (`warm`), started bare: the client imports only
+    what the interpreter is built with."""
+    return shlex.join([sys.executable, "-S", "-I", str(config.REPO / "agentkit" / "warm.py"),
+                       "attach", "--overlay"])
 
 
 def tmux_version():
@@ -1925,6 +1939,9 @@ def tmux_conf():
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs.
+    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
+    wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
+    one attached before this file was loaded gets the rows apart until it attaches again.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -1949,8 +1966,8 @@ def tmux_conf():
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
-                FLOAT % {"dim": shlex.quote(DIM), "popup": popup,
-                         "command": shlex.quote(popup_command())}))
+                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
+                         "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border}",
                           f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
@@ -1960,7 +1977,7 @@ def tmux_conf():
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             "set -g allow-passthrough on\n"
-            'set -as terminal-features ",*:RGB"\n'
+            'set -as terminal-features ",*:RGB:hyperlinks"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
     try:
@@ -2642,7 +2659,7 @@ def rulebook_news(session, conversation):
     """What a seat's next prompt carries when its conversation is to be told its rulebook: "".
 
     A harness reads its rulebook only when it opens, so a seat left open across a change to
-    `orchestrator.md`, the vision, this host's `rules.md` or its project's `AGENTS.md` -- a
+    `orchestrator.md`, this host's `rules.md` or its project's `AGENTS.md` -- a
     merge, or the seat filed elsewhere -- would keep working to the old rules.  Reopening it
     replaces its pane, and nothing on a screen proves the owner has no draft there, so the
     seat is told instead, with the prompt that starts its next turn:

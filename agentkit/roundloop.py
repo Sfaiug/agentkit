@@ -89,6 +89,13 @@ class Loop:
         return self.state["base_sha"]
 
     @property
+    def upstream(self):
+        """`origin/<target>`, the branch the work lands on, or None for a scratch run."""
+        if self.target:
+            return self.target if self.target.startswith("origin/") else f"origin/{self.target}"
+        return None
+
+    @property
     def round_dir(self):
         return self.run_dir / f"round-{self.rnd}"
 
@@ -1287,6 +1294,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                                                             lp.review_sid, lp.log,
                                                             lp.turn_limit,
                                                             handover=handover, findings=listed,
+                                                            base=lp.state.get("target_sha") or lp.upstream,
                                                             **resume)
         except worker.LoginExpired as expired:
             lp.review_sid = expired.session or lp.review_sid
@@ -1510,8 +1518,7 @@ def rounds(lp, execv=None):
     if pending and pending.get("record") is False:
         # A landing gate may be waiting on a changed target, not another task
         # round. Bring that target in before verifying or reviewing the fixes.
-        upstream = lp.target if lp.target.startswith("origin/") else f"origin/{lp.target}"
-        if not integrate(lp, upstream) and lp.state.get("merge_failed"):
+        if not integrate(lp, lp.upstream) and lp.state.get("merge_failed"):
             # An unreachable target needs the tick's error retry, not a task verdict.
             raise config.Error(lp.state["merge_note"])
         return

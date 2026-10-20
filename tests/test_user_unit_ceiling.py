@@ -70,7 +70,8 @@ class UserUnitCeiling(Installer):
         # tasks are a share of the kernel's thread limit, not a per-core count: on a
         # small machine a per-core count would shrink the slice below what (g3) gives it
         self.assertIn("[Service]\nTasksMax=4%\n", written)
-        self.assertIn("MemoryHigh=80%\nMemoryMax=90%\n", written)
+        self.assertIn("TasksMax=4%\nMemoryMax=90%\n", written)
+        self.assertNotIn("MemoryHigh", written)
         self.assertIn("CPUWeight=40\n", written)
         self.assertNotIn("CPUQuota=", written)
         self.assertIn("OOMPolicy=continue\n", written)

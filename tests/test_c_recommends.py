@@ -1,9 +1,8 @@
-"""The `c` screen shows what `ak models` recommends beside a seat's marks, and `r`, or a click
-on `r recommended`, opens the models screen (tests/test_models_screen.py), where `r` takes it.
+"""On the `c` screen `r`, or a click on `r recommended`, opens the models screen
+(tests/test_models_screen.py), where `r` takes what `ak models` recommends.
 
-The line a seat's highlighted model opens ends with the roles `ak models` recommends it for,
-read off the matrix as last computed (`matrix.stored`, `matrix.recommended`); `r` there
-makes the recommended executor and reviewer the seat's marks where an entry in the config as it
+What it recommends is read off the matrix as last computed (`matrix.stored`,
+`matrix.recommended`); `r` there makes the recommended executor and reviewer the seat's marks where an entry in the config as it
 stands runs that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort),
 saved to its record at once, and says why when it cannot; the orchestrator is only said, since
 moving the seat asks first.  With nothing computed no model is recommended and `r` is no key.
@@ -75,7 +74,6 @@ class Recommends(Sandbox):
                     row("claude", "claude-fable-5-1", "xhigh", "fable", execute=90),
                     row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         text = self.screen([Key("esc")])
-        self.assertRegex(text, r"fable runs on [^·]+ · recommended to build ")
         self.assertIn("⏎ mark r recommended esc back", text)
         # r opens the models screen and takes nothing by itself
         text = self.screen([Key("char", "r"), Key("esc"), Key("esc")])
@@ -130,41 +128,11 @@ class Recommends(Sandbox):
                             Key("down"), Key("enter"), Key("char", "r"), Key("char", "r"),
                             Key("esc"), Key("esc")])
         self.assertNotIn("fable", config.load()["models"])
-        self.assertRegex(text, r"opus runs on [^·]+ · recommended to review Version abc1234 ↑↓←→ move")
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["opus"]))
 
-    def test_on_a_short_screen_the_line_keeps_whole_parts_that_fit_with_the_note(self):
-        # fable spent, recommended for every role and the last reviewer: the build, the refusal
-        # and a row of the page keep their lines; the blank line over the model's gives way, then
-        # parts, the recommendation here
-        self.store([row("claude", "claude-fable-5-1", "xhigh", "fable",
-                        orchestrate=100, execute=100, review=100)])
-        config.save_session(self.cfg, "fix-api", "opus", ["opus", "astra"],
-                            {"reviewers": ["fable"], "cwd": "/", "created": 0})
-        spent = usage.Readings({"anthropic": {"meters": [{
-            "name": "weekly_all", "used": 100, "exhausted": True, "resets_at": 96400}]}})
-        frames, frame = [], terminal.frame
-
-        def framed(name, body=(), keyline="esc back", **kwargs):
-            frames.append((3 + len(body) + len(terminal.key_line(keyline)),
-                           " ".join(" ".join(map(terminal.plain, body)).split())))
-            return frame(name, body, keyline, **kwargs)
-        with patch.object(terminal, "layout_width", return_value=40), \
-                patch.object(terminal, "height", return_value=14), \
-                patch.object(usage, "collect", return_value=spent), \
-                patch.object(terminal, "frame", side_effect=framed):
-            self.screen([Key("right"), Key("right"), Key("enter"), Key("esc")])
-        # every page leaves the screen's last two rows (matrix_page)
-        self.assertEqual(max(height for height, _ in frames), 12, frames)
-        self.assertRegex(frames[0][1], r"fable runs on Claude spent · resets \w+ \d\d:\d\d "
-                                       r"recommended to orchestrate, build and review Version abc1234$")
-        self.assertRegex(frames[-1][1], r"fable runs on Claude spent · resets \w+ \d\d:\d\d "
-                                        r"Version abc1234 at least one model reviews$")
-
     def test_with_nothing_computed_no_model_is_recommended_and_r_is_no_key(self):
         text = self.screen([Key("char", "r"), Key("esc")])
-        self.assertRegex(text, r"fable runs on [^·]+ ↑↓←→ move")
         self.assertNotIn("recommended", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus", "astra"], ["astra"]))

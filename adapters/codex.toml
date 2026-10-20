@@ -23,6 +23,8 @@ unswitched = ["${CODEX_HOME:-~/.codex}/AGENTS.md", "~/.codex-$AGENTKIT_ACCOUNT/A
 
 [launch]
 seat_env = ["AGENTKIT_CODEX_RECEIPT", "AGENTKIT_CODEX_CAPTURE"]
+# `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
+first_prompt = true
 
 # How `ak update` moves this harness: npm installs a named version, so a failed upgrade goes
 # back by command.  `[usage] reset` says this adapter speaks `reset-status` and `reset`, which is

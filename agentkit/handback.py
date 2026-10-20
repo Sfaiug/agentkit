@@ -1813,10 +1813,11 @@ def reap(run_dir, state, memory_probe=None):
                 # The loop recorded its ending and died before its final cleanup, so the
                 # reaper ends what it left behind. Stamped with the loop it swept for:
                 # every activation records a new pid, so a resumed run is swept again
-                # without anyone clearing the stamp.
+                # without anyone clearing the stamp.  Written onto the record as it stands: the
+                # ending may have been handed back since this snapshot was read, and a whole
+                # save would erase that receipt and type the ending twice.
                 turns.stop_run_tree(state)
-                state["tree_stopped"] = swept
-                run_record.save_state(run_dir, state)
+                mark_delivery(run_dir, state, tree_stopped=swept)
         # A death the tick resumes is nobody's news however many reaps see it before it does,
         # the tick's own included while it waits out a backoff.
         if transitions.needs_recovery(state) and not (state.get("state") == "interrupted" and state.get("deaths")

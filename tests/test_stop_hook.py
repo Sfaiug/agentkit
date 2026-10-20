@@ -29,7 +29,8 @@ SEAT = "stop-seat"
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
           "prompt or ak notify needs, no run or pull request you are waiting on, and an open line "
           "in your plan. Continue: decide the next step and do it. ak plan checks every open line "
-          "and ticks the proven ones; nothing else ticks a line between runs.")
+          "and ticks the proven ones; nothing else ticks a line between runs. A background "
+          "command is no wait: wait on a pull request or run with ak wait <PR url or run id>.")
 RECOMMENDATION = "Here is my recommendation. Let me know if I should continue."
 STOOD = 300     # longer than watch.STALL_WAIT: how long a tick lets a screen stand
 # The screen a Muse seat opens on, captured: its update notice, its banner and an empty

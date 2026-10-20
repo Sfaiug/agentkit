@@ -32,11 +32,13 @@ from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix
 
 AA = [
-    {"name": "Claude Opus 5.5 (max)", "evaluations": {"artificial_analysis_coding_index": 59.6},
+    {"name": "Claude Opus 5.5 (max)", "evaluations": {"artificial_analysis_coding_index": 59.6,
+                                                      "artificial_analysis_intelligence_index": 58},
      "pricing": {"price_1m_input_tokens": 4.0}, "performance": {"median_output_tokens_per_second": 95},
      "reasoning_model": True, "artificial_analysis_intelligence_index_cost":
          {"total_cost": 20.69, "cost_per_task": {"total_cost": 0.17}}},
-    {"name": "Claude Opus 5.5 (xhigh)", "evaluations": {"artificial_analysis_coding_index": 59.6}},
+    {"name": "Claude Opus 5.5 (xhigh)", "evaluations": {"artificial_analysis_coding_index": 59.6,
+                                                        "artificial_analysis_intelligence_index": 56}},
     {"name": "Claude Haiku 4.5 (Non-reasoning)", "evaluations": {"artificial_analysis_coding_index": 9.0}},
     {"name": "Claude Sonnet 4.6 (Thinking)", "evaluations": {}}]
 # each Arena board's rows as (model, category, the board's number), in the order it serves them
@@ -122,6 +124,7 @@ class ModelBoards(Sandbox):
         aa = {(row["model"], row["effort"]): row["values"] for row in held["artificialanalysis.ai"]["rows"]}
         self.assertEqual(aa[("Claude Opus 5.5", "max")],          # a table's fields under its name
                          {"aa.evaluations.artificial_analysis_coding_index": 59.6,
+                          "aa.evaluations.artificial_analysis_intelligence_index": 58,
                           "aa.pricing.price_1m_input_tokens": 4.0,
                           "aa.performance.median_output_tokens_per_second": 95,
                           "aa.artificial_analysis_intelligence_index_cost.total_cost": 20.69,

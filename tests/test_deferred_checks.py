@@ -47,6 +47,7 @@ class DeferredChecks(unittest.TestCase):
                 self.every = ["true"]
                 self.scratch = False
                 self.base = "main"
+                self.upstream = "origin/main"
                 self.base_sha = run.git(workspace, "rev-parse", "HEAD")
                 self.state = {"round_summaries": [], "executor": "executor", "reviewer": "reviewer"}
                 self.rnd = 1
