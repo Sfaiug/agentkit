@@ -151,6 +151,19 @@ def choose(cfg, providers):
                      f"launching {default} anyway")
 
 
+def going_on(cfg, current, providers):
+    """The model a seat out of usage on `current` goes on with now, or None: the first in
+    `choose`'s order, other than `current`, whose harness is here and that has a window left --
+    credits cost money, which a click to go on now never spends unasked."""
+    default = cfg["defaults"]["orchestrator"]
+    for name in [default, *(name for name in config.offered(cfg) if name != default)]:
+        if (name != current and config.harness_present(config.model(cfg, name)["harness"])
+                and not usage.model_spent(cfg, name, providers)[0]
+                and not usage.on_credits(cfg, name, providers)):
+            return name
+    return None
+
+
 @contextmanager
 def scratch(dry_run):
     """Where the adapters called inside write a seat's rulebook, and whatever they make beside it.
@@ -3187,7 +3200,8 @@ def maintenance(log=print):
 
 
 def state_word(session, cfg=None):
-    """What the listing calls a seat: working, needs you, done or idle, and nothing else.
+    """What the listing calls a seat: working, needs you, done, idle or out of usage, and
+    nothing else.
 
     One function decides it -- `watch.session_state` -- so the list, the menu, the overlay,
     the status bar and the window title can never say different words about the same seat.
@@ -3201,7 +3215,7 @@ def state_word(session, cfg=None):
 def explain(session, cfg):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
-    The word is one of the four every screen says; the evidence lines under it are the facts
+    The word is one of the five every screen says; the evidence lines under it are the facts
     behind it.  A seat whose process is gone was never classified, and saying so is the honest
     answer rather than inventing a rule that matched.
     """
@@ -4007,7 +4021,8 @@ def switch_orchestrator(cfg, name, model, providers=None):
     are never stopped or re-parented -- the name is the same, so endings report to the new
     seat -- and its plan file stays. Where the new model runs in the same harness and that
     harness can resume the seat's conversation, the conversation goes on there, as a
-    reopened seat's does, and a turn it was in is told to go on. Otherwise the record
+    reopened seat's does, and a turn it was in, or one its usage cut off, is told to go
+    on. Otherwise the record
     stays on the conversation the new launch owns, and the old harness's per-seat evidence
     goes with it. This is a new conversation under a saved name, so the watch state is reset
     the way a created seat's is. The handover -- from which model, the plan file, `ak run
@@ -4066,6 +4081,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
             config.update_session(name, **chosen)
     except OSError as exc:
         return f"session: {_one_line(exc)}"
+    waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
     try:
         launch(name, model, cwd, cmd, conversation, session)
     except (config.Error, OSError) as exc:
@@ -4081,7 +4097,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
             pass    # the note below already says the restart failed
         return _one_line(exc)
     if kept:
-        if watch._turn_in_flight(new_harness, live)[0]:
+        if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
                                             "name": name, "line": watch.MIDTURN_LINE})
         return ""

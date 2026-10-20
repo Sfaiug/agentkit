@@ -87,7 +87,7 @@ class SeatNeverSaysWorking(Sandbox):
 
     def test_v5n_rollup_ranks_and_the_prompt_reads_at_prompt(self):
         order = list(menu.STATE_ORDER)
-        self.assertEqual(order, ["needs you", "working", "done", "idle"])
+        self.assertEqual(order, ["needs you", "out of usage", "working", "done", "idle"])
         for word in order:
             self.assertIn(word, terminal.STATE_STYLES)
             self.assertIn(word, terminal.STATES)

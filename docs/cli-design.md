@@ -541,17 +541,18 @@ Example: `  Claude I    ▰▰▰▰▰▱▱▱▱▱  52% left  ChatGPT     em
 
 Screens ask for a colour by its role, never by RGB: the accent (section titles,
 project headings, the highlight's `›`), `working`, `needs you` (`attention`,
-`amber`), `done` (`good`), `FAIL` (red) and `dim` (`waiting`). The one RGB a
+`amber`), `done` (`good`), `out of usage` (`spent`, red), `FAIL` (red) and `dim`
+(`waiting`). The one RGB a
 screen names is a company's own, on the meters over the `c` screen's page and a seat's
 bar. There is one palette per background, and `terminal.styled` draws from it:
 
 - dark, `terminal.STATE_STYLES` (Catppuccin Mocha): accent and `working`
-  `#89b4fa`, `needs you` `#f9e2af` bold, `done` `#a6e3a1`, `FAIL` `#f38ba8`,
-  `dim` `#6c7086` faint.
+  `#89b4fa`, `needs you` `#f9e2af` bold, `done` `#a6e3a1`, `out of usage` and
+  `FAIL` `#f38ba8`, `dim` `#6c7086` faint.
 - light, `terminal.LIGHT` (Catppuccin Latte, its yellow and green darkened so
   every colour reads at 4.9:1 or better on white): accent and `working`
-  `#1e66f5`, `needs you` `#9c6314` bold, `done` `#338022`, `FAIL` `#d20f39`,
-  `dim` `#6c6f85` faint.
+  `#1e66f5`, `needs you` `#9c6314` bold, `done` `#338022`, `out of usage` and
+  `FAIL` `#d20f39`, `dim` `#6c6f85` faint.
 
 Once per menu start, on a terminal the menu has taken, `terminal.sense` asks what
 the terminal is. True colour is drawn when `COLORTERM` says `truecolor` or
@@ -717,16 +718,31 @@ Example: `turn running 4h`, `2 running · silent 2h · <task>` — the `ak orch 
 ## States
 
 One state table, `terminal.STATES`, and it is the whole vocabulary: a session
-is `● working` (blue), `! needs you` (bold yellow), `✓ done` (green) or `○ idle`
-(dim: nothing running, asked or owed), and nothing else exists; a run and a
-project read one of the first three. An idle seat sorts last in its project, and
+is `● working` (blue), `! needs you` (bold yellow), `✓ done` (green), `○ idle`
+(dim: nothing running, asked or owed) or `◌ out of usage` (red: its subscriptions
+are spent and nothing moves until the usage comes back or the owner moves it), and
+nothing else exists; a run and a project read one of the first three. An idle seat sorts last in its project, and
 neither a bar's tally nor the top line counts it. `watch.session_state`
 decides which, once, and every screen reads that: the menu row, the project
 heading, the top line, `ak orch list`, `ak orch why`, `ak run
 status`, the seat's own status bar and its window title. A whole row is never
 coloured, and the reason for the word lives in the row's last column.
 
-Example: `● working`, `! needs you`, `✓ done`, `○ idle`.
+Example: `● working`, `! needs you`, `✓ done`, `○ idle`, `◌ out of usage`.
+
+A seat out of usage says when it comes back in its last column, in its red,
+`back 19:20` (a weekday before a later day's time, a date past the week:
+`menu.back_at`), and pointed at, its row opens the sentence and the choices
+(`menu.choices`): `Claude has no usage left until 19:20.` and
+`✓ Wait for 19:20   ⇄ Go on now with gpt-sol` -- waiting in `done`'s green, what
+happens unasked, and going on in amber, the first other model with a window left
+(`orch.going_on`; credits are never spent on a click). A click on going on moves
+the seat there, its conversation and the turn its usage cut off with it, as its
+orchestrator mark moved on its models screen does; a click on waiting closes the
+lines. With no model that has usage, waiting is all it offers, and the sentence
+adds `No other model has any now.` It outranks `working` in a project's word, as
+it is what stops that work; nothing pages for it. A task waiting for usage is a
+red square (`menu.squares`).
 
 A run, and only a run, can also be parked on something outside itself that lifts
 by itself -- a slot, a provider window, a target change, an expired login. Those rows say what

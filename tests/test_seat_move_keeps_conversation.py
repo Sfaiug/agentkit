@@ -113,6 +113,16 @@ class SeatMove(Sandbox):
                          {"boot": watch.boot_id(), "at": NOW, "name": SEAT,
                           "line": watch.MIDTURN_LINE})
 
+    def test_a_seat_its_usage_cut_off_mid_turn_is_told_to_go_on(self):
+        # `⇄ Go on now` under a seat out of usage: the turn the refusal ended goes on
+        watch.seat_write(SEAT, state="at_prompt", usage_wait={
+            "reason": "anthropic out of usage until 2026-10-20 19:20", "until": NOW + 3600,
+            "since": NOW - 60, "continue": True})
+        self.assertEqual(self.move("fable"), "")
+        self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])
+        self.assertEqual(watch.seat_read(SEAT)["midturn"]["line"], watch.MIDTURN_LINE)
+        self.assertIsNone(watch.seat_read(SEAT).get("usage_wait"))
+
     def test_a_seat_with_a_draft_up_moves_and_carries_the_draft_on(self):
         watch.seat_write(SEAT, state="at_prompt")     # its last reading, from before the draft
         self.pane = capture("claude-draft-pane.txt")
