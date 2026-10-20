@@ -113,8 +113,7 @@ def lines(name, model, word=None, last="", why=""):
     """(line one, line two, its key, the window title): the seat's bar, as tmux text.
 
     Line one is its row on the `ak` screen: its word, its name, the model that orchestrates it,
-    and `last`, its last column (`menu.last_column`): its progress, tmux text already, or what
-    a working seat's owner left unsent, made text here.  Line two is `why`, the
+    and `last`, its last column (`menu.last_column`), tmux text already.  Line two is `why`, the
     line its row opens under itself (`whys`).  Before its first word a seat's bar is its name and
     its model, and its title the name.
     """
@@ -123,8 +122,7 @@ def lines(name, model, word=None, last="", why=""):
     if model:
         top += f"   #[fg=#{DIM}]{orch.tmux_text(model)}#[default]"
     if last:
-        sentence = word == "working" and not menu.tasks_bar(word, last)
-        top += f"   {orch.tmux_text(last) if sentence else last}"
+        top += f"   {last}"
     key, verb = HINT.split("  ", 1)
     title = f"{name} · {word}" if word else name
     # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
@@ -280,9 +278,8 @@ def redress(session, answer, cfg=None, records=None):
         word = answer.get("word")
         progress = menu.seat_progress(name)
         # each in its own cells and never more (`narrow`), so line one picks by the width it set
-        lasts = [menu.last_column(word, answer.get("reason"), *progress, cells,
-                                  narrow=True, tmux=True, unsent=answer.get("unsent"),
-                                  back=answer.get("resumes_at"))
+        lasts = [menu.last_column(word, *progress, cells, narrow=True, tmux=True,
+                                  unsent=answer.get("unsent"), back=answer.get("resumes_at"))
                  for cells in BARS]
         info = {"crew": menu.seat_crew(cfg, selection),
                 "tasks": menu.seat_tasks(name, records)}
