@@ -219,6 +219,23 @@ class Refresh(unittest.TestCase):
         logins.renewed(self.cfg, "anthropic", "default", now=1001)
         self.assertEqual(logins.read(), before)
 
+    def test_k_a_login_saved_while_a_renewed_one_asks_stands_over_its_older_answer(self):
+        logins.refresh(self.cfg, now=1000)
+        ask = logins._ask
+
+        def asked(harness, account):
+            said = ask(harness, account)
+            if said["email"] == "owner@acme.test":   # another terminal logs in meanwhile
+                self.answer("default", {"email": "right@acme.test", "ends": FAR + 1})
+                for writer in (lambda: logins.renewed(self.cfg, "anthropic", "default", now=1002),
+                               lambda: logins.refresh(self.cfg, now=1000 + logins.ASK_EVERY)):
+                    writer()
+                    self.assertEqual(logins.read()["anthropic"]["default"]["ends"], FAR + 1)
+            return said
+        with patch.object(logins, "_ask", side_effect=asked):
+            logins.renewed(self.cfg, "anthropic", "default", now=1001)
+        self.assertEqual(logins.read()["anthropic"]["default"]["email"], "right@acme.test")
+
     def test_e_the_tick_keeps_them(self):
         from agentkit import watch
         passes = {what: run for what, run, _ in watch.local_passes({}, False, print)}

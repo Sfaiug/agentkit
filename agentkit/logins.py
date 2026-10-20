@@ -108,35 +108,35 @@ def refresh(cfg, now=None):
             kept.setdefault(provider, {})[account] = last if fresh else {
                 **last, **(asker and _ask(asker, account) or {}), "checked_at": now}
     if kept != old:
-        def over(standing):
-            for provider, accounts in kept.items():
-                for account in accounts:
-                    theirs = (standing.get(provider) or {}).get(account)
-                    if theirs is not None and theirs != (old.get(provider) or {}).get(account):
-                        accounts[account] = theirs
-            return kept
-        _write(over)
+        _write(old, kept)
     return kept
 
 
 def renewed(cfg, provider, account, now=None):
     """Ask a login just made afresh on the ak screen, at once, and keep its answer over the one
-    standing, which is older, so its meter turns back without waiting for the tick.  An ask
-    that answers nothing writes nothing: the tick asks an amber login every time it runs."""
+    it read before asking, so its meter turns back without waiting for the tick.  An ask that
+    answers nothing writes nothing: the tick asks an amber login every time it runs."""
     now = time.time() if now is None else now
-    asker = harness(cfg, provider)
+    old, asker = read(), harness(cfg, provider)
     said = asker and _ask(asker, account)
     if said:
-        _write(lambda standing: {**standing, provider: {
-            **(standing.get(provider) or {}), account: {**said, "checked_at": now}}})
+        _write(old, {**old, provider: {**(old.get(provider) or {}),
+                                       account: {**said, "checked_at": now}}})
 
 
-def _write(change):
-    """Keep what `change` makes of the logins standing, under the record's lock: the tick and a
-    login renewed on the ak screen each write after asks that take seconds."""
+def _write(old, new):
+    """Keep `new`, made from `old`, as the logins standing, under the record's lock, but any
+    entry another writer changed since `old` was read as they left it: the tick and a login
+    renewed on the ak screen each write after asks that take seconds, and one that wrote
+    meanwhile asked later.  A tick writing meanwhile an answer asked before the login stands
+    over the renewed one, until the next tick, which asks again while its meter is amber."""
     config.ensure_dirs()
     with config._record_lock(path()):
-        config._write_json(path(), change(read()), prepare=False)
+        for provider, accounts in read().items():
+            for account, theirs in (accounts or {}).items():
+                if theirs != (old.get(provider) or {}).get(account):
+                    new.setdefault(provider, {})[account] = theirs
+        config._write_json(path(), new, prepare=False)
 
 
 def remind(cfg, now=None):
