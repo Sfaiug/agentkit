@@ -2,17 +2,20 @@
 its composer to.
 
 Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its composer in that
-editor on the keys its manifest names (`[screen] editor`), and `edit` does what ak asked of the
-pane just before (`request`, a pane option the edit clears): `line` keeps the composer's text in a
-tmux buffer of the pane's (`kept`) and hands back ak's line; `back` hands the kept text back to a
-composer handed over empty or blank, each written whole or not at all.  A second `line` adds
-to what is kept.  A failed `line` step is undone, and a composer holding exactly what is kept,
-blanks after it aside, holds that text, so a step that fails keeps the text once -- twice only
-where tmux refuses the undo too, after other text was kept.  Asked nothing, it opens the owner's
-own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as it starts on
-every edit the owner opens.
+editor on the keys its manifest names (`[screen] editor`), and `edit` takes the step ak asked of
+the pane just before (`request`, a pane option the edit clears) on what the composer holds, which
+no screen draws late or cropped, and answers in that option once it is done (`answer`).  `line`
+hands back ak's line, what else the composer holds kept in a tmux buffer of the pane's (`kept`,
+`ASIDE`) beside any text kept before, and answers `line`.  `back` answers what the composer it is
+handed after that line's Enter holds -- nothing (`sent`), the line (`unsent`) or other text -- and
+over either of the first two hands the kept text back, kept on as given back (`GIVEN`): whatever
+the next `line` finds in the composer then is the owner's.  Each is written whole or not at all;
+a step that fails is undone and answers nothing, and tmux refusing to mark text given back leaves
+it in the composer and kept, so given back twice at worst, never lost.  An ask ak gave up on
+(`none`) hands the composer back as it is, to an edit its keys opened late.  Asked nothing, it
+opens the owner's own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as
+it starts on every edit the owner opens.
 """
-
 import contextlib
 import os
 import subprocess
@@ -25,6 +28,7 @@ EDITOR = Path(__file__).resolve().parent.parent / "tools" / "aside-editor"
 OWNER = "AK_OWNER_EDITOR"       # the owner's own editor, as the seat's launch found it
 ASK = "@ak_aside"
 FRESH = 10                      # an ask older than this was not for the edit now opened
+ASIDE, GIVEN = "a", "g"         # a kept text's first letter: set aside, or given back since
 
 
 def launch_env(environ):
@@ -35,8 +39,17 @@ def launch_env(environ):
 
 
 def request(mode, line=""):
-    """The pane option's value asking the next edit for `line`, with that line, or `back`."""
-    return f"{mode} {time.time():.0f} {line}"
+    """The pane option's value asking the next edit for `line`, `back` or `none`, with ak's
+    line."""
+    return f"{mode} {time.time():.6f} {line}"
+
+
+def answer(ask, said):
+    """What the edit asked with `ask` answered, read from the pane option as `said`, or None."""
+    _, at, _ = ask.split(" ", 2)
+    mode, _, rest = said.removesuffix("\n").partition(" ")
+    then, _, word = rest.partition(" ")
+    return word if mode == "did" and then == at and word else None
 
 
 def kept(pane):
@@ -118,29 +131,35 @@ def edit(argv):
         fresh = time.time() - float(at) <= FRESH
     except ValueError:
         fresh = False
+    if fresh and mode == b"none":
+        return 0
     if fresh and mode in (b"line", b"back"):
         path, name = Path(argv[-1]), kept(pane)
         # tmux fails to save a buffer it lacks as it fails for any other reason, so only one it
         # lists is read: what cannot be read leaves both the buffer and the composer as they are
         listed = _tmux("list-buffers", "-F", "#{buffer_name}")
-        held = None if listed is None else (
+        stored = None if listed is None else (
             _tmux("save-buffer", "-b", name, "-") if name.encode() in listed.splitlines() else b"")
-        if held is None:
+        if stored is None:
             return 0
-        text = path.read_bytes()
-        # the kept text, blanks after it aside, handed back by a `back` tmux failed to drop it after
-        holds = held and text.startswith(held) and not text[len(held):].strip()
-        both = text if holds else b"\n".join(part for part in (held, text) if part)
-        # a composer holding the line already got it from an edit before: nothing in it to keep
-        if mode == b"line" and text != line:
-            if not text:
-                _publish(path, line)
-            # a failed step is undone too, as tmux's server can do one its client then times out on
-            elif not (_keep(name, both) and _publish(path, line)):
-                _keep(name, held)
-        elif mode == b"back" and held and (
-                holds or not text.strip() and _publish(path, held + text)):
-            _tmux("delete-buffer", "-b", name)
+        state, held, text = stored[:1].decode(), stored[1:], path.read_bytes()
+        # the line as the harness hands it over, ending in a newline or not
+        ours = bool(line) and text.rstrip() == line.rstrip()
+        if mode == b"line":
+            word = b"line"
+            if not ours:            # a composer holding the line got it from an edit before
+                keep = (ASIDE.encode() + (held + b"\n" + text if state == ASIDE else text)
+                        if text.strip() else stored if state == ASIDE else b"")
+                # a failed step is undone too, as tmux's server can do one its client then
+                # times out on
+                if not ((keep == stored or _keep(name, keep)) and _publish(path, line)):
+                    _keep(name, stored)
+                    return 0
+        else:
+            word = b"sent" if not text.strip() else b"unsent" if ours else b"other"
+            if state == ASIDE and word != b"other" and _publish(path, held):
+                _keep(name, GIVEN.encode() + held)
+        _tmux("set-option", "-p", "-t", pane, ASK, f"did {os.fsdecode(at)} {os.fsdecode(word)}")
         return 0
     owner = os.environ.get(OWNER) or "vi"
     os.execvp("sh", ["sh", "-c", f'{owner} "$@"', owner, *argv])
