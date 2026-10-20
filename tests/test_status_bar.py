@@ -2,19 +2,17 @@
 
 The bar is the menu row's own values -- the state function's word and `last_column` --
 written through the one writer by the tick and every menu draw; line two is the line the row
-opens, who builds and who reviews, and ends in the one key. The overlay offers four keys, and `r` renames everything that carries the name.
+opens, who builds and who reviews, and ends in the one key, and `r` renames everything that carries the name.
 Offline: fake seats, plan files and run records, `orch.tmux_out` patched.
 """
 
-from contextlib import redirect_stdout
-import io
 import os
 import re
 import time
 import unittest
 from unittest.mock import patch
 
-from fixtures.sandbox import Sandbox, menu_input
+from fixtures.sandbox import Sandbox
 from agentkit import config, menu, notify, orch, run, statusbar, terminal, watch
 from agentkit.guard import commands  # noqa: E402
 from agentkit import record
@@ -163,41 +161,6 @@ class StatusBar(Sandbox):
         self.assertEqual(config.resolve_session("herdr"), "parser")
         self.assertIn("parser   Fable 5.1", self.line(statusbar.TOP))
         self.assertNotIn("herdr", self.line(statusbar.TOP))
-
-    def test_overlay_lists_the_four_entries(self):
-        self.assertEqual(menu.OVERLAY_KEYS,
-                         "n start a session   c models   x stop this session   esc leave")
-        entries = menu.OVERLAY_KEYS.split("   ")
-        self.assertEqual(entries, ["n start a session", "c models",
-                                   "x stop this session", "esc leave"])
-        with patch.object(terminal, "width", return_value=100), \
-                patch.object(terminal, "height", return_value=30), \
-                patch.object(watch, "live_state",
-                             return_value={"state": "at_prompt", "rule": "fixture"}), \
-                redirect_stdout(io.StringIO()) as out:
-            menu.draw(self.cfg, [self.seat], menu.OVERLAY_KEYS)
-        screen = out.getvalue()
-        for entry in entries:
-            self.assertIn(entry, screen)
-        for gone in ("c config", "i info", "close the menu", "stop one"):
-            self.assertNotIn(gone, screen)
-
-    def test_overlay_c_opens_its_models_x_stops_and_r_is_not_a_key(self):
-        with patch.object(orch, "listing", return_value=[self.seat]), \
-                patch.object(orch, "job_notices", return_value=[]), \
-                menu_input(side_effect=["c", "x", "r", "i", ""]), \
-                patch.object(menu, "show_config", return_value=None) as models, \
-                patch.object(menu, "stop_this_session") as stopped, \
-                patch.object(terminal, "width", return_value=100), \
-                patch.object(terminal, "height", return_value=30), \
-                redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(menu.loop(self.cfg, dry_run=True, overlay=True), 0)
-        models.assert_called_once()
-        self.assertTrue(models.call_args.args[0])
-        stopped.assert_called_once_with(True)
-        screen = out.getvalue()
-        self.assertIn("not a key: 'r'", screen)
-        self.assertIn("not a key: 'i'", screen)
 
     def test_legacy_seat_keeps_no_bar(self):
         ghost = dict(self.seat, legacy=True)

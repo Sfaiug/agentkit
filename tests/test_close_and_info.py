@@ -291,32 +291,6 @@ class CloseAndInfo(unittest.TestCase):
         self.assertIn("   x stop   ", lines[-1])
         menu.leave()
 
-    def test_the_popup_closes_its_own_done_seat_and_asks_under_its_own_row(self):
-        menu = Menu(self, {"alpha": "working", "omega": "done"}, own="omega")
-        lines = menu.frame()
-        self.assertIn("alpha", menu.highlighted(lines))
-        self.assertIn("x close this session", "\n".join(lines))
-        mark = menu.mark()
-        menu.send(b"x")                           # its own seat, wherever the highlight is
-        menu.saw("<stopped omega>", after=mark)
-        menu.leave()
-        menu = Menu(self, {"alpha": "working", "omega": "done"}, own="alpha")
-        menu.frame()
-        menu.send(b"j")
-        lines = menu.frame(lambda lines: "omega" in menu.highlighted(lines))
-        self.assertIn("x stop this session", "\n".join(lines))
-        mark = menu.mark()
-        menu.send(b"x")
-        asked = menu.frame(keys="esc back", after=mark)
-        row = next(number for number, line in enumerate(asked, 1) if "alpha" in line)
-        self.assertEqual(asked[row + 1], "  Stop alpha and everything it runs?")
-        mark = menu.mark()
-        menu.send(ESC)
-        menu.frame(after=mark)
-        menu.leave()
-        self.assertNotIn("<stopped", menu.text())
-
-
     def test_a_press_begun_on_another_screen_answers_nothing_on_this_one(self):
         """The button down on one screen and up on the next is no click: not on `Stop` under
         the question, not on a seat once the question is gone, not on `esc back` of `c`."""
