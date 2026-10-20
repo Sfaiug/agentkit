@@ -162,6 +162,8 @@ class WrappedPane(Seats):
     def tmux(self, *args, **kwargs):
         if args[0] == 'list-buffers':
             return 0, ''      # no text ak's editor keeps
+        if args[-1] == '#{pane_id}':
+            return 1, ''      # no pane named: keys go to the seat's current one
         if args[0] == 'display-message':
             self.assertEqual(kwargs.get('socket'), orch.seat_socket(self.seat))
             self.assertIsNotNone(kwargs.get('timeout'))

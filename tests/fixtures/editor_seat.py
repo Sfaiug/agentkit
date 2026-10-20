@@ -8,10 +8,8 @@ set."""
 import os
 from unittest.mock import patch
 
-from fixtures.seats import NOW, Seats
+from fixtures.seats import NOW, PANE, Seats
 from agentkit import aside_editor, watch
-
-PANE = "%7"
 
 
 class EditorSeat(Seats):
@@ -63,7 +61,7 @@ class EditorSeat(Seats):
         name = args[args.index("-b") + 1] if "-b" in args else None
         target = args[args.index("-t") + 1] if "-t" in args else ""
         pane = target if target.startswith("%") else PANE
-        if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
+        if args[0] == "display-message" and args[-1].startswith("#{pane_id}\t"):
             return 0, f"{pane}\t4242\t{self.tty}"
         if args[0] == "show-options":
             said = self.ask
