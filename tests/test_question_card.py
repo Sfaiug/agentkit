@@ -119,7 +119,7 @@ class QuestionCard(unittest.TestCase):
                     if len(terminal.wrap(menu.stop_means(None), width - 2))
                     == len(terminal.wrap(menu.stop_means(3), width - 2)) + 1)
         with patch.object(test_close_and_info, "CHILD", test_close_and_info.CHILD.replace(
-                "orch.cmd_stop = cmd_stop\n", "orch.cmd_stop = cmd_stop\n" + SLOW)):
+                "sys.exit(menu.loop(", SLOW + "sys.exit(menu.loop(")):
             shown = Menu(self, {"alpha": "working"}, rows=24, cols=cols)
         shown.frame()
         mark, pressed = shown.mark(), time.monotonic()
