@@ -843,7 +843,7 @@ def settled(state, index=None):
                 or (index is not None and is_superseded(state, None, index)))
 
 
-def mark_looked_at(run_dir, state=None):
+def mark_looked_at(run_dir):
     """Opening a run by number, `ak run status <id>` or `2 acknowledge` marks it looked at.
 
     Sets `recovery_acknowledged_at` for `fail`, `error` and `pass` as well, so an
@@ -851,37 +851,34 @@ def mark_looked_at(run_dir, state=None):
     merged-or-gone, never `needs a look` again. A scheduled error is still working,
     like a merge wait: inspecting it does not cancel its retry; `ak run stop` does.
     A PASS still waiting on its merge leaves the menu the same way: looked at is
-    looked at. Returns True when it marked.
+    looked at. Returns True when it marked.  Through `record`, so a notice's told mark
+    written meanwhile stays.
     """
-    with run_record.recovery_lock(run_dir):
-        current = run_record.read_state(run_dir) if state is None else dict(state)
-        if not current:
-            return False
-        if current.get("state") not in run_record.ENDED:
-            return False
-        if current.get("state") == "error" and going(current):
-            return False
-        if current.get("recovery_acknowledged_at"):
-            return False
-        current["recovery_acknowledged_at"] = time.time()
-        current.pop("error_retry_at", None)
-        current.pop("error_retries", None)
-        run_record.save_state(run_dir, current)
-        return True
+    try:
+        with run_record.record(run_dir) as current:
+            if (not current or current.get("state") not in run_record.ENDED
+                    or current.get("state") == "error" and going(current)
+                    or current.get("recovery_acknowledged_at")):
+                return False
+            current["recovery_acknowledged_at"] = time.time()
+            current.pop("error_retry_at", None)
+            current.pop("error_retries", None)
+    except run_record.Unreadable:
+        return False
+    return True
 
 
 def acknowledge(run_dir):
-    with run_record.recovery_lock(run_dir):
-        state = run_record.read_state(run_dir)
-        if not state:
-            raise config.Error("the run is no longer waiting for recovery")
-        waiting = needs_recovery(state) or state.get("state") in run_record.FAILED
-        if not waiting or state.get("recovery_acknowledged_at"):
-            raise config.Error("the run is no longer waiting for recovery")
-        state["recovery_acknowledged_at"] = time.time()
-        state.pop("error_retry_at", None)
-        state.pop("error_retries", None)
-        run_record.save_state(run_dir, state)
+    try:
+        with run_record.record(run_dir) as state:
+            waiting = state and (needs_recovery(state) or state.get("state") in run_record.FAILED)
+            if not waiting or state.get("recovery_acknowledged_at"):
+                raise config.Error("the run is no longer waiting for recovery")
+            state["recovery_acknowledged_at"] = time.time()
+            state.pop("error_retry_at", None)
+            state.pop("error_retries", None)
+    except run_record.Unreadable:
+        raise config.Error("the run is no longer waiting for recovery") from None
 
 
 ERROR_RETRY_CAP = 3600  # an errored run is retried at most hourly, however long the ladder
