@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 import io
 from pathlib import Path
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -51,13 +52,13 @@ class ForRow(Sandbox):
         self.stack.enter_context(patch.object(usage, "collect",
                                               return_value=usage.Readings({})))
 
-    def screen(self, *keys, session=None):
-        """The `c` screen with fix-api and acme open, opened on `session`'s row, read with `keys`
-        then Esc; what it drew."""
+    def screen(self, *keys, session=None, seats=("fix-api", "acme")):
+        """The `c` screen with `seats` open, opened on `session`'s row, read with `keys` then
+        Esc; what it drew."""
         drawn = io.StringIO()
         with patch.object(terminal, "read_key", side_effect=[*map(Key, keys), Key("esc")]), \
                 redirect_stdout(drawn):
-            menu.show_config(False, Keyboard(), session, ["fix-api", "acme"])
+            menu.show_config(False, Keyboard(), session, list(seats))
         return terminal.plain(drawn.getvalue())
 
     def turned(self, *keys, session=None):
@@ -129,6 +130,39 @@ class ForRow(Sandbox):
         del self.refuse["acme"]
         self.screen("up", "right", "down", "enter")
         self.assertEqual(self.record("acme")["orchestrator"], "fable")
+
+    def test_the_seats_one_reason_keeps_are_one_line(self):
+        self.refuse.update(dict.fromkeys(("fix-api", "acme"), "fable: claude is not installed"))
+        text = self.screen("up", "right", "down", "enter")
+        self.assertIn("fix-api and 1 more: fable: claude is not installed", text)
+
+    def test_a_highlighted_seat_that_is_not_open_is_not_among_the_open_seats(self):
+        text = self.screen("up", "left", "down", "enter", session="fix-api", seats=["acme"])
+        self.assertIn("A change here goes to new seats and to the 1 open seats.", text)
+        self.assertEqual(self.moved, [("acme", "fable")])
+
+    def test_a_flip_made_while_one_goes_behind_the_screen_comes_after_it(self):
+        release = threading.Event()
+
+        def switch(cfg, name, model, providers=None):     # fable's held until both are made
+            if model == "fable":
+                release.wait(10)
+            config.update_session(name, orchestrator=model)
+            return ""
+        # each flip's wait left with Esc, fable's first
+        acts = [("enter", ("model", "fable"), 0, 0), ("enter", ("model", "astra"), 0, 0),
+                ("back", ("model", "astra"), None, 0)]
+        with patch.object(orch, "switch_orchestrator", side_effect=switch), \
+                patch.object(terminal, "taken", return_value=True), \
+                patch.object(menu, "moving", return_value=Key("esc")), \
+                patch.object(menu, "matrix_key", side_effect=acts), \
+                patch.object(menu, "config_meters", return_value=([], {})), \
+                redirect_stdout(io.StringIO()):
+            menu.config_matrix(self.cfg, None, "abc1234", "fix-api", self.record("fix-api"),
+                               usage.Readings({}), seats=["fix-api"])
+            release.set()
+            menu.FLIPS(lambda: None)()        # once every flip made before it has ended
+        self.assertEqual(self.record("fix-api")["orchestrator"], "astra")
 
 
 if __name__ == "__main__":

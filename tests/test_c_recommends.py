@@ -6,7 +6,7 @@ read off the matrix as last computed (`matrix.stored`, `matrix.recommended`); `r
 makes the recommended executor and reviewer the seat's marks where an entry in the config as it
 stands runs that model (`matrix.runs`; tests/test_c_recommends_effort.py: at the row's effort),
 saved to its record at once, and says why when it cannot; the orchestrator is only said, since
-moving the seat asks first.  With nothing computed no model is recommended and `r` is no key.
+moving the seat is its orchestrator mark's.  With nothing computed no model is recommended and `r` is no key.
 
 Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in, the usage faked.
 """
@@ -86,6 +86,19 @@ class Recommends(Sandbox):
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
                          ("opus", ["fable"], ["astra"]))
+
+    def test_r_takes_it_for_the_seat_the_for_row_is_on(self):
+        config.save_session(self.cfg, "acme", "opus", ["opus", "astra"],
+                            {"reviewers": ["astra"], "cwd": "/", "created": 0})
+        self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
+                    row("claude", "claude-opus-5-5", "xhigh", "opus", review=100)])
+        before = config.load_session(self.cfg, "fix-api")
+        keys = [Key("up"), Key("right"), Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")]
+        with patch.object(terminal, "read_key", side_effect=keys), redirect_stdout(io.StringIO()):
+            menu.show_config(False, Keyboard(), "fix-api", ["fix-api", "acme"])
+        record = config.load_session(self.cfg, "acme")
+        self.assertEqual((record["workers"], record["reviewers"]), (["fable"], ["opus"]))
+        self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
 
     def test_a_click_on_r_recommended_does_what_r_does(self):
         # the click opens the models screen; r there takes

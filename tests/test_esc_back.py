@@ -323,9 +323,10 @@ class EscBack(unittest.TestCase):
 
     def test_the_popup_goes_back_from_its_models_and_esc_closes_it(self):
         menu_ = Menu(self, own="alpha")
-        menu_.screen()
-        config_ = title("config")                # on new seats, as the main screen's is
-        menu_.press(b"c", config_)
+        menu_.highlight("ACME")
+        config_ = title("config")
+        # on the highlighted row, as the main screen's is: a heading's is new seats
+        self.assertTrue(any("For  ‹ new seats ›" in line for line in menu_.press(b"c", config_)))
         menu_.back("config_matrix", config_)
         menu_.leave()
 
