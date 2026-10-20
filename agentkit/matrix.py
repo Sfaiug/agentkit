@@ -120,6 +120,12 @@ def normal(text):
     return re.sub(r"[^a-z0-9]", "", text.rsplit("/", 1)[-1].lower())
 
 
+# a model's name ending in an effort word, however the word is joined on (`acme-5-max`,
+# `Acme 5 xHigh`, `acme-5-x-high`): the word's letters alone, any separators among them
+EFFORT_SUFFIX = re.compile(r"[\s_-]*(" + "|".join(r"[\s_-]*".join(word) for word in EFFORT_ORDER)
+                           + ")$", re.IGNORECASE)
+
+
 def found(index, model, benchmark=None):
     """A board's rows for one model: under its exact name, else under a board's name naming no
     version of its own that `model` extends with one (`Acme Pro` for `acme-pro-1.0`, never
@@ -146,15 +152,16 @@ def found(index, model, benchmark=None):
 
 def indexed(rows):
     """A board's rows by their model's name as `normal` spells it.  A row naming no effort whose
-    name ends in an effort word (`acme-5-max`) is under the rest of its name too, at that
-    effort, so `found` matches the model every way it has."""
+    name ends in an effort word (`EFFORT_SUFFIX`: `acme-5-max`) is under the rest of its name
+    too, as that model at that effort, so `found` matches it every way it has."""
     index = {}
     for row in rows:
-        name = normal(row["model"])
-        index.setdefault(name, []).append(row)
-        word = max((word for word in EFFORT_ORDER if name.endswith(word)), key=len, default="")
-        if word and row["effort"] is None:
-            index.setdefault(name[:-len(word)], []).append({**row, "effort": word})
+        index.setdefault(normal(row["model"]), []).append(row)
+        cut = EFFORT_SUFFIX.search(row["model"]) if row["effort"] is None else None
+        if cut:
+            model = row["model"][:cut.start()]
+            index.setdefault(normal(model), []).append(
+                {**row, "model": model, "effort": normal(cut.group(1))})
     return index
 
 
