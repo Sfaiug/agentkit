@@ -1,4 +1,4 @@
-"""A rename or a looked-at mark written as a notice is told keeps its told mark: the notice is said once.
+"""A rename, a looked-at mark or a sweep written as a notice is told keeps its told mark: the notice is said once.
 
 Offline: real run records, the real prompt delivery and the real writers, in a temporary HOME;
 the prompt tells the notice just after the other writer read the record under its recovery lock.
@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from test_endings_ride_prompt import PR, SEAT, EndingsRidePrompt
-from agentkit import config, handback, orch, record, transitions, watch
+from agentkit import config, handback, orch, record, transitions, turns, watch
 
 RENAMED = "fix-widget"
 LINE = f"run fix-parser is live: {PR}."
@@ -56,6 +56,20 @@ class DeliveredMarkSurvives(EndingsRidePrompt):
         state = self.told_during(lambda: self.assertTrue(transitions.mark_looked_at(self.run)))
         self.assertTrue(state["recovery_acknowledged_at"])
         self.assertTrue(state.get("live_notified"))
+        self.assertEqual(handback.riding(SEAT), "")
+
+    def test_a_sweep_of_what_an_ended_run_left_keeps_the_told_mark(self):
+        ended, carried = self.waiting("fix-schema"), []
+
+        def sweep(_state, **_kw):
+            carried.append(handback.riding(SEAT))   # the owner's prompt, while leftovers are ended
+
+        with patch.object(turns, "stop_run_tree", sweep):
+            handback.reap(ended, record.read_state(ended))
+        self.assertIn("run fix-schema finished FAIL", carried[0])
+        state = record.read_state(ended)
+        self.assertEqual(state["tree_stopped"], [None, None])
+        self.assertTrue(handback.already_handed_back(state))
         self.assertEqual(handback.riding(SEAT), "")
 
 

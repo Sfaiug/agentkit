@@ -662,8 +662,9 @@ def finish_own_lines(cfg, log):
     """Finish a fixed ak line left in its composer, even after its retries were spent.
 
     The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
-    `continue_turns` mark is the one exception: its line was typed past an open question, so
-    its Enter is too, and once it lands the mark comes off, as that pass's own send takes it.
+    `continue_turns` mark is the one exception: its line, a handover's too, was typed past an
+    open question, so its Enter is too, and once it lands the mark comes off, as that pass's
+    own send takes it; its composer holding that line defers `continue_turns` until then.
     Delivery remains at least once, as it does for every line ak types.
     """
     for session in orch.sessions():
@@ -677,7 +678,8 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE, key):
+        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
+                     key):
             def alone(held):
                 return composer_holds(held, session, line, cfg, exact=True) == "line"
 
