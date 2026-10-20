@@ -647,6 +647,8 @@ class RulebookNews(Sandbox):
                 return 0, ""
             if args[0] == "respawn-pane":
                 return 1, "tmux refused; the old pane is still running"
+            if args[0] == "capture-pane":            # the move's look at the seat's screen
+                return 0, (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
             self.fail(f"unexpected tmux command: {args}")
 
         live = {"name": SEAT, "path": str(self.root), "exited": False, "legacy": False}

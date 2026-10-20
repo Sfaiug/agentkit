@@ -4003,14 +4003,18 @@ def switch_orchestrator(cfg, name, model, providers=None):
     The old harness process ends and the new one starts in the seat's directory: a live or
     exited pane is respawned, a seat tmux has lost is started again. The runs it launched
     are never stopped or re-parented -- the name is the same, so endings report to the new
-    seat -- and its plan file stays. The record stays with the new orchestrator in it, on
-    the conversation the new launch owns, and the old harness's per-seat evidence goes
-    with it. This is a new conversation under a saved name, so the watch state is reset
+    seat -- and its plan file stays. Where the new model runs in the same harness and that
+    harness can resume the seat's conversation, the conversation goes on there, as a
+    reopened seat's does, and a turn it was in is told to go on. Otherwise the record
+    stays on the conversation the new launch owns, and the old harness's per-seat evidence
+    goes with it. This is a new conversation under a saved name, so the watch state is reset
     the way a created seat's is. The handover -- from which model, the plan file, `ak run
     status`, and the old transcript -- is marked for the tick, which types it after the
     new TUI is listening through the confirmed send, the way a reopened seat's line goes.
-    A refusal, and a restart that fails, leave the seat as they found it and say so in
-    one line. What to say under the rows, or "".
+    The record names the new model before the harness is up, so no redress draws the old
+    one after it. A draft or a question on the screen, which a respawn would lose, refuses
+    the move; a refusal, and a restart that fails, leave the seat as they found it and say
+    so in one line. What to say under the rows, or "".
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
@@ -4022,40 +4026,64 @@ def switch_orchestrator(cfg, name, model, providers=None):
     old_model = record["orchestrator"]
     if old_model == model:
         return ""
+    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind,
+    # and a capture that failed is no evidence that nothing is on its screen.
+    session = find(name)
+    pane = (watch.pane_text(session)
+            if session and not any(session.get(key) for key in CLOSED) else None)
+    if pane is not None and not pane.strip():
+        return f"{name} stays on {old_model}: its screen could not be read"
+    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane else {}
+    if live.get("state") in ("draft", "asking"):
+        return f"{name} stays on {old_model} while a draft or a question is on its screen"
+    new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]
     except config.Error:
         old_harness = None    # its model is gone: nothing names its harness or transcript
-    transcript = (harness_plugin(old_harness).transcript(
-        record, record.get("cwd"), seat_conversation(record, old_harness))
-        if old_harness else None)
+    owned = seat_conversation(record, old_harness) if old_harness else None
+    kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
+    transcript = (harness_plugin(old_harness).transcript(record, record.get("cwd"), owned)
+                  if old_harness and not kept else None)
     try:
-        session = find(name)
         ran_in = Path(record.get("cwd") or (session or {}).get("path") or "")
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
-        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+        cmd, conversation = ((resume_command(cfg, model, kept, ran_in, seat=name,
+                                             account=account), kept) if kept
+                             else fresh_command(cfg, model, seat=name, account=account))
     except (config.Error, OSError) as exc:
-        return _one_line(exc)
-    try:
-        launch(name, model, cwd, cmd, conversation, session)
-    except (config.Error, OSError) as exc:
-        new_harness = config.model(cfg, model)["harness"]
-        harness_plugin(new_harness).forget(config.session_records().get(name) or {})
-        try:
-            config.update_session(name, **{key: record.get(key) for key in LAUNCH_KEYS})
-        except OSError:
-            pass    # the note below already says the restart failed
         return _one_line(exc)
     # Another provider's seat opens anew, and its home is the account it opened on.
     try:
         moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
+    chosen = {"orchestrator": model, "account": account,
+              **({"home_account": account} if moved else {})}
     try:
-        config.update_session(name, orchestrator=model, account=account,
-                              **({"home_account": account} if moved else {}))
+        with watch.announcing(name):   # what every redress reads the record under
+            config.update_session(name, **chosen)
     except OSError as exc:
         return f"session: {_one_line(exc)}"
+    try:
+        launch(name, model, cwd, cmd, conversation, session)
+    except (config.Error, OSError) as exc:
+        put = {key: record.get(key) for key in chosen}
+        if not kept:   # a resumed launch re-recorded the conversation the seat still owns
+            harness_plugin(new_harness).forget(config.session_records().get(name) or {})
+            put.update({key: record.get(key) for key in LAUNCH_KEYS})
+        try:
+            config.update_session(name, **put)
+            if session:
+                watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
+        except (config.Error, OSError, ValueError):
+            pass    # the note below already says the restart failed
+        return _one_line(exc)
+    if kept:
+        if watch._turn_in_flight(new_harness, live)[0]:
+            watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
+                                            "name": name, "line": watch.MIDTURN_LINE})
+        return ""
     if old_harness:
         harness_plugin(old_harness).forget(record)
     watch.forget(name)    # a new conversation: no latch of the old one's survives it
