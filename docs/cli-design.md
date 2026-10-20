@@ -236,9 +236,8 @@ explain: nothing lights on them and a click there does nothing of its own
 ## Questions
 
 Every yes-or-no question on a screen read with the keys -- `x` on a seat that
-is not done, in the menu and the popup, `Remove` on a model, a provider or a
-subscription on the `c` screens, and `Move` on another model's orchestrator mark of a
-seat there -- is one card, `terminal.confirm`, drawn where
+is not done, in the menu and the popup, and `Remove` on a model, a provider or a
+subscription on the `c` screens -- is one card, `terminal.confirm`, drawn where
 its screen asks it: a blank line, the question in the normal colour, one dim
 line saying what the answer means, the two choices, and a blank line. The safe
 choice is first and highlighted, `✓ Keep`; the one that ends something follows,
@@ -264,8 +263,8 @@ it they would leave the page fewer than three rows, they lead the page instead
 and scroll with it, so the highlighted model's line still has its room. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
-accent, a row of label, then `orch` (`●` on the highlighted
-session's, `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
+accent, a row of label, then `orch` (`●` on the one the For row names, `○` dim
+elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A
@@ -278,8 +277,14 @@ that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
-drawn at once, the orchestrator only moves, and the last reviewer stays, saying
-so under the rows, its mark shaking (Motion). Under the rows, above the keys, the highlighted
+drawn at once, asking nothing, the orchestrator only moves, and the last reviewer stays,
+saying so under the rows, its mark shaking (Motion). The For row, where the labels are on
+the headings' line (a line of its own over them on a phone), says whom the marks are for:
+`For  ‹ new seats ›`, `[defaults]`, what `n` starts from, no open seat changed; `new and
+open seats`, the same, and each open seat takes a flip too, one that cannot named under the
+rows; then each open seat by name, its own record. ←/→, Enter or a click turn it, `‹` back;
+the screen opens on the highlighted seat (on a heading, new seats), the rest following down
+the main screen from it, titled `config` whichever it is on. Under the rows, above the keys, the highlighted
 model's own line says what it runs on (`fable runs on Claude I, II`, dim), why it is spent
 (`· spent · resets Mon 02:00`, amber) and, on a seat's, the roles `ak models` recommends it for
 (`· recommended to build and review`, dim), each on lines of its own where they do not fit,

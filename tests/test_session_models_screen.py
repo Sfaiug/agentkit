@@ -197,22 +197,24 @@ class SessionModels(Sandbox):
         self.assertEqual(said(("model", chatgpt), 28), ["", f"{chatgpt} runs on ChatGPT", ""])
         self.assertEqual(said(("row", "Discord"), 28), ["", "", ""])
 
-    def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_only_efforts(self):
+    def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_new_seats(self):
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 patch.object(usage, "collect", return_value=usage.Readings({})), \
                 patch.object(terminal, "layout_width", return_value=100), \
                 redirect_stdout(io.StringIO()) as out:
             menu.show_config(dry_run=True, session="fix-api")
         screen = terminal.ANSI.sub("", out.getvalue())
-        self.assertIn("agentkit · config · fix-api", screen)
+        self.assertIn("agentkit · config", screen)
+        self.assertIn(menu.for_text("fix-api"), screen)
         self.assertEqual(self.rows(screen.splitlines())["astra"], "○■■")
         self.assertIn("esc back", screen)
+        # a seat with no record is nobody to show marks for: the screen opens on new seats
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 redirect_stdout(io.StringIO()) as out:
             menu.show_config(dry_run=True, session="nobody")
         screen = terminal.ANSI.sub("", out.getvalue())
         self.assertNotIn("nobody", screen)
-        self.assertEqual(self.rows(screen.splitlines()), {})
+        self.assertIn(menu.for_text("new seats"), screen)
 
     def test_no_key_line_or_sentence_offers_m(self):
         self.assertEqual(menu.KEYS, "n new   x stop   c config   esc leave")

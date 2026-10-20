@@ -174,7 +174,8 @@ class RemoveSubscription(unittest.TestCase):
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"], ["default"])
         # the usual login's meter, the one left, is the last provider's: it stays
         before = screen.path.read_bytes()
-        screen.press(UP + ENTER, lambda lines: "the config needs one provider" in lines[-3])
+        screen.press(UP * 2 + ENTER,               # past the For row, onto the meter
+                     lambda lines: "the config needs one provider" in lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
 

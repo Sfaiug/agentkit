@@ -203,7 +203,8 @@ class RoleMarksScreen(unittest.TestCase):
         screen.leave()
 
     def test_config_reviewer_click_saves_self_pair_and_last_one_is_one_line(self):
-        screen = ConfigScreen(self, workers=["opus"], cols=40, rows=24)
+        # a phone's width, tall enough for astra's row under the For row's own line
+        screen = ConfigScreen(self, workers=["opus"], cols=40, rows=30)
         lines = screen.frame()
         number, line = row(lines, "astra")
         first = next(line for line in lines if line.split()[-1:] == ["effort"]).index("review") + 1
