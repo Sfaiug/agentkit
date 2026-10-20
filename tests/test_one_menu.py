@@ -1,5 +1,5 @@
 """Ctrl-b m is the main screen: the popup draws the menu's own key line, its highlight starts on
-the seat it is over, and `x` and `c` act on the highlighted seat there as they do on the menu.
+the seat it is over, and `x`, `c` and `p` act there as they do on the menu, as the owner.
 
 The owner (20 Oct 2026): "There should be no differentiation between the full menu screen, or
 the menu screen when opened from inside a session."  The real loop runs in a child on a pty of
@@ -54,6 +54,16 @@ class OneMenu(unittest.TestCase):
         popup.saw("<config omega>", after=mark)
         popup.leave()
         self.assertNotIn("<stopped", popup.text())
+
+    def test_x_on_the_popups_past_screen_removes_another_seat_as_the_owner(self):
+        popup = Menu(self, SEATS, own="alpha")
+        popup.frame(lambda lines: "alpha" in popup.highlighted(lines))
+        popup.send(b"p")
+        popup.frame(lambda lines: "gone" in popup.highlighted(lines), keys="esc back")
+        popup.send(b"x")
+        popup.saw("<stopped gone>")
+        popup.send(ESC)
+        popup.leave()
 
 
 if __name__ == "__main__":

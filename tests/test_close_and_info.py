@@ -3,11 +3,11 @@ one screen is no click on the next; a seat stopped twice leaves no rulebook and 
 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
-probe faked, and the stop `x` starts reduced to a process of its own that says on the menu's
-terminal which seat it was handed and takes it off the listing.  The stop
-tests call the real `orch.cmd_stop` in a throwaway HOME with tmux faked and no runs to stop.
-Nothing here starts a seat or a tmux server, and the only process signalled is the test's own
-child.
+probe faked, and the stop `x` starts -- and the past screen's `orch.cmd_stop` -- reduced to one
+that says which seat it was handed and takes it off the listing, behind the real owner guard.
+The stop tests call the real `orch.cmd_stop` in a throwaway HOME with tmux faked and no runs to
+stop.  Nothing here starts a seat or a tmux server, and the only process signalled is the test's
+own child.
 """
 
 from contextlib import contextmanager, redirect_stdout
@@ -55,17 +55,35 @@ menu.seat_row_state = lambda cfg, session, **facts: {
 menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
-# The stop, in a process of its own as `menu.teardown`'s is: once CLOSE_HOLD is gone, if set,
-# it takes the seat off the listing and names it on the menu's terminal, or refuses as
-# `close_seat` does with CLOSE_REFUSE.
+menu.stop_session_runs = lambda name, dry_run=False: None
+
+def cmd_stop(argv):
+    """The past screen's stop, in this process: refused as the real one's owner guard refuses."""
+    config.check_stop_owner(argv[0])
+    print(f"<stopped {argv[0]}>", flush=True)
+    left = seats()
+    left.pop(argv[0], None)
+    SEATS.write_text(json.dumps(left))
+    return 0
+
+orch.cmd_stop = cmd_stop
+# The stop `x` starts, in a process of its own as `menu.teardown`'s is: once CLOSE_HOLD is gone,
+# if set, it takes the seat off the listing and names it on the menu's terminal, or refuses as
+# `close_seat` does with CLOSE_REFUSE or where the real stop's owner guard refuses.
 STOP = r'''
 import json, os, sys, time
 from pathlib import Path
+sys.path.insert(0, os.environ["CLOSE_REPO"])
+from agentkit import config
 name = sys.argv[1]
 while os.path.exists(os.environ.get("CLOSE_HOLD") or ""):
     time.sleep(0.01)
 if os.environ.get("CLOSE_REFUSE"):
     sys.exit(f"stop: {name} refused")
+try:
+    config.check_stop_owner(name)
+except config.Error as exc:
+    sys.exit(f"stop: {exc}")
 seats = Path(os.environ["CLOSE_SEATS"])
 left = json.loads(seats.read_text())
 left.pop(name, None)

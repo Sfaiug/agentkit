@@ -105,8 +105,8 @@ it is drawn, so what a number opens never depends on the page that is up.
 
 `ak attach --overlay` is the same menu inside a seat, where `ak orch` binds it to `Ctrl-b m` as
 a tmux popup: the same rows, keys and acts, its highlight starting on that seat.  What hands
-this client a seat -- a number, Enter, `n`, a past session reopened -- and `x` on the popup's
-own seat close the popup, so the seat is seen.
+this client a seat -- a number, Enter, `n`, a past session reopened -- closes the popup, so the
+seat is seen.
 
 On the server the menu is this process.  On a client -- a machine where install.sh recorded the
 server's ssh alias in ~/.agentkit/state/server -- `ak` runs the same menu over `ssh -t <alias>
@@ -366,7 +366,7 @@ class Live:
         No read puts the row back while the stop goes, nor after it until one begun since it
         ended lands: that one has the seat stopped, or as it was where the stop was refused,
         which is said as a notice.  The stop is a process of its own, so the menu leaving --
-        the popup over the seat going with it -- ends nothing halfway.
+        the popup over the seat going with the seat -- ends nothing halfway.
         """
         with self.reading:
             self.closing[name] = None
@@ -1198,13 +1198,13 @@ def tallied(ordered, infos, silent_map):
 
 
 def without(found, groups, gone):
-    """`found` and `groups` with the seats named in `gone` stopped, as the read after their stop
-    has them: each closed, its row gone, and its project's heading once it has no row left."""
+    """`found` and `groups` with the seats named in `gone` offered nowhere until a read has them
+    stopped: each `stopping`, keeping the numbers after it, not past and no number's to open,
+    its row gone, and its project's heading once it has no row left."""
     if not gone or groups is None:
         return found, groups
     ordered, infos, _, silent_map = groups
-    found = [{**seat, "closed": seat.get("closed") or time.time()} if seat["name"] in gone
-             else seat for seat in found]
+    found = [{**seat, "stopping": True} if seat["name"] in gone else seat for seat in found]
     ordered = [{**project, "seats": seats} for project in ordered
                if (seats := [info for info in project["seats"] if info["name"] not in gone])]
     return found, tallied(ordered, [info for info in infos if info["name"] not in gone],
@@ -4835,9 +4835,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
 
     `overlay` is the menu as a tmux popup over a running seat, the same menu with its highlight
     starting on that seat.  A number, `n` and a past session reopened hand this client to a
-    session, and the popup has to come down for it to be seen, so those return, as `x` on the
-    popup's own seat does before the stop ends.  Read a line at a time, `j` and `k` turn the pages of a list
-    longer than the screen, and a number is answered from whichever page is up.
+    session, and the popup has to come down for it to be seen, so those return.  Read a line at
+    a time, `j` and `k` turn the pages of a list longer than the screen, and a number is
+    answered from whichever page is up.
 
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
     nothing typed draws again, so the clock, the seat rows, the counts on the top line and the
@@ -4884,8 +4884,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     probe unstarted: its thread calls `usage.collect` after the test's mock is gone.
     """
     keys = KEYS
-    own = config.current_session() if overlay else None     # the seat the popup is over
-    cursor = os.environ.pop("AK_MENU_CURSOR", "") or own
+    cursor = os.environ.pop("AK_MENU_CURSOR", "") or None
+    if overlay:
+        cursor = cursor or config.current_session()     # the seat the popup is over
+        # the owner's main screen, as outside any seat: what it stops it stops as the owner
+        os.environ.pop(config.SESSION_ENV, None)
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
     page, ahead, look, updating, updated = 0, None, False, None, False
@@ -5073,8 +5076,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                                 clock, going=None if counted[0] else runs.is_alive)):
                         continue
                 live.stop(seat, dry_run)      # its row gone at once, the stop behind it
-                if seat == own:
-                    return 0                  # its own seat: the popup over it goes first
                 continue
             if key == "n" and drawn is not None and cfg:
                 try:
@@ -5090,7 +5091,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 back = True               # each can hand the owner a seat, where nothing is read
                 live.away()
             if key.isdigit():
-                if 1 <= int(key) <= len(found):
+                if 1 <= int(key) <= len(found) and not found[int(key) - 1].get("stopping"):
                     open_session(cfg, found[int(key) - 1], dry_run)
                     if overlay:
                         return 0
