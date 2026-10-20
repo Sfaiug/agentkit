@@ -96,7 +96,7 @@ class TwoLines(Sandbox):
         top = self.options[statusbar.TOP]
         self.assertTrue(top.startswith(" #[fg=#89b4fa]● working#[default]   #[bold]fix-api"), top)
         # two of five done: the line in working's colour, then its count
-        bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
+        bar = menu.last_column("working", 2, 5, statusbar.CELLS, tmux=True)
         self.assertTrue(top.endswith(f"Fable 5.1#[default]   {bar}"), top)
         self.assertEqual(drawn(top), f" ● working   fix-api   Fable 5.1   {drawn(bar)}")
         # line two is its row's open line: who builds and reviews, and its task building
@@ -121,7 +121,7 @@ class TwoLines(Sandbox):
         statusbar.redress(self.seat, {"word": "working",
                                       "reason": "waiting · 3rd in line to land on main"},
                           cfg=self.cfg)
-        bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
+        bar = menu.last_column("working", 2, 5, statusbar.CELLS, tmux=True)
         self.assertTrue(self.options[statusbar.TOP].endswith(f"Fable 5.1#[default]   {bar}"))
 
     def test_d_a_done_seat_offers_the_menu_key(self):

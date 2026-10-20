@@ -535,14 +535,14 @@ class LiveStatus(unittest.TestCase):
                 # the bar is the row's own values, word and last column alike
                 self.assertEqual(top, statusbar.lines(
                     "herdr", info["orchestrator"], info["word"],
-                    menu.last_column(info["word"], info["sentence"], *info["bar"],
+                    menu.last_column(info["word"], *info["bar"],
                                      statusbar.CELLS, tmux=True))[0])
                 self.assertEqual(self.options["set-titles-string"], f"herdr · {word}")
 
     # --- the bar names who orchestrates ------------------------------------------
 
     def test_the_bar_names_who_orchestrates(self):
-        tasks = menu.last_column("working", "", 4, 8, statusbar.CELLS, tmux=True)
+        tasks = menu.last_column("working", 4, 8, statusbar.CELLS, tmux=True)
         self.assertEqual(
             drawn(statusbar.lines("ak-verification", "opus", "working", tasks)[0]),
             f" ● working   ak-verification   opus   {drawn(tasks)}")

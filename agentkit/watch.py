@@ -2317,19 +2317,18 @@ def plan_progress(name):
 
 
 def unsent(name, harness, found, session):
-    """`unsent: <text>` for typed text nobody sent at a quiet prompt once nobody is in the seat
-    to see it, else "".  Text in the composer never changes the word (owner, 14 Oct 2026): it
-    is a reason, so the seat the owner left reads what its runs and its turn say and still shows
-    what they never sent.  Three seats once read `working` over their own unsent text for
-    nineteen hours while they believed each had their message.  While a client is attached it
-    is their typing; a Stop on background work is a quiet prompt, its composer open, and so is
-    a turn refused for usage, whose hooks never saw it end (`usage_wait`)."""
+    """Typed text nobody sent at a quiet prompt once nobody is in the seat to see it, else "".
+    Text in the composer never changes the word (owner, 14 Oct 2026): the seat the owner left
+    reads what its runs and its turn say, and its row still marks what they never sent.  Three
+    seats once read `working` over their own unsent text for nineteen hours while they believed
+    each had their message.  While a client is attached it is their typing; a Stop on
+    background work is a quiet prompt, its composer open, and so is a turn refused for usage,
+    whose hooks never saw it end (`usage_wait`)."""
     if (not harness or any(session.get(key) for key in orch.CLOSED) or session.get("attached")
             or found.get("state") != "draft"
             or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
         return ""
-    text = " ".join(str(found.get("evidence") or "").split())
-    return f"unsent: {text}" if text else ""
+    return " ".join(str(found.get("evidence") or "").split())
 
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
@@ -2391,10 +2390,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
 
-    Typed text nobody sent is never a word: once no client is attached, whatever the ladder
-    says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
-    fact a row's last column reads it from (`menu.last_column`).  Never a `card`'s: what the
-    owner never sent is not Discord's.
+    Typed text nobody sent is never a word nor a reason: once no client is attached, the answer
+    carries it as `unsent`, which a row marks (`menu.last_column`) and opens under it
+    (`menu.detail`).  Never a `card`'s: what the owner never sent is not Discord's.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2436,10 +2434,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                            else previous.get("word_since", answer["since"]))
     elif previous.get("word") is not None:
         answer["since"] = at
-    # after the age, whose warning check reads the ladder's own reason
     draft = "" if card else unsent(name, harness, live, session)
     if draft:
-        answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
         answer["unsent"] = draft
     return answer
 
@@ -2473,6 +2469,7 @@ def announce_state(session, cfg=None, look=False, **facts):
         # preflight's) is a reading nobody has published yet (`unseen`)
         decided = word_from(facts["live"])
         if (previous.get("word") != answer["word"] or previous.get("reason") != answer["reason"]
+                or (previous.get("unsent") or "") != answer.get("unsent", "")
                 or previous.get("word_since") != answer["since"]
                 or previous.get("word_from") != decided):
             seat_write(name, word=answer["word"], reason=answer["reason"],
@@ -2660,7 +2657,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": reason, "since": since}
     # 1d. a question on its screen, even during a turn: that needs the owner, whatever its runs
     # are doing, and its card is held back while they are in the seat by the card rule itself.
-    # Typed text nobody sent is no word of its own: `unsent` adds it to the reason.  A seat
+    # Typed text nobody sent is no word of its own: `unsent` carries it.  A seat
     # nobody is in has no screen, so its record is history.
     gone = any(session.get(key) for key in orch.CLOSED)
     # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
