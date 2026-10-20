@@ -4058,18 +4058,27 @@ def switch_orchestrator(cfg, name, model, providers=None):
         moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
-    # A resumed conversation still ends on the old model's answer: seen, so not followed back.
     chosen = {"orchestrator": model, "account": account,
-              **({"home_account": account} if moved else {}),
-              **({"ran": watch.answered(record, old_harness)} if kept else {})}
-    try:
-        with watch.announcing(name):   # what every redress reads the record under
+              **({"home_account": account} if moved else {})}
+    # Under what every redress and look reads the record under, until the old harness is gone:
+    # a resumed conversation still ends on its answer, written down as seen so no look follows
+    # it back.  Unreadable, the answer seen last stays seen.
+    with watch.announcing(name):
+        try:
             config.update_session(name, **chosen)
-    except OSError as exc:
-        return f"session: {_one_line(exc)}"
-    try:
-        launch(name, model, cwd, cmd, conversation, session)
-    except (config.Error, OSError) as exc:
+        except OSError as exc:
+            return f"session: {_one_line(exc)}"
+        try:
+            launch(name, model, cwd, cmd, conversation, session)
+            failed = None
+        except (config.Error, OSError) as exc:
+            failed = exc
+        if kept and not failed:
+            try:
+                config.update_session(name, ran=watch.answered(record, new_harness))
+            except OSError:
+                pass
+    if failed:
         put = {key: record.get(key) for key in chosen}
         if not kept:   # a resumed launch re-recorded the conversation the seat still owns
             harness_plugin(new_harness).forget(config.session_records().get(name) or {})
@@ -4080,7 +4089,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
-        return _one_line(exc)
+        return _one_line(failed)
     if kept:
         if watch._turn_in_flight(new_harness, live)[0]:
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),

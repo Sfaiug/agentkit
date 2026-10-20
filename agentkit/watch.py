@@ -1520,12 +1520,10 @@ def interrupted_at(harness, name):
 
 def answered(record, harness):
     """[model id, effort, which answer] of that seat's latest answer on that harness, as the
-    harness recorded it, or None: what `ran` in its record holds."""
+    harness recorded it, or None: what `ran` in its record holds.  OSError where it cannot
+    be read."""
     plugin, cwd = orch.harness_plugin(harness), record.get("cwd")
-    try:
-        ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
-    except OSError:
-        return None
+    ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
     return list(ran) if ran else None
 
 
@@ -1545,7 +1543,10 @@ def follow_model(cfg, name):
         return
     if not entry or entry["model"] in ("", config.DEFAULT_MODEL):
         return
-    ran = answered(record, entry["harness"])
+    try:
+        ran = answered(record, entry["harness"])
+    except OSError:
+        return
     if not ran or ran == record.get("ran"):
         return
     model, effort, _ = ran

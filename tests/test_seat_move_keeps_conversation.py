@@ -164,6 +164,22 @@ class SeatMove(Sandbox):
         self.answer("fable")
         self.assertEqual(self.follow(), "fable")
 
+    def test_an_answer_the_old_harness_writes_before_it_goes_does_not_undo_it(self):
+        self.answer("opus")
+        self.assertEqual(self.follow(), "opus")
+        start = orch._start_harness
+        with patch.object(orch, "_start_harness",
+                          side_effect=lambda *args: self.answer("opus") or start(*args)):
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual(self.follow(), "fable")
+
+    def test_an_unreadable_answer_at_the_move_keeps_the_one_seen_last(self):
+        self.answer("opus")
+        self.assertEqual(self.follow(), "opus")
+        with patch.object(claude, "running", side_effect=PermissionError("unreadable")):
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual(self.follow(), "fable")
+
     def test_a_fresh_answer_on_the_old_model_after_the_move_is_followed(self):
         self.answer("opus")
         self.assertEqual(self.follow(), "opus")
