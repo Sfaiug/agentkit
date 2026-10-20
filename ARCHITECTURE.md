@@ -194,7 +194,8 @@
   Codex's `remote_home` owns the private home's address for launch and removal;
   `pairing_home` resolves requested app access by seat name or explicit home path.
   `tools/codex-seat.py` uses those addresses and owns the live socket transport.
-  Codex's `ask` is a seat's PreToolUse hook: its question tool asks through `notify`.
+  Codex's `ask` is a seat's PreToolUse hook: its question tool asks through `notify`, and a
+  done seat's is refused (`stop.question_refused`).
   Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/
