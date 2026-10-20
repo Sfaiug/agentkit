@@ -10,10 +10,11 @@ hands back ak's line, what else the composer holds kept in a tmux buffer of the 
 handed after that line's Enter holds -- nothing (`sent`), the line (`unsent`) or other text -- and
 over either of the first two hands the kept text back, kept on as given back (`GIVEN`): whatever
 the next `line` finds in the composer then is the owner's.  Each is written whole or not at all;
-a step that fails is undone and answers nothing, and tmux refusing to mark text given back leaves
-it in the composer and kept, so given back twice at worst, never lost.  An ask ak gave up on
-(`none`) hands the composer back as it is, to an edit its keys opened late.  Asked nothing, it
-opens the owner's own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as
+a step that fails is undone and answers nothing.  tmux refusing to mark text given back leaves it
+in the composer and kept as set aside, and the next `line` keeps a composer holding just that text
+once, so it is given back again at worst, never lost.  An ask ak gave up on (`none`), however long
+ago, hands the composer back as it is, to an edit its keys opened late.  Asked nothing, it opens
+the owner's own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as
 it starts on every edit the owner opens.
 """
 import contextlib
@@ -27,7 +28,7 @@ from . import host
 EDITOR = Path(__file__).resolve().parent.parent / "tools" / "aside-editor"
 OWNER = "AK_OWNER_EDITOR"       # the owner's own editor, as the seat's launch found it
 ASK = "@ak_aside"
-FRESH = 10                      # an ask older than this was not for the edit now opened
+FRESH = 10                      # a step asked longer ago than this was not for the edit now opened
 ASIDE, GIVEN = "a", "g"         # a kept text's first letter: set aside, or given back since
 
 
@@ -102,6 +103,12 @@ def _keep(name, data):
             else _tmux("delete-buffer", "-b", name)) is not None
 
 
+def _holds(text, what):
+    """Whether the composer the harness handed over as `text` holds `what`, as it hands it over:
+    ending in a newline or not."""
+    return text in (what, what + b"\n")
+
+
 def _publish(path, data):
     """Whether the composer at `path` now holds `data`: written beside it and moved over it, so no
     failed write hands the harness part of either."""
@@ -131,7 +138,7 @@ def edit(argv):
         fresh = time.time() - float(at) <= FRESH
     except ValueError:
         fresh = False
-    if fresh and mode == b"none":
+    if mode == b"none":
         return 0
     if fresh and mode in (b"line", b"back"):
         path, name = Path(argv[-1]), kept(pane)
@@ -143,13 +150,14 @@ def edit(argv):
         if stored is None:
             return 0
         state, held, text = stored[:1].decode(), stored[1:], path.read_bytes()
-        # the line as the harness hands it over, ending in a newline or not
-        ours = bool(line) and text.rstrip() == line.rstrip()
+        ours = bool(line) and _holds(text, line)
         if mode == b"line":
             word = b"line"
             if not ours:            # a composer holding the line got it from an edit before
+                # one holding just the text set aside got it from a `back` tmux refused to mark
                 keep = (ASIDE.encode() + (held + b"\n" + text if state == ASIDE else text)
-                        if text else stored if state == ASIDE else b"")
+                        if text and not (state == ASIDE and _holds(text, held))
+                        else stored if state == ASIDE else b"")
                 # a failed step is undone too, as tmux's server can do one its client then
                 # times out on
                 if not ((keep == stored or _keep(name, keep)) and _publish(path, line)):
@@ -157,7 +165,9 @@ def edit(argv):
                     return 0
         else:
             word = b"sent" if not text else b"unsent" if ours else b"other"
-            if state == ASIDE and word != b"other" and _publish(path, held):
+            if state == ASIDE and word != b"other":
+                if not _publish(path, held):
+                    return 0
                 _keep(name, GIVEN.encode() + held)
         _tmux("set-option", "-p", "-t", pane, ASK, f"did {os.fsdecode(at)} {os.fsdecode(word)}")
         return 0

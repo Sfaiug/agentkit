@@ -100,7 +100,7 @@ class AsideEditor(unittest.TestCase):
 
     def test_text_comes_back_over_nothing_else_and_once(self):
         self.step("line", DRAFT)
-        for since in ("typed since", " \n"):        # blanks too are the owner's
+        for since in ("typed since", " \n", f"{LINE} \t"):   # blanks too are the owner's
             self.assertEqual(self.step("back", since), (since, "other"))
         self.assertEqual(self.step("line", "typed since"), (LINE, "line"))
         self.assertEqual(self.step("back", ""), (f"{DRAFT}\ntyped since", "sent"))
@@ -117,6 +117,9 @@ class AsideEditor(unittest.TestCase):
                                         ("", A + DRAFT, A + DRAFT),
                                         (ours, A + DRAFT, A + DRAFT),
                                         ("more", A + DRAFT, f"{A}{DRAFT}\nmore"),
+                                        (f"{LINE} \t", None, f"{A}{LINE} \t"),
+                                        # given back, and tmux refusing to mark it so
+                                        (f"{DRAFT}\n", A + DRAFT, A + DRAFT),
                                         # given back, then sent or emptied, or still there
                                         ("", G + DRAFT, None),
                                         (DRAFT, G + DRAFT, A + DRAFT)):
@@ -160,14 +163,13 @@ class AsideEditor(unittest.TestCase):
                 # tmux refusing the undo too: the text kept twice
                 ("line", DRAFT, A + old, {"move": failed, "load-buffer": (None, "refused")},
                  (DRAFT, f"{A}{both}", None), f"{both}\n{DRAFT}"),
+                # once, where it was all that was kept
                 ("line", DRAFT, None, {"load-buffer": done, "delete-buffer": refused},
-                 (DRAFT, A + DRAFT, None), f"{DRAFT}\n{DRAFT}"),
-                # the line's answer stands: what failed to come back is asked back later
-                ("back", "", A + old, {"move": failed}, ("", A + old, "sent"), old),
+                 (DRAFT, A + DRAFT, None), DRAFT),
+                ("back", "", A + old, {"move": failed}, ("", A + old, None), old),
                 ("back", "", A + old, {"load-buffer": done}, (old, G + old, "sent"), old),
-                # back, and tmux refusing to mark it so: kept again by the next line
-                ("back", "", A + old, {"load-buffer": refused}, (old, A + old, "sent"),
-                 f"{old}\n{old}")):
+                # back, and tmux refusing to mark it so: kept once by the next line
+                ("back", "", A + old, {"load-buffer": refused}, (old, A + old, "sent"), old)):
             with self.subTest(mode=mode, kept=kept, failing=failing):
                 self.buffers = {} if kept is None else {NAME: kept.encode()}
                 self.failing = {step: list(steps) for step, steps in failing.items()}
@@ -181,7 +183,10 @@ class AsideEditor(unittest.TestCase):
 
     def test_an_ask_given_up_on_leaves_the_composer_and_answers_another_ask_never(self):
         ask = aside_editor.request("line", LINE)
-        self.assertEqual(self.edit(DRAFT, aside_editor.request("none")), (DRAFT, None))
+        for late in (0, aside_editor.FRESH + 5):        # however late its keys open the edit
+            given_up = aside_editor.request("none")
+            with patch.object(aside_editor.time, "time", return_value=time.time() + late):
+                self.assertEqual(self.edit(DRAFT, given_up), (DRAFT, None))
         self.assertEqual((self.buffers, self.opened), ({}, []))
         _, at, _ = ask.split(" ", 2)
         self.assertEqual([aside_editor.answer(ask, said) for said in (
