@@ -245,8 +245,9 @@ def cells(text):
 
 @lru_cache(maxsize=None)
 def _width(c):
-    """One character's columns: a draw counts thousands, of a few dozen characters."""
-    return (0 if unicodedata.combining(c) else
+    """One character's columns, none for a mark drawn on the one before it: a draw counts
+    thousands, of a few dozen characters."""
+    return (0 if unicodedata.category(c) in ("Mn", "Me") else
             2 if unicodedata.east_asian_width(c) in ("W", "F") else 1)
 
 
