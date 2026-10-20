@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, handback, menu, notify, orch, run, terminal, usage, watch, worker
+from agentkit import config, handback, menu, notify, orch, plan, run, terminal, usage, watch, worker
 from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
@@ -40,7 +40,9 @@ class ThreeStates(Sandbox):
                      "legacy": False, "resumable": False}
         config.save_session(self.cfg, "atoll", "fable", ["opus"],
                             {"repo": self.repo, "cwd": self.repo})
-        config.plan_path("atoll").write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")   # the seat owes work
+        owed = "- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00"
+        config.plan_path("atoll").write_text(owed + "\n")   # the seat owes work it was told
+        watch.seat_write("atoll", plan_told={plan.identity(owed): NOW - 3600})
         self.options = {}
         self.pane = "$ "
         self.stack.enter_context(patch.object(orch, "sessions", return_value=[self.seat]))

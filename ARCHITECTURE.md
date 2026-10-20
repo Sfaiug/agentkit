@@ -74,7 +74,8 @@
 - `job.py`: task files as jobs: `job.json` (no owner's words; each gc pass removes saved
   ones), scheduling, task ladders (waits, merge, rerun), hand-back, relaunch.
   Calls `run.*`; for run, gc, watch, menu.
-- `watch.py`: tick passes (`local_passes`), watch.json, seat state, errors, recovery,
+- `watch.py`: tick passes (`local_passes`), watch.json, seat state, errors, recovery, plan
+  lines nobody typed into a resting seat (`tell_plans`),
   typing receipts, PR scans, after-merge checks, `health:` probes and the weekly audit
   (`tell_audit`). `session_state` and `waiting_on` decide state; hookless stops use
   stop.recorded_ending.

@@ -14,7 +14,8 @@ An open line that already holds that check is not written twice (`plan.add`), so
 nothing again. What a plan line says stands: a switch turned off after is still taken out,
 since turning a proven switch off is a code change (the owner, 5 Oct 2026); the list just no
 longer names it. A list that cannot be read, or a checkout with no open seat, is tried again at
-the next read. Nothing is typed into a seat: a plan line is read when the seat looks at its plan.
+the next read. The tick's plan pass types each line into its seat at that seat's next quiet
+prompt (`watch.tell_plans`), so a seat that rests hears it and starts it.
 
 All that is kept is when each checkout's lines were last written, so nothing here can go
 stale: what is written is what the list shows that moment. A checkout is a project, as

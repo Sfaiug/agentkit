@@ -2508,17 +2508,45 @@ def still_owed(name, stopped):
     return None
 
 
-def news_owed(name, mine):
+def untold_lines(name, stopped):
+    """The open lines the seat's plan owes that nobody has typed into it, as (identity, outcome)
+    pairs: a line ak wrote there while the seat rested -- a switch to take out, a review's
+    follow-up -- or one a harness without a stop hook left open.  Told lines are kept by
+    `plan.identity` in the seat's record (`tell_plans`), so a line edited or written again is a
+    new one.  None after a turn the owner `stopped`, as in `still_owed`, nor for a hand-kept line,
+    which has no identity and the seat wrote itself."""
+    from . import plan as plan_mod
+    if stopped:
+        return []
+    told = seat_read(name).get("plan_told") or {}
+    try:
+        lines = plan_mod.lines(name)
+    except config.Error:
+        return []
+    untold = []
+    for line in lines:
+        key = plan_mod.identity(line)
+        if key and key not in told and plan_mod.owed(name, line):
+            untold.append((key, plan_mod.LINE.match(line.strip())["what"]))
+    return untold
+
+
+TELLING_PLAN = "telling it the open line in its plan: "
+
+
+def news_owed(name, mine, stopped=False):
     """What ak still has to type into that seat, as its reason, or None: the end of its `ak
-    wait` not yet told (`wait_over`), or an ending of its own runs nobody has heard that is the
-    seat's to decide (`handback.owes_ending`, less a routine one, which is never typed)."""
+    wait` not yet told (`wait_over`), an ending of its own runs nobody has heard that is the
+    seat's to decide (`handback.owes_ending`, less a routine one, which is never typed), or an
+    open line of its plan nobody has told it (`untold_lines`, typed by `tell_plans`)."""
     wait = seat_read(name).get("wait")
     if isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return f"telling it its wait on {wait.get('on')} is over"
     for run_dir, state in mine:
         if handback.owes_ending(state) and not handback.routine_ending(state):
             return f"telling it how run {run_dir.name} ended"
-    return None
+    untold = untold_lines(name, stopped)
+    return TELLING_PLAN + untold[0][1] if untold else None
 
 
 def own_runs(name, records):
@@ -2785,9 +2813,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": asked, "since": found.get("began")}
     # ... or ak still has a line to type into it, at its next quiet prompt: that line moves it,
     # not the owner, who was paged `stopped with work open` while the line waited behind
-    # their own unsent text (19 Oct 2026).  Only at a prompt a rule or hook read: `classify`
+    # their own unsent text (19 Oct 2026), and again for a line ak wrote into a finished seat's
+    # plan that nothing typed in (20 Oct 2026).  Only at a prompt a rule or hook read: `classify`
     # offers `at_prompt` with no `authority` for a screen nobody can read, which takes no line.
-    telling = (news_owed(name, mine) if found.get("authority")
+    telling = (news_owed(name, mine, found.get("interrupted")) if found.get("authority")
                and found.get("state") in ("at_prompt", "draft") else None)
     if telling:
         return {"word": "working", "reason": telling, "since": found.get("began")}
@@ -2958,6 +2987,59 @@ def wait_over(cfg, log):
                           wait_mark(name, wait, typed=mark)):
             if wait_mark(name, wait, told=time.time()):
                 log(f"{name}: told that {wait['over']}; its wait is over")
+
+
+def tell_plans(cfg, log):
+    """The tick's plan pass: the open lines of a resting seat's plan that nobody has typed into it
+    (`untold_lines`) go into that seat at its quiet prompt, once, in one line, so the seat starts
+    them and its word reads working, never the owner's, on every harness alike: a switch's line
+    ak wrote into a finished seat's plan sat there two hours as `needs you`, with nothing asked
+    and nothing typed (owner, 20 Oct 2026).
+
+    It types only where the seat's own word says ak is telling it its plan (`news_owed`), so the
+    word and the typing never disagree: never mid-turn, past a question, during a wait or a run
+    of its own, nor after a turn the owner stopped.  The line in the composer is kept in the
+    seat's record with its mark (`plan_typing`) until the send took it, then each of its lines
+    is told (`plan_told`); a told line no longer open leaves the record at the next pass.
+    """
+    from . import menu as menu_mod    # the menu imports this module
+    from . import plan as plan_mod
+    records = menu_mod.run_records()
+    live = {session["name"]: session for session in orch.sessions()}
+    for name in config.session_records():
+        record = seat_read(name)
+        told = record.get("plan_told") or {}
+        try:
+            still = {plan_mod.identity(line) for line in plan_mod.lines(name)
+                     if plan_mod.is_open(line)}
+        except config.Error:
+            continue
+        if any(key not in still for key in told):
+            told = {key: at for key, at in told.items() if key in still}
+            seat_write(name, plan_told=told)
+        session = live.get(name)
+        if session is None or any(session.get(key) for key in orch.CLOSED):
+            continue
+        typing = record.get("plan_typing")
+        if not isinstance(typing, dict):
+            untold = untold_lines(name, record.get("interrupted"))
+            if not untold or not session_state(name, session=session, cfg=cfg, records=records)[
+                    "reason"].startswith(TELLING_PLAN):
+                continue
+            what = "; ".join(outcome for _, outcome in untold)
+            room = longest(cfg) - 120
+            what = what if len(what) <= room else what[:room - 1] + "…"
+            lines = "an open line" if len(untold) == 1 else f"{len(untold)} open lines"
+            typing = {"lines": [key for key, _ in untold], "text":
+                      f"Your plan has {lines}: {what}. `ak plan` shows each with its check. "
+                      "Decide the next step."}
+        if type_at_prompt(session, typing["text"], log, cfg=cfg, typed=typing.get("typed"),
+                          receipt=lambda mark, name=name, typing=typing:
+                          seat_write(name, plan_typing=dict(typing, typed=mark))):
+            now = time.time()
+            seat_write(name, plan_typing=None,
+                       plan_told={**told, **{key: now for key in typing["lines"]}})
+            log(f"{name}: told {len(typing['lines'])} open line(s) of its plan")
 
 
 def wait_main(argv):
@@ -7144,6 +7226,9 @@ def local_passes(state, dry_run, log):
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
+        # A line in a resting seat's plan that nobody typed into it -- a switch's above, a
+        # review's follow-up -- goes into that seat at its quiet prompt, once.
+        ("the plan pass did not run", lambda: tell_plans(config.load(), log), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),

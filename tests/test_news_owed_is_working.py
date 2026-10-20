@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import config, watch  # noqa: E402
+from agentkit import config, plan, watch  # noqa: E402
 
 SEAT = "acme-api"
 OWED = "- [ ] the parser reads both schemas · check: `false` · acme · written 2026-10-14 09:00\n"
@@ -60,7 +60,7 @@ class NewsOwedIsWorking(Sandbox):
         self.assertEqual(self.decide(UNREAD, records=[(Path("r7"), unheard)])[0], "needs you")
 
     def test_once_told_a_stop_with_work_open_is_the_owners_again(self):
-        watch.seat_write(SEAT, wait={"on": "r7", "kind": "run", "at": 9000, "told": 9600,
+        watch.seat_write(SEAT, plan_told={plan.identity(OWED): 9600}, wait={"on": "r7", "kind": "run", "at": 9000, "told": 9600,
                                      "over": "run r7 ended PASS, merged"})
         heard = {"run_id": "r7", "launched_session": SEAT, "state": "pass", "verdict": "PASS",
                  "merged": True, "handed_back": 9600, "started_at": 8000, "finished_at": 9500}
