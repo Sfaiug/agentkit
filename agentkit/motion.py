@@ -338,6 +338,17 @@ def colouring(text, began, colour, into, rest=None, bright=False):
     return at, began + took
 
 
+def washing(cells, colour, bright=False):
+    """How a subscription's cells on one row move on a screen's clock as the highlight or the
+    pointer comes onto it or leaves it (`colouring`): `cells` are (column, text, what it is
+    drawn in at rest).  A function of the clock, the screen row, since when and what it showed
+    before, True when it was lit and drains now."""
+    def start(clock, row, since, before):
+        for column, text, rest in cells:
+            clock.start([(row, column)], *colouring(text, since, colour, not before, rest, bright))
+    return start
+
+
 def fetching(clock, began):
     """The rule under a screen's header, its second row, animated on `clock` while the screen's
     content is fetched from `began`, a cell each; `clock`.

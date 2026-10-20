@@ -2709,7 +2709,6 @@ CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
 # The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
-PICKED = ("orchestrate", "build", "review")    # what `ak models` recommends a model to do, per role
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
@@ -2801,24 +2800,6 @@ def advice(cfg, held):
         name = takes(cfg, rows[0], role)
         found[role] = (matrix.row_label({**rows[0], "name": name}), name, rows[0].get("effort"))
     return found
-
-
-def model_said(cfg, name, providers=None, found=None):
-    """What `c` says of the highlighted model on the line under the models, (text, tone) a
-    part: the subscriptions it runs on, its provider's (`usage_rows`), the provider's name said
-    once (`runs on Claude I, II`); why it is spent, in amber (orch.spent_note); and the roles
-    `ak models` recommends it for (`found`, `advice`)."""
-    provider = cfg["models"][name]["provider"]
-    on = [terminal.plain(label) for each, label, _, _ in usage_rows(cfg) if each == provider]
-    head = on[0].rsplit(" ", 1)[0] + " " if len(on) > 1 else ""
-    on = on[:1] + [label.removeprefix(head) for label in on[1:]]
-    spent = orch.spent_note(cfg, name, providers) if providers else ""
-    picked = [verb for role, verb in zip(matrix.ROLES, PICKED)
-              if (found or {}).get(role, (None, None))[1] == name]
-    return [part for part in (
-        ("runs on " + ", ".join(on), "dim") if on else None, (spent, "amber") if spent else None,
-        ("recommended to " + " and ".join(filter(None, (", ".join(picked[:-1]), picked[-1]))),
-         "dim") if picked else None) if part]
 
 
 def take_advice(cfg, name, selected, providers, found):
@@ -3105,7 +3086,8 @@ def models_screen(cfg, session, selected, providers, held):
                     shown[key] = taken[min(max(at + step, 0), len(taken) - 1)]
 
 
-def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None):
+def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
+                lit=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name, a line each: label, the three role
@@ -3115,8 +3097,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
-    A model `providers` read as spent is dim; why is on the line under the page
-    (model_lines).  Then `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit` with
+    A model `providers` read as spent is dim.  A model whose provider runs the subscription
+    `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
+    clock washes in and out as `lit` comes and goes (motion.washing).  Then `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit` with
     their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
@@ -3159,7 +3142,14 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(name, label)
-            kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
+            on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
+            ink = colour(cfg, provider)
+            kind = ("reverse" if at == ("model", name) and column < 0 else ink if lit in on
+                    else "dim" if note else None)
+            if moves is not None:
+                moves += [(len(lines), ("sub", number), number == lit, motion.washing(
+                    [(3, shown, "dim" if note else None)], ink, at == ("model", name)))
+                    for number in on]
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))
             cells, first = [(3, 2 + terminal.cells(shown), -1)], left + 1
@@ -3436,15 +3426,15 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
-def config_meters(cfg, at=None):
+def config_meters(cfg, at=None, rows=None, spans=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
-    (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`), and
-    under them a line that, while `at`, from 1, has the highlight, says what its cell has no
-    room for (`usage_detail`), its meter lit as the pointer lights it there; none without a
-    grid."""
-    rows, width = usage_rows(cfg), terminal.layout_width()
+    (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`, of
+    `rows` where read already, `spans` handed on), and under them a line that, while `at`, from
+    1, has the highlight, says what its cell has no room for (`usage_detail`), its meter lit as
+    the pointer lights it there; none without a grid."""
+    rows, width = usage_rows(cfg) if rows is None else rows, terminal.layout_width()
     ending = login_notes(rows)
-    meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
+    meters = usage_lines(cfg, width, lit=at, rows=rows, spans=spans, ending=ending)
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
@@ -3462,31 +3452,6 @@ def meters_led(meters, body, places, under, keys, moves=()):
     return [], {}, [*over, *body], {**spots, **{line + len(over): place for line, place
                                                 in places.items()}}, [
         (line + len(over), *rest) for line, *rest in moves]
-
-
-def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
-    """The `c` screen's line for the highlighted model, `at` (`model_said`: `providers` read for
-    why it is spent, `found` for what it is recommended for), a blank line over it: its parts
-    joined with ` · ` where they fit, else each on lines of its own, as many whole parts as
-    `fit` lines hold, the blank one giving way first.  Under the page of rows, not among them,
-    so no page leaves it off, as many lines as the tallest any model's and empty while the
-    highlight is off the models, so the page keeps its height and no row moves from under the
-    pointer as it goes."""
-    room, said = terminal.layout_width(), {}
-    for name in config_models(cfg):
-        parts = [(name + " " + text if number == 0 else text, tone) for number, (text, tone)
-                 in enumerate(model_said(cfg, name, providers, found))]
-        joined = terminal.styled(" · ", "dim").join(terminal.styled(*part) for part in parts)
-        said[name] = []
-        for group in [[joined]] if parts and terminal.cells(joined) <= room - 4 else [
-                [terminal.styled(piece, tone) for piece in terminal.wrap(text, room - 4)]
-                for text, tone in parts]:
-            if len(said[name]) + len(group) > fit:
-                break
-            said[name] += group
-    shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
-    return ([""] if 0 < tallest < fit else []) + [("    " + part).rstrip()
-                                         for part in (shown + [""] * tallest)[:tallest]]
 
 
 def matrix_page(body, places, here, top, under, keys, over=()):
@@ -3531,7 +3496,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
-    on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
+    on the lines shown, `over`'s counted back from the page's first, -1 its last, each by `start(clock, row, since, before)`, its frames drawn while the
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
     said = note_lines(note)
@@ -3540,7 +3505,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     spots = terminal.frame(title, [*over, *shown, *under, *said], keys, places={
         **(over_places or {}), **{len(over) + line - top: place for line, place in places.items()
                                   if top <= line < top + room}},
-        drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line - top
+        drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line if line < 0
+                                             else first + line - top
                                              if top <= line < top + room else
                                              first + len(shown) + line - len(body)
                                              if line >= len(body) else None)))
@@ -3604,7 +3570,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     on `+ add a model` opens its screen (config_add), and a model added there is the row
     highlighted after it, and `+ add a provider` its own (config_add_provider).  ↑ past the
     first model, and the pointer, reach
-    the meters over the page: one is lit as the main screen lights it, and Enter or a click
+    the meters over the page: one is lit as the main screen lights it, its colour washing in
+    over it and the labels of the models on it and out as it goes, and Enter or a click
     opens what it offers (config_usage).  The row a model, a provider or a subscription was just
     added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
@@ -3622,8 +3589,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
-        over, meters = config_meters(cfg, here[1] if here and here[0] == "usage"
-                                     and not terminal.away() else None)
+        # the meter the highlight or the pointer is on, lit as the main screen lights one
+        lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
+        subs, spans = usage_rows(cfg), {}
+        over, meters = config_meters(cfg, lit, subs, spans)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in CONFIG_ROWS)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
@@ -3634,26 +3603,21 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                  else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
-        moves = []
+        # each meter's cells, on the lines over the page counted back from it, washing in and out
+        moves = [(line - len(over), ("sub", number), number == lit,
+                  motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
+                 for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves)
+                                   selected, providers, moves, subs, lit)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
-        # on a short screen the note keeps its lines and the page a row; the model's line the rest
-        fit = matrix_page([], {}, None, 0, note_lines(told), keys)[1] - 1
-        said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
         over, meters, body, places, moves = meters_led((over, meters), body, places,
-                                                       [*said, *note_lines(told)],
-                                                       keys, moves)
-        # coming up as the highlight comes to a model (`motion.fading`)
-        opened = here[1] if any(map(terminal.plain, said)) else None
-        moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))
-                  for line, text in enumerate(said)]
+                                                       note_lines(told), keys, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
-                                            clock=clock, moves=moves, under=said,
+                                            clock=clock, moves=moves,
                                             over=over, over_places=meters)
         column = column if clicked is None else clicked
         if act is None:

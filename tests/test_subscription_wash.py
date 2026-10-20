@@ -3,6 +3,7 @@
 The owner's design (14 Oct 2026): at rest no company's colour is on the ak screen.  Pointing at
 a subscription colours its name and its meter in, left to right with a light riding the edge,
 and every seat's model that runs on it lights the same way; it drains when the pointer leaves.
+On `c` the meter the highlight or the pointer is on does the same, with the models it runs.
 Offline: a temporary HOME, fake seats, no tmux, the pointer set by hand.
 """
 
@@ -121,6 +122,30 @@ class Wash(Sandbox):
         watch.seat_write("acme-docs", word="working", reason="", word_since=9100)
         self.assertIn(terminal.styled("opus", CLAUDE)[:-1],
                       self.row(self.screen((5, 3)), "acme-plan"))
+
+    def test_on_c_the_meter_the_highlight_comes_onto_washes_in_and_its_models_with_it(self):
+        week = {"name": "weekly", "resets_at": 10000 + 86400, "window_secs": 604800, "used": 50}
+        (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
+            "anthropic": {"meters": [week]}, "openai": {"meters": [week]}}}))
+        keys, drawn = iter([terminal.Key("up"), terminal.Key("esc")]), []
+
+        def key(clock=None, **_kw):       # what moves on the screen as each key is read
+            drawn.append({terminal.plain(animation(until)): animation(until)
+                          for animation, until in (clock.cells.values() if clock else ())
+                          if until})
+            return next(keys)
+        with patch.object(terminal, "layout_width", return_value=100), \
+                patch.object(terminal, "height", return_value=40), \
+                patch.object(terminal, "taken", return_value=True), \
+                patch.object(menu, "moving", side_effect=key), \
+                patch.object(terminal, "read_key", side_effect=lambda *a, **k: key()), \
+                redirect_stdout(io.StringIO()):
+            menu.config_matrix(self.cfg, None, "abc1234")
+        chatgpt = menu.COLOURS["openai"]     # ↑ from the first model: the last meter, ChatGPT's
+        lit = drawn[-1]
+        self.assertEqual(lit["astra"], "".join(terminal.styled(char, chatgpt) for char in "astra"))
+        self.assertIn("ChatGPT", lit)
+        self.assertNotIn("opus", lit)
 
     def test_a_free_slot_on_the_grid_s_last_line_lights_nothing(self):
         self.cfg["providers"]["anthropic"]["accounts"] = ["default", "second"]
