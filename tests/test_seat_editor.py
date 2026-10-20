@@ -34,11 +34,14 @@ class SeatEditor(EditorSeat):
         self.assertEqual((self.composer, self.buffers, self.ask, self.opened),
                          (DRAFT, {}, None, []))
         self.assertEqual(watch._edit(self.seat, where, "line", LINE), "line")
+        kept = aside_editor.pack(aside_editor.ASIDE, LINE.encode(), DRAFT.encode())
         self.assertEqual((self.composer, self.buffers, self.ask),
-                         (LINE, {aside_editor.kept(PANE): f"{aside_editor.ASIDE}{DRAFT}".encode()},
-                          None))
+                         (LINE, {aside_editor.kept(PANE): kept}, None))
         self.assertEqual(watch._edit(self.seat, where, "back", LINE), "unsent")
-        self.assertEqual((self.keys, self.composer, self.ask), (["C-g"] * 4, DRAFT, None))
+        self.press("Enter")
+        self.assertEqual(watch._edit(self.seat, where, "back", LINE), "sent")
+        self.assertEqual((self.keys, self.composer, self.ask),
+                         (["C-g"] * 4 + ["Enter", "C-g"], DRAFT, None))
 
 
 if __name__ == "__main__":
