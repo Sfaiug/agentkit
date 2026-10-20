@@ -20,6 +20,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from fixtures.composer import opencode_rows
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, host, job as jobs, menu, notify, orch, run, watch
 from agentkit import record
@@ -77,7 +78,10 @@ class NudgeTurnRule(Sandbox):
         if args[0] == "send-keys" and "-l" in args:
             self.sent.append(args[-1])
             empty, row = TYPED[self.harness]    # the line sits in the composer until its Enter
-            self.pane = self.screen("prompt").replace(empty, row.format(args[-1]))
+            prompt, line = self.screen("prompt"), args[-1]
+            if self.harness == "opencode":
+                line = opencode_rows(prompt, line)
+            self.pane = prompt.replace(empty, row.format(line))
         elif args[0] == "send-keys" and args[-1] == "Enter":
             self.pane = self.screen("working")      # the harness took the line and is at work
         return 0, ""

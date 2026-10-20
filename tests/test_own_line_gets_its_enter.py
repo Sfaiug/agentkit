@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.clock import Clock
+from fixtures.composer import opencode_rows
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.tick import only_passes
 from agentkit import config, orch, watch
@@ -62,8 +63,7 @@ class OwnLineGetsItsEnter(Sandbox):
         self.base = (REPO / f"tests/fixtures/{harness.removesuffix('build')}-prompt-pane.txt").read_text()
         self.assertIn(empty, self.base)
         if harness == "opencode":
-            inset = re.search(r"^( *)┃", self.base, re.M)[1]
-            line = line.replace("\n", "\n" + inset + "┃  ")
+            line = opencode_rows(self.base, line)
         if harness == "grokbuild":
             inset = re.search(r"^( *)│ ❯", self.base, re.M)[1]
             line = line.replace("\n", " │\n" + inset + "│   ")
