@@ -350,7 +350,7 @@ changes without repository hooks, leaving out junk and the done-when's artifacts
 a rebase or merge is unfinished, or Git cannot save the work, the checkout stays. The collector respects that hold
 until seven days, then retries saving; work that still cannot reach the branch stays. Removal that also drops the
 branch is unchanged. A pass whose delivery ended without a merge loses its checkout after seven days, its branch kept, and a checkout
-with no run record goes a day after its last use (its folder changed, or git wrote its index or moved its HEAD): a folder with no `.git`, one ak never finished making, the line's marked scratch whatever it
+with no run record goes a day after its last use (its folder changed, git wrote its index or its HEAD moved, at the time its reflog records, which git's housekeeping keeps): a folder with no `.git`, one ak never finished making, the line's marked scratch whatever it
 holds, any other only on a branch, not locked, with no submodule set up and `git status` listing nothing, untracked files
 included. A seat's checkout with a change not committed, a clone, a detached one and one git cannot read stay. A run directory older than 30 days goes whole, with its checkout and branch, unless
 the session that launched it still exists; a scratch run's workspace goes only with it. `~/.agentkit/tmp` entries older
