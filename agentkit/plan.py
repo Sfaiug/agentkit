@@ -130,10 +130,14 @@ def write(name, text_lines):
 
 
 def project_of(name):
-    """The checkout the seat is filed under, read under the seat's lock with the name it goes
-    by now -- a rename takes the same lock: a line it writes names that project."""
-    with held(name) as current:
+    """The checkout the seat is filed under, by the name it goes by now, looked for again if a
+    rename lands meanwhile, as `path` looks for the plan: a read, which never takes the seat's
+    lock -- a caller may hold it already, as a done's card reading the plan does."""
+    while True:
+        current = config.resolve_session(name)
         record = config.session_records().get(current) or {}
+        if config.resolve_session(name) == current:
+            break
     repo = record.get("repo")
     if not repo or not (Path(repo) / ".git").exists():
         raise config.Error(f"{name} is filed under no project; run `ak orch project <checkout>` "
