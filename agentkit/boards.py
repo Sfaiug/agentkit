@@ -7,7 +7,9 @@ leaves out.  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARE
 category.  LiveBench 2.0, its newest release's CSV files, no key: each suite's score and what a
 successful coding task cost.  `ak models --refresh` asks again before the day is up; a board
 that cannot answer keeps what it last said, its error beside it, and waits for the day like one
-that answered.  Callers at once share one collection: each writer of `state/boards.json` holds
+that answered.  A board another build of ak read is asked again, once, by a build reading a
+column its rows carry none of: its reader changed, and a day of nothing is stale state.
+Callers at once share one collection: each writer of `state/boards.json` holds
 `boards.lock` from reading it to replacing it.  A board's row is one model at one effort (`Acme
 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default Fallback)` is Acme 5 (Default Fallback) at
 max), or at none where the board names no effort, with every number the board gives as
@@ -53,6 +55,7 @@ ARENA_BOARDS = (("agent_task_outcome_explicit", "overall"), ("agent_steerability
                 ("text_factuality", "coding"), ("text_style_control", "coding"))
 LIVEBENCH = "https://livebench.ai/"
 BOARDS = ("artificialanalysis.ai", "arena.ai", "livebench.ai")
+PREFIX = dict(zip(BOARDS, ("aa", "arena", "livebench")))   # each board's columns start with it
 TASK_COST = "livebench.cost_coding"       # dollars per successful coding task, at one effort
 EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 # the words a board writes an effort as, each to ak's own
@@ -247,11 +250,14 @@ def _write(cache):
     tmp.replace(cache_path())
 
 
-def collect(*, refresh=False, now=None):
+def collect(*, refresh=False, now=None, needs=None, build=None):
     """The boards' rows, each board asked once a day (`refresh` asks now), as the cache holds
-    them: {board: {"asked_at", "fetched_at", "rows", "error"}}.  The day counts from `asked_at`,
-    answered or not; a board that fails keeps its last rows and their `fetched_at`.  One caller
-    collects at a time, under `boards.lock`, and the next reads what it wrote."""
+    them: {board: {"asked_at", "fetched_at", "rows", "error", "build"}}.  The day counts from
+    `asked_at`, answered or not; a board that fails keeps its last rows and their `fetched_at`.
+    `needs`, {board: columns} the caller reads, and `build`, ak's build asking: a board held
+    from another build whose rows carry none of a needed column is asked again before the day
+    is up, once, since its reader changed.  One caller collects at a time, under `boards.lock`,
+    and the next reads what it wrote."""
     now = time.time() if now is None else now
     with _locked():
         cache = _held()
@@ -259,12 +265,17 @@ def collect(*, refresh=False, now=None):
                 "livebench.ai": livebench}
         for board, ask in asks.items():
             held = cache.get(board) or {}
-            if not refresh and held.get("asked_at") and now - held["asked_at"] < FRESH_FOR:
+            fresh = held.get("asked_at") and now - held["asked_at"] < FRESH_FOR
+            if fresh and build is not None and held.get("build") != build and held.get("rows"):
+                carried = {column for row in held["rows"] for column in row["values"]}
+                fresh = not ((needs or {}).get(board, set()) - carried)
+            if not refresh and fresh:
                 continue
             try:
-                cache[board] = {"asked_at": now, "fetched_at": now, "rows": ask(), "error": None}
+                cache[board] = {"asked_at": now, "fetched_at": now, "rows": ask(), "error": None,
+                                "build": build}
             except Exception as exc:          # noqa: BLE001 -- a board down is a note, not a crash
-                cache[board] = {**held, "asked_at": now,
+                cache[board] = {**held, "asked_at": now, "build": build,
                                 "error": " ".join(str(exc).split()) or type(exc).__name__}
         _write(cache)
     return {board: cache[board] for board in BOARDS}

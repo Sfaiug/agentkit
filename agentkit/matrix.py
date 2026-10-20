@@ -39,7 +39,7 @@ import sys
 import time
 
 from . import command_help, config, record, terminal
-from .boards import EFFORT_ORDER, TASK_COST, collect, lines as board_lines
+from .boards import EFFORT_ORDER, PREFIX, TASK_COST, collect, lines as board_lines
 
 INTEL = "aa.intelligenceIndex"       # every model has it per effort
 COST = "aa.intelligenceIndexCostPerTask.cost.total"      # dollars a task of its index run cost
@@ -437,6 +437,15 @@ def stored():
     return held
 
 
+def needed():
+    """The columns scoring reads, by board, for `collect`: a board whose cached rows carry none
+    of one is read again by a new build, since its reader changed."""
+    columns = {COST, INTEL, TASK_COST} | {column for role in ROLES.values()
+                                          for column, _, _ in role}
+    return {board: {column for column in columns if column.split(".")[0] == prefix}
+            for board, prefix in PREFIX.items()}
+
+
 def refresh(cfg, *, refresh=False, now=None):
     """The boards (`collect`) and the matrix computed from them and the config, written to
     `state/matrix.json` so every pick reads one computed truth; computed again
@@ -446,10 +455,10 @@ def refresh(cfg, *, refresh=False, now=None):
     take time.  Returns (boards, the scored rows); `recommended` reads off the rows."""
     from . import update        # here, not at the top: update reaches this module through orch
     now = time.time() if now is None else now
-    boards = collect(refresh=refresh, now=now)
+    harnesses, build = present(), update.agentkit_version()
+    boards = collect(refresh=refresh, now=now, needs=needed(), build=build)
     held = stored()
     fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)
-    harnesses, build = present(), update.agentkit_version()
     if (held.get("rows") is not None and held.get("computed_at", -1) >= fetched
             and held.get("config") == config_key(cfg) and held.get("harnesses") == harnesses
             and held.get("build") == build):
