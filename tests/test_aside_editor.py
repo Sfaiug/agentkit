@@ -24,6 +24,8 @@ sys.path.insert(0, str(REPO))
 from agentkit import aside_editor  # noqa: E402
 
 PANE = "%7"
+LINE = "run acme-parser ended PASS, merged; your wait is over."
+DRAFT = "and add these posts"
 
 
 class AsideEditor(unittest.TestCase):
@@ -33,7 +35,7 @@ class AsideEditor(unittest.TestCase):
         self.root = Path(tmp.name)
         self.composer = self.root / "composer.md"
         self.options, self.buffers, self.opened = {}, {}, []
-        self.unreadable = False
+        self.refused = None
         for name, fake in (("_tmux", self.tmux),
                            ("execvp", lambda *argv: self.opened.append(argv))):
             patcher = patch.object(aside_editor if name == "_tmux" else aside_editor.os, name,
@@ -42,14 +44,16 @@ class AsideEditor(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def tmux(self, *args, data=None):
-        """The pane's option, read and cleared at once, and its buffers."""
+        """The pane's option, read and cleared at once, and its buffers; a step `refused` fails."""
+        if args[0] == self.refused:
+            return None
         if args[0] == "show-options":
             return self.options.pop(args[args.index("-t") + 2], "").encode()
         if args[0] == "list-buffers":
             return "".join(f"{name}\n" for name in self.buffers).encode()
         name = args[args.index("-b") + 1]
         if args[0] == "save-buffer":
-            return None if self.unreadable else self.buffers.get(name)
+            return self.buffers.get(name)
         if args[0] == "load-buffer":
             self.buffers[name] = data
         else:
@@ -65,21 +69,35 @@ class AsideEditor(unittest.TestCase):
             aside_editor.edit([str(self.composer)])
         return self.composer.read_text()
 
-    def test_text_set_aside_twice_comes_back_whole_ahead_of_newer_text(self):
-        self.assertEqual(self.edit("and add these posts", aside_editor.request("out")), "")
-        self.assertEqual(self.edit("then this", aside_editor.request("out")), "")
-        self.assertEqual(self.edit("newest", aside_editor.request("back")),
-                         "and add these posts\nthen this\nnewest")
+    def test_text_set_aside_twice_comes_back_whole_into_an_empty_composer_alone(self):
+        # the second text the end of the first: two texts all the same
+        for text in ("", f"first\n{DRAFT}", DRAFT, LINE):
+            self.assertEqual(self.edit(text, aside_editor.request("line", LINE)), LINE)
+        self.assertEqual(self.edit("newest", aside_editor.request("back")), "newest")
+        self.assertEqual(self.edit("", aside_editor.request("back")), f"first\n{DRAFT}\n{DRAFT}")
+        self.assertEqual(self.edit(" \n", aside_editor.request("line", LINE)), LINE)
+        self.assertEqual(self.edit("", aside_editor.request("back")), " \n")
         self.assertEqual((self.buffers, self.opened), ({}, []))
 
-    def test_text_kept_that_cannot_be_read_is_neither_replaced_nor_lost(self):
-        self.edit("and add these posts", aside_editor.request("out"))
-        self.unreadable = True      # tmux timed out on the buffer
-        self.assertEqual(self.edit("then this", aside_editor.request("out")), "then this")
-        self.assertEqual(self.buffers, {aside_editor.kept(PANE): b"and add these posts"})
+    def test_text_tmux_fails_to_read_or_keep_is_neither_replaced_nor_lost(self):
+        self.edit(DRAFT, aside_editor.request("line", LINE))
+        for step in ("save-buffer", "load-buffer"):
+            self.refused = step     # tmux timed out on the buffer
+            self.assertEqual(self.edit("more", aside_editor.request("line", LINE)), "more")
+            self.assertEqual(self.buffers, {aside_editor.kept(PANE): DRAFT.encode()})
+        self.assertEqual(self.edit("", aside_editor.request("line", LINE)), LINE)
+
+    def test_the_composer_is_written_whole_in_its_own_mode_or_not_at_all(self):
+        self.composer.touch(0o640)
+        self.addCleanup(os.umask, os.umask(0o077))
+        with patch.object(aside_editor.os, "fdopen", side_effect=OSError(28, "No space left")):
+            self.assertEqual(self.edit(DRAFT, aside_editor.request("line", LINE)), DRAFT)
+        self.assertEqual([path.name for path in self.root.iterdir()], ["composer.md"])
+        self.assertEqual(self.edit("", aside_editor.request("line", LINE)), LINE)
+        self.assertEqual(self.composer.stat().st_mode & 0o777, 0o640)
 
     def test_without_a_fresh_ask_it_opens_the_owners_editor_and_keeps_nothing(self):
-        stale = f"out {time.time() - aside_editor.FRESH - 5:.0f}"
+        stale = f"line {time.time() - aside_editor.FRESH - 5:.0f} {LINE}"
         with patch.dict(os.environ, {aside_editor.OWNER: "owners-editor"}):
             for ask in (None, stale):
                 self.assertEqual(self.edit("mine", ask), "mine")
