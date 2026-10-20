@@ -42,6 +42,15 @@ class Runner(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "still running after 1 s: sleep 60"):
             self.home.run("sleep", "60", timeout=1)
 
+    @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
+    def test_a_process_the_program_detached_ends_with_the_home(self):
+        done = self.home.run("sh", "-c", "setsid sleep 60 </dev/null >/dev/null 2>&1 & echo $!")
+        pid = int(done.out)
+        self.home.close()
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+        self.assertFalse(self.home.root.exists())
+
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_tmux_is_real_and_only_this_homes_own(self):
         refused = self.home.run("tmux", "-S", "/tmp/elsewhere", "list-sessions")

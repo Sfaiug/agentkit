@@ -125,8 +125,27 @@ class Home:
                                  text=True, timeout=30).stdout.strip()
             subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
             _wait_gone(int(pid) if pid.isdigit() else None)
+        # what the program detached from them: a stray still writing would put the Home back
+        for pid in self._strays():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            _wait_gone(pid)
         shutil.rmtree(self.root, ignore_errors=True)
         shutil.rmtree(self.tmux_dir, ignore_errors=True)
+
+    def _strays(self):
+        """Processes still running in this Home: their environment names it as HOME."""
+        mark = f"HOME={self.path}".encode()
+        found = []
+        for entry in Path("/proc").glob("[0-9]*"):
+            try:
+                if mark in (entry / "environ").read_bytes().split(b"\0"):
+                    found.append(int(entry.name))
+            except OSError:      # gone meanwhile, or not ours to read
+                continue
+        return found
 
     def log(self, name):
         return self.root / "logs" / f"{name}.log"
