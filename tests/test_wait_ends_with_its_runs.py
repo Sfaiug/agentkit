@@ -3,7 +3,7 @@
 A seat's own pull request never sent to `ak run --review-pr`, or one whose run ended failed or
 stopped, stays open, and before, the seat's `ak wait <pull request>` held for good.  While the
 pull request is open, the wait holds only while a run reviewing it (`review_pr`) or landing it
-(`pr`) is going (`watch.wait_fact`); after that the seat is told it is open with nothing on it
+(`pr`) is going and not stalled (`watch.wait_fact`), a stalled one telling its resume; after that the seat is told it is open with nothing on it
 and which command takes it, and `ak wait` on one already so refuses with the same words.
 Offline: a faked `gh pr view`, fake run receipts and a throwaway HOME.
 """
@@ -68,6 +68,14 @@ class WaitEndsWithItsRuns(Sandbox):
         watch.wait_over(self.cfg, lambda _line: None)
         self.assertIsNone(watch.waiting_on(SEAT))
         self.assertEqual(watch.seat_read(SEAT)["wait"]["over"], UNWATCHED)
+
+    def test_a_stalled_review_ends_the_wait_with_its_resume(self):
+        self.receipt(state="running", review_pr=PR)
+        self.assertEqual(self.wait(), (0, f"{SEAT}: waiting on PR #26\n", ""))
+        self.receipt(state="stalled", review_pr=PR)
+        watch.wait_over(self.cfg, lambda _line: None)
+        self.assertEqual(watch.seat_read(SEAT)["wait"]["over"],
+                         f"run {RUN} stalled: resume it with ak run resume {RUN}")
 
     def test_a_run_landing_it_holds_the_wait(self):
         self.receipt("20260101-0900-fix-api", state="running", pr=PR)
