@@ -4,7 +4,8 @@ one screen is no click on the next; a seat stopped twice leaves no rulebook and 
 The menu tests run `menu.loop` in a child process on a pty of its own, the way
 tests/test_menu_keys.py does, with the seat listing, each seat's word, the usage rows and the
 probe faked, and the stop `x` starts reduced to a process of its own that says on the menu's
-terminal which seat it was handed and takes it off the listing.  The stop
+terminal which seat it was handed and takes it off the listing; the past screen's `x` waits on
+that same process.  The stop
 tests call the real `orch.cmd_stop` in a throwaway HOME with tmux faked and no runs to stop.
 Nothing here starts a seat or a tmux server, and the only process signalled is the test's own
 child.
@@ -37,7 +38,7 @@ from agentkit import browser, config, menu, notify, orch, statusbar, terminal, w
 
 # The child: the real loop, draw, key reader and selector; fakes for what a seat is and the stop.
 CHILD = r"""
-import json, os, sys
+import json, os, subprocess, sys
 sys.path.insert(0, os.environ["CLOSE_REPO"])
 from pathlib import Path
 from agentkit import config, menu, orch
@@ -73,6 +74,8 @@ seats.write_text(json.dumps(left))
 os.write(os.open(os.environ["CLOSE_TTY"], os.O_WRONLY | os.O_NOCTTY), f"<stopped {name}>".encode())
 '''
 menu.teardown = lambda name, dry_run: [sys.executable, "-c", STOP, name]
+menu.close_seat = lambda name, dry_run, **_kw: subprocess.run(
+    menu.teardown(name, dry_run), cwd=os.environ["CLOSE_REPO"])
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
 sys.exit(menu.loop(config.load(), overlay=os.environ.get("CLOSE_OVERLAY") == "1"))
 """
