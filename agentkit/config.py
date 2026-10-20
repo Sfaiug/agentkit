@@ -1145,6 +1145,19 @@ def session_records():
     return {name: data for name, data in _session_files() if "renamed" not in data}
 
 
+def session_record(name):
+    """The record of the seat by the name it goes by now, {} where it has none: its one file,
+    which a rename writes whole under the new name before the old one points there, so no
+    rename meanwhile hides it as one can from `session_records`; met as a pointer, it is looked
+    for again."""
+    while True:
+        data = _read_json(session_path(resolve_session(name)))
+        if not isinstance(data, dict):
+            return {}
+        if "renamed" not in data:
+            return data
+
+
 def session_aliases():
     """{old name: where it leads} for the pointers `ak orch rename` left behind.
 

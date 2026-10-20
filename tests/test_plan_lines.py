@@ -675,12 +675,25 @@ class PlanLines(Sandbox):
         self.assertTrue(self.plan_lines()[0].startswith("- [x]"))
 
     def test_the_seat_is_looked_up_again_when_a_rename_lands_meanwhile(self):
-        records, renames = config.session_records, ["fix-api-renamed"]
+        resolve, renames = config.resolve_session, ["fix-api-renamed"]
 
-        def read():     # the name resolved, then the records read after the seat moved on
+        def resolved(name):     # the name resolved, then the seat moves on before its record is read
+            current = resolve(name)
             while renames:
                 config.rename_session("fix-api", renames.pop())
-            return records()
+            return current
+
+        with patch.object(config, "resolve_session", side_effect=resolved):
+            self.assertEqual(plan.project_of("fix-api"), self.repo)
+
+    def test_a_seat_renamed_away_and_back_meanwhile_keeps_its_project(self):
+        records = config.session_records
+
+        def read():     # away while every record is read, back before the name is compared
+            config.rename_session("fix-api", "fix-api-renamed")
+            snapshot = records()
+            config.rename_session("fix-api-renamed", "fix-api")
+            return snapshot
 
         with patch.object(config, "session_records", side_effect=read):
             self.assertEqual(plan.project_of("fix-api"), self.repo)
