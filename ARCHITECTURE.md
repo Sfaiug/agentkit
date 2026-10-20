@@ -189,7 +189,8 @@
   resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`, `register_mcp`.
   `config_entries`: every plugin's trust and MCP tables. `conversation_stores`, `end_conversation`:
   conversations a harness never ends itself, which gc ends its way after 30 days. `user_messages`: timed owner input
-  without notices or ak typing; `failure`: turn/seat failures in whole `[stall]` words;
+  without notices or ak typing; `said`: a conversation's user and model turns as plain text,
+  read from each harness's own store (`antigravity.py` decodes agy's step databases); `failure`: turn/seat failures in whole `[stall]` words;
   `interrupted`: when the owner ended a turn no hook reported (Claude's Esc); `unanswered`: a
   last prompt nothing answered yet. For orch, usage, update, run, gc, menu, watch, browser,
   retention.
