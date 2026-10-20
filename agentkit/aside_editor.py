@@ -5,9 +5,10 @@ Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its compos
 editor on the keys its manifest names (`[screen] editor`), and `edit` does what ak asked of the
 pane just before (`request`, a pane option the edit clears): `line` keeps the composer's text in a
 tmux buffer of the pane's (`kept`) and hands back ak's line; `back` hands the kept text back to a
-composer handed over empty or blank, each written whole or not at all.  A second `line` adds
-to what is kept.  A failed `line` step is undone, and a composer holding exactly what is kept,
-blanks after it aside, holds that text, so a step that fails keeps the text once -- twice only
+composer handed over empty or blank, each written whole or not at all; ak drops the buffer once
+the composer reads the text back (`watch.bring_back`).  A second `line` adds to what is kept.
+A failed `line` step is undone, and a composer holding exactly what is kept, blanks after it
+aside, holds that text, so a step that fails keeps the text once -- twice only
 where tmux refuses the undo too, after other text was kept.  Asked nothing, it opens the owner's
 own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as it starts on
 every edit the owner opens.
@@ -128,7 +129,7 @@ def edit(argv):
         if held is None:
             return 0
         text = path.read_bytes()
-        # the kept text, blanks after it aside, handed back by a `back` tmux failed to drop it after
+        # the kept text, blanks after it aside, handed back by a `back` ak has not dropped yet
         holds = held and text.startswith(held) and not text[len(held):].strip()
         both = text if holds else b"\n".join(part for part in (held, text) if part)
         # a composer holding the line already got it from an edit before: nothing in it to keep
@@ -138,9 +139,8 @@ def edit(argv):
             # a failed step is undone too, as tmux's server can do one its client then times out on
             elif not (_keep(name, both) and _publish(path, line)):
                 _keep(name, held)
-        elif mode == b"back" and held and (
-                holds or not text.strip() and _publish(path, held + text)):
-            _tmux("delete-buffer", "-b", name)
+        elif mode == b"back" and held and not text.strip():
+            _publish(path, held + text)
         return 0
     owner = os.environ.get(OWNER) or "vi"
     os.execvp("sh", ["sh", "-c", f'{owner} "$@"', owner, *argv])

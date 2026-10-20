@@ -78,12 +78,14 @@ class AsideEditor(unittest.TestCase):
             self.assertEqual(self.edit(text, aside_editor.request("line", LINE)), LINE)
         self.assertEqual(self.edit("newest", aside_editor.request("back")), "newest")
         self.assertEqual(self.edit("", aside_editor.request("back")), f"first\n{DRAFT}\n{DRAFT}")
-        self.assertEqual((self.buffers, self.opened), ({}, []))
+        # kept until ak reads it back in the composer and drops it
+        self.assertEqual((list(self.buffers.values()), self.opened),
+                         ([f"first\n{DRAFT}\n{DRAFT}".encode()], []))
 
     def test_text_of_blanks_alone_is_kept_and_given_back_too(self):
         self.assertEqual(self.edit(" \n", aside_editor.request("line", LINE)), LINE)
         self.assertEqual(self.edit("", aside_editor.request("back")), " \n")
-        self.assertEqual((self.buffers, self.opened), ({}, []))
+        self.assertEqual((list(self.buffers.values()), self.opened), ([b" \n"], []))
 
     def test_text_tmux_fails_to_read_or_keep_is_neither_replaced_nor_lost(self):
         self.edit(DRAFT, aside_editor.request("line", LINE))
@@ -125,11 +127,8 @@ class AsideEditor(unittest.TestCase):
                 # a text of its own beginning with what is kept: kept beside it
                 ("line", f"{old} too", old, {}, (LINE, f"{old}\n{old} too"), f"{old}\n{old} too"),
                 ("back", "", old, {"move": failed}, ("", old), old),
-                ("back", "", old, {"delete-buffer": done}, (old, None), old),
-                # a buffer tmux refused to drop, its text in the composer too
-                ("back", "", old, {"delete-buffer": refused}, (old, old), old),
-                ("back", " \n", old, {"delete-buffer": refused}, (f"{old} \n", old), f"{old} \n"),
-                ("back", "", " \n", {"delete-buffer": refused}, (" \n", " \n"), " \n")):
+                # the text back before blanks, then handed over again before ak drops it
+                ("back", " \n", old, {}, (f"{old} \n", old), f"{old} \n")):
             with self.subTest(mode=mode, composer=composer, kept=kept, failing=failing):
                 self.buffers = {} if kept is None else {name: kept.encode()}
                 self.failing = {step: list(steps) for step, steps in failing.items()}
@@ -140,12 +139,10 @@ class AsideEditor(unittest.TestCase):
                 # asked again, then ak's line in where it is not, sent, and the text handed back
                 self.failing = {}
                 now = self.edit(now, aside_editor.request(mode, LINE))
-                if mode == "back":      # a buffer tmux refused to drop is dropped now
-                    self.assertEqual(self.buffers, {})
                 if now != LINE:
                     self.assertEqual(self.edit(now, aside_editor.request("line", LINE)), LINE)
                 self.assertEqual(self.edit("", aside_editor.request("back")), end)
-                self.assertEqual(self.buffers, {})
+                self.assertEqual(self.buffers, {name: end.encode()})
 
     def test_without_a_fresh_ask_it_opens_the_owners_editor_and_keeps_nothing(self):
         stale = f"line {time.time() - aside_editor.FRESH - 5:.0f} {LINE}"

@@ -1,12 +1,14 @@
 """fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose Ctrl-G hands
 its composer to the real agentkit/aside_editor.py, and draws what that hands back a few reads
-late.  Whether it hears the key (`deaf`) and the seat's launch are the test's to set."""
+late (`late`), and whose Enter sends what its composer holds as a prompt.  Whether it hears the
+key (`deaf`) and the seat's launch are the test's to set."""
 
+import json
 import os
 from unittest.mock import patch
 
 from fixtures.seats import Seats
-from agentkit import aside_editor, watch
+from agentkit import aside_editor, config, watch
 from agentkit.watch import seat_editor
 
 PANE = "%7"
@@ -78,3 +80,5 @@ class EditorSeat(Seats):
         elif key == "Enter" and self.composer:
             self.sent.append(self.composer)
             self.show("")
+            # the seat's prompt hook stamps the moment its prompt went in
+            config.stop_path(self.seat["name"]).write_text(json.dumps({"turn": watch.time.time()}))

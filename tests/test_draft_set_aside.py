@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from fixtures.editor_seat import EditorSeat
 from fixtures.seats import LINE, NOW, REPO
-from agentkit import aside_editor, watch
+from agentkit import aside_editor, orch, watch
 
 DRAFT = "and add these posts"
 DOCS = "The docs finished."
@@ -55,7 +55,9 @@ class DraftSetAside(EditorSeat):
     def test_text_the_line_ends_with_or_its_paste_fold_is_set_aside_never_sent(self):
         long = "run acme finished FAIL: " + "a finding in detail " * 50
         for own, line, row in (("Decide the next\n  step.", LINE, None),
-                               ("Private notes. " * 60, long, "❯ [Pasted text #1]\n")):
+                               ("Private notes. " * 60, long, "❯ [Pasted text #1]\n"),
+                               # pasted since that line went in: never taken for it
+                               ("Private notes. " * 60, DOCS, "❯ [Pasted text #1]\n")):
             with self.subTest(own=own[:15]):
                 self.show(own)
                 if row:
@@ -75,14 +77,40 @@ class DraftSetAside(EditorSeat):
         self.deaf = True
         self.tick()                     # its Enter, from its mark
         self.tick()                     # the editor never opens to bring the text back
-        self.assertTrue(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg))
         self.deaf, self.unread = False, True
         self.tick()                     # input the seat has not read yet
         self.assertEqual((self.sent, self.composer, self.ask, self.told()),
-                         ([LINE, DOCS], "", None, True))
+                         ([LINE], "", None, True))
         self.unread = False
         self.tick()
-        self.assertEqual((self.sent, self.composer, self.buffers), ([LINE, DOCS], DRAFT, {}))
+        self.assertEqual((self.sent, self.composer, self.buffers), ([LINE], DRAFT, {}))
+
+    def test_no_line_goes_in_while_text_is_kept_and_text_read_back_is_dropped(self):
+        self.assertTrue(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg))
+        press, tmux, refused = self.press, orch.tmux_out.side_effect, []
+
+        def drawn_late(key):
+            press(key)
+            self.late = -1              # past SENT_WAIT: drawn when this test says
+
+        def refuse_once(*args, **kwargs):
+            if args[0] == "delete-buffer" and not refused:
+                refused.append(args)
+                return 1, "server timed out"
+            return tmux(*args, **kwargs)
+
+        with patch.object(self, "press", side_effect=drawn_late):
+            watch.drafts_back(self.cfg, lambda _: None)
+        # the text on its way back would draw over a line typed now
+        self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg))
+        self.show(self.handed)
+        with patch.object(orch, "tmux_out", side_effect=refuse_once):
+            watch.drafts_back(self.cfg, lambda _: None)
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.press("Enter")             # the owner sends it
+        watch.drafts_back(self.cfg, lambda _: None)
+        self.assertEqual((self.typed, self.sent, self.composer, self.buffers),
+                         ([DOCS], [DOCS, DRAFT], "", {}))
 
     def test_text_back_before_a_line_s_delivery_was_read_is_never_sent_for_it(self):
         own = "Decide the next\n  step."      # ends the way the line does
@@ -97,6 +125,16 @@ class DraftSetAside(EditorSeat):
         with patch.object(self, "press", side_effect=unread_after):
             self.tick()                 # sent, its delivery not read yet: unread input
         self.unread = False
+        put = watch._seat_put
+
+        def disk_full(name, data, fields):
+            if "emptied" in fields:
+                raise OSError(28, "No space left on device")
+            return put(name, data, fields)
+
+        with patch.object(watch, "_seat_put", side_effect=disk_full):
+            watch.drafts_back(self.cfg, lambda _: None)     # that read unkept: the text stays
+        self.assertEqual((self.composer, list(self.buffers.values())), ("", [own.encode()]))
         self.tick()                     # the text back first, then the line's mark
         self.tick()
         self.assertEqual((self.sent, self.composer, self.keys.count("Enter"), self.told()),
