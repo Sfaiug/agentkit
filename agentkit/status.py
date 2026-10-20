@@ -23,7 +23,9 @@ def parked_line(state, run_id=None, now=None):
     window on the waiting line, and a stalled one its stall lines, so neither
     says anything here. An admitted ending also names the conditions that let
     the tick take it up. Anything parked with no scheduled resume says who it
-    waits for instead: `run <id> parked: <reason>`.
+    waits for instead: `run <id> parked: <reason>`. An error already its seat's -- handed
+    back, printed at launch or acknowledged -- waits on nobody and its row reads `done`
+    (`status_state_word`), so its line says only how it ended: `error: <reason>`.
     """
     now = time.time() if now is None else now
     name = run_id or state.get("run_id") or "?"
@@ -38,8 +40,11 @@ def parked_line(state, run_id=None, now=None):
     word = state.get("state")
     admission = transitions.tick_admission(state, now=now) if word in ("error", "waiting") else ""
     admitted = f" · {admission}" if admission else ""
+    reason = handback.handback_reason(state)
+    parked = (f"error: {reason}" if word == "error" and transitions.settled(state)
+              else f"run {name} parked: {reason}")
     if word in ("error", "waiting") and not admission:
-        return f"run {name} parked: {handback.handback_reason(state)}"
+        return parked
     if word == "error":
         at = state.get("error_retry_at")
         if isinstance(at, (int, float)) and not isinstance(at, bool):
@@ -49,7 +54,7 @@ def parked_line(state, run_id=None, now=None):
                 return f"error · retry {time.strftime('%H:%M', time.localtime(at))}" + admitted
             except (OverflowError, OSError, ValueError):
                 return "error · retry due" + admitted
-        return f"run {name} parked: {handback.handback_reason(state)}"
+        return parked
     if word == "waiting":
         ref = (state.get("waiting_on") or {}).get("ref") or transitions.conflict_upstream(state)
         return f"waiting · retry after the next merge to {ref}" + admitted
