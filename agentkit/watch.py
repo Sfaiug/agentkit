@@ -3696,10 +3696,10 @@ def _edit(session, where, mode, line=""):
 
 
 def _editor_kept(session):
-    """{pane: (state, line it put)} of each pane of that seat whose text ak's editor keeps
-    (`aside_editor.pack`), or None where tmux cannot say.  The editor writes one only for a step
-    asked under the seat's send lock, so one read under that lock holds whichever of them the
-    owner selects meanwhile."""
+    """{pane: (state, line it put)} of each pane of that seat, and of the one `pinned` named
+    wherever it has moved since, whose text ak's editor keeps (`aside_editor.pack`), or None
+    where tmux cannot say.  The editor writes one only for a step asked under the seat's send
+    lock, so one read under that lock holds whichever of them the owner selects meanwhile."""
     server = orch.seat_socket(session)
     rc, names = orch.tmux_out("list-buffers", "-F", "#{buffer_name}", socket=server)
     if rc != 0:
@@ -3711,7 +3711,7 @@ def _editor_kept(session):
     if rc != 0:
         return None
     found = {}
-    for pane in panes.split("\n"):
+    for pane in {*panes.split("\n"), session.get("pane")}:
         if pane and aside_editor.kept(pane) in names.split("\n"):
             rc, stored = orch.tmux_out("save-buffer", "-b", aside_editor.kept(pane), "-",
                                        socket=server)

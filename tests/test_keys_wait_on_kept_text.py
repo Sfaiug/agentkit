@@ -1,7 +1,8 @@
-"""Text ak's editor keeps of any pane of a seat's, set aside for a line or given back, keeps
-every line of ak's from going in as keys: a composer can draw that text late, reading empty
-while it holds it, and keys typed there would join it, whichever pane the owner selects.  So
-does a seat tmux cannot say that of.  Offline: fixtures.editor_seat.
+"""Text ak's editor keeps of any pane of a seat's, or of the pane a line's keys go to wherever
+it has moved, set aside for a line or given back, keeps every line of ak's from going in as
+keys: a composer can draw that text late, reading empty while it holds it, and keys typed there
+would join it, whichever pane the owner selects.  So does a seat tmux cannot say that of.
+Offline: fixtures.editor_seat.
 """
 
 import unittest
@@ -36,6 +37,12 @@ class KeysWaitOnKeptText(EditorSeat):
         self.assertEqual((self.keys, self.typed), ([], []))
         self.assertTrue(self.typed_line())
         self.assertEqual((self.keys, self.typed, self.sent), (["Enter"], [LINE], [LINE]))
+
+    def test_text_kept_of_the_pane_keys_go_to_holds_them_back_once_it_left_the_seat(self):
+        # swapped into another session after the pass named it: keys still go to it by id
+        self.panes, self.buffers = ["%9"], kept(PANE, aside_editor.GIVEN)
+        self.assertFalse(self.typed_line())
+        self.assertEqual((self.keys, self.typed), ([], []))
 
 
 if __name__ == "__main__":
