@@ -161,8 +161,14 @@ interactive)
   [ -n "$ACCOUNT" ] && acct="-u GEMINI_API_KEY -u GOOGLE_API_KEY -u AGY_ADC_AUTH DBUS_SESSION_BUS_ADDRESS=disabled: "
   # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
   # screen comes to rest, starts moving or agy exits.
-  printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions\n' \
-      "$REPO/tools/idle-compact.py" "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" ;;
+  # The seat's first message, when its launch carries one, goes in as agy's `--prompt-interactive`:
+  # sent once the conversation has loaded, never typed into a TUI still loading it.
+  # Single quotes, not %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
+    { sq="'"; first=" --prompt-interactive '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+  printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions%s\n' \
+      "$REPO/tools/idle-compact.py" "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" \
+      "$first" ;;
 usage)
   # agy's `/usage` panel draws what `retrieveUserQuotaSummary` answers for the project
   # `loadCodeAssist` names: groups of models, each with its windows, the share of one left and

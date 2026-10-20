@@ -171,8 +171,13 @@ interactive)
   # "No, quit"); --always-approve is the seat's standing permission mode.  The printed
   # command runs later, outside this adapter's environment, so an account's home rides it.
   [ -z "$ACCOUNT" ] || printf 'env -u XAI_API_KEY GROK_HOME=%q ' "$GROK_HOME"
-  printf 'python3 %q --harness grokbuild -- env %s grok %s%s--trust --always-approve --model %q --reasoning-effort %q\n' \
-      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$resume" "$rules" "$1" "$2" ;;
+  # The seat's first message, when its launch carries one, goes in as grok's `[PROMPT]`:
+  # sent once the conversation has loaded, never typed into a TUI still loading it.
+  # Single quotes, not %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
+    { sq="'"; first=" '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+  printf 'python3 %q --harness grokbuild -- env %s grok %s%s--trust --always-approve --model %q --reasoning-effort %q%s\n' \
+      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$resume" "$rules" "$1" "$2" "$first" ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated xai
   # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for

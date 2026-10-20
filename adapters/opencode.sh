@@ -238,8 +238,13 @@ interactive)
       '{model: $model, agents: {build: {system: .}}, plugins: [$plugin]} + $more' <"$rb") || {
     echo "opencode.sh interactive: no rulebook for this seat" >&2; exit 2; }
   rules=$(printf 'OPENCODE_CONFIG_CONTENT=%q ' "$content")
-  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %sopencode %s--standalone --auto\n' \
-      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "$resume" ;;
+  # The seat's first message, when its launch carries one, goes in as the TUI's `--prompt`:
+  # sent once the conversation has loaded, never typed into a TUI still loading it.
+  # Single quotes, not %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
+    { sq="'"; first=" --prompt '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+  printf 'python3 %q --harness opencode -- env OPENCODE_DISABLE_AUTOUPDATE=1 %s %sopencode %s--standalone --auto%s\n' \
+      "$REPO/tools/idle-compact.py" "$OWN_RULES_OFF" "$rules" "$resume" "$first" ;;
 usage)
   # No login is a failed probe, not a missing meter: without one an unauthenticated provider
   # would read as a neutral 1.0 provider and be picked ahead of logged-in ones, only for
