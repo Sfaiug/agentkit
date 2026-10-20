@@ -1,7 +1,8 @@
 """Text ak's editor keeps of a seat's composer, set aside for a line or given back, keeps every
 line of ak's from going in as keys: the composer can draw that text late, reading empty while it
 holds it, and keys typed there would join it.  So does a seat tmux cannot say is one launched
-with that editor, or what that editor keeps.  Offline: fixtures.editor_seat.
+with that editor, or what that editor keeps.  Every key goes to the pane checked, whichever the
+owner selects meanwhile.  Offline: fixtures.editor_seat.
 """
 
 from contextlib import contextmanager
@@ -34,23 +35,35 @@ class KeysWaitOnKeptText(EditorSeat):
         self.assertTrue(self.typed_line())
         self.assertEqual((self.keys, self.typed, self.sent), (["Enter"], [LINE], [LINE]))
 
-    def test_the_pane_asked_is_the_one_the_owner_selected_while_the_line_waited(self):
-        other, draft, active = "%8", "and add these posts", [PANE]
+    def test_every_key_goes_to_the_pane_checked_whichever_the_owner_selects(self):
+        other, tmux, lock = "%8", orch.tmux_out, watch.seat_held
         self.buffers = {aside_editor.kept(other): aside_editor.pack(
-            aside_editor.GIVEN, b"an earlier line", draft.encode())}
-        tmux, lock = orch.tmux_out, watch.seat_held
+            aside_editor.GIVEN, b"an earlier line", b"and add these posts")}
+        for moment in ("lock", "list-buffers"):     # while the line waits for its lock, or is checked
+            with self.subTest(moment=moment):
+                active, strayed, self.sent = [PANE], [], []
 
-        @contextmanager
-        def selected_meanwhile(name):
-            active[0], self.composer, self.late = other, draft, 3    # given back, not yet drawn
-            with lock(name) as held:
-                yield held
+                def out(*args, **kw):
+                    active[0] = other if args[0] == moment else active[0]
+                    target = args[args.index("-t") + 1] if "-t" in args else None
+                    if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
+                        return 0, f"{active[0]}\t4242\t{self.tty}"
+                    if args[0] == "send-keys" and (
+                            active[0] if target == f"={self.seat['name']}:" else target) != PANE:
+                        strayed.append(args)
+                        return 0, ""
+                    return tmux(*args, **kw)
 
-        with patch.object(orch, "tmux_out", side_effect=lambda *args, **kw: (
-                0, f"{active[0]}\t4242\t{self.tty}") if args[-1].startswith("#{pane_id}")
-                else tmux(*args, **kw)), patch.object(watch, "seat_held", selected_meanwhile):
-            self.assertFalse(self.typed_line())
-        self.assertEqual((self.typed, self.composer), ([], draft))
+                @contextmanager
+                def held(name):
+                    active[0] = other if moment == "lock" else active[0]
+                    with lock(name) as got:
+                        yield got
+
+                with patch.object(orch, "tmux_out", side_effect=out), \
+                        patch.object(watch, "seat_held", held):
+                    delivered = self.typed_line()
+                self.assertEqual((delivered, strayed, self.sent), (True, [], [LINE]))
 
 
 if __name__ == "__main__":

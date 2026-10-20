@@ -18,7 +18,8 @@ class SeatEditor(EditorSeat):
         self.assertEqual(watch.seat_editor(self.seat, self.cfg),
                          {"id": PANE, "tty": str(self.tty), "keys": ("C-g",)})
         self.launched = False
-        self.assertIsNone(watch.seat_editor(self.seat, self.cfg))
+        self.assertEqual(watch.seat_editor(self.seat, self.cfg),
+                         {"id": PANE, "tty": str(self.tty), "keys": ()})
         self.launched = True
         with patch.object(watch, "screen", return_value={"editor": ()}):
             self.assertIsNone(watch.seat_editor(self.seat, self.cfg))

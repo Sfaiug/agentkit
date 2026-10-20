@@ -55,6 +55,9 @@ class EditorSeat(Seats):
         name = args[args.index("-b") + 1] if "-b" in args else None
         if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
             return 0, f"{PANE}\t4242\t{self.tty}"
+        if args[0] == "display-message" and args[-1].startswith("#{pane_tty}"):
+            self.assertEqual(args[args.index("-t") + 1], PANE)      # the pane a line is bound to
+            return 1, "no tty in this screen fixture"
         if args[0] == "show-options":
             said = self.ask
             if ";" in args:                 # the editor's: read and cleared in one call
