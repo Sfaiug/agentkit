@@ -33,8 +33,7 @@ def said(record, cwd, conversation):
 
 
 def field(message, number):
-    """The first length-delimited field of that number in a protocol buffer message, as bytes,
-    or None where it has none or the message is not one."""
+    """That length-delimited field of a protocol buffer message, as bytes, or None."""
     at = 0
     try:
         while isinstance(message, bytes) and at < len(message):

@@ -370,17 +370,27 @@ def said(record, cwd, conversation):
     if not isinstance(conversation, str) or not re.fullmatch(r"[\w-]+", conversation):
         return None
     logs = session_logs(conversation)
-    return turns(logs[0] if logs else None, lambda entry: run_said(entry, "started", "prompt"),
-                 lambda entry: run_said(entry, "assistant_message_committed", "text"))
+    return turns(logs[0] if logs else None, typed,
+                 lambda entry: run_event(entry, "assistant_message_committed").get("text"))
 
 
-def run_said(entry, kind, key):
-    """What one session.jsonl line's run event of that kind holds under `key`, or None."""
+def typed(entry):
+    """What the user side typed that one session.jsonl line holds: a run's prompt, or a line
+    steered into a running turn as the run drains it.  A steer that opens a run of its own is
+    that run's prompt; background tasks' notices are drained from another source."""
+    steer = run_event(entry, "inbox_item_drained").get("delivery_snapshot")
+    if not isinstance(steer, dict) or steer.get("source") != {"source": "user_steer"}:
+        steer = {}
+    text = run_event(entry, "started").get("prompt") or steer.get("body")
+    return text if isinstance(text, str) else None
+
+
+def run_event(entry, kind):
+    """One session.jsonl line's run event of that kind, or {}."""
     payload = entry.get("payload")
     run = isinstance(payload, dict) and payload.get("kind") == "run"
     event = payload.get("event") if run else None
-    text = event.get(key) if isinstance(event, dict) and event.get("kind") == kind else None
-    return text if isinstance(text, str) else None
+    return event if isinstance(event, dict) and event.get("kind") == kind else {}
 
 
 def tokens(out):

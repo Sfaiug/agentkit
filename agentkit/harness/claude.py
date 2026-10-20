@@ -66,8 +66,7 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
-# Transcript lines no one said in this conversation: bookkeeping, a compaction's summary, a
-# subagent's, and what only the transcript view shows.
+# Lines no one said here: bookkeeping, a compaction's summary, a subagent's, view-only ones.
 UNSAID = ("isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly")
 
 

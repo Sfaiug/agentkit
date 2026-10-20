@@ -88,9 +88,8 @@ def transcript(record, cwd, conversation):
 
 
 def messages(record, cwd, conversation):
-    """The durable UI record's messages, oldest first, as (who, {at, text}), "user" or
-    "model": the chunks of one joined, a host turn's, a shell command's and every other update
-    left out.  It keeps prompts and times through model-context compaction."""
+    """The durable UI record's messages, oldest first, as (who, {at, text}), chunks joined and
+    host turns, shell commands and other updates left out; it outlives model-context compaction."""
     from . import entries, user_message
     where = cwd or record.get("cwd")
     if not conversation or not where:

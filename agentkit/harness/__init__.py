@@ -475,12 +475,10 @@ class Harness:
         return hook(record, cwd, conversation) if hook else None
 
     def said(self, record, cwd, conversation):
-        """That conversation's messages, oldest first, as {who: "user" or "model", text}, for a
-        model taking the seat over: what the user side typed, ak's lines among them, and the
-        model's visible answers; never a tool call or result, thinking, a subagent's, a
-        compaction summary or a protocol frame.  Read from the harness's own store each time it
-        is asked; None where this harness keeps nothing ak can read.
-        """
+        """That conversation as {who: "user" or "model", text}, oldest first, read from the
+        harness's own store each time: what the user side typed, ak included, and the model's
+        visible answers, never tool calls or results, thinking, subagents, compaction summaries
+        or protocol frames.  None where this harness keeps nothing ak can read."""
         hook = self._hook("said")
         return hook(record, cwd, conversation) if hook else None
 

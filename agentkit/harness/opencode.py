@@ -167,10 +167,8 @@ def mode(entry):
 
 
 def said(record, cwd, conversation):
-    """Read from opencode.db, where each of a session's messages is a row in order: a user
-    row's `text`, an assistant row's text parts beside its reasoning and tool parts.  A
-    subagent is a session of its own; an instruction update and a synthetic continue are rows
-    of other kinds."""
+    """opencode.db keeps a session's messages as rows in order, a subagent's in its own session:
+    a user row's `text`, an assistant row's text parts beside its reasoning and tool parts."""
     from . import rows
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
