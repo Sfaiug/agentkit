@@ -64,6 +64,9 @@ AS_OF_AFTER = 1800   # a reading older than this says when it was taken, on its 
                      # `ak usage`; a fresher one says nothing, whatever the last probe met
 PROVIDER_METERS = "provider meters"
 SESSION_SECS = 18000      # the 5h rolling window every harness reports as its session meter
+# Percent of a window: an account with less left on any meter runs low (`running_low`),
+# whatever its drain; a faster drain raises the line, a slower one never lowers it.
+LOW_FLOOR = 5
 
 # --- the usage-limit reset --------------------------------------------------------------------
 # A ChatGPT subscription earns "usage limit resets" that put the weekly window back to 0% and
@@ -513,14 +516,18 @@ def _gate_flags(providers, now, cfg):
             accounts = _gate_flags({account: accounts[account] for account in listed
                                     if isinstance(accounts.get(account), dict)}, now, cfg)
             if accounts:
-                # One on credits goes after every one with a window left, the usual login too.
+                every = _probe_every(cfg, name)
+
+                # One on credits goes after every one with a window left, the usual login too,
+                # and one running low after every one that is not.
                 def rank(account):
                     spent = accounts[account]["exhausted"]
                     unknown = accounts[account]["budget_reason"] is not None
                     usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
                     group = 1 if usual else (0 if not spent else 2)
-                    return (spent, accounts[account]["on_credits"], group, unknown,
-                            -accounts[account]["budget"])
+                    return (spent, accounts[account]["on_credits"],
+                            running_low(accounts[account].get("meters") or [], every), group,
+                            unknown, -accounts[account]["budget"])
                 best = min(accounts, key=rank)
                 prov.clear()
                 prov.update(accounts[best], accounts=accounts, account=best)
@@ -1492,6 +1499,24 @@ def model_exhausted(cfg, name, providers):
         return False, None
     worst = max(spent, key=lambda m: m["used"])
     return True, f"{worst['name']} {worst['used']}% used >= 100"
+
+
+def running_low(meters, every):
+    """Whether one of these meters, the 5h session window too, has less room than LOW_FLOOR or
+    than its own drain so far eats in `every` seconds: the time until ak reads it again, blind.
+
+    What one turn will spend nobody knows before it ends; the drain each meter has been read at
+    is what there is, and an account that runs low moves its seats between turns, with nothing
+    to interrupt, rather than inside one when it is spent.
+    """
+    return any(100.0 - m["used"] < max(LOW_FLOOR, (_rate(m) or 0.0) * every / 3600.0)
+               for m in meters if _number(m.get("used")) is not None)
+
+
+def model_low(cfg, name, providers):
+    """`running_low` for the meters gating this model, at its provider's probe cadence."""
+    meters, _ = _gating_meters(cfg, name, providers)
+    return running_low(meters, _probe_every(cfg, config.model(cfg, name)["provider"]))
 
 
 def _watched(cfg, name, providers):
