@@ -29,18 +29,19 @@ from agentkit import boards, config, matrix, staffing, usage, watch
 import test_model_matrix as boards_test
 import test_model_rows as rows_test
 
-# Artificial Analysis rows with every index the roles are scored on
-MORE = [{"name": "Claude Opus 5.5 (max)", "evaluations": {
-             "artificial_analysis_coding_index": 60, "artificial_analysis_agentic_index": 70,
-             "artificial_analysis_intelligence_index": 58}, "performance": {"median_output_tokens_per_second": 95}},
-        {"name": "Claude Opus 5.5 (xhigh)", "evaluations": {
-             "artificial_analysis_coding_index": 60, "artificial_analysis_agentic_index": 70,
-             "artificial_analysis_intelligence_index": 56}, "performance": {"median_output_tokens_per_second": 82},
-         "artificial_analysis_intelligence_index_cost": {"total_cost": 2000}},
-        {"name": "GPT 6 Astra (max)", "evaluations": {
-             "artificial_analysis_coding_index": 25, "artificial_analysis_agentic_index": 40,
-             "artificial_analysis_intelligence_index": 53}, "performance": {"median_output_tokens_per_second": 57}}]
-
+# Artificial Analysis rows with the index per effort, Terminal-Bench, which builds, and two
+# measures of review
+OPUS = {"terminalBench40": 0.6, "deepsecBench": 0.27, "omniscienceHallucinationRate": 0.59}
+MORE = [{"name": "Claude Opus 5.5 (max)", **OPUS,
+         "evaluations": {"artificial_analysis_intelligence_index": 58},
+         "performance": {"median_output_tokens_per_second": 95}},
+        {"name": "Claude Opus 5.5 (xhigh)", **OPUS,
+         "evaluations": {"artificial_analysis_intelligence_index": 56},
+         "artificial_analysis_intelligence_index_cost": {"total_cost": 2000},
+         "performance": {"median_output_tokens_per_second": 82}},
+        {"name": "GPT 6 Astra (max)", "terminalBench40": 0.25,
+         "evaluations": {"artificial_analysis_intelligence_index": 53},
+         "performance": {"median_output_tokens_per_second": 57}}]
 
 def meters(**used):
     """Fake providers, each with one weekly meter `used` percent in."""
@@ -53,6 +54,8 @@ class PickByRank(Sandbox):
     def setUp(self):
         super().setUp()
         rows_test.prepare(self)
+        self.stack.enter_context(patch.object(boards_test, "TABLE", boards_test.TABLE.replace(
+            "gpt-6-astra,93.7,", "gpt-6-astra,93.7,40.0")))
         boards_test.AA[:] = [entry for entry in boards_test.AA
                                      if not entry["name"].startswith(("Claude Opus 5.5", "GPT 6 Astra"))] + MORE
         self.stack.enter_context(patch.object(config, "active_session", return_value=None))

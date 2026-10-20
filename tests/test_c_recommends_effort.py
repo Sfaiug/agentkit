@@ -14,7 +14,6 @@ Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in,
 
 from contextlib import redirect_stdout
 import io
-import json
 from pathlib import Path
 import sys
 import unittest
@@ -23,6 +22,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+from fixtures import scores
 from fixtures.sandbox import Sandbox
 from agentkit import config, matrix, menu, terminal, update, usage
 from agentkit.terminal import Key
@@ -40,8 +40,7 @@ class RecommendsEffort(Sandbox):
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
 
     def store(self, rows):
-        matrix.cache_path().parent.mkdir(parents=True, exist_ok=True)
-        matrix.cache_path().write_text(json.dumps({"matrix": {"computed_at": 1, "config": [], "rows": rows}}))
+        scores.store(rows)
 
     def screen(self, keys):
         drawn = io.StringIO()

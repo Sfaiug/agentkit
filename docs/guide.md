@@ -529,30 +529,30 @@ config name that runs it and the roles it runs it in (`roles`), those numbers an
 came from.
 
 Every row is scored per role (`scored`), on quality and cost alone: speed is ak's own to fix, and the subscriptions
-follow the choice. A column is the row's share of the best value in that column among the rows (100 for the best; 0 at
-zero or below, still counted: Arena's agent scores can be negative). A model's score for a role is the mean share
-over the role's measures on its row holding the most of them, kept with how many it rests on, and it needs at least
-half of them, else no score; a row's quality is that times what its effort keeps of it (`kept`): its mean share over
-the role's measures whose values differ between the model's efforts, else over the intelligence index, against the
-model's best effort, 1 where nothing tells the efforts apart, and a row lacking what tells the others apart has no
-score (a lower effort reads a higher one's rows, so those never tell efforts apart; Artificial Analysis's indexes do). `ROLES` names each role's measures and why, pinned by `tests/test_matrix_measures.py` so they change only
-with a visible test change and the owner's yes: orchestrate is Arena's sessions ending in the user's confirmed success
-and steerability, Artificial Analysis's agentic index and LiveBench's long agentic suite; execute is Artificial
-Analysis's coding and agentic indexes, LiveBench's coding and long agentic suites; review, with no public review board exporting its numbers, is the
-intelligence and coding indexes and LiveBench's reasoning suite (Artificial Analysis's free endpoint carries its indexes,
-never one benchmark's score, which is Pro only). A row within `within` points of the best for the role counts as as
-good as it (`WITHIN`, 5: the three boards disagree with each other about the differences between the top models by
-more; `within` in config.toml, a number 0 or more, overrides it), and the cheapest of those is recommended
-(`recommended`), the others beside it, one per model at its cheapest such effort: by `cost`, what Artificial Analysis's
-index run cost on the row, then `$/task`, LiveBench's cost of a successful coding task, for a row Artificial Analysis
-has not run, unpriced last, then the higher quality (exact; the table rounds it), then the row the config runs in the
-role, then the higher effort (`effort_rank`), then the first by harness and model name, so the pick is the same however
-the table is ordered and the table and `--json` name the same rows. The table lists the best rows first: model,
-harness, id and effort, `orch`, `exec` and `review` as `97 of 3`, `cost` and `$/task`; under it the recommendation per
-role with the rows as good beside it, or that no board has a row ak can run, how a row is scored, what each role is
-scored on, one line per board with how many rows, when and its note, and the rows no board has. `--json` is the scored
-rows, `within`, the recommendation (per role its rows as good, the recommended first), ak's own numbers (`live`) and
-the boards' notes.
+follow the choice. Each measure is the points the row is behind the best value on its whole board, models no harness
+here runs included (`bests`, kept with the stored matrix), by its kind (`SCALES`): a percent in percentage points, a
+share from 0 to 1 in hundredths, a rate of mistakes the same with the lowest the best, and a rating as how far under
+half its wins against the best would be (35 behind is 45% of wins, 5 points); a measure read off a higher effort adds
+its drop. A role's score is 100 less the mean over the role's measures the row has, all weighted alike, kept with how
+many it rests on, and it needs at least half of them, else no score. `ROLES` names each role's measures, their kinds
+and what each tests, pinned by `tests/test_matrix_measures.py` so they change only with a visible test change and the
+owner's yes: orchestrate is Arena's agent sessions the user confirmed did their task and its steerability, LiveBench's
+long agentic suite and Artificial Analysis's Briefcase; execute is LiveBench's coding and long agentic suites, Arena's
+bash reliability and WebDev, and Terminal-Bench 4.0; review is LiveBench's reasoning, Arena's coding answers judged for
+facts and with style aside, Artificial Analysis's DeepsecBench and its hallucination rate (Artificial Analysis's free
+endpoint carries none of those four, so no row has them yet). A row within `within` points of the best for the role
+counts as as good as it (`WITHIN`, 5: the three boards disagree with each other about the differences between the top
+models by more; `within` in config.toml, a number 0 or more, overrides it), and the cheapest of those is recommended
+(`recommended`), the others beside it, one per model at its cheapest such effort: by `cost`, what Artificial
+Analysis's index run cost on the row, then `$/task`, LiveBench's cost of a successful coding task, for a row
+Artificial Analysis has not run, unpriced last, then the higher quality (exact; the table rounds it), then the row the
+config runs in the role, then the higher effort (`effort_rank`), then the first by harness and model name, so the pick
+is the same however the table is ordered and the table and `--json` name the same rows. The table lists the best rows
+first: model, harness, id and effort, `orch`, `exec` and `review` as `97 of 3`, `cost` and `$/task`; under it the
+recommendation per role with the rows as good beside it, or that no board has a row ak can run, how a row is scored,
+what each role is scored on, one line per board with how many rows, when and its note, and the rows no board has.
+`--json` is the scored rows, `within`, the recommendation (per role its rows as good, the recommended first), ak's own
+numbers (`live`) and the boards' notes.
 
 ak's own numbers (`live`) stand under the scores, per configured model, the effort it ran at and role, and never rank
 (AGENTS.md, Owner rules): over the history's runs that ended with a verdict of the work (`pass`, `fail`, `blocked`; a stopped, not needed or
