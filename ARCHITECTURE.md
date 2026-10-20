@@ -127,8 +127,9 @@
   orch, menu, watch, history. Leak: watch and Muse call its private helpers.
 - `logins.py`: when each subscription's login ends and whose it is, asked of the adapters'
   `login-end` hourly by the tick (one ending within 7 days every tick), kept in
-  `logins.json`; one ending within 3 days pages the owner once a local day. `refresh`,
-  `read`, `remind`, `ending`, `harness`.
+  `logins.json`, and one signed in again on the ak screen asked as it closes; one ending
+  within 3 days pages the owner once a local day. `refresh`, `renewed`, `read`, `remind`,
+  `ending`, `harness`.
 - `usage_probe.py`: one deadline for an adapter usage call and its children. For usage
   and `harness/muse_usage.py` (Muse meters from one billed request, cached; run by
   `adapters/muse-usage.sh`). Leak: Muse's names.

@@ -4009,13 +4009,13 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
     one whose meter is amber: its harness's `login again` (`logins.harness`), and the menu back
-    as soon as that ends, one that failed once what it said has been read.  The tick asks an
-    amber login again every time it runs, so its meter turns grey at the next tick once a new
-    one stands, and nothing here writes `logins.json`."""
+    as soon as that ends, one that failed once what it said has been read.  One that finished
+    is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
-    if harness:
-        _adapter_verbs(keyboard, harness, ("login again",), provider, account, provider)
+    if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
+                                      provider):
+        logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):

@@ -1031,9 +1031,10 @@ def record_lock_path(path):
 
 @contextmanager
 def _record_lock(path):
-    """One writer at a time for a seat's record: each reads, merges and replaces the whole
-    file, and they share the one temporary file beside it.  Always taken last, inside any
-    other lock, and held only for that write, so it orders with nothing."""
+    """One writer at a time for a record, a seat's or the logins kept: each reads, merges and
+    replaces the whole file, and they share the one temporary file beside it.  Always taken
+    last, inside any other lock, and held only for that write (the logins' across their asks,
+    which take none), so it orders with nothing."""
     with record_lock_path(path).open("a") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX)
         try:
