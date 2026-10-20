@@ -160,6 +160,8 @@ class WrappedPane(Seats):
         proc.stderr.close()
 
     def tmux(self, *args, **kwargs):
+        if args[0] == 'list-buffers':
+            return 0, ''      # no text ak's editor keeps
         if args[0] == 'display-message':
             self.assertEqual(kwargs.get('socket'), orch.seat_socket(self.seat))
             self.assertIsNotNone(kwargs.get('timeout'))

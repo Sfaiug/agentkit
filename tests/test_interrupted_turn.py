@@ -101,8 +101,10 @@ class InterruptedTurn(Sandbox):
                 typed.clear()
             return 0, ""
 
+        # no text ak's editor keeps
         with patch.object(watch, "pane_text", side_effect=look), \
                 patch.object(orch, "tmux_out", side_effect=keys), \
+                patch.object(watch, "_editor_kept", return_value={}), \
                 patch.object(watch, "KEY_GAP", 0):
             watch.type_at_prompt({"name": SEAT}, "The acme tests passed.", lambda _: None,
                                  cfg=self.cfg)

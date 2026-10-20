@@ -40,6 +40,8 @@ class UnreadPane(Seats):
         return data
 
     def tmux(self, *args, **kwargs):
+        if args[0] == "list-buffers":
+            return 0, ""      # no text ak's editor keeps
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
         if args[0] == "display-message":
             self.assertEqual(args, ("display-message", "-p", "-t",

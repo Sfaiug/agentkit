@@ -1,7 +1,7 @@
 """fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose Ctrl-G hands
 its composer to the real agentkit/aside_editor.py, takes what that hands back at once and draws
 it a few reads late, and whose Enter sends what its composer holds.  Whether it hears the key
-(`deaf`) and the seat's launch are the test's to set."""
+(`deaf`), the seat's launch and the panes of its session are the test's to set."""
 
 import os
 from unittest.mock import patch
@@ -17,7 +17,7 @@ class EditorSeat(Seats):
         super().setUp()
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
         self.opened = []        # the owner's own editor, opened where ak asked nothing
-        self.deaf, self.launched, self.tty = False, True, self.root / "tty"
+        self.deaf, self.launched, self.tty, self.panes = False, True, self.root / "tty", [PANE]
         self.tty.write_text("")
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
                                    (aside_editor, "_tmux", lambda *args, data=None:
@@ -62,6 +62,8 @@ class EditorSeat(Seats):
             return 0, f"{said}\n" if said else ""
         if args[0] == "set-option":
             self.ask = None if "-pu" in args else args[-1]
+        elif args[0] == "list-panes":
+            return 0, "".join(f"{each}\n" for each in self.panes)
         elif args[0] == "list-buffers":
             return 0, "".join(f"{each}\n" for each in self.buffers)
         elif args[0] == "save-buffer":

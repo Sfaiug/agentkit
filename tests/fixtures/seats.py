@@ -59,6 +59,8 @@ class Seats(unittest.TestCase):
         stack.enter_context(patch.object(watch, "time", clock))
 
     def tmux(self, *args, **_kw):
+        if args[0] == "list-buffers":
+            return 0, ""        # no text ak's editor keeps
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
         if args[0] == "display-message" and args[-1].startswith("#{pane_tty}"):
             return 1, "no tty in this screen fixture"
