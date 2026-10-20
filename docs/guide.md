@@ -487,7 +487,8 @@ The tick closes a tab idle for an hour or past twelve open, and one a run or sea
 ## The boards
 
 `ak models` (`agentkit/matrix.py`) reads the public boards whose numbers export (`agentkit/boards.py`), each at most
-once a day into `~/.agentkit/state/boards.json` (`FRESH_FOR`); `--refresh` asks again now, `--json` prints the scored rows, the
+once a day into `~/.agentkit/state/boards.json` (`FRESH_FOR`), and again, once, when a new build of ak reads a column the
+cached rows carry none of (`matrix.needed`: the reader changed); `--refresh` asks again now, `--json` prints the scored rows, the
 recommendation and each board's `asked_at`, `fetched_at` and `error`. Artificial
 Analysis is read off its site's pages (`AA_PAGES`: a retired model's page, which carries every model's record whole,
 and DeepsecBench's, which carries its score), no key: each model's record in the data a page hands its scripts, merged
