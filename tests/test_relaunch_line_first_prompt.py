@@ -25,11 +25,11 @@ REAL_COMMAND = orch.command          # the stage stands one in; the adapter's ow
 class FirstPrompt(SeatMove):
     def setUp(self):
         super().setUp()
-        # Claude Code takes a first prompt here; Codex, as far as this test knows, does not
+        # Claude Code takes a first prompt; this test's Codex stands for a harness taking none
         adapters = Path(tempfile.mkdtemp(dir=self.root))
-        (adapters / "claude.toml").write_text(
-            (REPO / "adapters/claude.toml").read_text() + "\n[launch]\nfirst_prompt = true\n")
-        shutil.copy(REPO / "adapters/codex.toml", adapters / "codex.toml")
+        shutil.copy(REPO / "adapters/claude.toml", adapters / "claude.toml")
+        (adapters / "codex.toml").write_text(
+            (REPO / "adapters/codex.toml").read_text().replace("first_prompt = true", ""))
         self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
         self.adapters, self.lines, self.typed = adapters, [], []
         command = orch.command.side_effect

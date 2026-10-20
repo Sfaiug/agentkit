@@ -23,6 +23,8 @@ EMPTY = "❯ \n"
 class BootReasks(Sandbox):
     def setUp(self):
         super().setUp()
+        # a harness taking no first prompt: the boot pass types its line (`watch.relaunched`)
+        self.stack.enter_context(patch.object(orch, "takes_line", return_value=False))
         self.stack.enter_context(patch.dict(os.environ, {
             "AK_RUN_ROLE": "", "AGENTKIT_DISCORD_WEBHOOK": "", "AGENTKIT_DISCORD_USER_ID": ""}))
         self.live, self.texts, self.keys, self.meanwhile = [], [], [], []
