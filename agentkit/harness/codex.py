@@ -195,7 +195,8 @@ def running(record, cwd, conversation):
     entry = path and last_entry(path, lambda entry: entry.get("type") == "turn_context"
                                 and isinstance(entry.get("payload"), dict)
                                 and isinstance(entry["payload"].get("model"), str))
-    return (entry["payload"]["model"], entry["payload"].get("effort")) if entry else None
+    return ((entry["payload"]["model"], entry["payload"].get("effort"), entry.get("timestamp"))
+            if entry else None)
 
 
 def forget(record):

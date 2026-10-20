@@ -5,13 +5,16 @@ Offline: a temporary HOME and an invented seat, with tmux, the adapters and orch
 no real seat, process or transcript is touched.
 """
 
+import json
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, orch, statusbar, watch
+from agentkit.harness import claude
 
 SEAT = "acme-fix"
 OWN = "0f5d6e2a-6a43-4c3e-9b0e-3a1f6c2d9e10"      # the conversation the seat's launch handed out
@@ -139,6 +142,34 @@ class SeatMove(Sandbox):
                          ("opus", OWN))
         self.assertEqual(self.bar[-1][0], "opus")
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
+
+    def answer(self, name):
+        """The resumed conversation ends on this answer, written as Claude Code writes one."""
+        record = self.record()
+        path = claude.transcript_path(record, record["conversation"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant", "effort": "xhigh", "uuid": str(uuid.uuid4()),
+                                 "message": {"model": self.cfg["models"][name]["model"],
+                                             "content": [{"type": "text", "text": "ok"}]}}) + "\n")
+
+    def follow(self):
+        watch.follow_model(self.cfg, SEAT)
+        return self.record()["orchestrator"]
+
+    def test_the_old_models_last_answer_seen_or_not_does_not_undo_it(self):
+        self.answer("opus")                      # never looked at: the record has no `ran`
+        self.assertEqual(self.move("fable"), "")
+        self.assertEqual(self.follow(), "fable")
+        self.answer("fable")
+        self.assertEqual(self.follow(), "fable")
+
+    def test_a_fresh_answer_on_the_old_model_after_the_move_is_followed(self):
+        self.answer("opus")
+        self.assertEqual(self.follow(), "opus")
+        self.assertEqual(self.move("fable"), "")
+        self.answer("opus")                      # `/model` back to opus before fable answered
+        self.assertEqual(self.follow(), "opus")
 
 
 if __name__ == "__main__":

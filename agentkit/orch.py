@@ -4058,8 +4058,10 @@ def switch_orchestrator(cfg, name, model, providers=None):
         moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
+    # A resumed conversation still ends on the old model's answer: seen, so not followed back.
     chosen = {"orchestrator": model, "account": account,
-              **({"home_account": account} if moved else {})}
+              **({"home_account": account} if moved else {}),
+              **({"ran": watch.answered(record, old_harness)} if kept else {})}
     try:
         with watch.announcing(name):   # what every redress reads the record under
             config.update_session(name, **chosen)

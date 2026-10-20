@@ -181,7 +181,7 @@ def running(record, cwd, conversation):
                                 and not entry.get("isSidechain")
                                 and isinstance(entry.get("message"), dict)
                                 and entry["message"].get("model") not in (None, "<synthetic>"))
-    return (entry["message"]["model"], entry.get("effort")) if entry else None
+    return (entry["message"]["model"], entry.get("effort"), entry.get("uuid")) if entry else None
 
 
 def resumable(record, cwd, conversation):

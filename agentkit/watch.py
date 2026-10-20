@@ -1518,14 +1518,26 @@ def interrupted_at(harness, name):
         return None
 
 
+def answered(record, harness):
+    """[model id, effort, which answer] of that seat's latest answer on that harness, as the
+    harness recorded it, or None: what `ran` in its record holds."""
+    plugin, cwd = orch.harness_plugin(harness), record.get("cwd")
+    try:
+        ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return None
+    return list(ran) if ran else None
+
+
 def follow_model(cfg, name):
     """Make the model that seat's harness says its latest answer ran on its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
-    nothing restarted (the owner's word of 20 Oct 2026).  Only a change the harness recorded
-    is followed -- `ran` in the record is what it said last -- so a move made on `c`, whose
-    resumed conversation still ends on the old model's answer, is not undone.  The model is
-    the configured entry running it on that harness, at the effort it recorded where one does;
-    a model no entry runs, or a seat on the harness's own model, leaves the record as it is."""
+    nothing restarted (the owner's word of 20 Oct 2026).  Only an answer not yet seen is
+    followed -- `ran` in the record is the one seen last, and a move on `c` that resumes the
+    conversation records the answer it ends on -- so that move is not undone by the old
+    model's last answer.  The model is the configured entry running it on that harness, at the
+    effort it recorded where one does; a model no entry runs, or a seat on the harness's own
+    model, leaves the record as it is."""
     try:
         record = config.load_session(cfg, name, required=False)
         entry = record and config.model(cfg, record["orchestrator"])
@@ -1533,20 +1545,15 @@ def follow_model(cfg, name):
         return
     if not entry or entry["model"] in ("", config.DEFAULT_MODEL):
         return
-    plugin = orch.harness_plugin(entry["harness"])
-    cwd = record.get("cwd")
-    try:
-        ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
-    except OSError:
+    ran = answered(record, entry["harness"])
+    if not ran or ran == record.get("ran"):
         return
-    if not ran or list(ran) == record.get("ran"):
-        return
-    model, effort = ran
+    model, effort, _ = ran
     kept, models = record["orchestrator"], cfg["models"]
     runs = [each for each in config.offered(cfg)
             if (models[each]["harness"], models[each]["model"]) == (entry["harness"], model)]
     same = [each for each in runs if models[each].get("effort") == effort]
-    config.update_session(name, ran=list(ran),
+    config.update_session(name, ran=ran,
                           orchestrator=(same + ([kept] if kept in runs else runs) + [kept])[0])
 
 

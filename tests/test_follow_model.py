@@ -10,6 +10,7 @@ Offline: a temporary HOME, a transcript written as Claude Code writes one, no tm
 
 import json
 import unittest
+import uuid
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
@@ -31,7 +32,8 @@ class FollowModel(Sandbox):
 
     def answered(self, name, effort="xhigh", **extra):
         with self.transcript.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"type": "assistant", "effort": effort, **extra,
+            fh.write(json.dumps({"type": "assistant", "effort": effort, "uuid": str(uuid.uuid4()),
+                                 **extra,
                                  "message": {"model": self.ids.get(name, name),
                                              "content": [{"type": "text", "text": "ok"}]}})
                      + "\n")
@@ -40,13 +42,6 @@ class FollowModel(Sandbox):
 
     def test_a_model_typed_in_the_seat_becomes_its_orchestrator(self):
         self.assertEqual(self.answered("opus"), "opus")
-        self.assertEqual(self.answered("fable"), "fable")
-
-    def test_a_move_on_c_is_not_undone_by_the_old_models_last_answer(self):
-        self.assertEqual(self.answered("opus"), "opus")
-        config.update_session(SEAT, orchestrator="fable")      # `c` moved it; nothing answered yet
-        watch.follow_model(self.cfg, SEAT)
-        self.assertEqual(config.session_records()[SEAT]["orchestrator"], "fable")
         self.assertEqual(self.answered("fable"), "fable")
 
     def test_a_model_no_entry_runs_and_a_subagents_answer_change_nothing(self):
@@ -60,10 +55,12 @@ class CodexRunning(Sandbox):
         rollout.write_text("".join(json.dumps(line) + "\n" for line in (
             {"type": "turn_context", "payload": {"model": "gpt-6-astra", "effort": "high"}},
             {"type": "response_item", "payload": {"type": "message"}},
-            {"type": "turn_context", "payload": {"model": "gpt-6.1-sol", "effort": "max"}},
+            {"type": "turn_context", "timestamp": "2026-10-20T15:02:00.000Z",
+             "payload": {"model": "gpt-6.1-sol", "effort": "max"}},
             {"type": "response_item", "payload": {"type": "message"}})))
         with patch.object(codex, "transcript", lambda *_args: str(rollout)):
-            self.assertEqual(codex.running({}, None, "thread"), ("gpt-6.1-sol", "max"))
+            self.assertEqual(codex.running({}, None, "thread"),
+                             ("gpt-6.1-sol", "max", "2026-10-20T15:02:00.000Z"))
 
 
 if __name__ == "__main__":
