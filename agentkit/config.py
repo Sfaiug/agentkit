@@ -500,15 +500,11 @@ def provider_harnesses(cfg, provider):
 
 
 def provider_hosts():
-    """{harness: its name} for each harness that runs any provider it can log in to, as its
-    manifest's `[providers] label` says: `+ add a subscription` offers it by that name, then
-    each provider its adapter lists (listed_providers)."""
-    hosts = {}
-    for harness, found in manifests():
-        block = found.get("providers")
-        if isinstance(block, dict) and isinstance(block.get("label"), str):
-            hosts.setdefault(harness, block["label"])
-    return hosts
+    """{harness: its name (harness_name)} for each harness that runs any provider it can log in
+    to, as its manifest's `[providers] any = true` says: `c`'s `Models` lists every model it
+    runs, then each provider its adapter lists (listed_providers) to log in to."""
+    return {harness: harness_name(harness) for harness, found in manifests()
+            if isinstance(found.get("providers"), dict) and found["providers"].get("any") is True}
 
 
 def one_login(harness):
@@ -520,9 +516,9 @@ def one_login(harness):
 def listed_providers(harness):
     """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
     (id, name, mode), the logged-in ones first with their mode, `subscription`, `free` or
-    `payg`, and the rest with none.  The one with the harness's own id is the harness's own, named as `+
-    add` offers the harness (provider_hosts): OpenCode's is OpenCode, whatever OpenCode calls
-    it.  Error, in the adapter's own last words, when it lists none."""
+    `payg`, and the rest with none.  The one with the harness's own id is the harness's own, named as
+    the harness is (provider_hosts): OpenCode's is OpenCode, whatever OpenCode calls it.  Error,
+    in the adapter's own last words, when it lists none."""
     try:
         proc = subprocess.run([str(adapter(harness)), "providers"], capture_output=True,
                               timeout=75, stdin=subprocess.DEVNULL, encoding="utf-8",

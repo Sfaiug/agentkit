@@ -252,18 +252,18 @@ class ProviderScreen(unittest.TestCase):
         open_providers(screen)
         _, offered = pick(screen, ENTER, ADD, 6)
         self.assertEqual(offered, ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build",
-                                   "  Google / Antigravity", "  OpenCode", "  Claude II"])
+                                   "  Google / Antigravity", "  MiMo", "  Claude II"])
         screen.press(ESC, lambda lines: title(lines) == PAGE)
         back(screen)
         screen.leave()
-        # with every shipped provider added, OpenCode -- any provider it logs in to -- and
-        # another subscription of each but MiMo, whose OpenCode keeps one login, are offered
+        # with every shipped provider added, another subscription of each but MiMo, whose
+        # OpenCode keeps one login, is offered
         screen = Screen(self, child=CHILD)
         open_providers(screen)
         before, mark = screen.path.read_bytes(), len(screen.text())
-        _, offered = pick(screen, ENTER, ADD, 6)
-        self.assertEqual(offered, ["› OpenCode", "  Claude II", "  ChatGPT II", "  Muse II",
-                                   "  Grok II", "  Gemini II"])
+        _, offered = pick(screen, ENTER, ADD, 5)
+        self.assertEqual(offered, ["› Claude II", "  ChatGPT II", "  Muse II", "  Grok II",
+                                   "  Gemini II"])
         self.assertNotIn("MiMo II", screen.text()[mark:])
         screen.press(ESC, lambda lines: title(lines) == PAGE)
         back(screen)
@@ -412,7 +412,7 @@ class ProviderScreen(unittest.TestCase):
         lines, offered = pick(screen, ENTER, "agentkit · config · add a subscri…", 6)   # cut
         for line in lines + offered:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(offered[-2], "  OpenCode")
+        self.assertEqual(offered[-2], "  MiMo")
         screen.press(ESC, lambda lines: title(lines) == PAGE)
         back(screen)
         screen.leave()

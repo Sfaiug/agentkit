@@ -221,14 +221,14 @@ class RemoveKeepsLogin(unittest.TestCase):
         back(screen)
         screen.leave()
 
-    def test_a_removed_provider_listed_only_through_its_host_harness_is_still_offered(self):
+    def test_a_removed_provider_shipped_on_a_harness_that_runs_any_is_still_offered(self):
         with mock.patch.object(config, "kept_logins",
                                return_value=[("mimo", config.DEFAULT_ACCOUNT, "MiMo")]), \
                 mock.patch.object(menu.worker, "auth_ok", return_value=(True, "configured")), \
                 mock.patch.object(menu.terminal, "choose", return_value=None) as choose:
             menu.config_add_provider(tomllib.loads(ONE), None)
         offered = choose.call_args.args[0]
-        self.assertIn("OpenCode", offered)                          # MiMo is reached through it
+        self.assertIn("MiMo", offered)                       # by its own name, OpenCode's not
         self.assertEqual(offered[-1], "Use MiMo")
 
 

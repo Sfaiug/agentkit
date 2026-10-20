@@ -37,6 +37,9 @@ motion.FADE = 0
 
 config.catalog = lambda harness: [{"id": model, "label": label, "efforts": efforts}
                                   for model, label, efforts in %r.get(harness, [])]
+# OpenCode is here, with its own free provider logged in, and nothing of it is run
+config.harness_present = lambda harness: True
+config.listed_providers = lambda harness: [("opencode", "OpenCode", "free")]
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
 usage.collect = lambda cfg, **kwargs: usage.Readings({})
@@ -133,9 +136,10 @@ class ModelsPage(unittest.TestCase):
         self.assertEqual(opened(screen, ENTER, "□ Sonnet 5.5"), "□ Sonnet 5.5")
         self.assertNotIn("sonnet", screen.saved()["models"])
         self.assertEqual(opened(screen, ESC + DOWN + ENTER + ENTER, "□ DeepSeek"),
-                         "□ DeepSeek V4.1 Flash Free")
+                         "□ DeepSeek V4.1 Flash Free OpenCode")
         self.assertNotIn("opencode", screen.saved()["providers"])
-        self.assertEqual(opened(screen, ENTER, "■ DeepSeek"), "■ DeepSeek V4.1 Flash Free")
+        self.assertEqual(opened(screen, ENTER, "■ DeepSeek"),
+                         "■ DeepSeek V4.1 Flash Free OpenCode")
         saved = screen.saved()
         self.assertEqual(saved["providers"]["opencode"], {"mode": "free", "name": "OpenCode"})
         self.assertEqual(saved["models"]["deepseek-flash-free"]["effort"], "high")

@@ -96,7 +96,7 @@ cfg = {"defaults": {"orchestrator": "acme", "workers": ["acme"]},
        "providers": {"anthropic": {"mode": "subscription"}}}
 keyboard = terminal.Keyboard()
 keyboard.take()
-menu.config_models(cfg)
+menu.config_models(cfg, keyboard)
 print("<went back>", flush=True)
 keyboard.give()
 """

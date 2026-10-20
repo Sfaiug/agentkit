@@ -442,12 +442,12 @@ class Screens(Sandbox):
         catalog = [{"id": "claude-opus-5-5", "label": "Opus 5.5", "efforts": ["high"]},
                    {"id": "claude-sonnet-5-5", "label": "Sonnet 5.5", "efforts": ["high"]}]
         self.stack.enter_context(patch.object(config, "catalog", return_value=catalog))
-        first = run(lambda: menu.config_models(self.cfg), ESC)[1][0]
+        first = run(lambda: menu.config_models(self.cfg, None), ESC)[1][0]
         self.assertOneHighlight(first, "Claude Code")
-        last = run(lambda: menu.config_models(self.cfg), move(*at(first, "Codex")) + ESC)[1][-1]
+        last = run(lambda: menu.config_models(self.cfg, None), move(*at(first, "Codex")) + ESC)[1][-1]
         self.assertOneHighlight(last, "Codex")
-        opened = run(lambda: menu.config_models(self.cfg), ENTER + ESC + ESC)[1][1]
-        last = run(lambda: menu.config_models(self.cfg), ENTER,
+        opened = run(lambda: menu.config_models(self.cfg, None), ENTER + ESC + ESC)[1][1]
+        last = run(lambda: menu.config_models(self.cfg, None), ENTER,
                    move(*at(opened, "Sonnet 5.5")) + ESC + ESC)[1][-2]
         self.assertOneHighlight(last, "Sonnet 5.5")
 

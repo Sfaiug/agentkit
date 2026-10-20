@@ -182,9 +182,9 @@ signatures = [
 ]
 
 # OpenCode runs any provider it can log in to, which its adapter's `providers` verb lists:
-# `+ add a provider` offers OpenCode under this name, then each of them to log in to.
+# `c`'s `Models` lists every model it runs, then each of them to log in to.
 [providers]
-label = "OpenCode"
+any = true
 
 # The models this harness runs when OpenCode's own list cannot say: the MiMo models opencode
 # 2.0.14 listed for the shipped `mimo` provider.  Every other model takes OpenCode's own name

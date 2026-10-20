@@ -2694,8 +2694,7 @@ AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (con
 SUBSCRIPTION_ACTS = (("↻ log in again", "log in again"), ("↻ spend a reset", "spend a reset"),
                      ("− remove", "- remove"))
 # What `+ add a subscription` offers each provider the shipped default has as: its company, and
-# the harness it runs on; any other is its name.  One shipped on a harness that runs any
-# provider (config.provider_hosts) is offered among that harness's own.
+# the harness it runs on; any other is its name.
 COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
              "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity"}
 # What `− remove` asks, and what it means; then the same about one subscription of a provider.
@@ -2719,7 +2718,6 @@ MOVE_ASK = ("Move {} to {}?",
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
-ADD_STEPS = ("model", "effort")   # `add a subscription`'s lists, each opening under the last
 ADD_KEYS = {"choose": ("↑↓ move   ⏎ choose", "arrows move   enter choose"),
             "add": ("↑↓ move   ⏎ add", "arrows move   enter add")}
 
@@ -3518,7 +3516,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             clock.forget()            # another screen: the matrix back from it replays nothing
         if here == ("row", CONFIG_ROWS[0]):
             if act in ("enter", "space"):
-                config_models(cfg)
+                config_models(cfg, keyboard)
         elif here[0] == "usage":
             if act in ("enter", "space"):
                 note = meter_acts(cfg, keyboard, here[1],
@@ -3556,34 +3554,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                     else config_effort(cfg, here[1], 1, wrap=True))
 
 
-def _runs(cfg, harness, model, effort=None):
-    """The names the config runs that harness's `model` under, at `effort` if one is given."""
+def _runs(cfg, harness, model):
+    """The names the config runs that harness's `model` under."""
     return [name for name, entry in cfg["models"].items() if isinstance(entry, dict)
-            and (entry.get("harness"), entry.get("model")) == (harness, model)
-            and effort in (None, entry.get("effort"))]
-
-
-def _marked(names):    # the names a model or effort runs under already, after a tick
-    return f"{terminal.glyph('done')} {', '.join(names)}" if names else ""
-
-
-def _through_choices(cfg, harness, listed, screen):
-    """`add a subscription`'s first list for `harness`, as OpenCode's own `/models` lists them:
-    every model its catalog lists (_offered) of a provider in `listed` with a mode, which it
-    runs now, beside that provider's name; then each provider it lists with none, to log in
-    to.  Each is ((harness, provider), the model, or None for a login) and the columns it
-    shows, so typing a model's name after `/` finds it before a provider that shares it."""
-    ready = {provider: name for provider, name, mode in listed if mode}
-    choices = []
-    for model in _offered(harness, *screen):
-        provider = model["id"].partition("/")[0]
-        if provider in ready:
-            choices.append((((harness, provider), model),
-                            [model["label"], ready[provider],
-                             _marked(_runs(cfg, harness, model["id"]))]))
-    return choices + [(((harness, provider), None),
-                       [name, "" if name == provider else provider, "log in"])
-                      for provider, name, mode in listed if not mode]
+            and (entry.get("harness"), entry.get("model")) == (harness, model)]
 
 
 def _short_name(cfg, label):
@@ -3597,181 +3571,6 @@ def _short_name(cfg, label):
         number += 1
         name = f"{base}-{number}"
     return name
-
-
-def add_body(picked, choices, at, finding=None):
-    """`add a subscription`'s lines, and the choice each list row is: {line: index}.
-
-    Each step chosen so far on a line of its own -- `model  DeepSeek V4.1 · OpenCode` -- and under
-    them the step being chosen, its name -- and `/` with what is being found in it, while
-    `finding` -- then its choices in columns with `at` highlighted: the steps stack up as they
-    are chosen.  On a phone a model's id gives way first, then its
-    label, and its mark keeps up to half the row.
-    """
-    room = terminal.layout_width()
-    wide = max(terminal.cells(step) for step in ADD_STEPS)
-    lines = [f"  {terminal.pad(step, wide)}  "
-             + terminal.cut(" · ".join(filter(None, texts[:2])), room - 4 - wide)
-             for step, (_, texts) in zip(ADD_STEPS, picked)]
-    lines.append(f"  {ADD_STEPS[len(picked)]}" + ("" if finding is None else f"  /{finding}"))
-    columns = list(zip(*(texts for _, texts in choices)))
-    widths = [max(map(terminal.cells, column)) for column in columns]
-    left = room - 4 - 2 * max(0, len(columns) - 1)
-    if len(columns) > 1:
-        widths[-1] = min(widths[-1], left // 2)       # the mark keeps up to half the row
-        left -= widths[-1]
-    for number in range(len(columns) - (len(columns) > 1)):   # the label, then the id
-        widths[number] = min(widths[number], max(0, left))
-        left -= widths[number]
-    places = {}
-    for number, (_, texts) in enumerate(choices):
-        line = terminal.table_row(texts, widths, indent="    ", kinds=(None, "dim", "dim"))
-        places[len(lines)] = number
-        lines.append(terminal.highlight(line) if number == at else line)
-    return lines, places
-
-
-@terminal.clicks_its_own
-def config_add(cfg, keyboard, through):
-    """`config · add a subscription · <through>`, for a harness that runs any provider it can
-    log in to (config.provider_hosts): every model it runs now, then every provider it lists
-    with no login (_through_choices), then the efforts the model picked takes, each picked from
-    a list with the matrix's keys; the name it was added under, or None.
-
-    A provider picked is logged in on `keyboard`'s terminal, given back for it, then asked
-    for again, its first model highlighted once it has a mode.  The model goes in with its
-    provider's table where the config has none: the shipped one where the shipped default
-    has it, else that mode, read off what the harness prices its models; the model takes that
-    mode as its own where its provider's table says another.  ↑/↓, k/j and the wheel move,
-    and Enter or a click picks a choice and opens the next step under it; Enter on an effort
-    adds the model, named from its label (_short_name), and saves.  A model the config runs
-    already is marked, and can be added at another effort, never at one it runs it at.  Esc
-    steps back one level, and out from the first.  Nothing is typed, so no model or effort the
-    catalog does not offer is ever written.  The new model is offered as orchestrator and as
-    worker at once, and holds no seat's role until it is marked there.
-    """
-    picked, ats, top, note = [], [0], 0, ""   # (value, texts) of each step chosen; its highlight
-    finding = None                    # typed after `/`: the open list shows only what holds it
-    title = f"config · add a subscription · {config.provider_hosts().get(through, through)}"
-    screen = (title, lambda: add_body(picked, [], 0)[0])
-    listed = pending = None           # `through`'s providers, as (id, name, mode); one logged in
-    while True:
-        values = [*picked[0][0]] if picked else []    # (harness, provider), then the model
-        try:
-            if listed is None:
-                listed = waited(lambda: config.listed_providers(through), *screen,
-                                doing=f"asking {config.provider_hosts().get(through, through)} "
-                                      "which providers it has")
-            choices = (_through_choices(cfg, through, listed, screen) if not picked else [
-                (effort, [effort, _marked(_runs(cfg, through, values[1]["id"], effort))])
-                for effort in values[1]["efforts"]])
-        except config.Error as exc:
-            choices, note, listed = [], f"config: {exc}", listed or []
-        except Back:                  # Esc while a list was asked: back one list
-            if not picked:
-                return None
-            picked.pop()
-            ats.pop()
-            continue
-        if pending and not picked:    # just logged in to: its first model, once it has a mode
-            found = [number for number, (((_, provider), model), _) in enumerate(choices)
-                     if provider == pending[0] and model]
-            if found:
-                ats[-1], finding = found[0], None
-            else:
-                ready = any(row[0] == pending[0] and row[2] for row in listed)
-                note = (f"{pending[1]} {'lists no model' if ready else 'is not logged in'};"
-                        " nothing added")
-            pending = None
-        if finding:
-            choices = [choice for choice in choices
-                       if finding.lower() in " ".join(choice[1]).lower()]
-        if not choices and not note:
-            note = (f"nothing here holds {finding}" if finding
-                    else f"the {through} catalog names no model" if picked
-                    else f"{through} lists no model or provider")
-        adding = len(picked) == len(ADD_STEPS) - 1
-        keys = ADD_KEYS["add" if adding else "choose"][0 if terminal.utf8() else 1] + "   esc back"
-        at = min(ats[-1], max(0, len(choices) - 1))
-        body, places = add_body(picked, choices, None if terminal.away() else at,
-                                finding=finding)
-        said = ["", *(terminal.styled("  " + part, "dim")
-                      for part in terminal.wrap(note, terminal.layout_width() - 2))] if note else []
-        room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
-        if finding is None and len(body) > room:      # a list past the screen: find in it
-            keys = keys.replace("   esc back", "   / find   esc back")
-            room = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(said))
-        drawn = next((line for line, number in places.items() if number == at), len(body) - 1)
-        top = max(0, min(max(top, drawn - room + 1), drawn, len(body) - room))
-        shown = body[top:top + room]
-        spots = terminal.frame(title, shown + said, keys, places={
-            line - top: (number, []) for line, number in places.items()
-            if top <= line < top + room})
-        key = terminal.read_key()
-        if key is None:
-            continue                  # a resize: drawn again at the new size
-        spot = terminal.under(key, spots)
-        if key.name == "point":
-            ats[-1] = at if spot.what is None else spot.what     # the highlight on its choice
-            continue
-        act, note = key.name, ""
-        if act == "click":
-            if spot.what is not None:
-                at, act = spot.what, "enter"
-            elif spot.cell == "esc":
-                act = "esc"
-        if act == "eof":
-            return None
-        if finding is not None and act in ("esc", "backspace", "char", "space"):
-            # what is typed after `/` finds; Esc lets the whole list back
-            finding = (None if act == "esc" else finding[:-1] if act == "backspace"
-                       else finding + (key.char or " "))
-            ats[-1] = 0
-        elif act == "char" and key.char == "/" or spot.cell == "/":     # the key or `/ find`
-            finding, ats[-1] = "", 0
-        elif act == "esc":
-            if not picked:
-                return None
-            picked.pop()
-            ats.pop()
-            finding = None
-        elif terminal.step(key):
-            ats[-1] = min(max(at + terminal.step(key), 0), max(0, len(choices) - 1))
-        elif act in ("enter", "space") and choices:
-            ats[-1] = at
-            if not picked and choices[at][0][1] is None:     # a provider to log in to
-                row = next(row for row in listed if row[0] == choices[at][0][0][1])
-                note = _adapter_verbs(keyboard, through, ("login",), row[1], provider=row[0])
-                if not note:
-                    config.forget_catalog(through)       # its models are listed now
-                    listed, pending = None, row          # asked again, for its mode
-                continue
-            if not adding:
-                picked.append(choices[at])
-                ats.append(0)
-                finding = None
-                continue
-            (harness, provider), model = values
-            effort, taken = choices[at][0], _runs(cfg, harness, model["id"], choices[at][0])
-            if taken:
-                note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
-                continue
-            name, before = _short_name(cfg, model["label"]), copy.deepcopy(cfg)
-            cfg["models"][name] = {"harness": harness, "model": model["id"], "effort": effort,
-                                   "provider": provider}
-            row = next(row for row in listed if row[0] == provider)
-            if provider not in cfg["providers"]:
-                tables = config.shipped().get("providers") or {}
-                cfg["providers"][provider] = (copy.deepcopy(tables[provider])
-                                              if provider in tables
-                                              else {"mode": row[2], "name": row[1]})
-            # a table that came with another harness's login: Codex's plan pays for no
-            # call OpenCode makes on an OpenAI key
-            if row[2] != cfg["providers"][provider].get("mode", "subscription"):
-                cfg["models"][name]["mode"] = row[2]
-            note = _saved(cfg, cfg, before)
-            if not note:
-                return name
 
 
 def _by_label(names, label):
@@ -3853,10 +3652,7 @@ def config_add_provider(cfg, keyboard):
     name, or, its provider gone too, with that provider as it ships, a subscription as its one
     login.  <who> is who that `auth` says it is `; logged in as`, else the name the login's
     usage row had; one several share is followed by that row, then by a number (` (2)`), so
-    every such login is listed, each as itself.  A harness that runs any provider it can log in
-    to (config.provider_hosts) is listed by its name after the shipped providers, standing in
-    for those shipped on it: picked, it is installed where its program is missing, then
-    `config_add` through it picks the provider, logs it in, and adds the model.
+    every such login is listed, each as itself.
 
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
@@ -3869,12 +3665,9 @@ def config_add_provider(cfg, keyboard):
     instead.  A verb that fails adds nothing, and waits until what it said has been read.  Esc
     goes back with nothing done.  What to say under the matrix, or "".
     """
-    shipped, hosts = config.shipped(), config.provider_hosts()
+    shipped = config.shipped()
     gone = [name for name in shipped.get("providers") or {} if name not in cfg["providers"]]
-    labels = _by_label([name for name in gone
-                        if hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))],
-                       lambda name: COMPANIES.get(name, NAMES.get(name, name.title())))
-    through = {label: harness for harness, label in hosts.items() if label not in labels}
+    labels = _by_label(gone, lambda name: COMPANIES.get(name, NAMES.get(name, name.title())))
     more = {}
     for text, name in _by_label(list(cfg["providers"]),
                                 lambda name: provider_name(cfg, name)).items():
@@ -3915,18 +3708,11 @@ def config_add_provider(cfg, keyboard):
 
     def around():     # the screen the list is drawn on, drawn again on a resize
         terminal.frame("config · add a subscription",
-                       [""] * (len(labels) + len(through) + len(more) + len(kept)), keys)
+                       [""] * (len(labels) + len(more) + len(kept)), keys)
         return 3
-    picked = terminal.choose([*labels, *through, *more, *kept], around=around)
+    picked = terminal.choose([*labels, *more, *kept], around=around)
     if picked is None:
         return ""
-    if picked in through:
-        harness = through[picked]
-        failed = _adapter_verbs(keyboard, harness, () if config.harness_present(harness)
-                                else ("install",), picked)
-        if not failed:
-            config_add(cfg, keyboard, through=harness)
-        return failed
     name, after = {**more, **kept}.get(picked) or (labels[picked], None)
     if name in cfg["providers"]:
         return _add_subscription(cfg, keyboard, name, after, picked,
@@ -4153,23 +3939,31 @@ DISCORD_NOTE = "A card reads only Needs you · <seat> or Done · <seat>, and men
 AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest loss."
 
 
-def config_models(cfg):
+def config_models(cfg, keyboard):
     """`Models`: a row per harness the config's providers run on (config.provider_harnesses)
-    as the page opened, by its name (config.harness_name), with the full names of the models
-    the config runs on it.  Enter opens every model its catalog offers those providers
-    (_offered), read once as the list opens so its rows stay put: `■` each the config runs,
-    `□` the rest.  Enter on `□` takes the model in, named from its label (_short_name), at the
-    effort of its harness's first model, or `high`, as near as its own efforts have it
-    (_nearest); on `■` every entry running it goes, the last model refused.  Each change is
-    saved at once; a free provider its last model took with it (config.remove_model) comes
-    back with the next."""
+    as the page opened, and each that runs any provider it can log in to (config.provider_hosts),
+    by its name (config.harness_name), with the full names of the models the config runs on it.
+    Enter opens every model its catalog offers those providers (_offered), read once as the
+    list opens so its rows stay put: `■` each the config runs, `□` the rest.  One that runs any
+    provider is installed first where its program is missing, then lists every model of a
+    provider it runs now (config.listed_providers) beside that provider's name, and after them
+    `log in to <provider>` for each it does not, whose Enter logs it in on `keyboard`'s
+    terminal and lists again.  Enter on `□` takes the model in, named from its label
+    (_short_name), at the effort of its harness's first model, or `high`, as near as its own
+    efforts have it (_nearest), with its provider's table where the config has none: the one
+    the page opened with, else the shipped one, else the mode and name the harness lists it
+    with; the model takes that mode as its own where the table says another.  On `■` every
+    entry running it goes, the last model refused.  Each change is saved at once."""
     full, empty = ("■", "□") if terminal.utf8() else ("#", "-")
-    tables, hosts = copy.deepcopy(cfg["providers"]), {}
+    tables, hosts, anyone = copy.deepcopy(cfg["providers"]), {}, config.provider_hosts()
     for provider in cfg["providers"]:
         for harness in config.provider_harnesses(cfg, provider):
             hosts.setdefault(harness, []).append(provider)
+    for harness in anyone:
+        hosts.setdefault(harness, [])
+    screen = ("config · models",)
 
-    def tick(harness, provider, model):
+    def tick(harness, provider, model, row):
         names, before = _runs(cfg, harness, model["id"]), copy.deepcopy(cfg)
         if names and not set(config.offered(cfg)) - set(names):
             return "the config needs one model"
@@ -4181,36 +3975,72 @@ def config_models(cfg):
             cfg.update(before)
             return f"config: {exc}"
         if not names:
-            cfg["providers"].setdefault(provider, copy.deepcopy(tables[provider]))
+            if provider not in cfg["providers"]:
+                shipped = config.shipped().get("providers") or {}
+                cfg["providers"][provider] = copy.deepcopy(
+                    tables[provider] if provider in tables else shipped[provider]
+                    if provider in shipped else {"mode": row[2], "name": row[1]})
             near = next((entry.get("effort") for entry in cfg["models"].values()
                          if isinstance(entry, dict) and entry.get("harness") == harness), "high")
-            cfg["models"][_short_name(cfg, model["label"])] = {
+            entry = cfg["models"][_short_name(cfg, model["label"])] = {
                 "harness": harness, "model": model["id"], "provider": provider,
                 "effort": _nearest(near, model["efforts"]) if model["efforts"] else near}
+            # a table that came with another harness's login: Codex's plan pays for no
+            # call OpenCode makes on an OpenAI key
+            if row and row[2] != cfg["providers"][provider].get("mode", "subscription"):
+                entry["mode"] = row[2]
         return _saved(cfg, cfg, before)
+
+    def offers(harness):
+        """(provider, model, its listed row or None) for each model `harness`'s row lists,
+        then (provider, None, row) for each provider to log in to; or why there are none."""
+        if harness not in anyone:
+            found = {}        # a model two providers both list is the first's
+            for provider in hosts[harness]:
+                for model in _offered(harness, *screen, provider=provider):
+                    found.setdefault(model["id"], (provider, model, None))
+            return list(found.values()) or "its catalog lists no model"
+        failed = _adapter_verbs(keyboard, harness, () if config.harness_present(harness)
+                                else ("install",), anyone[harness])
+        if failed:
+            return failed
+        listed = waited(lambda: config.listed_providers(harness), *screen,
+                        doing=f"asking {anyone[harness]} which providers it has")
+        ready = {row[0]: row for row in listed if row[2]}
+        # a model the config runs stays listed, to be taken out, though its login has gone
+        return [*((model["id"].partition("/")[0], model, ready.get(model["id"].partition("/")[0]))
+                  for model in _offered(harness, *screen)
+                  if model["id"].partition("/")[0] in ready or _runs(cfg, harness, model["id"])),
+                *((row[0], None, row) for row in listed if not row[2])]
 
     def ticks(harness):       # the list a harness's row opens
         got = []
 
+        def login(row):
+            said = _adapter_verbs(keyboard, harness, ("login",), row[1], provider=row[0])
+            if not said:
+                config.forget_catalog(harness)       # its models are listed now
+                got.clear()                          # and the list asked again
+            return said
+
         def choices():
             if not got:
                 try:
-                    found = {}        # a model two providers both list is the first's
-                    for provider in hosts[harness]:
-                        for model in _offered(harness, "config · models", provider=provider):
-                            found.setdefault(model["id"], (provider, model))
-                    got.append(list(found.values()) or "its catalog lists no model")
+                    got.append(offers(harness))
                 except config.Error as exc:
                     got.append(f"config: {exc}")
                 except Back:
                     got.append("not read: esc and open it again")
             if isinstance(got[0], str):
                 return [([(got[0], "dim")], lambda: "", False)]
-            return [([(full, "accent") if _runs(cfg, harness, model["id"]) else (empty, "dim"),
-                      (model["label"], None)],
-                     lambda provider=provider, model=model: tick(harness, provider, model),
+            return [([("log in to", "dim"), (row[1], None)], lambda row=row: login(row), False)
+                    if model is None else
+                    ([(full, "accent") if _runs(cfg, harness, model["id"]) else (empty, "dim"),
+                      (model["label"], None), *([(row[1], "dim")] if row else [])],
+                     lambda provider=provider, model=model, row=row: tick(harness, provider,
+                                                                         model, row),
                      bool(_runs(cfg, harness, model["id"])))
-                    for provider, model in got[0]]
+                    for provider, model, row in got[0]]
         return choices, True
 
     def page():
