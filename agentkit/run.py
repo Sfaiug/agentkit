@@ -35,7 +35,7 @@ from .roundloop import execute, final_check, integrate, review, rounds
 from .roundloop import (Loop, note,
     restore_review_checkout, rules_check, verify_work)
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
-    launch_line, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
+    launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
 from .staffing import (best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
@@ -1067,7 +1067,7 @@ def preset_models(cfg, opts, log, run_dir):
                 raise
             raise config.Error(refusal) from None
     except config.Error as exc:
-        refused(run_dir, exc, log, cfg)
+        refused(run_dir, exc, log, cfg, printed=True)    # only the seat's own `ak run` asks
         raise
     except Exception:  # noqa: BLE001 - the child reproduces any real failure itself
         return None, None
@@ -1114,34 +1114,30 @@ def preset_review_model(cfg, opts, workers=None, *, reviewers=None):
     return opts["--review"]
 
 
-def refused(run_dir, exc, log, cfg):
-    """A launch its parent refuses ends as a refused preflight does: recorded and told."""
+def refused(run_dir, exc, log, cfg, printed=False):
+    """A launch refused before it ran ends as any run does: recorded, its result written, and
+    its seat told -- by the `ak run` the seat typed itself when `printed`, which prints the
+    refusal where it was asked (`printed_at_launch`), else by a hand-back."""
     state = mark_state(run_dir, "error", str(exc), log)
     record_result(run_dir, state, log, cfg)
-    announce_safely(state, run_dir, log, cfg)
+    if printed:
+        printed_at_launch(run_dir, state, log)
+    else:
+        announce_safely(state, run_dir, log, cfg)
 
 
-def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None):
+def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None,
+            printed=False):
     capture_launch(run_dir, opts, job_id, cfg, task_file, receipt)
     try:
         preflight(run_dir, opts, log)
-    except Stopped as exc:
-        # Repository discovery never answered: nothing was done, so relaunch is the recovery --
-        # but the stop is still reported everywhere a finished run would report it.  The state
-        # stays `error`, the remedy is in the log and the result, and the re-raise is what the
-        # foreground parent prints.
-        state = mark_state(run_dir, "error", str(exc), log)
-        record_result(run_dir, state, log, cfg)
-        announce_safely(state, run_dir, log, cfg)
-        raise
-    except (config.Error, OSError) as exc:
+    except (Stopped, config.Error, OSError) as exc:
         # The launch receipt is already visible to `r`; a rejected preflight must not leave
         # it queued forever, or lose the seat it belonged to before the check began.  It is
         # an ending like any other, so a result is written and the seat that launched it
-        # hears why -- a hand-back naming a result.md nothing wrote is no hand-back.
-        state = mark_state(run_dir, "error", str(exc), log)
-        record_result(run_dir, state, log, cfg)
-        announce_safely(state, run_dir, log, cfg)
+        # hears why -- a hand-back naming a result.md nothing wrote is no hand-back.  Repository
+        # discovery that never answered (`Stopped`) did nothing, so relaunch is its recovery.
+        refused(run_dir, exc, log, cfg, printed)
         raise
 
 
@@ -2797,7 +2793,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         run_dir.mkdir(parents=True)
         (run_dir / "log.txt").touch()
         try:
-            prepare(run_dir, opts, logger(run_dir), cfg)
+            prepare(run_dir, opts, logger(run_dir), cfg, printed=True)
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
@@ -2809,7 +2805,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                 reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
                                                reviewers=receipt.get("reviewers"))
             except config.Error as exc:
-                refused(run_dir, exc, logger(run_dir), cfg)
+                refused(run_dir, exc, logger(run_dir), cfg, printed=True)
                 raise
             title = (run_record.read_state(run_dir) or {}).get("title")
             if reviewer:
@@ -3014,7 +3010,7 @@ def main(argv):
         (run_dir / "task.md").write_text(task_path.read_text())
         (run_dir / "log.txt").touch()
         try:
-            prepare(run_dir, opts, logger(run_dir), cfg, task_file=task_path)
+            prepare(run_dir, opts, logger(run_dir), cfg, task_file=task_path, printed=True)
         except run_record.StopRequested:
             # A stop landed during preflight: the receipt already says so, and the
             # stopper printed the line -- this end names it and stands down alike.
