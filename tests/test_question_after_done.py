@@ -75,12 +75,15 @@ class QuestionAfterDone(unittest.TestCase):
 
     # --- driving the hook the way Claude Code does --------------------------
 
-    def hook(self, payload, env=None):
+    def started(self, command, stdin="", env=None):
         environment = {"PATH": os.environ["PATH"], "HOME": str(self.home),
-                       "PYTHONPATH": f"{self.home}:{REPO}",
+                       "PYTHONPATH": f"{self.home}:{REPO}", "AK_NOTIFY_SINK": "off",
                        "AGENTKIT_SESSION": SEAT, "AK_RUN_ROLE": "orchestrator", **(env or {})}
-        done = subprocess.run(["bash", str(HOOK)], input=json.dumps(payload), text=True,
-                              capture_output=True, env=environment, timeout=30)
+        return subprocess.run(command, input=stdin, text=True, capture_output=True,
+                              env=environment, timeout=30)
+
+    def hook(self, payload, env=None):
+        done = self.started(["bash", str(HOOK)], json.dumps(payload), env)
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout) if done.stdout.strip() else None
 
@@ -119,6 +122,16 @@ class QuestionAfterDone(unittest.TestCase):
     def test_a_run_of_its_own_parked_undecided_lets_the_seat_ask(self):
         self.parked()
         self.assertIsNone(self.hook(ASKED))
+        # past the name it owes too, which holds every other ending
+        (self.state / f"session-{SEAT}.json").write_text(json.dumps(
+            {"orchestrator": "opus", "workers": [], "cwd": str(self.home), "unnamed": True}))
+        self.assertIsNone(self.hook(ASKED))
+
+    def test_its_own_ak_notify_needs_is_refused_too(self):
+        done = self.started([str(REPO / "bin/ak"), "notify", "needs", QUESTION])
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("plan is done", done.stderr)
+        self.assertFalse((self.state / f"notify-{SEAT}.json").exists())
 
     def test_a_worker_is_never_refused(self):
         self.assertIsNone(self.hook(ASKED, env={"AK_RUN_ROLE": "worker"}))

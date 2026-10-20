@@ -78,9 +78,16 @@ def question_refused(name):
         return None     # a plan nothing can date proves nothing done
     if any(at > done_at for at in notify.owner_said(name)):
         return None
-    if recorded_ending(name)[1]:
+    if _parked(*_ending_work(name, None)):
         return None
     return DONE_ASKING
+
+
+def _parked(records, mine):
+    """Those of the seat's runs parked undecided: ended unsettled, or stalled."""
+    return [(directory, state) for directory, state in mine
+            if (not transitions.going(state) or state.get("state") == "stalled")
+            and transitions.unfinished(state, records)]
 
 
 def recorded_ending(name, records=None, *, question=False, since=None):
@@ -98,9 +105,7 @@ def recorded_ending(name, records=None, *, question=False, since=None):
         return False, []
     supplied = records
     records, mine = _ending_work(name, records)
-    parked = [(directory, state) for directory, state in mine
-              if (not transitions.going(state) or state.get("state") == "stalled")
-              and transitions.unfinished(state, records)]
+    parked = _parked(records, mine)
     if parked:
         return False, parked
     if not owed(name):

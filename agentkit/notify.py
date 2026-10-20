@@ -1516,4 +1516,10 @@ def main(argv):
     if worker_blocked(kind, dry_run):
         return 0                          # before the question's shape: a worker asks nothing
     asks_first(rest[0])
+    own = config.current_session()
+    if own and (session is None or config.resolve_session(session) == own):
+        from .stop import question_refused
+        refused = question_refused(own)     # as its question prompt is
+        if refused:
+            raise config.Error(refused)
     return shaped(kind, rest[0].strip(), session=session, dry_run=dry_run)
