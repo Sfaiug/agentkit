@@ -625,15 +625,7 @@ class PlanLines(Sandbox):
         self.listed()
         self.assertTrue(self.plan_lines()[0].startswith("- [ ]"))
 
-    def test_a_line_naming_its_checkout_by_name_runs_in_the_seat_s_checkout_of_that_name(self):
-        # written before lines named a path
-        line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
-        config.plan_path("fix-api").write_text(line.replace(f" · {self.project} · ", " · acme · ") + "\n")
-        self.land_the_work()
-        self.listed()
-        self.assertTrue(self.plan_lines()[0].startswith("- [x]"))
-
-    def test_a_name_another_checkout_shares_is_checked_in_the_seat_s_own(self):
+    def test_a_line_naming_its_checkout_by_name_alone_proves_nothing(self):
         line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
         config.plan_path("fix-api").write_text(line.replace(f" · {self.project} · ", " · acme · ") + "\n")
         self.other_acme(has_feature=True)           # another acme, with an origin of its own
@@ -669,9 +661,8 @@ class PlanLines(Sandbox):
         self.assertEqual(counter.read_text().count("run"), 1)
         self.assertTrue(all(row.startswith("- [ ]") for row in self.plan_lines()))
 
-    def test_a_line_naming_its_checkout_by_name_is_proven_after_the_seat_is_renamed(self):
-        line = self.ak("add", "the feature exists", "--check", "test -f feature.txt").strip()
-        config.plan_path("fix-api").write_text(line.replace(f" · {self.project} · ", " · acme · ") + "\n")
+    def test_a_line_is_proven_after_the_seat_is_renamed(self):
+        self.ak("add", "the feature exists", "--check", "test -f feature.txt")
         self.land_the_work()
         config.rename_session("fix-api", "fix-api-renamed")
         self.assertEqual(plan.verify("fix-api"), [])   # the name it was launched under still reaches it
