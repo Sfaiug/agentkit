@@ -903,6 +903,19 @@ def mark_delivery(run_dir, state, **marks):
 
 
 ROUTINE_NOTE = "routine ending: recorded, not typed"
+PRINTED_NOTE = "refused at launch: printed where it was asked, not typed"
+
+
+def printed_at_launch(run_dir, state, log):
+    """A launch refused by the `ak run` its seat typed: that command printed the refusal and
+    exited 2 where the seat reads it, so the ending is recorded as handed back -- typed in as
+    well, it would open a turn for news the seat already read, and the tick would offer it
+    again until it was."""
+    if transitions.launched_session(state) and mark_delivery(
+            run_dir, state, handed_back=time.time(), reported=True, handback_note=PRINTED_NOTE,
+            handback_pending=None, handback_typed=None, handback_wait_reason=None,
+            notification_pending=None):
+        log(f"run {run_dir.name} {PRINTED_NOTE}")
 
 
 def seat_owes_nothing(state):
