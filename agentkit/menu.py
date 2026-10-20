@@ -1366,16 +1366,18 @@ def detail(cfg, info, room, now=None):
 WAIT, GO_ON = "wait", "go on"     # the choices under a seat out of usage, as the click reads them
 
 
-def choices(info):
-    """The line of choices under a seat out of usage's row (`detail`), with the keyboard or the
-    pointer on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
+def choices(info, room):
+    """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
+    on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
     `⇄ Go on now with gpt-sol`, which moves the seat and its conversation there; each a cell a
-    click answers (`choice_cells`).  [] for any other row."""
+    click answers (`choice_cells`).  One line where both fit in `room` cells, else one each, so
+    no choice wraps away from its cell.  [] for any other row."""
     if info.get("word") != "out of usage" or not back_at(info.get("back")):
         return []
-    wait = terminal.styled(choice_text(WAIT, info), "ok")
-    go_on = info.get("go_on") and terminal.styled(choice_text(GO_ON, info), "amber")
-    return [wait + ("   " + go_on if go_on else "")]
+    said = [terminal.styled(choice_text(WAIT, info), "ok")]
+    if info.get("go_on"):
+        said.append(terminal.styled(choice_text(GO_ON, info), "amber"))
+    return ["   ".join(said)] if terminal.cells("   ".join(said)) <= room else said
 
 
 def choice_text(choice, info):
@@ -1601,7 +1603,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     # What opens under a row (`detail`): from a pipe under every row saying something, as
     # nothing is highlighted there; with the keyboard under the highlighted row alone, below.
     said_room = max(1, widths["room"] - (2 + widths["num"] + 2))
-    said = {info["name"]: detail(cfg, info, said_room) + (choices(info) if owned else [])
+    said = {info["name"]: detail(cfg, info, said_room) + (choices(info, said_room) if owned else [])
             for info in infos}
     opened = {} if owned else {info["name"]: said[info["name"]] for info in infos
                                if info["word"] != "working" and info.get("sentence")}
@@ -1986,11 +1988,11 @@ def stop_question(name):
 def go_on_now(cfg, name, model, dry_run=False):
     """`⇄ Go on now` under a seat out of usage: it moves to `model`, its conversation and the
     turn its usage cut off with it, as its orchestrator mark moved on its models screen does
-    (`orch.switch_orchestrator`); a refusal is said."""
+    (`orch.switch_orchestrator`), never onto credits; a refusal is said."""
     if dry_run:
         print(f"would move {name} to {model}")
         return
-    note = orch.switch_orchestrator(cfg, name, model, staffing._cached_providers())
+    note = orch.switch_orchestrator(cfg, name, model, staffing._cached_providers(), credits=False)
     if note:
         pause(note)
 

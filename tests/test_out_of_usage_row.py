@@ -35,9 +35,18 @@ menu.seat_row_state = lambda cfg, session, **facts: {
     "word": "out of usage", "reason": "anthropic out of usage", "since": None,
     "resumes_at": back}
 orch.going_on = lambda cfg, current, providers: "astra"
-orch.switch_orchestrator = lambda cfg, name, model, providers=None: print(
+orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: print(
     f"<moved {name} to {model}>", flush=True) or ""
 sys.exit(menu.loop(""")
+
+
+class Login:
+    """A harness whose seat login passes on `ok` accounts alone."""
+    def __init__(self, ok):
+        self.ok = ok
+
+    def seat_auth(self, account):
+        return account in self.ok, "" if account in self.ok else "expired login"
 
 
 def today_at(hour, minute):
@@ -79,10 +88,16 @@ class OutOfUsageRow(Sandbox):
     def test_a_failed_move_to_another_account_is_his(self):
         failed = "anthropic account reopen failed: no such file"
         watch.seat_write(SEAT, usage_wait={"reason": failed, "since": 9500})
-        self.assertEqual(self.decide()["word"], "needs you")
+        found = self.decide()
+        self.assertEqual((found["word"], found["reason"]), ("needs you", failed))
         run = (config.RUNS / "acme-run", {"state": "running", "title": "Build endpoint",
                                           "launched_session": SEAT, "started_at": 9940})
-        self.assertEqual(self.decide(records=[run])["word"], "needs you")
+        found = self.decide(records=[run])
+        self.assertEqual((found["word"], found["reason"]), ("needs you", failed))
+        watch.seat_write(SEAT, wait={"on": "https://github.com/acme/api/pull/1", "kind": "pr",
+                                     "at": 9940})
+        found = self.decide()
+        self.assertEqual((found["word"], found["reason"]), ("needs you", failed))
 
     def test_an_upgrade_waits_for_turns_but_not_for_a_seat_out_of_usage(self):
         answers = {"waits": {"word": "out of usage", "reason": SPENT, "resumes_at": 90000},
@@ -110,17 +125,21 @@ class OutOfUsageRow(Sandbox):
         cfg = {"providers": {"anthropic": {}}}
         info = self.info()
         self.assertEqual(menu.detail(cfg, info, 80), ["Claude has no usage left until 19:20."])
-        [line] = menu.choices(info)
+        [line] = menu.choices(info, 80)
         text = terminal.ANSI.sub("", line)
         self.assertEqual(text, "✓ Wait for 19:20   ⇄ Go on now with gpt-sol")
         self.assertEqual(menu.choice_cells("     " + text, info),
                          [(6, 21, menu.WAIT), (25, 48, menu.GO_ON)])
+        # where both do not fit, each takes a line of its own, where a click still finds it
+        wait, go_on = [terminal.ANSI.sub("", line) for line in menu.choices(info, 40)]
+        self.assertEqual((wait, go_on), ("✓ Wait for 19:20", "⇄ Go on now with gpt-sol"))
+        self.assertEqual(menu.choice_cells("     " + go_on, info), [(6, 29, menu.GO_ON)])
         # with no model that has usage, waiting is all there is, and the line says why
         info = self.info(go_on=None)
         self.assertEqual(menu.detail(cfg, info, 80),
                          ["Claude has no usage left until 19:20. No other model has any now."])
-        self.assertEqual(terminal.ANSI.sub("", menu.choices(info)[0]), "✓ Wait for 19:20")
-        self.assertEqual(menu.choices({"word": "working"}), [])
+        self.assertEqual(terminal.ANSI.sub("", menu.choices(info, 80)[0]), "✓ Wait for 19:20")
+        self.assertEqual(menu.choices({"word": "working"}, 80), [])
 
     def test_going_on_takes_the_first_other_model_with_a_window(self):
         # the sandbox offers fable, opus, astra, spark, ...: the default, opus, first
@@ -137,11 +156,45 @@ class OutOfUsageRow(Sandbox):
             dry.discard("opus")         # its own model is never where it goes on
             self.assertIsNone(orch.going_on(self.cfg, "opus", {}))
 
+    def test_going_on_skips_what_the_move_refuses_as_spent(self):
+        # fable full with no reset known: the move refuses it, so astra is offered
+        self.cfg["models"] = {k: self.cfg["models"][k] for k in ("opus", "fable", "astra")}
+        full = {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
+                            "tier_a_exhausted": False}]}
+        providers = {"anthropic": full, "openai": {"meters": [
+            {"name": "weekly", "used": 20, "exhausted": False, "tier_a_exhausted": False}]}}
+        config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root)})
+        with patch.object(config, "harness_present", return_value=True), \
+                patch.object(orch, "harness_plugin", return_value=Login({None})):
+            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "fable", providers)[0],
+                             "fable is spent")
+            self.assertEqual(orch.going_on(self.cfg, "opus", providers), "astra")
+
+    def test_going_on_never_lands_on_a_login_on_credits(self):
+        # astra's login with a window has expired; the one left holds only credits
+        self.cfg["models"] = {k: self.cfg["models"][k] for k in ("opus", "astra")}
+        self.cfg["providers"]["openai"]["accounts"] = ["default", "second"]
+        free = {"meters": [{"name": "weekly", "used": 20, "exhausted": False,
+                            "tier_a_exhausted": False}]}
+        paid = {"credits": 10, "meters": [{"name": "weekly", "used": 100, "exhausted": True,
+                                           "tier_a_exhausted": True}]}
+        providers = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100,
+                                               "exhausted": True, "tier_a_exhausted": True}]},
+                     "openai": {**free, "accounts": {"default": free, "second": paid}}}
+        config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root)})
+        with patch.object(config, "harness_present", return_value=True), \
+                patch.object(orch, "harness_plugin", return_value=Login({"second"})):
+            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "astra", providers),
+                             ("", "second"))      # asked by hand, the owner may spend them
+            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "astra", providers, False),
+                             ("astra has only credits left", None))
+
     def test_a_click_on_going_on_moves_the_seat_and_a_refusal_is_said(self):
         with patch.object(orch, "switch_orchestrator", return_value="") as switch, \
                 patch.object(menu, "pause") as said:
             menu.go_on_now(self.cfg, SEAT, "gpt-sol")
         self.assertEqual(switch.call_args[0][:3], (self.cfg, SEAT, "gpt-sol"))
+        self.assertEqual(switch.call_args[1], {"credits": False})
         said.assert_not_called()
         with patch.object(orch, "switch_orchestrator", return_value="gpt-sol: codex is not installed"), \
                 patch.object(menu, "pause") as said:
