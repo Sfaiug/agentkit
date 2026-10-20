@@ -563,17 +563,23 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             _write_state(state)
 
 
-def prompted_since(name, at):
-    """Has a prompt gone into that seat since `at` -- the line, or his own?
+def last_prompt(name):
+    """When the latest prompt went into that seat -- the line, or the owner's own -- or None.
 
     hooks/seat-state.sh stamps each prompt's moment into the seat's stop file, whichever
-    harness it came from, and a turn that has since finished keeps that stamp.
+    harness it came from, after its fact; a turn that has since finished keeps that stamp.
     """
     try:
         turn = json.loads(config.stop_path(name).read_text(encoding="utf-8")).get("turn")
     except (OSError, ValueError, AttributeError, config.Error):
-        return False
-    return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
+        return None
+    return turn if isinstance(turn, (int, float)) and not isinstance(turn, bool) else None
+
+
+def prompted_since(name, at):
+    """Has a prompt gone into that seat since `at`?"""
+    turn = last_prompt(name)
+    return turn is not None and turn > at
 
 
 def continue_turns(cfg, log, accounts=False):
@@ -4281,12 +4287,27 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
 
 
-def _resume_on(cfg, name, log, account, continuing):
+def _resume_on(cfg, name, log, account, continuing, still=None):
     """Resume that seat's conversation on `account`; a turn it was in goes on there."""
-    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account)
+    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still)
     if continuing and resumed == "resumed":
         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                  "line": ACCOUNT_LINE})
+    return resumed
+
+
+def between_turns(name, harness, record, opened_at):
+    """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
+    closed, renamed, reopened or moved since -- at its prompt with nothing in its composer, in
+    no turn and asking nothing?"""
+    seat, now = orch.find(name), config.session_records().get(name) or {}
+    if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
+            or any(now.get(key) != record.get(key)
+                   for key in ("orchestrator", "conversation", "account"))
+            or seat_read(name).get("opened_at") != opened_at):
+        return False
+    fresh = observed(name, harness, pane_text(seat), seat_read(name), time.time())
+    return fresh["state"] == "at_prompt" and not _turn_in_flight(harness, fresh)[0]
 
 
 def seat_account(cfg, session, harness, provider, pane, dry_run, log):
@@ -4329,6 +4350,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return not spent(account) and not usage.on_credits(
             cfg, model, {provider: readings.get(account, {})})
 
+    def low(account):
+        return usage.model_low(cfg, model, {provider: readings.get(account, {})})
+
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
     if line is None:
@@ -4364,8 +4388,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if not waiting and not refusal and not spent(current):
         # An idle seat comes home once home has a window, and leaves credits for any window; a
         # turn the limit ended goes on there, though the meters may not show that limit yet.
+        # One whose account runs low moves to one that does not, between turns, so no turn of
+        # it is cut off when that account is spent; with every one low it spends its own, and
+        # it comes home only to room it would not leave again at once.
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
-                 and window(a) and (a == home or not window(current))]
+                 and window(a) and (not window(current) or not low(a)
+                                    and (a == home or low(current)))]
         if (moves and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
@@ -4376,18 +4404,26 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                            if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
             if target is None:
                 return False
+            prompted = []
+
+            def still():
+                # Asked by the launch last, after every slow step: the stamp first, so a prompt
+                # this look misses is one stamped after it.
+                prompted.append(last_prompt(name))
+                return between_turns(name, harness, record, live.get("opened_at"))
             with state_lock():
-                current_seat = orch.find(name)
-                if (seat_closed_by_owner(name) or config.session_records().get(name) != record
-                        or seat_read(name).get("opened_at") != live.get("opened_at")
-                        or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                        or pane_text(current_seat) != pane):
+                if not between_turns(name, harness, record, live.get("opened_at")):
                     return True
                 try:
-                    _resume_on(cfg, name, log, target, limit_ended(harness, name))
+                    resumed = _resume_on(cfg, name, log, target, limit_ended(harness, name), still)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
+                if resumed == "resumed" and last_prompt(name) != prompted[-1]:
+                    # A prompt in the instant between that look and the kill -- from the owner's
+                    # phone, which takes no lock of ak's -- began a turn the kill cut off.
+                    seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
+                                             "line": MIDTURN_LINE})
                 return True
         return False
     if dry_run:

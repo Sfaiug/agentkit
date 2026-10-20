@@ -2250,7 +2250,7 @@ def attach(name, log=print, wait=False, session=None):
 
 
 def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True,
-           account=None):
+           account=None, still=None):
     """Put the orchestrator back in a seat whose process is gone, and hand the terminal over.
 
     Two ways in, and the same ownership check either way. A seat tmux is still holding -- the
@@ -2269,6 +2269,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
+    `still` is `launch`'s.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2321,7 +2322,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if dry_run:
         print(shlex.join(cmd))
         return 0
-    launch(name, orchestrator, cwd, cmd, conversation, session)
+    launch(name, orchestrator, cwd, cmd, conversation, session, still)
     config.update_session(name, account=account)
     if not hand_over:
         # its own conversation only where the harness has opened it: an id nothing wrote
@@ -2423,12 +2424,14 @@ LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch
                "codex_history", "opencode_launch", "session_title", "title_sync")
 
 
-def launch(name, model, cwd, cmd, conversation, session=None):
+def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     """Put the harness in the seat, and write down the conversation it was launched with.
 
     `session` is an exited pane to respawn.  What a launch owns is the harness's to write
     down -- a launcher-issued id by default -- and whatever else its plugin needs for that,
     Codex's per-invocation receipt among them, is carried into the command as environment.
+    `still`, for a live harness replaced unasked, is asked last under the seat's lock, which
+    ak's own typing takes too: False leaves that harness as it is, and raises config.Error.
     """
     plugin = seat_plugin({"orchestrator": model})
     from . import notify, watch
@@ -2438,6 +2441,8 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     # starts puts the record back, since the harness that read the old one is still there.
     kept = ("rulebook_sha", "rulebook_told", "rulebook_read")
     with notify.session_lock(name) as current:
+        if still is not None and not still():
+            raise config.Error(f"{current} took input as its harness was to be replaced; kept")
         # read under the lock the prompts rewrite it under, and held until the harness is up:
         # till its pane is replaced the one it replaces can still prompt, and that prompt's
         # rewrite waits here, so the file read is the one recorded
