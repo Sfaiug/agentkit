@@ -3655,8 +3655,8 @@ def _landed(session, held, text, log, aside, cfg=None):
     """Under the seat's send lock: whether the line typed into it has landed -- its composer,
     read whole, empty with no unread input, its Enter pressed again while it holds the line
     alone -- and, typed past text ak's editor set aside (`aside`), that text back in it.  The
-    lock is held from the line's first key until it is drawn, so no other line goes in beside
-    text on its way back, nor does the text come back over a line still being read sent."""
+    lock is held from the line's first key until that text is drawn, so no other line goes in
+    beside text on its way back, nor does the text come back before a line is read sent."""
     if aside:
         where = seat_editor(session, cfg)
         kept = _set_aside(session, where) if where else None
