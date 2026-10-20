@@ -1925,6 +1925,10 @@ def tmux_conf():
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs.
+    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal: a login's
+    is hundreds of characters, wrapped over rows of a popup between its borders, and only the
+    link makes them one thing to click.  tmux reads a client's features as it attaches, so a
+    terminal attached before this file was loaded gets the rows apart until it attaches again.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -1960,7 +1964,7 @@ def tmux_conf():
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             "set -g allow-passthrough on\n"
-            'set -as terminal-features ",*:RGB"\n'
+            'set -as terminal-features ",*:RGB:hyperlinks"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
     try:

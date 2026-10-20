@@ -6,8 +6,9 @@ which only a new login brings it back; null where the harness writes no such day
 answers are kept in `state/logins.json` as {provider: {account: {email, ends, checked_at}}},
 for every screen and reminder that warns before a login ends.  The tick asks each one at
 most once an hour, answered or not, since a login's end moves only when somebody logs in
-again; but one whose meter is amber (`ending`) every time it runs, so a new login shows on
-the ak screen at the next tick.
+again; but one whose meter is amber (`ending`) every time it runs, so a new login made
+elsewhere shows on the ak screen at the next tick.  One made from the ak screen is asked as it
+closes (`refresh`'s `renewed`), so its meter turns back at once.
 """
 
 from datetime import date
@@ -83,10 +84,11 @@ def harness(cfg, provider):
     return next(iter(config.provider_harnesses(cfg, provider)), None)
 
 
-def refresh(cfg, now=None):
+def refresh(cfg, now=None, renewed=None):
     """Ask every subscription the config lists that was last asked ASK_EVERY ago or more, or
     whose login ends within WARN_WITHIN or has ended, and keep what they said; returns what
-    is kept.
+    is kept.  `renewed`, the (provider, account) of a login just made afresh, is asked alone,
+    whenever it was last.
 
     An adapter that answers nothing, or a provider no harness names, leaves its last answer
     standing, so a briefly unrunnable one neither raises a warning nor lifts one.  A
@@ -100,7 +102,8 @@ def refresh(cfg, now=None):
             last = (old.get(provider) or {}).get(account)
             last = last if isinstance(last, dict) else {}
             checked = last.get("checked_at")
-            fresh = (isinstance(checked, (int, float)) and 0 <= now - checked < ASK_EVERY
+            fresh = (renewed != (provider, account) if renewed else
+                     isinstance(checked, (int, float)) and 0 <= now - checked < ASK_EVERY
                      and not ending(last, now))
             kept.setdefault(provider, {})[account] = last if fresh else {
                 **last, **(asker and _ask(asker, account) or {}), "checked_at": now}
