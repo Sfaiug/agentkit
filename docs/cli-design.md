@@ -282,7 +282,7 @@ saying so under the rows, its mark shaking (Motion). The For row, where the labe
 the headings' line (a line of its own over them on a phone), says whom the marks are for:
 `For  ‹ new seats ›`, `[defaults]`, what `n` starts from, no open seat changed; `new and
 open seats`, the same, and each open seat takes a flip too, one that cannot named under the
-rows; then each open seat by name, its own record. ←/→, Enter or a click turn it, `‹` back;
+rows, those one reason keeps on one line; then each open seat by name, its own record. ←/→, Enter or a click turn it, `‹` back;
 the screen opens on the highlighted seat (on a heading, new seats), the rest following down
 the main screen from it, titled `config` whichever it is on. Under the rows, above the keys, the highlighted
 model's own line says what it runs on (`fable runs on Claude I, II`, dim), why it is spent
