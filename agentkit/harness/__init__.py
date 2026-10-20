@@ -198,6 +198,21 @@ def config_entries():
     return [module.config_entries() for module in _plugins("config_entries")]
 
 
+def conversation_stores():
+    """Where each harness that never ends a conversation itself keeps them, as [{"harness": its
+    name, "root": the folder, "pattern": the glob of one conversation's file}], from every
+    plugin that keeps any.  `ak gc` ends one nobody wrote to for 30 days, as Claude Code ends
+    its own."""
+    return [{"harness": module.__name__.rpartition(".")[2], **module.conversation_store()}
+            for module in _plugins("conversation_store")]
+
+
+def end_conversation(harness, path):
+    """End the conversation that file keeps, the harness's own way, with whatever it indexed
+    of it."""
+    _module(harness).end_conversation(path)
+
+
 @functools.cache
 def _plugins(hook):
     """Every plugin module beside this file that answers `hook`.  Found in this package, not
