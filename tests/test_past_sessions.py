@@ -55,7 +55,7 @@ class Keys(unittest.TestCase):
         self.assertIn("past sessions", lines[0])
         self.assertRegex(shown.highlighted(lines), r"^›\s+2  omega  -  stopped \d+[smhd] ago$")
         self.assertFalse(any("alpha" in line for line in lines), lines)
-        self.assertRegex(lines[-1], r"⏎ reopen   x remove   esc back")
+        self.assertRegex(lines[-1], r"^  ↑↓←→ move   ⏎ choose   x remove   esc back$")
         mark = shown.mark()
         shown.send(ENTER)
         shown.saw("<opened omega>", after=mark)

@@ -74,7 +74,7 @@ class Recommends(Sandbox):
                     row("claude", "claude-fable-5-1", "xhigh", "fable", execute=90),
                     row("codex", "gpt-6-astra", "xhigh", "astra", review=100)])
         text = self.screen([Key("esc")])
-        self.assertIn("⏎ mark r recommended esc back", text)
+        self.assertIn("⏎ choose r recommended esc back", text)
         # r opens the models screen and takes nothing by itself
         text = self.screen([Key("char", "r"), Key("esc"), Key("esc")])
         self.assertIn("agentkit · models · fix-api", text)

@@ -12,7 +12,7 @@ the moment it is pressed, and from a pipe it is a line.
       2  fix-api             fable   ● working     ━━━━╸───────────────── 2 of 9
       3  web-portal          fable   ✓ done
 
-      ↑↓ move   ⏎ open   n new   x stop   c config   esc leave
+      ↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave
 
 `n` asks for a name, then shows the orchestrator and both roles with the last created session's
 chosen already.
@@ -142,7 +142,6 @@ PAGE_KEYS = "j more   k previous"   # added to the key line when the list runs t
 BORN = " new"            # the name of the row `n` makes: none of a seat's, which holds no space
 BORN_KEYS = "⏎ start   tab models   esc back"
 UNFILED = "not assigned yet"   # the heading of the seats no project has yet, the new row's too
-PAST_KEYS = ("↑↓ move   ⏎ reopen   x remove   esc back", "j/k move   enter reopen   x remove   esc back")
 LEAST = 3                # rows a page keeps; the usage block folds before it holds fewer
 # The whole vocabulary, worst first: a rollup of seats says the one that wants him, and an idle
 # seat sorts last in its project.  `watch.session_state` is what decides which of the four a
@@ -2704,13 +2703,8 @@ REMOVE_SUBSCRIPTION_ASK = ("Remove {}?",
                            "Nothing new starts on it; its login stays on this machine.")
 # Short headings leave room for both roles and the effort on a phone.
 CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
-# The key line for the cell the highlight is on, and the same without UTF-8.
 # The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
-CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
-               "for": ("↑↓←→ move   ⏎ choose", "arrows move   enter choose"),
-               "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
-               "row": ("↑↓ move   ⏎ open", "arrows move   enter open")}
 # Whom `c`'s marks are for, the For row's first scope: [defaults], what the next `n` starts
 # from; then each open seat by name, its own record.
 FOR_SCOPES = ("new seats",)
@@ -2718,8 +2712,6 @@ FOR_ROW = ("for", "For")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
-ADD_KEYS = {"choose": ("↑↓ move   ⏎ choose", "arrows move   enter choose"),
-            "add": ("↑↓ move   ⏎ add", "arrows move   enter add")}
 
 
 def _secret(name):
@@ -3481,10 +3473,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         here = here if here in rows else models[0]    # the highlight is the row itself
         if here[0] == "model" and column not in columns:
             column = columns[-1]      # onto a row without marks
-        where = ("for" if here == FOR_ROW else "row" if here[0] in ("row", "usage")
-                 else "effort" if column == 3 else "mark")
-        keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
-                + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
+        keys = terminal.keys(*([ADVICE_KEY] if found else []), "esc back")
         # each meter's cells, on the lines over the page counted back from it, washing in and out
         moves = [(line - len(over), ("sub", number), number == lit,
                   motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
@@ -3703,7 +3692,7 @@ def config_add_provider(cfg, keyboard):
             number += 1
             shown = f"{text} ({number})"
         kept[shown] = offer
-    keys = ADD_KEYS["add"][0 if terminal.utf8() else 1] + "   esc back"
+    keys = terminal.keys("esc back")
 
     def around():     # the screen the list is drawn on, drawn again on a resize
         terminal.frame("config · add a subscription",
@@ -3829,10 +3818,10 @@ def meter_acts(cfg, keyboard, number, screen):
     acts = dict(subscription_acts(cfg, keyboard, number))
     if not acts:
         return ""
-    keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1]
+    keys = terminal.keys("esc back")
 
     def listed():     # the screen the list is drawn on, drawn again on a resize
-        terminal.frame(screen, [""] * len(acts), keys + "   esc back")
+        terminal.frame(screen, [""] * len(acts), keys)
         return 3
     chosen = terminal.choose(list(acts), around=listed)
     return "" if chosen is None else acts[chosen]()
@@ -3887,7 +3876,7 @@ def config_page(name, page):
     first, as terminal.field takes it.  What a call returns is said under the rows, over the
     note, until the next key."""
     here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
-    keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1] + "   esc back"
+    keys = terminal.keys("esc back")
     while True:
         rows, note = page()
         listed = opened[1]() if opened else []
@@ -4286,7 +4275,6 @@ def session_mark(cfg, name, selected, model, column, providers):
 FEATURES_EVERY = 60     # how old a project's last `list` grows before the menu asks again
 FEATURES_WAIT = 20      # the longest `list` or `set` is waited for
 FEATURES_HEADS = ("you", "everyone")
-FEATURES_KEYS = ("↑↓←→ move   ⏎ flip", "arrows move   enter flip")
 _SWITCHES = {}          # checkout -> its last answer: rows, why there are none, when asked
 _SWITCHES_LOCK = threading.Lock()
 
@@ -4445,7 +4433,7 @@ def show_features(checkout, dry_run=False):
     for as long as the rows drawn are older than it.  A dry run draws it once.
     """
     here, column, top, note, clock = None, 0, 0, "", motion.Clock(page=True)
-    keys = FEATURES_KEYS[0 if terminal.utf8() else 1] + "   esc back"
+    keys = terminal.keys("esc back")
 
     flip = flipped = None   # the `set` asked from here, till its answer is drawn, and its mark
 
@@ -4581,7 +4569,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             else:
                 pause(f"not a key: {line!r}", keys)
             continue
-        keys = PAST_KEYS[0 if terminal.utf8() else 1]
+        keys = terminal.keys("x remove", "esc back")
         room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
         body, places = past_body(past, here, models, room)
         act, row, _column, _top = matrix_key("past sessions", body, places,
@@ -4603,11 +4591,6 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             close_seat(here, dry_run)
             keyboard.take()
             found = [session for session in found if session["name"] != here]
-
-
-def move_keys():
-    """The key line's first two items while the menu has the keyboard; ASCII without UTF-8."""
-    return "↑↓ move   ⏎ open" if terminal.utf8() else "j/k move   enter open"
 
 
 def page_mark(keys, page, pages, width, arrows=True, needs=(False, False)):
@@ -4635,7 +4618,7 @@ def pressed(key, drawn, found):
 
     Enter is the highlighted seat's number, and a click on any line of a seat is that seat's;
     on a project's heading either is that project's checkout, whose switches it opens.
-    A click on the key line is the key of the item under it, `⏎ open` being Enter; Esc, a click
+    A click on the key line is the key of the item under it, `⏎ choose` being Enter; Esc, a click
     on `esc leave` and a keyboard that is gone are ESC, which leaves; a character is itself;
     anything else is "", which asks for nothing.  `drawn` is the layout on the screen when the
     key was read, so a click lands where he saw, and `found` the seats now, so a seat is
@@ -4765,7 +4748,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
             drawn = {} if keyboard.take() else None
             own = config.current_session() if overlay else None
             listed = (keys if drawn is None else BORN_KEYS if newborn
-                      else f"{move_keys()}   {keys}")
+                      else terminal.keys(keys))
             page, pages = draw(cfg, found, listed, page, BORN if newborn else cursor, drawn, own,
                                look=False, groups=born_groups(groups, newborn) if newborn
                                else groups, clock=clock, updating=updating, pointing=pointing)

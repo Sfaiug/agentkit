@@ -122,8 +122,9 @@ A digit opens that seat; a second digit within half a second makes two digits
 once. A resize in that half second does not cut it short, and any other key
 read in it is kept for after the seat -- a click with the screen it was made
 on. Esc, or a click on `esc leave`, leaves. A key that does nothing here is let go without a
-word. The key line is the example below -- `j/k move   enter open` leads it
-without UTF-8 -- and never offers `j` or `k` for pages: while the seats run to
+word. The key line is the example below -- `arrows move   enter choose` leads it
+without UTF-8, as `↑↓←→ move   ⏎ choose` leads every screen's wherever its highlight is
+(`terminal.keys`) -- and never offers `j` or `k` for pages: while the seats run to
 more than one page it starts with where the owner is, `←  1 / 2  →`, and ← and →,
 or a click on either arrow, turn the page, the highlight going to the first
 thing it can rest on of the nearest page that way holding one. The place
@@ -174,7 +175,7 @@ screen, `p`, which the key line offers as `p past` while there is one. The
 screen is `past sessions` over the main screen's rows, one a stopped seat under
 its project's heading, numbered on after the live ones in the same order --
 number, name, orchestrator, `stopped 2h ago` in the state's column, and its
-harness's word where it cannot resume the conversation -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`: Enter or a
+harness's word where it cannot resume the conversation -- with the keys `↑↓←→ move   ⏎ choose   x remove   esc back`: Enter or a
 click reopens the highlighted seat where it stopped, as its number does from
 the main screen, and the menu is back; `x` removes it at once, the rest
 staying up; Esc goes back. From a pipe a number reopens, `x` asks which to
@@ -198,7 +199,7 @@ on a resize, where a click on a choice picks it). The main menu and the
 new-session screen use them. A click belongs to the screen it began on: a button down on the menu and
 up on the question or on `c`, or the other way round, is no click.
 
-Example: `↑↓ move   ⏎ open   n new   x stop   c config   esc leave`.
+Example: `↑↓←→ move   ⏎ choose   n new   x stop   c config   esc leave`.
 
 Whatever the pointer is over lights up, on every screen, as it would in a window:
 a row under it -- a seat, a model, a feature, a choice -- takes the keys' own
@@ -306,8 +307,8 @@ each typed anew in a field under its row; on `Weekly audit`, `On`, which Enter t
 `Orchestrator`, `Builds` and `Reviews`, each opening every model under it, `●` or `■` where
 it holds the role, Enter taking one in or out and Esc closing the list. A change is
 written at once. The key
-line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
-`⏎ open`) and ends `esc back`; Esc or a click on it returns. A
+line is every screen's, the same on every cell and on each page and list under it, and ends
+`esc back`; Esc or a click on it returns. A
 screen too short shows the part the highlight is on, a row taller than the page a page at a
 time: ↑/↓ turn its pages before they leave it. From a pipe, and in a dry
 run, it is drawn once. Once the worker

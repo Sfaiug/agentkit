@@ -486,7 +486,7 @@ class Screens(Sandbox):
 
         def screen():
             return menu.show_past({}, seats, keyboard=Mock())
-        col, row = at(run(screen, ESC)[1][0], "⏎ reopen")
+        col, row = at(run(screen, ESC)[1][0], "⏎ choose")
         run(screen, f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode(), ESC)
         self.assertEqual(opened.call_args_list, [call({}, seats[0], False)])
 

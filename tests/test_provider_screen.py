@@ -87,8 +87,8 @@ mode = "subscription"
 SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
 MATRIX, PAGE = "agentkit · config", "agentkit · config · subscriptions"
 ADD = "agentkit · config · add a subscription"
-KEYS = {"row": "  ↑↓ move   ⏎ open   esc back", "add": "  ↑↓ move   ⏎ add   esc back",
-        "choose": "  ↑↓ move   ⏎ choose   esc back", "ask": "  esc back"}
+# the key line on every page and list, and under a question
+KEYS = {"list": "  ↑↓←→ move   ⏎ choose   esc back", "ask": "  esc back"}
 GIVE, TAKE = "\x1b[?1049l", "\x1b[?1049h"
 
 
@@ -120,7 +120,7 @@ def open_page(screen):
     lines = screen.frame()
     for _ in range(20):
         if "› Subscriptions" in lines:          # no `›` while a meter is lit
-            screen.case.assertEqual(lines[-1], KEYS["row"])
+            screen.case.assertEqual(lines[-1], KEYS["list"])
             return screen.press(ENTER, lambda lines: title(lines) == PAGE)
         lines = screen.press(DOWN)
     screen.case.fail(f"no `Subscriptions`: {lines}")
@@ -132,7 +132,7 @@ def open_row(screen, name):
     lines = lines if title(lines) == PAGE else open_page(screen)
     for key in [UP] * 20 + [DOWN] * 20:
         if named(lines) == name:
-            screen.case.assertEqual(lines[-1], KEYS["choose"])
+            screen.case.assertEqual(lines[-1], KEYS["list"])
             return lines
         lines = screen.press(key)
     screen.case.fail(f"no row of {name}: {lines}")
@@ -186,7 +186,7 @@ class ProviderScreen(unittest.TestCase):
         lines = open_providers(screen)
         self.assertEqual(subscriptions(lines), ["Claude"])
         lines, offered = pick(screen, ENTER, ADD, 6)
-        self.assertEqual(lines[-1], KEYS["add"])
+        self.assertEqual(lines[-1], KEYS["list"])
         self.assertEqual(offered[:3], ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build"])
         mark = len(screen.text())
         lines = screen.press(DOWN * 2 + ENTER, lambda lines: title(lines) == PAGE)
