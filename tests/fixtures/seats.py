@@ -52,6 +52,7 @@ class Seats(unittest.TestCase):
                 "id_source": harness.LAUNCHER})
         self.seat = {"name": SEAT, "created": 10, "legacy": False}
         self.free, self.typed = True, []
+        self.cursor = None      # the row an OpenCode pane's cursor sits on, its composer's if None
         stack.enter_context(patch.object(orch, "sessions", side_effect=lambda: [self.seat]))
         stack.enter_context(patch.object(orch, "find", side_effect=lambda name:
                                          self.seat if name == self.seat["name"] else None))
@@ -76,7 +77,7 @@ class Seats(unittest.TestCase):
         if args[0] == "display-message" and args[-1].startswith("#{pane_tty}"):
             return 1, "no tty in this screen fixture"
         if args[-1] == "#{cursor_y}":
-            return 0, cursor_row(self.pane)
+            return 0, self.cursor or cursor_row(self.pane)
         if args[0] == "capture-pane":
             return 0, self.pane
         self.assertEqual(args[0], "send-keys")

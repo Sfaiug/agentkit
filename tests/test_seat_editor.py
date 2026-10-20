@@ -16,7 +16,7 @@ DRAFT = "and add these posts"
 class SeatEditor(EditorSeat):
     def test_a_seat_launched_with_ak_s_editor_is_found_by_its_pane_and_keys(self):
         self.assertEqual(watch.seat_editor(self.seat, self.cfg),
-                         {"id": PANE, "tty": str(self.tty), "keys": ("C-g",)})
+                         {"id": PANE, "tty": str(self.tty), "keys": ("C-g",), "shows": ()})
         self.launched = False
         self.assertIsNone(watch.seat_editor(self.seat, self.cfg))
         self.launched = True

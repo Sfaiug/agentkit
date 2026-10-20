@@ -168,15 +168,30 @@ class LinePastOwnersText(EditorSeat):
             self.assertFalse(self.typed_line())
         self.assertEqual((self.keys, self.typed), ([], []))
 
+    def test_a_draft_holding_a_paste_its_editor_would_lose_stays(self):
+        # Muse's editor sends a paste's placeholder alone, the paste gone; Grok's refuses it
+        for harness, paste in (("muse", "[Pasted Content 1190 chars]"),
+                               ("grokbuild", "[Pasted: 40 lines]")):
+            loses = dict(watch.screen("claude"),
+                         editor_refuses=watch.screen(harness)["editor_refuses"])
+            with self.subTest(harness), patch.object(watch, "screen", return_value=loses):
+                self.show(f"{DRAFT} {paste}")
+                self.assertFalse(self.typed_line())
+        self.assertEqual((self.keys, self.typed), ([], []))
+
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):
-        # its highlighted row reads as typed text, and Enter under it picks a row
+        # Enter under it picks a row, a key moves its highlight or goes into its search, and it
+        # reads as typed text or as a composer left empty, which text kept goes past too
+        self.buffers.update(kept(aside_editor.GIVEN))
         step = watch._editor_read
-        for harness, picker in (("codex", "codex-model-picker-pane.txt"),
-                                ("antigravity", "antigravity-chooser-pane.txt")):
-            draft = (FIXTURES / f"{harness}-draft-pane.txt").read_text()
+        for harness, draft, picker in (("codex", "codex-draft", "codex-model-picker"),
+                                       ("antigravity", "antigravity-draft", "antigravity-chooser"),
+                                       ("muse", "muse-draft", "muse-model-picker"),
+                                       ("grokbuild", "grok-draft", "grokbuild-slash")):
+            draft = (FIXTURES / f"{draft}-pane.txt").read_text()
 
             def opened(*args, **kwargs):
-                self.pane = (FIXTURES / picker).read_text()
+                self.pane = (FIXTURES / f"{picker}-pane.txt").read_text()
                 try:
                     return step(*args, **kwargs)
                 finally:
@@ -186,6 +201,15 @@ class LinePastOwnersText(EditorSeat):
                     watch, "seat_model", return_value=(harness, "acme")), patch.object(
                     watch, "_editor_read", side_effect=opened):
                 self.assertFalse(self.typed_line())
+        self.assertEqual((self.keys, self.typed), ([], []))
+
+    def test_a_dialog_opencode_draws_over_its_transcript_takes_no_key(self):
+        # its search takes what is typed and Enter picks a row: OpenCode keeps its cursor there
+        self.buffers.update(kept(aside_editor.GIVEN))
+        self.pane = (FIXTURES / "opencode-cursor-model-dialog-pane.txt").read_text()
+        self.cursor = "11"
+        with patch.object(watch, "seat_model", return_value=("opencode", "acme")):
+            self.assertFalse(self.typed_line())
         self.assertEqual((self.keys, self.typed), ([], []))
 
 

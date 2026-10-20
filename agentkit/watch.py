@@ -742,6 +742,12 @@ def screen(harness):
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
+             # what the screen shows before each of the last of them, each typed into a menu
+             # the key before it opens in its own time
+             "editor_shows": tuple(_pattern(shown, path) for shown in block.get("editor_shows")
+                                   or () if isinstance(shown, str) and shown),
+             # a draft that editor would lose part of, as its rows read run together
+             "editor_refuses": _pattern(block.get("editor_refuses"), path),
              "rules": [_rule(entry, path) for entry in data.get("rule") or ()]}
     _SCREEN[harness] = (data, built)
     return built
@@ -3741,18 +3747,20 @@ DRAFT_STILL = 120       # a seat whose terminal took no keys this long is not on
 
 
 def seat_editor(session, cfg=None):
-    """{"id", "tty", "keys"} of that seat's pane, whose editor `_edit` asks a step: a seat its
-    launch gave ak's, of a harness naming the keys that open it (`[screen] editor`), or None."""
+    """{"id", "tty", "keys", "shows"} of that seat's pane, whose editor `_edit` asks a step: a
+    seat its launch gave ak's, of a harness naming the keys that open it (`[screen] editor`), or
+    None."""
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
-        keys = screen(harness)["editor"] if harness else ()
+        chrome = screen(harness) if harness else {"editor": (), "editor_shows": ()}
+        keys = chrome["editor"]
     except (config.Error, OSError):
         return None
     rc, out = (orch.tmux_out("display-message", "-p", "-t", _pane(session),
                              "#{pane_id}\t#{pane_pid}\t#{pane_tty}",
                              socket=orch.seat_socket(session)) if keys else (1, ""))
     pane, pid, tty = (out.split("\t") + ["", ""])[:3] if rc == 0 else ("", "", "")
-    return ({"id": pane, "tty": tty, "keys": keys}
+    return ({"id": pane, "tty": tty, "keys": keys, "shows": chrome["editor_shows"]}
             if pane.startswith("%") and aside_editor.launched(pid, tty) else None)
 
 
@@ -3762,15 +3770,23 @@ def _edit(session, where, mode, line=""):
     goes out as the pane's cursor is off its composer (`off_composer`).  The editor reads
     the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
     for the owner's own edit never to find -- one that keys went out for and that went
-    unanswered turned to `none`, which an edit they open late leaves as it is."""
+    unanswered turned to `none`, which an edit they open late leaves as it is.  The keys go in
+    one write, as a harness opening a new session can drop a first key alone, but one typed into
+    a menu only once that menu shows it (`editor_shows`): typed where it never opened, it would
+    be the owner's."""
     if off_composer(dict(session, pane=where["id"])):
         return None
     server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
+    keys, shows = where["keys"], where["shows"]
+    stages = [(None, keys[:len(keys) - len(shows)]),
+              *((shown, (key,)) for shown, key in zip(shows, keys[len(keys) - len(shows):]))]
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
         if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
                           orch.tmux_literal(ask), socket=server)[0] == 0
-                and orch.tmux_out("send-keys", "-t", pane, *where["keys"], socket=server)[0] == 0):
+                and all((shown is None or _shows(session, shown))
+                        and orch.tmux_out("send-keys", "-t", pane, *chord, socket=server)[0] == 0
+                        for shown, chord in stages)):
             for _ in range(int(SENT_WAIT / SENT_POLL)):
                 rc, said = orch.tmux_out("show-options", "-pqv", "-t", pane, aside_editor.ASK,
                                          socket=server)
@@ -3782,6 +3798,15 @@ def _edit(session, where, mode, line=""):
     finally:
         orch.tmux_out(*after, socket=server)
     return None
+
+
+def _shows(session, shown):
+    """Whether that seat's screen shows `shown` on a line within SENT_WAIT."""
+    for _ in range(int(SENT_WAIT / SENT_POLL)):
+        if any(map(shown.search, strip_sgr(pane_text(session)).splitlines())):
+            return True
+        time.sleep(SENT_POLL)
+    return False
 
 
 def _editor_kept(session):
@@ -3855,14 +3880,18 @@ def drafts_back(cfg):
 def _past_text(session, cfg=None):
     """That seat's pane whose editor ak's line goes in through (`seat_editor`), or None: its turn
     over, its composer read holding text, or read empty with text that editor keeps, which it can
-    draw late -- on the read its editor may be asked a step on too (`_editor_read`).  The owner:
-    text they leave standing in a seat never keeps ak's line out of it (19 Oct 2026).  A composer
-    not read whole -- a picker drawn in its place, text too tall for its rows, or scrolled past
-    them -- says nothing it holds."""
+    draw late -- on the read its editor may be asked a step on too (`_editor_read`) -- none a draft
+    that editor would lose part of (`editor_refuses`).  The owner: text they leave standing in a
+    seat never keeps ak's line out of it (19 Oct 2026).  A composer not read whole -- a picker
+    drawn in its place, text too tall for its rows, or scrolled past them -- says nothing it
+    holds."""
     def past(harness, pane, found):
-        return found and _composer_open(harness, found) and (
-            _composer_rows(harness, pane, exact=True)       # rows of text, none left empty
-            or composer_draft(harness, pane) == "" and _editor_kept(session))
+        if not (found and _composer_open(harness, found)):
+            return False
+        rows, refuses = _composer_rows(harness, pane, exact=True), screen(harness)["editor_refuses"]
+        if rows:                                            # rows of text, none left empty
+            return not (refuses and refuses.search("".join(rows)))
+        return composer_draft(harness, pane) == "" and _editor_kept(session)
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         pane = pane_text(session) if harness else ""

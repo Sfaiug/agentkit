@@ -99,6 +99,12 @@ enforce = "nudge"
 # ends on its approvals, `YOLO` or, launched without it, `Auto-review` or `Launch overrides`,
 # and keeps `compacted context` beside them for a few seconds after a compaction.
 composer = '(?:⟩|[\w.-]+ · (?:none|minimal|low|medium|high|xhigh|max|ultra) · .+ · (?:YOLO|Auto-review|Launch overrides)(?: {2,}compacted context)?)$'
+# Ctrl-G hands the composer to $VISUAL, ak's editor, mid-turn too (Muse 1.4.11)
+editor = ["C-g"]
+# A paste it hands that editor as its placeholder, `[Pasted Content 1190 chars]`, and sends the
+# placeholder alone once it comes back, the paste gone, so such a draft holds ak's line back
+# as any draft does (1.4.11)
+editor_refuses = '\[Pasted\s*Content\s*\d+\s*chars\]'
 # 1.4.7 draws its composer between two rules, so a draft wrapped onto a second row is still its
 ruled = true
 # 1.4.7 draws its rotating composer suggestions ("Ask to monitor a running build …") in this
@@ -147,6 +153,7 @@ id = "prompt.picker"
 state = "draft"
 lines = 2
 any = ["esc go back", "esc exit"]
+picker = true
 
 # A composer holding bright, typed text is a draft never sent. Muse has no
 # suggestion feature: its suggestion fixture is its placeholder, the empty box.
