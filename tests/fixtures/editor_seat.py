@@ -2,7 +2,7 @@
 its composer to the real agentkit/aside_editor.py, takes what that hands back at once and draws
 it a few reads late, and whose Enter sends what its composer holds, one composer for any pane
 ak names.  Whether it hears the key (`deaf`), the seat's launch, the panes of its session
-(PANE the one selected), unread input and when its terminal last took keys are the test's to
+(and the one selected), unread input and when its terminal last took keys are the test's to
 set."""
 
 import os
@@ -20,7 +20,7 @@ class EditorSeat(Seats):
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
         self.opened = []        # the owner's own editor, opened where ak asked nothing
         self.deaf, self.launched, self.tty, self.panes = False, True, self.root / "tty", [PANE]
-        self.unread = False
+        self.unread, self.selected, self.pressed_in = False, PANE, []
         self.tty.write_text("")
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
                                    (aside_editor, "_tmux", lambda *args, data=None:
@@ -62,7 +62,7 @@ class EditorSeat(Seats):
         """The seat's server, as ak and the editor in its pane ask it."""
         name = args[args.index("-b") + 1] if "-b" in args else None
         target = args[args.index("-t") + 1] if "-t" in args else ""
-        pane = target if target.startswith("%") else PANE
+        pane = target if target.startswith("%") else self.selected
         if args[0] == "display-message" and args[-1].startswith("#{pane_id}"):
             return 0, f"{pane}\t4242\t{self.tty}"
         if args[0] == "show-options":
@@ -94,6 +94,7 @@ class EditorSeat(Seats):
 
     def press(self, key, pane=PANE):
         self.keys.append(key)
+        self.pressed_in.append(pane)
         if key == "C-g" and not self.deaf:
             path = self.root / "composer.md"
             path.write_text(self.composer)

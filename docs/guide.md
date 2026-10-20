@@ -156,7 +156,11 @@ next quiet prompt: `run <id> finished <PASS not merged|FAIL|BLOCKED|ERROR>: <why
 A merged (`PASS merged`) or not-needed (`DONE`) ending goes the same way only while the seat's plan has an open line of its own, as
 the end of a wait its turn may have ended on; otherwise it is recorded, never typed, and wakes no seat. A seat mid-turn
 gets it from the tick; its line is typed once, and one still sitting in the seat's composer gets only its Enter, none
-while text you typed sits beside it, and counts as delivered only once that composer, read whole, is empty. The tick reads
+while text you typed sits beside it, and counts as delivered only once that composer, read whole, is empty. Text you
+left in a composer two minutes untouched holds no line back where the harness hands its composer to an editor (Ctrl-G
+in Claude Code, Codex and Antigravity): ak's editor, every seat's `$VISUAL`, sets it aside, puts the line in its place
+for its Enter to send alone, and gives the text back into the composer that Enter emptied; text that is the line itself
+still holds it back. Your own Ctrl-G opens your own editor. The tick reads
 a seat found off its prompt once a pass for all the endings waiting on it, and the log names a waiting ending once, as it
 is first deferred, again on each pass its seat reads at its prompt yet takes no line, and as it is said. A prompt
 that starts a turn there first carries every ending and live notice still waiting, yours or a line ak typed (never a
