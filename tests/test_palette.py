@@ -95,16 +95,19 @@ class Palette(unittest.TestCase):
                                      "\033[38;5;111mworking\033[0m")
                     with patch.dict(os.environ, {"NO_COLOR": ""}):
                         self.assertEqual(terminal.colour_depth(), 0)   # whatever tmux says
-        # a popup handed its client's features asks tmux nothing (`orch.tmux_conf`)
-        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1,0",
-                                     terminal.FEATURES_ENV: "256,RGB,title"}), \
-                patch.object(terminal.subprocess, "run", side_effect=AssertionError("tmux")):
-            self.sense()
-        self.assertTrue(terminal._RGB)
         # outside tmux nothing is asked of it
         with patch.object(terminal.subprocess, "run", side_effect=AssertionError("tmux")):
             self.sense()
         self.assertFalse(terminal._RGB)
+
+    def test_a_popup_handed_its_clients_features_asks_tmux_nothing(self):
+        # what `orch.tmux_conf`'s popup is handed as the key is pressed, read for its first frame
+        for said, rgb in (("256,RGB,bpaste,title", True), ("256,bpaste,title", False)):
+            with self.subTest(features=said), patch.dict(os.environ, {
+                    "TMUX": "/tmp/tmux-1000/default,1,0", terminal.FEATURES_ENV: said}), \
+                    patch.object(terminal.subprocess, "run", side_effect=AssertionError("tmux")):
+                self.sense()
+                self.assertIs(terminal._RGB, rgb)
 
     def test_a_white_answer_picks_the_light_palette_and_none_in_time_the_dark(self):
         self.assertFalse(self.sense(WHITE, ATTRIBUTES))
