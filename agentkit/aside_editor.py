@@ -183,7 +183,7 @@ def edit(argv):
                 _keep(name, stored)
                 return 0
         else:
-            word = b"sent" if not text else b"unsent" if mine and put == line else b"other"
+            word = b"sent" if not text else b"unsent" if mine else b"other"
             if state == ASIDE and not text:
                 if held and not _publish(path, held):
                     return 0

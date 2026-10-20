@@ -103,8 +103,10 @@ class AsideEditor(unittest.TestCase):
 
     def test_a_line_never_goes_over_one_of_aks_or_takes_the_owners_text_that_is_it(self):
         self.step("line", DRAFT, line="first notice")
-        self.assertEqual((self.step("line", "first notice"), self.kept()),
-                         (("first notice", "unsent"), rec(A, DRAFT, "first notice")))
+        # a step for another line, either, over ak's line still unsent
+        for mode in ("line", "back"):
+            self.assertEqual((self.step(mode, "first notice"), self.kept()),
+                             (("first notice", "unsent"), rec(A, DRAFT, "first notice")))
         for kept, composer in ((None, LINE), (None, f"{LINE}\n"), (rec(A, LINE), "")):
             with self.subTest(kept=kept, composer=composer):
                 self.buffers = {} if kept is None else {NAME: kept.encode()}
