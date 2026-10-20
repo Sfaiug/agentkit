@@ -3898,7 +3898,7 @@ def config_page(name, page):
 
 
 # What `Models`, `Discord` and `Weekly audit` say under their rows.
-MODELS_NOTE = "Each harness lists every model it offers: choosing one takes it in or out."
+MODELS_PAGE_NOTE = "Each harness lists every model it offers: choosing one takes it in or out."
 DISCORD_NOTE = "A card reads only Needs you · <seat> or Done · <seat>, and mentions you."
 AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest loss."
 
@@ -4011,7 +4011,7 @@ def config_models(cfg, keyboard):
         return [(config.harness_name(harness), ", ".join(
                     config.model_name(cfg, name) for name in config.offered(cfg)
                     if cfg["models"][name].get("harness") == harness) or "none", ticks(harness))
-                for harness in hosts], MODELS_NOTE
+                for harness in hosts], MODELS_PAGE_NOTE
     config_page("models", page)
 
 
