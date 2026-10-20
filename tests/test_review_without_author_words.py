@@ -1,5 +1,5 @@
 """A reviewer never reads the author's account of its own work: neither the executor's nor a
-fixer's summary reaches any reviewer prompt, on a task run or a seat's own PR, while the
+fixer's summary, nor a seat's own PR description, reaches any reviewer prompt, while the
 summaries stay on the record and a dispute ak records still reaches the reviewer."""
 
 from contextlib import ExitStack
@@ -119,6 +119,7 @@ out = pathlib.Path(sys.argv[6])
 class SeatsOwnPr(OwnPr):
     def test_no_fixer_summary_reaches_the_reviewer_of_a_seats_own_pr(self):
         self.fix_summary = f"## Summary\nFixer {CLAIM}: the fence holds."
+        self.pr["body"] = f"## Summary\nAuthor {CLAIM}: every edge case is fixed."
         with patch.object(run, "ready_order", return_value=["astra", "opus"]), \
                 patch.object(staffing, "ready_order", return_value=["astra", "opus"]):
             state = self.review(["FAIL", "PASS"])
@@ -129,6 +130,7 @@ class SeatsOwnPr(OwnPr):
             self.assertIn("by owner", prompt)
             self.assertNotIn(CLAIM, prompt)
         self.assertIn(f"Fixer {CLAIM}", state["round_summaries"][1]["summary"])
+        self.assertIn(f"Author {CLAIM}", self.fixes[0])     # the fixer still reads the PR's words
 
 
 if __name__ == "__main__":

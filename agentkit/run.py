@@ -2386,13 +2386,16 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     cmds = [f"{tests}  # once" if is_own else tests] if tests else []
     title = f"Review PR #{number}: {info['title']}"
     if is_own:
+        # what the seat wrote of its own PR stays on GitHub: its reviewer judges the diff
+        # against the plan ak holds, never the author's account of its work
         wrote = (f"The {session_at_launch} seat's orchestrator {orchestrator} wrote this diff; "
-                 "review it as that model's work.")
+                 "review it as that model's work.\n\n")
     else:
-        wrote = "Nobody from agentkit executed anything here; the diff is the author's."
+        wrote = ("Nobody from agentkit executed anything here; the diff is the author's, and the "
+                 f"PR states its intent.\n\n## The PR says\n"
+                 f"{(info.get('body') or '(no description)').strip()}\n\n")
     body = (f"# {title}\n\n## Goal\nJudge {url} by {info['author']} against this repository: "
-            f"its AGENTS.md, README, tests and conventions, and the intent the PR states. {wrote}\n\n"
-            f"## The PR says\n{(info.get('body') or '(no description)').strip()}\n\n"
+            f"its AGENTS.md, README, tests and conventions. {wrote}"
             + planned + done_when_block(cmds))
     (run_dir / "task.md").write_text(f"---\nrepo: {repo}\nrounds: {n_rounds}\n---\n{body}")
     state = stamp_origin({**(run_record.read_state(run_dir) or {}), "run_id": run_dir.name,
