@@ -304,8 +304,12 @@ or a click on `+ add a model` opens `config · add a model`: `harness`, then
 chosen one kept as one line; Enter on the effort adds the model and highlights
 its row, glowing (Motion), Esc steps back one list. A list longer than the screen adds
 `/ find` to the key line: what is typed after `/` keeps the choices holding it, shown as
-`/text` beside the list's name, and Esc lets the whole list back. On `Discord` Enter or a click asks its two
-secrets on the same keys. The key
+`/text` beside the list's name, and Esc lets the whole list back. `Discord` and `Weekly audit`
+each open a page of rows like `c`'s, on the same keys: on `Discord`, `Mention` and `Webhook`,
+each typed anew in a field under its row; on `Weekly audit`, `On`, which Enter turns, then
+`Orchestrator`, `Builds` and `Reviews`, each opening every model under it, `●` or `■` where
+it holds the role, Enter taking one in or out and Esc closing the list. A change is
+written at once. The key
 line names what the keys do on the cell at hand (`⏎ mark`, `⏎ effort`,
 `⏎ open`) and ends `esc back`; Esc or a click on it returns. A
 screen too short shows the part the highlight is on, a row taller than the page a page at a

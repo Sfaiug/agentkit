@@ -2736,12 +2736,6 @@ ADD_KEYS = {"choose": ("↑↓ move   ⏎ choose", "arrows move   enter choose")
             "add": ("↑↓ move   ⏎ add", "arrows move   enter add")}
 
 
-def _cancelled(answer):
-    """Esc or an arrow key at a question with nothing to ask again: out, writing nothing."""
-    return (answer is None or terminal.is_esc(answer)
-            or terminal.is_sequence(answer))
-
-
 def _secret(name):
     """What ~/.agentkit/secrets/<name> holds, or "": the file install.sh and `Discord` write."""
     try:
@@ -2750,18 +2744,20 @@ def _secret(name):
         return ""
 
 
-def discord_value():
-    """`Discord`'s value: who a card pings and where it goes, `@acme-owner · webhook …a1B2c3`.
-
-    The name is the one a delivered card's receipt gave this user id (notify.pinged), the id's
-    last 4 digits until one has; of the webhook only its last 6 characters are ever shown.
-    """
+def discord_shown():
+    """Who a card pings and where it goes, as `Discord` shows them: `@acme-owner` -- the name a
+    delivered card's receipt gave this user id (notify.pinged), the id's last 4 digits until
+    one has -- and `…a1B2c3`, the only part of the webhook ever shown; "" for one not set."""
     hook, user = _secret("discord_webhook"), _secret("discord_user_id")
-    if not hook:
-        return "not connected"
     name = notify.pinged(user) if user else None
-    who = f"@{name}" if name else f"id …{user[-4:]}" if user else ""
-    return " · ".join(filter(None, (who, f"webhook …{hook[-6:]}")))
+    return (f"@{name}" if name else f"id …{user[-4:]}" if user else "",
+            f"…{hook[-6:]}" if hook else "")
+
+
+def discord_value():
+    """`Discord`'s value on `c`: `@acme-owner · webhook …a1B2c3`, or `not connected`."""
+    who, hook = discord_shown()
+    return " · ".join(filter(None, (who, f"webhook {hook}"))) if hook else "not connected"
 
 
 def config_models(cfg):
@@ -4242,30 +4238,119 @@ def config_usage(cfg, number):
     return "" if chosen is None else acts[chosen](cfg, (name, account, label))
 
 
-def config_discord():
-    """`Discord`: the two secrets, shown as its row shows them and written the way install.sh
-    writes them.
+def page_body(rows, at=None):
+    """The lines of a page `c` opens -- `Discord`, `Weekly audit` -- and the row each is,
+    {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its value,
+    lined up past the widest label as `c`'s own rows are, or with no label a choice of a list
+    opened under the row above it, indented as `add a model`'s are.  A value is text, or
+    parts, (text, kind) each, a space apart, each cut to the room it has; `at` is the row lit."""
+    room = terminal.layout_width()
+    wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
+    lines, places = [], {}
+    for row, label, value in rows:
+        line = "    " if label is None else f"  {terminal.pad(label, wide)}  "
+        for text, kind in [(value, None)] if isinstance(value, str) else value:
+            text = terminal.cut(text, max(0, room - terminal.cells(line)))
+            line += (terminal.styled(text, kind) if kind else text) + " "
+        places[len(lines)] = (row, [])
+        lines.append(terminal.highlight(line.rstrip()) if row == at else line.rstrip())
+    return lines, places
 
-    An empty answer keeps what is there, so one secret can be changed without retyping the
-    other; install.sh asks the same way, once, when there is someone to ask.  Esc at either
-    goes back with nothing written.
-    """
-    terminal.frame("config · discord", [f"  {discord_value()}"])
-    webhook = read("Webhook URL: ", "")
-    if _cancelled(webhook):
-        return
-    user = read("User id: ", "")
-    if _cancelled(user):
-        return
+
+@terminal.clicks_its_own
+def config_page(name, page):
+    """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each
+    -- and the note under them, asked again for every draw, drawn as page_body draws them and
+    read with `c`'s keys until Esc.
+
+    Enter or a click on a row calls its act.  One that is a list's, (choices, several), opens
+    the list under the row, the highlight on the first choice marked: `choices()` gives (value,
+    pick, marked) each, asked again for every draw, and Enter or a click on one calls its
+    `pick()`, the list closing unless `several`; Esc closes it.  Any other act is called with
+    `draw`, which draws the page with lines under the row and returns the screen row of the
+    first, as terminal.field takes it.  What a call returns is said under the rows, over the
+    note, until the next key."""
+    here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
+    keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1] + "   esc back"
+    while True:
+        rows, note = page()
+        listed = opened[1]() if opened else []
+        drawn = [(("row", number), label, value) for number, (label, value, _) in enumerate(rows)]
+        if opened:
+            drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
+                                                  for number, (value, _, _) in enumerate(listed)]
+        # with a list open its choices are what the keys move through, else the rows
+        ids = [row for row, label, _ in drawn if (label is None) == bool(opened)]
+        body, places = page_body(drawn, None if terminal.away() else here)
+        act, moved, _, top = matrix_key(title, body, places, ids, here, top,
+                                        "\n".join(filter(None, (said, note))), keys)
+        here = moved if moved in ids or act == "enter" else here    # the pointer on a row off-list
+        if act is None:
+            continue                  # a resize or the pointer: drawn again
+        said = ""
+        if act == "back":
+            if not opened:
+                return
+            here, opened = ("row", opened[0]), None
+        elif act not in ("enter", "space"):
+            continue
+        elif len(here) == 3:
+            said = listed[here[2]][1]() or ""
+            if not opened[2]:
+                here, opened = here[:2], None
+        elif isinstance(rows[here[1]][2], tuple):
+            opened = (here[1], *rows[here[1]][2])
+            choices = opened[1]()
+            here = (*here, next((number for number, (_, _, marked) in enumerate(choices)
+                                 if marked), 0))
+        else:
+            opened, at = None, here[1]
+
+            def draw(lines):
+                rows, note = page()
+                body = page_body([(("row", number), label, value)
+                                  for number, (label, value, _) in enumerate(rows)])[0]
+                terminal.frame(title, [*body[:at + 1], *lines, *body[at + 1:],
+                                       *note_lines(note)], keys)
+                return 4 + at
+            said = rows[at][2](draw) or ""
+
+
+# What `Discord` and `Weekly audit` say under their rows.
+DISCORD_NOTE = "A card reads only Needs you · <seat> or Done · <seat>, and mentions you."
+AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest loss."
+
+
+def config_discord():
+    """`Discord`: who a card mentions and the webhook it goes to, a row each (config_page),
+    each typed anew under its row (discord_secret)."""
+    def page():
+        who, hook = discord_shown()
+        return [("Mention", who or "nobody", lambda draw: discord_secret(
+                    draw, "discord_user_id", "your Discord user id")),
+                ("Webhook", hook or "not connected", lambda draw: discord_secret(
+                    draw, "discord_webhook", "your channel's webhook URL"))], DISCORD_NOTE
+    config_page("discord", page)
+
+
+def discord_secret(draw, name, hint):
+    """One of `Discord`'s secrets typed under its row (terminal.field) and written the way
+    install.sh writes it; Enter with nothing typed, or Esc, keeps what is there, and a user id
+    that is not digits is refused.  What to say under the rows, or ""."""
+    value = terminal.field("    ", hint, around=lambda line: draw([line]))
+    value = "" if value is None or terminal.is_esc(value) else value.strip()
+    if not value:
+        return ""
+    if name == "discord_user_id" and not re.fullmatch(r"[0-9]+", value):
+        return "a user id is only digits: Discord's Copy User ID gives it"
     try:
         config.ensure_dirs()
-        for name, value in (("discord_webhook", webhook), ("discord_user_id", user)):
-            if value:
-                path = config.SECRETS / name
-                path.write_text(value + "\n")
-                os.chmod(path, 0o600)
+        path = config.SECRETS / name
+        path.write_text(value + "\n")
+        os.chmod(path, 0o600)
     except OSError as exc:
-        pause(f"discord: {exc}")
+        return f"discord: {exc}"
+    return ""
 
 
 def audit_value(cfg):
@@ -4282,45 +4367,78 @@ def audit_value(cfg):
                        f"{heads[2]} " + ", ".join(setting["reviewers"])))
 
 
-def config_audit(cfg):
-    """`Weekly audit`: on or off, then the models its seat takes, written to `[audit]` in
-    config.toml as one table.
+def audit_table(cfg):
+    """`[audit]` as a change on `Weekly audit` keeps it: each key the tick reads on its own
+    (config.audit), so the first change mends a table it cannot read; one that is not a table
+    keeps nothing."""
+    table = cfg.get("audit")
+    kept = {}
+    for key, value in table.items() if isinstance(table, dict) else ():
+        try:
+            config.audit({**cfg, "audit": {key: value}})
+        except config.Error:
+            continue
+        kept[key] = value
+    return kept
 
-    An empty answer keeps what is there, so one value can be changed without retyping the
-    rest; Esc at any question goes back with nothing written.  The answers are read as the
-    tick will read them (config.audit) before anything is written: one it refuses is said in
-    one line, and the file stays as it was.
-    """
-    terminal.frame("config · weekly audit", [
-        "  " + part for text in (audit_value(cfg), "Executors and reviewers are space-separated; "
-                                 "none as the executors: the orchestrator builds alone.")
-        for part in terminal.wrap(text, terminal.layout_width() - 2)])
-    answers = {}
-    for key, prompt in (("on", "On (on/off): "), ("orchestrator", "Orchestrator: "),
-                        ("workers", "Executors: "), ("reviewers", "Reviewers: ")):
-        answer = read(prompt, "")
-        if _cancelled(answer):
-            return
-        answers[key] = answer
-    # an [audit] that is not a table has nothing to keep: the answers replace it
-    table = dict(cfg["audit"]) if isinstance(cfg.get("audit"), dict) else {}
-    if answers["on"]:
-        if answers["on"] not in ("on", "off"):
-            pause(f"weekly audit: on or off, not {answers['on']!r}")
-            return
-        table["on"] = answers["on"] == "on"
-    if answers["orchestrator"]:
-        table["orchestrator"] = answers["orchestrator"]
-    # `none` empties the executors only as the whole answer: anywhere else it is a name, which
-    # config.audit takes when a model has it and refuses when none does
-    for role in ("workers", "reviewers"):
-        if answers[role]:
-            table[role] = [] if (role, answers[role]) == ("workers", "none") else answers[role].split()
+
+def audit_shown(cfg):
+    """`Weekly audit`'s setting as its rows say it, and why the tick reads none, or "": what the
+    tick reads (config.audit), else what it will once a change leaves out each key it cannot
+    read (audit_table)."""
+    try:
+        return config.audit(cfg), ""
+    except config.Error as exc:
+        return config.audit({**cfg, "audit": audit_table(cfg)}), str(exc)
+
+
+def audit_write(cfg, key, value):
+    """`[audit]`'s `key` set to `value` beside the keys a change keeps (audit_table) and saved,
+    `cfg` with it, once the tick reads it (config.audit); else nothing is written, and why is
+    what it returns, else ""."""
+    table = {**audit_table(cfg), key: value}
     try:
         config.audit({**cfg, "audit": table})
         config.save({**cfg, "audit": table})
     except (config.Error, OSError) as exc:
-        pause(f"weekly audit: {exc}")
+        return f"weekly audit: {exc}"
+    cfg["audit"] = table
+    return ""
+
+
+def config_audit(cfg):
+    """`Weekly audit`: whether it runs and the models its seat takes, a row each (config_page),
+    each change written to `[audit]` in config.toml at once (audit_write).  Enter on `On`
+    turns it the other way; on `Orchestrator` it opens every model under it, `●` the one it
+    is, and Enter on one takes it; on `Builds` and `Reviews` every model `■` in that role or
+    `□` not, Enter taking one in or out until Esc."""
+    on, off, full, empty = ("●", "○", "■", "□") if terminal.utf8() else ("*", ".", "#", "-")
+
+    def models(key):          # the list a role's row opens
+        one = key == "orchestrator"
+
+        def choices():
+            held = audit_shown(cfg)[0][key]
+            held = [held] if one else held
+            return [([(on if one else full, "accent") if name in held
+                      else (off if one else empty, "dim"), (name, None)],
+                     lambda name=name: audit_write(cfg, key, name if one else [
+                         other for other in held if other != name] if name in held
+                         else [*held, name]),
+                     name in held)
+                    for name in config.offered(cfg)]
+        return choices, not one
+
+    def page():
+        setting, why = audit_shown(cfg)
+        return [("On", [(on, "accent"), ("on", None)] if setting["on"]
+                 else [(off, "dim"), ("off", None)],
+                 lambda draw: audit_write(cfg, "on", not setting["on"])),
+                ("Orchestrator", setting["orchestrator"], models("orchestrator")),
+                ("Builds", ", ".join(setting["workers"]) or "nobody", models("workers")),
+                ("Reviews", ", ".join(setting["reviewers"]), models("reviewers"))], \
+            "\n".join(filter(None, (why, AUDIT_NOTE)))
+    config_page("weekly audit", page)
 
 
 def show_config(dry_run=False, keyboard=None, session=None):

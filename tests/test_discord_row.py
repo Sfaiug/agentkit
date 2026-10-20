@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 import tempfile
 import threading
@@ -23,6 +24,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, notify, terminal, update
+from agentkit.terminal import Key
 
 USER = "123456789012345678"
 
@@ -82,12 +84,19 @@ class DiscordRow(unittest.TestCase):
         return next(re.fullmatch(r"  Discord +(.*)", line).group(1) for line in lines
                     if line.startswith("  Discord "))
 
-    def page(self, *answers):
-        """The Discord page against typed `answers`; the line it shows over its questions."""
+    def page(self, *typed):
+        """The Discord page with each of `typed` typed under its row in turn, a row down from
+        the one before, then Esc; its rows as it drew them last, the highlight's mark aside."""
+        keys = [key for number, text in enumerate(typed) for key in (
+            *[Key("down")] * bool(number), Key("enter"), *(Key("char", c) for c in text),
+            Key("enter"))]
         out = io.StringIO()
-        with patch.object(menu, "read", side_effect=list(answers)), redirect_stdout(out):
+        with patch.object(terminal, "read_key", side_effect=[*keys, Key("esc")]), \
+                redirect_stdout(out):
             menu.config_discord()
-        return [line.strip() for line in out.getvalue().splitlines() if "webhook" in line]
+        last = terminal.ANSI.sub("", out.getvalue()).split("agentkit · config · discord")[-1]
+        return [" ".join(line[1:].split()) for line in last.splitlines()
+                if line[2:].startswith(("Mention", "Webhook"))]
 
     def deliver(self):
         receipt = {}
@@ -101,17 +110,25 @@ class DiscordRow(unittest.TestCase):
         self.assertEqual(self.requests[0][0], "/api/webhooks/42/tokena1B2c3?wait=true")
         self.assertEqual(self.requests[0][1]["content"], f"🙋 Needs you · seat <@{USER}>")
         self.assertEqual(self.row(), "@acme-owner · webhook …a1B2c3")
-        self.assertEqual(self.page("\x1b"), ["@acme-owner · webhook …a1B2c3"])
+        self.assertEqual(self.page(), ["Mention @acme-owner", "Webhook …a1B2c3"])
         state = "".join(path.read_text() for path in config.STATE.rglob("*") if path.is_file())
         self.assertIn("acme-owner", state)
         self.assertNotIn("a1B2c3", state)            # none of the URL is kept, not even its tail
 
     def test_changing_the_secrets_on_the_page_changes_the_row_at_once(self):
         self.deliver()
-        self.page("", "987654321098765432")            # another user: not the one named
+        # another user: not the one named; the page says so at once, as the row does
+        self.assertEqual(self.page("987654321098765432"),
+                         ["Mention id …5432", "Webhook …a1B2c3"])
         self.assertEqual(self.row(), "id …5432 · webhook …a1B2c3")
-        self.page(self.base + "tokenZ9y8x7", USER)    # the named user again, a new webhook
+        self.page(USER, self.base + "tokenZ9y8x7")    # the named user again, a new webhook
         self.assertEqual(self.row(), "@acme-owner · webhook …Z9y8x7")
+        for name in ("discord_webhook", "discord_user_id"):    # written as install.sh writes them
+            self.assertEqual(stat.S_IMODE((config.SECRETS / name).stat().st_mode), 0o600)
+        self.page("", "")                             # Enter with nothing typed keeps both
+        self.assertEqual(self.row(), "@acme-owner · webhook …Z9y8x7")
+        self.page("@acme-owner")                      # a name is no user id: refused
+        self.assertEqual((config.SECRETS / "discord_user_id").read_text(), USER + "\n")
         self.assertEqual(len(self.requests), 1)       # setting the secrets posts nothing
 
     def test_no_webhook_is_not_connected_and_no_user_id_names_no_one(self):

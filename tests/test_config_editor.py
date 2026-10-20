@@ -2,11 +2,10 @@
 
 A temporary HOME holds config.toml and the secrets.  The matrix is driven in-process with
 `terminal.read_key` fed its keys and a keyboard that is always taken (tests/test_config_matrix.py
-drives it on a real pty); Discord reads lines through the patched `menu.read` seam, the way
-test_one_way_back drives the screens, and the meters are an empty reading.  What is pinned is
-the round trip: a mark writes the seat `fix-api`'s record and never `[defaults]`, effort steps
-within its model's own words, add writes a whole block off its three lists, Discord writes the
-two secrets, and Version asks no harness anything.
+drives it on a real pty), and the meters are an empty reading.  What is pinned is the round
+trip: a mark writes the seat `fix-api`'s record and never `[defaults]`, effort steps within its
+model's own words, add writes a whole block off its three lists, and Version asks no harness
+anything.  Discord's page is test_discord_row's.
 """
 
 from contextlib import ExitStack, redirect_stdout
@@ -88,13 +87,6 @@ class Editor(unittest.TestCase):
     def record(self):
         return config.load_session(config.load(), "fix-api")
 
-    def steps(self, step, *answers):
-        """One step under the matrix against typed `answers`; (everything it printed, the seam)."""
-        out = io.StringIO()
-        with patch.object(menu, "read", side_effect=list(answers)) as read, redirect_stdout(out):
-            step()
-        return out.getvalue(), read
-
     def test_toggling_a_sessions_workers_writes_its_record_and_not_the_defaults(self):
         # fable in, astra out: the list keeps its order and the new one goes last
         before = self.path.read_bytes()
@@ -172,24 +164,6 @@ class Editor(unittest.TestCase):
         self.assertEqual(again["extra"], {"answer": 42, "nested": {"deep": True}})
         self.assertEqual(again["models"]["fable"]["effort"], "max")
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
-
-    def test_discord_writes_secret_files_0600(self):
-        _, screen = self.drive()
-        self.assertRegex(screen, r"\n  Discord +not connected\n")
-        self.steps(menu.config_discord, "https://hooks/x", "12345")
-        for name, want in (("discord_webhook", "https://hooks/x\n"),
-                           ("discord_user_id", "12345\n")):
-            path = config.SECRETS / name
-            self.assertEqual(path.read_text(), want)
-            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        _, screen = self.drive()
-        self.assertRegex(screen, r"\n  Discord +id …2345 · webhook …ooks/x\n")
-        # An empty answer keeps what is there.
-        before = {name: (config.SECRETS / name).read_bytes()
-                  for name in ("discord_webhook", "discord_user_id")}
-        self.steps(menu.config_discord, "", "")
-        for name, blob in before.items():
-            self.assertEqual((config.SECRETS / name).read_bytes(), blob)
 
     def test_the_version_is_read_once_per_visit_and_no_harness_is_asked(self):
         # One git call a visit, no matter how often the screen redraws underneath it, and no
