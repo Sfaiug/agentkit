@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, matrix, terminal
+from agentkit import boards, config, matrix, terminal
 
 CODING = "aa.evaluations.artificial_analysis_coding_index"
 AGENTIC = "aa.evaluations.artificial_analysis_agentic_index"
@@ -51,7 +51,7 @@ class ModelRecommends(unittest.TestCase):
         cheaper = row(None, "acme-a", "high", **coding(58), **{matrix.COST: 3000})  # 96.7
         other = row(None, "acme-b", "max", **coding(58), **{matrix.COST: 500})      # 96.7
         under = row(None, "acme-c", "max", **coding(56), **{matrix.COST: 100})      # 93.3
-        task = row(None, "acme-d", "max", **coding(59), **{matrix.TASK_COST: 0.5})  # LiveBench priced
+        task = row(None, "acme-d", "max", **coding(59), **{boards.TASK_COST: 0.5})  # LiveBench priced
         free = row(None, "acme-e", "max", **coding(59.5))                           # unpriced
         table = (best, cheaper, other, under, task, free)
         # within 5 of the best: the cheapest first, a model once at its cheapest such effort, a
@@ -70,7 +70,7 @@ class ModelRecommends(unittest.TestCase):
                                row(None, "acme-b", None, **coding(99.99)))[0], "acme-b")
         # a board naming no effort leaves every effort of the model alike: each role keeps the
         # effort the config runs it at
-        alike = {"livebench.coding": 80, "livebench.long_horizon": 70, "livebench.reasoning": 60,
+        alike = {"livebench.coding": 80, "livebench.long_agentic": 70, "livebench.reasoning": 60,
                  **coding(50)}
         runs = [row("pro", "acme-pro", effort, [role], **alike) for role, effort in
                 (("orchestrate", "high"), ("execute", "low"), ("review", "medium"))]
@@ -88,7 +88,7 @@ class ModelRecommends(unittest.TestCase):
     def test_the_table_and_json_say_the_recommendation(self):
         table = matrix.scored([
             row("pro", "acme-pro", "high", **{CODING: 45, "livebench.coding": 90,
-                                              "arena.agent": 0.1, "arena.agent_steerability": 0.2}),
+                                              "arena.agent_task_outcome_explicit": 0.1, "arena.agent_steerability": 0.2}),
             row(None, "acme-mini", None, **{CODING: 60, "livebench.coding": 90,
                                             "livebench.reasoning": 40, matrix.INTEL: 50})])
         with patch.object(terminal, "width", return_value=100):

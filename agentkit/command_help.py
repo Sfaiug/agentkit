@@ -15,7 +15,7 @@ COMMANDS = {
     "models": ("usage: ak models [--json] [--refresh]",
                "Score every model and effort per role from the public boards and recommend one per\n"
                "role: Artificial Analysis (key in ~/.agentkit/secrets/artificialanalysis_key, free),\n"
-               "Arena Agent and LiveBench, each asked once a day; --refresh asks now, --json prints\n"
+               "Arena and LiveBench, each asked once a day; --refresh asks now, --json prints\n"
                "the scored rows, the recommendation and when each board was asked and answered, or\n"
                "its error.",
                "ak models"),

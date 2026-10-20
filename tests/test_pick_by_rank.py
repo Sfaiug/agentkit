@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, matrix, staffing, usage, watch
+from agentkit import boards, config, matrix, staffing, usage, watch
 import test_model_matrix as boards_test
 import test_model_rows as rows_test
 
@@ -61,7 +61,7 @@ class PickByRank(Sandbox):
         self.cfg["models"]["astra"]["effort"] = "max"          # the effort the boards scored
 
     def test_the_matrix_is_stored_once_and_computed_again_only_on_news(self):
-        boards, table = matrix.refresh(self.cfg, now=10000)
+        _, table = matrix.refresh(self.cfg, now=10000)
         held = json.loads(matrix.cache_path().read_text())["matrix"]
         self.assertEqual(held["computed_at"], 10000)
         self.assertEqual(matrix.row_label(matrix.recommended(held["rows"])["execute"][0]),
@@ -74,15 +74,15 @@ class PickByRank(Sandbox):
         matrix.cache_path().write_text(json.dumps(stale))
         self.assertEqual(matrix.rank(self.cfg, "execute")["astra"][0], 1)
         with patch.object(matrix, "rows", side_effect=AssertionError("computed again")):
-            again = matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR - 1)
+            again = matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR - 1)
         self.assertEqual([(matrix.row_label(row), row["scores"]) for row in again[1]],
                          [(matrix.row_label(row), row["scores"]) for row in table])
         # a board answering anew, or a model added, computes it again
-        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR)
-        self.assertEqual(matrix.stored()["computed_at"], 10000 + matrix.FRESH_FOR)
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR)
+        self.assertEqual(matrix.stored()["computed_at"], 10000 + boards.FRESH_FOR)
         self.cfg["models"]["astra"]["effort"] = "xhigh"
-        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 1)
-        self.assertEqual(matrix.stored()["computed_at"], 10000 + matrix.FRESH_FOR + 1)
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 1)
+        self.assertEqual(matrix.stored()["computed_at"], 10000 + boards.FRESH_FOR + 1)
         # and so does a harness back from a moment missing in an upgrade swap, even one back
         # while the catalogs were read
         present, catalog = config.harness_present.side_effect, config.catalog.side_effect
@@ -92,10 +92,10 @@ class PickByRank(Sandbox):
             config.harness_present.side_effect = present
             return catalog(harness)
         config.catalog.side_effect = back
-        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 2)
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 2)
         config.catalog.side_effect = catalog
         self.assertIsNone(matrix.rank(self.cfg, "execute")["opus"])
-        matrix.refresh(self.cfg, now=10000 + matrix.FRESH_FOR + 3)
+        matrix.refresh(self.cfg, now=10000 + boards.FRESH_FOR + 3)
         self.assertIsNotNone(matrix.rank(self.cfg, "execute")["opus"])
         # the tick's pass is the same refresh, never on a dry run
         passes = {what: (step, dry) for what, step, dry in watch.local_passes({}, False, print)}

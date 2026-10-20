@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, matrix, record, terminal
+from agentkit import boards, config, history, matrix, record, terminal
 import test_model_rows as rows_test
 
 
@@ -88,7 +88,7 @@ class LiveColumn(Sandbox):
         self.assertEqual(own["gemini"], {"orchestrate": None, "execute": None, "review": None})
 
     def test_the_table_shows_them_under_the_scores_and_json_carries_them(self):
-        held = matrix.collect(now=10000)
+        held = boards.collect(now=10000)
         table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()))
         with patch.object(matrix.time, "time", return_value=10000):
             lines = [terminal.plain(line) for line in

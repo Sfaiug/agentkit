@@ -11,10 +11,10 @@ sys.path.insert(0, str(REPO))
 from agentkit import matrix
 
 MEASURES = {
-    "orchestrate": ("arena.agent", "arena.agent_steerability",
-                    "aa.evaluations.artificial_analysis_agentic_index", "livebench.long_horizon"),
+    "orchestrate": ("arena.agent_task_outcome_explicit", "arena.agent_steerability",
+                    "aa.evaluations.artificial_analysis_agentic_index", "livebench.long_agentic"),
     "execute": ("aa.evaluations.artificial_analysis_coding_index",
-                "aa.evaluations.artificial_analysis_agentic_index", "livebench.coding", "livebench.long_horizon"),
+                "aa.evaluations.artificial_analysis_agentic_index", "livebench.coding", "livebench.long_agentic"),
     "review": ("aa.evaluations.artificial_analysis_intelligence_index",
                "aa.evaluations.artificial_analysis_coding_index", "livebench.reasoning"),
 }
