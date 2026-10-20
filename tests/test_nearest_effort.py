@@ -1,7 +1,7 @@
 """A row of the matrix takes each board's row at its effort, else the nearest above, each of its
 measures adding what Artificial Analysis's intelligence index loses between the two efforts
 (nothing from that board where the index is missing at either), else the nearest below as it
-is, never credited upward.  A board row naming no effort stands at the model's highest effort
+is, never credited upward, each measure on its own.  A board row naming no effort stands at the model's highest effort
 with an index, or at every effort where it has none; a board name ending in an effort word is
 the model at that effort, found every way a model is; a board's rows standing at one effort say
 it together; a price is read only off a board's row at the row's own effort.  Boards made by
@@ -62,13 +62,15 @@ class NearestEffort(Sandbox):
                                           LIVEBENCH: {"model": "acme-5", "effort": None}})
         # xhigh: Arena's own row; the others above it, where the index has no xhigh, say nothing
         self.assertEqual(table["acme-5 @ xhigh"]["values"], {"arena.agent_bash_reliability": 0.2})
-        # high: its own Artificial Analysis row, LiveBench's max row 60 less 56 of the index
-        # further behind and never its price, and Arena's xhigh above it nothing, the index
-        # missing there
+        # high: its own Artificial Analysis row, and the score only its max row has, with
+        # LiveBench's max row 60 less 56 of the index further behind and never its price, and
+        # Arena's xhigh above it nothing, the index missing there
         high = table["acme-5 @ high"]
-        self.assertEqual(high["values"], {INTEL: 56, COST: 2.0, "livebench.coding": 90})
-        self.assertEqual(high["drops"], {"livebench.coding": 4})
-        self.assertEqual(table["acme-5 @ low"]["drops"], {"livebench.coding": 10})
+        self.assertEqual(high["values"], {INTEL: 56, COST: 2.0, "aa.score": 0.6,
+                                          "livebench.coding": 90})
+        self.assertEqual(high["drops"], {"aa.score": 4, "livebench.coding": 4})
+        self.assertEqual(high["matched"][AA], {"model": "Acme 5", "effort": "high"})
+        self.assertEqual(table["acme-5 @ low"]["drops"], {"aa.score": 10, "livebench.coding": 10})
         # a model Artificial Analysis has no index for: its one row stands at every effort
         self.assertEqual(table["acme-9"]["values"], {"livebench.coding": 70, boards.TASK_COST: 1.5})
 

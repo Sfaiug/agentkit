@@ -207,9 +207,10 @@ def placed(rows, effort, top, intel):
 
 def rows(cfg, boards, harnesses):
     """One row per model and effort `harnesses` (`present`) offer, with the config name that
-    runs it and the roles it runs it in, the numbers each board says of it there (`placed`; a
-    price only off a board's row at the effort itself), the points a measure read off a higher
-    effort adds (`drops`) and which board model and effort each came from."""
+    runs it and the roles it runs it in, the numbers each board says of it there, each measure
+    placed on its own (`placed`; a price only off a board's row at the effort itself), the
+    points a measure read off a higher effort adds (`drops`) and which board model and effort
+    each board's first measure came from."""
     indexes = {board: indexed(held.get("rows") or []) for board, held in boards.items()}
     names = {}        # (harness, model, effort) -> the config name some role runs it at
     roles = {}        # (harness, model, effort) -> the roles the config runs it in
@@ -245,16 +246,19 @@ def rows(cfg, boards, harnesses):
                                  if role in roles.get((harness, model, effort), ())],
                        "values": {}, "drops": {}, "matched": {}}
                 for board, rows_of in found_rows.items():
-                    hit = placed(rows_of, effort, top, intel)
-                    if hit is None:
-                        continue
-                    source, drop = hit
-                    for column, value in source["values"].items():
-                        if drop is None or column not in PRICES:
-                            row["values"][column] = value
-                            if drop:
-                                row["drops"][column] = drop
-                    row["matched"][board] = {"model": source["model"], "effort": source["effort"]}
+                    # each measure on its own: a board may test a model on a measure at one
+                    # effort alone
+                    for column in dict.fromkeys(c for source in rows_of for c in source["values"]):
+                        hit = placed([source for source in rows_of if column in source["values"]],
+                                     effort, top, intel)
+                        if hit is None or hit[1] is not None and column in PRICES:
+                            continue
+                        source, drop = hit
+                        row["values"][column] = source["values"][column]
+                        if drop:
+                            row["drops"][column] = drop
+                        row["matched"].setdefault(board, {"model": source["model"],
+                                                          "effort": source["effort"]})
                 table.append(row)
     return table
 
