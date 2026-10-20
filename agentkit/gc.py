@@ -367,7 +367,7 @@ def stale_home_entries(now):
     An entry with something newer inside is looked into, so a project's old task files go
     while its new ones stay.  What a process holds, and a task file a job still names, stay.
     """
-    paths = retention.process_paths()
+    paths = tmp_processes()[0]
     if paths is None:
         return
     paths |= job_task_files()
@@ -382,8 +382,7 @@ def home_entries(folder, age, now, paths):
         return
     for name in names:
         path = folder / name
-        # the partition keeps the journal sqlite writes beside history.db
-        if folder == config.HOME and name.partition("-")[0] in config.OWN:
+        if folder == config.HOME and name in config.OWN:
             continue
         why = untouched(path, now, paths, age)
         if why:
@@ -969,7 +968,7 @@ def gc(report, automatic=False):
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
                     elif item["kind"] == "home-entry":
-                        paths = retention.process_paths()
+                        paths = tmp_processes()[0]
                         if paths is None or not untouched(path, time.time(),
                                                           paths | job_task_files(), item["age"]):
                             continue

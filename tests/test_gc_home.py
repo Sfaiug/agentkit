@@ -49,6 +49,10 @@ class GcHome(Sandbox):
         """A process of this user with `path` open."""
         proc = self.proc / str(1000 + len(list(self.proc.iterdir())))
         (proc / "fd").mkdir(parents=True)
+        fields = ["S", "1", *(["0"] * 18)]
+        fields[19] = "12345"
+        (proc / "stat").write_text(f"{proc.name} (fixture) " + " ".join(fields))
+        (proc / "status").write_text("Uid:\t" + "\t".join([str(os.getuid())] * 4) + "\n")
         (proc / "cmdline").write_bytes(b"fixture")
         (proc / "cwd").symlink_to(self.root)
         (proc / "fd" / "3").symlink_to(path)
@@ -58,7 +62,7 @@ class GcHome(Sandbox):
 
     def test_a_stray_at_the_top_goes_a_week_after_its_last_change(self):
         notes = self.made(config.HOME / "handover" / "seat.md")
-        backup = self.made(config.HOME / "rules.md.bak-20260929")
+        backup = self.made(config.HOME / "rules.md-20260929")
         own = [self.made(config.HOME / name / "x") if name in ("bin", "tasks") else
                self.made(config.HOME / name) for name in ("bin", "rules.md", "history.db",
                                                          "history.db-journal", "tasks")]
@@ -115,6 +119,14 @@ class GcHome(Sandbox):
         gc.gc(lambda _: None)
         self.assertTrue(held.exists())
         self.assertFalse(idle.exists())
+
+    def test_a_process_whose_handles_cannot_be_read_keeps_everything(self):
+        notes = self.made(config.HOME / "handover.md")
+        (self.proc / "1234").mkdir()
+        self.now += 8 * DAY
+        self.assertEqual(self.planned(), set())
+        gc.gc(lambda _: None)
+        self.assertTrue(notes.exists())
 
     def test_every_name_ak_keeps_at_the_top_of_its_home_is_its_own(self):
         # A new folder of ak's own the collector does not know would go a week after it is

@@ -62,8 +62,8 @@ CONFIG_NAME = "config.toml"                # the one config file, under HOME: ne
 DEFAULT_CONFIG_NAME = "config.default.toml"   # ... whose shipped default install.sh copies there
 # Everything ak keeps at the top of HOME.  Anything else there is a session's own, and the
 # collector removes it a week after its last change.
-OWN = ("bin", CONFIG_NAME, "env", "history.db", "history.log", "jobs", "macbridge", "rules.md",
-       "runs", "secrets", "state", "tasks", "tmp", "work", "wt")
+OWN = ("bin", CONFIG_NAME, "env", "history.db", "history.db-journal", "history.log", "jobs",
+       "macbridge", "rules.md", "runs", "secrets", "state", "tasks", "tmp", "work", "wt")
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
                                # harness whose adapter manifest names none of its own
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
