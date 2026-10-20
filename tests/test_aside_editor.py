@@ -119,7 +119,8 @@ class AsideEditor(unittest.TestCase):
                                         ("more", A + DRAFT, f"{A}{DRAFT}\nmore"),
                                         (f"{LINE} \t", None, f"{A}{LINE} \t"),
                                         # given back, and tmux refusing to mark it so
-                                        (f"{DRAFT}\n", A + DRAFT, A + DRAFT),
+                                        (DRAFT, A + DRAFT, A + DRAFT),
+                                        (f"{DRAFT}\n", A + DRAFT, f"{A}{DRAFT}\n"),
                                         # given back, then sent or emptied, or still there
                                         ("", G + DRAFT, None),
                                         (DRAFT, G + DRAFT, A + DRAFT)):

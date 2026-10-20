@@ -154,10 +154,11 @@ def edit(argv):
         if mode == b"line":
             word = b"line"
             if not ours:            # a composer holding the line got it from an edit before
-                # one holding just the text set aside got it from a `back` tmux refused to mark
-                keep = (ASIDE.encode() + (held + b"\n" + text if state == ASIDE else text)
-                        if text and not (state == ASIDE and _holds(text, held))
-                        else stored if state == ASIDE else b"")
+                # one holding just the text set aside got it from a `back` tmux refused to mark:
+                # the text kept once, as the composer holds it
+                keep = (ASIDE.encode() + (held + b"\n" + text
+                                          if state == ASIDE and not _holds(text, held) else text)
+                        if text else stored if state == ASIDE else b"")
                 # a failed step is undone too, as tmux's server can do one its client then
                 # times out on
                 if not ((keep == stored or _keep(name, keep)) and _publish(path, line)):
