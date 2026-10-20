@@ -2,7 +2,9 @@
 screen, `p`, offered on the key line while there is one, where Enter reopens it where it stopped
 and `x` removes it at once, the rest staying up; from a pipe a number reopens, `x` asks which to
 remove by the numbers on the screen, and `x` on the main screen never offers a stopped seat and
-asks by the main screen's numbers.
+asks by the main screen's numbers.  The highlighted row opens what its session did -- its
+plan's first done line, then its tasks, how long it took and the models it ran -- and from a
+pipe every row does.
 
 The keyboard tests run `menu.loop` in a child on a pty of its own, the way
 tests/test_close_and_info.py does (its `Menu`), with the listing, each seat's word, the opening
@@ -23,7 +25,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_close_and_info import ENTER, Menu
 from fixtures.sandbox import Sandbox
-from agentkit import menu, orch, terminal
+from agentkit import config, history, menu, notify, orch, terminal
 
 CFG = {"fixture": True}            # handed through to the opening, and read by nothing here
 NOW = time.time()
@@ -106,6 +108,9 @@ class Lines(unittest.TestCase):
                                               lambda repo, **_kw: repo and Path(repo)))
         self.stack.enter_context(patch.object(menu, "selection_of", lambda cfg, name: {
             "orchestrator": "opus"} if name == "omega" else None))
+        self.stack.enter_context(patch.object(menu, "past_said", lambda cfg, session: {
+            "omega": ("Ship the docs site", "2 tasks · took 3 hours · opus")}.get(
+                session["name"], ("", "took under an hour"))))
 
     def test_a_number_reopens_a_stopped_seat_and_x_asks_which_to_remove(self):
         # `x` asks by the numbers on the screen: 3 is zeta here, as it is on the main screen
@@ -115,9 +120,12 @@ class Lines(unittest.TestCase):
         self.opened.assert_called_once_with(CFG, OMEGA, False)
         screens = self.out.getvalue().split("past sessions")[1:]
         self.assertEqual(len(screens), 2)
-        # under their projects' headings, as on the main screen, with their orchestrators
-        self.assertRegex(screens[0], r"\natoll\n  2  omega  opus  stopped 2h ago\n\n"
-                                     r"no project\n  3  zeta   -     stopped 5m ago  starts fresh\n")
+        # under their projects' headings, as on the main screen, with their orchestrators, each
+        # opening what its session did under its name: there is no highlight to open one
+        self.assertRegex(screens[0], r"\natoll\n  2  omega  opus  stopped 2h ago\n"
+                                     r"     Ship the docs site\n     2 tasks · took 3 hours · opus\n\n"
+                                     r"no project\n  3  zeta   -     stopped 5m ago  starts fresh\n"
+                                     r"     took under an hour\n")
         self.assertNotIn("alpha", screens[0])
         self.assertIn("x remove   esc back", screens[0])
         self.assertIn("2 omega · 3 zeta", screens[0])
@@ -155,7 +163,8 @@ class Lines(unittest.TestCase):
                              side_effect=[terminal.Key("down")] * 19 + [terminal.Key("esc")]):
             menu.show_past(CFG, seats, keyboard=None)
         self.assertEqual([lines[0] for lines in drawn], ["atoll"] * 20)
-        self.assertRegex(drawn[-1][-1], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
+        self.assertRegex(drawn[-1][-2], r"^›\s+20\s+fix-api-19\s+-\s+stopped 2h ago$")
+        self.assertEqual(drawn[-1][-1], "took under an hour")
 
     def test_a_page_holding_two_projects_has_a_blank_line_between_them(self):
         seats = [dict(OMEGA if n < 8 else ZETA, name=f"fix-api-{n}") for n in range(20)]
@@ -170,11 +179,72 @@ class Lines(unittest.TestCase):
         self.assertEqual((drawn[0][0], drawn[0][at - 1]), ("atoll", ""))
         self.assertRegex(drawn[0][at - 2], r"fix-api-7\s")
 
+    def test_the_highlighted_row_alone_opens_what_its_session_did(self):
+        drawn = []
+        with patch.object(terminal, "taken", return_value=True), \
+                patch.object(terminal, "frame", lambda title, body, *_a, **_kw:
+                             drawn.append([terminal.plain(line) for line in body]) or {}), \
+                patch.object(terminal, "read_key", side_effect=[
+                    terminal.Key("down"), terminal.Key("esc")]):
+            menu.show_past(CFG, [ALPHA, OMEGA, ZETA], keyboard=None)
+        self.assertEqual(drawn[0][1:4], ["› 2 omega opus stopped 2h ago", "Ship the docs site",
+                                         "2 tasks · took 3 hours · opus"])
+        self.assertNotIn("took under an hour", drawn[0])
+        # ↓ takes the highlight and the lines with it
+        self.assertEqual(drawn[1][1:3], ["2 omega opus stopped 2h ago", ""])
+        self.assertEqual(drawn[1][-2:], ["› 3 zeta - stopped 5m ago starts fresh",
+                                         "took under an hour"])
+        self.assertNotIn("Ship the docs site", drawn[1])
+
     def test_a_dry_run_draws_the_screen_once(self):
         with patch.object(menu, "read", side_effect=AssertionError("read")):
             menu.show_past(CFG, [ALPHA, OMEGA], dry_run=True)
         self.assertEqual(self.out.getvalue().count("past sessions"), 1)
         self.assertIn("2  omega", self.out.getvalue())
+
+
+class Said(Sandbox):
+    """What a past row opens, read from the seat's own record, plan and history."""
+
+    def setUp(self):
+        super().setUp()
+        config.save_session(self.cfg, "acme-docs", "opus", ["opus"],
+                            {"reviewers": ["astra"], "cwd": "/", "created": 1000})
+        # the name it was born with leads to it, as a rename leaves it
+        config.session_path("acme-old").write_text('{"renamed": "acme-docs"}')
+        config.plan_path("acme-docs").write_text("".join(
+            f"- [{mark}] {what} · check: `true` · acme · written 2026-10-01 10:00 on "
+            f"0123456789ab{done}\n" for mark, what, done in (
+                ("x", "Ship the docs site", " · done 0123456789ab Ship it (#1)"),
+                ("x", "Fix docs/index.md:3 - a typo", " · done 0123456789ab Fix (#2)"),
+                (" ", "The docs search finds headings", ""))))
+        for run, session, models, at in (("1", "acme-old", ("opus", "astra", None), 2000),
+                                          ("2", "acme-docs", ("opus", "spark", "astra"), 3000),
+                                          ("3", "acme-docs", ("grok", "grok", "grok"), 50000)):
+            history._write(lambda connection, row=(run, session, *models, at): connection.execute(
+                "INSERT INTO runs (run_id, session, orchestrator, executor, reviewer, started_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)", row))
+        self.stack.enter_context(patch.object(notify, "conversation_of", return_value=(
+            type("Plugin", (), {"name": "claude"}), {}, "/", "acme-thread")))
+        self.session = {"name": "acme-docs", "created": 1000, "closed": 40000}
+
+    def test_it_opens_with_its_first_done_line_its_tasks_how_long_and_its_models(self):
+        # its last done is the end: the hours it then sat stopped are not its work
+        history.done("claude:acme-thread", 1000 + 5 * 3600, None)
+        self.assertEqual(menu.past_said(self.cfg, self.session), (
+            "Ship the docs site", "2 of 3 tasks · took 5 hours · opus, astra, spark"))
+
+    def test_with_no_done_it_took_until_it_was_stopped(self):
+        self.assertEqual(menu.past_said(self.cfg, self.session)[1],
+                         "2 of 3 tasks · took 11 hours · opus, astra, spark")
+
+    def test_how_long_is_hours_then_days_and_hours_and_never_minutes(self):
+        for seconds, said in ((0, "under an hour"), (29 * 60, "under an hour"),
+                              (40 * 60, "1 hour"), (5 * 3600, "5 hours"),
+                              (27 * 3600, "1 day and 3 hours"), (48 * 3600, "2 days"),
+                              (49 * 3600 + 20 * 60, "2 days and 1 hour")):
+            with self.subTest(seconds=seconds):
+                self.assertEqual(menu.took(seconds), said)
 
 
 class Layout(Sandbox):

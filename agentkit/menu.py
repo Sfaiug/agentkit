@@ -132,7 +132,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from . import command_help, config, gitcall, history, matrix, motion, notify, orch, staffing, terminal, transitions, update, usage, worker
+from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage, worker
 from . import record
 
 KEYS = "n new   x stop   c config   esc leave"
@@ -4623,14 +4623,44 @@ def past_offered(found):
     return any(session.get("closed") for session in found)
 
 
-def past_body(past, at=None, models=None, room=None):
+def took(seconds):
+    """How long a past session took, in hours and days and never minutes, as the owner asked:
+    `under an hour`, `5 hours`, `1 day and 3 hours`."""
+    hours = round(max(0, seconds) / 3600)
+    if not hours:
+        return "under an hour"
+    return " and ".join(f"{n} {unit}{'s' * (n != 1)}"
+                        for n, unit in zip(divmod(hours, 24), ("day", "hour")) if n)
+
+
+def past_said(cfg, session):
+    """(sentence, stats) a past session's row opens with: the words of its plan's first done
+    line, what it set out to do and did, and its tasks, how long it took -- from its start to
+    its last done, else to its stop -- and the models it ran, its orchestrator first (the
+    owner's three of 20 Oct 2026)."""
+    name, start, stop = session["name"], session.get("created"), session["closed"]
+    seat = notify.conversation_of(name)
+    work = history.seat_work(plan.names(name), seat and seat[3] and f"{seat[0].name}:{seat[3]}",
+                             start or 0, stop) or ([], None)
+    done, total = seat_progress(name)
+    tasks = (f"{done} of {total} tasks" if done < total else
+             f"{total} task{'s' * (total != 1)}") if total else ""
+    models = dict.fromkeys(model for model in ((selection_of(cfg, name) or {}).get(
+        "orchestrator"), *work[0]) if model)
+    return plan.first_done(name) or "", " · ".join(part for part in (
+        tasks, start and "took " + took((work[1] or stop) - start), ", ".join(models)) if part)
+
+
+def past_body(past, at=None, models=None, room=None, said=None):
     """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
     heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
     how long ago it was stopped in the state's column and, where its harness starts it fresh
     and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
     blank line between projects, where `room` lines hold them or no `room` is given; else the
     page of `room` lines `at` is on, each row under its project's heading (`project_pages`).
-    `at` is the highlighted seat's name, lit while the pointer is on the rows (`terminal.away`)."""
+    `at` is the highlighted seat's name, lit while the pointer is on the rows (`terminal.away`).
+    `said` is what each row named in it opens under itself (`past_said`), as the main screen's
+    do: its sentence wrapped whole, then its stats, dim."""
     infos = [{"number": str(number), "name": session["name"],
               "orchestrator": (models or {}).get(session["name"]) or "-",
               "count": f"stopped {orch.age(session['closed'])} ago",
@@ -4638,9 +4668,13 @@ def past_body(past, at=None, models=None, room=None):
              for number, session in past]
     width = terminal.width()
     widths = v5o_column_widths(infos, width)
+    room_under = max(1, widths["room"] - (2 + widths["num"] + 2))
+    opened = {name: terminal.wrap(sentence, room_under) + [
+        terminal.styled(line, "dim") for line in terminal.wrap(stats, room_under)]
+        for name, (sentence, stats) in (said or {}).items()}
 
     def drawn(info):
-        block = v5o_seat_blocks([info], width, widths)[0]
+        block = v5o_seat_blocks([info], width, widths, details=opened)[0]
         if info["restart"] and terminal.cells(info["restart"]) <= widths["free"]:
             block[0] += "  " + terminal.styled(info["restart"], "dim")
         lit = at == info["name"] and not terminal.away()
@@ -4661,14 +4695,16 @@ def past_body(past, at=None, models=None, room=None):
 def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
     (`past_body`), for the one you want back, the page the highlight is on where they fill more
-    than one.  ↑/↓, k/j and the wheel move the highlight; Enter or a
+    than one.  ↑/↓, k/j and the wheel move the highlight, and the row it is on opens what that
+    session did under itself (`past_said`) while the pointer is on the rows; Enter or a
     click reopens one where it stopped (`open_session`, what its number does on the main screen)
     and the menu is back; `x`, or a click on `x remove`, removes the highlighted one at once
     (`close_seat`, the second stop), the rest staying up, and only brings the highlight back
     while the pointer has it out (`terminal.unseen`); Esc goes back.  From a pipe a number reopens, `x` asks which to
-    remove by the numbers on the screen, and an empty line goes back.  A dry run draws it once.
+    remove by the numbers on the screen, and an empty line goes back; there every row opens what
+    its session did.  A dry run draws it once.
     """
-    here, clock = None, motion.Clock(page=True)
+    here, clock, said = None, motion.Clock(page=True), {}
     while True:
         past = [(number, session) for number, session in enumerate(found, 1)
                 if session.get("closed")]
@@ -4679,7 +4715,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         models = {name: (selection_of(cfg, name) or {}).get("orchestrator") for name in names}
         if not terminal.taken():
             keys = "x remove   esc back"
-            terminal.frame("past sessions", past_body(past, models=models)[0], keys)
+            terminal.frame("past sessions", past_body(past, models=models, said={
+                session["name"]: past_said(cfg, session) for _, session in past})[0], keys)
             if dry_run:
                 return
             line = read("> ", "")
@@ -4701,7 +4738,11 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             continue
         keys = PAST_KEYS[0 if terminal.utf8() else 1]
         room = matrix_page([], {}, None, 0, [], keys)[1]      # the lines a page holds
-        body, places = past_body(past, here, models, room)
+        if here not in said:      # read once a row, as the pointer comes and goes on it
+            said[here] = past_said(cfg, next(session for _, session in past
+                                             if session["name"] == here))
+        body, places = past_body(past, here, models, room,
+                                 {} if terminal.away() else {here: said[here]})
         act, row, _column, _top = matrix_key("past sessions", body, places,
                                              [("row", name) for name in names], ("row", here),
                                              0, "", keys, clock=clock)

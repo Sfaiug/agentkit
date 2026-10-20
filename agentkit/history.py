@@ -474,6 +474,28 @@ def owner(since, until):
         return None
 
 
+def seat_work(names, conversation, since, until):
+    """`(models, last)` for a seat between `since` and `until`: the models its runs named, by any
+    of its `names` -- orchestrator, builder and reviewer, in the order they first came -- and
+    that conversation's last done; None where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                runs = connection.execute(
+                    f"SELECT orchestrator, executor, reviewer FROM runs WHERE session IN "
+                    f"({', '.join('?' * len(names))}) AND started_at >= ? AND started_at <= ? "
+                    "ORDER BY started_at", (*names, since, until)).fetchall()
+                last = connection.execute(
+                    "SELECT MAX(at) FROM dones WHERE conversation = ? AND at >= ? AND at <= ?",
+                    (conversation, since, until)).fetchone()[0]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+    return list(dict.fromkeys(model for row in runs for model in row if model)), last
+
+
 def last_done(conversation):
     """`(last, since, work)`: that conversation's last done, None before its first, since when
     dones are kept, and that done's `work`; None where the database cannot answer."""
