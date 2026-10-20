@@ -5236,4 +5236,12 @@ def main(argv):
     # what `ak orch` does on the way into a seat, gc and the runs nobody was told about, run
     # behind the menu's first frame
     tidy = None if flags["--dry-run"] or flags["--overlay"] else orch.maintenance
-    return loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"], tidy)
+    code = loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"], tidy)
+    if flags["--overlay"]:
+        # The popup comes down when this process ends, and Python's own teardown of all the menu
+        # read took most of a second.  Nothing is cut short: a record is only ever replaced
+        # whole, and the menu's threads are daemons, which no exit waits for.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(code)
+    return code
