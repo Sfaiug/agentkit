@@ -455,6 +455,27 @@ def mcp_block(servers):
     return "\n".join([*lines, END]) + "\n"
 
 
+ROLLOUT = re.compile(r"rollout-.+-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl")
+
+
+def conversation_store():
+    """~/.codex/sessions, where Codex keeps every thread's rollout and never removes one.  An
+    account's home links its own here; a seat's thread lives apart, with the seat."""
+    return {"root": Path.home() / ".codex" / "sessions", "pattern": "rollout-*.jsonl"}
+
+
+def end_conversation(path):
+    """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once, run
+    on the home `conversation_store` scans, whatever home and database the caller selected."""
+    match = ROLLOUT.fullmatch(Path(path).name)
+    if match:
+        env = {key: value for key, value in os.environ.items() if key != "CODEX_SQLITE_HOME"}
+        env["CODEX_HOME"] = str(conversation_store()["root"].parent)
+        subprocess.run([config.harness_binary("codex") or "codex", "delete", "--force", match[1]],
+                       stdin=subprocess.DEVNULL, capture_output=True, timeout=60, env=env,
+                       check=True)
+
+
 def config_entries():
     """~/.codex/config.toml: `register_mcp` and `trust_here` write there."""
     return {"file": Path.home() / ".codex" / "config.toml", "trust": "projects",

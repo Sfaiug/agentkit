@@ -356,7 +356,8 @@ class GcTmp(Sandbox):
         with patch.object(gc, "tmp_processes", wraps=gc.tmp_processes) as inventory:
             removed = gc.gc(lambda _: None)
         self.assertEqual(set(removed), set(map(str, paths)))
-        self.assertEqual(inventory.call_count, 3)   # plan /tmp and the home, then recheck the batch
+        # plan /tmp, the home and harness conversations, then recheck the batch
+        self.assertEqual(inventory.call_count, 4)
 
     def test_protected_names_stay(self):
         kept = [self.entry(name) for name in (".X11-unix", "tmux-1000", "systemd-private-abc")]

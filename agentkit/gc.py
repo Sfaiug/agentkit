@@ -19,7 +19,7 @@ import time
 
 from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, proc_snapshot,
                record, retention, run, stop, transitions, turns, watch, worktrees)
-from .harness import load as harness_plugin
+from .harness import conversation_stores, end_conversation, load as harness_plugin
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
 GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
@@ -392,6 +392,27 @@ def home_entries(folder, age, now, paths):
             yield from home_entries(path, age, now, paths)
 
 
+def stale_conversations(now):
+    """Each conversation a harness keeps and never ends itself (`conversation_stores`) that
+    nobody wrote to for a run directory's age and nobody holds open."""
+    paths = tmp_processes()[0]
+    if paths is None:
+        return
+    for store in conversation_stores():
+        for path in sorted(Path(store["root"]).rglob(store["pattern"])):
+            why = conversation_stale(path, now, paths)
+            if why:
+                yield {"action": "remove", "kind": "conversation", "path": str(path),
+                       "harness": store["harness"], "why": why}
+
+
+def conversation_stale(path, now, paths):
+    if (not retention.safe(path) or not path.is_file() or retention.busy(path, paths)
+            or not retention.expired(path.lstat().st_mtime, now, RUN_DIR_AGE)):
+        return None
+    return f"untouched for {int((now - path.lstat().st_mtime) // 86400)} days"
+
+
 def leftovers():
     """{path: when reported} of checkouts gc could not take whole and will not try again."""
     return retention.read_json(config.STATE / "gc-leftovers.json") or {}
@@ -725,6 +746,7 @@ def gc_candidates(now=None):
     yield from stale_tmp_entries(now)
     yield from stale_repo_tmp_entries(now)
     yield from stale_home_entries(now)
+    yield from stale_conversations(now)
 
 
 def gc_plan(now=None):
@@ -915,6 +937,7 @@ def before_run(log):
 def gc(report, automatic=False):
     """Apply the planner conservatively; changed, busy or unverifiable candidates stay put."""
     removed = []
+    balked = set()     # a harness whose own way of ending a conversation failed this pass
     # Serialize automatic passes without creating a lock file (dry-run never takes this lock).
     try:
         with retention.reading(config.HOME, directory=True) as lock:
@@ -945,6 +968,16 @@ def gc(report, automatic=False):
                             continue
                         retention.remove(path)
                         done = True
+                    elif item["kind"] == "conversation":
+                        if (item["harness"] in balked
+                                or not conversation_stale(path, time.time(), tmp_processes()[0])):
+                            continue
+                        try:
+                            end_conversation(item["harness"], path)
+                        except (OSError, subprocess.SubprocessError):
+                            balked.add(item["harness"])    # one failure, not one per conversation
+                            raise
+                        done = not retention.present(path)
                     elif item["kind"] in ("orphan-worktree", "unmerged-worktree"):
                         # A resume commits under the run's recovery lock: it lands before
                         # the second look, and the tree stays, or finds the tree gone.
@@ -1093,7 +1126,7 @@ def gc(report, automatic=False):
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
                 except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError,
-                        subprocess.TimeoutExpired) as exc:
+                        subprocess.SubprocessError) as exc:
                     report(f"gc: kept {path}: {exc}")
     except (OSError, BlockingIOError):
         pass                           # another tick owns collection, or ownership is uncertain
