@@ -613,6 +613,14 @@ def cmd_status(argv):
     wanted = args[0] if args else None
     receipts = [(d, jobs.read_job(d)) for d in jobs.job_dirs()]
     receipts = [(d, job) for d, job in receipts if job and isinstance(job.get("tasks"), list)]
+    # A seat reads its own work after a compaction or a resume, not the whole host's;
+    # `ak orch project` lists everyone's, and any run still shows by its id.
+    seat = None if wanted else config.current_session()
+    if seat:
+        # a job names the seat it was launched from `seat`; it resolves as a run's does
+        owned = {d for d, _ in transitions.runs_by_seat(
+            (d, {"launched_session": job.get("seat")}) for d, job in receipts).get(seat, [])}
+        receipts = [(d, job) for d, job in receipts if d in owned]
     from . import menu
     # Whether a run was superseded asks every record, whichever run or job is shown, but
     # never the smoke suite's own, as on the menu.
@@ -658,8 +666,10 @@ def cmd_status(argv):
         # resolved: an unknown id errors without any host inspection.
         print(gate.host_status_line())
     found, hidden = [], 0
-    for directory in dirs:
-        state = run_record.read_state(directory)
+    records = [(directory, run_record.read_state(directory)) for directory in dirs]
+    if seat:
+        records = transitions.runs_by_seat((d, s) for d, s in records if s).get(seat, [])
+    for directory, state in records:
         # the smoke suite's own runs are the toolkit testing itself, as on the menu;
         # naming one by id still shows it
         if state and not wanted and menu.smoke_run(state):
