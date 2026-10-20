@@ -103,10 +103,9 @@ class AsideEditor(unittest.TestCase):
 
     def test_a_line_never_goes_over_one_of_aks_or_takes_the_owners_text_that_is_it(self):
         self.step("line", DRAFT, line="first notice")
-        # a step for another line, either, over ak's line still unsent
-        for mode in ("line", "back"):
-            self.assertEqual((self.step(mode, "first notice"), self.kept()),
-                             (("first notice", "unsent"), rec(A, DRAFT, "first notice")))
+        # another line over ak's line still unsent
+        self.assertEqual((self.step("line", "first notice"), self.kept()),
+                         (("first notice", "unsent"), rec(A, DRAFT, "first notice")))
         for kept, composer in ((None, LINE), (None, f"{LINE}\n"), (rec(A, LINE), "")):
             with self.subTest(kept=kept, composer=composer):
                 self.buffers = {} if kept is None else {NAME: kept.encode()}
@@ -115,14 +114,32 @@ class AsideEditor(unittest.TestCase):
 
     def test_text_comes_back_over_nothing_else_and_once(self):
         self.step("line", DRAFT)
+        # the line edited, or text typed once it was sent: no telling which, so none of it is
+        # set aside for another line, and the text kept comes back over none of it
         for since in ("typed since", " \n", f"{LINE} \t"):   # blanks too are the owner's
-            self.assertEqual(self.step("back", since), (since, "other"))
-        self.assertEqual(self.step("line", "typed since"), (LINE, "line"))
-        self.assertEqual(self.step("back", ""), (f"{DRAFT}\ntyped since", "sent"))
+            for mode, line in (("back", LINE), ("line", LINE), ("line", "next notice")):
+                self.assertEqual(self.step(mode, since, line=line), (since, "other"))
+        self.assertEqual(self.kept(), rec(A, DRAFT))
+        self.assertEqual(self.step("back", ""), (DRAFT, "sent"))
         # a composer sent or emptied since gets none of it again
-        self.assertEqual((self.step("back", ""), self.kept()),
-                         (("", "sent"), rec(G, f"{DRAFT}\ntyped since")))
+        self.assertEqual((self.step("back", ""), self.kept()), (("", "sent"), rec(G, DRAFT)))
         self.assertEqual(self.step("back", "", line=""), ("", "sent"))
+
+    def test_a_line_s_record_moves_past_it_only_once_it_left_and_then_says_it_did(self):
+        for composer in ("", DRAFT):    # emptied, or given back by a back tmux refused to mark
+            with self.subTest(composer=composer):
+                self.buffers = {NAME: rec(A, DRAFT, "first notice").encode()}
+                self.assertEqual((self.step("line", composer), self.kept()),
+                                 ((LINE, "line"), rec(A, DRAFT)))
+                # the first line's own back, its text kept for the next: left, nothing moved
+                self.assertEqual((self.step("back", LINE, line="first notice"), self.kept()),
+                                 ((LINE, "sent"), rec(A, DRAFT)))
+        # given back unmarked, read as given back: marked so, the composer as it is
+        self.buffers = {NAME: rec(A, DRAFT).encode()}
+        self.assertEqual((self.step("back", DRAFT), self.kept()), ((DRAFT, "sent"), rec(G, DRAFT)))
+        for line in (LINE, "never kept"):
+            self.assertEqual(self.step("back", "typed since", line=line), ("typed since", "sent"))
+        self.assertEqual(self.kept(), rec(G, DRAFT))
 
     def test_what_a_line_finds_in_the_composer_is_kept_once(self):
         ours = f"{LINE}\n"     # the line, as an edit before left it
@@ -131,11 +148,10 @@ class AsideEditor(unittest.TestCase):
                                         (" \n", None, rec(A, " \n")),    # blanks too
                                         ("", rec(A, DRAFT, "earlier"), rec(A, DRAFT)),
                                         (ours, rec(A, DRAFT), rec(A, DRAFT)),
-                                        ("more", rec(A, DRAFT), rec(A, f"{DRAFT}\nmore")),
                                         (f"{LINE} \t", None, rec(A, f"{LINE} \t")),
                                         # given back, and tmux refusing to mark it so
                                         (DRAFT, rec(A, DRAFT), rec(A, DRAFT)),
-                                        (f"{DRAFT}\n", rec(A, DRAFT), rec(A, f"{DRAFT}\n")),
+                                        (f"{DRAFT}\n", rec(A, DRAFT), rec(A, DRAFT)),
                                         # given back, then sent or emptied, or still there
                                         ("", rec(G, DRAFT), rec(A, "")),
                                         (DRAFT, rec(G, DRAFT), rec(A, DRAFT))):
@@ -148,7 +164,7 @@ class AsideEditor(unittest.TestCase):
         self.step("line", DRAFT)
         for step in ("list-buffers", "save-buffer", "load-buffer"):
             self.failing = {step: ["refused"] * 2}      # tmux timed out on the buffer
-            self.assertEqual(self.step("line", "more"), ("more", None))
+            self.assertEqual(self.step("line", ""), ("", None))
             self.assertEqual(self.kept(), rec(A, DRAFT))
         self.assertEqual(self.step("back", ""), (DRAFT, "sent"))
 
@@ -162,7 +178,7 @@ class AsideEditor(unittest.TestCase):
         self.assertEqual(self.step("line", ""), (LINE, "line"))
         self.assertEqual(self.composer.stat().st_mode & 0o777, 0o640)
 
-    def test_a_step_that_fails_keeps_the_text_given_back_twice_at_worst(self):
+    def test_a_step_that_fails_neither_loses_the_text_nor_keeps_it_twice(self):
         moved = os.replace
 
         def move(*args):
@@ -170,16 +186,16 @@ class AsideEditor(unittest.TestCase):
                 raise OSError(13, "Permission denied")
             return moved(*args)
 
-        old, both, failed = "kept before", f"kept before\n{DRAFT}", ("failed",)
+        old, failed = "kept before", ("failed",)
         done, refused = ("done",), ("refused",)
         # mode, composer, kept, failing steps; composer, kept and answer left; text back in the end
         for mode, composer, kept, failing, left, end in (
-                ("line", DRAFT, rec(A, old), {"load-buffer": done}, (DRAFT, rec(A, old), None),
-                 both),
-                ("line", DRAFT, rec(A, old), {"move": failed}, (DRAFT, rec(A, old), None), both),
-                # tmux refusing the undo too: the text kept twice
-                ("line", DRAFT, rec(A, old), {"move": failed, "load-buffer": (None, "refused")},
-                 (DRAFT, rec(A, both), None), f"{both}\n{DRAFT}"),
+                ("line", DRAFT, rec(G, old), {"load-buffer": done}, (DRAFT, rec(G, old), None),
+                 DRAFT),
+                ("line", DRAFT, rec(G, old), {"move": failed}, (DRAFT, rec(G, old), None), DRAFT),
+                # tmux refusing the undo too: kept as set aside, and still in the composer
+                ("line", DRAFT, rec(G, old), {"move": failed, "load-buffer": (None, "refused")},
+                 (DRAFT, rec(A, DRAFT), None), DRAFT),
                 # once, where it was all that was kept
                 ("line", DRAFT, None, {"load-buffer": done, "delete-buffer": refused},
                  (DRAFT, rec(A, DRAFT), None), DRAFT),
