@@ -186,14 +186,7 @@ def place(name, project):
     """Where a line's check runs: the checkout it names, wherever the seat is filed now, and
     only while that checkout's repository still holds the root commit the line recorded -- a
     path moved or reused, a name another checkout shares, proves nothing, and a branch
-    checked out there changes nothing.  A line from before lines
-    named a path names the seat's checkout by name."""
-    if "/" not in project:
-        try:
-            repo = project_of(name)
-        except config.Error:
-            return None
-        return repo if project == repo.name else None
+    checked out there changes nothing."""
     shown, _, written = project.rpartition("#") if "#" in project else (project, "", "")
     path = Path(shown).expanduser()
     if not path.is_absolute() or not (path / ".git").exists():
