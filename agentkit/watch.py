@@ -3800,8 +3800,7 @@ def carry_draft(session, harness, pane, cfg=None):
 
 
 def _buffer(server, name):
-    """That tmux buffer's bytes as it keeps them, whose trailing blanks `tmux_out` strips, or
-    None."""
+    """That tmux buffer's bytes as kept, trailing blanks too, which `tmux_out` strips; or None."""
     fd, path = tempfile.mkstemp(dir=config.TMP)    # only this user reads it, and only now
     os.close(fd)
     try:
