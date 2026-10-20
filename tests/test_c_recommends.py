@@ -124,7 +124,7 @@ class Recommends(Sandbox):
         # takes the other.  `Models`, under the models, takes fable out.
         self.store([row("claude", "claude-fable-5-1", "xhigh", "fable", execute=100),
                     row("claude", "claude-opus-5-5", "xhigh", "opus", review=100)])
-        untick = lambda cfg: (config.remove_model(cfg, "fable"), config.save(cfg))
+        untick = lambda cfg, *_a, **_kw: (config.remove_model(cfg, "fable"), config.save(cfg))
         with patch.object(menu, "config_models", side_effect=untick):
             self.screen([*[Key("down")] * len(config.offered(self.cfg)), Key("enter"),
                          Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
