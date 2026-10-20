@@ -100,8 +100,10 @@ class Switch(Sandbox):
         transcript = Path(os.environ["HOME"]) / ".claude/projects" / slug \
             / f"{CONVERSATION}.jsonl"
         transcript.parent.mkdir(parents=True)
-        transcript.write_text('{"type":"user","text":"what changed?"}\n'
-                              '{"type":"assistant","text":"the endpoint"}\n')
+        transcript.write_text(
+            '{"type":"user","message":{"role":"user","content":"what changed?"}}\n'
+            '{"type":"assistant","message":{"role":"assistant",'
+            '"content":[{"type":"text","text":"the endpoint"}]}}\n')
         self.transcript = str(transcript)
         config.plan_path("fix-api").write_text("- [ ] Finish the endpoint\n")
         going = config.RUNS / "going"
@@ -160,7 +162,8 @@ class Switch(Sandbox):
         # nothing typed, now or by the tick: the handover is in the rulebook it opened on
         self.assertEqual([args for args in self.calls if args[0] == "send-keys"], [])
         self.assertIsNone(watch.seat_read("fix-api").get("midturn"))
-        for part in ("This seat ran on opus", "ak plan", "ak run status", self.transcript):
+        for part in ("This seat ran on opus", "ak plan", "ak run status",
+                     "**user:** what changed?\n\n**opus:** the endpoint"):
             self.assertIn(part, self.rulebook())
 
     def test_a_seat_whose_orchestrators_model_was_removed_moves_to_another(self):
