@@ -817,6 +817,15 @@ cat "$dir/bridge-eval"
         self.assertEqual([watch.composer_draft("opencode", self.pane(kind))
                           for kind in ("draft-beside-card", "draft-sidebar-hidden")], [typed] * 2)
 
+    def test_a_draft_s_blank_rows_are_part_of_it(self):
+        # a newline the owner typed draws a row of bare frame inside the box, as its padding is
+        prompt = self.pane("prompt")
+        placeholder = 'Ask anything… "What is the tech stack of this project?"'
+        for typed in ("Keep my draft\n", "Keep\n\nmy draft"):
+            with self.subTest(typed=typed):
+                pane = prompt.replace(placeholder, typed.replace("\n", "\n             ┃  "))
+                self.assertEqual(watch.composer_draft("opencode", pane), "Keepmydraft")
+
     def test_stall_and_auth_panes_answer_in_opencode_s_own_words(self):
         stall = self.pane("stall")
         mark = watch.stalled_on("opencode", watch.pane_tail(stall), "opencode",

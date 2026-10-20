@@ -3327,8 +3327,12 @@ def _composer_rows(harness, pane, *, exact=False):
         # A composer no `❯›⟩` mark finds: its manifest finds the framed block it holds,
         # and finding none reads as empty -- where the composer itself is on the
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
-        # was read.  Its rows are read as drawn: their inset tells its prompt row from text.
-        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws)
+        # was read.  Its rows are read as drawn, the tail's blank rows among them: their inset
+        # tells its prompt row from text, and a blank row ends a box, so an older one framed
+        # above it is none of it while a bare row inside it can be a draft's own.
+        drawn = [strip_sgr(row).rstrip() for row in pane.splitlines()]
+        top = [at for at, row in enumerate(drawn) if row.strip()][-PANE_LINES:]
+        source = "\n".join(drawn[top[0]:] if top else [])
         found = list(chrome["draft"].finditer(source))
         if exact and not found:
             return None
