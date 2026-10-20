@@ -2788,7 +2788,6 @@ CONFIG_HEADS = (*orch.ROLE_HEADS, "effort")
 # The key line for the cell the highlight is on, and the same without UTF-8.
 # The key on the config screen that opens what `ak models` recommends per role.
 ADVICE_KEY = "r recommended"
-PICKED = ("orchestrate", "build", "review")    # what `ak models` recommends a model to do, per role
 CONFIG_KEYS = {"mark": ("↑↓←→ move   ⏎ mark", "arrows move   enter mark"),
                "effort": ("↑↓←→ move   ⏎ effort", "arrows move   enter effort"),
                "row": ("↑↓ move   ⏎ open", "arrows move   enter open"),
@@ -2815,12 +2814,6 @@ ADD_KEYS = {"choose": ("↑↓ move   ⏎ choose", "arrows move   enter choose")
             "add": ("↑↓ move   ⏎ add", "arrows move   enter add")}
 
 
-def _cancelled(answer):
-    """Esc or an arrow key at a question with nothing to ask again: out, writing nothing."""
-    return (answer is None or terminal.is_esc(answer)
-            or terminal.is_sequence(answer))
-
-
 def _secret(name):
     """What ~/.agentkit/secrets/<name> holds, or "": the file install.sh and `Discord` write."""
     try:
@@ -2829,18 +2822,20 @@ def _secret(name):
         return ""
 
 
-def discord_value():
-    """`Discord`'s value: who a card pings and where it goes, `@acme-owner · webhook …a1B2c3`.
-
-    The name is the one a delivered card's receipt gave this user id (notify.pinged), the id's
-    last 4 digits until one has; of the webhook only its last 6 characters are ever shown.
-    """
+def discord_shown():
+    """Who a card pings and where it goes, as `Discord` shows them: `@acme-owner` -- the name a
+    delivered card's receipt gave this user id (notify.pinged), the id's last 4 digits until
+    one has -- and `…a1B2c3`, the only part of the webhook ever shown; "" for one not set."""
     hook, user = _secret("discord_webhook"), _secret("discord_user_id")
-    if not hook:
-        return "not connected"
     name = notify.pinged(user) if user else None
-    who = f"@{name}" if name else f"id …{user[-4:]}" if user else ""
-    return " · ".join(filter(None, (who, f"webhook …{hook[-6:]}")))
+    return (f"@{name}" if name else f"id …{user[-4:]}" if user else "",
+            f"…{hook[-6:]}" if hook else "")
+
+
+def discord_value():
+    """`Discord`'s value on `c`: `@acme-owner · webhook …a1B2c3`, or `not connected`."""
+    who, hook = discord_shown()
+    return " · ".join(filter(None, (who, f"webhook {hook}"))) if hook else "not connected"
 
 
 def config_models(cfg):
@@ -2884,24 +2879,6 @@ def advice(cfg, held):
         name = takes(cfg, rows[0], role)
         found[role] = (matrix.row_label({**rows[0], "name": name}), name, rows[0].get("effort"))
     return found
-
-
-def model_said(cfg, name, providers=None, found=None):
-    """What `c` says of the highlighted model on the line under the models, (text, tone) a
-    part: the subscriptions it runs on, its provider's (`usage_rows`), the provider's name said
-    once (`runs on Claude I, II`); why it is spent, in amber (orch.spent_note); and the roles
-    `ak models` recommends it for (`found`, `advice`)."""
-    provider = cfg["models"][name]["provider"]
-    on = [terminal.plain(label) for each, label, _, _ in usage_rows(cfg) if each == provider]
-    head = on[0].rsplit(" ", 1)[0] + " " if len(on) > 1 else ""
-    on = on[:1] + [label.removeprefix(head) for label in on[1:]]
-    spent = orch.spent_note(cfg, name, providers) if providers else ""
-    picked = [verb for role, verb in zip(matrix.ROLES, PICKED)
-              if (found or {}).get(role, (None, None))[1] == name]
-    return [part for part in (
-        ("runs on " + ", ".join(on), "dim") if on else None, (spent, "amber") if spent else None,
-        ("recommended to " + " and ".join(filter(None, (", ".join(picked[:-1]), picked[-1]))),
-         "dim") if picked else None) if part]
 
 
 def take_advice(cfg, name, selected, providers, found):
@@ -3000,7 +2977,7 @@ def models_shown(cfg, key, rows, levels):
 def models_at(rows, effort):
     """A model's row ({effort: row}, models_table) at `effort`, else the one every board it
     matched names no effort for, at none or the config's effort, which stands at every effort
-    of the model (matrix.matching gives it at any); {} with neither."""
+    of the model (matrix.placed stands it at any); {} with neither."""
     return rows.get(effort) or next(
         (row for row in rows.values()
          if all(hit["effort"] is None for hit in (row.get("matched") or {}).values())), {})
@@ -3188,7 +3165,8 @@ def models_screen(cfg, session, selected, providers, held):
                     shown[key] = taken[min(max(at + step, 0), len(taken) - 1)]
 
 
-def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None):
+def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
+                lit=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its provider's name, a line each: label, the three role
@@ -3198,8 +3176,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
-    A model `providers` read as spent is dim; why is on the line under the page
-    (model_lines).  Then `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit` with
+    A model `providers` read as spent is dim.  A model whose provider runs the subscription
+    `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
+    clock washes in and out as `lit` comes and goes (motion.washing).  Then `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit` with
     their values. A row is `("model", name)` or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on, -1 its label.  `cells` are a model row's (first, last,
@@ -3242,7 +3221,14 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(name, label)
-            kind = "reverse" if at == ("model", name) and column < 0 else "dim" if note else None
+            on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
+            ink = colour(cfg, provider)
+            kind = ("reverse" if at == ("model", name) and column < 0 else ink if lit in on
+                    else "dim" if note else None)
+            # one wash a label, so a step between its provider's subscriptions keeps it lit
+            if moves is not None and on:
+                moves.append((len(lines), ("subs", provider), lit in on, motion.washing(
+                    [(3, shown, "dim" if note else None)], ink, at == ("model", name))))
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))
             cells, first = [(3, 2 + terminal.cells(shown), -1)], left + 1
@@ -3519,15 +3505,15 @@ def config_model(cfg, name):
                 return                # Esc while the catalog was asked
 
 
-def config_meters(cfg, at=None):
+def config_meters(cfg, at=None, rows=None, spans=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
-    (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`), and
-    under them a line that, while `at`, from 1, has the highlight, says what its cell has no
-    room for (`usage_detail`), its meter lit as the pointer lights it there; none without a
-    grid."""
-    rows, width = usage_rows(cfg), terminal.layout_width()
+    (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`, of
+    `rows` where read already, `spans` handed on), and under them a line that, while `at`, from
+    1, has the highlight, says what its cell has no room for (`usage_detail`), its meter lit as
+    the pointer lights it there; none without a grid."""
+    rows, width = usage_rows(cfg) if rows is None else rows, terminal.layout_width()
     ending = login_notes(rows)
-    meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
+    meters = usage_lines(cfg, width, lit=at, rows=rows, spans=spans, ending=ending)
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
@@ -3545,31 +3531,6 @@ def meters_led(meters, body, places, under, keys, moves=()):
     return [], {}, [*over, *body], {**spots, **{line + len(over): place for line, place
                                                 in places.items()}}, [
         (line + len(over), *rest) for line, *rest in moves]
-
-
-def model_lines(cfg, at, providers=None, found=None, fit=float("inf")):
-    """The `c` screen's line for the highlighted model, `at` (`model_said`: `providers` read for
-    why it is spent, `found` for what it is recommended for), a blank line over it: its parts
-    joined with ` · ` where they fit, else each on lines of its own, as many whole parts as
-    `fit` lines hold, the blank one giving way first.  Under the page of rows, not among them,
-    so no page leaves it off, as many lines as the tallest any model's and empty while the
-    highlight is off the models, so the page keeps its height and no row moves from under the
-    pointer as it goes."""
-    room, said = terminal.layout_width(), {}
-    for name in config_models(cfg):
-        parts = [(name + " " + text if number == 0 else text, tone) for number, (text, tone)
-                 in enumerate(model_said(cfg, name, providers, found))]
-        joined = terminal.styled(" · ", "dim").join(terminal.styled(*part) for part in parts)
-        said[name] = []
-        for group in [[joined]] if parts and terminal.cells(joined) <= room - 4 else [
-                [terminal.styled(piece, tone) for piece in terminal.wrap(text, room - 4)]
-                for text, tone in parts]:
-            if len(said[name]) + len(group) > fit:
-                break
-            said[name] += group
-    shown, tallest = said[at[1]] if at and at[0] == "model" else [], max(map(len, said.values()))
-    return ([""] if 0 < tallest < fit else []) + [("    " + part).rstrip()
-                                         for part in (shown + [""] * tallest)[:tallest]]
 
 
 def matrix_page(body, places, here, top, under, keys, over=()):
@@ -3614,7 +3575,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     `fetched()` says since when the screen's content is being fetched, or None: while it is, the
     rule under the header glides (`motion.fetching`) and the read ends, None, once it lands.
     `clock` moves what `moves` -- (line, key, value, start) -- says is news (`motion.Clock.look`)
-    on the lines shown, each by `start(clock, row, since, before)`, its frames drawn while the
+    on the lines shown, `over`'s counted back from the page's first, -1 its last, each by `start(clock, row, since, before)`, its frames drawn while the
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
     said = note_lines(note)
@@ -3623,7 +3584,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     spots = terminal.frame(title, [*over, *shown, *under, *said], keys, places={
         **(over_places or {}), **{len(over) + line - top: place for line, place in places.items()
                                   if top <= line < top + room}},
-        drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line - top
+        drawn=clock and (lambda: clock.drawn(moves, lambda line: first + line if line < 0
+                                             else first + line - top
                                              if top <= line < top + room else
                                              first + len(shown) + line - len(body)
                                              if line >= len(body) else None)))
@@ -3687,7 +3649,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     on `+ add a model` opens its screen (config_add), and a model added there is the row
     highlighted after it, and `+ add a provider` its own (config_add_provider).  ↑ past the
     first model, and the pointer, reach
-    the meters over the page: one is lit as the main screen lights it, and Enter or a click
+    the meters over the page: one is lit as the main screen lights it, its colour washing in
+    over it and the labels of the models on it and out as it goes, and Enter or a click
     opens what it offers (config_usage).  The row a model, a provider or a subscription was just
     added on glows (motion.glowing); on `Discord` its two
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
@@ -3705,8 +3668,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         found = advice(cfg, held) if selected else None   # against the config as it stands
-        over, meters = config_meters(cfg, here[1] if here and here[0] == "usage"
-                                     and not terminal.away() else None)
+        # the meter the highlight or the pointer is on, lit as the main screen lights one
+        lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
+        subs, spans = usage_rows(cfg), {}
+        over, meters = config_meters(cfg, lit, subs, spans)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in CONFIG_ROWS)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
@@ -3717,26 +3682,21 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                  else "label" if column < 0 else "mark")
         keys = (CONFIG_KEYS[where][0 if terminal.utf8() else 1]
                 + (f"   {ADVICE_KEY}" if found else "") + "   esc back")
-        moves = []
+        # each meter's cells, on the lines over the page counted back from it, washing in and out
+        moves = [(line - len(over), ("sub", number), number == lit,
+                  motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
+                 for number, took in spans.items() for line, column, text, rest in took]
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves)
+                                   selected, providers, moves, subs, lit)
         moves += [(line, here, None, motion.glowing(body[line]))     # a row just added glows
                   for line, (row, _) in places.items() if row == here]
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
-        # on a short screen the note keeps its lines and the page a row; the model's line the rest
-        fit = matrix_page([], {}, None, 0, note_lines(told), keys)[1] - 1
-        said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
         over, meters, body, places, moves = meters_led((over, meters), body, places,
-                                                       [*said, *note_lines(told)],
-                                                       keys, moves)
-        # coming up as the highlight comes to a model (`motion.fading`)
-        opened = here[1] if any(map(terminal.plain, said)) else None
-        moves += [(len(body) + line, ("said",), opened, motion.fading(text, motion.OPEN))
-                  for line, text in enumerate(said)]
+                                                       note_lines(told), keys, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
-                                            clock=clock, moves=moves, under=said,
+                                            clock=clock, moves=moves,
                                             over=over, over_places=meters)
         column = column if clicked is None else clicked
         if act is None:
@@ -4321,30 +4281,119 @@ def config_usage(cfg, number):
     return "" if chosen is None else acts[chosen](cfg, (name, account, label))
 
 
-def config_discord():
-    """`Discord`: the two secrets, shown as its row shows them and written the way install.sh
-    writes them.
+def page_body(rows, at=None):
+    """The lines of a page `c` opens -- `Discord`, `Weekly audit` -- and the row each is,
+    {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its value,
+    lined up past the widest label as `c`'s own rows are, or with no label a choice of a list
+    opened under the row above it, indented as `add a model`'s are.  A value is text, or
+    parts, (text, kind) each, a space apart, each cut to the room it has; `at` is the row lit."""
+    room = terminal.layout_width()
+    wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
+    lines, places = [], {}
+    for row, label, value in rows:
+        line = "    " if label is None else f"  {terminal.pad(label, wide)}  "
+        for text, kind in [(value, None)] if isinstance(value, str) else value:
+            text = terminal.cut(text, max(0, room - terminal.cells(line)))
+            line += (terminal.styled(text, kind) if kind else text) + " "
+        places[len(lines)] = (row, [])
+        lines.append(terminal.highlight(line.rstrip()) if row == at else line.rstrip())
+    return lines, places
 
-    An empty answer keeps what is there, so one secret can be changed without retyping the
-    other; install.sh asks the same way, once, when there is someone to ask.  Esc at either
-    goes back with nothing written.
-    """
-    terminal.frame("config · discord", [f"  {discord_value()}"])
-    webhook = read("Webhook URL: ", "")
-    if _cancelled(webhook):
-        return
-    user = read("User id: ", "")
-    if _cancelled(user):
-        return
+
+@terminal.clicks_its_own
+def config_page(name, page):
+    """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each
+    -- and the note under them, asked again for every draw, drawn as page_body draws them and
+    read with `c`'s keys until Esc.
+
+    Enter or a click on a row calls its act.  One that is a list's, (choices, several), opens
+    the list under the row, the highlight on the first choice marked: `choices()` gives (value,
+    pick, marked) each, asked again for every draw, and Enter or a click on one calls its
+    `pick()`, the list closing unless `several`; Esc closes it.  Any other act is called with
+    `draw`, which draws the page with lines under the row and returns the screen row of the
+    first, as terminal.field takes it.  What a call returns is said under the rows, over the
+    note, until the next key."""
+    here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
+    keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1] + "   esc back"
+    while True:
+        rows, note = page()
+        listed = opened[1]() if opened else []
+        drawn = [(("row", number), label, value) for number, (label, value, _) in enumerate(rows)]
+        if opened:
+            drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
+                                                  for number, (value, _, _) in enumerate(listed)]
+        # with a list open its choices are what the keys move through, else the rows
+        ids = [row for row, label, _ in drawn if (label is None) == bool(opened)]
+        body, places = page_body(drawn, None if terminal.away() else here)
+        act, moved, _, top = matrix_key(title, body, places, ids, here, top,
+                                        "\n".join(filter(None, (said, note))), keys)
+        here = moved if moved in ids or act == "enter" else here    # the pointer on a row off-list
+        if act is None:
+            continue                  # a resize or the pointer: drawn again
+        said = ""
+        if act == "back":
+            if not opened:
+                return
+            here, opened = ("row", opened[0]), None
+        elif act not in ("enter", "space"):
+            continue
+        elif len(here) == 3:
+            said = listed[here[2]][1]() or ""
+            if not opened[2]:
+                here, opened = here[:2], None
+        elif isinstance(rows[here[1]][2], tuple):
+            opened = (here[1], *rows[here[1]][2])
+            choices = opened[1]()
+            here = (*here, next((number for number, (_, _, marked) in enumerate(choices)
+                                 if marked), 0))
+        else:
+            opened, at = None, here[1]
+
+            def draw(lines):
+                rows, note = page()
+                body = page_body([(("row", number), label, value)
+                                  for number, (label, value, _) in enumerate(rows)])[0]
+                terminal.frame(title, [*body[:at + 1], *lines, *body[at + 1:],
+                                       *note_lines(note)], keys)
+                return 4 + at
+            said = rows[at][2](draw) or ""
+
+
+# What `Discord` and `Weekly audit` say under their rows.
+DISCORD_NOTE = "A card reads only Needs you · <seat> or Done · <seat>, and mentions you."
+AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest loss."
+
+
+def config_discord():
+    """`Discord`: who a card mentions and the webhook it goes to, a row each (config_page),
+    each typed anew under its row (discord_secret)."""
+    def page():
+        who, hook = discord_shown()
+        return [("Mention", who or "nobody", lambda draw: discord_secret(
+                    draw, "discord_user_id", "your Discord user id")),
+                ("Webhook", hook or "not connected", lambda draw: discord_secret(
+                    draw, "discord_webhook", "your channel's webhook URL"))], DISCORD_NOTE
+    config_page("discord", page)
+
+
+def discord_secret(draw, name, hint):
+    """One of `Discord`'s secrets typed under its row (terminal.field) and written the way
+    install.sh writes it; Enter with nothing typed, or Esc, keeps what is there, and a user id
+    that is not digits is refused.  What to say under the rows, or ""."""
+    value = terminal.field("    ", hint, around=lambda line: draw([line]))
+    value = "" if value is None or terminal.is_esc(value) else value.strip()
+    if not value:
+        return ""
+    if name == "discord_user_id" and not re.fullmatch(r"[0-9]+", value):
+        return "a user id is only digits: Discord's Copy User ID gives it"
     try:
         config.ensure_dirs()
-        for name, value in (("discord_webhook", webhook), ("discord_user_id", user)):
-            if value:
-                path = config.SECRETS / name
-                path.write_text(value + "\n")
-                os.chmod(path, 0o600)
+        path = config.SECRETS / name
+        path.write_text(value + "\n")
+        os.chmod(path, 0o600)
     except OSError as exc:
-        pause(f"discord: {exc}")
+        return f"discord: {exc}"
+    return ""
 
 
 def audit_value(cfg):
@@ -4361,45 +4410,78 @@ def audit_value(cfg):
                        f"{heads[2]} " + ", ".join(setting["reviewers"])))
 
 
-def config_audit(cfg):
-    """`Weekly audit`: on or off, then the models its seat takes, written to `[audit]` in
-    config.toml as one table.
+def audit_table(cfg):
+    """`[audit]` as a change on `Weekly audit` keeps it: each key the tick reads on its own
+    (config.audit), so the first change mends a table it cannot read; one that is not a table
+    keeps nothing."""
+    table = cfg.get("audit")
+    kept = {}
+    for key, value in table.items() if isinstance(table, dict) else ():
+        try:
+            config.audit({**cfg, "audit": {key: value}})
+        except config.Error:
+            continue
+        kept[key] = value
+    return kept
 
-    An empty answer keeps what is there, so one value can be changed without retyping the
-    rest; Esc at any question goes back with nothing written.  The answers are read as the
-    tick will read them (config.audit) before anything is written: one it refuses is said in
-    one line, and the file stays as it was.
-    """
-    terminal.frame("config · weekly audit", [
-        "  " + part for text in (audit_value(cfg), "Executors and reviewers are space-separated; "
-                                 "none as the executors: the orchestrator builds alone.")
-        for part in terminal.wrap(text, terminal.layout_width() - 2)])
-    answers = {}
-    for key, prompt in (("on", "On (on/off): "), ("orchestrator", "Orchestrator: "),
-                        ("workers", "Executors: "), ("reviewers", "Reviewers: ")):
-        answer = read(prompt, "")
-        if _cancelled(answer):
-            return
-        answers[key] = answer
-    # an [audit] that is not a table has nothing to keep: the answers replace it
-    table = dict(cfg["audit"]) if isinstance(cfg.get("audit"), dict) else {}
-    if answers["on"]:
-        if answers["on"] not in ("on", "off"):
-            pause(f"weekly audit: on or off, not {answers['on']!r}")
-            return
-        table["on"] = answers["on"] == "on"
-    if answers["orchestrator"]:
-        table["orchestrator"] = answers["orchestrator"]
-    # `none` empties the executors only as the whole answer: anywhere else it is a name, which
-    # config.audit takes when a model has it and refuses when none does
-    for role in ("workers", "reviewers"):
-        if answers[role]:
-            table[role] = [] if (role, answers[role]) == ("workers", "none") else answers[role].split()
+
+def audit_shown(cfg):
+    """`Weekly audit`'s setting as its rows say it, and why the tick reads none, or "": what the
+    tick reads (config.audit), else what it will once a change leaves out each key it cannot
+    read (audit_table)."""
+    try:
+        return config.audit(cfg), ""
+    except config.Error as exc:
+        return config.audit({**cfg, "audit": audit_table(cfg)}), str(exc)
+
+
+def audit_write(cfg, key, value):
+    """`[audit]`'s `key` set to `value` beside the keys a change keeps (audit_table) and saved,
+    `cfg` with it, once the tick reads it (config.audit); else nothing is written, and why is
+    what it returns, else ""."""
+    table = {**audit_table(cfg), key: value}
     try:
         config.audit({**cfg, "audit": table})
         config.save({**cfg, "audit": table})
     except (config.Error, OSError) as exc:
-        pause(f"weekly audit: {exc}")
+        return f"weekly audit: {exc}"
+    cfg["audit"] = table
+    return ""
+
+
+def config_audit(cfg):
+    """`Weekly audit`: whether it runs and the models its seat takes, a row each (config_page),
+    each change written to `[audit]` in config.toml at once (audit_write).  Enter on `On`
+    turns it the other way; on `Orchestrator` it opens every model under it, `●` the one it
+    is, and Enter on one takes it; on `Builds` and `Reviews` every model `■` in that role or
+    `□` not, Enter taking one in or out until Esc."""
+    on, off, full, empty = ("●", "○", "■", "□") if terminal.utf8() else ("*", ".", "#", "-")
+
+    def models(key):          # the list a role's row opens
+        one = key == "orchestrator"
+
+        def choices():
+            held = audit_shown(cfg)[0][key]
+            held = [held] if one else held
+            return [([(on if one else full, "accent") if name in held
+                      else (off if one else empty, "dim"), (name, None)],
+                     lambda name=name: audit_write(cfg, key, name if one else [
+                         other for other in held if other != name] if name in held
+                         else [*held, name]),
+                     name in held)
+                    for name in config.offered(cfg)]
+        return choices, not one
+
+    def page():
+        setting, why = audit_shown(cfg)
+        return [("On", [(on, "accent"), ("on", None)] if setting["on"]
+                 else [(off, "dim"), ("off", None)],
+                 lambda draw: audit_write(cfg, "on", not setting["on"])),
+                ("Orchestrator", setting["orchestrator"], models("orchestrator")),
+                ("Builds", ", ".join(setting["workers"]) or "nobody", models("workers")),
+                ("Reviews", ", ".join(setting["reviewers"]), models("reviewers"))], \
+            "\n".join(filter(None, (why, AUDIT_NOTE)))
+    config_page("weekly audit", page)
 
 
 def show_config(dry_run=False, keyboard=None, session=None):
@@ -5240,4 +5322,12 @@ def main(argv):
     # what `ak orch` does on the way into a seat, gc and the runs nobody was told about, run
     # behind the menu's first frame
     tidy = None if flags["--dry-run"] or flags["--overlay"] else orch.maintenance
-    return loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"], tidy)
+    code = loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"], tidy)
+    if flags["--overlay"]:
+        # The popup comes down when this process ends, and Python's own teardown of all the menu
+        # read took most of a second.  Nothing is cut short: a record is only ever replaced
+        # whole, and the menu's threads are daemons, which no exit waits for.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(code)
+    return code

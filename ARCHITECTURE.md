@@ -103,6 +103,8 @@
   loads `state/run-records.db` once per process and reads and writes only changed runs, and
   `tally`) and a seat's last column, crew and task squares (`seat_tasks`), for watch, run,
   orch, notify, statusbar. Leaks: provider colour and name tables; reads `usage.json` itself.
+- `warm.py`: `Ctrl-b m`'s menu, warm: a server per HOME and checkout, imports done, forks a
+  menu onto the terminal its bare `client` hands over a STATE socket; a miss goes cold. For orch.
 - `statusbar.py`: a seat's two tmux status lines, line one ending in how many other seats
   need the owner and the click that switches to the first; for orch, watch.
 - `config.py`: `~/.agentkit` paths, config.toml, models, providers, accounts, adapters,
@@ -185,15 +187,19 @@
   screen rules, stall/quota/auth/resume words, effort, catalog, contract-check model/effort.
 - `agentkit/harness/`: `load(name)`: manifest + optional `<h>.py`; defaults: conversation,
   resume, launch, titles, usage, tokens, `tmp_rule`, `snapshot`, `register_mcp`.
-  `config_entries`: every plugin's trust and MCP tables. `user_messages`: timed owner input
-  without notices or ak typing; `failure`: turn/seat failures in whole `[stall]` words;
+  `config_entries`: every plugin's trust and MCP tables. `conversation_stores`, `end_conversation`:
+  conversations a harness never ends itself, which gc ends its way after 30 days. `user_messages`: timed owner input
+  without notices or ak typing; `said`: a conversation's user and model turns as plain text,
+  read from each harness's own store (`antigravity.py` decodes agy's step databases);
+  `failure`: turn/seat failures in whole `[stall]` words;
   `interrupted`: when the owner ended a turn no hook reported (Claude's Esc); `unanswered`: a
   last prompt nothing answered yet. For orch, usage, update, run, gc, menu, watch, browser,
   retention.
   Codex's `remote_home` owns the private home's address for launch and removal;
   `pairing_home` resolves requested app access by seat name or explicit home path.
   `tools/codex-seat.py` uses those addresses and owns the live socket transport.
-  Codex's `ask` is a seat's PreToolUse hook: its question tool asks through `notify`.
+  Codex's `ask` is a seat's PreToolUse hook: its question tool asks through `notify`, and a
+  done seat's is refused (`stop.question_refused`).
   Leak: orch imports `harness.claude`.
 
 ## hooks/, tools/, tests/

@@ -6,7 +6,6 @@ server or real harness. Reading the slave is the program taking its input, never
 
 import os
 import select
-import subprocess
 import tty
 import unittest
 from unittest.mock import Mock, patch
@@ -51,8 +50,6 @@ class UnreadPane(Seats):
                                     "#{pane_tty}\t#{" + orch.INPUT_TTY_OPTION + "}"))
             self.assertEqual(kwargs.get("socket"), orch.seat_socket(self.seat))
             self.assertIsNotNone(kwargs.get("timeout"))
-            if isinstance(self.tty_reply, Exception):
-                raise self.tty_reply
             return self.tty_reply
         self.assertEqual(args[0], "send-keys")
         self.keys.append(args)
@@ -165,7 +162,7 @@ class UnreadPane(Seats):
         ordinary = self.root / "ordinary-file"
         ordinary.write_text("not a tty")
         for reply in ((1, "no pane"), (0, ""), (0, str(self.root / "missing-tty")),
-                      (0, str(ordinary)), subprocess.TimeoutExpired("tmux", 5)):
+                      (0, str(ordinary)), (124, "")):
             with self.subTest(reply=reply):
                 self.tty_reply = reply
                 self.assertTrue(watch._send_line(self.seat, "Run finished.", lambda _: None))

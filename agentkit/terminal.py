@@ -55,6 +55,7 @@ _PAD = 0           # ... and those this process leaves (`inset`)
 LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ANSWER = re.compile(rb"\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)")   # its answer to OSC 11
+_ATTRIBUTES = re.compile(rb"\x1b\[\?[0-9;]*c")   # ... and to DA1, which follows it
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
@@ -891,8 +892,11 @@ def sense():
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in.  And whether the
     background is light, from the terminal's answer to OSC 11 within a tenth of a second; no
-    answer by then is a dark one.  The answer is read here and never as a key: anything typed
-    while it was awaited is kept for `read_key`, and one that comes later is `_sequence`'s.
+    answer by then is a dark one.  Its attributes are asked for after it (DA1), which every
+    terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
+    is none, so a terminal that never answers it -- tmux, in a popup -- costs no tenth.  The
+    answers are read here and never as keys: anything typed while they were awaited is kept for
+    `read_key`, and one that comes later is `_sequence`'s.
     """
     global _RGB, _LIGHT, _KEYED
     features = ""
@@ -906,9 +910,9 @@ def sense():
             pass
     _RGB = bool({"RGB", "Tc"} & set(features.strip().split(",")))
     fd = sys.stdin.fileno()
-    os.write(sys.stdout.fileno(), b"\033]11;?\033\\")
+    os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
     heard, until = b"", time.monotonic() + 0.1
-    while not _ANSWER.search(heard):
+    while not _ATTRIBUTES.search(heard):
         left = until - time.monotonic()
         if left <= 0 or not select.select([fd], [], [], left)[0]:
             break
@@ -917,7 +921,8 @@ def sense():
             break
         heard += byte
     found = _ANSWER.search(heard)
-    _KEYED = (heard[:found.start()] + heard[found.end():] if found else heard) + _KEYED
+    rest = heard[:found.start()] + heard[found.end():] if found else heard
+    _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
     colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
                       found.group(1)) if found else None
     red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
@@ -1067,6 +1072,8 @@ def _sequence(fd):
         if kind == b"O" or 0x40 <= byte[0] <= 0x7e:
             break
     params, final = body[:-1], body[-1:]
+    if params.startswith(b"?") and final == b"c":
+        return Key("answer")       # its attributes (DA1), come after `sense` stopped waiting
     if params.startswith(b"<") and final in (b"M", b"m"):
         try:
             button, col, row = (int(part) for part in params[1:].split(b";"))

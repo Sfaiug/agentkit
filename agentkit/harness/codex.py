@@ -141,20 +141,37 @@ def transcript(record, cwd, conversation):
 
 def prompt(entry):
     """The owner's words one rollout line holds, or None for anything else."""
-    payload = entry.get("payload")
     # Response items also contain rules and environment text with the user role.
     # The completed UserMessage item keeps the original prompt exactly once.
+    return completed(entry, "UserMessage")
+
+
+def answer(entry):
+    """The model's visible words one rollout line holds, commentary or final, or None."""
+    return completed(entry, "AgentMessage")
+
+
+def completed(entry, kind):
+    """The text of the completed item of that kind one rollout line holds, or None."""
+    payload = entry.get("payload")
     if (entry.get("type") != "event_msg" or not isinstance(payload, dict)
             or payload.get("type") != "item_completed"):
         return None
     item = payload.get("item")
-    if not isinstance(item, dict) or item.get("type") != "UserMessage":
+    if not isinstance(item, dict) or item.get("type") != kind:
         return None
     content = item.get("content")
     if not isinstance(content, list):
         return None
+    # A UserMessage's parts are `text`, an AgentMessage's `Text` (Codex 0.163).
     return "\n".join(part["text"] for part in content if isinstance(part, dict)
-                     and part.get("type") == "text" and isinstance(part.get("text"), str)) or None
+                     and part.get("type") in ("text", "Text")
+                     and isinstance(part.get("text"), str)) or None
+
+
+def said(record, cwd, conversation):
+    from . import turns
+    return turns(transcript(record, cwd, conversation), prompt, answer)
 
 
 def user_messages(record, cwd, conversation):
@@ -380,15 +397,26 @@ def trust(hooks, matchers=None):
 
 
 def ask(event):
-    """The PreToolUse hook's answer to that event: the seat's question asked through ak, and
-    the call refused with what became of it -- the question itself too, as Codex draws a
-    refusal's reason in the seat (`Blocked by hook`) and the question nowhere else.  None lets
-    the call through: it asks nothing, or nobody's seat is there to ask for."""
-    if not isinstance(event, dict) or event.get("tool_name") != QUESTION_TOOL:
+    """The PreToolUse hook's answer to that event: a question of a seat whose plan is done
+    refused, as on every harness that lets a hook refuse one (`stop.question_refused`); else
+    the seat's question that waits for nobody asked through ak, and the call refused with what
+    became of it -- the question itself too, as Codex draws a refusal's reason in the seat
+    (`Blocked by hook`) and the question nowhere else.  None lets the call through: a Plan-mode
+    dialog, which `main` writes down as the seat asking, a call that asks nothing, or nobody's
+    seat there to ask for."""
+    if not isinstance(event, dict) or not re.fullmatch(QUESTIONS, str(event.get("tool_name"))):
         return None
     if os.environ.get("AK_RUN_ROLE") == "worker" or not config.current_session():
         return None
-    from .. import notify
+    from .. import notify, stop
+    try:
+        refused = stop.question_refused(config.resolve_session(config.current_session()))
+    except config.Error:
+        refused = None
+    if refused:
+        return {"decision": "block", "reason": refused.rstrip(".")}     # Codex adds its own
+    if event["tool_name"] != QUESTION_TOOL:
+        return None
     questions = (event.get("tool_input") or {}).get("questions")
     text = " ".join(question_line(item) for item in questions
                     if isinstance(item, dict)) if isinstance(questions, list) else ""
@@ -453,6 +481,27 @@ def mcp_block(servers):
                       "env = { " + env + " }"]
         lines.append("")
     return "\n".join([*lines, END]) + "\n"
+
+
+ROLLOUT = re.compile(r"rollout-.+-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl")
+
+
+def conversation_store():
+    """~/.codex/sessions, where Codex keeps every thread's rollout and never removes one.  An
+    account's home links its own here; a seat's thread lives apart, with the seat."""
+    return {"root": Path.home() / ".codex" / "sessions", "pattern": "rollout-*.jsonl"}
+
+
+def end_conversation(path):
+    """`codex delete`, which takes a thread's rollout and what Codex indexed of it at once, run
+    on the home `conversation_store` scans, whatever home and database the caller selected."""
+    match = ROLLOUT.fullmatch(Path(path).name)
+    if match:
+        env = {key: value for key, value in os.environ.items() if key != "CODEX_SQLITE_HOME"}
+        env["CODEX_HOME"] = str(conversation_store()["root"].parent)
+        subprocess.run([config.harness_binary("codex") or "codex", "delete", "--force", match[1]],
+                       stdin=subprocess.DEVNULL, capture_output=True, timeout=60, env=env,
+                       check=True)
 
 
 def config_entries():
@@ -584,12 +633,21 @@ def main(argv, launch=None):
             pass
         return 0
     if argv == ["ask"]:
+        payload = sys.stdin.read()
         try:
-            answer = ask(json.load(sys.stdin))
+            answer = ask(json.loads(payload))
         except ValueError:
             answer = None
         if answer:
             print(json.dumps(answer))
+        else:
+            # the call goes up, so the seat asks: written down only now, as a refused one asks
+            # nothing; stdout is Codex's to read the decision from, and nothing else
+            try:
+                subprocess.run(["bash", str(config.REPO / SEAT_STATE)], input=payload, text=True,
+                               stdout=subprocess.DEVNULL)
+            except OSError:
+                pass
         return 0
     if argv == ["answered"]:
         payload = sys.stdin.read()
@@ -651,10 +709,10 @@ def main(argv, launch=None):
             hooks["Stop"].append((shlex.join(["bash", str(config.REPO / STOP_RULE)]), 3))
             # The seat's question goes to its owner through ak (`ask`); 10s, as recording it
             # can take the notice's lock behind a card being posted.  A Plan-mode question
-            # going up is written down beside it, and a call's end only while the seat's record
-            # holds a question (`answered`).
+            # going up is written down by it, once it lets the call through, and a call's end
+            # only while the seat's record holds a question (`answered`).
             hooks["PreToolUse"] = [(shlex.join(
-                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10), seat]
+                [sys.executable, str(config.REPO / "tools/codex-seat.py"), "ask"]), 10)]
             hooks["PostToolUse"] = [(shlex.join(
                 [sys.executable, str(config.REPO / "tools/codex-seat.py"), "answered"]), 3)]
             matchers = {"PreToolUse": QUESTIONS}

@@ -117,8 +117,7 @@ class ModelsScreen(Screen):
                               r"spark muse xhigh - - - -")
         self.assertIn("↑↓ move ←→ effort r take recommended esc back", text)
         # back on `c`, whose key opens the screen
-        self.assertRegex(text, r"esc back.*fable runs on [^·]+ ↑↓←→ move ⏎ mark r recommended "
-                               r"esc back")
+        self.assertRegex(text, r"esc back.* ↑↓←→ move ⏎ mark r recommended esc back")
         self.assertNotIn("r takes exec and review", text)
 
     def test_the_arrows_step_a_model_s_effort_and_the_numbers_follow_nothing_saved(self):

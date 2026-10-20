@@ -471,9 +471,13 @@ def _without_past(prov, now, name):
     paces = [m["pace"] for m in meters if m.get("pace") is not None]
     if prov.get("none") and not prov.get("error"):
         return {**prov, "meters": meters, "pace": max(paces, default=None)}
-    return {**prov, "meters": meters, "pace": max(paces, default=None),
-            "error": prov.get("error") or (None if meters else f"unknown: every meter {name} "
-                                           "reports has already reset")}
+    if meters or prov.get("error"):
+        error = prov.get("error")
+    elif prov.get("meters"):
+        error = f"unknown: every meter {name} reports has already reset"
+    else:   # its reading gone or never taken: it had no window to roll over
+        error = f"unknown: {name} returned no meters"
+    return {**prov, "meters": meters, "pace": max(paces, default=None), "error": error}
 
 
 def _reread(cfg, provider, cached, now):
