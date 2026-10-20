@@ -50,6 +50,8 @@ class Seats(unittest.TestCase):
                                          self.seat if name == self.seat["name"] else None))
         stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         stack.enter_context(patch.object(watch, "at_prompt", side_effect=lambda *_a, **_kw: self.free))
+        # no seat here was launched with ak's editor: its lines go in as keys
+        stack.enter_context(patch.object(watch, "seat_editor", return_value=None))
         self.pane = self.base = PROMPT
         self.empty = "❯ \n"      # the base pane's empty composer row
         stack.enter_context(patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: self.pane))

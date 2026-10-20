@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from fixtures.seats import Seats
 from agentkit import aside_editor, watch
+from agentkit.watch import seat_editor
 
 PANE = "%7"
 
@@ -20,6 +21,7 @@ class EditorSeat(Seats):
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
                                    (aside_editor, "_tmux", lambda *args, data=None:
                                     self.tmux(*args, data=data)[1].encode()),
+                                   (watch, "seat_editor", seat_editor),
                                    (watch, "pane_text", self.read)):
             patcher = patch.object(target, name, side_effect=fake)
             patcher.start()
