@@ -458,14 +458,17 @@ def stale_worktree(wt, now, paths, left):
 
 
 def last_used(wt):
-    """When a checkout was last used: its folder changed, or git wrote its index or moved its
-    HEAD (an add, a commit, a checkout, a reset), whichever is newest."""
+    """When a checkout was last used: its folder changed, or git wrote its index (an add, a
+    commit, a checkout, a reset), whichever is newest.
+
+    Not its HEAD log: the repository's own housekeeping (`git gc`, `git reflog expire --all`)
+    rewrites every checkout's at once, and 75 checkouts a day unused waited another day for it.
+    """
     times = [wt.lstat().st_mtime]
-    code, out = orch.git_in(wt, "rev-parse", "--path-format=absolute", "--git-path", "index",
-                            "--git-path", "logs/HEAD")
-    for path in out.removesuffix(b"\n").split(b"\n") if code == 0 else ():
+    code, out = orch.git_in(wt, "rev-parse", "--path-format=absolute", "--git-path", "index")
+    if code == 0:
         try:
-            times.append(os.lstat(path).st_mtime)
+            times.append(os.lstat(out.removesuffix(b"\n")).st_mtime)
         except OSError:
             pass
     return max(times)
