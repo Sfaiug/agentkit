@@ -54,9 +54,10 @@ class DraftSetAside(EditorSeat):
 
     def test_text_the_line_ends_with_or_its_paste_fold_is_set_aside_never_sent(self):
         long = "run acme finished FAIL: " + "a finding in detail " * 50
+        # text ending the way this line or the one sent before does, or a paste fold: the owner's
         for own, line, row in (("Decide the next\n  step.", LINE, None),
+                               ("Decide the next\n  step.", DOCS, None),
                                ("Private notes. " * 60, long, "❯ [Pasted text #1]\n"),
-                               # pasted since that line went in: never taken for it
                                ("Private notes. " * 60, DOCS, "❯ [Pasted text #1]\n")):
             with self.subTest(own=own[:15]):
                 self.show(own)
@@ -85,32 +86,31 @@ class DraftSetAside(EditorSeat):
         self.tick()
         self.assertEqual((self.sent, self.composer, self.buffers), ([LINE], DRAFT, {}))
 
-    def test_no_line_goes_in_while_text_is_kept_and_text_read_back_is_dropped(self):
-        self.assertTrue(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg))
-        press, tmux, refused = self.press, orch.tmux_out.side_effect, []
+    def test_text_kept_waits_for_an_empty_composer_and_its_way_back_takes_no_line(self):
+        press, tmux = self.press, orch.tmux_out.side_effect
 
         def drawn_late(key):
             press(key)
             self.late = -1              # past SENT_WAIT: drawn when this test says
 
-        def refuse_once(*args, **kwargs):
-            if args[0] == "delete-buffer" and not refused:
-                refused.append(args)
-                return 1, "server timed out"
-            return tmux(*args, **kwargs)
+        def unreadable(*args, **kwargs):
+            return (1, "server timed out") if args[0] == "save-buffer" else tmux(*args, **kwargs)
 
         with patch.object(self, "press", side_effect=drawn_late):
+            self.assertFalse(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg))
+            watch.drafts_back(self.cfg, lambda _: None)     # the text still drawn: still kept
+            self.assertEqual(list(self.buffers.values()), [DRAFT.encode()])
+            self.show(self.handed)
             watch.drafts_back(self.cfg, lambda _: None)
-        # the text on its way back would draw over a line typed now
-        self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg))
+        self.assertEqual((self.composer, self.buffers), ("", {}))
+        # on its way back, the text would be drawn over a line typed now
+        with patch.object(orch, "tmux_out", side_effect=unreadable):
+            self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg))
         self.show(self.handed)
-        with patch.object(orch, "tmux_out", side_effect=refuse_once):
-            watch.drafts_back(self.cfg, lambda _: None)
-        watch.drafts_back(self.cfg, lambda _: None)
-        self.press("Enter")             # the owner sends it
+        self.assertTrue(watch.type_at_prompt(self.seat, DOCS, lambda _: None, cfg=self.cfg))
         watch.drafts_back(self.cfg, lambda _: None)
         self.assertEqual((self.typed, self.sent, self.composer, self.buffers),
-                         ([DOCS], [DOCS, DRAFT], "", {}))
+                         ([DOCS], [DOCS], DRAFT, {}))
 
     def test_text_back_before_a_line_s_delivery_was_read_is_never_sent_for_it(self):
         own = "Decide the next\n  step."      # ends the way the line does
