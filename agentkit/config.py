@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import tomllib
@@ -21,16 +22,19 @@ from . import host
 REPO = Path(__file__).resolve().parent.parent
 STARTED = time.time()   # when this process read its code: every entry imports this module first
 HOME = Path.home() / ".agentkit"
-RUNS, WT, STATE, SECRETS, TMP, ENV, WORK = (
-    HOME / n for n in ("runs", "wt", "state", "secrets", "tmp", "env", "work"))
+PLACES = {"RUNS": "runs", "WT": "wt", "STATE": "state", "SECRETS": "secrets", "TMP": "tmp",
+          "ENV": "env", "WORK": "work", "JOBS": "jobs"}
+_self = sys.modules[__name__]   # config.STATE and the rest, as this module reads them too
 
 
-# Python calls __getattr__ for config.JOBS: it follows HOME wherever a test or a checkout
-# moves it, so sandboxing HOME keeps job receipts out of the owner's real ~/.agentkit.
-# Anything patching config.JOBS explicitly keeps working, since it shadows this fallback.
+# Python calls __getattr__ for config.STATE and every other place: each follows HOME wherever
+# a test or a checkout moves it, so sandboxing HOME alone keeps the owner's real ~/.agentkit out
+# of reach.  A test that moved HOME but not STATE once wrote the shipped config's usage reading
+# over the owner's, every subscription's reading gone.  Anything patching a place itself keeps
+# working, since it shadows this fallback.
 def __getattr__(name):
-    if name == "JOBS":
-        return HOME / "jobs"
+    if name in PLACES:
+        return HOME / PLACES[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -303,7 +307,7 @@ def repo_env(repo):
     ends the run: a typo that silently dropped one variable would surface as a test failure the
     executor cannot fix, so it is reported here, by line number and without its value.
     """
-    path = ENV / f"{Path(repo).name}.env"
+    path = _self.ENV / f"{Path(repo).name}.env"
     if not path.exists():
         return {}
     try:
@@ -872,7 +876,7 @@ def session_path(name):
     name = normalize_session(name)
     if not isinstance(name, str) or not name or Path(name).name != name or name in (".", ".."):
         raise Error(f"invalid {SESSION_ENV} name {name!r}")
-    return STATE / f"session-{name}.json"
+    return _self.STATE / f"session-{name}.json"
 
 
 def seat_file(kind, name):
@@ -884,7 +888,7 @@ def seat_files(kind):
     """(seat, path) for every file of one SEAT_FILES kind, in name order."""
     ext = SEAT_FILES[kind]
     return [(path.name[len(kind) + 1:-len(ext) - 1], path)
-            for path in sorted(STATE.glob(f"{kind}-*.{ext}"))]
+            for path in sorted(_self.STATE.glob(f"{kind}-*.{ext}"))]
 
 
 def seat_file_owner(path):
@@ -1133,7 +1137,7 @@ def update_session(name, **fields):
 
 def _session_files():
     """(name, contents) for every session file, records and rename pointers alike."""
-    if not STATE.exists():
+    if not _self.STATE.exists():
         return
     for name, path in seat_files("session"):
         try:
@@ -1248,7 +1252,7 @@ def active_session(cfg):
 def server_alias():
     """The ssh alias of the server, which install.sh records on a client and nowhere else."""
     try:
-        return (STATE / "server").read_text().strip() or None
+        return (_self.STATE / "server").read_text().strip() or None
     except OSError:
         return None
 
@@ -1515,7 +1519,7 @@ def plan_path(name):
 def runs_moved_path():
     """Touched whenever a seat's run moves -- a step, a round, an ending -- so an open menu, which
     watches it, reads its rows again."""
-    return STATE / "runs-moved"
+    return _self.STATE / "runs-moved"
 
 
 def stop_path(name):
@@ -1638,7 +1642,7 @@ def kept_logins():
     it removed whole, with the name its usage row had.  `+ add` offers them back.  [] where
     there is no record, or none that can be read."""
     try:
-        kept = _read_json(STATE / KEPT_LOGINS)
+        kept = _read_json(_self.STATE / KEPT_LOGINS)
     except Error:
         return []
     return [tuple(entry) for entry in kept if isinstance(entry, list) and len(entry) == 3] \
@@ -1648,7 +1652,7 @@ def kept_logins():
 def keep_login(provider, account, label):
     """Record one login `− remove` takes out, in place of an older record of the same one."""
     kept = [entry for entry in kept_logins() if entry[:2] != (provider, account)]
-    _write_json(STATE / KEPT_LOGINS, [*kept, (provider, account, label)])
+    _write_json(_self.STATE / KEPT_LOGINS, [*kept, (provider, account, label)])
 
 
 def provider_harness(cfg, provider):
@@ -1660,6 +1664,6 @@ def provider_harness(cfg, provider):
 
 
 def ensure_dirs():
-    for d in (HOME, RUNS, WT, STATE, SECRETS, TMP, ENV, WORK, HOME / "jobs"):
+    for d in (HOME, *(getattr(_self, name) for name in PLACES)):
         d.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(d, 0o700)   # a dir someone else created stays 0700 too
