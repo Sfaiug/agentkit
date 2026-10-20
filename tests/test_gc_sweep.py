@@ -32,7 +32,10 @@ class GcSweep(Sandbox):
         super().setUp()
         self.stack.enter_context(patch.object(time, "time", real_time))
         self.stack.enter_context(patch.object(orch, "user_manager", return_value=False))
-        self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_GC_DISK_PERCENT": "100"}))
+        # Every HEAD move git records here is two days old, as a checkout left alone has;
+        # `aged` ages the rest.
+        self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_GC_DISK_PERCENT": "100",
+                                                         "GIT_COMMITTER_DATE": f"@{int(time.time() - 2 * DAY)}"}))
         self.repo = self.make_repo("repo")
         self.other = self.make_repo("other")
 
@@ -546,6 +549,19 @@ class GcSweep(Sandbox):
         self.gc()
         self.assertFalse(wt.exists())
         self.assertTrue(self.branch_exists(self.repo, "seat/housekept"))
+
+    def test_a_seats_checkout_whose_head_moved_within_a_day_stays(self):
+        # An empty commit, an amend and a soft reset move HEAD and may leave the index alone.
+        moves = {"empty": ("commit", "--allow-empty", "-qm", "empty"),
+                 "amended": ("commit", "--amend", "-qm", "amended"),
+                 "reset": ("reset", "-q", "--soft", "HEAD")}
+        seats = {name: self.aged(self.seat(self.repo, name), 2 * DAY) for name in moves}
+        with patch.dict(os.environ, {"GIT_COMMITTER_DATE": f"@{int(time.time())}"}):
+            for name, move in moves.items():
+                self.git(seats[name], *move)
+        self.gc()
+        for wt in seats.values():
+            self.assertTrue(wt.is_dir(), wt)
 
     def test_a_checkout_ak_makes_is_locked_as_its_own_while_git_makes_it(self):
         # Git writes ak's reason as given, in any language: the checkout's own smudge filter,
