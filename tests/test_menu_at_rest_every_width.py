@@ -462,10 +462,11 @@ class V5oMenu(Sandbox):
     def test_v5o_o_states_come_from_table(self):
         # The table is the single source, and it holds the whole vocabulary: every
         # word resolves through state_text and state_colour to its entry.
-        self.assertEqual(list(terminal.STATES), ["working", "needs you", "done", "idle"])
+        self.assertEqual(list(terminal.STATES),
+                         ["working", "needs you", "done", "idle", "out of usage"])
         for word, (mark, colour) in terminal.STATES.items():
             self.assertTrue(mark)
-            self.assertIn(colour, ("attention", "good", "accent", "dim"))
+            self.assertIn(colour, ("attention", "good", "accent", "dim", "spent"))
             self.assertEqual(terminal.state_text(word), f"{mark} {word}")
             self.assertEqual(terminal.state_colour(word), colour)
         self.assertEqual(terminal.STATES["working"][0], "●")
