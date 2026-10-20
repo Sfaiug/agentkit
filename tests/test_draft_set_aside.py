@@ -22,6 +22,7 @@ class DraftSetAside(Seats):
         super().setUp()
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
         self.deaf, self.launched, self.tty = False, True, self.root / "tty"
+        self.drawn = {}                 # a composer's text, where its pane is drawn whole
         self.tty.write_text("")
         self.untouched(watch.DRAFT_STILL)
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
@@ -39,7 +40,8 @@ class DraftSetAside(Seats):
 
     def show(self, composer):
         self.composer, self.free = composer, not composer
-        self.pane = self.base.replace(self.empty, f"❯ {composer}\n") if composer else self.base
+        self.pane = self.drawn.get(composer) or (
+            self.base.replace(self.empty, f"❯ {composer}\n") if composer else self.base)
 
     def read(self, *_args, **_kwargs):
         """The pane, drawing what the editor handed back on the third read after."""
@@ -108,14 +110,28 @@ class DraftSetAside(Seats):
                 self.show(own)
                 if row:
                     self.pane = self.base.replace(self.empty, row)
-                self.deaf = True        # the editor never opens: the owner's text stays shown
+                # the editor keeps it at once, and the screen shows the line only reads later
                 watch.type_at_prompt(self.seat, line, lambda _: None, cfg=self.cfg)
-                self.assertEqual((self.sent, self.ask), ([], None))
+                self.assertEqual((self.sent[-1:], self.composer, self.buffers), ([line], own, {}))
+
+    def test_a_line_its_composer_scrolls_goes_past_the_text_too(self):
+        line = ("run 20261006-1534 finished FAIL: a case. " * 40)[:700]
+        self.base = (REPO / "tests/fixtures/antigravity-prompt-pane.txt").read_text()
+        drafted = self.base.replace("? for shortcuts", " " * 15)
+        self.drawn = {DRAFT: drafted.replace(">\n", f"> {DRAFT}\n"),
+                      line: (REPO / "tests/fixtures/antigravity-short-tall-line-pane.txt").read_text()}
+        self.show(DRAFT)
+        with patch.object(watch, "seat_model", return_value=("antigravity", "acme")):
+            watch.type_at_prompt(self.seat, line, lambda _: None, cfg=self.cfg)
+        self.assertEqual((self.sent, self.composer, self.buffers), ([line], DRAFT, {}))
 
     def test_text_not_back_with_its_line_comes_back_on_a_later_pass(self):
         self.wait_line()
         with patch.object(watch, "_send_enter", return_value=False):
-            self.tick()                 # the line's Enter fails
+            self.tick()                 # the line's Enter fails: it stands in the composer
+        # where another line takes it for the owner's text and sets it aside too
+        self.assertFalse(watch.type_at_prompt(self.seat, "The docs finished.", lambda _: None,
+                                              cfg=self.cfg))
         self.deaf = True
         self.tick()                     # its Enter, from its mark
         self.tick()                     # the editor never opens to bring the text back
@@ -147,6 +163,14 @@ class DraftSetAside(Seats):
         self.tick()
         self.assertEqual((self.keys, self.typed, self.buffers, self.told()),
                          (["Enter"], [LINE], {}, True))
+
+    def test_text_kept_with_no_line_of_its_own_comes_back_after_the_next(self):
+        self.buffers[aside_editor.kept(PANE)] = DRAFT.encode()
+        self.show("")
+        self.wait_line()
+        self.tick()
+        self.assertEqual((self.typed, self.sent, self.composer, self.buffers, self.told()),
+                         ([LINE], [LINE], DRAFT, {}, True))
 
     def test_text_typed_lately_mid_turn_or_in_a_seat_started_before_the_editor_stays(self):
         self.wait_line()

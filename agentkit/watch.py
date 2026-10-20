@@ -3121,9 +3121,10 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", editor=No
         fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
         fh.flush()
         if editor:
-            # what the composer held is no line of ak's: only the whole line read there is proof
+            # the editor keeps the composer's text before it hands the line back: that it keeps
+            # some is its word that it acted, the screen's on the line comes before its Enter
             put = _edit(session, editor, "line", text,
-                        settled=lambda: composer_holds(name, session, text, exact=True) == "line")
+                        settled=lambda: bool(_set_aside(session, editor)))
             rc, out = (0, "") if put else (1, "ak's editor never showed it in the composer")
         else:
             rc, out = orch.tmux_out("send-keys", "-t", f"={name}:", "-l", text,
@@ -3607,7 +3608,7 @@ def seat_editor(session, cfg=None):
 
 def _edit(session, where, mode, line="", *, settled):
     """Ask ak's editor for `line` or `back` (`aside_editor.request`) and press the keys that open
-    it: whether the screen shows it done (`settled`) within SENT_WAIT, the only word ak takes on
+    it: whether the pane shows it done (`settled`) within SENT_WAIT, the only word ak takes on
     it.  The ask is taken back after, for the owner's own edit never to find."""
     server, pane = orch.seat_socket(session), where["id"]
     if (orch.tmux_out("set-option", "-p", "-t", pane, aside_editor.ASK,
@@ -3624,8 +3625,9 @@ def _edit(session, where, mode, line="", *, settled):
 def draft_standing(session, where, cfg=None):
     """Whether that seat's composer holds text the owner left standing: nothing typed into its
     pane (`where`, `seat_editor`) for DRAFT_STILL and none unread, at a prompt that would take
-    ak's line but for that text, under no question.  The owner: text they leave in a seat never
-    keeps ak's line out of it (19 Oct 2026)."""
+    ak's line but for that text, under no question, and none of the pane's set aside already:
+    one line at a time goes past it, so what stands there may be that line, still unsent.  The
+    owner: text they leave in a seat never keeps ak's line out of it (19 Oct 2026)."""
     name = session["name"]
     try:
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
@@ -3637,7 +3639,8 @@ def draft_standing(session, where, cfg=None):
     if not (still and found.get("authority") and found.get("state") in ("at_prompt", "draft")
             and _composer_open(harness, found) and not asking(name, harness, pane)):
         return False
-    return bool(composer_draft(harness, pane)) and not pane_unread(session)
+    return (bool(composer_draft(harness, pane)) and not pane_unread(session)
+            and _set_aside(session, where) == "")
 
 
 def _set_aside(session, where):
@@ -3651,29 +3654,39 @@ def _set_aside(session, where):
     return kept if rc == 0 else None
 
 
+def _alone(held, session, text, where, cfg=None):
+    """Whether that seat's composer holds the line alone (`composer_holds`) and not the text ak's
+    editor keeps from its pane (`where`, `seat_editor`): drawn late, the owner's text can read as
+    the line's end or its fold."""
+    kept = _set_aside(session, where) if where else ""
+    return (kept is not None and composer_holds(held, session, text, cfg) == "line"
+            and not (kept and composer_holds(held, session, kept, cfg) == "line"))
+
+
 def _landed(session, held, text, log, aside, cfg=None):
     """Under the seat's send lock: whether the line typed into it has landed -- its composer,
     read whole, empty with no unread input, its Enter pressed again while it holds the line
-    alone -- and, typed past text ak's editor set aside (`aside`), that text back in it.  The
-    lock is held from the line's first key until that text is drawn, so no other line goes in
-    beside text on its way back, nor does the text come back before a line is read sent."""
-    if aside:
-        where = seat_editor(session, cfg)
-        kept = _set_aside(session, where) if where else None
-        if not kept:
-            # none kept is the text back, which only ever follows the line's going
-            return kept == ""
-    holds = composer_holds(held, session, text, cfg)
-    if holds == "line":
+    alone (`_alone`).  Text ak's editor keeps from the pane goes back into a composer read so,
+    whichever line finds it, and a line typed past it (`aside`) lands once it has.  The lock
+    is held from the line's first key, so no other line goes in beside text on its way back,
+    nor does the text come back before a line is read sent."""
+    where = seat_editor(session, cfg)
+    kept = _set_aside(session, where) if where else None
+    if aside and not kept:
+        # none kept: it went back into a composer this line had left, as nothing else is set
+        # aside while it is kept (`draft_standing`)
+        return kept == ""
+    if _alone(held, session, text, where, cfg):
         kept_asked_first(dict(session, name=held))
         _send_enter(session, log)
-    if holds != "empty" or pane_unread(session):
         return False            # the next pass reads whether that Enter sent it
-    if not aside or _edit(session, where, "back",
+    if composer_holds(held, session, text, cfg) != "empty" or pane_unread(session):
+        return False
+    if kept and not _edit(session, where, "back",
                           settled=lambda: composer_holds(held, session, kept, cfg) == "line"):
-        return True
-    log(f"WARN {held}: the owner's text ak set aside is not back in its composer yet")
-    return False
+        log(f"WARN {held}: the owner's text ak set aside is not back in its composer yet")
+        return not aside
+    return True
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -3733,7 +3746,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         return (type_checked(session, text, log, None, guard=lambda: nullcontext(held),
                              veto=veto, typed=lambda: receipt(aside if standing else mark),
                              source=source,
-                             ready=lambda name: composer_holds(name, session, text, cfg) == "line",
+                             ready=lambda name: _alone(name, session, text, where, cfg),
                              editor=where if standing else None)
                 and _landed(session, held, text, log, standing, cfg))
 
