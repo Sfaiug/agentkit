@@ -2998,7 +2998,7 @@ KNOB = ("knob", "within")
 KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
 MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
-               "boards; cost is what Artificial Analysis's index run cost it, in dollars")
+               "boards; cost is what a task of Artificial Analysis's index run cost it, in dollars")
 CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
 SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
@@ -3051,12 +3051,12 @@ def models_at(rows, effort):
 
 def _entry(cfg, row, role):
     """A row as the lines above the table say it: its label under the configured model `r`
-    takes it as in `role` (takes), its quality for the role and what its index run cost
-    (`Opus 5.5 @ xhigh 97 $4057`, by its full name; the cost left out where Artificial Analysis
-    has not run it)."""
+    takes it as in `role` (takes), its quality for the role and what a task of its index run
+    cost (`Opus 5.5 @ xhigh 97 $5.98`, by its full name; the cost left out where Artificial
+    Analysis has not run it)."""
     cost, name = row["values"].get(matrix.COST), takes(cfg, row, role)
     return (f"{matrix.row_label({**row, 'name': name and config.model_name(cfg, name)})} "
-            f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.0f}"))
+            f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.2f}"))
 
 
 def models_body(cfg, table, levels, shown, at, picks):
@@ -3074,7 +3074,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
-    one as good in the accent) and what Artificial Analysis's index run cost it; on a narrow
+    one as good in the accent) and what a task of Artificial Analysis's index run cost; on a narrow
     screen the harness gives way, then the cost, and where the label would still be cut each
     model takes two lines, its label and harness over its effort and numbers, the harness
     giving way again where the label would still be cut beside it.  `at`
@@ -3135,7 +3135,7 @@ def models_body(cfg, table, levels, shown, at, picks):
             kinds[key].append("dim" if not found else "done" if place == ids.get(role, [None])[0]
                               else "accent" if place in ids.get(role, []) else None)
         cost = (row.get("values") or {}).get(matrix.COST)
-        texts[key].append("-" if cost is None else f"{cost:.0f}")
+        texts[key].append("-" if cost is None else f"{cost:.2f}")
         kinds[key].append("dim" if cost is None else None)
     widths = [max(terminal.cells(text) for text in (head, *(texts[key][n] for key in table)))
               for n, head in enumerate(MODELS_HEADS)]

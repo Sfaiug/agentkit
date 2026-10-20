@@ -1,10 +1,9 @@
 """The public boards whose numbers export, each asked at most once a day and kept in
 `state/boards.json`.
 
-Artificial Analysis, with the key the owner puts under `secrets/artificialanalysis_key` (free at
-artificialanalysis.ai/login): per model and effort, the intelligence, coding, agentic and
-capability indexes, prices and output speed its free endpoint exports (per-benchmark scores are
-Pro's).  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARENA_BOARDS` at its
+Artificial Analysis, its site's pages (`AA_PAGES`), no key: per model and effort, every
+benchmark's score, index, price and cost its pages hand their scripts, which its free endpoint
+leaves out.  Arena, its leaderboard's Hugging Face dataset, no key: each of `ARENA_BOARDS` at its
 category.  LiveBench 2.0, its newest release's CSV files, no key: each suite's score and what a
 successful coding task cost.  `ak models --refresh` asks again before the day is up; a board
 that cannot answer keeps what it last said, its error beside it, and waits for the day like one
@@ -13,8 +12,8 @@ that answered.  Callers at once share one collection: each writer of `state/boar
 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default Fallback)` is Acme 5 (Default Fallback) at
 max), or at none where the board names no effort, with every number the board gives as
 `<board>.<field>`, a table's fields under the table's name
-(`aa.evaluations.artificial_analysis_coding_index`).
-Attribution: artificialanalysis.ai; Arena (lmarena-ai), leaderboard-dataset, CC-BY-4.0;
+(`aa.intelligenceIndexCostPerTask.cost.total`).
+Attribution: Source: Artificial Analysis (artificialanalysis.ai); Arena (lmarena-ai), leaderboard-dataset, CC-BY-4.0;
 livebench.ai, Apache 2.0.
 """
 
@@ -36,8 +35,13 @@ TIMEOUT = 30             # seconds one request may take
 PACE = 1                 # seconds between two asks of one host: a day's asks are a few dozen
 RETRIES = (2, 4)         # seconds before asking again after a server error, each in turn
 _ASKED = {}              # host -> when it was last asked, on the monotonic clock
-AA_URL = "https://artificialanalysis.ai/api/v2/language/models/free"
-AA_KEY = "artificialanalysis_key"
+# a retired model's page carries every model's record whole; DeepsecBench's carries its score,
+# which that one leaves out
+AA_PAGES = ("https://artificialanalysis.ai/models/gpt-35-turbo",
+            "https://artificialanalysis.ai/evaluations/deepsecbench-aa")
+# where a page's script data holds a model's record, and the strings that data comes in
+AA_RECORD = re.compile(r'\{"id":"[0-9a-f-]{36}","slug":"[^"]+","name":"')
+AA_CHUNK = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 ARENA_URL = ("https://datasets-server.huggingface.co/{endpoint}"
              "?dataset=lmarena-ai/leaderboard-dataset&config={board}&split=latest")
 # Arena's boards ak reads, each at one category, a column `arena.<board>` (`.<category>` past
@@ -74,14 +78,6 @@ def fetch_bytes(url, headers=None):
         time.sleep(wait)
 
 
-def key():
-    """The owner's Artificial Analysis key, or "" when the file is not there."""
-    try:
-        return (config.SECRETS / AA_KEY).read_text().strip()
-    except OSError:
-        return ""
-
-
 def split_effort(name):
     """(the model's name without its effort, the effort or None) off a board's model name:
     `Acme 5 (max)` is Acme 5 at max, `Acme 5 (max) (0813)` is Acme 5 (0813) at max, and a
@@ -110,20 +106,39 @@ def _numbers(entry, prefix, into):
             _numbers(value, f"{prefix}.{field}", into)
 
 
-def artificial_analysis(secret):
-    """Artificial Analysis's rows, one per model and effort, every number it gives as `aa.*`,
-    off every page of its free endpoint."""
-    rows, page = [], 1
-    while True:
-        payload = json.loads(fetch_bytes(f"{AA_URL}?page={page}", {"x-api-key": secret}))
-        for entry in payload.get("data") or []:
-            name, effort = split_effort(str(entry.get("name") or entry.get("slug") or ""))
-            values = {}
-            _numbers(entry, "aa", values)
-            rows.append({"model": name, "effort": effort, "values": values})
-        if not payload.get("data") or not (payload.get("pagination") or {}).get("has_more"):
-            return rows
-        page += 1
+def artificial_analysis():
+    """Artificial Analysis's rows, one per model and effort, every number its pages give as
+    `aa.*`: each model's record in the data a page hands its scripts, those of all `AA_PAGES`
+    merged by the record's slug.  A page with no model's record is a ValueError: the site
+    changed, and the board keeps what it last said."""
+    records = {}
+    for url in AA_PAGES:
+        page = fetch_bytes(url).decode("utf-8", "replace")
+        data = "".join(json.loads(chunk) for chunk in AA_CHUNK.findall(page))
+        found = 0
+        for match in AA_RECORD.finditer(data):
+            try:
+                record = json.JSONDecoder().raw_decode(data, match.start())[0]
+            except ValueError:
+                continue
+            if "release" in record:           # a model's, not its maker's
+                records.setdefault(record["slug"], {}).update(
+                    {field: value for field, value in record.items() if value is not None})
+                found += 1
+        if not found:
+            raise ValueError(f"no model's record on {url}")
+    rows = []
+    for record in records.values():
+        name, effort = split_effort(str(record["name"]))
+        briefcase = record.get("briefcaseBreakdown")
+        if isinstance(briefcase, dict) and "overall" not in briefcase:
+            # the newest records give Briefcase's overall rating flat, the others under `overall`
+            briefcase["overall"] = {field: briefcase.pop(field) for field in
+                                    ("elo", "lower95ci", "upper95ci") if field in briefcase}
+        values = {}
+        _numbers(record, "aa", values)
+        rows.append({"model": name, "effort": effort, "values": values})
+    return rows
 
 
 def arena():
@@ -240,14 +255,10 @@ def collect(*, refresh=False, now=None):
     now = time.time() if now is None else now
     with _locked():
         cache = _held()
-        secret = key()
-        asks = {"artificialanalysis.ai": (lambda: artificial_analysis(secret)) if secret else None,
-                "arena.ai": arena, "livebench.ai": livebench}
+        asks = {"artificialanalysis.ai": artificial_analysis, "arena.ai": arena,
+                "livebench.ai": livebench}
         for board, ask in asks.items():
             held = cache.get(board) or {}
-            if ask is None:
-                cache[board] = {**held, "error": f"no key: put one in {config.SECRETS / AA_KEY}"}
-                continue
             if not refresh and held.get("asked_at") and now - held["asked_at"] < FRESH_FOR:
                 continue
             try:

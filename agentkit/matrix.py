@@ -22,12 +22,12 @@ board never ran the model on counting as the board's typical gap, and the role's
 less the mean over the role's measures, weighted alike, given at least half of them (`ROLES`
 names them and what each tests), said with how many it has (`97 of 3`).  A row
 within `within` of the best counts as as good as it, and the cheapest of those is recommended,
-the others beside it: by what Artificial Analysis's index run cost on the row, a row it has not
-run by LiveBench's cost of a coding task after every priced one, unpriced last, then the higher
-quality, the row the config runs in the role, the higher effort, the first by harness and model
-name.  ak's own run numbers stand beside, per configured model, the effort its runs recorded and
+the others beside it: by what a task of Artificial Analysis's index run cost on the row, a row
+it has not run by LiveBench's cost of a coding task after every priced one, unpriced last, then
+the higher quality, the row the config runs in the role, the higher effort, the first by
+harness and model name.  ak's own run numbers stand beside, per configured model, the effort its runs recorded and
 role, with their count, and never rank (AGENTS.md, Owner rules).
-Attribution: artificialanalysis.ai, arena.ai, livebench.ai.
+Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai; livebench.ai.
 """
 
 import contextlib
@@ -41,8 +41,8 @@ import time
 from . import command_help, config, record, terminal
 from .boards import EFFORT_ORDER, TASK_COST, collect, lines as board_lines
 
-INTEL = "aa.evaluations.artificial_analysis_intelligence_index"   # every model has it per effort
-COST = "aa.artificial_analysis_intelligence_index_cost.total_cost"   # dollars its index run cost
+INTEL = "aa.intelligenceIndex"       # every model has it per effort
+COST = "aa.intelligenceIndexCostPerTask.cost.total"      # dollars a task of its index run cost
 PRICES = (COST, TASK_COST)          # what a row reads only off a board's row at its own effort
 # A row this many points under the best counts as as good: the three boards disagree with each
 # other about differences between the top models by more (a median of 6 to 10 points, 17 Oct
@@ -325,8 +325,8 @@ def within(cfg):
 
 
 def cost_key(row):
-    """What ordering by cost sorts a row on: Artificial Analysis's index run cost, a row it has
-    not run after every priced one, by LiveBench's cost of a coding task, unpriced last."""
+    """What ordering by cost sorts a row on: what a task of Artificial Analysis's index run
+    cost, a row it has not run after every priced one, by LiveBench's cost of a coding task, unpriced last."""
     values = row["values"]
     return ((0, values[COST]) if COST in values else (1, values[TASK_COST])
             if TASK_COST in values else (2, 0.0))
@@ -513,7 +513,7 @@ def render(table, boards, own=None, band=WITHIN):
         (row["name"] or "-", row["harness"],
          row["model"] + (f" @ {row['effort']}" if row["effort"] else ""),
          *(cell(row["scores"][role]) for role in ROLES),
-         _num(row["values"].get(COST)), _num(row["values"].get(TASK_COST), 2))
+         _num(row["values"].get(COST), 2), _num(row["values"].get(TASK_COST), 2))
         for row in table]
     width = terminal.width()
 
@@ -538,7 +538,8 @@ def render(table, boards, own=None, band=WITHIN):
              "model's highest, and a measure the board never ran the model on counts as the "
              f"board's typical gap; a row within {band:g} of the best counts as as good "
              "(`within` in config.toml), and the cheapest of those is recommended: by `cost`, "
-             "what Artificial Analysis's index run cost on it, then `$/task`, LiveBench's cost "
+             "what a task of Artificial Analysis's index run cost on it, then `$/task`, "
+             "LiveBench's cost "
              "of a coding task, unpriced last, then the higher quality, the one the config runs "
              "in the role, the higher effort, the first by name",
              *(f"{role}, {len(measures)} measures: "
