@@ -4,8 +4,9 @@
 and, but on a phone, a column and a row of padding inside it, a line typed into it included; the
 pane behind it draws its text dim while it is up and has exactly its own styles back once the last
 popup over it is down, however it comes down -- its menu ending, a crash, a kill, which is what
-its client going does to it too; and its content fades in on the motion clock, a key pressed
-meanwhile answered at once.
+its client going does to it too; every tmux call on the way is tmux's own, never the shim a seat's
+PATH starts with; and its content fades in on the motion clock, a key pressed meanwhile answered
+at once.
 
 tmux is a fake answering as tmux 3.5a: its version, the one pane's options, kept in a file, and
 `display-popup`, which runs the popup's command and returns once it is down, as tmux 3.5a's
@@ -105,13 +106,19 @@ for command, *given in listed:
         sys.exit(1)
 """
 
-# The popup's command: says what styles the pane under it has, what it was handed and who it is,
-# then ends the way STANDIN_END says -- or waits to be killed.
+# The popup's command: says what styles the pane under it has once it is dim (it goes dim beside
+# the popup coming up), or after 15 seconds, what it was handed and who it is, then ends the way
+# STANDIN_END says -- or waits to be killed.
 STANDIN = r"""
 import json, os, subprocess, sys, time
-styles = {name: subprocess.run(["tmux", "show-options", "-pv", name],
-                               capture_output=True, text=True).stdout.strip()
-          for name in ("window-style", "window-active-style")}
+deadline = time.monotonic() + 15
+while True:
+    styles = {name: subprocess.run([os.environ["STANDIN_TMUX"], "show-options", "-pv", name],
+                                   capture_output=True, text=True).stdout.strip()
+              for name in ("window-style", "window-active-style")}
+    if set(styles.values()) == {os.environ["STANDIN_DIM"]} or time.monotonic() > deadline:
+        break
+    time.sleep(0.01)
 saw = os.environ["STANDIN_SAW"]
 with open(saw + ".part", "w") as out:
     json.dump({"styles": styles, "padding": os.environ.get("AGENTKIT_PADDING"), "pid": os.getpid()},
@@ -172,7 +179,8 @@ def popup_flags(popup):
 class FakeTmux:
     """A throwaway HOME whose tmux is the fake, agentkit's tmux.conf written into it."""
 
-    def __init__(self, case, version="tmux 3.5a"):
+    def __init__(self, case, version="tmux 3.5a", shim=False):
+        """`shim`: a seat's PATH, ak's tmux shim ahead of tmux, the shim saying it ran."""
         home = tempfile.TemporaryDirectory(prefix="popup-floats-")
         case.addCleanup(home.cleanup)
         self.case, self.root, self.opened = case, Path(home.name), 0
@@ -180,11 +188,21 @@ class FakeTmux:
         tmux = self.root / "bin" / "tmux"
         tmux.write_text(FAKE_TMUX)
         tmux.chmod(0o755)
+        path = [str(self.root / "bin"), os.environ.get("PATH", "")]
+        self.shimmed = self.root / "shimmed"
+        if shim:
+            folder = self.root / ".agentkit" / "bin"      # `guard.shim_dir` under this HOME
+            folder.mkdir(parents=True)
+            (folder / "tmux").write_text(
+                f'#!/bin/sh\necho "$*" >> {shlex.quote(str(self.shimmed))}\n'
+                f'exec {shlex.quote(str(tmux))} "$@"\n')
+            (folder / "tmux").chmod(0o755)
+            path.insert(0, str(folder))
         standin = self.root / "standin.py"
         standin.write_text(STANDIN)
         self.pane, self.log = self.root / "pane.json", self.root / "popups.jsonl"
         self.env = {**os.environ, "HOME": str(self.root), "FAKE_TMUX_VERSION": version,
-                    "PATH": f"{self.root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+                    "PATH": os.pathsep.join(path), "STANDIN_TMUX": str(tmux), "STANDIN_DIM": DIM,
                     "FAKE_TMUX_PANE": str(self.pane), "FAKE_TMUX_POPUPS": str(self.log)}
         with patch.dict(os.environ, self.env), \
                 patch.object(config, "HOME", self.root / ".agentkit"), \
@@ -275,6 +293,14 @@ class TheBinding(unittest.TestCase):
         self.assertNotIn("-e", phone)                        # a phone spares no cell
         self.assertEqual(larger["-e"], f"{terminal.PAD_ENV}=1")
         self.assertNotIn("set-hook", "\n".join(tmux.lines))   # no other session is touched
+
+    def test_it_runs_tmux_itself_never_the_shim_a_seat_s_path_starts_with(self):
+        tmux = FakeTmux(self, shim=True)
+        seen = tmux.press()
+        self.assertEqual(seen["styles"], dict.fromkeys(STYLES, DIM))
+        self.assertEqual(len(tmux.popups()), 1)
+        self.assertEqual(tmux.options(), {})
+        self.assertFalse(tmux.shimmed.exists())
 
     def test_a_tmux_without_them_gets_the_plain_popup_and_no_word_about_it(self):
         tmux = FakeTmux(self, version="tmux 3.2a")

@@ -89,16 +89,20 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 # the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
 # pane's own tmux lock, so two popups over one pane never count, keep or put back over each
 # other, and every lock is let go by a command of its own, which a command failing before it
-# cannot skip.  It ends in `true` whatever failed (a pane stopped under it), because tmux shows
-# a job that ends otherwise over the pane.
-FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
+# cannot skip.  The pane goes dim beside the popup coming up, not before it, and the popup
+# down waits for it to have; every call is the real tmux (`guard.real`), since the shim a
+# seat's PATH starts with costs each a Python start, and the key waited on all of them.  It
+# ends in `true` whatever failed (a pane stopped under it), because tmux shows a job that ends
+# otherwise over the pane.
+FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
+         'o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
-         'l() { tmux wait-for "$1" "ak-float$p"; }; l -L; n=$(o @ak_floats); '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); '
          'for s in window-style window-active-style; do '
          'if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; '
          'tmux set-option -p -t "$p" $s %(dim)s; done; '
-         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; '
-         'tmux %(popup)s -c "$c" -t "$p" %(command)s; l -L; n=$(o @ak_floats); '
+         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; '
+         'tmux %(popup)s -c "$c" -t "$p" %(command)s; wait $d; l -L; n=$(o @ak_floats); '
          'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
          'else for s in window-style window-active-style; do '
          'if h @ak_was_$s; then tmux set-option -p -t "$p" $s "$(o @ak_was_$s)" \\; '
@@ -1959,8 +1963,8 @@ def tmux_conf():
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
-                FLOAT % {"dim": shlex.quote(DIM), "popup": popup,
-                         "command": shlex.quote(popup_command())}))
+                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
+                         "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border}",
                           f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
