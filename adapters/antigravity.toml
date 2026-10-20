@@ -6,6 +6,7 @@
 # A worker turn or seat still loads GEMINI.md, AGENTS.md and rules/ of the workspace: agy 1.2.13 has no switch for them.
 version = 1
 name = "Antigravity"
+colour = "#203B9B"
 
 [check]
 model = "gemini-3.8-flash"

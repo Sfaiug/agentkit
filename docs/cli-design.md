@@ -262,8 +262,9 @@ on every page, each subscription's meter as the main screen draws it; where over
 it they would leave the page fewer than three rows, they lead the page instead
 and scroll with it. It is a
 matrix read with the keys, so the file is never
-opened: every offered model once, under its provider's display name in the
-accent, a row of label, then `orch` (`●` on the one the For row names, `○` dim
+opened: every offered model once, under its harness's name in its colour (its manifest's
+`name` and `colour`: `Claude Code`, `Codex`, `OpenCode` #5B98F1, `Muse Code`, `Grok Build`), a
+model a harness runs for any provider under it, a row of label, then `orch` (`●` on the one the For row names, `○` dim
 elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
@@ -374,8 +375,7 @@ while the row is open. The popup's `n` makes the same row, and its client switch
 seat.
 
 The picker is `agentkit · new session`: every model appears once, with the same configured name
-and provider heading as on `c`: `Claude`, `ChatGPT`, and each other provider's display name in
-the accent style. Each row has `orch` (`●`/`○`) for the one orchestrator, `builds` and `reviews`
+and harness heading as on `c`. Each row has `orch` (`●`/`○`) for the one orchestrator, `builds` and `reviews`
 (`■`/`□`) for its two role groups, with its harness and effort dim beside it. Names are no wider
 than a third of the screen, a longer one cut. The defaults are chosen when it opens; a spent
 model reads dim with `spent · resets <day HH:MM>`, on a line of its own under the name where the
