@@ -5,7 +5,8 @@ importing the menu.  `serve` is up with that done, one per HOME and checkout.  T
 `client`, Python without its site or agentkit, hands it the popup's terminal, directory,
 environment and words over a socket in STATE; the server forks a menu onto that terminal under
 a fork that waits for it and hands the client its code.  The menu is in no session of the
-terminal's, so the client forwards it the terminal's signals: a resize, a hang-up.
+terminal's, so the client forwards the terminal's signals, a resize, a hang-up, a Ctrl-C, to the
+menu's process group: what the menu runs, a login, hears them as it would cold.
 
 Anything amiss goes cold: with no server, or one silent for WAIT, the client runs `bin/ak` as
 the popup always did, and starts a server where an install is stamped -- only there can one
@@ -58,7 +59,7 @@ def client(repo, argv):
 
         def forward(number, _frame):
             try:
-                os.kill(pid, number)
+                os.kill(-pid, number)   # the menu's group: it and what it runs
             except OSError:
                 pass             # it has ended: its code is on the way
         for signame in FORWARDED:
@@ -181,6 +182,7 @@ def _menu(conn):
         menu = os.fork()
         if menu:
             os.close(go)
+            os.setpgid(menu, menu)   # a group of its own, before the client can signal it
             conn.sendall(b"R" + menu.to_bytes(4, "big"))
             if _exactly(conn, 1) != b"G":
                 raise OSError("not taken")
