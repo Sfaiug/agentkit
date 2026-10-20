@@ -6,8 +6,11 @@ editor on the keys its manifest names (`[screen] editor`), and `edit` does what 
 pane just before (`request`, a pane option the edit clears): `line` keeps the composer's text in a
 tmux buffer of the pane's (`kept`) and hands back ak's line; `back` hands the kept text back to a
 composer handed over empty or blank, each written whole or not at all.  A second `line` adds
-to what is kept.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's but
-`host`, which imports nothing itself, as it starts on every edit the owner opens.
+to what is kept.  A failed `line` step is undone, and a composer holding exactly what is kept,
+blanks after it aside, holds that text, so a step that fails keeps the text once -- twice only
+where tmux refuses the undo too, after other text was kept.  Asked nothing, it opens the owner's
+own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as it starts on
+every edit the owner opens.
 """
 
 import contextlib
@@ -80,6 +83,12 @@ def _tmux(*args, data=None):
     return proc.stdout if proc.returncode == 0 else None
 
 
+def _keep(name, data):
+    """Whether tmux now keeps `data` in that buffer, or none where it is empty."""
+    return (_tmux("load-buffer", "-b", name, "-", data=data) if data
+            else _tmux("delete-buffer", "-b", name)) is not None
+
+
 def _publish(path, data):
     """Whether the composer at `path` now holds `data`: written beside it and moved over it, so no
     failed write hands the harness part of either."""
@@ -119,12 +128,18 @@ def edit(argv):
         if held is None:
             return 0
         text = path.read_bytes()
-        both = b"\n".join(part for part in (held, text) if part)
+        # the kept text, blanks after it aside, handed back by a `back` tmux failed to drop it after
+        holds = held and text.startswith(held) and not text[len(held):].strip()
+        both = text if holds else b"\n".join(part for part in (held, text) if part)
         # a composer holding the line already got it from an edit before: nothing in it to keep
         if mode == b"line" and text != line:
-            if not text or _tmux("load-buffer", "-b", name, "-", data=both) is not None:
+            if not text:
                 _publish(path, line)
-        elif mode == b"back" and held and not text.strip() and _publish(path, held + text):
+            # a failed step is undone too, as tmux's server can do one its client then times out on
+            elif not (_keep(name, both) and _publish(path, line)):
+                _keep(name, held)
+        elif mode == b"back" and held and (
+                holds or not text.strip() and _publish(path, held + text)):
             _tmux("delete-buffer", "-b", name)
         return 0
     owner = os.environ.get(OWNER) or "vi"
