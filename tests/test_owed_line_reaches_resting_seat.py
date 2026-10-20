@@ -23,7 +23,7 @@ SEAT = "acme-api"
 OUTCOME = "acme's switch new_parser is out of the code"
 LINE = f"- [ ] {OUTCOME} · check: `false` · acme · written 2026-10-20 10:33"
 PROMPT = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
-TOLD = (f"Your plan has an open line: {OUTCOME}. `ak plan` shows each with its check. "
+TOLD = ("Your plan has an open line you were not told of. `ak plan` shows each with its check. "
         "Decide the next step.")
 
 
@@ -59,12 +59,20 @@ class OwedLineReachesRestingSeat(Sandbox):
             {"session": SEAT, "event": event, "kind": "", "text": "", "at": NOW - 60, **extra}))
         watch.look_at(self.seat, cfg=self.cfg)
 
+    def stopped(self):
+        """The owner's Esc on a turn its hook began: Claude runs no hook on it, and records it in
+        its transcript (`watch.interrupted_at`)."""
+        self.stack.enter_context(patch.object(watch, "interrupted_at", return_value=NOW - 30))
+        self.turn("UserPromptSubmit")
+
     def written(self, line=LINE):
         """What the tick's switch retirement does: an open line appended to the seat's plan."""
         path = config.plan_path(SEAT)
         path.write_text(path.read_text() + line + "\n")
 
     def decide(self, harness="claude"):
+        """The seat's word as a screen reads it: a look at the seat, then the decision."""
+        watch.look_at(self.seat, cfg=self.cfg)
         found = watch.session_state(SEAT, NOW, session=self.seat, cfg=self.cfg,
                                     live=watch.seat_read(SEAT), harness=harness)
         return found["word"], found["reason"]
@@ -110,11 +118,12 @@ class OwedLineReachesRestingSeat(Sandbox):
         self.assertEqual(self.tick(), [TOLD, "Enter"])
 
     def test_several_lines_go_in_as_one(self):
+        other = LINE.replace(OUTCOME, "acme's switch old_export is out of the code")
         self.written()
-        self.written(LINE.replace(OUTCOME, "acme's switch old_export is out of the code"))
-        self.assertEqual(self.tick(), [
-            f"Your plan has 2 open lines: {OUTCOME}; acme's switch old_export is out of the "
-            "code. `ak plan` shows each with its check. Decide the next step.", "Enter"])
+        self.written(other)
+        self.assertEqual(self.tick(), [TOLD, "Enter"])
+        self.assertEqual(set(watch.seat_read(SEAT)["plan_told"]),
+                         {plan.identity(LINE), plan.identity(other)})
 
     def test_nothing_is_typed_mid_turn_and_the_line_comes_at_the_next_quiet_prompt(self):
         self.written()
@@ -130,11 +139,11 @@ class OwedLineReachesRestingSeat(Sandbox):
         self.assertEqual(self.decide(), ("needs you", "Which schema should acme use?"))
         self.assertEqual(self.tick(), [])
         config.notify_path(SEAT).unlink()           # answered
-        watch.seat_write(SEAT, interrupted=NOW - 30)
+        self.stopped()
         self.assertNotEqual(self.decide()[0], "needs you")
         self.assertEqual(self.tick(), [])
 
-    def test_a_line_its_composer_kept_is_sent_only_while_the_seat_still_reads_told(self):
+    def test_a_line_its_composer_kept_goes_only_while_the_seat_still_reads_told(self):
         self.written()
         self.assertEqual(self.tick(takes=False), [TOLD, "Enter", "Enter"])
         self.assertEqual(self.tick(), ["Enter"])                # nothing changed: it goes
@@ -143,44 +152,75 @@ class OwedLineReachesRestingSeat(Sandbox):
         for change in (
                 lambda: notify.record(SEAT, "needs", "Which schema should acme use?",
                                       time=NOW - 30),
-                lambda: watch.seat_write(SEAT, interrupted=NOW - 30),
+                self.stopped,
                 lambda: config.plan_path(SEAT).write_text("- [x] The parser reads both schemas\n")):
             with self.subTest(change=change):
                 config.notify_path(SEAT).unlink(missing_ok=True)
                 config.plan_path(SEAT).write_text("- [x] The parser reads both schemas\n")
-                watch.seat_write(SEAT, interrupted=None, plan_told=None, plan_typing=None)
+                watch.seat_write(SEAT, plan_told=None, plan_typing=None)
+                self.turn("Stop")
                 self.screen = PROMPT
                 self.written()
                 self.assertEqual(self.tick(takes=False), [TOLD, "Enter", "Enter"])
                 change()
                 self.assertNotEqual(self.decide()[0], "working")
                 self.assertEqual(self.tick(), [])
-        self.assertIsNone(watch.seat_read(SEAT)["plan_typing"])   # its line closed: dropped
+        # its line closed and another came: the line kept names no line, so it goes for that one
+        written = LINE.replace("10:33", "11:40")
+        self.written(written)
+        self.assertEqual(self.tick(), ["Enter"])
+        for _ in range(2):
+            self.tick()
+        self.assertIn(plan.identity(written), watch.seat_read(SEAT)["plan_told"])
 
-    def test_an_esc_the_send_lock_reads_gets_nothing(self):
+    def keys_after_esc(self, when):
+        """The plan pass on a Codex seat whose owner presses Esc, as its hook writes it, when the
+        send lock is taken, as the text goes in, or while the line waits in the composer: the
+        keys ak sent after it."""
         self.written()
         config.update_session(SEAT, orchestrator="astra")
         codex = (REPO / "tests/fixtures/codex-prompt-pane.txt").read_text()
-        sent = []
+        screen, sent, takes = [codex], [], [when != "kept"]
 
-        def tmux(*args, socket=None, client=False, **_kw):
-            sent.append(args[-1])
-            return 0, ""
-
-        def escape(_held):
-            """The owner's Esc, as its hook writes it, read in the send lock's own look."""
+        def esc(*_a):
             config.hook_facts_path(SEAT).write_text(json.dumps(
                 {"session": SEAT, "event": "Interrupt", "kind": "", "text": "", "at": NOW}))
-            watch.live_state(self.seat, "codex", pane=codex, cfg=self.cfg, now=NOW)
+            sent.clear()
+
+        def tmux(*args, socket=None, client=False, **_kw):
+            if args[0] == "send-keys":
+                sent.append(args[-1])
+                if "-l" in args:
+                    screen[0] = codex.replace("› Ask Codex to do anything\n", f"› {args[-1]}\n")
+                    if when == "text":
+                        esc()
+                elif takes[0]:
+                    screen[0] = codex
+            return 0, ""
         with patch.object(watch, "seat_model", return_value=("codex", "openai")), \
-                patch.object(watch, "pane_text", return_value=codex), \
+                patch.object(watch, "pane_text", side_effect=lambda *_a: screen[0]), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
-                patch.object(orch, "rulebook_prepare", side_effect=escape), \
+                patch.object(orch, "rulebook_prepare",
+                             side_effect=esc if when == "lock" else lambda _held: None), \
                 patch.object(watch.time, "sleep", lambda _s: None):
             self.turn("Stop")
             self.assertEqual(self.decide("codex")[0], "working")
             watch.tell_plans(self.cfg, lambda _line: None)
-        self.assertEqual([key for key in sent if key in (TOLD, "Enter")], [])
+            if when == "kept":
+                self.assertEqual(sent, [TOLD, "Enter", "Enter"])
+                esc()
+                takes[0] = True
+                watch.tell_plans(self.cfg, lambda _line: None)
+        return sent
+
+    def test_no_key_follows_an_esc_as_the_send_lock_is_taken(self):
+        self.assertEqual(self.keys_after_esc("lock"), [])
+
+    def test_no_enter_follows_an_esc_as_the_text_goes_in(self):
+        self.assertEqual(self.keys_after_esc("text"), [])
+
+    def test_no_enter_follows_an_esc_while_the_line_waits_in_the_composer(self):
+        self.assertEqual(self.keys_after_esc("kept"), [])
 
     def test_a_told_line_that_closed_leaves_the_seats_record(self):
         self.written()

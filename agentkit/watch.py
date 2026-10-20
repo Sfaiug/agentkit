@@ -2997,12 +2997,13 @@ def tell_plans(cfg, log):
     and nothing typed (owner, 20 Oct 2026).
 
     It types only where the seat's own word says ak is telling it its plan (`news_owed`), read
-    under the send lock before each key, a pending line's Enter too, so the word and the typing
-    never disagree: never mid-turn, past a question, during a wait or a run of its own, nor
-    after a turn the owner stopped.  The line in the composer is kept in the seat's record with
-    its mark (`plan_typing`) until the send took it, then each of its lines is told
-    (`plan_told`), and dropped once every line it names has closed; a told line no longer open
-    leaves the record at the next pass.
+    off a look taken under the send lock before each key, so the word and the typing never
+    disagree: never mid-turn, past a question, during a wait or a run of its own, nor after a
+    turn the owner stopped, however late its Esc came.  The line names no line of the plan, so
+    one left in the composer is as true when it goes as when it was typed.  It is kept in the
+    seat's record with its mark (`plan_typing`) until the send took it, then each line open when
+    it was typed is told (`plan_told`); a told line no longer open leaves the record at the next
+    pass.
     """
     from . import menu as menu_mod    # the menu imports this module
     from . import plan as plan_mod
@@ -3023,26 +3024,21 @@ def tell_plans(cfg, log):
         if session is None or any(session.get(key) for key in orch.CLOSED):
             continue
         typing = record.get("plan_typing")
-        if isinstance(typing, dict) and not still & set(typing["lines"]):
-            typing = None
-            seat_write(name, plan_typing=None)
         if not isinstance(typing, dict):
-            untold = untold_lines(name, record.get("interrupted"))
-            if not untold:
+            typing = {"lines": [key for key, _ in untold_lines(name, record.get("interrupted"))]}
+            if not typing["lines"]:
                 continue
-            what = "; ".join(outcome for _, outcome in untold)
-            room = longest(cfg) - 120
-            what = what if len(what) <= room else what[:room - 1] + "…"
-            lines = "an open line" if len(untold) == 1 else f"{len(untold)} open lines"
-            typing = {"lines": [key for key, _ in untold], "text":
-                      f"Your plan has {lines}: {what}. `ak plan` shows each with its check. "
-                      "Decide the next step."}
-        if type_at_prompt(session, typing["text"], log, cfg=cfg, typed=typing.get("typed"),
+
+        def stale(held, session=session):
+            seat = dict(session, name=held)
+            harness, found = look_at(seat, cfg=cfg)
+            return not session_state(held, session=seat, cfg=cfg, records=records, live=found,
+                                     harness=harness)["reason"].startswith(TELLING_PLAN)
+        if type_at_prompt(session, "Your plan has an open line you were not told of. `ak plan` "
+                          "shows each with its check. Decide the next step.", log, cfg=cfg,
+                          typed=typing.get("typed"), stale=stale,
                           receipt=lambda mark, name=name, typing=typing:
-                          seat_write(name, plan_typing=dict(typing, typed=mark)),
-                          stale=lambda held, session=session: not session_state(
-                              held, session=session, cfg=cfg, records=records)[
-                              "reason"].startswith(TELLING_PLAN)):
+                          seat_write(name, plan_typing=dict(typing, typed=mark))):
             now = time.time()
             seat_write(name, plan_typing=None,
                        plan_told={**told, **{key: now for key in typing["lines"]}})
@@ -3909,7 +3905,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     return (type_checked(session, text, log, None,
                          guard=lambda: seat_held(session["name"]), veto=veto,
                          typed=lambda: receipt(mark), source=source,
-                         ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+                         ready=lambda held: not stale(held)
+                         and composer_holds(held, session, text, cfg) == "line")
             and composer_holds(session["name"], session, text, cfg) == "empty"
             and not pane_unread(session))
 
