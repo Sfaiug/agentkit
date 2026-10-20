@@ -2435,6 +2435,9 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             raise
         finally:
             last.unlink(missing_ok=True)
+        # The moment from which an answer is this harness's (watch.follow_model): the one it
+        # replaces was sent SIGHUP and its terminal closed when the respawn returned.
+        config.update_session(current, launched=time.time())
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
         # title stays the echo, so the next tick retypes this name instead of taking
@@ -4077,14 +4080,19 @@ def switch_orchestrator(cfg, name, model, providers=None):
         moved = True          # its model is gone: no provider to stay home on
     chosen = {"orchestrator": model, "account": account,
               **({"home_account": account} if moved else {})}
-    try:
-        with watch.announcing(name):   # what every redress reads the record under
+    # Under what every redress and look reads the record under, till the new harness is up: a
+    # look before it would follow the old model's last answer back (watch.follow_model).
+    with watch.announcing(name):
+        try:
             config.update_session(name, **chosen)
-    except OSError as exc:
-        return f"session: {_one_line(exc)}"
-    try:
-        launch(name, model, cwd, cmd, conversation, session)
-    except (config.Error, OSError) as exc:
+        except OSError as exc:
+            return f"session: {_one_line(exc)}"
+        try:
+            launch(name, model, cwd, cmd, conversation, session)
+            failed = None
+        except (config.Error, OSError) as exc:
+            failed = exc
+    if failed:
         put = {key: record.get(key) for key in chosen}
         if not kept:   # a resumed launch re-recorded the conversation the seat still owns
             harness_plugin(new_harness).forget(config.session_records().get(name) or {})
@@ -4095,7 +4103,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
-        return _one_line(exc)
+        return _one_line(failed)
     if kept:
         if watch._turn_in_flight(new_harness, live)[0]:
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),

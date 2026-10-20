@@ -204,6 +204,18 @@ def error(record, cwd, conversation):
     return message.strip() or None if isinstance(message, str) else None
 
 
+def running(record, cwd, conversation):
+    """The model and effort of that thread's latest turn, which Codex records as it starts
+    (`turn_context`), so `/model` typed in the seat shows at its next turn."""
+    from . import last_entry, moment
+    path = transcript(record, cwd, conversation)
+    entry = path and last_entry(path, lambda entry: entry.get("type") == "turn_context"
+                                and isinstance(entry.get("payload"), dict)
+                                and isinstance(entry["payload"].get("model"), str))
+    return ((entry["payload"]["model"], entry["payload"].get("effort"),
+             moment(entry.get("timestamp"))) if entry else None)
+
+
 def forget(record):
     """Local cleanup always completes; a failed enrollment DELETE is retried later.
 

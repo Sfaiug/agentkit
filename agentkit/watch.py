@@ -1518,6 +1518,40 @@ def interrupted_at(harness, name):
         return None
 
 
+def follow_model(cfg, name):
+    """Make the model that seat's harness says its latest answer ran on its orchestrator:
+    `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
+    nothing restarted (the owner's word of 20 Oct 2026).  Only an answer made since the harness
+    in the seat was launched counts (`launched` in its record, written once it is up), so a
+    move on `c` is not undone by the old model's last answer; a seat launched before launches
+    were written down counts every answer.  The model is the configured entry running it on
+    that harness, the seat's own first, at the effort the answer recorded where one does; a
+    model no entry runs, a seat on its harness's own model, or an answer that cannot be read
+    leaves the record as it is."""
+    try:
+        record = config.load_session(cfg, name, required=False)
+        entry = record and config.model(cfg, record["orchestrator"])
+    except config.Error:
+        return
+    if not entry or entry["model"] in ("", config.DEFAULT_MODEL):
+        return
+    plugin, cwd = orch.harness_plugin(entry["harness"]), record.get("cwd")
+    try:
+        ran = plugin.running(record, cwd, plugin.conversation(record, cwd))
+    except OSError:
+        return
+    launched = _stamp(record.get("launched"))
+    if not ran or launched is not None and not (ran[2] or 0) > launched:
+        return
+    kept, models = record["orchestrator"], cfg["models"]
+    runs = [each for each in (kept, *config.offered(cfg))
+            if (models[each]["harness"], models[each]["model"]) == (entry["harness"], ran[0])]
+    chosen = next((each for each in runs if models[each].get("effort") == ran[1]),
+                  runs[0] if runs else kept)
+    if chosen != kept:
+        config.update_session(name, orchestrator=chosen)
+
+
 def cancelled(harness, name, pane):
     """Did the owner cancel that seat's turn before any answer?  Its harness records nothing
     then and sends no hook, so its record is that of a turn not yet answered; but it puts the
@@ -2423,6 +2457,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     with announcing(name):
         if look:
             facts["harness"], facts["live"] = look_at(session, cfg=cfg)
+            follow_model(config.load() if cfg is None else cfg, name)
         previous = seat_read(name)
         if facts.get("live") is None:
             facts["live"] = previous
