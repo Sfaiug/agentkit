@@ -810,6 +810,13 @@ cat "$dir/bridge-eval"
         # a failed turn is still a prompt: `Error: ` is a stall word, not a state
         self.assertEqual(self.decide("auth")["state"], "at_prompt")
 
+    def test_a_sidebar_card_beside_the_composer_is_none_of_its_draft(self):
+        # 2.0.32 draws its `Getting started` card beside the box while no provider is connected
+        card, typed = self.pane("sidebar-card"), "and add these posts too"
+        self.assertEqual(watch.composer_draft("opencode", card), "".join(typed.split()))
+        empty = card.replace(typed, " " * len(typed))
+        self.assertEqual(watch.composer_draft("opencode", empty), "")
+
     def test_stall_and_auth_panes_answer_in_opencode_s_own_words(self):
         stall = self.pane("stall")
         mark = watch.stalled_on("opencode", watch.pane_tail(stall), "opencode",

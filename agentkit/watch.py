@@ -730,6 +730,8 @@ def screen(harness):
              "scrolled": _pattern(block.get("scrolled"), path),
              "away": _pattern(block.get("away"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
+             # the composer's bottom edge, where each of its rows ends (`_composer_rows`)
+             "bottom": _pattern(block.get("bottom"), path),
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
@@ -3295,7 +3297,12 @@ def _composer_rows(harness, pane, *, exact=False):
         # and finding none reads as empty -- where the composer itself is on the
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
         # was read.  Its rows are read as drawn: their inset tells its prompt row from text.
-        source = "\n".join(strip_sgr(raw).rstrip() for raw in raws)
+        # What a harness draws right of its composer's bottom edge, a sidebar beside it, is
+        # none of its text.
+        plain = [strip_sgr(raw).rstrip() for raw in raws]
+        right = next((edge.end() for row in reversed(plain)
+                      if chrome["bottom"] and (edge := chrome["bottom"].match(row))), None)
+        source = "\n".join(row[:right].rstrip() for row in plain)
         found = list(chrome["draft"].finditer(source))
         if exact and not found:
             return None
