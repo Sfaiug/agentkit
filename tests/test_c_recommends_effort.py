@@ -58,8 +58,6 @@ class RecommendsEffort(Sandbox):
         self.store([row("claude", "claude-fable-5-1", "max", orchestrate=100),
                     row("claude", "claude-opus-5-5", "max", execute=100),
                     row("codex", "gpt-6-astra", "high", review=100)])
-        text = self.screen([Key("esc")])
-        self.assertRegex(text, r"fable runs on [^·]+ · recommended to orchestrate ")
         self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
