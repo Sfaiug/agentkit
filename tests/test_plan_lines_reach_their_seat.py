@@ -26,43 +26,63 @@ WRITERS = {
 }
 
 
+SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
 def plan_writers(root):
     """The (module, function) pairs under `root`/agentkit that call `plan.add`, however it was
-    imported: each call's dotted name is resolved through its module's imports, and a name
-    imported from nowhere is the module's own."""
+    imported: each call's dotted name is resolved through the imports of its own scope and
+    those enclosing it, as Python resolves it, and a name imported from nowhere is the
+    module's own."""
     found = set()
     for path in sorted((root / "agentkit").rglob("*.py")):
         parts = path.relative_to(root).with_suffix("").parts
         package = parts[:-1]
         module = ".".join(package if parts[-1] == "__init__" else parts)
-        names = {}
-        tree = ast.parse(path.read_text(), str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    names[alias.asname or alias.name.split(".")[0]] = (
-                        alias.name if alias.asname else alias.name.split(".")[0])
-            elif isinstance(node, ast.ImportFrom):
-                base = ".".join(package[:len(package) - node.level + 1] if node.level else ())
-                source = ".".join(filter(None, (base, node.module)))
-                for alias in node.names:
-                    names[alias.asname or alias.name] = f"{source}.{alias.name}"
 
-        def dotted(node):
+        def imports(scope, names):
+            names = dict(names)
+            nodes = list(ast.iter_child_nodes(scope))
+            while nodes:
+                node = nodes.pop(0)
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        names[alias.asname or alias.name.split(".")[0]] = (
+                            alias.name if alias.asname else alias.name.split(".")[0])
+                elif isinstance(node, ast.ImportFrom):
+                    base = ".".join(package[:len(package) - node.level + 1] if node.level else ())
+                    source = ".".join(filter(None, (base, node.module)))
+                    for alias in node.names:
+                        names[alias.asname or alias.name] = f"{source}.{alias.name}"
+                elif not isinstance(node, SCOPES):
+                    nodes.extend(ast.iter_child_nodes(node))
+            return names
+
+        def dotted(node, names):
             if isinstance(node, ast.Name):
                 return names.get(node.id, f"{module}.{node.id}")
             if isinstance(node, ast.Attribute):
-                return f"{dotted(node.value)}.{node.attr}"
+                return f"{dotted(node.value, names)}.{node.attr}"
             return ""
 
-        def visit(node, where):
+        def visit(node, where, enclosing, names):
+            """`names` resolves calls here; `enclosing` is what a function defined here sees,
+            since a class body's own names never reach its methods."""
             for child in ast.iter_child_nodes(node):
-                if isinstance(child, ast.Call) and dotted(child.func) == "agentkit.plan.add":
+                if (isinstance(child, ast.Call)
+                        and dotted(child.func, names) == "agentkit.plan.add"):
                     found.add((module.removeprefix("agentkit."), where))
-                defines = isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
-                visit(child, child.name if defines else where)
+                if isinstance(child, ast.ClassDef):
+                    visit(child, where, enclosing, imports(child, enclosing))
+                elif isinstance(child, SCOPES):
+                    inner = imports(child, enclosing)
+                    visit(child, getattr(child, "name", where), inner, inner)
+                else:
+                    visit(child, where, enclosing, names)
 
-        visit(tree, None)
+        tree = ast.parse(path.read_text(), str(path))
+        top = imports(tree, {})
+        visit(tree, None, top, top)
     return found
 
 
@@ -86,12 +106,15 @@ class PlanLinesReachTheirSeat(unittest.TestCase):
             "    return inner\n\n\n"
             "def three():\n    jot.add('acme-api', 'x', 'false')\n\n\n"
             "def four():\n    agentkit.plan.add('acme-api', 'x', 'false')\n\n\n"
+            "def five():\n    from .plan import add\n    add('acme-api', 'x', 'false')\n\n\n"
+            "def six():\n    from operator import add\n    return add(1, 2)\n\n\n"
             "seen = set()\nseen.add(1)\n")
         (root / "agentkit" / "harness" / "acme.py").write_text(
             "from .. import plan\n\n\ndef five():\n    plan.add('acme-api', 'x', 'false')\n")
         self.assertEqual(plan_writers(root), {
             ("acme_writer", "one"), ("acme_writer", "inner"), ("acme_writer", "three"),
-            ("acme_writer", "four"), ("harness.acme", "five")})
+            ("acme_writer", "four"), ("acme_writer", "five"),
+            ("harness.acme", "five")})
 
 
 if __name__ == "__main__":
