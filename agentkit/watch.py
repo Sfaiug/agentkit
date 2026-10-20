@@ -709,7 +709,8 @@ def _rule(entry, path):
     return {"id": str(entry.get("id") or entry["state"]), "state": entry["state"],
             "lines": max(1, int(entry.get("lines", 8))), "all": marks("all"),
             "any": marks("any"), "none": marks("none"), "row": _pattern(entry.get("row"), path),
-            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer"))}
+            "newest": _pattern(entry.get("newest"), path), "chrome": bool(entry.get("at_composer")),
+            "picker": bool(entry.get("picker"))}
 
 
 def screen(harness):
@@ -3755,15 +3756,18 @@ def drafts_back(cfg):
 def _past_text(session, cfg=None):
     """That seat's pane (`seat_editor`) whose editor ak's line goes in through, or None: at a
     prompt but for text its composer holds, read or too tall to read, or text that editor keeps,
-    which can be drawn late, an editor it may ask a step now (`_editor_read`).  The owner: text
-    they leave in a seat never keeps ak's line out of it (19 Oct 2026)."""
+    which can be drawn late, an editor it may ask a step now (`_editor_read`), never under a
+    picker (`[[rule]] picker`).  The owner: text they leave in a seat never keeps ak's line out of
+    it (19 Oct 2026)."""
     try:
         harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
         pane = pane_text(session) if harness else ""
         found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
+        rules = screen(harness)["rules"] if found else ()
     except (config.Error, OSError):
         return None
     if not (found and _composer_open(harness, found)
+            and not any(rule["picker"] and rule["id"] == found["rule"] for rule in rules)
             and (composer_draft(harness, pane) != "" or _editor_kept(session) != {})):
         return None
     where = seat_editor(session, cfg)
@@ -3774,15 +3778,17 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
     """Under the seat's send lock, on the pane it is bound to: the line in through ak's editor,
     which keeps what else the composer holds, its Enter, and the kept text given back into the
     composer that Enter emptied, delivered on that editor's word that it was.  `receipt` has the
-    mark once the line is in: a line whose Enter or word went missing is the mark's pass's."""
+    mark, with the pane, once the line is in: a line whose Enter or word went missing, or whose
+    composer is not read empty after, a question up, is the mark's pass's and the way back the
+    tick's (`drafts_back`)."""
     text = mark["line"]
-    if not _send_line(session, text, log, lambda: receipt(mark), source=source,
-                      put=lambda: _edit(session, where, "line", text) == "line"):
+    if not _send_line(session, text, log, lambda: receipt(dict(mark, pane=where["id"])),
+                      source=source, put=lambda: _edit(session, where, "line", text) == "line"):
         return False
-    if _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "line", held):
-        _send_enter(session, log)
-        # the way back once the screen shows the line gone, or SENT_WAIT on
-        _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
+    if not (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "line", held)
+            and _send_enter(session, log)
+            and _wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)):
+        return False
     return _edit(session, where, "back", text) == "sent" and not pane_unread(session)
 
 
@@ -3813,7 +3819,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     while its Enter was confirmed no longer reads whole there, and is still theirs to send.
     Text left standing in a seat launched with ak's editor holds none of it back either: the
     line goes in through that editor (`_past_text`), and a mark's line is read on the pane whose
-    editor took it, delivered once that editor gave its text back into the composer it left.
+    editor took it, which its mark names, delivered only once that editor gave its text back into
+    the composer it left.
     No line goes in as keys while ak's editor keeps text of any pane of the seat's, which its
     composer can draw late, nor where tmux cannot say whether it does (`_editor_kept`).  A
     question the seat asked with
@@ -3821,19 +3828,22 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     answer, which only the owner's own prompt gives (`notify.progress`).
     """
     mark = {"line": text, "seat": session.get("created")}
-    if typed == mark:
+    if isinstance(typed, dict) and dict(typed, pane=None) == dict(mark, pane=None):
         with seat_held(session["name"]) as held:
             if stale(held):
                 return False    # the screen is somebody else's: next pass
-            kept = _editor_kept(session)
+            pane = typed.get("pane")
+            kept = _editor_kept(session) if pane else {}
             if kept is None:
-                return False    # no telling which pane's editor took it
-            pane = next((pane for pane, (_, put) in kept.items() if put == text), None)
-            session = dict(session, pane=pane) if pane else session
-            if pane and kept[pane][0] == aside_editor.GIVEN:
-                return not pane_unread(session)
+                return False    # no telling whether its editor gave the text back
+            state, put = kept.get(pane, ("", ""))
+            if put == text:     # still the record its line went in with
+                session = dict(session, pane=pane)
+                if state == aside_editor.GIVEN:
+                    return not pane_unread(session)
             holds = composer_holds(held, session, text, cfg)
-            if holds == "empty":
+            # a line its editor set text aside for is delivered on that editor's word alone
+            if holds == "empty" and put != text:
                 return not pane_unread(session)
             if holds == "line":
                 kept_asked_first(dict(session, name=held))

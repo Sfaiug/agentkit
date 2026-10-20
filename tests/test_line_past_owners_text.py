@@ -72,6 +72,47 @@ class LinePastOwnersText(EditorSeat):
         self.assertEqual((self.sent, self.composer, self.told()), ([LINE], DRAFT, True))
         self.assertEqual(set(self.pressed_in), {PANE})
 
+    def test_a_line_is_read_in_its_own_pane_never_by_an_older_record_of_it(self):
+        self.wait_line()
+        self.panes.append("%8")
+        self.selected = "%8"
+        self.buffers = kept(aside_editor.GIVEN, held="older notes")     # once before, in %7
+        with patch.object(watch, "_send_enter", return_value=False):
+            self.tick()
+        self.tick()                     # the mark's pass: its Enter into %8
+        self.assertEqual((self.sent, self.told()), ([LINE], False))
+        self.tick()
+        self.assertEqual((self.sent, self.composer, self.told()), ([LINE], DRAFT, True))
+
+    def test_a_question_up_after_its_enter_gets_no_editor_key_and_its_text_comes_back_after(self):
+        self.wait_line()
+        question, press = (REPO / "tests/fixtures/claude-question-pane.txt").read_text(), self.press
+
+        def asked(key, pane=PANE):
+            press(key, pane)
+            if key == "Enter":          # the turn the line began asks at once
+                self.pane, self.late = question, 999
+        with patch.object(self, "press", side_effect=asked):
+            self.tick()
+        self.assertEqual((self.keys, self.sent, self.buffers, self.told()),
+                         (["C-g", "Enter"], [LINE], kept(aside_editor.ASIDE), False))
+        self.show("")                   # answered
+        self.tick()
+        self.assertEqual((self.keys[2:], self.composer, self.told()), (["C-g"], DRAFT, True))
+
+    def test_a_line_drawn_late_is_not_delivered_on_a_composer_drawn_empty(self):
+        self.wait_line()
+        self.buffers = kept(aside_editor.GIVEN, line=DOCS)
+        self.draw("")                   # the text given back, not drawn yet
+        with patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: self.pane):
+            self.tick()
+            self.tick()
+        self.assertEqual((self.sent, self.composer, self.told()), ([], LINE, False))
+        self.draw(LINE)                 # drawn at last
+        self.tick()
+        self.tick()
+        self.assertEqual((self.sent, self.composer, self.told()), ([LINE], DRAFT, True))
+
     def test_a_line_whose_answers_went_missing_is_ak_s_never_sent_with_the_owner_s_text(self):
         with self.losing("line"):       # put, its answer lost: the next pass's own line
             self.assertFalse(self.typed_line())
@@ -93,14 +134,18 @@ class LinePastOwnersText(EditorSeat):
         self.assertTrue(self.typed_line())
         self.assertEqual((self.sent, self.composer), ([DOCS], tall))
 
-    def test_text_typed_lately_mid_turn_under_a_question_or_before_the_editor_stays(self):
+    def test_text_typed_lately_mid_turn_under_a_question_a_picker_or_before_the_editor_stays(self):
         self.untouched(watch.DRAFT_STILL - 10)
         self.assertFalse(self.typed_line())
         self.untouched(watch.DRAFT_STILL)
-        for pane in ("claude-draft-while-working-pane.txt", "claude-question-pane.txt",
-                     "claude-dialog-pane.txt"):
+        for harness, pane in (("claude", "claude-draft-while-working-pane.txt"),
+                              ("claude", "claude-question-pane.txt"),
+                              ("claude", "claude-dialog-pane.txt"),
+                              ("codex", "codex-model-picker-pane.txt"),
+                              ("antigravity", "antigravity-chooser-pane.txt")):
             self.pane = (REPO / "tests/fixtures" / pane).read_text()
-            self.assertFalse(self.typed_line())
+            with patch.object(watch, "seat_model", return_value=(harness, "acme")):
+                self.assertFalse(self.typed_line())
         self.show(DRAFT)
         self.unread = True
         self.assertFalse(self.typed_line())

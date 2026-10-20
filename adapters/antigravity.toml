@@ -117,12 +117,14 @@ all = ["enter select", "esc skip"]
 newest = '^esc to cancel\b'
 
 # The slash-command chooser a typed `/` opens: its `enter Select · tab Complete` hint over the
-# footer.  It is the owner's own line, never a turn, so it reads as a draft (captured).
+# footer.  It is the owner's own line, never a turn, so it reads as a draft (captured), and no
+# editor key opens its composer (`picker`).
 [[rule]]
 id = "draft.chooser"
 state = "draft"
 lines = 8
 all = ["enter select", "tab complete"]
+picker = true
 
 # A turn in flight: the footer says `esc to cancel` under a spinner whose word changes
 # (`Generating...`, `Loading...`).
