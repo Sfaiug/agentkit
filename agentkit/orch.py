@@ -52,6 +52,7 @@ from .harness import LAUNCHER, load as harness_plugin
 # tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
 # one call's words may hold, with room left for that header
 TMUX_MESSAGE = 15 * 1024
+TMUX_CEILING = 15          # seconds: tmux answers in milliseconds, so one silent this long never will
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
 PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
 INPUT_TTY_OPTION = "@ak_input_tty"   # the current harness wrapper's inner tty, reset on respawn
@@ -1063,8 +1064,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     cannot be made, the command is run again plainly: a seat outside the ceiling is worth
     more than no seat at all, and the same is true of a job.
 
-    Targets are `={name}:`, as a bare name also matches any longer one; every call on a run's
-    path passes a timeout; and a test's fake tmux answers only what real tmux 3.5a does.
+    Targets are `={name}:`, as a bare name also matches any longer one; and a test's fake tmux
+    answers only what real tmux 3.5a does.  A call that is not answered within its `timeout`
+    (`TMUX_CEILING` unless the caller says) ends as a refusal, 124: a wedged pane holds every
+    client of its server, and the tick that asked goes on without that answer.
     """
     fix_term()
     socket = socket_name() if socket is None else socket
@@ -1076,11 +1079,15 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         env = {**env, "PATH": os.pathsep.join([str(guard.install_shim()), env.get("PATH", "")])}
     if unit:
         argv, env = in_slice(argv, unit, socket, env)
+    timeout = TMUX_CEILING if timeout is None else timeout
     try:
         proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
                               env=env, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
+    except subprocess.TimeoutExpired:
+        # the command's name, never its words: send-keys carries what the owner typed
+        return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
         return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
