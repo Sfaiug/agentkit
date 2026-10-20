@@ -3727,13 +3727,15 @@ def _editor_kept(session):
     return found
 
 
-def _editor_read(session, where, cfg=None):
+def _editor_read(session, where, cfg=None, carried=False):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
     now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL and none
-    unread, read with no question up -- the step's keys open the editor from a composer alone."""
+    unread, read with no question up -- the step's keys open the editor from a composer alone.
+    Text a switch `carried` is waited for by no keys: the owner typed them into the harness the
+    switch ended, and wants them back before typing more."""
     name = session["name"]
     try:
-        if time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
+        if not carried and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
             return None
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
@@ -3748,19 +3750,71 @@ def drafts_back(cfg):
     """Each tick: text ak's editor set aside from a pane of a seat's (`aside_editor.ASIDE`) asked
     back, every read and key of the step on that pane, whichever the owner selects: the editor
     hands it back only into an empty composer, however the pass that put ak's line in its place
-    ended.  A line still in the composer is the mark's pass to send first."""
+    ended.  A line still in the composer is the mark's pass to send first.  Text a switch carried
+    (`carry_draft`) goes back once the line its launch is owed has gone, as a paste where the new
+    harness opens no editor of ak's."""
     seats = [session for session in orch.sessions() if not session.get("legacy")
              and not any(session.get(key) for key in orch.CLOSED)]
     for session in seats:
         if not _editor_kept(session):   # most ticks keep nothing: no seat's send lock waited on
             continue
         with seat_held(session["name"]):
-            for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
+            for pane, (state, put) in sorted((_editor_kept(session) or {}).items()):
+                carried = not put
+                if state != aside_editor.ASIDE or carried and seat_read(
+                        session["name"]).get("midturn"):
+                    continue
                 bound = dict(session, pane=pane)
-                where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
-                read = where and _editor_read(bound, where, cfg)
+                where = seat_editor(bound, cfg)
+                read = (where or carried) and _editor_read(bound, where, cfg, carried)
                 if read and composer_draft(read[0], read[1]) == "":
-                    _edit(bound, where, "back")
+                    if where:
+                        _edit(bound, where, "back")
+                    else:
+                        _paste_back(bound)
+
+
+def carry_draft(session, harness, pane, cfg=None):
+    """Lift the owner's unsent text out of that seat's composer before a switch ends its harness:
+    into its pane's kept buffer, set aside for no line of ak's (`aside_editor.pack`), which the
+    respawn keeps with the pane and `drafts_back` hands the harness launched there next.  Through
+    ak's editor where the harness opens one, which reads the composer whole; else as `pane`
+    draws it, a line a row.  Text already set aside there and not yet back stays, this unkept."""
+    with seat_held(session["name"]):
+        where = seat_editor(session, cfg)
+        if where and _edit(session, where, "line") == "line":
+            return
+        rows = _composer_rows(harness, pane) if harness else None
+        server = orch.seat_socket(session)
+        rc, at = orch.tmux_out("display-message", "-p", "-t", _pane(session), "#{pane_id}",
+                               socket=server)
+        kept = _editor_kept(session)
+        if not rows or rc != 0 or not at.startswith("%") or kept is None or (
+                kept.get(at, ("",))[0] == aside_editor.ASIDE):
+            return
+        fd, path = tempfile.mkstemp(dir=config.TMP)    # only this user reads it, and only now
+        try:
+            with os.fdopen(fd, "wb") as out:
+                out.write(aside_editor.pack(aside_editor.ASIDE, b"", "\n".join(rows).encode()))
+            orch.tmux_out("load-buffer", "-b", aside_editor.kept(at), path, socket=server)
+        finally:
+            os.unlink(path)
+
+
+def _paste_back(session):
+    """Text a switch carried, into the empty composer of a harness opening no editor of ak's: as
+    a bracketed paste, so a newline in it sends nothing, and then kept no more."""
+    server, name = orch.seat_socket(session), aside_editor.kept(session["pane"])
+    rc, stored = orch.tmux_out("save-buffer", "-b", name, "-", socket=server)
+    state, put, held = aside_editor.unpack(stored.encode()) if rc == 0 else ("", b"", b"")
+    if state != aside_editor.ASIDE or put or not held:
+        return
+    paste = f"{name}-paste"
+    if (orch.tmux_out("set-buffer", "-b", paste, "--", orch.tmux_literal(held.decode()),
+                      socket=server)[0] == 0
+            and orch.tmux_out("paste-buffer", "-p", "-d", "-b", paste, "-t", session["pane"],
+                              socket=server)[0] == 0):
+        orch.tmux_out("delete-buffer", "-b", name, socket=server)
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -4209,6 +4263,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return not spent(account) and not usage.on_credits(
             cfg, model, {provider: readings.get(account, {})})
 
+    def low(account):
+        return usage.model_low(cfg, model, {provider: readings.get(account, {})})
+
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
     if line is None:
@@ -4244,8 +4301,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if not waiting and not refusal and not spent(current):
         # An idle seat comes home once home has a window, and leaves credits for any window; a
         # turn the limit ended goes on there, though the meters may not show that limit yet.
+        # One whose account runs low moves to one that does not, between turns, so no turn
+        # of it is cut off when that account is spent; with every one low it spends its own,
+        # and it comes home only to room it would not leave again at once.
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
-                 and window(a) and (a == home or not window(current))]
+                 and window(a) and (not window(current) or not low(a)
+                                    and (a == home or low(current)))]
         if (moves and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):

@@ -113,19 +113,18 @@ class SeatMove(Sandbox):
                          {"boot": watch.boot_id(), "at": NOW, "name": SEAT,
                           "line": watch.MIDTURN_LINE})
 
-    def test_a_seat_with_a_draft_up_is_refused_and_left_as_it_was(self):
+    def test_a_seat_with_a_draft_up_moves_and_carries_the_draft_on(self):
         watch.seat_write(SEAT, state="at_prompt")     # its last reading, from before the draft
         self.pane = capture("claude-draft-pane.txt")
-        before = self.record()
-        note = self.move("fable")
-        self.assertIn(SEAT, note)
-        self.assertNotIn("\n", note)
-        self.assertEqual((self.respawned, self.record()), ([], before))
-        self.pane = ""                           # a capture that failed shows no draft either
-        self.assertIn(SEAT, self.move("fable"))
-        self.assertEqual((self.respawned, self.record()), ([], before))
-        self.seat["exited"] = True               # its harness is gone, and that draft with it
-        self.assertEqual(self.move("fable"), "")
+        carried = []
+        with patch.object(watch, "carry_draft", side_effect=lambda _seat, harness, pane, _cfg:
+                          carried.append((harness, pane, list(self.respawned)))):
+            self.assertEqual(self.move("fable"), "")
+            self.assertEqual(carried, [("claude", self.pane, [])])     # before the respawn
+            self.assertEqual(self.respawned, [["acme-tui", "fable", OWN]])
+            self.pane = ""                       # a capture that failed moves it as well
+            self.assertEqual(self.move("opus"), "")
+        self.assertEqual((len(carried), len(self.respawned)), (1, 2))
 
     def test_a_redress_while_the_new_harness_comes_up_draws_the_new_model(self):
         self.move("fable")

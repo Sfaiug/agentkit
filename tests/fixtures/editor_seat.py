@@ -1,11 +1,12 @@
 """fixtures.seats' seat, launched with ak's editor: its tmux faked as a harness whose Ctrl-G hands
 its composer to the real agentkit/aside_editor.py, takes what that hands back at once and draws
 it a few reads late, and whose Enter sends what its composer holds, one composer for any pane
-ak names.  Whether it hears the key (`deaf`), the seat's launch, the panes of its session
+ak names; a paste lands in it whole.  Whether it hears the key (`deaf`), the seat's launch, the panes of its session
 (PANE the one selected), unread input and when its terminal last took keys are the test's to
 set."""
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 from fixtures.seats import NOW, PANE, Seats
@@ -16,6 +17,7 @@ class EditorSeat(Seats):
     def setUp(self):
         super().setUp()
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
+        self.pasted = []
         self.opened = []        # the owner's own editor, opened where ak asked nothing
         self.deaf, self.launched, self.tty, self.panes = False, True, self.root / "tty", [PANE]
         self.unread = False
@@ -77,7 +79,13 @@ class EditorSeat(Seats):
         elif args[0] == "save-buffer":
             return (0, self.buffers[name].decode()) if name in self.buffers else (1, "no buffer")
         elif args[0] == "load-buffer":
-            self.buffers[name] = data
+            self.buffers[name] = data if data is not None else Path(args[-1]).read_bytes()
+        elif args[0] == "set-buffer":
+            self.buffers[name] = args[-1].encode()
+        elif args[0] == "paste-buffer":
+            self.pasted.append(self.buffers[name].decode())
+            self.show(self.composer + (self.buffers.pop(name) if "-d" in args
+                                       else self.buffers[name]).decode())
         elif args[0] == "delete-buffer":
             self.buffers.pop(name, None)
         elif args[0] == "send-keys" and "-l" in args:

@@ -199,8 +199,9 @@ def account_order(cfg, model, readings, first=None):
 
     `first` -- a seat's home; for a new seat the provider's `seat_account`, else the usual
     login -- first while it has room for this model, the rest by room: a seat lives where
-    its owner follows it, and only spills over when that one is spent.  An account on
-    credits (`usage.on_credits`) has room only after every one with a window left.
+    its owner follows it, and only spills over when that one runs low.  An account on
+    credits (`usage.on_credits`) has room only after every one with a window left, and one
+    running low (`usage.model_low`) only after every one that is not.
     """
     provider = config.model(cfg, model)["provider"]
 
@@ -208,12 +209,13 @@ def account_order(cfg, model, readings, first=None):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
         return (usage.model_exhausted(cfg, model, providers)[0],
-                usage.on_credits(cfg, model, providers), unknown is not None, -amount)
+                usage.on_credits(cfg, model, providers),
+                usage.model_low(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
     if first is None:
         first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
-    if first in ordered and not any(rank(first)[:2]):
+    if first in ordered and not any(rank(first)[:3]):
         ordered = [first, *(a for a in ordered if a != first)]
     return ordered
 
@@ -4012,9 +4014,10 @@ def switch_orchestrator(cfg, name, model, providers=None):
     status`, and the old transcript -- is marked for the tick, which types it after the
     new TUI is listening through the confirmed send, the way a reopened seat's line goes.
     The record names the new model before the harness is up, so no redress draws the old
-    one after it. A draft or a question on the screen, which a respawn would lose, refuses
-    the move; a refusal, and a restart that fails, leave the seat as they found it and say
-    so in one line. What to say under the rows, or "".
+    one after it. Nothing on its screen refuses the move: the owner moving it knows what is
+    there, and their unsent text goes on into the new composer (`watch.carry_draft`). A
+    refusal, and a restart that fails, leave the seat as they found it and say so in one
+    line. What to say under the rows, or "".
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
@@ -4026,21 +4029,19 @@ def switch_orchestrator(cfg, name, model, providers=None):
     old_model = record["orchestrator"]
     if old_model == model:
         return ""
-    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind,
-    # and a capture that failed is no evidence that nothing is on its screen.
+    # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind.
     session = find(name)
     pane = (watch.pane_text(session)
             if session and not any(session.get(key) for key in CLOSED) else None)
-    if pane is not None and not pane.strip():
-        return f"{name} stays on {old_model}: its screen could not be read"
-    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane else {}
-    if live.get("state") in ("draft", "asking"):
-        return f"{name} stays on {old_model} while a draft or a question is on its screen"
+    live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
     new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]
     except config.Error:
         old_harness = None    # its model is gone: nothing names its harness or transcript
+    if live.get("state") == "draft":
+        # the owner moved it mid-sentence: what they typed waits in the new composer
+        watch.carry_draft(session, old_harness, pane, cfg)
     owned = seat_conversation(record, old_harness) if old_harness else None
     kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
     transcript = (harness_plugin(old_harness).transcript(record, record.get("cwd"), owned)
