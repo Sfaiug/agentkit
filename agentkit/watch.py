@@ -3136,7 +3136,7 @@ def pane_unread(session):
         rc, paths = orch.tmux_out("display-message", "-p", "-t", _pane(session),
                                   "#{pane_tty}\t#{" + orch.INPUT_TTY_OPTION + "}",
                                   socket=orch.seat_socket(session), timeout=5)
-    except (OSError, ValueError, AttributeError, subprocess.TimeoutExpired):
+    except (OSError, ValueError, AttributeError):
         return False
     if rc != 0:
         return False
