@@ -3589,6 +3589,19 @@ def note_lines(note):
                   for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
 
 
+def note_fitted(note, keys):
+    """`note` as whole lines from its first, as many as leave a matrix screen's page a row
+    (note_lines, matrix_page), the last of them then saying how many more there are: a line
+    of what a flip for every open seat could not do is that seat's, said again on its For row."""
+    lines, shown = note.splitlines(), note
+    room = terminal.height() - 6 - len(terminal.key_line(keys))
+    for cut in range(len(lines)):
+        shown = "\n".join([*lines[:len(lines) - cut], *([f"… and {cut} more"] if cut else [])])
+        if len(note_lines(shown)) <= room:
+            break
+    return shown
+
+
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
                fetched=None, clock=None, moves=(), under=(), over=(), over_places=None):
     """One draw of a matrix screen and the key read on it: (act, here, column, top).
@@ -3707,6 +3720,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     if not session:
         selected = for_selected(cfg, scopes[0])[0]
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
+    refused = {}          # the open seats the last flip for them all could not change, and why
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
         columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
@@ -3733,6 +3747,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         reach = (f"A change here goes to new seats and to the {len(seats)} open seats."
                  if scopes[scope] == FOR_SCOPES[1] else "")
         told = "\n".join(filter(None, (reach, f"Version {version or '?'}", note or standing)))
+        told = note_fitted(told, keys)
         # on a short screen the note keeps its lines and the page a row; the model's line the rest
         fit = matrix_page([], {}, None, 0, note_lines(told), keys)[1] - 1
         said = model_lines(cfg, None if terminal.away() else here, providers, found, fit)
@@ -3751,6 +3766,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             # turned, round the ends: ← and a click on `‹` back, the rest forward
             scope = (scope + (-1 if act == "left" or clicked == -2 else 1)) % len(scopes)
             selected, note = for_selected(cfg, scopes[scope])
+            if scopes[scope] in refused and not note:
+                note = f"{scopes[scope]}: {refused[scopes[scope]]}"
             try:              # what a seat's flip is refused on, and spent, read once
                 providers = waited(lambda: usage.collect(cfg), "config", doing=LEFT) if (
                     scope and providers is None) else providers
@@ -3807,7 +3824,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             try:
                 # an empty reading is still what it says is down: only none read is nothing
                 note = waited(FLIPS(for_mark, cfg, scopes[scope], selected, here[1], column,
-                                    {} if providers is None else providers, seats),
+                                    {} if providers is None else providers, seats, refused),
                               "config", body=lambda: [*over, *body],
                               doing=f"giving {scopes[scope]} {here[1]}")
             except Back:
@@ -4496,15 +4513,23 @@ def for_selected(cfg, scope):
         return None, f"{scope}'s roles are not shown: {exc}"
 
 
-def for_mark(cfg, scope, selected, model, column, providers, seats):
-    """Act on one of `c`'s marks for whom the For row says, at once and asking nothing.
+def for_mark(cfg, scope, selected, model, column, providers, seats, refused):
+    """Act on one of `c`'s marks for whom the For row says, at once and asking nothing, on the
+    marks as they stand when it runs, read again into `selected`: a flip waiting behind
+    another (FLIPS) keeps what that one did.
 
     New seats: [defaults], saved (config.remember_defaults) and into `cfg` and `selected`.
     New and open seats: the same, then each of `seats` whose record has the model otherwise
-    than [defaults] now do takes the flip as a seat does; the seats one reason keeps are a line,
-    naming the first.  A seat: its record (session_mark).  What to say under the rows, or "".
+    than [defaults] now do takes the flip as a seat does; `refused` is then each that could
+    not and why, a line each.  A seat: its record (session_mark).  What to say under the
+    rows, or "".
     """
+    fresh, note = for_selected(cfg, scope)
+    if fresh is None:
+        return note or f"session: {scope} has no saved models"
+    selected.update(fresh)
     if scope not in FOR_SCOPES:
+        refused.pop(scope, None)          # what it says now is said under the rows
         return session_mark(cfg, scope, selected, model, column, providers)
     # a new seat's crew is read as it is made (orch.default_crew), so nothing now refuses one
     changed, note = orch.role_mark(cfg, selected, model, column, {})
@@ -4522,20 +4547,19 @@ def for_mark(cfg, scope, selected, model, column, providers, seats):
 
     def has(marks):           # whether `marks` give `model` the role
         return marks[role] == model if column == 0 else model in marks.get(role, marks["workers"])
-    kept = {}                 # why -> the seats it kept: a reason many share is one line
+    refused.clear()
     for name in seats:
         try:
             record = config.load_session(cfg, name, required=False)
         except config.Error as exc:
-            kept.setdefault(str(exc), []).append(name)
+            refused[name] = str(exc)
             continue
         # one gone since the screen was opened, or already as [defaults] are, is left
         why = record is not None and has(record) != has(changed) and session_mark(
             cfg, name, record, model, column, providers)
         if why:
-            kept.setdefault(why, []).append(name)
-    return "\n".join(f"{names[0]}{f' and {len(names) - 1} more' if names[1:] else ''}: {why}"
-                     for why, names in kept.items())
+            refused[name] = why
+    return "\n".join(f"{name}: {why}" for name, why in refused.items())
 
 
 def session_mark(cfg, name, selected, model, column, providers):

@@ -131,39 +131,63 @@ class ForRow(Sandbox):
         self.screen("up", "right", "down", "enter")
         self.assertEqual(self.record("acme")["orchestrator"], "fable")
 
-    def test_the_seats_one_reason_keeps_are_one_line(self):
+    def test_each_seat_a_flip_for_all_could_not_change_is_named_and_on_its_for_row(self):
         self.refuse.update(dict.fromkeys(("fix-api", "acme"), "fable: claude is not installed"))
-        text = self.screen("up", "right", "down", "enter")
-        self.assertIn("fix-api and 1 more: fable: claude is not installed", text)
+        text = self.screen("up", "right", "down", "enter", "up", "right", "right")
+        self.assertIn("fix-api: fable: claude is not installed", text)
+        last = text.split("agentkit · config")[-1]     # turned on to acme: its own said again
+        self.assertIn(said("acme"), last)
+        self.assertIn("acme: fable: claude is not installed", last)
+
+    def test_a_note_taller_than_the_screen_keeps_whole_lines_and_counts_the_rest(self):
+        note = "\n".join(f"acme-{n}: fable: claude is not installed" for n in range(30))
+        with patch.object(terminal, "height", return_value=24), \
+                patch.object(terminal, "layout_width", return_value=40):
+            fitted = menu.note_fitted(note, "esc back")
+            self.assertLessEqual(len(menu.note_lines(fitted)), 24 - 6 - 1)    # a row stays
+        *kept, more = fitted.splitlines()
+        self.assertEqual(kept, note.splitlines()[:len(kept)])
+        self.assertEqual(more, f"… and {30 - len(kept)} more")
 
     def test_a_highlighted_seat_that_is_not_open_is_not_among_the_open_seats(self):
         text = self.screen("up", "left", "down", "enter", session="fix-api", seats=["acme"])
         self.assertIn("A change here goes to new seats and to the 1 open seats.", text)
         self.assertEqual(self.moved, [("acme", "fable")])
 
-    def test_a_flip_made_while_one_goes_behind_the_screen_comes_after_it(self):
+    def queued(self, *acts):
+        """`c` on fix-api read with `acts` (matrix_key's answers), each flip's wait left with Esc
+        and fable's orchestrator switch held until the last is made; fix-api's record after."""
         release = threading.Event()
 
-        def switch(cfg, name, model, providers=None):     # fable's held until both are made
+        def switch(cfg, name, model, providers=None):
             if model == "fable":
                 release.wait(10)
             config.update_session(name, orchestrator=model)
             return ""
-        # each flip's wait left with Esc, fable's first
-        acts = [("enter", ("model", "fable"), 0, 0), ("enter", ("model", "astra"), 0, 0),
-                ("back", ("model", "astra"), None, 0)]
         with patch.object(orch, "switch_orchestrator", side_effect=switch), \
                 patch.object(terminal, "taken", return_value=True), \
                 patch.object(menu, "moving", return_value=Key("esc")), \
-                patch.object(menu, "matrix_key", side_effect=acts), \
+                patch.object(menu, "matrix_key",
+                             side_effect=[*acts, ("back", ("model", "fable"), None, 0)]), \
                 patch.object(menu, "config_meters", return_value=([], {})), \
                 redirect_stdout(io.StringIO()):
             menu.config_matrix(self.cfg, None, "abc1234", "fix-api", self.record("fix-api"),
                                usage.Readings({}), seats=["fix-api"])
             release.set()
             menu.FLIPS(lambda: None)()        # once every flip made before it has ended
-        self.assertEqual(self.record("fix-api")["orchestrator"], "astra")
+        return self.record("fix-api")
 
+    def test_a_flip_made_while_one_goes_behind_the_screen_comes_after_it(self):
+        record = self.queued(("enter", ("model", "fable"), 0, 0),
+                             ("enter", ("model", "astra"), 0, 0))
+        self.assertEqual(record["orchestrator"], "astra")
+
+    def test_a_flip_waiting_behind_another_keeps_what_that_one_did(self):
+        # fable built in while the switch holds, the For row turned away and back, spark built in
+        record = self.queued(("enter", ("model", "fable"), 0, 0),
+                             ("enter", ("model", "fable"), 1, 0), ("left", menu.FOR_ROW, None, 0),
+                             ("right", menu.FOR_ROW, None, 0), ("enter", ("model", "spark"), 1, 0))
+        self.assertEqual(record["workers"], ["opus", "astra", "fable", "spark"])
 
 if __name__ == "__main__":
     unittest.main()
