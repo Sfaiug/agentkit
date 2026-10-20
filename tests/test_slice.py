@@ -569,7 +569,8 @@ class Installer(Slice):
         source = (REPO / "install.sh").read_text()
         body = source[source.index(self.SECTION):source.index(self.NEXT)]
         prelude = ('set -euo pipefail\n'
-                   f'HOME={shlex.quote(str(home))}\nROLE=server\nSANDBOX=0\n'
+                   f'HOME={shlex.quote(str(home))}\nREPO={shlex.quote(str(REPO))}\n'
+                   'ROLE=server\nSANDBOX=0\n'
                    'have() { command -v "$1" >/dev/null 2>&1; }\n'
                    'note() { echo "note: $*" >&2; }\n')
         return subprocess.run(["bash", "-c", prelude + body], capture_output=True, text=True,
@@ -586,7 +587,8 @@ class Installer(Slice):
         self.assertIn("[Slice]\nTasksMax=6144\n", written)       # three quarters of 8192
         # memory is shares, not mebibytes: 16 GiB of MemTotal on this host, and
         # systemd follows it with no rewrite
-        self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)
+        self.assertIn("TasksMax=6144\nMemoryMax=70%\n", written)
+        self.assertNotIn("MemoryHigh", written)
         self.assertIn("CPUWeight=40\n", written)
         self.assertNotIn("CPUQuota=", written)
         seats = (home / ".config/systemd/user/agentkit-seats.slice.d/weights.conf").read_text()
@@ -634,7 +636,7 @@ class Installer(Slice):
         self.assertIn("CPUWeight=40\n", written)
         self.assertNotIn("CPUQuota=", written)
         # shares, whatever meminfo says: the 16 GiB there is not even read
-        self.assertIn("MemoryHigh=60%\nMemoryMax=70%\n", written)
+        self.assertIn("MemoryMax=70%\n", written)
         mac = self.root / "mac-home"
         mac.mkdir()
         result = self.install(mac, AK_SLICE_MANAGER="0")

@@ -261,7 +261,7 @@ Example:
 `c` is a sub-screen in the same frame, headed `agentkit · config`. Over its page,
 on every page, each subscription's meter as the main screen draws it; where over
 it they would leave the page fewer than three rows, they lead the page instead
-and scroll with it, so the highlighted model's line still has its room. It is a
+and scroll with it. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, then `orch` (`●` on the highlighted
@@ -279,15 +279,8 @@ lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
 drawn at once, the orchestrator only moves, and the last reviewer stays, saying
-so under the rows, its mark shaking (Motion). Under the rows, above the keys, the highlighted
-model's own line says what it runs on (`fable runs on Claude I, II`, dim), why it is spent
-(`· spent · resets Mon 02:00`, amber) and, on a seat's, the roles `ak models` recommends it for
-(`· recommended to build and review`, dim), each on lines of its own where they do not fit,
-as many whole as a short screen holds once the note under it and a row have theirs, the blank
-line over it giving way first,
-coming up as the highlight comes to it: one place for every model, outside the rows a short screen pages so
-none leaves it off, as many lines as the tallest, empty while the highlight is off the models,
-so no row moves from under the pointer or the keys. `r recommended` opens the models screen
+so under the rows, its mark shaking (Motion). The highlighted model opens no line: what it
+runs on is the meter that lights it. `r recommended` opens the models screen
 (The models screen).
 Under the models `+ add a model`, `Subscriptions` and `Discord` (connected or not); under
 the page, dim and on every page, `Version` with the commit and its date, which the highlight
@@ -295,8 +288,8 @@ never stops on. `Subscriptions` opens a page of rows (`menu.config_subscriptions
 subscription, saying when its login ends where it soon does and the resets it holds, Enter
 opening under it `↻ log in again`, `↻ spend a reset` while it holds one and `− remove`; then
 `+ add a subscription` (a list opening in the frame). Each meter over the page is a row ↑ past
-the first model reaches, and the pointer too, lit as on the main screen with its line under
-the meters; Enter or a click on it, here and on the ak screen alike, lists `↻ log in again`
+the first model reaches, and the pointer too, lit as on the main screen, its colour washing in over it and the labels of the models it
+runs and out as it goes, with its line under the meters; Enter or a click on it, here and on the ak screen alike, lists `↻ log in again`
 and `↻ spend a reset` while it holds one, the highlight on the first, and never `− remove`
 (`menu.meter_acts`). A free provider has no meter: it goes with its last model. A reset spent, the
 line under the rows says that subscription's week as its usage row reads it:

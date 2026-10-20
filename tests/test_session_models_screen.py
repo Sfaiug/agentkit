@@ -153,49 +153,18 @@ class SessionModels(Sandbox):
         self.assertEqual(run.run_workers(self.cfg, going), ["opus", "astra"])
         self.assertEqual(staffing.run_reviewers(self.cfg, going), ["astra"])
 
-    def test_the_body_holds_the_current_groups_and_why_a_model_is_spent_is_on_its_line(self):
+    def test_the_body_holds_the_current_groups_and_says_nothing_of_why_a_model_is_spent(self):
         spent = usage.Readings({"anthropic": {"meters": [{
             "name": "weekly_all", "used": 100, "exhausted": True, "resets_at": 10000 + 86400}]}})
         note = orch.spent_note(self.cfg, "opus", spent)
         with patch.object(terminal, "layout_width", return_value=100):
             lines, _ = menu.config_body(self.cfg, ("model", "opus"), 1,
                                         self.selected("fix-api"), spent)
-            opus = menu.model_lines(self.cfg, ("model", "opus"), spent)
-            astra = menu.model_lines(self.cfg, ("model", "astra"), spent)
         self.assertEqual(self.rows(lines)["opus"], "●■□")
         self.assertEqual(self.rows(lines)["astra"], "○■■")
-        # its row is its marks and effort; why it is spent is on its line, in amber
+        # its row is its marks and effort, dim; its meter over the page says it is spent
         self.assertTrue(note.startswith("spent · resets "), note)
         self.assertFalse(any(note in terminal.plain(line) for line in lines))
-        self.assertEqual(terminal.plain(opus[1]).strip(),
-                         f"opus {menu.model_said(self.cfg, 'opus')[0][0]} · {note}")
-        self.assertIn(terminal.styled(note, "amber"), opus[1])
-        self.assertNotIn("spent", terminal.plain(astra[1]))
-        # on a phone it takes a line of its own, and the page as many as opus's
-        with patch.object(terminal, "layout_width", return_value=40):
-            opus = menu.model_lines(self.cfg, ("model", "opus"), spent)
-            astra = menu.model_lines(self.cfg, ("model", "astra"), spent)
-        self.assertTrue(all(terminal.cells(line) <= 40 for line in opus))
-        self.assertEqual(terminal.plain(opus[-1]).strip(), note)
-        self.assertEqual(len(astra), len(opus))
-
-    def test_the_models_line_names_the_provider_once_and_is_as_tall_as_the_tallest(self):
-        rows = [("anthropic", "Claude " + number, {}, number) for number in ("I", "II", "III")]
-        rows.append(("openai", "ChatGPT", {}, ""))
-        names = menu.config_models(self.cfg)
-        claude = next(name for name in names if self.cfg["models"][name]["provider"] == "anthropic")
-        chatgpt = next(name for name in names if self.cfg["models"][name]["provider"] == "openai")
-
-        def said(at, width):
-            with patch.object(menu, "usage_rows", return_value=rows), \
-                    patch.object(terminal, "layout_width", return_value=width):
-                return [terminal.plain(line).strip() for line in menu.model_lines(self.cfg, at)]
-        self.assertEqual(said(("model", claude), 100), ["", f"{claude} runs on Claude I, II, III"])
-        # on a phone Claude's wraps to two lines and ChatGPT's takes one: two lines either way
-        self.assertEqual(said(("model", claude), 28),
-                         ["", f"{claude} runs on Claude I,", "II, III"])
-        self.assertEqual(said(("model", chatgpt), 28), ["", f"{chatgpt} runs on ChatGPT", ""])
-        self.assertEqual(said(("row", "Discord"), 28), ["", "", ""])
 
     def test_a_dry_run_draws_the_sessions_marks_and_a_seat_without_a_record_only_efforts(self):
         with patch.object(update, "agentkit_version", return_value="fixture"), \
