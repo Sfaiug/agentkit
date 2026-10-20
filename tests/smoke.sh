@@ -5270,7 +5270,7 @@ assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
 assert any(line.strip().startswith("1  ") for line in lines), lines
 row = next(line for line in lines if "atoll-fix" in line)
-assert "fable" in row and "working" in row and row.endswith(" 2 of 5"), row   # the line's count
+assert config.model_name(cfg, "fable") in row and "working" in row and row.endswith(" 2 of 5"), row   # the line's count
 assert not any("Teach the menu" in line for line in lines), lines
 assert not any("Smoke" in line or SMOKE in line for line in lines), lines
 printed = io.StringIO()
