@@ -5,21 +5,22 @@ Launched with `EDITOR` as its $VISUAL (`launch_env`), a harness opens its compos
 editor on the keys its manifest names (`[screen] editor`), and `edit` takes the step ak asked of
 the pane just before (`request`, a pane option the edit clears) on what the composer holds, which
 no screen draws late or cropped, and answers in that option once it is done (`answer`).  `line`
-hands back ak's line, what else the composer holds kept in a tmux buffer of the pane's (`kept`,
-`ASIDE`) beside any text kept before, with the line it put there, and answers `line`.  A composer
-holding just the line it put there is ak's, and answers any other line `unsent`; text it would
-keep that is the line itself answers `other`, as once back it would read as that line, and stays
-where it is.  `back` answers what the composer it is handed after that line's Enter holds --
-nothing (`sent`), the line (`unsent`) or other text -- and into an empty one hands the kept text
-back, kept on as given back (`GIVEN`): whatever the next `line` finds in the composer then is the
-owner's.  Text kept for a line still in the composer stays kept, as that line is ak's to send
-first.  Each is written whole or not at all;
-a step that fails is undone and answers nothing.  tmux refusing to mark text given back leaves it
-in the composer and kept as set aside, and the next `line` keeps a composer holding just that text
-once, so it is given back again at worst, never lost.  An ask ak gave up on (`none`), however long
-ago, hands the composer back as it is, to an edit its keys opened late.  Asked nothing, it opens
-the owner's own editor.  It imports nothing of ak's but `host`, which imports nothing itself, as
-it starts on every edit the owner opens.
+hands back ak's line, what the composer holds kept in a tmux buffer of the pane's (`kept`,
+`ASIDE`) with the line it put there, and answers `line`.  Text set aside is all that is kept
+until its line has left the composer: a composer holding just that line answers it `line` again
+and any other line `unsent`, and one holding anything but that line, the text kept or nothing --
+the line edited, or text typed once it was sent -- answers `other` and stays as it is.  Text it
+would keep that is the line itself answers `other` too, as once back it would read as that line.
+`back` answers what the composer it is handed after that line's Enter holds -- nothing or just
+the text kept (`sent`), the line (`unsent`) or other text -- and into an empty one hands the
+kept text back, kept on as given back (`GIVEN`): whatever the next `line` finds in the composer
+then is the owner's.  Asked with a line it keeps no text set aside for, it answers `sent`, as a
+record moves past its line only once that line has left.  Each is written whole or not at all;
+a step that fails is undone and answers nothing, and tmux refusing to mark text given back
+leaves it in the composer and kept as set aside, which the next step reads as given back.  An
+ask ak gave up on (`none`), however long ago, hands the composer back as it is, to an edit its
+keys opened late.  Asked nothing, it opens the owner's own editor.  It imports nothing of ak's
+but `host`, which imports nothing itself, as it starts on every edit the owner opens.
 """
 import contextlib
 import os
@@ -167,15 +168,15 @@ def edit(argv):
             return 0
         (state, put, held), text = unpack(stored), path.read_bytes()
         mine = state == ASIDE and bool(put) and _holds(text, put)   # just the line it put
+        # a composer its line has left, holding nothing or what a `back` tmux refused to mark
+        # as given back handed it: what is kept is all there is to keep
+        left = state == ASIDE and (not text or _holds(text, held))
         if mode == b"line":
-            # one holding just the text set aside got it from a `back` tmux refused to mark:
-            # the text kept once, as the composer holds it
-            keep = held if mine or not text and state == ASIDE else (
-                held + b"\n" + text if state == ASIDE and held and not _holds(text, held)
-                else text)
+            keep = held if mine or left else text
             # text it would keep that is the line itself would read as that line once back
             word = (b"unsent" if mine and put != line else
-                    b"other" if keep and _holds(keep, line) else b"line")
+                    b"other" if state == ASIDE and not (mine or left) or keep and _holds(keep, line)
+                    else b"line")
             # a failed step is undone too, as tmux's server can do one its client then
             # times out on
             if word == b"line" and not mine and not (_keep(name, pack(ASIDE, line, keep))
@@ -183,9 +184,10 @@ def edit(argv):
                 _keep(name, stored)
                 return 0
         else:
-            word = b"sent" if not text else b"unsent" if mine else b"other"
-            if state == ASIDE and not text:
-                if held and not _publish(path, held):
+            moved = bool(line) and not (state == ASIDE and put == line)
+            word = b"sent" if moved or not text or left else b"unsent" if mine else b"other"
+            if left and not moved:
+                if held and not text and not _publish(path, held):
                     return 0
                 _keep(name, held and pack(GIVEN, put, held))
         _tmux("set-option", "-p", "-t", pane, ASK, f"did {os.fsdecode(at)} {os.fsdecode(word)}")
