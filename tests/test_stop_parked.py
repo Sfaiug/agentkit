@@ -26,7 +26,8 @@ SPENT = "three rounds spent: split or re-scope the task"
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
           "prompt or ak notify needs, no run or pull request you are waiting on, and an open line "
           "in your plan. Continue: decide the next step and do it. ak plan checks every open line "
-          "and ticks the proven ones; nothing else ticks a line between runs.")
+          "and ticks the proven ones; nothing else ticks a line between runs. A background "
+          "command is no wait: wait on a pull request or run with ak wait <PR url or run id>.")
 
 
 class StopParked(unittest.TestCase):
