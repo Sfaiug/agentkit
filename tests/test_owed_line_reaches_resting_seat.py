@@ -51,6 +51,7 @@ class OwedLineReachesRestingSeat(Sandbox):
         # the seat finished its own job: every line it wrote is proven
         config.plan_path(SEAT).write_text("- [x] The parser reads both schemas\n")
         self.turn("Stop")
+        self.screen = PROMPT
 
     def turn(self, event, **extra):
         """What the seat's own lifecycle hook writes, then a screen looking at it."""
@@ -68,20 +69,21 @@ class OwedLineReachesRestingSeat(Sandbox):
                                     live=watch.seat_read(SEAT), harness=harness)
         return found["word"], found["reason"]
 
-    def tick(self):
+    def tick(self, takes=True):
         """The tick's plan pass, the seat's screen showing its prompt and a typed line in its
-        composer until its Enter: the lines the fake tmux was given, in order."""
-        sent, screen = [], [PROMPT]
+        composer until an Enter it `takes`: the keys the fake tmux was given, in order."""
+        sent = []
 
         def tmux(*args, socket=None, client=False, **_kw):
-            if args[0] == "send-keys" and "-l" in args:
+            if args[0] == "send-keys":
                 sent.append(args[-1])
-                screen[0] = PROMPT.replace("❯\xa0\n", f"❯\xa0{args[-1]}\n")
-            elif args[0] == "send-keys":
-                screen[0] = PROMPT
+                if "-l" in args:
+                    self.screen = PROMPT.replace("❯\xa0\n", f"❯\xa0{args[-1]}\n")
+                elif takes:
+                    self.screen = PROMPT
             return 0, ""
         with patch.object(orch, "tmux_out", side_effect=tmux), \
-                patch.object(watch, "pane_text", side_effect=lambda *_a: screen[0]), \
+                patch.object(watch, "pane_text", side_effect=lambda *_a: self.screen), \
                 patch.object(watch.time, "sleep", lambda _s: None):
             watch.tell_plans(self.cfg, lambda _line: None)
         return sent
@@ -98,21 +100,21 @@ class OwedLineReachesRestingSeat(Sandbox):
 
     def test_the_tick_types_it_once_and_a_stop_with_it_still_open_is_the_owners(self):
         self.written()
-        self.assertEqual(self.tick(), [TOLD])
+        self.assertEqual(self.tick(), [TOLD, "Enter"])
         self.assertEqual(self.tick(), [])                       # once
         self.assertEqual(self.decide(), ("needs you", f"stopped with work open: {OUTCOME}"))
         self.assertIsNone(notify.last(SEAT, include_seen=True))  # typed, nobody paged
         # a line written again is a new line, told in its turn
         self.written(LINE.replace("10:33", "11:40"))
         self.assertEqual(self.decide()[0], "working")
-        self.assertEqual(self.tick(), [TOLD])
+        self.assertEqual(self.tick(), [TOLD, "Enter"])
 
     def test_several_lines_go_in_as_one(self):
         self.written()
         self.written(LINE.replace(OUTCOME, "acme's switch old_export is out of the code"))
         self.assertEqual(self.tick(), [
             f"Your plan has 2 open lines: {OUTCOME}; acme's switch old_export is out of the "
-            "code. `ak plan` shows each with its check. Decide the next step."])
+            "code. `ak plan` shows each with its check. Decide the next step.", "Enter"])
 
     def test_nothing_is_typed_mid_turn_and_the_line_comes_at_the_next_quiet_prompt(self):
         self.written()
@@ -120,7 +122,7 @@ class OwedLineReachesRestingSeat(Sandbox):
         self.assertEqual(self.decide()[0], "working")
         self.assertEqual(self.tick(), [])
         self.turn("Stop")
-        self.assertEqual(self.tick(), [TOLD])
+        self.assertEqual(self.tick(), [TOLD, "Enter"])
 
     def test_a_question_standing_or_a_turn_the_owner_stopped_gets_nothing(self):
         self.written()
@@ -132,9 +134,57 @@ class OwedLineReachesRestingSeat(Sandbox):
         self.assertNotEqual(self.decide()[0], "needs you")
         self.assertEqual(self.tick(), [])
 
+    def test_a_line_its_composer_kept_is_sent_only_while_the_seat_still_reads_told(self):
+        self.written()
+        self.assertEqual(self.tick(takes=False), [TOLD, "Enter", "Enter"])
+        self.assertEqual(self.tick(), ["Enter"])                # nothing changed: it goes
+        self.assertEqual(self.tick(), [])                       # and the next pass reads it sent
+        self.assertEqual(self.decide(), ("needs you", f"stopped with work open: {OUTCOME}"))
+        for change in (
+                lambda: notify.record(SEAT, "needs", "Which schema should acme use?",
+                                      time=NOW - 30),
+                lambda: watch.seat_write(SEAT, interrupted=NOW - 30),
+                lambda: config.plan_path(SEAT).write_text("- [x] The parser reads both schemas\n")):
+            with self.subTest(change=change):
+                config.notify_path(SEAT).unlink(missing_ok=True)
+                config.plan_path(SEAT).write_text("- [x] The parser reads both schemas\n")
+                watch.seat_write(SEAT, interrupted=None, plan_told=None, plan_typing=None)
+                self.screen = PROMPT
+                self.written()
+                self.assertEqual(self.tick(takes=False), [TOLD, "Enter", "Enter"])
+                change()
+                self.assertNotEqual(self.decide()[0], "working")
+                self.assertEqual(self.tick(), [])
+        self.assertIsNone(watch.seat_read(SEAT)["plan_typing"])   # its line closed: dropped
+
+    def test_an_esc_the_send_lock_reads_gets_nothing(self):
+        self.written()
+        config.update_session(SEAT, orchestrator="astra")
+        codex = (REPO / "tests/fixtures/codex-prompt-pane.txt").read_text()
+        sent = []
+
+        def tmux(*args, socket=None, client=False, **_kw):
+            sent.append(args[-1])
+            return 0, ""
+
+        def escape(_held):
+            """The owner's Esc, as its hook writes it, read in the send lock's own look."""
+            config.hook_facts_path(SEAT).write_text(json.dumps(
+                {"session": SEAT, "event": "Interrupt", "kind": "", "text": "", "at": NOW}))
+            watch.live_state(self.seat, "codex", pane=codex, cfg=self.cfg, now=NOW)
+        with patch.object(watch, "seat_model", return_value=("codex", "openai")), \
+                patch.object(watch, "pane_text", return_value=codex), \
+                patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(orch, "rulebook_prepare", side_effect=escape), \
+                patch.object(watch.time, "sleep", lambda _s: None):
+            self.turn("Stop")
+            self.assertEqual(self.decide("codex")[0], "working")
+            watch.tell_plans(self.cfg, lambda _line: None)
+        self.assertEqual([key for key in sent if key in (TOLD, "Enter")], [])
+
     def test_a_told_line_that_closed_leaves_the_seats_record(self):
         self.written()
-        self.assertEqual(self.tick(), [TOLD])
+        self.assertEqual(self.tick(), [TOLD, "Enter"])
         self.assertEqual(list(watch.seat_read(SEAT)["plan_told"]), [plan.identity(LINE)])
         config.plan_path(SEAT).write_text("- [x] The parser reads both schemas\n")
         self.assertEqual(self.tick(), [])

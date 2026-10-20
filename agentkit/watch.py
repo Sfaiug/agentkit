@@ -2996,11 +2996,13 @@ def tell_plans(cfg, log):
     ak wrote into a finished seat's plan sat there two hours as `needs you`, with nothing asked
     and nothing typed (owner, 20 Oct 2026).
 
-    It types only where the seat's own word says ak is telling it its plan (`news_owed`), so the
-    word and the typing never disagree: never mid-turn, past a question, during a wait or a run
-    of its own, nor after a turn the owner stopped.  The line in the composer is kept in the
-    seat's record with its mark (`plan_typing`) until the send took it, then each of its lines
-    is told (`plan_told`); a told line no longer open leaves the record at the next pass.
+    It types only where the seat's own word says ak is telling it its plan (`news_owed`), read
+    under the send lock before each key, a pending line's Enter too, so the word and the typing
+    never disagree: never mid-turn, past a question, during a wait or a run of its own, nor
+    after a turn the owner stopped.  The line in the composer is kept in the seat's record with
+    its mark (`plan_typing`) until the send took it, then each of its lines is told
+    (`plan_told`), and dropped once every line it names has closed; a told line no longer open
+    leaves the record at the next pass.
     """
     from . import menu as menu_mod    # the menu imports this module
     from . import plan as plan_mod
@@ -3021,10 +3023,12 @@ def tell_plans(cfg, log):
         if session is None or any(session.get(key) for key in orch.CLOSED):
             continue
         typing = record.get("plan_typing")
+        if isinstance(typing, dict) and not still & set(typing["lines"]):
+            typing = None
+            seat_write(name, plan_typing=None)
         if not isinstance(typing, dict):
             untold = untold_lines(name, record.get("interrupted"))
-            if not untold or not session_state(name, session=session, cfg=cfg, records=records)[
-                    "reason"].startswith(TELLING_PLAN):
+            if not untold:
                 continue
             what = "; ".join(outcome for _, outcome in untold)
             room = longest(cfg) - 120
@@ -3035,7 +3039,10 @@ def tell_plans(cfg, log):
                       "Decide the next step."}
         if type_at_prompt(session, typing["text"], log, cfg=cfg, typed=typing.get("typed"),
                           receipt=lambda mark, name=name, typing=typing:
-                          seat_write(name, plan_typing=dict(typing, typed=mark))):
+                          seat_write(name, plan_typing=dict(typing, typed=mark)),
+                          stale=lambda held, session=session: not session_state(
+                              held, session=session, cfg=cfg, records=records)[
+                              "reason"].startswith(TELLING_PLAN)):
             now = time.time()
             seat_write(name, plan_typing=None,
                        plan_told={**told, **{key: now for key in typing["lines"]}})
