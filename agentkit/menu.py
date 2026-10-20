@@ -2917,7 +2917,7 @@ def models_shown(cfg, key, rows, levels):
 def models_at(rows, effort):
     """A model's row ({effort: row}, models_table) at `effort`, else the one every board it
     matched names no effort for, at none or the config's effort, which stands at every effort
-    of the model (matrix.matching gives it at any); {} with neither."""
+    of the model (matrix.placed stands it at any); {} with neither."""
     return rows.get(effort) or next(
         (row for row in rows.values()
          if all(hit["effort"] is None for hit in (row.get("matched") or {}).values())), {})
