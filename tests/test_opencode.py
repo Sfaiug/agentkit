@@ -908,6 +908,8 @@ cat "$dir/bridge-eval"
             {"type": "session.inbox.enqueued", "data": {
                 "item": {"type": "user", "payload": {"text": "do the thing"}}}},
             {"type": "session.execution.succeeded", "data": {"sessionID": "ses_plug"}},
+            {"type": "session.execution.failed", "data": {"sessionID": "ses_plug"}},
+            {"type": "session.execution.interrupted", "data": {"sessionID": "ses_plug"}},
             {"type": "permission.asked", "data": {
                 "action": "bash", "resources": ["ls", 7]}},
         ]
@@ -931,6 +933,8 @@ console.log(JSON.stringify(facts));
         self.assertEqual(facts, [
             {"hook_event_name": "UserPromptSubmit", "message": "do the thing"},
             {"hook_event_name": "Stop", "session_id": "ses_plug"},
+            {"hook_event_name": "Stop", "session_id": "ses_plug"},
+            {"hook_event_name": "Interrupt", "session_id": "ses_plug"},
             {"hook_event_name": "PermissionRequest", "tool_name": "bash", "message": "bash ls"},
         ])
 

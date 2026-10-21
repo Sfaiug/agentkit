@@ -4293,7 +4293,8 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         log(f"would resume {name}, stopped with work open, no question and no run, with {keys!r}")
         return
     current = pane_text(session)
-    if (_decided_state(name, harness, current) != "at_prompt"
+    # A prompt hook can precede the composer redraw: the turn must be over too.
+    if (not at_prompt(session, pane=current) or seat_read(name).get("interrupted")
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if type_into(session, keys, log):
