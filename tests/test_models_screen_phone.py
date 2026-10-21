@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from agentkit import matrix, terminal
+from agentkit import terminal
 from agentkit.terminal import Key
 import test_models_screen as screen
 
@@ -31,9 +31,10 @@ class Phone(screen.Screen):
     def test_the_harness_gives_way_again_where_a_label_would_still_be_cut_beside_it(self):
         # a catalog id 35 cells wide no config entry names: beside the harness column the
         # first line would cut it, so the harness gives way and every label reads whole
-        self.store(matrix.scored([
-            screen.row("claude", "claude-opus-5-5", "xhigh", 60, 70, 56, 4000, agent=0.2),
-            screen.row("opencode", "opencode/nemotron-3.5-super-vl-free", None, 30, 36, 30, 100)]))
+        self.store([
+            screen.row("claude", "claude-opus-5-5", "xhigh", 100, 100, 100, cost=4000),
+            screen.row("opencode", "opencode/nemotron-3.5-super-vl-free", None, None, 50.71,
+                       51.79, cost=100)])
         with patch.object(terminal, "height", return_value=40):
             text = self.screens([Key("char", "r"), Key("esc"), Key("esc")], width=40)
         shown = text.split("models · fix-api")[1].split("agentkit · config")[0]

@@ -30,7 +30,7 @@ set -u
 # pane, which is where every seat's harness runs; watch.hook_look checks the pane is the seat's,
 # on the seat's own server.
 look() {
-  local seat=$1 answered=${2:-} said=${3:-}
+  local seat=$1 answered=${2:-} said=${3:-} event=${4:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
   # the owner's words go on its stdin: on its command line, a long one would never run it
   ( printf '%s' "$said" | /usr/bin/env python3 -c '
@@ -42,8 +42,9 @@ except OSError:
     pass
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import watch
-watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, sys.stdin.read())
-' "${BASH_SOURCE[0]}" "$seat" "$answered" >/dev/null 2>&1 & )
+watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, sys.stdin.read(),
+                prompt=sys.argv[4] == "UserPromptSubmit")
+' "${BASH_SOURCE[0]}" "$seat" "$answered" "$event" >/dev/null 2>&1 & )
 }
 
 seat_state() {
@@ -140,10 +141,11 @@ config.record_hook_fact(row, fact, kept)
       >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
     /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   fi
-  # The owner's word answers an older question, once the background look checks its pane.
-  # The launch name still resolves after a rename; main leaves harness bookkeeping alone.
+  # The owner's word answers an older question, once the background look checks its pane --
+  # and, for a prompt, the seat's conversation (`notify.answer_written`).  The launch name still
+  # resolves after a rename; main leaves harness bookkeeping alone.
   if [[ $owner = true ]]; then
-    look "$seat" "$ts" "$said"
+    look "$seat" "$ts" "$said" "$event"
   else
     look "$seat"
   fi

@@ -135,6 +135,7 @@ from pathlib import Path
 
 from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage, worker
 from . import record
+from . import warm
 
 KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
@@ -183,6 +184,14 @@ def read(prompt, default=None):
     if not sys.stdout.isatty():
         print()    # the prompt was answered from a pipe: keep the transcript on separate lines
     return default if answer is None else answer.strip()
+
+
+def rows(cfg):
+    """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
+    found = orch.listing()
+    records = run_records()           # one pass over run.json a read: filing, looking, drawing
+    orch.file_projectless(found, [state for _, state in records])
+    return found, records, v5o_groups(cfg, found, records, look=False)
 
 
 class Live:
@@ -348,10 +357,7 @@ class Live:
             leaves = self.leaves
             self.reads += 1
             began = self.reads
-        found = orch.listing()
-        records = run_records()           # one pass over run.json a read: filing, looking, drawing
-        orch.file_projectless(found, [state for _, state in records])
-        groups = v5o_groups(self.cfg, found, records, look=False)
+        found, records, groups = rows(self.cfg)
         with self.reading:
             if self.leaves != leaves:
                 return
@@ -404,9 +410,10 @@ class Live:
         self.asked.set()
 
     def watch(self, last):
-        """Read into `last` once, now, for the first draw, then again in a thread within STIR
-        of any record changing, or when asked (`ask`): the seats and their groups, for each
-        draw to draw.
+        """Read into `last` once, now, for the first draw -- in a menu the warm server forked, its
+        last read is the first draw's (`warm`), read again within STIR -- then again in a thread
+        within STIR of any record changing, or when asked (`ask`): the seats and their groups,
+        for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
@@ -419,8 +426,14 @@ class Live:
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
-        self.last, self.seen = last, self.recorded()
-        self.read(look=True)
+        self.last, primed = last, warm.primed()
+        if primed:
+            # the warm server's last read, read again at the watcher's first look: a read
+            # beside the first frame would hold it back, the two on one interpreter
+            last[:], self.seen, self.looking = primed, None, True
+        else:
+            self.seen = self.recorded()
+            self.read(look=True)
         if self.watcher is None:
             self.watcher = threading.Thread(target=self._watch, daemon=True)
             self.watcher.start()
@@ -884,6 +897,9 @@ class Task(tuple):
         task = super().__new__(cls, (stage, state))
         task.run = run
         return task
+
+    def __getnewargs__(self):
+        return (*self, self.run)      # pickled whole: the warm server's read (`warm`)
 
 
 def seat_tasks(name, records=None, now=None):
@@ -3010,8 +3026,8 @@ MODELS_TAKE = "r take recommended"
 KNOB = ("knob", "within")
 KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
-MODELS_NOTE = ("quality is a model's share of the best on the public boards, out of 100; cost is "
-               "what Artificial Analysis's index run cost it, in dollars")
+MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
+               "boards; cost is what Artificial Analysis's index run cost it, in dollars")
 CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
 SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
@@ -4128,13 +4144,13 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
     one whose meter is amber: its harness's `login again` (`logins.harness`), and the menu back
-    as soon as that ends, one that failed once what it said has been read.  The tick asks an
-    amber login again every time it runs, so its meter turns grey at the next tick once a new
-    one stands, and nothing here writes `logins.json`."""
+    as soon as that ends, one that failed once what it said has been read.  One that finished
+    is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
-    if harness:
-        _adapter_verbs(keyboard, harness, ("login again",), provider, account, provider)
+    if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
+                                      provider):
+        logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
