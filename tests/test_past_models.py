@@ -46,10 +46,11 @@ class PastModels(Sandbox):
         self.assertEqual(menu.past_models(self.cfg, self.session),
                          ["spark", "astra", "fable", "gemini-3.8-flash", "opus"])
 
-    def test_they_close_the_stats_line(self):
+    def test_they_close_the_stats_line_by_their_full_names(self):
         with patch.object(menu.notify, "conversation_of", return_value=None):
             self.assertEqual(menu.past_said(self.cfg, self.session)[1],
-                             "took 11 hours · spark, astra, fable, gemini, opus")
+                             "took 11 hours · muse-spark-1.3-contributor, GPT-6-Astra, Fable 5.1,"
+                             " Gemini 3.8 Flash, Opus 5.5")
 
 
 if __name__ == "__main__":

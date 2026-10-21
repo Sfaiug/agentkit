@@ -4883,7 +4883,7 @@ def took(seconds):
 def past_said(cfg, session):
     """(sentence, stats) a past session's row opens with: its plan's first done line, then its
     tasks, how long it took, from its start to its last done, else to its stop, and the models it
-    used (past_models)."""
+    used (past_models), each by its full name (`config.model_name`)."""
     name, start, stop = session["name"], session.get("created"), session["closed"]
     seat = notify.conversation_of(name)
     last = seat and seat[3] and (history.last_done(f"{seat[0].name}:{seat[3]}") or [None])[0]
@@ -4893,7 +4893,8 @@ def past_said(cfg, session):
              f"{total} task{'s' * (total != 1)}") if total else ""
     end = last if last and start and start < last <= stop else stop
     return plan.first_done(name) or "", " · ".join(part for part in (
-        tasks, start and "took " + took(end - start), ", ".join(past_models(cfg, session))) if part)
+        tasks, start and "took " + took(end - start), ", ".join(
+            config.model_name(cfg, model) for model in past_models(cfg, session))) if part)
 
 
 def past_models(cfg, session):
