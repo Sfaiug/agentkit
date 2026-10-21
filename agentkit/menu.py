@@ -4435,13 +4435,14 @@ def config_page(name, page):
         else:
             opened, at = None, here[1]
 
-            def draw(lines):
+            def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
                 body = page_body([(("row", number), label, value)
                                   for number, (label, value, _) in enumerate(rows)])[0]
-                terminal.frame(title, [*body[:at + 1], *lines, *body[at + 1:],
-                                       *note_lines(note)], keys)
-                return 4 + at
+                body[at + 1:at + 1], said = lines, note_lines(note)
+                first, room = matrix_page(body, {at + 1: ("lines", [])}, "lines", top, said, keys)
+                terminal.frame(title, [*body[first:first + room], *said], keys)
+                return 4 + at - first
             said = rows[at][2](draw) or ""
 
 
