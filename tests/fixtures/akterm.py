@@ -21,8 +21,10 @@ from .akbin import AK
 SERVER = "agentkit-term"
 CONF = "set -g status off\nset -g default-terminal xterm-256color\n"   # every row is the program's
 # The program's exit status goes to a file, and the pane then stays as the program left it:
-# tmux's own `remain-on-exit` scrolls the screen a line to say the pane is dead.
-KEEP = 'env -u TMUX -u TMUX_PANE "$@"; echo $? >"$0"; exec sleep 86400'
+# tmux's own `remain-on-exit` scrolls the screen a line to say the pane is dead.  The shell
+# outlives a Ctrl-C that ends the program, whose SIGINT stays its default; the program gets ak's
+# colours, which the Home's NO_COLOR turns off for its piped runs.
+KEEP = 'trap : INT; env -u TMUX -u TMUX_PANE -u NO_COLOR "$@"; echo $? >"$0"; exec sleep 86400'
 
 
 class Terminal:

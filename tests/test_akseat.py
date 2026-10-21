@@ -6,6 +6,7 @@ terminal shows; both hold only if tests/fixtures/akseat.py and akterm.py do.
 
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -39,6 +40,21 @@ class Seats(unittest.TestCase):
         self.home.tmux("send-keys", "-t", seat.pane, "BSpace", "Enter")
         self.assertEqual(seat.wait_lines(2), ["ship it", "an"])
         self.assertEqual(seat.typed(), "ship it\rand\x7f\r")
+
+    def test_a_paste_is_one_line_however_it_arrives_and_a_draft_outlives_a_frame(self):
+        seat = Seat(self.home, "acme", screen=PROMPT)
+        self.home.tmux("set-buffer", "-b", "clip", "first\nsecond")
+        self.home.tmux("paste-buffer", "-p", "-b", "clip", "-t", seat.pane)
+        self.home.tmux("send-keys", "-t", seat.pane, "Enter")
+        self.assertEqual(seat.wait_lines(1), ["first\nsecond"])
+        for chunk in ("\x1b[20", "0~draft\x1b[201~"):   # a paste mark split across reads
+            self.home.tmux("send-keys", "-t", seat.pane, "-l", chunk)
+            while not seat.typed().endswith(chunk):
+                time.sleep(0.05)
+        seat.show("next\n\n❯ \n── footer\n")
+        self.assertIn("❯ draft", seat.capture())
+        self.home.tmux("send-keys", "-t", seat.pane, "Enter")
+        self.assertEqual(seat.wait_lines(2), ["first\nsecond", "draft"])
 
     def test_a_seat_tmux_lost_is_only_its_record(self):
         seat = Seat(self.home, "acme", alive=False)

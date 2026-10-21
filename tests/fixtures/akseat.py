@@ -23,7 +23,7 @@ import time
 import unicodedata
 
 from .akbin import SOCKET
-from .akpane import drawn
+from .akpane import Composer, drawn
 
 FIXTURES = Path(__file__).resolve().parent
 PANE = FIXTURES / "akpane.py"
@@ -126,13 +126,15 @@ class Seat:
         return (path if path.is_absolute() else FIXTURES / screen).read_text()
 
     def _settle(self, bound=30):
-        """A pane draws a moment after it is told to; wait until it shows the screen."""
-        want = _rows(drawn(self.screen, "", self.composer).split("\x1b[2J", 1)[1]
-                     .replace("\r\n", "\n"))
+        """A pane draws a moment after it is told to; wait until it shows the screen, with
+        whatever its composer holds."""
         deadline = time.monotonic() + bound
         while time.monotonic() < deadline:
+            composing = Composer()
+            composing.read(self.typed(), more=False)
+            want = drawn(self.screen, composing.draft, self.composer)
             shown = self.capture()
-            if _rows(shown) == want:
+            if _rows(shown) == _rows(want.split("\x1b[2J", 1)[1].replace("\r\n", "\n")):
                 return
             time.sleep(0.05)
         raise AssertionError(f"seat {self.name} never showed its screen; it shows:\n{shown}")
