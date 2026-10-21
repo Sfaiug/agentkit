@@ -19,7 +19,9 @@ tell its code is old (`update.outdated`).  A server leaves once the install is n
 code, starting the next, or once its socket is not its own or its checkout is gone: an update
 never serves old code, and a dead server costs one slow open, never a broken one.  It stays one
 thread, so each fork is a whole copy of it: the reads, whose feature switches run in threads of
-their own, are the reader's, a process apart.  This file is the client too, run as a script, so
+their own, are the reader's, a process apart.  And it stays in memory (`_resident`): a server idle
+for hours is what a busy host swaps out first, and a menu forked from it read it back page by
+page before its first frame, most of a second.  This file is the client too, run as a script, so
 nothing above `serve` imports agentkit.
 """
 
@@ -28,6 +30,7 @@ import sys
 import time
 
 WAIT = 1.0      # how long a client waits on the server before it goes cold
+CHUNK = 1 << 20  # how much of its memory the server reads back at a time (`_resident`)
 DUTY = 0.05     # the reader's share of one core at most: a read's CPU / DUTY before the next
 NICE = 10       # ... and it gives way to the rest of the host meanwhile
 # What the terminal signals the process in its session, the client, and the menu has to hear.
@@ -128,8 +131,9 @@ def serve(lock):
     import select
     import signal
     import socket
-    # the menu, and what `menu.main` imports on the way to its first frame
+    # the menu, and what `menu.main` and its fork (`_menu`) import on the way to its first frame
     from . import config, macbridge, menu, notify, orch, terminal, update, watch  # noqa: F401
+    import pickle, pkgutil, runpy  # noqa: E401, F401
     config.load()                      # what it parses with, imported once here
     for name in (config.SESSION_ENV, "TMUX", "TMUX_PANE", terminal.PAD_ENV):
         os.environ.pop(name, None)     # the popup's that started it: no seat is the reader's
@@ -159,6 +163,7 @@ def serve(lock):
     signal.signal(signal.SIGCHLD, signal.SIG_IGN)   # each menu's fork reaped as it ends
     latest, heard, moved = None, b"", False
     while True:
+        _resident()
         ready = select.select([listener, reads], [], [], menu.STIR)[0]
         try:
             moved = update.outdated()
@@ -203,6 +208,32 @@ def serve(lock):
     if moved and notify.installed_at() <= time.time():
         _start(str(config.REPO))
     os._exit(0)
+
+
+def _resident():
+    """Whatever of the server's memory the host swapped out, back in RAM, read through
+    /proc/self/mem: every private writable page, which is what swap holds and a fork shares.
+    With nothing swapped it reads its status alone, at each wake (`serve`)."""
+    try:
+        with open("/proc/self/status", "rb") as status:
+            if not any(line.startswith(b"VmSwap:") and line.split()[1] != b"0" for line in status):
+                return
+        with open("/proc/self/maps", "rb") as maps:
+            spans = [line.split() for line in maps]
+        mem = os.open("/proc/self/mem", os.O_RDONLY)
+    except OSError:
+        return            # no /proc here: nothing to read it back by
+    try:
+        for span in spans:
+            if span[1] == b"rw-p":
+                start, end = (int(edge, 16) for edge in span[0].split(b"-"))
+                try:
+                    for at in range(start, end, CHUNK):
+                        os.pread(mem, min(CHUNK, end - at), at)
+                except OSError:
+                    pass  # gone since the list was read: the rest comes back all the same
+    finally:
+        os.close(mem)
 
 
 def _read(out):
