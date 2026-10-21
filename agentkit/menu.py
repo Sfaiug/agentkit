@@ -2912,9 +2912,9 @@ def model_label(cfg, name, width):
     return terminal.cut(config.model_name(cfg, name), width)
 
 
-def model_heading(cfg, provider):
-    """The same provider heading over the models on `c` and `n`."""
-    return terminal.styled(provider_name(cfg, provider), "accent")
+def model_heading(harness):
+    """The same heading over the models on `c` and `n`: their harness's name, in its colour."""
+    return terminal.styled(config.harness_name(harness), config.harness_colour(harness) or "accent")
 
 
 # the roles `r` takes, each with its group in a seat's record (its config role: matrix.CONFIG_ROLES)
@@ -3234,8 +3234,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 lit=None):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
-    Every offered model once, under its provider's name, a line each: label, the three role
-    marks of `selected` -- a session's record, whose missing reviewers are its workers -- and
+    Every offered model once, under its harness's name (model_heading), a line each: label,
+    the three role marks of `selected` -- a session's record, whose missing reviewers are its
+    workers -- and
     its effort: a cell for each level it offers, full up to its effort (terminal.effort_cells,
     effort_levels), then its word; a model with one effort is its word alone.  With no
     session, only the effort, still column 3.  `moves`, a list, is handed each mark's line, key,
@@ -3280,9 +3281,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     lines = [terminal.styled((" " * left + "".join(
         "  " + terminal.pad(head, width) for head, width in zip(heads, widths))).rstrip(), "dim")]
     places = {}
-    for provider in dict.fromkeys(models[name]["provider"] for name in names):
-        lines.append(model_heading(cfg, provider))
-        for name in (name for name in names if models[name]["provider"] == provider):
+    for harness in dict.fromkeys(models[name].get("harness") for name in names):
+        lines.append(model_heading(harness))
+        for name in (name for name in names if models[name].get("harness") == harness):
+            provider = models[name]["provider"]
             texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
             texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""

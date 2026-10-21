@@ -4166,7 +4166,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True):
 
 
 def picker_lines(cfg, notes, selected, at, column, room, moves=None):
-    """Every model once under its provider, named as on `c`, with three marks; detail and spent
+    """Every model once under its harness, named as on `c`, with three marks; detail and spent
     notes wrap below on a phone. `moves`
     is handed each mark's line, key, glyph and how it moves (motion.toggled), for the clock."""
     from . import menu   # here, not at the top: menu imports this module
@@ -4180,8 +4180,8 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     rows, cells = [], []
     for at_row, name in enumerate(names):
         entry, note = config.model(cfg, name), notes[name]
-        if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
-            lines.append(menu.model_heading(cfg, entry["provider"]))
+        if at_row == 0 or entry["harness"] != config.model(cfg, names[at_row - 1])["harness"]:
+            lines.append(menu.model_heading(entry["harness"]))
         line = "  " + terminal.pad(menu.model_label(cfg, name, wide), wide)
         texts, builds = role_texts(selected, name, marks)
         own = []

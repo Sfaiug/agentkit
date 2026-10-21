@@ -5,6 +5,7 @@
 # for the captures.
 version = 1
 name = "Antigravity"
+colour = "#203B9B"
 
 [check]
 model = "gemini-3.8-flash"

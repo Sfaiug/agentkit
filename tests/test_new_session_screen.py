@@ -227,7 +227,7 @@ class NewSessionScreen(unittest.TestCase):
                          [full("opus"), full("astra")])
         self.assertEqual([line for line in lines[3:-2]
                           if line and not line.startswith((" ", "›"))],
-                         ["Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"])
+                         ["Claude Code", "Codex", "Muse Code", "Grok Build", "Antigravity", "OpenCode"])
         self.assertTrue(lines[-1].startswith("  ↑↓←→ move   space choose   ⏎ start   esc back"))
         screen.send(ENTER)
         screen.saw("<created new opus opus,astra opus,astra>", "<opened new>")

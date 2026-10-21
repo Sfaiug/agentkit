@@ -4,6 +4,7 @@
 # still untrusted enough to paint it.  Every other string here was seen on the wire.
 version = 1
 name = "Grok Build"
+colour = "#736CD3"
 
 [check]
 model = "grok-4.7-build-fast"
