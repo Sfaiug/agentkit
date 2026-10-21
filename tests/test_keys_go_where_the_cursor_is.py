@@ -44,13 +44,14 @@ class KeysGoWhereTheCursorIs(unittest.TestCase):
         self.keys = []
 
     def tmux(self, argv, **_kw):
-        """What tmux 3.5a prints: `display-message` then `capture-pane`, joined by a `;`, print
-        the cursor's row and then every row of the pane, blank ones included."""
+        """What tmux 3.5a prints: the cursor's row, and every row of the pane, blank ones too."""
         args, out = argv[3:] if argv[1] == "-L" else argv[1:], ""
-        if args[:4] == ["display-message", "-p", "-t", "=acme:"] and "capture-pane" in args:
-            if self.row is None:
-                return SimpleNamespace(returncode=1, stdout="", stderr="can't find pane: acme\n")
-            out = f"{self.row}\n{self.pane}"
+        if args[0] in ("display-message", "capture-pane") and self.row is None:
+            return SimpleNamespace(returncode=1, stdout="", stderr="can't find pane: acme\n")
+        if args == ["display-message", "-p", "-t", "=acme:", "#{cursor_y}"]:
+            out = f"{self.row}\n"
+        elif args == ["capture-pane", "-p", "-t", "=acme:"]:
+            out = self.pane
         elif args[0] == "send-keys":
             self.keys.append(tuple(args[3:]))
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
