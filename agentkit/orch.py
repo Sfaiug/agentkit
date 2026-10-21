@@ -2216,6 +2216,7 @@ def attach(name, log=print, wait=False, session=None):
     `session` is the seat as its caller has it listed, which spares asking tmux for it again.
     """
     name = config.resolve_session(name)
+    refuse_stopping(name)
     session = find(name) if session is None else session
     socket = seat_socket(session)
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -2265,6 +2266,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
     """
     name = config.resolve_session(name)
+    refuse_stopping(name)
     record = (config.session_records() if detached else records()).get(name) or {}
     session = find(name)
     if detached:
@@ -3553,6 +3555,13 @@ def stop_held(name):
     except OSError:
         pass                      # none: no stop of it ever took one
     return False
+
+
+def refuse_stopping(name):
+    """Nothing opens a seat while its stop goes, whatever screen or command offered it: the
+    stop would end what it opened.  Every opening comes through `attach` or `resume`."""
+    if stop_held(name):
+        raise config.Error(f"{name} is still stopping")
 
 
 def cmd_stop(argv):

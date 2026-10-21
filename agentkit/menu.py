@@ -2105,25 +2105,19 @@ def open_session(cfg, session, dry_run):
 
     A seat whose orchestrator has exited, and one tmux no longer holds at all, are both opened
     by resuming their owned conversation or clearly starting fresh -- the same key either way.
-    A seat whose stop is under way is opened by none, whatever screen offers it.
     """
     name = session["name"]
-    if orch.stop_held(name):              # a screen read before its stop began offers it
-        pause(f"{name} is still stopping")
-        return
-    if not any(session.get(key) for key in orch.CLOSED):
-        if dry_run:
-            print(f"would attach {name}")
-            return
-        orch.attach(name, wait=True, session=session)
-        return
+    closed = any(session.get(key) for key in orch.CLOSED)
     if dry_run:
-        print(f"would resume {name}")
+        print(f"would {'resume' if closed else 'attach'} {name}")
         return
     try:
-        orch.resume(cfg, name, wait=True)
-    except config.Error as exc:
-        pause(f"resume: {exc}")
+        if closed:
+            orch.resume(cfg, name, wait=True)
+        else:
+            orch.attach(name, wait=True, session=session)
+    except config.Error as exc:           # a stop under way among them (orch.refuse_stopping)
+        pause(str(exc))
 
 
 def new_session(cfg, dry_run, keyboard=None, found=None):

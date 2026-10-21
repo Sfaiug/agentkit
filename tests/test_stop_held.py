@@ -1,6 +1,7 @@
 """A seat's stop holds its `closing` lock while it goes (orch.stop_lock), and while it does no
-other stop of the seat starts and nothing opens it, whatever screen offered it: the stop
-(`orch.cmd_stop`) and the opening (`menu.open_session`) each look at the lock themselves.
+other stop of the seat starts and nothing opens it, whatever screen or command offered it: the
+stop (`orch.cmd_stop`) and the opening (`orch.resume`, `orch.attach`) each look at the lock
+themselves.
 
 `x`'s stop runs in a process of its own, handed the lock its menu took (orch.STOPPING), and goes
 on under it.  Offline: a temporary HOME, no tmux; the lock is held here, in this process, as a
@@ -42,18 +43,26 @@ class StopHeld(Sandbox):
             self.assertEqual(orch.cmd_stop(["fix-api"]), 0)
         self.assertTrue(orch.stop_held("fix-api"))             # still the menu's, till it ends
 
-    def test_no_screen_opens_a_seat_whose_stop_goes(self):
+    def test_nothing_opens_a_seat_whose_stop_goes(self):
         said, past = [], {"name": "fix-api", "closed": 1, "resumable": True}
-        with patch.object(menu, "pause", said.append), patch.object(orch, "resume") as resume, \
-                patch.object(orch, "attach") as attach:
+        with patch.object(menu, "pause", said.append), patch.object(orch, "launch") as launch, \
+                patch.object(orch, "maintenance"), patch.object(orch, "find", return_value=None):
             for seat in (past, {"name": "fix-api"}):     # the past screen's, the main screen's
                 menu.open_session(self.cfg, seat, False)
-            self.assertEqual((said, resume.called, attach.called),
-                             (["fix-api is still stopping"] * 2, False, False))
+            with self.assertRaisesRegex(config.Error, "fix-api is still stopping"):
+                orch.main(["fix-api"])                   # `ak orch fix-api`
             self.lock.close()
+            config.rename_session("fix-api", "new-api")  # a screen read before the rename
+            renamed = orch.stop_lock("new-api")
+            self.addCleanup(renamed.close)
             menu.open_session(self.cfg, past, False)
-        resume.assert_called_once()
-
+            self.assertEqual((said, launch.called),
+                             (["fix-api is still stopping"] * 2 + ["new-api is still stopping"],
+                              False))
+            renamed.close()
+            with patch.object(orch, "attach"):
+                menu.open_session(self.cfg, past, False)
+        launch.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()
