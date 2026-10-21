@@ -10,47 +10,15 @@ names runs from outside through tests/fixtures/akbin.py, and this test fails aga
 
 import os
 from pathlib import Path
-import shutil
 import socket
-import subprocess
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REPO, Home
+from fixtures.akbin import boxable, Home
 
 SERVICE = ("systemctl", "systemd-run", "loginctl", "journalctl")
-# What the tick started is waited out inside the box, so nothing of it outlives the test.
-LAST = r"""
-import os, subprocess, sys, time
-code = subprocess.call(sys.argv[1:])
-deadline = time.monotonic() + 60
-while time.monotonic() < deadline:
-    if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
-        sys.exit(code)
-    time.sleep(0.1)
-sys.exit("the tick left processes running")
-"""
-
-
-def boxable():
-    if not shutil.which("bwrap"):
-        return False
-    return subprocess.run(["bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid",
-                           "--proc", "/proc", "--tmpfs", "/tmp", "--", "true"],
-                          capture_output=True, timeout=60).returncode == 0
-
-
-def tick(home, env=None):
-    """One `ak watch`, boxed: a tick asks the public boards and the shared browser on loopback,
-    so it gets a loopback of its own, and a /tmp holding only this Home and the program."""
-    keep = {home.root, home.tmux_dir, REPO, Path(AK).resolve().parent}
-    binds = [arg for path in sorted(map(str, keep), key=len) if Path(path).is_relative_to("/tmp")
-             for arg in ("--bind", path, path)]
-    return home.run("bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid",
-                    "--proc", "/proc", "--tmpfs", "/tmp", *binds, "--",
-                    sys.executable, "-c", LAST, AK, "watch", env=env)
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -69,7 +37,7 @@ class NoUserManager(unittest.TestCase):
     def ticked_alone(self):
         for name in SERVICE:
             self.home.log(name).unlink(missing_ok=True)
-        done = tick(self.home, env={"DBUS_SESSION_BUS_ADDRESS": f"unix:path={self.runtime}/bus"})
+        done = self.home.tick(env={"DBUS_SESSION_BUS_ADDRESS": f"unix:path={self.runtime}/bus"})
         self.assertEqual(done.code, 0, done.err)
         for name in SERVICE:
             self.assertEqual(self.home.calls(name), [], name)

@@ -11,48 +11,15 @@ tests/fixtures/akbin.py, and this test fails against `/bin/false`.
 import json
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REPO, Home
+from fixtures.akbin import boxable, Home
 
 SERVICE = ("systemctl", "systemd-run", "loginctl", "journalctl")
 STARTED = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d gc: automatic collection started")
-# The collector outlives the tick that started it: it is waited out inside the box, so the
-# test reads what it wrote and nothing of it outlives the test.
-LAST = r"""
-import os, subprocess, sys, time
-code = subprocess.call(sys.argv[1:])
-deadline = time.monotonic() + 60
-while time.monotonic() < deadline:
-    if not [p for p in os.listdir("/proc") if p.isdigit() and int(p) not in (1, os.getpid())]:
-        sys.exit(code)
-    time.sleep(0.1)
-sys.exit("the tick left processes running")
-"""
-
-
-def boxable():
-    if not shutil.which("bwrap"):
-        return False
-    return subprocess.run(["bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid",
-                           "--proc", "/proc", "--tmpfs", "/tmp", "--", "true"],
-                          capture_output=True, timeout=60).returncode == 0
-
-
-def tick(home):
-    """One `ak watch`, boxed: the collector sweeps /tmp, so it gets one holding only this Home
-    and the program, and the tick asks the public boards, so it gets a loopback of its own."""
-    keep = {home.root, home.tmux_dir, REPO, Path(AK).resolve().parent}
-    binds = [arg for path in sorted(map(str, keep), key=len) if Path(path).is_relative_to("/tmp")
-             for arg in ("--bind", path, path)]
-    return home.run("bwrap", "--dev-bind", "/", "/", "--unshare-net", "--unshare-pid",
-                    "--proc", "/proc", "--tmpfs", "/tmp", *binds, "--",
-                    sys.executable, "-c", LAST, AK, "watch")
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -64,7 +31,7 @@ class Scheduled(unittest.TestCase):
         config = home.path / ".agentkit" / "config.toml"
         config.write_text(config.read_text() + "\n[audit]\non = false\n")
         cls.before = time.time()
-        cls.first = tick(home)
+        cls.first = home.tick()
         cls.after = time.time()
         cls.stamp, cls.log = cls.mark(), cls.trail()
 
@@ -81,7 +48,7 @@ class Scheduled(unittest.TestCase):
     def ticked(self, started_at):
         self.home.write(".agentkit/state/gc.json", {"started_at": started_at})
         before, earlier = time.time(), self.trail()
-        done = tick(self.home)
+        done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
         lines = self.trail()
         self.assertEqual(lines[:len(earlier)], earlier)
@@ -103,7 +70,7 @@ class Scheduled(unittest.TestCase):
 
     def test_a_second_tick_the_same_day_starts_none(self):
         stamp, log = self.mark(), self.trail()
-        done = tick(self.home)
+        done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(self.mark(), stamp)
         self.assertEqual(self.trail(), log)
