@@ -141,20 +141,37 @@ def transcript(record, cwd, conversation):
 
 def prompt(entry):
     """The owner's words one rollout line holds, or None for anything else."""
-    payload = entry.get("payload")
     # Response items also contain rules and environment text with the user role.
     # The completed UserMessage item keeps the original prompt exactly once.
+    return completed(entry, "UserMessage")
+
+
+def answer(entry):
+    """The model's visible words one rollout line holds, commentary or final, or None."""
+    return completed(entry, "AgentMessage")
+
+
+def completed(entry, kind):
+    """The text of the completed item of that kind one rollout line holds, or None."""
+    payload = entry.get("payload")
     if (entry.get("type") != "event_msg" or not isinstance(payload, dict)
             or payload.get("type") != "item_completed"):
         return None
     item = payload.get("item")
-    if not isinstance(item, dict) or item.get("type") != "UserMessage":
+    if not isinstance(item, dict) or item.get("type") != kind:
         return None
     content = item.get("content")
     if not isinstance(content, list):
         return None
+    # A UserMessage's parts are `text`, an AgentMessage's `Text` (Codex 0.163).
     return "\n".join(part["text"] for part in content if isinstance(part, dict)
-                     and part.get("type") == "text" and isinstance(part.get("text"), str)) or None
+                     and part.get("type") in ("text", "Text")
+                     and isinstance(part.get("text"), str)) or None
+
+
+def said(record, cwd, conversation):
+    from . import turns
+    return turns(transcript(record, cwd, conversation), prompt, answer)
 
 
 def user_messages(record, cwd, conversation):
@@ -210,6 +227,11 @@ def forget(record):
         except (OSError, subprocess.CalledProcessError) as exc:
             print(f"orch: Codex remote cleanup for {home.name} failed ({exc}); "
                   "its enrollment stays until the next forget", file=sys.stderr)
+    retire(record)
+
+
+def retire(record):
+    """Drop that launch's receipt alone: the remote home is the seat's, and outlives a launch."""
     path = path_for(record)
     if path:
         path.unlink(missing_ok=True)
@@ -296,9 +318,6 @@ def prepare(name, cwd, owned):
     config.update_session(name, codex_launch=token, codex_history=history or None,
                           conversation=owned, id_source=SOURCE if owned else None,
                           resumable=bool(owned))
-    old_path = path_for(record)
-    if old_path:
-        old_path.unlink(missing_ok=True)
     return path
 
 
@@ -606,6 +625,13 @@ def trust_here():
         return
 
 
+def first_prompt(cmd):
+    """(options, prompt): a codex line split at the `--` before the seat's first message
+    (adapters/codex.sh), so every option added to the line goes ahead of it."""
+    at = cmd.index("--") if "--" in cmd else len(cmd)
+    return cmd[:at], cmd[at:]
+
+
 def main(argv, launch=None):
     if argv == ["capture"]:
         try:
@@ -645,7 +671,7 @@ def main(argv, launch=None):
         rulebook, argv = argv[1], argv[2:]
     if not argv or argv[0] != "--" or len(argv) < 2:
         raise config.Error("usage: codex-seat.py [--rulebook <file>] -- <codex command> | capture")
-    cmd = argv[1:]
+    cmd, prompt = first_prompt(argv[1:])
     trust_here()
     if os.environ.get(config.ACCOUNT_ENV):
         # A named CODEX_HOME must use its own file login, never the default Keychain
@@ -709,6 +735,7 @@ def main(argv, launch=None):
         else:
             print("orch: Codex cannot capture seat ownership on this version; "
                   "an unbound seat starts fresh next time", file=sys.stderr)
+    cmd += prompt
     if launch and receipt and os.environ.get(CAPTURE_ENV):
         return launch(cmd, receipt)
     os.execvp(cmd[0], cmd)

@@ -82,7 +82,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
         path.write_text(f"#!{sys.executable}\n" + script)
         path.chmod(0o755)
 
-    def start(self, name, cwd, cmd, model, resumable=True):
+    def start(self, name, cwd, cmd, model, *_a, resumable=True):
         record = config.session_records()[name]
         if model == "astra":
             self.assertTrue(codex_plugin.path_for(record).exists())

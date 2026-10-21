@@ -43,20 +43,25 @@ class LandingSuiteOffline(unittest.TestCase):
     def ran(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
-    def test_real_memory_cap_probe_is_selected_only_in_live_mode(self):
+    def test_real_memory_cap_probes_are_selected_only_in_live_mode(self):
+        import test_job_cap
         import test_memory_cap
-        method = "check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure"
         loader = unittest.TestLoader()
-        self.assertNotIn(method, loader.getTestCaseNames(test_memory_cap.MemoryCap))
-        selected = loader.loadTestsFromName(f"MemoryCap.{method}", test_memory_cap)
-        self.assertEqual(selected.countTestCases(), 1)
-        calls = [number for number, line in enumerate(SMOKE.splitlines())
-                 if '"$REPO/tests/test_memory_cap.py"' in line]
-        self.assertEqual(len(calls), 1)
-        call = SMOKE.splitlines()[calls[0]]
-        self.assertIn(call, suite_shares.smoke_source(SMOKE, REPO, (1, 1), live=True))
-        self.assertNotIn(call, suite_shares.smoke_source(SMOKE, REPO, (1, 1)))
-        self.assertIn(f"MemoryCap.{method}", SMOKE)
+        for module, case, method in (
+                (test_memory_cap, "MemoryCap",
+                 "check_unbounded_allocator_ends_fail_and_the_seat_slice_shows_no_pressure"),
+                (test_job_cap, "JobCap",
+                 "check_a_runaway_dies_alone_and_its_seat_and_the_next_seat_go_on")):
+            self.assertNotIn(method, loader.getTestCaseNames(getattr(module, case)))
+            selected = loader.loadTestsFromName(f"{case}.{method}", module)
+            self.assertEqual(selected.countTestCases(), 1)
+            calls = [number for number, line in enumerate(SMOKE.splitlines())
+                     if f'"$REPO/tests/{module.__name__}.py"' in line]
+            self.assertEqual(len(calls), 1)
+            call = SMOKE.splitlines()[calls[0]]
+            self.assertIn(call, suite_shares.smoke_source(SMOKE, REPO, (1, 1), live=True))
+            self.assertNotIn(call, suite_shares.smoke_source(SMOKE, REPO, (1, 1)))
+            self.assertIn(f"{case}.{method}", SMOKE)
 
     def test_live_sh_starts_the_live_mode_and_keeps_its_verdict(self):
         live = self.root / "tests/live.sh"

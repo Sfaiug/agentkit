@@ -115,7 +115,7 @@ class Bar(Sandbox):
                               cfg=self.cfg)
         self.assertEqual(tmux("show-options", "-t", "herdr", "-v", "status"), "2")
         shown = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.TOP}}}"))
-        self.assertIn("herdr   fable", shown)
+        self.assertIn("herdr   Fable 5.1", shown)
         self.assertIn("working", shown)
         self.assertIn("─ 1 of 3", shown)     # the line, then its count
         key = drawn(tmux("display-message", "-p", "-t", "herdr", f"#{{E:{statusbar.KEY}}}"))
@@ -141,10 +141,10 @@ class Bar(Sandbox):
                               cfg=self.cfg)
         self.assertEqual(tmux("show-options", "-t", name, "-v", "status-left-length"), "")
         top = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.TOP}}}"))
-        self.assertEqual(top, f" ! needs you    {name}   fable")   # stripped
+        self.assertEqual(top, f" ! needs you    {name}   Fable 5.1")   # stripped
         # its question is on its own screen; line two is who builds and reviews
         why = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.WHY}}}"))
-        self.assertEqual(why, "opus ⚒◎")
+        self.assertEqual(why, "Opus 5.5 ⚒◎")
 
     def test_v5y_d_no_runs_draws_no_tally(self):
         top, why, _, _ = statusbar.lines("herdr", "fable", "working", "")

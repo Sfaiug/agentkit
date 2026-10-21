@@ -70,14 +70,15 @@ class RecommendsEffort(Sandbox):
 
     def test_the_models_screen_names_the_entry_r_marks_where_two_run_the_model(self):
         # opus-max runs opus's model at max, the recommended rows' effort: the screen names
-        # the entry running the row in the role, not the first running the model, and r marks it
+        # the entry running the row in the role, not the first running the model, by its full
+        # name (config.model_name), and r marks it
         self.cfg["models"]["opus-max"] = {**self.cfg["models"]["opus"], "effort": "max"}
         config.save(self.cfg)
         self.store([row("claude", "claude-opus-5-5", "max", execute=100, review=100)])
         text = self.screen([Key("char", "r"), Key("char", "r"), Key("esc"), Key("esc")])
-        self.assertIn("best builds opus-max @ max 100 · reviews opus-max @ max 100 as good none "
-                      "recommended the cheapest as good: builds opus-max @ max 100 · reviews "
-                      "opus-max @ max 100", text)
+        said = f"{config.model_name(self.cfg, 'opus-max')} @ max 100"
+        self.assertIn(f"best builds {said} · reviews {said} as good none recommended the "
+                      f"cheapest as good: builds {said} · reviews {said}", text)
         record = config.load_session(self.cfg, "fix-api")
         self.assertEqual((record["workers"], record["reviewers"]), (["opus-max"], ["opus-max"]))
         self.assertNotIn("exec_effort", self.entry("opus-max"))

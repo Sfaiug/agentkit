@@ -9,17 +9,17 @@ agentkit                           14:02
 
 
 atoll
-  1  atoll-job    fable  ● working
+  1  atoll-job    Fable 5.1  ● working
     ━━━━━━━━━━━━╸──────────────── 3 of 7
-  2  atoll-solo   fable  ● working
+  2  atoll-solo   Fable 5.1  ● working
 
 agentkit
-  3  herdr-quiet  fable  ! needs you
+  3  herdr-quiet  Fable 5.1  ! needs you
      session closed: press 3 to reopen
-  4  herdr-long   fable  ● working
+  4  herdr-long   Fable 5.1  ● working
 
 not assigned yet
-  5  scribe       fable  ! needs you
+  5  scribe       Fable 5.1  ! needs you
      session closed: press 5 to reopen
 
   n new   x stop   c config   esc leave
