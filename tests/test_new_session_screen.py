@@ -14,6 +14,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import struct
 import subprocess
@@ -22,12 +23,14 @@ import tempfile
 import termios
 import threading
 import time
+import tomllib
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import terminal
+from agentkit import config, terminal
 
+SHIPPED = tomllib.loads((REPO / "config.default.toml").read_text())
 CHILD = r"""
 import json, os, sys
 sys.path.insert(0, os.environ["SCREEN_REPO"])
@@ -204,6 +207,11 @@ def marks(line):
     return "".join(char for char in line if char in "●○■□")
 
 
+def full(name):
+    """The name a shipped model's row shows it by (config.model_name)."""
+    return config.model_name(SHIPPED, name)
+
+
 class NewSessionScreen(unittest.TestCase):
     def test_n_then_enter_starts_a_session_with_the_defaults(self):
         screen = Screen(self)
@@ -211,12 +219,12 @@ class NewSessionScreen(unittest.TestCase):
         screen.models()
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
-        self.assertIn("opus", highlighted(lines))                 # the cursor starts there
+        self.assertIn(full("opus"), highlighted(lines))           # the cursor starts there
         self.assertEqual(lines[2].split(), ["orch", "builds", "reviews"])
         self.assertEqual(len(models(lines)), 7)
         self.assertEqual(marks(highlighted(lines)), "●■■")
-        self.assertEqual([row.split()[0 if not row.startswith("›") else 1]
-                          for row in models(lines) if marks(row)[1] == "■"], ["opus", "astra"])
+        self.assertEqual([row[2:].split("  ")[0] for row in models(lines) if marks(row)[1] == "■"],
+                         [full("opus"), full("astra")])
         self.assertEqual([line for line in lines[3:-2]
                           if line and not line.startswith((" ", "›"))],
                          ["Claude", "ChatGPT", "Muse", "Grok", "Gemini", "MiMo"])
@@ -232,9 +240,10 @@ class NewSessionScreen(unittest.TestCase):
         screen.models()
         screen.picker()
         screen.send(DOWN)
-        screen.picker(lambda lines: "astra" in highlighted(lines))
+        screen.picker(lambda lines: full("astra") in highlighted(lines))
         screen.send(SPACE)
-        lines = screen.picker(lambda lines: "astra" in highlighted(lines) and marks(highlighted(lines))[0] == "●")
+        lines = screen.picker(lambda lines: full("astra") in highlighted(lines)
+                              and marks(highlighted(lines))[0] == "●")
         self.assertEqual([row for row in models(lines) if "●" in row],
                          [highlighted(lines)])                         # one choice, moved
         screen.send(ENTER)
@@ -252,13 +261,13 @@ class NewSessionScreen(unittest.TestCase):
         screen.send(DOWN + SPACE)              # Astra, the last executor, may go too
         lines = screen.picker(lambda lines: marks(highlighted(lines)) == "○□■",
                               after=mark)
-        self.assertEqual(marks(next(line for line in lines if "opus" in line)), "●■■")
+        self.assertEqual(marks(next(line for line in lines if full("opus") in line)), "●■■")
         # A click chooses Spark's executor mark even with the cursor in the orch column.
         screen.send(LEFT)
-        row = next(number for number, line in enumerate(lines, 1) if "spark" in line)
+        row = next(number for number, line in enumerate(lines, 1) if full("spark") in line)
         col = lines[2].index("builds") + 2
         screen.send(f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m".encode())
-        screen.picker(lambda lines: "spark" in highlighted(lines)
+        screen.picker(lambda lines: full("spark") in highlighted(lines)
                       and marks(highlighted(lines))[1] == "■")
         screen.send(ENTER)
         screen.saw("<created new opus spark opus,astra>")
@@ -270,11 +279,11 @@ class NewSessionScreen(unittest.TestCase):
         mark = len(screen.text())
         screen.models()
         lines = screen.picker()
-        opus = [row for row in lines if "opus" in row]
+        opus = [row for row in lines if full("opus") in row]
         self.assertEqual(len(opus), 1)
         self.assertEqual(marks(opus[0]), "○□□")
         self.assertIn("spent · resets", opus[0])
-        self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*mopus")
+        self.assertRegex(screen.text()[mark:], r"\x1b\[[0-9;]*m" + re.escape(full("opus")))
         self.assertEqual(marks(highlighted(lines)), "●■■")
         # Astra reviewing itself could start, so Enter creates a self-review.
         screen.send(ENTER)
@@ -288,7 +297,7 @@ class NewSessionScreen(unittest.TestCase):
         lines = screen.picker()
         self.assertEqual([row for row in lines if "●" in row or "■" in row], [])
         # a week at 100% whose reset nobody knows is spent all the same, only with no time
-        self.assertEqual(len([row for row in lines if "astra" in row and "spent" in row]), 1)
+        self.assertEqual(len([row for row in lines if full("astra") in row and "spent" in row]), 1)
         screen.send(ENTER + SPACE + ENTER)     # Fable orchestrates; reviewer column wants a choice
         screen.send(DOWN * 2 + SPACE + ENTER)  # Astra reviews
         screen.saw("<created new fable  astra>")
@@ -298,9 +307,9 @@ class NewSessionScreen(unittest.TestCase):
         self.assertEqual(screen.text().count("<created"), 1)
 
     def test_a_long_model_name_is_cut_and_every_line_fits_a_phone(self):
-        long = "m" * 40
-        screen = Screen(self, providers=SPENT, cols=40, models=f'[models.{long}]\nharness = "codex"\n'
-                        'model = "x"\neffort = "xhigh"\nprovider = "openai"\n')
+        long = "m" * 40       # the model's id, the name its row shows
+        screen = Screen(self, providers=SPENT, cols=40, models='[models.long]\nharness = "codex"\n'
+                        f'model = "{long}"\neffort = "xhigh"\nprovider = "openai"\n')
         screen.menu()
         screen.models()
         lines = screen.picker()
@@ -334,7 +343,7 @@ class NewSessionScreen(unittest.TestCase):
         screen.models()
         lines = screen.picker()
         self.assertTrue(lines[0].startswith("agentkit · new session"), lines)
-        self.assertIn("astra", highlighted(lines))
+        self.assertIn(full("astra"), highlighted(lines))
         self.assertEqual(marks(highlighted(lines)), "●■■")
         self.assertIn("spent · resets", "\n".join(lines))
         screen.send(RIGHT * 2 + DOWN + SPACE + ENTER)

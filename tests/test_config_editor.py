@@ -208,10 +208,13 @@ class Editor(unittest.TestCase):
     def test_main_screen_lists_values(self):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config · fix-api"), screen)
-        for bit in ("orch  builds  reviews  effort", "Claude", "opus     ●", "●", "■", "□",
+        for bit in ("orch  builds  reviews  effort", "Claude", "●", "■", "□",
                     "▰▰▰▰▱", "add a model", "Discord", "Version abc1234 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
+        opus = config.model_name(config.load(), "opus")      # by its full name, orchestrating
+        self.assertTrue(any(line.startswith(f"  {opus} ") and "●" in line
+                            for line in screen.splitlines()), screen)
         self.assertNotIn("Update", screen)
         self.assertNotIn("harnesses", screen)
 

@@ -4162,7 +4162,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     names = list(notes)
     marks = "●○■□" if terminal.utf8() else "*.x."
     rest = sum(len(head) + 2 for head in ROLE_HEADS)
-    wide = min(max(terminal.cells(name) for name in names),
+    wide = min(max(terminal.cells(config.model_name(cfg, name)) for name in names),
                max(1, min(room // 3, room - 2 - rest)))
     lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in ROLE_HEADS),
                              "dim")]
@@ -4171,7 +4171,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
         entry, note = config.model(cfg, name), notes[name]
         if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
             lines.append(menu.model_heading(cfg, entry["provider"]))
-        line = "  " + terminal.pad(menu.model_label(name, wide), wide)
+        line = "  " + terminal.pad(menu.model_label(cfg, name, wide), wide)
         texts, builds = role_texts(selected, name, marks)
         own = []
         for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):

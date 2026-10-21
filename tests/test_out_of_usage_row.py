@@ -4,8 +4,8 @@ pointer offers waiting for then or going on now with a model that has usage.
 The owner's pick of 20 Oct 2026: a spent window is no question for him -- ak resumes the seat
 when the usage comes back, or on another account sooner -- but no word for work going on, as
 nothing moves until then; so `◌ out of usage  back 19:20` in red, and under the pointer
-`✓ Wait for 19:20` and `⇄ Go on now with gpt-sol`, which a click answers.  A run waiting for
-usage is a red square.  A harness upgrade does not wait for such a seat: no turn of it is in
+`✓ Wait for 19:20` and `⇄ Go on now with gpt-6.1-sol`, by its full name, which a click
+answers.  A run waiting for usage is a red square.  A harness upgrade does not wait for such a seat: no turn of it is in
 flight.  A move to another account that failed is no wait that ends by itself, and stays his.
 Offline: a temporary HOME, no tmux.
 """
@@ -66,6 +66,7 @@ class OutOfUsageRow(Sandbox):
     def info(self, go_on="gpt-sol", back=None):
         return {"word": "out of usage", "count": "out of usage", "sentence": SPENT,
                 "back": today_at(19, 20) if back is None else back, "go_on": go_on,
+                "go_on_name": go_on and "gpt-6.1-sol",
                 "runs_on": ("anthropic", config.DEFAULT_ACCOUNT)}
 
     def test_a_spent_window_reads_out_of_usage_until_it_comes_back(self):
@@ -127,19 +128,19 @@ class OutOfUsageRow(Sandbox):
         self.assertEqual(menu.detail(cfg, info, 80), ["Claude has no usage left until 19:20."])
         [line] = menu.choices(info, 80)
         text = terminal.ANSI.sub("", line)
-        self.assertEqual(text, "✓ Wait for 19:20   ⇄ Go on now with gpt-sol")
+        self.assertEqual(text, "✓ Wait for 19:20   ⇄ Go on now with gpt-6.1-sol")
         self.assertEqual(menu.choice_cells("     " + text, info, 80),
-                         [(6, 21, menu.WAIT), (25, 48, menu.GO_ON)])
+                         [(6, 21, menu.WAIT), (25, 52, menu.GO_ON)])
         # where both do not fit, each takes a line of its own, where a click still finds it
         wait, go_on = [terminal.ANSI.sub("", line) for line in menu.choices(info, 40)]
-        self.assertEqual((wait, go_on), ("✓ Wait for 19:20", "⇄ Go on now with gpt-sol"))
-        self.assertEqual(menu.choice_cells("     " + go_on, info, 40), [(6, 29, menu.GO_ON)])
+        self.assertEqual((wait, go_on), ("✓ Wait for 19:20", "⇄ Go on now with gpt-6.1-sol"))
+        self.assertEqual(menu.choice_cells("     " + go_on, info, 40), [(6, 33, menu.GO_ON)])
         # and one wider than the room wraps at words, each of its lines a cell of its own
         lines = [terminal.ANSI.sub("", line) for line in menu.choices(info, 12)]
-        self.assertEqual(lines, ["✓ Wait for", "19:20", "⇄ Go on now", "with gpt-sol"])
+        self.assertEqual(lines, ["✓ Wait for", "19:20", "⇄ Go on now", "with", "gpt-6.1-sol"])
         self.assertEqual([menu.choice_cells("  " + line, info, 12) for line in lines],
                          [[(3, 12, menu.WAIT)], [(3, 7, menu.WAIT)], [(3, 13, menu.GO_ON)],
-                          [(3, 14, menu.GO_ON)]])
+                          [(3, 6, menu.GO_ON)], [(3, 13, menu.GO_ON)]])
         # with no model that has usage, waiting is all there is, and the line says why
         info = self.info(go_on=None)
         self.assertEqual(menu.detail(cfg, info, 80),
@@ -229,7 +230,7 @@ class OutOfUsageOnScreen(unittest.TestCase):
         lines = screen.frame(lambda lines: any("Go on now" in line for line in lines))
         at = next(n for n, line in enumerate(lines) if "Go on now" in line)
         self.assertIn("Claude has no usage left until", lines[at - 1])
-        self.assertRegex(lines[at], r"✓ Wait for \d\d:\d\d   ⇄ Go on now with astra")
+        self.assertRegex(lines[at], r"✓ Wait for \d\d:\d\d   ⇄ Go on now with GPT-6-Astra")   # astra, in full
         mark = screen.mark()
         screen.click(lines[at].index("⇄") + 3, at + 1)
         screen.saw("<moved acme-api to astra>", after=mark)

@@ -978,14 +978,16 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
     return "  ".join(drawn + ([_paint(f"+{rest}", "dim", tmux)] if rest else []))
 
 
-def seat_crew(selection):
+def seat_crew(cfg, selection):
     """(who builds, who reviews) a seat's work, from its saved selection: its workers, else its
-    own orchestrator alone; its reviewers, else its workers.  No selection: nobody.  The menu
-    row and the seat's own bar both read this, as they read `seat_tasks`."""
+    own orchestrator alone; its reviewers, else its workers, each by its full name
+    (`config.model_name`).  No selection: nobody.  The menu row and the seat's own bar both
+    read this, as they read `seat_tasks`."""
     if not selection:
         return [], []
     workers = list(selection.get("workers") or [])
-    return workers or [selection["orchestrator"]], list(selection.get("reviewers", workers))
+    return ([config.model_name(cfg, model) for model in workers or [selection["orchestrator"]]],
+            [config.model_name(cfg, model) for model in selection.get("reviewers", workers)])
 
 
 def crew(info, tmux=False, room=None):
@@ -1123,17 +1125,19 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
                            run_numbers=run_numbers, index=index, silent=silent_map)
     selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
+    shown = config.model_name(cfg, orchestrator)
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
     word = found["word"]
     reason = found["reason"] or ""
     sentence = reason
     back = found.get("resumes_at") if word == "out of usage" else None
+    go_on = back and orch.going_on(cfg, orchestrator, staffing._cached_providers())
     return {"number": str(number), "name": name, "session": session, "back": back,
-            "go_on": back and orch.going_on(cfg, orchestrator, staffing._cached_providers()),
-            "crew": seat_crew(selection),
+            "go_on": go_on, "go_on_name": go_on and config.model_name(cfg, go_on),
+            "crew": seat_crew(cfg, selection),
             "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now),
-            "count": word, "orchestrator": orchestrator, "worker": orchestrator,
+            "count": word, "orchestrator": shown, "worker": shown,
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
             "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
@@ -1370,7 +1374,7 @@ GAP = "   "                       # between them, on a line both fit
 def choice_lines(info, room):
     """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
     on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
-    `⇄ Go on now with gpt-sol`, which moves the seat and its conversation there.  Each drawn
+    `⇄ Go on now with gpt-6.1-sol`, which moves the seat and its conversation there.  Each drawn
     line in `room` cells, as its (text, choice) parts: both on one line where they fit, else
     each on lines of its own wrapped at words, so none runs past the edge of the screen and
     away from where a click finds it (`choice_cells`).  [] for any other row."""
@@ -1394,7 +1398,7 @@ def choice_text(choice, info):
     mark = {WAIT: "✓", GO_ON: "⇄"}[choice] if terminal.utf8() else {WAIT: "v", GO_ON: ">"}[choice]
     if choice == WAIT:
         return f"{mark} Wait for {back_at(info.get('back'))}"
-    return f"{mark} Go on now with {info.get('go_on')}"
+    return f"{mark} Go on now with {info.get('go_on_name')}"
 
 
 def choice_cells(text, info, room):
@@ -1425,7 +1429,7 @@ def v5o_column_widths(infos, term_width):
     name_w = min(max([born_cells(info["born"]) if "born" in info else terminal.cells(info["name"])
                       for info in infos] + [1]), 24)
     orch_w = min(max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
-                      for info in infos] + [0]), 14)
+                      for info in infos] + [0]), 24)
     count_w = max([terminal.cells(terminal.state_text(info["count"]))
                    for info in infos] + [1])
     # Keep up to eight cells of each label beside the state; otherwise it goes below the
@@ -2180,9 +2184,11 @@ def born_groups(groups, born):
     as the seat will be once it is made (`orch.numbered`)."""
     ordered, infos, *rest = groups
     selected = born["selected"]
-    row = {"number": "", "name": BORN, "born": born, "orchestrator": selected["orchestrator"],
-           "worker": selected["orchestrator"], "count": "new", "word": "new",
-           "crew": seat_crew(selected), "tasks": [], "sentence": "", "repo": None}
+    cfg = born["cfg"]
+    shown = config.model_name(cfg, selected["orchestrator"])
+    row = {"number": "", "name": BORN, "born": born, "orchestrator": shown, "worker": shown,
+           "count": "new", "word": "new", "crew": seat_crew(cfg, selected), "tasks": [],
+           "sentence": "", "repo": None}
     ordered = [{**project, "seats": list(project["seats"])} for project in ordered]
     home = next((project for project in ordered if project["checkout"] is None), None)
     if home is None:
@@ -2920,9 +2926,10 @@ def config_models(cfg):
     return config.offered(cfg)
 
 
-def model_label(name, width):
-    """The configured name on `c` and `n`, cut only to the space its row has."""
-    return terminal.cut(name, width)
+def model_label(cfg, name, width):
+    """The model's full name on `c` and `n` (`config.model_name`), cut only to the space its
+    row has."""
+    return terminal.cut(config.model_name(cfg, name), width)
 
 
 def model_heading(cfg, provider):
@@ -3062,9 +3069,10 @@ def models_at(rows, effort):
 def _entry(cfg, row, role):
     """A row as the lines above the table say it: its label under the configured model `r`
     takes it as in `role` (takes), its quality for the role and what its index run cost
-    (`opus @ xhigh 97 $4057`; the cost left out where Artificial Analysis has not run it)."""
-    cost = row["values"].get(matrix.COST)
-    return (f"{matrix.row_label({**row, 'name': takes(cfg, row, role)})} "
+    (`Opus 5.5 @ xhigh 97 $4057`, by its full name; the cost left out where Artificial Analysis
+    has not run it)."""
+    cost, name = row["values"].get(matrix.COST), takes(cfg, row, role)
+    return (f"{matrix.row_label({**row, 'name': name and config.model_name(cfg, name)})} "
             f"{row['scores'][role]['score']:.0f}" + ("" if cost is None else f" ${cost:.0f}"))
 
 
@@ -3079,7 +3087,7 @@ def models_body(cfg, table, levels, shown, at, picks):
     where they wrap to more lines than its page holds, shows each in turn, a page at a time
     where one is taller than the page (matrix_key).  Then, dim, what
     quality and cost are, a row read the same way, and under it every model of `table`
-    (models_table) once: its label, the config's name for it or its id, dim
+    (models_table) once: its label, its full name where the config runs it, else its id, dim
     where no board scores it, its harness (dim), its effort between the arrows that step it
     (`shown`; a word alone with one effort, `-` with none), its quality per role at that effort
     (its row there, models_at; `-` without a score, the recommended row's in `done`'s colour,
@@ -3126,7 +3134,8 @@ def models_body(cfg, table, levels, shown, at, picks):
         line = "  " + terminal.styled(part, "dim")
         lines.append(terminal.highlight(line, number == 0) if at == here else line)
     lines.append("")
-    labels = {key: next(iter(_runs(cfg, *key)), None) or key[1] for key in table}
+    labels = {key: next((config.model_name(cfg, name) for name in _runs(cfg, *key)), key[1])
+              for key in table}
     showing = {key: models_at(rows, shown[key]) for key, rows in table.items()}
     texts, kinds = {}, {}
     for key, row in showing.items():
@@ -3272,7 +3281,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         # one effort is nothing to step to and no level to show
         levelled[name] = terminal.effort_cells(len(taken), taken.index(effort) + 1 if effort
                                                in taken else 0) if len(taken) > 1 else []
-    label = max(terminal.cells(name) for name in names)
+    label = max(terminal.cells(config.model_name(cfg, name)) for name in names)
     heads = CONFIG_HEADS if selected else CONFIG_HEADS[3:]
     widths = [terminal.cells(head) for head in heads[:-1]]
     word = max(terminal.cells(text) for text in efforts.values())
@@ -3296,7 +3305,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
             texts += (efforts[name],)
             note = orch.spent_note(cfg, name, providers) if providers else ""
-            shown = model_label(name, label)
+            shown = model_label(cfg, name, label)
             on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
             ink = colour(cfg, provider)
             kind = ("reverse" if at == ("model", name) and column < 0 else ink if lit in on
@@ -3529,8 +3538,9 @@ def config_model(cfg, name):
     keeping it; the last model is refused without asking, and one removed goes back to the
     matrix at once.
     """
-    here, note, title = MODEL_ROWS[0], "", f"config · {name}"
+    here, note = MODEL_ROWS[0], ""
     while name in cfg["models"]:
+        title = f"config · {config.model_name(cfg, name)}"     # a stepped id renames it
         keys = (MODEL_KEYS["remove" if here == "Remove" else "step"][0 if terminal.utf8() else 1]
                 + "   esc back")
         body, places = model_body(cfg, name, None if terminal.away() else here)
@@ -3566,7 +3576,7 @@ def config_model(cfg, name):
                 lines = model_body(cfg, name)[0]
                 terminal.frame(title, [*lines, *card], "esc back")
                 return 3 + len(lines)
-            if terminal.confirm(REMOVE_ASK[0].format(name), REMOVE_ASK[1], "Remove", around):
+            if terminal.confirm(REMOVE_ASK[0].format(config.model_name(cfg, name)), REMOVE_ASK[1], "Remove", around):
                 before = copy.deepcopy(cfg)
                 config.remove_model(cfg, name)
                 note = _saved(cfg, cfg, before)
@@ -4617,7 +4627,8 @@ def move_asked(cfg, session, selected, providers, here, column, top, title):
         shown = body[first:first + room]
         terminal.frame(title, [*over, *shown, *card], "esc back")
         return 3 + len(over) + len(shown)
-    return terminal.confirm(MOVE_ASK[0].format(session, here[1]), MOVE_ASK[1].format(here[1]),
+    model = config.model_name(cfg, here[1])
+    return terminal.confirm(MOVE_ASK[0].format(session, model), MOVE_ASK[1].format(model),
                             "Move", around)
 
 
