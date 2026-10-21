@@ -25,6 +25,7 @@ import atexit
 import difflib
 import fcntl
 import fnmatch
+import io
 import json
 import math
 import os
@@ -42,7 +43,7 @@ import threading
 import time
 import uuid
 from collections import Counter
-from contextlib import ExitStack, closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 
@@ -3524,10 +3525,11 @@ def session_owned_files(name):
 def cmd_stop(argv):
     """Stop a seat and everything it runs; stop it again and it is gone.
 
-    The first stop ends the seat and keeps it: every run it launched is stopped the way `ak
-    run stop` stops one, each run's checkout and local branch go with it, the tabs the seat or
-    its runs opened close, and the tmux session goes -- under the seat's own typing lock, so a
-    line being typed into it finishes first.
+    The first stop ends the seat and keeps it: the tmux session goes -- under the seat's own
+    typing lock, so a line being typed into it finishes first -- and then every run it launched
+    is stopped the way `ak run stop` stops one, each run's checkout and local branch go with it,
+    and the tabs the seat or its runs opened close.  The seat goes first so every menu has it
+    stopped while its runs go, each up to STALL_KILL_WAIT inside kill_tree.
     Its record and state files stay, the stop mark in the seat file, so its row keeps its
     number a week, reading `idle` (`listing`, `ghost`, `watch.session_state`): the number
     reopens the conversation where it stopped, and a
@@ -3550,20 +3552,12 @@ def cmd_stop(argv):
     # Stopping the session this runs in -- the overlay's `x`, or `ak orch stop` from the seat
     # itself -- hangs this very process up halfway through, and the menu redraws the moment
     # the attach drops: so the mark is written before the kill, with SIGHUP ignored across
-    # both; only the print at the end may still die on the dead pane, after everything it
-    # reports is already true.
+    # it and all that follows, which says nothing: a print to the dead pane would end it.
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
-    removed = False
+    removed = gone_with = False
     warn = lambda line: print(line, file=sys.stderr)
     try:
         from . import stop
-        # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
-        # inside kill_tree, and nothing it touches is the seat's state. The peek is
-        # best effort -- the lock below decides authoritatively -- so a name nobody
-        # answers to stops nothing before it is refused.
-        if find(name) is not None or name in records():
-            stop.stop_owned_runs(name)
-            notify.forget_card(name)   # before the lock too: a slow Discord holds up no tick
         # A stop and automatic boot recovery must agree on whether this seat exists.
         with watch.state_lock():
             session = find(name)
@@ -3593,17 +3587,26 @@ def cmd_stop(argv):
                                            socket=seat_socket(session))
                         if rc != 0:
                             raise config.Error(f"could not stop the session {name}: {out}")
+                        gone_with = config.current_session() == name
                         from . import statusbar   # here, not at the top: its module imports this one
                         statusbar.retell(session)   # no other bar names or counts it any more
-        if not removed:
-            watch.forget(name)   # its stall record and open question go with the owner's stop
-            if not record:
-                # tmux alone held it: no record to keep, no number to reopen it
-                forget_seat(name, {}, warn)
-                removed = True
+        with ExitStack() as quiet:
+            if gone_with:
+                quiet.enter_context(redirect_stdout(io.StringIO()))
+                quiet.enter_context(redirect_stderr(io.StringIO()))
+            if not removed:
+                watch.forget(name)   # its stall record and open question go with the owner's stop
+                if not record:
+                    # tmux alone held it: no record to keep, no number to reopen it
+                    forget_seat(name, {}, warn)
+                    removed = True
+            # outside the lock: nothing a run's stop touches is the seat's state, and a slow
+            # Discord holds up no tick
+            stop.stop_owned_runs(name)
+            notify.forget_card(name)
+            print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     finally:
         signal.signal(signal.SIGHUP, old)
-    print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     return 0
 
 
