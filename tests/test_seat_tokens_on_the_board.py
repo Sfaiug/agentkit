@@ -107,6 +107,7 @@ class SeatTokens(unittest.TestCase):
             {"total_tokens": 525, "seat_tokens": 325, "not_counted": []},
             {"total_tokens": 110, "seat_tokens": 110, "not_counted": []}])
         self.assertEqual(board["ak"][0]["token_share"], 125 / 525)
+        self.assertEqual((board["ak"][0]["first_round"], board["ak"][0]["unmerged"]), (None, None))
         self.assertEqual(board["sunk"][0], {"share": 100 / 525, "tokens": 100})
         self.assertEqual(scoreboard.compute(NOW), board)
         self.assertEqual(scoreboard.compute(NOW - 2 * WEEK)["tokens"][0]["seat_tokens"], 9)

@@ -304,9 +304,9 @@ def compute(now=None):
             tokens = [row["executor_tokens"] + row["reviewer_tokens"] for row in merged
                       if row.get("executor_tokens") is not None and row.get("reviewer_tokens") is not None]
             stats = {"runs": len(group), "merged": len(merged),
-                     "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group) if group else 0,
+                     "first_round": sum(row["rounds_used"] == 1 for row in merged) / len(group) if group else None,
                      "unmerged": sum(row["final_state"] in (*record.FAILED, "exhausted")
-                                     for row in group if row not in merged) / len(group) if group else 0,
+                                     for row in group if row not in merged) / len(group) if group else None,
                      "hours": median(hours) if hours else None,
                      "tokens": median(tokens) if tokens else None}
             if label == "ak":
@@ -351,6 +351,8 @@ def render(board=None):
     def week(stats, own):
         if stats is None:
             return "no runs ended"
+        if not stats["runs"]:
+            return f"no runs ended; {stats['token_share']:.0%} of all recorded tokens"
         text = (f"{stats['runs']} runs ended; {stats['first_round']:.0%} merged in round 1; "
                 f"{stats['unmerged']:.0%} ended without merging; ")
         if not stats["merged"]:
