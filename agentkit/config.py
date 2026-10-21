@@ -829,14 +829,18 @@ def worker_effort(cfg, name, role):
         return None
 
 
-def model_label(entry):
-    """The model id to show for one entry, for a model that names no id too.
-
-    `default` -- and an empty id -- mean the harness picks: a Codex on a ChatGPT subscription
-    takes no model of ours at all.  There is still a column to fill, so it says so rather than
-    leaving a blank where an id belongs.
+def model_name(cfg, name):
+    """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
+    running `claude-opus-5-5` -- its harness's catalog label for its id, read off the manifest's
+    table so no draw waits on a listing -- else its id, a provider's prefix off
+    (`deepseek-v4.1-flash-free`).  `name` itself where it is no entry or names no id of its
+    own (`default`: the harness picks).
     """
-    return entry["model"] if entry["model"] not in ("", DEFAULT_MODEL) else f"({DEFAULT_MODEL})"
+    entry = (cfg.get("models") or {}).get(name)
+    if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
+        return name
+    labels = {row["id"]: row["label"] for row in catalog_table(entry.get("harness") or "")}
+    return labels.get(entry["model"]) or entry["model"].rsplit("/", 1)[-1]
 
 
 def normalize_session(name):

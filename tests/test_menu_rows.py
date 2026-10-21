@@ -80,9 +80,9 @@ class MenuRows(Sandbox):
         self.assertLess(screen.index("apple-working"), screen.index("middle-done"))
         self.assertLess(screen.index("middle-done"), screen.index("zebra-needs"))
         # A seat's number is its place on the screen, in `found`'s order (`orch.numbered`).
-        self.assertRegex(screen, r"1\s+apple-working\s+fable\s+● working")
-        self.assertRegex(screen, r"2\s+middle-done\s+fable\s+✓ done")
-        self.assertRegex(screen, r"3\s+zebra-needs\s+fable\s+! needs you")
+        self.assertRegex(screen, r"1\s+apple-working\s+Fable 5\.1\s+● working")
+        self.assertRegex(screen, r"2\s+middle-done\s+Fable 5\.1\s+✓ done")
+        self.assertRegex(screen, r"3\s+zebra-needs\s+Fable 5\.1\s+! needs you")
 
     def test_projects_in_the_order_of_their_first_seat(self):
         self.seat("atoll-work", "atoll", live="working")
@@ -98,8 +98,8 @@ class MenuRows(Sandbox):
         self.seat("first-seat", "atoll", orchestrator="fable")
         self.seat("second-seat", "atoll", orchestrator="astra")
         screen, _ = self.draw(100, 30)
-        self.assertRegex(screen, r"first-seat\s+fable\s+[●!✓○]")
-        self.assertRegex(screen, r"second-seat\s+astra\s+[●!✓○]")
+        self.assertRegex(screen, r"first-seat\s+Fable 5\.1\s+[●!✓○]")
+        self.assertRegex(screen, r"second-seat\s+GPT-6-Astra\s+[●!✓○]")
 
     def test_narrow_rows_keep_readable_names_beside_or_above_the_state(self):
         for word in terminal.STATES:

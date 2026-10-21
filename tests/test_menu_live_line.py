@@ -68,10 +68,10 @@ class MenuLiveLine(Sandbox):
     def test_a_the_highlighted_seat_opens_its_line_and_no_other_row_grows(self):
         lines, _ = self.draw("fix-api")
         indent = " " * (2 + 1 + 2)                     # under the name
-        self.assertEqual(self.under(lines, "fix-api"), indent + "opus ⚒◎   ■□□")
+        self.assertEqual(self.under(lines, "fix-api"), indent + "Opus 5.5 ⚒◎   ■□□")
         self.assertEqual(sum("⚒" in line for line in lines), 1)   # web is not highlighted
         lines, _ = self.draw("web")
-        self.assertEqual(self.under(lines, "web"), indent + "opus ⚒◎   ■■□")
+        self.assertEqual(self.under(lines, "web"), indent + "Opus 5.5 ⚒◎   ■■□")
         self.assertEqual(sum("⚒" in line for line in lines), 1)
         # no screen names a task
         self.assertNotIn("gh2", "\n".join(lines))
@@ -92,7 +92,7 @@ class MenuLiveLine(Sandbox):
             infos = [menu.v5o_seat_info(self.cfg, n, seat, [], {}, None, NOW)
                      for n, seat in enumerate(self.seats, 1)]
             row = menu.v5o_seat_blocks(infos, 100)[0][0]
-        self.assertIn(terminal.styled("fable", "dim"), row)
+        self.assertIn(terminal.styled("Fable 5.1", "dim"), row)
 
     def test_d_a_project_heading_highlighted_opens_nothing(self):
         # a project with switches has a heading the highlight can rest on; it is no seat
@@ -103,9 +103,10 @@ class MenuLiveLine(Sandbox):
         self.assertFalse(any("⚒" in line for line in lines), lines)
 
     def test_e_a_model_is_drawn_on_one_line_as_text(self):
-        # it may be named anything, a control character or an escape among it
+        # it may be named anything, a control character or an escape among it, and so may the
+        # id its full name is where its harness's catalog has no label for it
         model = "opus\x1b[2J\nfast"
-        self.cfg["models"][model] = dict(self.cfg["models"]["opus"])
+        self.cfg["models"][model] = dict(self.cfg["models"]["opus"], model=model)
         config.save_session(self.cfg, "fix-api", "fable", [model],
                             {"repo": str(config.CODE / "acme"), "cwd": str(config.CODE / "acme")})
         with patch.object(terminal, "width", return_value=100), \

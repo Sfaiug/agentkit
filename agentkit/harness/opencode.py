@@ -63,13 +63,15 @@ def forget(record):
         shutil.rmtree(gone, ignore_errors=True)
 
 
+retire = forget   # the receipt is all a seat's launch keeps
+
+
 def launched(name, cwd, conversation):
     """A receipt of this launch's own, for the seat plugin to write its session into.
 
     A resumed session is in it from the start, so a seat that dies again before its next
-    turn still comes back to it.  The receipt of the launch before is dropped: one seat, one.
+    turn still comes back to it.  The receipt of the launch before stays until this one starts.
     """
-    record = config.session_records().get(name, {})
     token = uuid.uuid4().hex
     path = path_for({"opencode_launch": token})
     path.mkdir(mode=0o700)
@@ -77,7 +79,6 @@ def launched(name, cwd, conversation):
         (path / "session").write_text(conversation, encoding="utf-8")
     config.update_session(name, opencode_launch=token, session_title=None)
     sync_title(name, {"opencode_launch": token})
-    forget(record)
     return {RECEIPT_ENV: str(path)}
 
 

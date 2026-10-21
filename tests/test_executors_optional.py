@@ -159,9 +159,9 @@ class ExecutorsOptional(Sandbox):
             for screen in (lines, picker):
                 rows = {terminal.plain(line).lstrip("› ").split()[0]: line
                         for line in screen if any(char in marks for char in terminal.plain(line))}
-                self.assertIn(terminal.styled(" ■ ", "dim"), rows["opus"])
+                self.assertIn(terminal.styled(" ■ ", "dim"), rows["Opus"])
                 self.assertEqual(tuple("".join(char for char in terminal.plain(rows[name])
-                                               if char in marks) for name in ("opus", "astra")),
+                                               if char in marks) for name in ("Opus", "GPT-6-Astra")),
                                  ("●■□", "○□■"))
 
     def test_defaults_without_executor_stay_without_on_the_new_session_screen(self):
