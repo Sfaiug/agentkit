@@ -195,6 +195,9 @@ outages = ["(code 500)", "(code 502)", "(code 503)", "(code 504)"]
 # code nobody pastes, then fails with the second; both were observed.  The TUI's own
 # signed-out screen is the asking.signin rule above.
 [auth]
+# its `login again` cannot sign in afresh: agy restores a login from the desktop keyring that
+# only its own `/logout` clears, so no meter offers it
+again = false
 title = "Gemini"
 remedy = "exit agy, run `agy` in the host shell and sign in (open the URL, paste the code), then reopen the session"
 signatures = [

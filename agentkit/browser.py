@@ -54,9 +54,9 @@ PACKAGES = ("chromium", "xvfb", "openbox", "x11vnc", "novnc", "websockify",
             "xdotool", "imagemagick")
 PAYLOAD_FILES = ("bridge.py", "install.sh", "prepare-profile.py", "wait-ready.py",
                  "stop-chromium.py", "requirements.txt")
-SECRET = config.SECRETS / "browser-bridge-vnc.txt"       # the password as text, for the owner
-LEGACY = config.SECRETS / "browser-bridge-vnc"           # what the stack's installer wrote
-RFBAUTH = config.SECRETS / "browser-bridge-vnc.rfbauth"  # the same password, as x11vnc wants it
+CREDENTIALS = {"SECRET": "browser-bridge-vnc.txt",       # the password as text, for the owner
+               "LEGACY": "browser-bridge-vnc",           # what the stack's installer wrote
+               "RFBAUTH": "browser-bridge-vnc.rfbauth"}  # the same password, as x11vnc wants it
 PASSWORD_LENGTH = 16          # noVNC takes all of it; classic VNC auth uses the first eight
 CDP_TIMEOUT = 4
 APT_CAP = 15 * 60
@@ -71,6 +71,15 @@ MCP_UNIT = "browser-bridge-mcp.service"
 HOST_PORT = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:]+\]):(\d{1,5})$")
 
 USAGE = command_help.render("browser").rstrip()
+_self = sys.modules[__name__]   # browser.SECRET and the rest, as this module reads them too
+
+
+# browser.SECRET and the other credential files live in config.SECRETS as it is when read, as
+# config's own places do: a test that moves config.HOME alone never reaches the owner's password.
+def __getattr__(name):
+    if name in CREDENTIALS:
+        return config.SECRETS / CREDENTIALS[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def say(message):
@@ -426,7 +435,7 @@ def status(argv):
 
 def plaintext():
     """The VNC password as text, from either name the stack has used, or None."""
-    for path in (SECRET, LEGACY):
+    for path in (_self.SECRET, _self.LEGACY):
         try:
             found = path.read_text(encoding="utf-8").strip()
         except OSError:
@@ -451,12 +460,13 @@ def store_rfbauth(password):
     store.restype = ctypes.c_int
     # `.rfbauth.tmp`, not `.with_suffix`, which would drop the suffix and land on the
     # name `mint` uses for the plaintext a line earlier.
-    temp = RFBAUTH.with_name(RFBAUTH.name + ".tmp")
+    rfbauth = _self.RFBAUTH
+    temp = rfbauth.with_name(rfbauth.name + ".tmp")
     try:
         if store(password.encode(), os.fsencode(temp)) != 0:
             raise config.Error("libvncserver would not write the x11vnc password file")
         temp.chmod(0o600)
-        temp.replace(RFBAUTH)
+        temp.replace(rfbauth)
     finally:
         temp.unlink(missing_ok=True)
 
@@ -470,10 +480,11 @@ def mint():
     password = "".join(secrets.choice(string.ascii_letters + string.digits)
                        for _ in range(PASSWORD_LENGTH))
     config.ensure_dirs()
-    temp = SECRET.with_name(SECRET.name + ".tmp")
+    secret = _self.SECRET
+    temp = secret.with_name(secret.name + ".tmp")
     temp.write_text(password + "\n", encoding="utf-8")
     temp.chmod(0o600)
-    temp.replace(SECRET)
+    temp.replace(secret)
     store_rfbauth(password)
     states = unit_states() or {}
     if states.get("browser-bridge-x11vnc.service", "absent") != "absent":
@@ -494,8 +505,8 @@ def login(argv):
                            "server, or read it there with `ak browser status`")
     password = plaintext()
     if password is None:
-        if RFBAUTH.exists():
-            say(f"{RFBAUTH.name} is here but the plaintext is not, and it cannot be read back "
+        if _self.RFBAUTH.exists():
+            say(f"{_self.RFBAUTH.name} is here but the plaintext is not, and it cannot be read back "
                 "out; minting a new password")
         password = mint()
     say(f"open      {url}")

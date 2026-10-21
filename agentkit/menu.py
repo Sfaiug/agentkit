@@ -135,6 +135,7 @@ from pathlib import Path
 
 from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage, worker
 from . import record
+from . import warm
 
 KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
@@ -183,6 +184,14 @@ def read(prompt, default=None):
     if not sys.stdout.isatty():
         print()    # the prompt was answered from a pipe: keep the transcript on separate lines
     return default if answer is None else answer.strip()
+
+
+def rows(cfg):
+    """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
+    found = orch.listing()
+    records = run_records()           # one pass over run.json a read: filing, looking, drawing
+    orch.file_projectless(found, [state for _, state in records])
+    return found, records, v5o_groups(cfg, found, records, look=False)
 
 
 class Live:
@@ -348,10 +357,7 @@ class Live:
             leaves = self.leaves
             self.reads += 1
             began = self.reads
-        found = orch.listing()
-        records = run_records()           # one pass over run.json a read: filing, looking, drawing
-        orch.file_projectless(found, [state for _, state in records])
-        groups = v5o_groups(self.cfg, found, records, look=False)
+        found, records, groups = rows(self.cfg)
         with self.reading:
             if self.leaves != leaves:
                 return
@@ -404,9 +410,10 @@ class Live:
         self.asked.set()
 
     def watch(self, last):
-        """Read into `last` once, now, for the first draw, then again in a thread within STIR
-        of any record changing, or when asked (`ask`): the seats and their groups, for each
-        draw to draw.
+        """Read into `last` once, now, for the first draw -- in a menu the warm server forked, its
+        last read is the first draw's (`warm`), read again within STIR -- then again in a thread
+        within STIR of any record changing, or when asked (`ask`): the seats and their groups,
+        for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
@@ -419,8 +426,14 @@ class Live:
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
-        self.last, self.seen = last, self.recorded()
-        self.read(look=True)
+        self.last, primed = last, warm.primed()
+        if primed:
+            # the warm server's last read, read again at the watcher's first look: a read
+            # beside the first frame would hold it back, the two on one interpreter
+            last[:], self.seen, self.looking = primed, None, True
+        else:
+            self.seen = self.recorded()
+            self.read(look=True)
         if self.watcher is None:
             self.watcher = threading.Thread(target=self._watch, daemon=True)
             self.watcher.start()
@@ -884,6 +897,9 @@ class Task(tuple):
         task = super().__new__(cls, (stage, state))
         task.run = run
         return task
+
+    def __getnewargs__(self):
+        return (*self, self.run)      # pickled whole: the warm server's read (`warm`)
 
 
 def seat_tasks(name, records=None, now=None):
@@ -3734,9 +3750,9 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 
 def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, its
-    `↻ log in again` (subscription_acts): its harness's `login again`, and the menu back
-    as soon as that ends, one that failed once what it said has been read.  One that finished
-    is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
+    `↻ log in again` (`subscription_acts`): its harness's `login again` (`logins.harness`), and the
+    menu back as soon as that ends, one that failed once what it said has been read.  One that
+    finished is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
     if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
@@ -3929,16 +3945,17 @@ def config_spend_reset(cfg, picked):
 
 def subscription_acts(cfg, keyboard, number, remove=False):
     """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
-    act what to say under the screen or "": `log in again` where a harness signs it in
-    (sign_in), `spend a reset` while it holds one (config_spend_reset), and with `remove`,
+    act what to say under the screen or "": `log in again` where its harness signs it in
+    afresh (sign_in, config.signs_in_again), `spend a reset` while it holds one (config_spend_reset), and with `remove`,
     `remove` (config_remove_provider)."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     name, label, prov, account = usage_rows(cfg)[number - 1]
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
+    harness = logins.harness(cfg, name)
     return [(text[0 if terminal.utf8() else 1], act) for text, act, offers in (
         (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, name, account) or "",
-         logins.harness(cfg, name)),
+         harness and config.signs_in_again(harness)),
         (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
         (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
 
@@ -4004,16 +4021,17 @@ def config_page(name, page):
 
     Enter or a click on a row calls its act.  One that is a list's, (choices, several), opens
     the list under the row, the highlight on the first choice marked: `choices()` gives (value,
-    pick, marked) each, asked again for every draw, and Enter or a click on one calls its
-    `pick()`, the list closing unless `several`; Esc closes it.  Any other act is called with
+    pick, marked) each, asked as it opens and again after each pick, so a reading that moves
+    underneath never moves the highlight onto another choice, and Enter or a click on one calls
+    its `pick()`, the list closing unless `several`; Esc closes it.  Any other act is called with
     `draw`, which draws the page with lines under the row and returns the screen row of the
     first, as terminal.field takes it.  What a call returns is said under the rows, over the
     note, until the next key."""
     here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
+    listed = []                       # the open list's choices, as last asked
     keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1] + "   esc back"
     while True:
         rows, note = page()
-        listed = opened[1]() if opened else []
         drawn = [(("row", number), label, value) for number, (label, value, _) in enumerate(rows)]
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
@@ -4035,12 +4053,14 @@ def config_page(name, page):
             continue
         elif len(here) == 3:
             said = listed[here[2]][1]() or ""
-            if not opened[2]:
+            if opened[2]:
+                listed = opened[1]()
+            else:
                 here, opened = here[:2], None
         elif isinstance(rows[here[1]][2], tuple):
             opened = (here[1], *rows[here[1]][2])
-            choices = opened[1]()
-            here = (*here, next((number for number, (_, _, marked) in enumerate(choices)
+            listed = opened[1]()
+            here = (*here, next((number for number, (_, _, marked) in enumerate(listed)
                                  if marked), 0))
         else:
             opened, at = None, here[1]
