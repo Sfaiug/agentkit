@@ -253,7 +253,7 @@ test suites' `$AK_NOTIFY_SINK` outranks the webhook, so a test never reaches you
 ## The picker
 
 Session records and `[defaults]` may list `reviewers` beside `workers`; new seats copy explicit default reviewers.
-With separate groups, executors use only workers; reviews (including `--review-pr`) and spares use only reviewers. A model can be in both.
+With separate groups, executors use only workers; reviews (including `--review-pr`) and their fallbacks use only reviewers. A model can be in both. A reviewer that cannot finish a review hands it to the next reviewer as the meters read then; one that failed in a round is not asked again in that round.
 Runs save explicit groups in `run.json` at launch, show them in status and the preflight log, and keep them through handovers, refusals and resumes despite later edits; omitted reviewers keep the old shared-list behavior. Each group ranks by the matrix (`ak models`, the one the tick last computed, `matrix.rank`, read off
 the row at the effort the config runs the model at in the role): the models within `within` of the best of them, the
 cheapest first, then the others by quality; a model no board has, or a matrix nobody computed yet, after every ranked

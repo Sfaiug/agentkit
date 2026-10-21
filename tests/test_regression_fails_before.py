@@ -76,7 +76,7 @@ class RegressionFailsBefore(unittest.TestCase):
         cmds = cmds if cmds is not None else [f"bash {shlex.quote(str(self.script))}"]
         added = [f"{suite}  # once"] if suite else []     # as `with_suite` adds the declared one
         lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
-                      "# Fix empty input", cmds + added, "context", [])
+                      "# Fix empty input", cmds + added, "context")
         lp.rnd = 1
         return lp
 

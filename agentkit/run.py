@@ -417,8 +417,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             if refusal:
                 raise config.Error(refusal) from None
             raise
-    # who takes over when the reviewer dies on its provider rather than on the diff
-    spares = [n for n in order if n != reviewer]
     log(f"executor={executor} reviewer={reviewer} rounds={state['rounds']}")
     state["executor"], state["reviewer"] = executor, reviewer
     run_record.save_state(run_dir, state)
@@ -432,7 +430,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                           self_review=same_model(cfg, executor, reviewer)))
 
     # Recover an interrupted probe before reading the checkout's suite and worker rules.
-    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, "", spares)
+    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, "")
     target = state.get("target") or state.get("base")
     if state.get("scratch"):
         where = (f"Workspace: {wt}\nThere is no git repository here: nothing to commit, no branch "
@@ -1366,7 +1364,7 @@ def cmd_merge(argv):
     body += repo_rules(state["worktree"], state.get("base_sha"))
     run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
-              body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}", [])
+              body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}")
     # A delivery retry stays a delivery retry: a pickup would resume the run through
     # `drive` and re-verify a head this already checked and pushed.
     lp.no_pickup = True
@@ -2256,7 +2254,7 @@ def pr_loop(cfg, run_dir, state, opts, log):
     round, a move onto new code.  Like every loop it writes back only what it changed."""
     _, body, _ = taskfile.parse_task(run_dir / "task.md")
     cmds = taskfile.done_when(body, run_dir / "task.md")
-    return Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body, cmds, body, [])
+    return Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body, cmds, body)
 
 
 def review_pr(cfg, run_dir, url, opts, log):
@@ -2443,7 +2441,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         # out, which may have moved since, as on a resume or a restart
         read, why = first
         if why:
-            lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
+            lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
             return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
         # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
         history.first_review(state.get("run_id"), read, log=log)
@@ -2461,7 +2459,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                                  "head_sha": head}]
         run_record.save_state(run_dir, state)
         log(summary)
-        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body, [])
+        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
         lp.rnd += 1
         return settle_pr_round(lp, url, info)
     providers = collect_usage(cfg)
@@ -2492,7 +2490,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         raise config.Error(barred)
     else:
         raise QuotaDry("every worker has a gate meter at 100% used")
-    spares = [n for n in order if n != reviewer]
     state["reviewer"] = reviewer
     state.pop("launch_reviewer", None)   # consumed: a resume re-picks, as before
     run_record.save_state(run_dir, state)
@@ -2509,7 +2506,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
                                                                  reviewer))))
     body += repo_rules(wt, base_sha)
     run_record.save_state(run_dir, state)
-    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body), spares)
+    lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body))
     lp.rnd = rnd
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     state.pop("final_check", None)

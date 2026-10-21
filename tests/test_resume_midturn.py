@@ -136,7 +136,7 @@ class ResumeMidturn(unittest.TestCase):
         state = record.read_state(directory)
         work = Path(state["worktree"])
         lp = run.Loop(config.load(), directory, state, {}, self.logs.append, work,
-                      "task body", list(cmds), "context line", [])
+                      "task body", list(cmds), "context line")
         lp.rnd = 1
         return lp
 

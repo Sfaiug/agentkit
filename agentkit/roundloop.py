@@ -49,7 +49,7 @@ class Loop:
     run picks up.
     """
 
-    def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context, spares):
+    def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context):
         self.cfg, self.run_dir, self.state, self.opts, self.log = cfg, run_dir, state, opts, log
         self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
         path = run_dir / "task.md"
@@ -64,7 +64,6 @@ class Loop:
         self.target = state.get("target") or state["base"]
         self.executor, self.reviewer = state["executor"], state["reviewer"]
         self.exec_sid, self.review_sid = state.get("exec_session"), state.get("review_session")
-        self.spares = spares
         self.findings = prompts.saved_findings(run_dir, state)
         self.artifacts = set(state.get("artifacts", ()))
         self.rnd = len(state["round_summaries"])
@@ -1235,35 +1234,34 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
     name = turns.open_review(rd)[0] or "reviewer"
+    failed = set()      # who could not finish this round's review: none is asked again in it
     def fall_back(reason, out, allow_self=True, ending=turns.Exhausted):
-        """The path a dry, twice-silent or twice-transient reviewer takes: next spare, else Exhausted."""
-        # Recheck at the point of fallback, including spares from saved/legacy callers, and
-        # against the meters as they read now: a spare whose own provider has run dry is none.
+        """The path a dry, twice-silent or twice-transient reviewer takes: next one, else Exhausted.
+
+        The next one is read afresh from the run's marked reviewers and the meters as they
+        read now, so a reviewer passed over while its meter was spent is picked once it has
+        refilled; only those that already failed this round stay out of it."""
+        failed.add(lp.reviewer)
         try:
             providers = staffing.collect_usage(lp.cfg)
         except config.Error as exc:
-            providers = {}      # meters nobody could read withhold no spare from a dead review
+            providers = {}      # meters nobody could read withhold no reviewer from a dead review
             lp.log(f"WARN could not read the meters before falling back: {exc}")
         order = staffing.ready_order(lp.cfg, providers, staffing.run_reviewers(lp.cfg, lp.state), lp.log,
                             role="reviewer", repo=lp.state.get("repo"))
         own = lp.state.get("own_orchestrator") if lp.state.get("own_pr") else None
         exec_for_rule = own or lp.executor
         writers = staffing.head_writers(lp.state)        # everyone who wrote part of the head
-        spares = staffing.reviewer_order(lp.cfg, writers,
-                                [n for n in order if n in lp.spares and n != lp.reviewer])
+        offered = staffing.reviewer_order(lp.cfg, writers, [n for n in order if n not in failed])
         if not allow_self:
             # A flake waits unless another model can review: only a reviewer that cannot
-            # come back settles for the executor's own model.  The filter is local, so a
-            # later fallback with a real reason still finds it.
-            offered = [n for n in spares
+            # come back settles for the executor's own model.
+            offered = [n for n in offered
                        if not any(staffing.same_model(lp.cfg, wrote, n) for wrote in writers)]
-        else:
-            offered = spares
         if not offered:
             raise ending(f"reviewer {lp.reviewer} {reason} and no eligible reviewer is left "
                             f"to review; waiting for review. See {out}*/stderr.log")
-        lp.reviewer, lp.review_sid = offered.pop(0), None
-        lp.spares = [n for n in spares if n != lp.reviewer]
+        lp.reviewer, lp.review_sid = offered[0], None
         lp.save()
         transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
         lp.log(f"WARN reviewer fell back to {lp.reviewer}")
@@ -1321,7 +1319,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             lp.save()           # the killed conversation is in run.json before the run parks
             raise
         except turns.CannotRun as broken:
-            # The spares road, as for a spent window; with no spare left, the run is blocked
+            # The fallback road, as for a spent window; with no reviewer left, the run is blocked
             # on the harness's own line rather than waiting for a meter it is not short of.
             try:
                 name = fall_back(broken.detail, out)
@@ -1329,13 +1327,13 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                 raise broken from None
             continue
         except turns.TransientHandover as handed:
-            # fall_back already moved the role inside the callback; the spare reviews
+            # fall_back already moved the role inside the callback; the next one reviews
             # in a fresh out dir on a fresh session.
             name = handed.new
             continue
         except turns.RanDry as dry:
             # A spent window is the other way a reviewer stops without judging the diff, so it
-            # takes the same road out: the spares, checked against the executor and config.
+            # takes the same road out: the next marked reviewer, read as the meters stand now.
             dry.remember(lp.state)
             code, text, lp.review_sid, dead, why = dry.code, dry.text, dry.session, True, dry.detail
             ending = dry.ending

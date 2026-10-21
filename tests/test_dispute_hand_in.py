@@ -95,7 +95,7 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
                  "repo": str(self.wt), "worktree": str(self.wt), "findings": ""}
         self.logs = []
         self.lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
-                           "# Enable the feature and keep the answer correct", ["true"], "context", [])
+                           "# Enable the feature and keep the answer correct", ["true"], "context")
 
     def rounds(self, evidence, review_commands=(), extra_disputes=()):
         plans = [

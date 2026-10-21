@@ -85,7 +85,7 @@ def make_loop(root, wt, cmds, rounds=3, spent=1, cfg=None):
         "merge_note": None, "findings": "", "delivery_sha": head,
     }
     record.save_state(run_dir, state)
-    lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context", [])
+    lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", cmds, "context")
     return lp, run_dir, lines
 
 

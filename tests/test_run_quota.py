@@ -768,7 +768,7 @@ class QuotaDry(unittest.TestCase):
             status.cmd_status(["--plain", directory.name])
         self.assertIn("astra \u2192 spark (ran dry)/opus", out.getvalue())
 
-    # --- (e): the reviewer's own refusal takes the spares road -----------------------------
+    # --- (e): the reviewer's own refusal takes the fallback road -----------------------------
 
     def test_v5i_a_reviewer_that_runs_dry_hands_to_a_spare_on_a_third_provider(self):
         self.repository()

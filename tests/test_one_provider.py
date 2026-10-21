@@ -55,7 +55,7 @@ class OneProvider(unittest.TestCase):
     def pick(self, executor=None, reviewer=None):
         return run.pick_models(self.cfg, self.providers, executor, reviewer, self.logs.append)
 
-    def loop(self, executor="alpha", reviewer="beta", spares=()):
+    def loop(self, executor="alpha", reviewer="beta", reviewers=None):
         directory = self.root / "run"
         directory.mkdir()
         workspace = self.root / "work"
@@ -65,7 +65,9 @@ class OneProvider(unittest.TestCase):
                  "scratch": True, "worktree": str(workspace), "base": None,
                  "rounds": 2, "round_summaries": [], "findings": ""}
         lp = run.Loop(self.cfg, directory, state, {}, self.logs.append, workspace,
-                      "Review the work.", [], "Fixture", list(spares))
+                      "Review the work.", [], "Fixture")
+        if reviewers:
+            lp.state["reviewers"] = reviewers
         lp.rnd = 1
         lp.round_dir.mkdir()
         return lp
@@ -473,18 +475,18 @@ class OneProvider(unittest.TestCase):
         return calls
 
     def test_silent_fallback_takes_the_next_spare_whatever_its_company(self):
-        lp = self.loop(reviewer="gamma", spares=["alpha", "beta", "delta"])
+        lp = self.loop(reviewer="gamma", reviewers=["gamma", "alpha", "beta", "delta"])
         self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "beta"])
 
     def test_silent_fallback_uses_same_company_and_ignores_stale_opt_out(self):
-        lp = self.loop(reviewer="gamma", spares=["alpha", "beta", "delta"])
+        lp = self.loop(reviewer="gamma", reviewers=["gamma", "alpha", "beta", "delta"])
         self.cfg["models"]["delta"]["provider"] = "a"
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
         self.assertEqual(self.fallback(lp, "gamma"), ["gamma", "gamma", "beta"])
         self.assertTrue(run.review_pass(lp.state, self.cfg))
 
     def test_review_pr_fallback_can_use_another_model_on_one_provider(self):
-        lp = self.loop(executor=None, reviewer="alpha", spares=["beta"])
+        lp = self.loop(executor=None, reviewer="alpha", reviewers=["alpha", "beta"])
         lp.state["review_pr"] = "https://github.com/example/repo/pull/1"
         self.providers = self.meters(b=100)
         self.assertEqual(self.fallback(lp, "alpha"), ["alpha", "alpha", "beta"])
