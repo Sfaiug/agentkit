@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, orch, transitions, watch  # noqa: E402
+from agentkit import config, history, orch, stop, transitions, watch  # noqa: E402
 
 ADAPTER = str(REPO / "adapters/opencode.sh")
 FIXTURES = REPO / "tests/fixtures"
@@ -933,6 +933,39 @@ console.log(JSON.stringify(facts));
             {"hook_event_name": "Stop", "session_id": "ses_plug"},
             {"hook_event_name": "PermissionRequest", "tool_name": "bash", "message": "bash ls"},
         ])
+
+    def test_plugin_refuses_a_finished_seat_s_question_before_its_dialog(self):
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "node is required to load the OpenCode plugin")
+        # the tool hook OpenCode 2.1.1 hands a plugin, and the two calls it then makes of it
+        driver = r"""
+import { pathToFileURL } from "node:url";
+const plugin = (await import(pathToFileURL(process.argv[1]).href)).default;
+let before;
+const ctx = { session: { get: async () => ({}) }, event: { subscribe: async function* () {} },
+  tool: { hook: async (name, fn) => { if (name === "execute.before") before = fn; return {}; } } };
+const stop = await plugin.setup(ctx);
+await new Promise((resolve) => setTimeout(resolve, 0));
+const refused = [];
+for (const tool of ["question", "bash"]) {
+  try { await before({ tool, sessionID: "ses_seat", input: {} }); refused.push(null); }
+  catch (error) { refused.push(error.message); }
+}
+stop();
+console.log(JSON.stringify(refused));
+"""
+        state = self.home / ".agentkit/state"
+        state.mkdir(parents=True)
+        for plan, refused in (("- [x] the parser parses\n", [stop.DONE_ASKING, None]),
+                              ("- [ ] the parser parses\n", [None, None])):
+            with self.subTest(plan=plan):
+                (state / "plan-fakesession.md").write_text(plan)
+                proc = subprocess.run(
+                    [node, "--input-type=module", "-e", driver,
+                     str(REPO / "hooks/opencode-seat/index.js")],
+                    capture_output=True, text=True, env=self.env)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(json.loads(proc.stdout.splitlines()[-1]), refused)
 
     # --- the session a seat comes back to ----------------------------------------
     def run_plugin(self, receipt, events, parents):
