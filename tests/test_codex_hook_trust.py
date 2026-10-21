@@ -64,13 +64,15 @@ class HookTrust(unittest.TestCase):
                                          "HOME": tmp}):
                 codex.main(["--", str(fake)], launch=lambda cmd, receipt: seen.append(cmd) or 0)
         flags = [seen[0][i + 1] for i, word in enumerate(seen[0]) if word == "-c"]
-        installed, matchers = {}, {}
+        installed, matchers, background = {}, {}, []
         for flag in flags:
             hooks = tomllib.loads(flag).get("hooks", {})
             for event, groups in hooks.items():
                 if event != "state":
                     self.assertEqual(len(groups), 1, flag)
                     installed[event] = [(h["command"], h["timeout"]) for h in groups[0]["hooks"]]
+                    if all(h.get("async") for h in groups[0]["hooks"]):
+                        background.append(event)
                     if "matcher" in groups[0]:
                         matchers[event] = groups[0]["matcher"]
         trusted = [flag for flag in flags if flag.startswith("hooks.state=")]
@@ -86,7 +88,7 @@ class HookTrust(unittest.TestCase):
         self.assertEqual(matchers, {"PreToolUse": "request_user_input(_async)?"})
         # a call's end goes through the check that it ends the question, never straight in
         self.assertTrue(installed["PostToolUse"][0][0].endswith("tools/codex-seat.py answered"))
-        self.assertEqual(trusted, [codex.trust(installed, matchers)])
+        self.assertEqual(trusted, [codex.trust(installed, matchers, background)])
         self.assertNotIn("--dangerously-bypass-hook-trust", seen[0])
 
     def test_fresh_home_fails_instead_of_declining_hook_review(self):

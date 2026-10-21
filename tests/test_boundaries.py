@@ -24,6 +24,13 @@ REPO = Path(__file__).resolve().parents[1]
 SCOPE = ("--", ".", ":!tests/", ":!*.md")
 
 RULES = [
+    # Lifecycle reads belong to the lightweight reader, so a completed tool never needs
+    # the screen watcher. The two reads formerly in watch.py have moved here together.
+    {"name": "lifecycle fact interpretation",
+     "flags": (),
+     "pattern": r'fact\.get\("event"\)|hook_facts_path\([^)]*\)\.read_text',
+     "home": ("agentkit/lifecycle.py",),
+     "max": 0},
     # The old wrapper owned four blocking transfer/drain sites. One relay now
     # owns both directions, so another injector cannot reintroduce their cycle.
     {"name": "terminal relay",
