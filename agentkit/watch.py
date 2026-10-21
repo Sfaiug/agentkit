@@ -5107,7 +5107,9 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
 
 
 def tell_parked(run_id, step, seat, log):
-    """Tell the launching seat once, or send the one Discord card the rules allow.
+    """Tell the launching seat once, or send the one Discord card the rules allow; a run
+    launched from no seat is one nothing else can move, so its owner is paged, the card's
+    title naming how to resume it.
 
     True once the notice is delivered -- typed into a live seat, or accepted as a card.
     A refused card stays pending in `stalled_notified` and is retried on a later tick.
@@ -5131,7 +5133,8 @@ def tell_parked(run_id, step, seat, log):
             except (config.Error, OSError):
                 pass
     event_id = f"stalled:{run_id}:{step}"[:200]
-    if notify.shaped("needs", line, session=seat, event_id=event_id) == 0:
+    if (notify.shaped("needs", line, session=seat, event_id=event_id) if seat
+            else notify.page(event_id, f"ak run resume {run_id}", line)) == 0:
         return True
     log(f"WARN {run_id}: parking notice was not accepted; it stays pending for a later tick")
     return False

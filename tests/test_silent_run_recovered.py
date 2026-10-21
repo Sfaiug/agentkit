@@ -329,27 +329,6 @@ class V5X(unittest.TestCase):
         self.assertEqual(self.cards, [], "a live seat is typed into, never carded")
         self.assertEqual(self.resumed, [])
 
-    def test_v5x_third_stall_without_seat_sends_one_card(self):
-        parent = self.spawn_loop(self.gate_child())
-        run_dir, _ = self.make_run(
-            "20260916-0000-v5x-noseat",
-            stalls=[{"time": time.time() - 7200, "round": 2,
-                     "step": "done-when: bash tests/smoke.sh", "action": "killed step"},
-                    {"time": time.time() - 3600, "round": 2,
-                     "step": "done-when: bash tests/smoke.sh", "action": "resumed"}],
-            pid=parent.pid, seat=None)
-        self.age_run(run_dir, 61)
-        watch.recover_runs({}, dry_run=False, log=self.logs.append, now=time.time())
-        state = self.read_state(run_dir)
-        self.assertEqual(state.get("state"), "stalled")
-        self.assertTrue(state.get("stalled_notified"), "a sent card records its notice")
-        self.assertEqual(len(self.cards), 1, "one card, and nothing before rung three")
-        kind, text, kw = self.cards[0]
-        self.assertEqual(kind, "needs")
-        self.assertIn(run_dir.name, text)
-        self.assertIn("parked", text)
-        self.assertEqual(self.typed, [])
-
     def test_v5x_dead_pid_resumed_at_once(self):
         run_dir, _ = self.make_run("20260916-0000-v5x-dead", pid=2 ** 30)
         self.age_run(run_dir, 61)
@@ -460,8 +439,9 @@ class V5X(unittest.TestCase):
         self.assertEqual(self.resumed, [run_dir.name])
 
     def test_v5x_park_notice_retried_until_accepted(self):
+        # a seat not watched is carded; a run from no seat pages (test_seatless_stall_told.py)
         run_dir, _ = self.make_run("20260916-0000-v5x-retry", pid=2 ** 30,
-                                   seat=None)
+                                   seat="seat1")
         parked = self.read_state(run_dir)
         handback.park_stalled(run_dir, parked,
                          {"time": time.time() - 3700, "round": 2,
