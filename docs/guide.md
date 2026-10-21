@@ -171,7 +171,7 @@ gets it from the tick; its line is typed once, and one still sitting in the seat
 while text you typed sits beside it, and counts as delivered only once that composer, read whole, is empty. Text you
 left in a composer two minutes untouched holds no line back where the harness hands its composer to an editor (Ctrl-G
 in Claude Code, Codex and Antigravity): ak's editor, every seat's `$VISUAL`, sets it aside, puts the line in its place
-for its Enter to send alone, and gives the text back into the composer that Enter emptied; text that is the line itself,
+for its Enter to send alone, and gives the text back at once into the composer that Enter emptied; text that is the line itself,
 text too tall for the composer to show and a picker you left open still hold it back. Your own Ctrl-G opens your own
 editor. The tick reads
 a seat found off its prompt once a pass for all the endings waiting on it, and the log names a waiting ending once, as it
