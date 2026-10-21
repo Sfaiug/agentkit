@@ -1,6 +1,7 @@
-"""A respawn tmux refuses leaves the running harness on the launch receipt it was started with:
-the record still reads its conversation from that receipt, and the receipt the refused launch
-wrote is gone. A respawn that starts drops the receipt it replaced.
+"""A launch whose harness never starts, refused by tmux or failing before it asks, leaves the
+running harness on the launch receipt it was started with: the record still reads its
+conversation from that receipt, and the receipt the failed launch wrote is gone. A respawn that
+starts drops the receipt it replaced, and keeps its own though the setup after it fails.
 
 Offline: a temporary HOME and an invented seat, with tmux and the adapters faked; the
 receipts are real files in that HOME, and no real seat, process or transcript is touched.
@@ -79,18 +80,19 @@ class RefusedRespawn(Sandbox):
     def receipts(self):
         return sorted(config.STATE.glob("*-launch-*"))
 
-    def check_refused(self, model):
+    def check_refused(self, model, why="refused"):
         receipt, own = self.opened_on(model)
         self.assertEqual(self.conversation(), own)
-        self.assertIn("refused", self.move())
+        self.assertIn(why, self.move())
         self.assertEqual(self.receipts(), [receipt])
         self.assertEqual(self.conversation(), own)
         self.assertEqual(config.session_records()[SEAT]["orchestrator"], model)
 
-    def check_started(self, model):
+    def check_started(self, model, setup=(0, "")):
         self.refused = None
         receipt, own = self.opened_on(model)
-        self.assertEqual(self.move(), "")
+        with patch.object(orch, "tmux_lists", return_value=setup):
+            self.assertEqual(self.move(), setup[1] and f"cannot set up the session {SEAT}: {setup[1]}")
         [replacement] = self.receipts()
         self.assertNotEqual(replacement, receipt)
         self.assertEqual(self.conversation(), own)
@@ -106,6 +108,23 @@ class RefusedRespawn(Sandbox):
 
     def test_a_codex_respawn_that_starts_drops_the_receipt_it_replaced(self):
         self.check_started("astra")
+
+    def test_a_launch_failing_before_its_respawn_keeps_the_receipt(self):
+        self.refused = None
+        facts = config.hook_facts_path(SEAT)
+        facts.write_text("{}")
+        replace = Path.replace
+
+        def refused(path, target):
+            if path == facts:
+                raise PermissionError("acme facts stay")
+            return replace(path, target)
+
+        with patch.object(Path, "replace", refused):
+            self.check_refused("astra", "acme facts stay")
+
+    def test_a_respawn_whose_setup_fails_after_keeps_the_receipt_it_started_with(self):
+        self.check_started("mimo", (1, "acme env refused"))
 
 
 if __name__ == "__main__":
