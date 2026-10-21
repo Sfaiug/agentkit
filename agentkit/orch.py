@@ -226,8 +226,9 @@ def account_order(cfg, model, readings, first=None):
 
     `first` -- a seat's home; for a new seat the provider's `seat_account`, else the usual
     login -- first while it has room for this model, the rest by room: a seat lives where
-    its owner follows it, and only spills over when that one is spent.  An account on
-    credits (`usage.on_credits`) has room only after every one with a window left.
+    its owner follows it, and only spills over when that one runs low.  An account on
+    credits (`usage.on_credits`) has room only after every one with a window left, and one
+    running low (`usage.model_low`) only after every one that is not.
     """
     provider = config.model(cfg, model)["provider"]
 
@@ -235,12 +236,13 @@ def account_order(cfg, model, readings, first=None):
         providers = {provider: readings[account]}
         amount, unknown = usage.model_budget(cfg, model, providers)
         return (usage.model_exhausted(cfg, model, providers)[0],
-                usage.on_credits(cfg, model, providers), unknown is not None, -amount)
+                usage.on_credits(cfg, model, providers),
+                usage.model_low(cfg, model, providers), unknown is not None, -amount)
     accounts = config.accounts(cfg, provider) or list(readings)
     ordered = sorted((a for a in accounts if a in readings), key=rank)
     if first is None:
         first = (cfg["providers"].get(provider) or {}).get("seat_account", config.DEFAULT_ACCOUNT)
-    if first in ordered and not any(rank(first)[:2]):
+    if first in ordered and not any(rank(first)[:3]):
         ordered = [first, *(a for a in ordered if a != first)]
     return ordered
 
