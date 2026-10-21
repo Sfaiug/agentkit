@@ -7,11 +7,13 @@ builder its turn went from is read off its record, and a reviewer off its review
 config runs it under, else its own.  Offline: a temporary HOME and its history database.
 """
 
+from contextlib import redirect_stdout
+import io
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, history, menu
+from agentkit import config, history, menu, terminal
 
 
 class PastModels(Sandbox):
@@ -51,6 +53,23 @@ class PastModels(Sandbox):
             self.assertEqual(menu.past_said(self.cfg, self.session)[1],
                              "took 11 hours · muse-spark-1.3-contributor, GPT-6-Astra, Fable 5.1,"
                              " Gemini 3.8 Flash, Opus 5.5")
+
+    def test_its_row_names_its_orchestrator_in_full_and_whole_where_there_is_room(self):
+        out = io.StringIO()
+        with redirect_stdout(out), patch.object(menu, "past_said", return_value=("", "")), \
+                patch.object(terminal, "width", return_value=100):
+            menu.show_past(self.cfg, [{**self.session, "repo": None, "path": "/"}], dry_run=True)
+        self.assertIn("1 acme-docs muse-spark-1.3-contributor stopped",
+                      terminal.plain(out.getvalue()))
+
+    def test_a_name_stays_on_one_line_where_the_stats_wrap(self):
+        stats = "2 of 3 tasks · took 7 hours · muse-spark-1.3-contributor, GPT-6-Astra, Gemini 3.8 Flash"
+        self.assertEqual(menu.stats_lines(stats, 34), [
+            "2 of 3 tasks · took 7 hours ·", "muse-spark-1.3-contributor,",
+            "GPT-6-Astra, Gemini 3.8 Flash"])
+        self.assertEqual(menu.stats_lines(stats, 200), [stats])
+        self.assertEqual(menu.stats_lines("took 7 hours · muse-spark-1.3-contributor", 12),
+                         ["took 7 hours", "·", "muse-spark-1", ".3-contribut", "or"])
 
 
 if __name__ == "__main__":

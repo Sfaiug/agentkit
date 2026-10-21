@@ -1428,8 +1428,9 @@ def v5o_column_widths(infos, term_width):
     num_w = min(max([terminal.cells(info["number"]) for info in infos] + [1]), 4)
     name_w = min(max([born_cells(info["born"]) if "born" in info else terminal.cells(info["name"])
                       for info in infos] + [1]), 24)
-    orch_w = min(max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
-                      for info in infos] + [0]), 24)
+    # a model's full name whole where the row has room, cut by the loop below where it has not
+    orch_w = max([terminal.cells(info.get("orchestrator") or info.get("worker") or "")
+                  for info in infos] + [0])
     count_w = max([terminal.cells(terminal.state_text(info["count"]))
                    for info in infos] + [1])
     # Keep up to eight cells of each label beside the state; otherwise it goes below the
@@ -4910,7 +4911,7 @@ def past_models(cfg, session):
 
 def past_body(past, at=None, models=None, room=None, said=None):
     """The past screen's lines -- the main screen's rows, one a stopped seat under its project's
-    heading in the order their numbers go: its number, name, orchestrator (`models`, by name),
+    heading in the order their numbers go: its number, name, orchestrator (`models`, in full),
     how long ago it was stopped in the state's column and, where its harness starts it fresh
     and the row has room, that -- and where each is, {line: (("row", name), [])}.  Every row, a
     blank line between projects, where `room` lines hold them or no `room` is given; else the
@@ -4926,7 +4927,7 @@ def past_body(past, at=None, models=None, room=None, said=None):
     widths = v5o_column_widths(infos, width)
     room_under = max(1, widths["room"] - (2 + widths["num"] + 2))
     opened = {name: terminal.wrap(sentence, room_under) + [
-        terminal.styled(line, "dim") for line in terminal.wrap(stats, room_under)]
+        terminal.styled(line, "dim") for line in stats_lines(stats, room_under)]
         for name, (sentence, stats) in (said or {}).items()}
 
     def drawn(info):
@@ -4952,6 +4953,19 @@ def past_body(past, at=None, models=None, room=None, said=None):
             {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
 
+
+def stats_lines(stats, room):
+    """A past session's stats on lines of `room` cells, broken only after a `·` or a `,`: a
+    model's name stays on one line, unless it is too long for one by itself."""
+    lines = []
+    for part in re.findall(r".+?(?:, | · |$)", stats):
+        if lines and terminal.cells(lines[-1] + part.rstrip()) <= room:
+            lines[-1] += part
+        else:
+            lines.append(part)
+    return [cut for line in lines for cut in terminal.wrap(line, room)]
+
+
 @terminal.clicks_its_own
 def show_past(cfg, found, dry_run=False, keyboard=None):
     """`past sessions`, `p`: the seats you stopped, the main screen's rows under their projects
@@ -4972,7 +4986,8 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             return
         names = [session["name"] for _, session in past]
         here = here if here in names else names[0]
-        models = {name: (selection_of(cfg, name) or {}).get("orchestrator") for name in names}
+        models = {name: model and config.model_name(cfg, model) for name in names
+                  for model in [(selection_of(cfg, name) or {}).get("orchestrator")]}
         if not terminal.taken():
             keys = "x remove   esc back"
             terminal.frame("past sessions", past_body(past, models=models)[0], keys)
