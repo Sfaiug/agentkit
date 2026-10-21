@@ -1945,46 +1945,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, own=None, ask=N
     return page, (len(pages) if ordered else 1)
 
 
-def stop_session_runs(name, dry_run=False):
-    """Stop every unfinished run that seat launched, before the seat itself ends.
-
-    The same `ak run stop` a hand on the keyboard would reach for: deliberate ends,
-    never accidents to resume. A run that refuses -- already finished between the
-    listing and the stop -- is named and left; the seat still ends.
-    """
-    from . import stop
-    for run_dir in session_runs(name):
-        if dry_run:
-            print(f"would stop {run_dir.name}")
-            continue
-        try:
-            stop.cmd_stop([run_dir.name])
-        except config.Error as exc:
-            print(f"could not stop {run_dir.name}: {exc}")
-        except (OSError, ValueError, KeyError, TypeError):
-            print(f"could not stop {run_dir.name}")
-
-
-def session_runs(name):
-    """Every run that seat launched which stopping it stops: what `stop.cmd_stop` takes -- each
-    one not ended, as `orch.cmd_stop` stops them too, and an `error` still waiting on its
-    owner, which the tick would retry."""
-    try:
-        dirs = record.run_dirs()
-    except OSError:
-        return []
-    found = []
-    for run_dir in dirs:
-        try:
-            state = record.read_state(run_dir)
-            word = state and state.get("state")
-            if (state and transitions.launched_session(state) == name
-                    and (word not in record.ENDED
-                         or word == "error" and transitions.unfinished(state))):
-                found.append(run_dir)
-        except (OSError, ValueError, config.Error):
-            continue
-    return found
+def would_stop(name):
+    """A dry run's `x`: the runs stopping that seat would stop (`transitions.seat_runs`)."""
+    for run_dir in transitions.seat_runs(name):
+        print(f"would stop {run_dir.name}")
 
 
 def stop_means(runs):
@@ -2018,12 +1982,12 @@ def close_seat(name, dry_run, refused=None):
     a process of their own (`teardown`); on a stopped seat, `x` on the past screen, take it off
     the list.
 
-    Its runs stop first, as `stop_session` stops them, then `orch.cmd_stop` takes their
-    checkouts and the tmux session and keeps the seat -- or, stopped already, takes it.  A
-    refusal goes to `refused`, a notice waiting for its Enter unless it says otherwise.
+    `orch.cmd_stop` ends the tmux session and then its runs, takes their checkouts and keeps
+    the seat -- or, stopped already, takes it.  A refusal goes to `refused`, a notice waiting
+    for its Enter unless it says otherwise.
     """
-    stop_session_runs(name, dry_run)
     if dry_run:
+        would_stop(name)
         print(f"would stop {name}")
         return
     try:
@@ -2048,10 +2012,9 @@ def stop_session(found, dry_run):
     -- a stopped one keeps its number for the past screen (`show_past`), where it is removed,
     and is never asked about here; Esc and an empty Enter go back
     to the menu, as does anything but `y` to the one question, which says, as the
-    keyboard's card does, that the past screen reopens the seat. Its runs stop
-    first, the same way `ak run stop` stops one, so none is left to read as an
-    accident afterwards. `ak orch stop` then removes the checkouts and the tabs, and
-    keeps the seat.
+    keyboard's card does, that the past screen reopens the seat. `ak orch stop` ends it,
+    then its runs, the same way `ak run stop` stops one, so none is left to read as an
+    accident afterwards, removes the checkouts and the tabs, and keeps the seat.
     """
     offered = {number: session for number, session in enumerate(found, 1)
                if not session.get("closed")}
@@ -2065,13 +2028,12 @@ def stop_session(found, dry_run):
         return
     session = next(session for session in offered.values() if session["name"] == choice)
     if dry_run:
-        stop_session_runs(session["name"], dry_run=True)
+        would_stop(session["name"])
         print(f"would stop {session['name']}")
         return
     terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if read(stop_question(session["name"]), "") != "y":
         return
-    stop_session_runs(session["name"])
     orch.cmd_stop([session["name"]])
 
 
@@ -2084,7 +2046,7 @@ def stop_this_session(dry_run):
         return
     terminal.frame("stop", terminal.wrap(stop_means(None), terminal.width()))
     if dry_run:
-        stop_session_runs(current, dry_run=True)
+        would_stop(current)
         print(f"would stop {current}")
         return
     if read(stop_question(current), "") != "y":
@@ -5295,7 +5257,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
 
                     # its runs are counted off the draw, so the card is up at once whatever
                     # the disk; one counted within a frame is simply had, a later one drawn in
-                    runs, counted = Fetch(lambda: len(session_runs(seat))), [False]
+                    runs, counted = Fetch(lambda: len(transitions.seat_runs(seat))), [False]
                     runs.join(motion.FRAME)
 
                     def means():
