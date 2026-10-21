@@ -161,7 +161,8 @@ class SeatTokens(unittest.TestCase):
         board = scoreboard.compute(NOW)
         self.assertEqual(board["tokens"][0]["total_tokens"], 125)
         self.assertEqual(board["tokens"][0]["not_counted"], ["ash (echo)", "elm (claude)"])
-        text = " ".join(" ".join(scoreboard.render(board)).split())
+        with patch.object(scoreboard.terminal, "content_width", return_value=180):
+            text = " ".join(" ".join(scoreboard.render(board)).split())
         self.assertIn("not counted: ash (echo), elm (claude)", text)
 
 
