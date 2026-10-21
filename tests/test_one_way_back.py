@@ -84,9 +84,11 @@ class Back(unittest.TestCase):
     def stop(self, *answers, dry_run=False):
         """The `x` flow against two seats, answering `answers`."""
         out = io.StringIO()
-        # The seat's runs stop inside `orch.cmd_stop`, a mock here: the real one reads
-        # ~/.agentkit/runs and would `ak run stop` every run a real seat named `atoll-fix` launched.
+        # The seat's runs are listed through a mock too, and stop inside `orch.cmd_stop`, a mock
+        # here: the real ones read ~/.agentkit/runs and would `ak run stop` every run a real seat
+        # named `atoll-fix` launched.
         with patch.object(menu, "read", side_effect=list(answers)) as read, \
+                patch.object(transitions, "seat_runs", return_value=[]), \
                 patch.object(orch, "cmd_stop", return_value=0) as stopped, \
                 redirect_stdout(out):
             menu.stop_session([dict(seat) for seat in SEATS], dry_run)
