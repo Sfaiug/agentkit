@@ -736,7 +736,7 @@ A seat out of usage says when it comes back in its last column, in its red,
 `back 19:20` (a weekday before a later day's time, a date past the week:
 `menu.back_at`), and pointed at, its row opens the sentence and the choices
 (`menu.choices`): `Claude has no usage left until 19:20.` and
-`✓ Wait for 19:20   ⇄ Go on now with gpt-sol` -- waiting in `done`'s green, what
+`✓ Wait for 19:20   ⇄ Go on now with gpt-6.1-sol` -- waiting in `done`'s green, what
 happens unasked, and going on in amber, the first other model with a window left
 (`orch.going_on`; credits are never spent on a click). A click on going on moves
 the seat there, its conversation and the turn its usage cut off with it, as its

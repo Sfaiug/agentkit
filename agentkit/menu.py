@@ -1132,8 +1132,9 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     reason = found["reason"] or ""
     sentence = reason
     back = found.get("resumes_at") if word == "out of usage" else None
+    go_on = back and orch.going_on(cfg, orchestrator, staffing._cached_providers())
     return {"number": str(number), "name": name, "session": session, "back": back,
-            "go_on": back and orch.going_on(cfg, orchestrator, staffing._cached_providers()),
+            "go_on": go_on, "go_on_name": go_on and config.model_name(cfg, go_on),
             "crew": seat_crew(cfg, selection),
             "tasks": seat_tasks(name, records if mine is None else mine.get(name, []), now),
             "count": word, "orchestrator": shown, "worker": shown,
@@ -1373,7 +1374,7 @@ GAP = "   "                       # between them, on a line both fit
 def choice_lines(info, room):
     """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
     on it: `✓ Wait for 19:20`, what happens unasked, and where a model has usage now,
-    `⇄ Go on now with gpt-sol`, which moves the seat and its conversation there.  Each drawn
+    `⇄ Go on now with gpt-6.1-sol`, which moves the seat and its conversation there.  Each drawn
     line in `room` cells, as its (text, choice) parts: both on one line where they fit, else
     each on lines of its own wrapped at words, so none runs past the edge of the screen and
     away from where a click finds it (`choice_cells`).  [] for any other row."""
@@ -1397,7 +1398,7 @@ def choice_text(choice, info):
     mark = {WAIT: "✓", GO_ON: "⇄"}[choice] if terminal.utf8() else {WAIT: "v", GO_ON: ">"}[choice]
     if choice == WAIT:
         return f"{mark} Wait for {back_at(info.get('back'))}"
-    return f"{mark} Go on now with {info.get('go_on')}"
+    return f"{mark} Go on now with {info.get('go_on_name')}"
 
 
 def choice_cells(text, info, room):
