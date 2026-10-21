@@ -198,7 +198,7 @@ class Screens(Sandbox):
         self.assertEqual(marked(last, "lit"), {})
         # its name is no cell: the row takes the highlight and nothing lights
         last = self.matrix(move(*label) + ESC)[-1]
-        self.assertOneHighlight(last, "astra")
+        self.assertOneHighlight(last, "GPT-6-Astra")
         self.assertEqual(marked(last, "lit"), {})
         # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
