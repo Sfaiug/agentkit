@@ -425,11 +425,25 @@ def finished(name):
         return None
     if any(owed(name, line) for line in text):
         return None
-    done = [line.strip() for line in text if BOX.match(line) and not is_open(line)]
-    if not done:
+    done = _done(text)
+    return done[-1] if done else None
+
+
+def first_done(name):
+    """The words of the plan's first done line, what the seat set out to do and did; None for no
+    plan, nothing done or one nothing can read."""
+    try:
+        done = _done(lines(name))
+    except config.Error:
         return None
-    found = LINE.match(done[-1])
-    return found["what"] if found else done[-1].partition("] ")[2]
+    return done[0] if done else None
+
+
+def _done(text):
+    """The words of each done line of a plan's `text`, in order."""
+    done = [line.strip() for line in text if BOX.match(line) and not is_open(line)]
+    return [found["what"] if found else line.partition("] ")[2]
+            for line, found in ((line, LINE.match(line)) for line in done)]
 
 
 def outcomes(name, runs=True):

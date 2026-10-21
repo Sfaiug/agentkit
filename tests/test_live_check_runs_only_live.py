@@ -81,10 +81,9 @@ class LiveCheckRunsOnlyLive(unittest.TestCase):
         self.assertCountEqual(ran["live.sh"], suite.LIVE_CHECKS)
         self.assertCountEqual(ran["smoke.sh"], NAMED - suite.LIVE_CHECKS)
 
-    def test_agents_md_reads_the_one_list(self):
-        rules = (REPO / "AGENTS.md").read_text()
-        line = next(line for line in rules.splitlines() if "`tests/live.sh`" in line)
-        self.assertIn("`LIVE_CHECKS` in `tests/suite_shares.py`", line)
+    def test_landing_rule_reads_the_one_list(self):
+        rule = " ".join((REPO / "tests/test_repo_suite.py").read_text().split())
+        self.assertIn("(`LIVE_CHECKS` in `tests/suite_shares.py`, run by `tests/live.sh`)", rule)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 """Best-effort SQLite history for completed and running agentkit runs."""
 
+import contextlib
+import fcntl
 import json
 import math
 import os
@@ -149,7 +151,6 @@ def _connect(*, readonly=False):
         connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)
         connection.create_function("suite_run", 2, suite_run)     # what REAL_WORK reads by
         return connection
-    database.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database, timeout=2)
     connection.execute(KEPT_SCHEMA)
     # Read before `runs` is made, in the statement that writes it, so two first connects agree;
@@ -174,10 +175,20 @@ def _connect(*, readonly=False):
     return connection
 
 
+@contextlib.contextmanager
+def _writing():
+    """One writer of history.db at a time, across processes: runs, the tick and the menu each
+    write, and sqlite's own wait gives up after its timeout and the write would be lost."""
+    path().parent.mkdir(parents=True, exist_ok=True)
+    with _LOCK, path().with_suffix(".lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def _write(fn, log=None):
     """Run one database mutation; history can never make a run fail."""
     try:
-        with _LOCK:
+        with _writing():
             connection = _connect()
             try:
                 result = fn(connection)
@@ -645,7 +656,7 @@ def _ensure_migrated():
     the read that asked goes on to fail soft as it always has.
     """
     try:
-        with _LOCK:
+        with _writing():
             _connect().close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
         pass

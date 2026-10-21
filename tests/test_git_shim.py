@@ -2,6 +2,11 @@
 owner's checkouts, and runs the real git otherwise -- a call that never names `worktree` without
 starting Python.
 
+Owner rule, 5 Oct, 6 Oct 2026: "`~/code` holds only the owner's checkouts: a seat builds under
+`~/.agentkit/wt/`, and ak removes a seat's checkout a day after it last changed unless it holds
+uncommitted work or is a clone." Held here with tests/test_gc_sweep.py and
+tests/test_checkout_removal_keeps_work.py.
+
 Offline: the shim is `git` first on PATH and the real git sits behind it; HOME is a temporary one,
 so ~/code and ~/.agentkit/wt are the test's own.
 """

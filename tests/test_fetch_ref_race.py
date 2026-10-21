@@ -136,7 +136,7 @@ class FetchRefRace(unittest.TestCase):
             "merge_failed": False, "merge_note": None, "findings": "",
         }
         record.save_state(run_dir, state)
-        return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+        return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context")
 
     def land(self, fails, answer, delay=0):
         """Land the run while its first `fails` fetches answer `answer` after `delay` seconds."""

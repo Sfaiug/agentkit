@@ -103,7 +103,7 @@ out = pathlib.Path(sys.argv[6])
                  "repo": str(self.wt), "worktree": str(self.wt)}
         self.logs = []
         self.lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
-                           "# Fixture", ["true"], "context", [])
+                           "# Fixture", ["true"], "context")
         self.lp.rnd = 1
         self.lp.validation = run.commit_identity(self.wt)
         self.fails = "python3 -c " + shlex.quote('import api; print("proof on", api.mode); exit(7)')

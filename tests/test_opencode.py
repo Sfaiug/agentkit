@@ -1084,10 +1084,21 @@ stop();
         self.assertEqual(self.models(STUB_MODEL_LIST=listing, STUB_LIST_RC="1"),
                          self.models())
 
+    def test_a_model_s_own_variants_outrank_the_table(self):
+        listing = json.loads((FIXTURES / "opencode-model-list.json").read_text())
+        for model in listing["data"]:
+            if model["id"] == "deepseek-v4.1-flash-free":
+                model["variants"] = [{"id": "low"}, {"id": "high"}]
+        (self.root / "models.json").write_text(json.dumps(listing))
+        self.assertIn(["opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free",
+                       "low high"], self.models(STUB_MODEL_LIST=str(self.root / "models.json")))
+
     def test_a_failed_listing_gives_the_table_the_same_answer(self):
         self.assertEqual(self.models(), [
             ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none high"],
             ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
+            ["opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free", "low high max"],
+            ["opencode/glm-5.3-flash-free", "GLM-5.3-Flash Free", "low high max"],
         ])
 
     def test_mimo_takes_thinking_off_or_on(self):
