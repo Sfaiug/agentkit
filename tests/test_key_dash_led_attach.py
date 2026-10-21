@@ -21,12 +21,6 @@ HOP = ["-t", ALIAS, "ak", "--client"]
 SSH = LOG + "exit 7\n"
 
 
-def tree(root):
-    """Every file and directory under `root`, with each file's bytes."""
-    return {str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
-            for path in sorted(root.rglob("*"))}
-
-
 class RemoteHop(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -37,14 +31,14 @@ class RemoteHop(unittest.TestCase):
                                         log=shlex.quote(str(cls.home.log("ssh")))))
 
     def test_a_dry_run_names_the_ssh_hop_and_connects_nowhere(self):
-        before, hops = tree(self.home.path), len(self.home.calls("ssh"))
+        before, hops = self.home.tree(), len(self.home.calls("ssh"))
         for args in (("--dry-run",), ("attach", "--dry-run"), ("--dry-run", "--dry-run")):
             with self.subTest(args=args):
                 done = self.home.ak(*args)
                 self.assertEqual((done.code, done.err), (0, ""))
                 self.assertEqual(done.out, f"would run ssh -t {ALIAS} ak --client\n")
         self.assertEqual(len(self.home.calls("ssh")), hops)
-        self.assertEqual(tree(self.home.path), before)
+        self.assertEqual(self.home.tree(), before)
 
     def test_bare_ak_hops_to_the_server_and_exits_as_ssh_did(self):
         for args in ((), ("attach",)):

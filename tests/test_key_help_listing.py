@@ -39,12 +39,6 @@ VERBS = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch",
          "orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor")
 
 
-def tree(root):
-    """Every path under `root` with what each file holds."""
-    return {str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
-            for path in sorted(root.rglob("*"))}
-
-
 class Listing(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -87,13 +81,13 @@ class NothingWritten(unittest.TestCase):
     def test_an_empty_home_prints_the_listing_and_stays_empty(self):
         with Home() as home:
             shutil.rmtree(home.path / ".agentkit")
-            before = tree(home.path)
+            before = home.tree()
             for flag in ("--help", "-h"):
                 with self.subTest(flag):
                     done = home.ak(flag)
                     self.assertEqual((done.code, done.out), (0, LISTING), done.err)
             self.assertEqual(home.ak("help").code, 2)
-            self.assertEqual(tree(home.path), before)
+            self.assertEqual(home.tree(), before)
             self.assertFalse((home.path / ".agentkit").exists())
             self.assertEqual({name: home.calls(name) for name in REFUSED if home.calls(name)},
                              {})

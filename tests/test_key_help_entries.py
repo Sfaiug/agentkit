@@ -60,12 +60,6 @@ USAGE = {
 }
 
 
-def tree(root):
-    """Every path under `root` with what each file holds."""
-    return {str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
-            for path in sorted(root.rglob("*"))}
-
-
 def blocks(out):
     """The help's blocks, as the blank lines between them part them."""
     return out.removesuffix("\n").split("\n\n")
@@ -76,10 +70,10 @@ class Entries(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
-        before = tree(cls.home.path)
+        before = cls.home.tree()
         cls.helped = {entry: [cls.home.ak(*entry.split(), flag) for flag in ("--help", "-h")]
                       for entry in ENTRIES}
-        cls.written = before != tree(cls.home.path)
+        cls.written = before != cls.home.tree()
         cls.listing = cls.home.ak("--help").out
 
     def help(self, entry):
