@@ -995,7 +995,9 @@ def rewritten(line):
     """
     start = line.find('command="')
     if start < 0:
-        return f'command="{forced}" ' + line     # sshd needs whitespace before the key type
+        # options are joined by commas, and whitespace ends them before the key type
+        bare = line.lstrip().startswith(("ssh-", "ecdsa-", "sk-"))
+        return f'command="{forced}"' + (" " if bare else ",") + line
     i, end = start + len('command="'), None
     while i < len(line):
         if line[i] == "\\":
