@@ -5,7 +5,8 @@ different effect, should always be the same one. I dont want removing to be able
 actions such as spendign a reset, or claude relogin".  Enter on a meter over `c` lists what a
 click on one on the ak screen lists (tests/test_login_click.py), `↻ log in again` and `↻ spend a
 reset` while one is in hand, never `− remove`, which is under each subscription's row on
-`Subscriptions`.  In-process, in a temporary HOME: `c`'s key reader faked and every list let go,
+`Subscriptions`.  `log in again` only where its harness signs in afresh: Antigravity's cannot
+(`[auth] again = false`).  In-process, in a temporary HOME: `c`'s key reader faked and every list let go,
 so nothing is signed in, spent or removed.
 """
 
@@ -50,11 +51,10 @@ class MeterActs(Sandbox):
         self.keyed(lambda: menu.config_matrix(self.cfg, None, "abc1234"),
                    [*(("enter", ("usage", number)) for number in range(1, len(self.rows) + 1)),
                     ("back", None)])
-        self.assertEqual(len(self.offered), len(self.rows))
-        self.assertEqual(self.offered[self.rows.index("Claude")],
-                         ["↻ log in again", "↻ spend a reset"])
-        self.assertEqual(self.offered[self.rows.index("ChatGPT")], ["↻ log in again"])
-        self.assertFalse([acts for acts in self.offered if "− remove" in acts])
+        # Gemini's holds no reset and its harness cannot sign in afresh: its meter lists nothing
+        self.assertEqual(self.offered, [["↻ log in again", "↻ spend a reset"] if row == "Claude"
+                                        else ["↻ log in again"]
+                                        for row in self.rows if row != "Gemini"])
 
     def test_subscriptions_lists_every_subscription_with_its_removal_under_it(self):
         claude, chatgpt = self.rows.index("Claude"), self.rows.index("ChatGPT")
@@ -70,6 +70,29 @@ class MeterActs(Sandbox):
                          ["↻ log in again", "↻ spend a reset", "− remove"])
         self.assertEqual(under(drawn[3], chatgpt, 2), ["↻ log in again", "− remove"])
         self.assertEqual(self.offered, [])         # the page's own list, no other
+
+    def test_an_open_list_stays_as_it_opened_while_its_reading_moves(self):
+        # The owner moves onto `− remove` as a probe brings a reset in: Enter removes, and
+        # spends nothing.
+        reading, removed, spent = {}, [], []
+        keys = iter([terminal.Key("enter"), terminal.Key("down"), terminal.Key("enter"),
+                     terminal.Key("esc")])
+
+        def read(*_args, **_kwargs):
+            key = next(keys)
+            if key.name == "down":
+                reading["resets"] = 1
+            return key
+        for name, fake in (("usage_rows", lambda _cfg: [("anthropic", "Claude", dict(reading),
+                                                          None)]),
+                           ("login_notes", lambda _subs: [None]),
+                           ("config_spend_reset", lambda *_a: spent.append("Claude")),
+                           ("config_remove_provider", lambda *_a: removed.append("Claude"))):
+            self.stack.enter_context(patch.object(menu, name, side_effect=fake))
+        self.stack.enter_context(patch.object(terminal, "read_key", side_effect=read))
+        self.stack.enter_context(patch.object(terminal, "frame", return_value={}))
+        menu.config_subscriptions(self.cfg, None)
+        self.assertEqual((spent, removed), ([], ["Claude"]))
 
 
 if __name__ == "__main__":
