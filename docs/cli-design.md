@@ -236,9 +236,8 @@ explain: nothing lights on them and a click there does nothing of its own
 ## Questions
 
 Every yes-or-no question on a screen read with the keys -- `x` on a seat that
-is not done, in the menu and the popup, `Remove` on a model, a provider or a
-subscription on the `c` screens, and `Move` on another model's orchestrator mark of a
-seat there -- is one card, `terminal.confirm`, drawn where
+is not done, in the menu and the popup, and `Remove` on a model, a provider or a
+subscription on the `c` screens -- is one card, `terminal.confirm`, drawn where
 its screen asks it: a blank line, the question in the normal colour, one dim
 line saying what the answer means, the two choices, and a blank line. The safe
 choice is first and highlighted, `✓ Keep`; the one that ends something follows,
@@ -278,7 +277,7 @@ that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
-drawn at once, the orchestrator only moves, and the last reviewer stays, saying
+drawn at once, asking nothing, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). The highlighted model opens no line: what it
 runs on is the meter that lights it. `r recommended` opens the models screen
 (The models screen).
