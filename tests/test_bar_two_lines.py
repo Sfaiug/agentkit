@@ -76,9 +76,9 @@ class TwoLines(Sandbox):
         self.assertEqual(self.options["status-format[0]"], statusbar.FORMATS[0])
         self.assertEqual(self.options["status-format[1]"], statusbar.FORMATS[1])
         top = self.options[statusbar.TOP]
-        self.assertEqual(drawn(top), " fix-api   fable")
+        self.assertEqual(drawn(top), " fix-api   Fable 5.1")
         self.assertIn("#[bold]fix-api#[nobold]", top)
-        self.assertIn(f"#[fg=#{DIM}]fable", top)                     # dim, never a company's
+        self.assertIn(f"#[fg=#{DIM}]Fable 5.1", top)                 # dim, never a company's
         self.assertEqual(drawn(self.options[statusbar.WHY]), "")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api")
@@ -97,11 +97,11 @@ class TwoLines(Sandbox):
         self.assertTrue(top.startswith(" #[fg=#89b4fa]● working#[default]   #[bold]fix-api"), top)
         # two of five done: the line in working's colour, then its count
         bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
-        self.assertTrue(top.endswith(f"fable#[default]   {bar}"), top)
-        self.assertEqual(drawn(top), f" ● working   fix-api   fable   {drawn(bar)}")
+        self.assertTrue(top.endswith(f"Fable 5.1#[default]   {bar}"), top)
+        self.assertEqual(drawn(top), f" ● working   fix-api   Fable 5.1   {drawn(bar)}")
         # line two is its row's open line: who builds and reviews, and its task building
         self.assertEqual(drawn(self.options[statusbar.WHY]),
-                         "  astra ⚒◎   ■□□")
+                         "  GPT-6-Astra ⚒◎   ■□□")
         self.assertNotIn("going", self.options[statusbar.WHY])      # never a task's name
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api · working")
@@ -111,8 +111,8 @@ class TwoLines(Sandbox):
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "needs you")
         top, why = self.options[statusbar.TOP], self.options[statusbar.WHY]
         self.assertIn(f"#[fg={INK},bg=#f9e2af,bold] ! needs you #[default]", top)
-        self.assertEqual(drawn(top), "  ! needs you    fix-api   fable")
-        self.assertEqual(drawn(why), "  astra ⚒◎")
+        self.assertEqual(drawn(top), "  ! needs you    fix-api   Fable 5.1")
+        self.assertEqual(drawn(why), "  GPT-6-Astra ⚒◎")
         self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
@@ -122,7 +122,7 @@ class TwoLines(Sandbox):
                                       "reason": "waiting · 3rd in line to land on main"},
                           cfg=self.cfg)
         bar = menu.last_column("working", "", 2, 5, statusbar.CELLS, tmux=True)
-        self.assertTrue(self.options[statusbar.TOP].endswith(f"fable#[default]   {bar}"))
+        self.assertTrue(self.options[statusbar.TOP].endswith(f"Fable 5.1#[default]   {bar}"))
 
     def test_d_a_done_seat_offers_the_menu_key(self):
         top, why, key, title = statusbar.lines("fix-api", "fable", "done", "", "astra builds")

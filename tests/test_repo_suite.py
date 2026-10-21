@@ -1,4 +1,14 @@
-"""A repository's `tests:` suite runs once at landing."""
+"""A repository's `tests:` suite runs once at landing.
+
+Owner rule, 16 Sep, 25 Sep, 1 Oct, 2 Oct, 3 Oct, 5 Oct 2026: "Landing: each repository declares its
+own suite, and ak runs it once, at landing, for the passed changes landing together, each tested on
+top of those ahead; a round runs only the task's own checks, and there is no test-selection engine.
+The suite reaches nothing beyond loopback; checks needing the outside world (`LIVE_CHECKS` in
+`tests/suite_shares.py`, run by `tests/live.sh`) run before the host takes new code and when a
+harness upgrades. Finished work waiting to land goes first, and landing takes about one suite
+time." Held here with tests/test_suite_in_round.py, tests/test_landing_suite_offline.py,
+tests/test_merge_train.py and tests/test_gate_landers.py.
+"""
 
 from contextlib import ExitStack
 import os

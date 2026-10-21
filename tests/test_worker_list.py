@@ -87,7 +87,7 @@ class WorkerList(unittest.TestCase):
                  "scratch": True, "worktree": str(workspace), "base": None,
                  "rounds": 2, "round_summaries": [], "findings": "", "workers": list(workers)}
         lp = run.Loop(self.cfg, directory, state, {}, self.logs.append, workspace,
-                      "Fix the work.", [], "Fixture", [])
+                      "Fix the work.", [], "Fixture")
         lp.rnd = 1
         lp.round_dir.mkdir(exist_ok=True)
         return lp
@@ -467,7 +467,7 @@ class WorkerList(unittest.TestCase):
 
         def reloaded():
             again = run.Loop(self.cfg, lp.run_dir, record.read_state(lp.run_dir), {},
-                             self.logs.append, lp.wt, lp.body, [], "Fixture", [])
+                             self.logs.append, lp.wt, lp.body, [], "Fixture")
             again.rnd = 1
             return again
 

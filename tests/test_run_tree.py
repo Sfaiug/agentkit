@@ -518,7 +518,7 @@ class RunTree(unittest.TestCase):
         lp = SimpleNamespace(
             cfg=cfg, run_dir=case, state={"run_id": self.run_id, "round_summaries": []},
             wt=wt, body="task", cmds=["true"], reviewer="rev", executor="exec",
-            spares=["spare"], rnd=1, round_dir=round_dir, scratch=True, upstream=None, findings="",
+            rnd=1, round_dir=round_dir, scratch=True, upstream=None, findings="",
             review_sid=None,
             log=lambda message: None, turn_limit=60, save=lambda: None,
             role=lambda name: name, dir=lambda name: round_dir / name)

@@ -23,6 +23,7 @@ in a popup over whatever is running.
 
 import atexit
 import difflib
+import fcntl
 import fnmatch
 import json
 import math
@@ -58,6 +59,7 @@ PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of 
 INPUT_TTY_OPTION = "@ak_input_tty"   # the current harness wrapper's inner tty, reset on respawn
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
 SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's default one
+CONTROL = "_ak"            # the Go port's hidden control session there: never a seat, never swept
 JOBS = "-jobs"             # appended to it: the server the background jobs run on
 SLICE = "agentkit.slice"   # the user systemd slice every agent process is started inside
 SEATS_SLICE = "agentkit-seats.slice"  # interactive sessions keep the default weight
@@ -111,6 +113,7 @@ FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
+NOTICES = "notices"        # the lines other jobs leave the menu (`leave_notice`), a stop's refusal
 AGENT_LOOK_EVERY = 10      # how long one reading of the process table answers for every pane
 # The programs that run a script they are handed, which may be a harness (`node .../bin/codex`),
 # each by its own option grammar: what starts an option, the short letters and long options
@@ -131,6 +134,13 @@ _LITERAL = {}              # ... and the `systemd-run` a seat's scope runs, and 
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
+def in_order(cfg):
+    """The models a seat may run on, as a pick tries them: the default orchestrator, then every
+    other offered model in list order."""
+    default = cfg["defaults"]["orchestrator"]
+    return [default, *(name for name in config.offered(cfg) if name != default)]
+
+
 def choose(cfg, providers):
     """(model, reason).  The default orchestrator, while it has something left to spend.
 
@@ -143,7 +153,7 @@ def choose(cfg, providers):
     """
     default = cfg["defaults"]["orchestrator"]
     notes, credits = [], None
-    for name in [default, *(name for name in config.offered(cfg) if name != default)]:
+    for name in in_order(cfg):
         spent, why = usage.model_spent(cfg, name, providers)
         if not spent and not usage.on_credits(cfg, name, providers):
             return name, "; ".join([why] + notes)
@@ -154,6 +164,18 @@ def choose(cfg, providers):
         return credits
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
+
+
+def going_on(cfg, current, providers):
+    """The model a seat out of usage on `current` goes on with now, or None: the first in
+    `in_order`, other than `current`, whose harness is here and that has a window left -- none
+    the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
+    click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
+    return next((name for name in in_order(cfg)
+                 if name != current and config.harness_present(config.model(cfg, name)["harness"])
+                 and not usage.model_spent(cfg, name, providers)[0]
+                 and not usage.spent_meter(cfg, name, providers)
+                 and not usage.on_credits(cfg, name, providers)), None)
 
 
 @contextmanager
@@ -1189,7 +1211,7 @@ def dead(socket):
     for line in out.splitlines():
         name, _, flag = line.partition("\t")
         (gone if flag == "1" else alive).add(name)
-    return gone - alive
+    return gone - alive - {CONTROL}
 
 
 def agent_programs():
@@ -1327,7 +1349,7 @@ def agentless(socket, names):
                        socket=socket)
     if rc != 0:
         return set()
-    panes = {name: [] for name in names}
+    panes = {name: [] for name in names if name != CONTROL}
     for line in out.splitlines():
         parts = line.split("\t")
         if len(parts) == 3 and parts[0] in panes and parts[1].isdigit() and parts[2] != "1":
@@ -1463,7 +1485,7 @@ def server_sessions(socket, marked_only, legacy):
         parts = line.split("\t")
         if len(parts) == 4:
             parts.append("")   # no mark: the last line's empty field went with the output's strip
-        if len(parts) != 5 or (marked_only and parts[4] != "1"):
+        if len(parts) != 5 or parts[0] == CONTROL or (marked_only and parts[4] != "1"):
             continue
         try:
             created = int(parts[2])
@@ -1822,7 +1844,7 @@ def taken_names(found=None):
 def held_names():
     """Every session name agentkit's own tmux server holds, a seat's or not."""
     rc, out = tmux_out("list-sessions", "-F", "#{session_name}", socket=socket_name())
-    return set(out.splitlines()) if rc == 0 else set()
+    return set(out.splitlines()) - {CONTROL} if rc == 0 else set()
 
 
 def refuse_held(name):
@@ -1868,10 +1890,12 @@ def session_name(raw):
     Lowercased, with spaces and slashes -- and the `:` and `.` tmux reads as target syntax --
     turned into dashes, so that one answer is both a tmux session name and one component of its
     state file's path.  Cut to 40 characters, which is what a phone shows whole.  Empty is
-    empty: the caller asks again rather than inventing a name.
+    empty, and so is CONTROL, which no seat may take: the caller asks again rather than
+    inventing a name.
     """
     name = re.sub(r"[^a-z0-9_-]+", "-", config.normalize_session(raw).lower())
-    return re.sub(r"-+", "-", name).strip("-")[:NAME_CAP].strip("-")
+    name = re.sub(r"-+", "-", name).strip("-")[:NAME_CAP].strip("-")
+    return "" if name == CONTROL else name
 
 
 def typed_here():
@@ -2076,7 +2100,7 @@ def seat_environment(name, server, values, then=()):
         raise config.Error(f"cannot set up the session {name}: {out}")
 
 
-def start(name, cwd, cmd, orchestrator):
+def start(name, cwd, cmd, orchestrator, started=lambda: None):
     """Create the seat detached with AGENTKIT_SESSION in its environment, and mark it as ours.
 
     `remain-on-exit` is what makes the seat outlive the orchestrator process: a harness that
@@ -2100,6 +2124,7 @@ def start(name, cwd, cmd, orchestrator):
     if rc != 0:
         config.seat_file("launch", name).unlink(missing_ok=True)
         raise config.Error(f"tmux could not start the session {name} in {cwd}: {out}")
+    started()
     # A server started as a systemd service writes its stdout to the journal, so tmux
     # itself expands the launched pane rather than handing its id back to this caller.
     seat_environment(name, server, values, then=[
@@ -2385,6 +2410,13 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None):
         return command(cfg, model, conversation, account=account, rulebook=rulebook)
 
 
+# What a launch writes about the conversation it owns: the launcher's own id, each
+# harness's receipt, and the title that launch takes. A restart that fails puts these
+# back from the record as it was, so the seat keeps its own conversation.
+LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
+               "codex_history", "opencode_launch", "session_title", "title_sync")
+
+
 def launch(name, model, cwd, cmd, conversation, session=None):
     """Put the harness in the seat, and write down the conversation it was launched with.
 
@@ -2393,48 +2425,57 @@ def launch(name, model, cwd, cmd, conversation, session=None):
     Codex's per-invocation receipt among them, is carried into the command as environment.
     """
     plugin = seat_plugin({"orchestrator": model})
-    before = config.session_records().get(name, {}) if plugin.title_command(name) else {}
-    env = plugin.launched(name, cwd, conversation)
-    if env:
-        cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
     from . import notify, watch
     # The rulebook this launch hands its harness, written down before the harness is up: its
     # first prompt may already be offered a newer one, which nothing after may wipe.  Under
-    # the seat's lock, so a rename going on keeps its record; a start that fails puts the
-    # record back, since the harness that read the old one is still there.
+    # the seat's lock, so a rename going on keeps its record; a launch whose harness never
+    # starts puts the record back, since the harness that read the old one is still there.
     kept = ("rulebook_sha", "rulebook_told", "rulebook_read")
     with notify.session_lock(name) as current:
         # read under the lock the prompts rewrite it under, and held until the harness is up:
         # till its pane is replaced the one it replaces can still prompt, and that prompt's
         # rewrite waits here, so the file read is the one recorded
-        try:
-            handed = config.rulebook_digest(config.rulebook_path(name).read_bytes())
-        except OSError:
-            handed = None
-        held = {key: (config.session_records().get(current) or {}).get(key) for key in kept}
-        config.update_session(current, rulebook_sha=handed, rulebook_told=None, rulebook_read=None)
-        # What the last harness's hooks said it was doing is not what this one is doing: a seat
-        # that went mid-turn, or with a question up, read `working` or `needs you` until its
-        # first Stop.  Gone before this harness can write its first, and back if it never runs.
-        # Moved aside and linked back, never read, removed and written: the running harness's
-        # hooks publish by rename without this lock, and a fact one lands meanwhile is the one kept.
+        before = config.session_records().get(current) or {}
+        env = plugin.launched(current, cwd, conversation)
+        if env:
+            cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
         facts = config.hook_facts_path(current)
         last = facts.with_name(f"{facts.name}.last")
+        up = []     # holds True once the new harness runs: what fails after leaves it be
         try:
-            facts.replace(last)
-        except FileNotFoundError:
-            last.unlink(missing_ok=True)    # a launch killed past its move left one
-        try:
-            _start_harness(name, model, cwd, cmd, session)
-        except BaseException:
-            config.update_session(current, **held)   # the harness that read the old one stays
             try:
-                os.link(last, facts)        # refused where that harness wrote one since
+                handed = config.rulebook_digest(config.rulebook_path(name).read_bytes())
             except OSError:
-                pass
+                handed = None
+            config.update_session(current, rulebook_sha=handed, rulebook_told=None,
+                                  rulebook_read=None)
+            # What the last harness's hooks said it was doing is not what this one is doing: a
+            # seat that went mid-turn, or with a question up, read `working` or `needs you` until
+            # its first Stop.  Gone before this harness can write its first, and back if it never
+            # runs.  Moved aside and linked back, never read, removed and written: the running
+            # harness's hooks publish by rename without this lock, and a fact one lands meanwhile
+            # is the one kept.
+            try:
+                facts.replace(last)
+            except FileNotFoundError:
+                last.unlink(missing_ok=True)    # a launch killed past its move left one
+            _start_harness(name, model, cwd, cmd, session, started=lambda: up.append(True))
+        except BaseException:
+            if up:
+                plugin.retire(before)   # only the setup after the new harness's start failed
+            else:
+                # the harness that read the old one stays, and goes on writing to its own receipt
+                plugin.retire(config.session_records().get(current) or {})
+                config.update_session(current, **{key: before.get(key)
+                                                  for key in (*LAUNCH_KEYS, *kept)})
+                try:
+                    os.link(last, facts)        # refused where that harness wrote one since
+                except OSError:
+                    pass
             raise
         finally:
             last.unlink(missing_ok=True)
+    plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
         # title stays the echo, so the next tick retypes this name instead of taking
@@ -2452,8 +2493,9 @@ def launch(name, model, cwd, cmd, conversation, session=None):
                      usage_wait=None, usage_refusal=None)
 
 
-def _start_harness(name, model, cwd, cmd, session):
-    """The harness in the seat: respawned in its exited pane, or a new session."""
+def _start_harness(name, model, cwd, cmd, session, started=lambda: None):
+    """The harness in the seat: respawned in its exited pane, or a new session.  `started` is
+    called once it runs, before the setup after it that can still fail."""
     if session:
         # Keep the launched pane even if another window is active. If it was removed,
         # respawn the session's current pane as older launches did, and record that one.
@@ -2475,6 +2517,7 @@ def _start_harness(name, model, cwd, cmd, session):
         if rc != 0:
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
+        started()
         # A refused respawn leaves the old harness up: its menu keeps that same home too.
         seat_environment(name, server, values, then=[
             ["set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}"]])
@@ -2482,7 +2525,7 @@ def _start_harness(name, model, cwd, cmd, session):
             from . import statusbar   # here, not at the top: the bar's module imports this one
             statusbar.dress(name, model)
     else:
-        start(name, cwd, cmd, model)
+        start(name, cwd, cmd, model, started)
 
 
 def on_disk(path):
@@ -2869,7 +2912,7 @@ def sweep_finished(found, log):
     cutoff = time.time() - 86400
     for sid, panes in grouped.items():
         name, mark = panes[0][:2]
-        if mark == "1" or name in found or guard.seat(name):
+        if mark == "1" or name in (CONTROL, *found) or guard.seat(name):
             continue
         if any(not re.fullmatch(r"%[0-9]+", p[2]) or p[3] != "1"
                or not p[4].isdigit() or not 0 < int(p[4]) <= cutoff for p in panes):
@@ -3055,10 +3098,25 @@ def job_notices():
     path = config.STATE / UPDATE_RESULT
     try:
         text = path.read_text(encoding="utf-8")
+        path.unlink(missing_ok=True)
     except (OSError, ValueError):
-        return []
-    path.unlink(missing_ok=True)
+        text = ""
+    try:
+        with open(config.STATE / NOTICES, "r+", encoding="utf-8") as notices:
+            fcntl.flock(notices, fcntl.LOCK_EX)    # a line being left is taken whole, or after
+            text += notices.read()
+            notices.truncate(0)
+    except (OSError, ValueError):
+        pass
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def leave_notice(line):
+    """Leave the next menu `line` to show once (`job_notices`)."""
+    config.ensure_dirs()
+    with open(config.STATE / NOTICES, "a", encoding="utf-8") as notices:
+        fcntl.flock(notices, fcntl.LOCK_EX)        # held until the line is written, at close
+        notices.write(line + "\n")
 
 
 def rename(old, new, log=print, *, auto=False):
@@ -3202,7 +3260,8 @@ def maintenance(log=print):
 
 
 def state_word(session, cfg=None):
-    """What the listing calls a seat: working, needs you, done or idle, and nothing else.
+    """What the listing calls a seat: working, needs you, done, idle or out of usage, and
+    nothing else.
 
     One function decides it -- `watch.session_state` -- so the list, the menu, the overlay,
     the status bar and the window title can never say different words about the same seat.
@@ -3216,7 +3275,7 @@ def state_word(session, cfg=None):
 def explain(session, cfg):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
-    The word is one of the four every screen says; the evidence lines under it are the facts
+    The word is one of the five every screen says; the evidence lines under it are the facts
     behind it.  A seat whose process is gone was never classified, and saying so is the honest
     answer rather than inventing a rule that matched.
     """
@@ -3949,7 +4008,7 @@ def handover_text(name, old_model, transcript):
             f"Run `ak run status` to see its runs. {old}")
 
 
-def _switch_plan(cfg, name, model, providers):
+def _switch_plan(cfg, name, model, providers, credits=True):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use.
 
     One computation for the refusal and the launch, so the menu's key path asks each
@@ -3957,7 +4016,8 @@ def _switch_plan(cfg, name, model, providers):
     picked account, the meter off the cache. The same provider keeps its login; another
     one takes the first of its accounts whose seat login passes, in the seat's order,
     else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing.
+    turn goes ahead on an `auth` verb that said nothing. Without `credits`, a login that
+    would run on credits refuses the move.
     """
     try:
         record = config.load_session(cfg, name, required=False)
@@ -3999,6 +4059,10 @@ def _switch_plan(cfg, name, model, providers):
     note = spent_note(cfg, model, providers)
     if note:
         return f"{model} is {note}", None
+    reading = providers.get(new_provider) or {}
+    reading = (reading.get("accounts") or {}).get(account) or reading
+    if not credits and usage.on_credits(cfg, model, {new_provider: reading}):
+        return f"{model} has only credits left", None
     return "", account
 
 
@@ -4007,14 +4071,7 @@ def _one_line(exc):
     return " ".join(str(exc).split())
 
 
-# What a launch writes about the conversation it owns: the launcher's own id, each
-# harness's receipt, and the title that launch takes. A restart that fails puts these
-# back from the record as it was, so the seat keeps its own conversation.
-LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
-               "codex_history", "opencode_launch", "session_title", "title_sync")
-
-
-def switch_orchestrator(cfg, name, model, providers=None):
+def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     """Move the open seat to another orchestrator at once, under the same name.
 
     The old harness process ends and the new one starts in the seat's directory: a live or
@@ -4022,7 +4079,8 @@ def switch_orchestrator(cfg, name, model, providers=None):
     are never stopped or re-parented -- the name is the same, so endings report to the new
     seat -- and its plan file stays. Where the new model runs in the same harness and that
     harness can resume the seat's conversation, the conversation goes on there, as a
-    reopened seat's does, and a turn it was in is told to go on. Otherwise the record
+    reopened seat's does, and a turn it was in, or one its usage cut off, is told to go
+    on. Otherwise the record
     stays on the conversation the new launch owns, and the old harness's per-seat evidence
     goes with it. This is a new conversation under a saved name, so the watch state is reset
     the way a created seat's is. The handover -- from which model, the plan file, `ak run
@@ -4030,12 +4088,13 @@ def switch_orchestrator(cfg, name, model, providers=None):
     new TUI is listening through the confirmed send, the way a reopened seat's line goes.
     The record names the new model before the harness is up, so no redress draws the old
     one after it. A draft or a question on the screen, which a respawn would lose, refuses
-    the move; a refusal, and a restart that fails, leave the seat as they found it and say
-    so in one line. What to say under the rows, or "".
+    the move, and so does a login on credits without `credits`; a refusal, and a restart that
+    fails, leave the seat as they found it and say so in one line. What to say under the rows,
+    or "".
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers)
+    note, account = _switch_plan(cfg, name, model, providers, credits)
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name
@@ -4082,22 +4141,19 @@ def switch_orchestrator(cfg, name, model, providers=None):
             config.update_session(name, **chosen)
     except OSError as exc:
         return f"session: {_one_line(exc)}"
+    waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
     try:
         launch(name, model, cwd, cmd, conversation, session)
     except (config.Error, OSError) as exc:
-        put = {key: record.get(key) for key in chosen}
-        if not kept:   # a resumed launch re-recorded the conversation the seat still owns
-            harness_plugin(new_harness).forget(config.session_records().get(name) or {})
-            put.update({key: record.get(key) for key in LAUNCH_KEYS})
         try:
-            config.update_session(name, **put)
+            config.update_session(name, **{key: record.get(key) for key in chosen})
             if session:
                 watch.announce_state(session, cfg=cfg)   # a redress meanwhile drew the new model
         except (config.Error, OSError, ValueError):
             pass    # the note below already says the restart failed
         return _one_line(exc)
     if kept:
-        if watch._turn_in_flight(new_harness, live)[0]:
+        if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
                                             "name": name, "line": watch.MIDTURN_LINE})
         return ""
@@ -4117,7 +4173,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     names = list(notes)
     marks = "●○■□" if terminal.utf8() else "*.x."
     rest = sum(len(head) + 2 for head in ROLE_HEADS)
-    wide = min(max(terminal.cells(name) for name in names),
+    wide = min(max(terminal.cells(config.model_name(cfg, name)) for name in names),
                max(1, min(room // 3, room - 2 - rest)))
     lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in ROLE_HEADS),
                              "dim")]
@@ -4126,7 +4182,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
         entry, note = config.model(cfg, name), notes[name]
         if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
             lines.append(menu.model_heading(cfg, entry["provider"]))
-        line = "  " + terminal.pad(menu.model_label(name, wide), wide)
+        line = "  " + terminal.pad(menu.model_label(cfg, name, wide), wide)
         texts, builds = role_texts(selected, name, marks)
         own = []
         for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):

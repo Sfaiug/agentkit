@@ -20,7 +20,7 @@ from . import guard, motion
 # glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
 # with the classifier; every presentation (including tmux formats) comes from this table,
 # and its RGB is the palette on a dark background, the one ak takes when it cannot tell.
-# The four words a session reads, and the two presentation-only kinds the screens ask for
+# The five words a session reads, and the two presentation-only kinds the screens ask for
 # by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
 STATE_STYLES = {
     "needs you": ("!", "!", "f9e2af", "33", "1"),
@@ -28,6 +28,9 @@ STATE_STYLES = {
     "done": ("✓", "v", "a6e3a1", "32", ""),
     # nothing running, asked or owed: quiet, as the eye should pass over it
     "idle": ("○", "o", "6c7086", "37", "2"),
+    # its subscriptions are spent: red, as nothing moves until usage comes back or the owner
+    # moves it, and the hollow circle says it comes back by itself
+    "out of usage": ("◌", "o", "f38ba8", "31", ""),
     "FAIL": ("✗", "x", "f38ba8", "31", ""),
     "dim": ("·", ".", "6c7086", "37", "2"),
     # No session word: a run parked on something that lifts by itself says what it waits for
@@ -37,14 +40,14 @@ STATE_STYLES = {
 # The same words on a light background (`sense`): Catppuccin Latte, its yellow and green
 # darkened until every one reads on white; the accent and the highlight's `›` are `working`'s.
 LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "idle": "6c6f85",
-         "FAIL": "d20f39", "dim": "6c6f85", "waiting": "6c6f85"}
+         "out of usage": "d20f39", "FAIL": "d20f39", "dim": "6c6f85", "waiting": "6c6f85"}
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 # The background the pointer lights a key-line item or a cell on: a step off the terminal's own,
 # Mocha's surface0 on a dark one and Latte's on a light one.
 POINTED = {False: "313244", True: "ccd0da"}
 # The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
-         "good": "done"}
+         "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 _LIGHT = False     # its background is light (`sense`)
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
@@ -367,14 +370,15 @@ def state_tone(word):
 
 
 # One state table for the whole CLI, and the whole vocabulary: a session is working, needs
-# you, done or idle, and nothing else exists; a run and a project read one of the first three.
-# `menu.py`, `ak run status` and `ak orch list` read this; no screen invents its own.
-# `watch.session_state` is what decides which of the four a session is.
+# you, done, idle or out of usage, and nothing else exists; a run and a project read one of
+# the first three.  `menu.py`, `ak run status` and `ak orch list` read this; no screen invents
+# its own.  `watch.session_state` is what decides which of the five a session is.
 STATES = {
     "working": ("●", "accent"),
     "needs you": ("!", "attention"),
     "done": ("✓", "good"),
     "idle": ("○", "dim"),
+    "out of usage": ("◌", "spent"),
 }
 
 
@@ -384,7 +388,7 @@ def state_glyph(word):
         return glyph(word)
     mark, _ = STATES[word]
     if not utf8():
-        return {"●": "*", "✓": "v", "!": "!", "○": "o"}.get(mark, mark)
+        return {"●": "*", "✓": "v", "!": "!", "○": "o", "◌": "o"}.get(mark, mark)
     return mark
 
 

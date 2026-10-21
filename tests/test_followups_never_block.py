@@ -107,7 +107,7 @@ class Weighed(unittest.TestCase):
                  "executor": "opus", "reviewer": "astra", "round_summaries": [],
                  "repo": str(self.wt), "worktree": str(self.wt)}
         self.lp = run.Loop(self.cfg, directory, state, {}, lambda _: None, self.wt,
-                           "# Fixture", ["true"], "context", [])
+                           "# Fixture", ["true"], "context")
         self.lp.rnd = 1
 
     def commit(self, message):

@@ -331,7 +331,7 @@ class LandingRerunSpendsNoRound(unittest.TestCase):
         self.assertEqual(state["review_pending"]["round"], 3)
         self.assertIs(state["review_pending"]["record"], False)
         resumed = run.Loop(self.lp.cfg, self.run_dir, state, {}, self.lp.log, self.wt,
-                           "body", ["true"], "context", [])
+                           "body", ["true"], "context")
         with patch.object(roundloop, "execute", side_effect=AssertionError("unexpected fixer")):
             run.rounds(resumed)
         self.assertEqual(resumed.state["round_summaries"], self.history)

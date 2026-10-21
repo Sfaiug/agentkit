@@ -119,10 +119,13 @@ def users_declared(workspace, base=None):
         value = value[1:-1].strip()
     return value or None
 # The owner's own words for how much to build and how, in every executor and fixer.
-LEAST = ("[worker judgement] Minimum change that solves the task completely; the best part is no part. Less is "
-         "more: brutal elimination, the least possible steps. Make it as if the system had been "
-         "designed for it: each piece of knowledge in one home, no special case inside general "
-         "code, nothing callers must do that a module could, and what the change makes dead deleted.")
+LEAST = ("[worker judgement] Minimum change that solves the task completely; the best part is no part. "
+         "Less is more, and the best process is no process: brutal elimination, the least possible steps. "
+         "Nothing that exists is sacred and nothing from the past counts as truth: rebuild from "
+         "scratch when that is best. Make it beautifully simple, intuitive and natural, so nobody "
+         "needs a manual. Make it as if the system had been designed for it: each piece of knowledge "
+         "in one home, in code, tests and comments rather than prose; no special case inside general "
+         "code; nothing callers must do that a module could; and what the change makes dead deleted.")
 COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
 PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
              "when your turn ends and asks once to finish in the foreground.")

@@ -34,7 +34,7 @@ def make_loop(root):
     directory = root / "run"
     lp = run.Loop(config.load(), directory, record.read_state(directory), {}, lambda _: None,
                   root / "acme", "# Fix empty input", ["PYTHONPATH=. python3 tests/check.py"],
-                  "context", [])
+                  "context")
     lp.artifacts.add("local-note")  # Existing gate output must survive without being committed.
     lp.rnd = 1
     return lp

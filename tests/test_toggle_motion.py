@@ -247,7 +247,7 @@ class NewSessionScreen(Screens):
 
     def test_a_mark_empties_when_cleared_and_fills_when_set(self):
         screen, lines = self.picker()
-        number, line = numbered(lines, "opus")
+        number, line = numbered(lines, new_session.full("opus"))
         cells = moved(screen, new_session.SPACE)
         landed(self, glyphs(cells, number), ["▣", "□"])
         cells = moved(screen, click(mark_column(line, 1), number))
@@ -261,7 +261,7 @@ class NewSessionScreen(Screens):
         screen, lines = self.picker()
         screen.send(RIGHT + new_session.SPACE)          # Opus's review off: Astra is the last one
         lines = screen.picker(lambda lines: new_session.marks(highlighted(lines)) == "●■□")
-        number, line = numbered(lines, "astra")
+        number, line = numbered(lines, new_session.full("astra"))
         cells = moved(screen, click(mark_column(line, 2), number))
         self.assertIn("at least one model reviews", "\n".join(screen.picker()))
         landed(self, shifts(cells, number, mark_column(line, 2)), [-1, 1, -1, 0])

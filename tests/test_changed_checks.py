@@ -56,7 +56,7 @@ class ChangedChecks(unittest.TestCase):
                  "scratch": scratch}
         body = "# Fixture task\n\n## Done when\n```bash\n" + "\n".join(cmds) + "\n```"
         lp = run.Loop(self.cfg, directory, state, {}, lambda text: None, self.repo, body,
-                      list(cmds), body, [])
+                      list(cmds), body)
         lp.rnd = 1
         lp.validation = {} if scratch else run.commit_identity(self.repo)
         with patch.object(turns, "call_retrying",
@@ -81,7 +81,7 @@ class ChangedChecks(unittest.TestCase):
         self.assertLess(prompt.index("## Checks"), prompt.index("Review after integration"))
         self.assertLess(prompt.index("Review after integration"), prompt.index(body))
         self.assertIn("+value = 2", prompt)
-        self.assertIn("## Executor summary\nFixture summary", prompt)
+        self.assertNotIn("Fixture summary", prompt)
         self.assertIn("$ true\n[exit 0]", prompt)
 
     def test_file_named_in_done_when_is_listed_including_once(self):

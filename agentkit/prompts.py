@@ -743,7 +743,7 @@ def done_when_block(cmds):
 
 
 def fixer_words(round_dir, name):
-    """What the fixer turn in that round said, for the reviewer of the head it left: its
+    """What the fixer turn in that round said, for the record of the head it left: its
     answer, and the reason of a not-needed it handed in; '' without a turn.  Read where the
     turn wrote it, so a review resumed after a cut finds it too."""
     turn = turns.latest_worker_turn(round_dir, name)
