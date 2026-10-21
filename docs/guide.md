@@ -84,7 +84,8 @@ Any harness can hold the seat: `--model astra` opens Codex, `--model spark` open
 conversation from launch by a uuid; its launched pane's `/clear` hook keeps reopening and titles on the new conversation,
 using its recorded login. The watch tick binds older running seats to their own client pane without restarting them; if that pane is removed, restarting uses the session's current pane. Other panes and in-session `/resume` never transfer seat ownership.
 A Codex seat trusts only agentkit's hooks; other hooks still need Codex's review. It proves its thread through a launch receipt. An OpenCode seat's plugin
-writes its session into one, and Muse and Antigravity open a new conversation each time. A seat moved on `c` to another
+writes its session into one, and Muse and Antigravity open a new conversation each time. A receipt goes only once the
+harness launched after it is up, so a restart tmux refuses leaves the running one on its own. A seat moved on `c` to another
 model of its harness goes on with the conversation that harness can resume, without a handover, and a turn it was in
 is told to go on; one moved to another harness, or with no conversation to resume, opens a new one with the handover.
 Either way its bar and row name the new model from the moment the new harness is up, and a draft or a question on its
