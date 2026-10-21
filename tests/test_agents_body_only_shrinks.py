@@ -44,10 +44,10 @@ class AgentsBodyOnlyShrinks(unittest.TestCase):
         self.git("commit", "-q", "--allow-empty", "-m", "acme change")
         return self.git("rev-parse", "HEAD")
 
-    def check(self, base, body, front=""):
+    def check(self, base, body, front=None):
         """rules_check on a branch from `base` whose AGENTS.md body is `body` words."""
         self.git("checkout", "-q", "-B", "fix-api", base)
-        self.commit(f"---\n{front}---\n{words(body)}\n" if front else f"{words(body)}\n")
+        self.commit(f"---\n{front}---\n{words(body)}\n" if front is not None else f"{words(body)}\n")
         return roundloop.rules_check(SimpleNamespace(wt=self.repo, base_sha=base, scratch=False))
 
     def test_a_body_past_the_floor_only_shrinks(self):
@@ -73,6 +73,7 @@ class AgentsBodyOnlyShrinks(unittest.TestCase):
     def test_front_matter_is_not_body(self):
         base = self.commit(f"{words(roundloop.BODY_WORDS)}\n")
         self.assertEqual(self.check(base, roundloop.BODY_WORDS, front="users: none\ntests: true\n"), "")
+        self.assertEqual(self.check(base, roundloop.BODY_WORDS, front=""), "")
 
     def test_a_branch_leaving_the_file_alone_passes(self):
         base = self.commit(f"{words(5000)}\n")

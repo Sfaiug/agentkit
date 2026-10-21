@@ -5,6 +5,9 @@ Offline: a temporary HOME and an invented seat, with tmux, the adapters and orch
 no real seat, process or transcript is touched.
 """
 
+from datetime import datetime, timezone
+import json
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -12,6 +15,7 @@ from unittest.mock import patch
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import config, orch, statusbar, watch
+from agentkit.harness import claude
 
 SEAT = "acme-fix"
 OWN = "0f5d6e2a-6a43-4c3e-9b0e-3a1f6c2d9e10"      # the conversation the seat's launch handed out
@@ -27,6 +31,18 @@ class Stopped(Clock):
 
     def time(self):
         return NOW
+
+
+class Ticking(Clock):
+    """`time` as orch sees it, a second later at every reading."""
+
+    def __init__(self, sleep):
+        super().__init__(sleep)
+        self.now = NOW
+
+    def time(self):
+        self.now += 1
+        return self.now
 
 
 class SeatMove(Sandbox):
@@ -150,6 +166,62 @@ class SeatMove(Sandbox):
         self.assertEqual(self.bar[-1][0], "opus")
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))
 
+    def ends_on(self, entry, at):
+        """The seat's conversation's last answer: that entry's model, at `at`, as Claude Code
+        writes an answer."""
+        record = self.record()
+        written = claude.transcript_path(record, record["conversation"])
+        written.parent.mkdir(parents=True, exist_ok=True)
+        with written.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant",
+                                 "timestamp": datetime.fromtimestamp(at, timezone.utc).isoformat(),
+                                 "message": {"model": self.cfg["models"][entry]["model"]}}) + "\n")
+
+    def looked(self):
+        """Its orchestrator once a look has followed what it last answered."""
+        watch.follow_model(self.cfg, SEAT)
+        return self.record()["orchestrator"]
+
+    def test_the_old_models_last_answer_does_not_undo_a_move(self):
+        self.ends_on("opus", NOW - 60)           # a seat launched before launches were marked
+        self.assertEqual(self.looked(), "opus")
+        self.assertEqual(self.move("fable"), "")
+        self.assertEqual(self.looked(), "fable")
+        self.ends_on("fable", NOW + 60)
+        self.assertEqual(self.looked(), "fable")
+
+    def test_an_answer_the_old_harness_writes_as_it_goes_does_not_undo_it(self):
+        start, clock = orch._start_harness, Ticking(time.sleep)
+        with patch.object(orch, "time", clock), patch.object(
+                orch, "_start_harness",
+                side_effect=lambda *args, **kw: self.ends_on("opus", clock.time())
+                or start(*args, **kw)):
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual(self.looked(), "fable")
+
+    def test_a_look_while_the_new_harness_comes_up_waits_for_it(self):
+        self.ends_on("opus", NOW - 60)
+        seen, start = [], orch._start_harness
+
+        def look():
+            with watch.announcing(SEAT):
+                seen.append(self.looked())
+        meanwhile = threading.Thread(target=look)
+
+        def starting(*args, **kw):
+            meanwhile.start()
+            meanwhile.join(0.5)                  # held off: it looks once the move is done
+            start(*args, **kw)
+        with patch.object(orch, "_start_harness", side_effect=starting):
+            self.assertEqual(self.move("fable"), "")
+        meanwhile.join()
+        self.assertEqual((seen, self.record()["orchestrator"]), (["fable"], "fable"))
+
+    def test_back_to_the_old_model_inside_the_seat_after_a_move_is_followed(self):
+        self.ends_on("opus", NOW - 60)
+        self.assertEqual(self.move("fable"), "")
+        self.ends_on("opus", NOW + 60)           # `/model` back to opus before fable answered
+        self.assertEqual(self.looked(), "opus")
 
 if __name__ == "__main__":
     unittest.main()

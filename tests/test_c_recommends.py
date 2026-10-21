@@ -12,7 +12,6 @@ Offline: a throwaway HOME with a stored matrix written by hand, the keys fed in,
 
 from contextlib import redirect_stdout
 import io
-import json
 from pathlib import Path
 import sys
 import unittest
@@ -21,6 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+from fixtures import scores
 from fixtures.sandbox import Sandbox
 from agentkit import config, matrix, menu, terminal, update, usage
 from agentkit.terminal import Key
@@ -31,18 +31,11 @@ class Keyboard:
         return True
 
 
-# two of each role's measures: half of its own, too few of another's for a score there
-MEASURES = {"orchestrate": ("arena.agent_task_outcome_explicit", "arena.agent_steerability"),
-            "execute": ("livebench.coding", "aa.evaluations.artificial_analysis_coding_index"),
-            "review": (matrix.INTEL, "livebench.reasoning")}
-
-
 def row(harness, model, effort, name=None, **valued):
-    """A stored row worth `valued[role]` on two of each such role's measures, so reading it
-    (`matrix.stored`) scores it for those roles alone; a configured one runs in every role it
-    is valued for."""
+    """A stored row worth `valued[role]` in each such role (fixtures.scores); a configured one
+    runs in every role it is valued for."""
     return {"harness": harness, "model": model, "effort": effort, "name": name,
-            "values": {column: value for role, value in valued.items() for column in MEASURES[role]},
+            "values": scores.values(**valued),
             "roles": [role for role in matrix.ROLES if name and role in valued], "matched": {}}
 
 
@@ -57,8 +50,7 @@ class Recommends(Sandbox):
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
 
     def store(self, rows):
-        matrix.cache_path().parent.mkdir(parents=True, exist_ok=True)
-        matrix.cache_path().write_text(json.dumps({"matrix": {"computed_at": 1, "config": [], "rows": rows}}))
+        scores.store(rows)
 
     def screen(self, keys):
         drawn = io.StringIO()
