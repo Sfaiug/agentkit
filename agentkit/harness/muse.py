@@ -403,17 +403,23 @@ def seat_token_sources(record):
 
     def metadata(entry):
         return entry["stream"]["id"], entry["payload"]["record"].get("parent_session_id")
-    return token_family(session_logs("*"), [session], metadata)
+    return [*session_logs(session), *token_family(session_logs("*"), [session], metadata)]
 
 
 def seat_token_usage(entry, cursor):
-    record = run_event(entry, "goal_usage_attribution").get("record") or {}
+    tokens = provider_tokens(run_event(entry, "goal_usage_attribution").get("record") or {})
+    if tokens is not None:
+        return entry["recorded_at"] / 1_000_000, entry.get("id"), tokens
+
+
+def provider_tokens(record):
     quantity = record.get("quantity") or {}
     if record.get("usage_family") != "provider" or quantity.get("reported") is False:
         return None
-    counts = [quantity[key] for key in ("input_tokens", "output_tokens") if key in quantity]
-    if counts and all(type(value) is int and value >= 0 for value in counts):
-        return entry["recorded_at"] / 1_000_000, entry.get("id"), sum(counts)
+    counts = [quantity.get(key) for key in ("input_tokens", "output_tokens")]
+    counts = [value for value in counts if type(value) is int and value >= 0]
+    if counts:
+        return sum(counts)
 
 
 def said(record, cwd, conversation):
@@ -484,19 +490,13 @@ def tokens(out):
                     try:
                         payload = json.loads(line).get("payload") or {}
                         record = payload["event"]["record"]
-                        quantity = record["quantity"]
-                        if (record.get("usage_family") != "provider"
-                                or record["owner"].get("run_id") not in runs
-                                or quantity.get("reported") is False):
+                        if record["owner"].get("run_id") not in runs:
                             continue
-                        counts = [quantity.get(key) for key in ("input_tokens", "output_tokens")]
+                        spent = provider_tokens(record)
                     except (ValueError, TypeError, KeyError, AttributeError):
                         continue
-                    counts = [count for count in counts
-                              if isinstance(count, int) and not isinstance(count, bool)
-                              and count >= 0]
-                    if counts:
-                        total, seen = total + sum(counts), True
+                    if spent is not None:
+                        total, seen = total + spent, True
         except OSError:
             continue
     return total if seen else None

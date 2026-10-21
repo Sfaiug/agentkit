@@ -75,6 +75,7 @@ class SeatTokens(unittest.TestCase):
         own["message"]["usage"].update(output_tokens=20, cache_creation_input_tokens=30,
                                         cache_read_input_tokens=40)
         self.main = self.write(claude.transcript_path(seat, "larch"),
+                               message("ancient", 9, NOW - 3 * WEEK),
                                message("old", 10, NOW - WEEK - 1), own, own)
         self.child = self.write(self.main.with_suffix("") / "subagents/agent-child.jsonl",
                                 message("child", 25), {"type": "result", "usage": {"input_tokens": 999}})
@@ -89,7 +90,7 @@ class SeatTokens(unittest.TestCase):
         def metadata(session, parent=None):
             return {"stream": {"id": session}, "payload": {"kind": "metadata",
                     "record": {"parent_session_id": parent}}}
-        self.muse = self.write(store / "cedar/session.jsonl", metadata("cedar"), muse_usage("u1", 70))
+        self.muse = self.write(store / "cedar/session.jsonl", muse_usage("u1", 70))
         self.write(store / "child/session.jsonl", metadata("child", "cedar"), muse_usage("u2", 30),
                    muse_usage("tool", 999, "tool"))
         self.write(store / "unrelated/session.jsonl", metadata("unrelated"), muse_usage("other", 999))
@@ -108,6 +109,9 @@ class SeatTokens(unittest.TestCase):
         self.assertEqual(board["ak"][0]["token_share"], 125 / 525)
         self.assertEqual(board["sunk"][0], {"share": 100 / 525, "tokens": 100})
         self.assertEqual(scoreboard.compute(NOW), board)
+        self.assertEqual(scoreboard.compute(NOW - 2 * WEEK)["tokens"][0]["seat_tokens"], 9)
+        self.write(self.main, message("seven", 7, NOW - WEEK), message("fourteen", 11, NOW - 2 * WEEK))
+        self.assertEqual([cell["total_tokens"] for cell in scoreboard.compute(NOW)["tokens"]], [532, 121])
 
     def test_only_appended_complete_lines_are_read_and_replacements_do_not_recount(self):
         self.fixtures()

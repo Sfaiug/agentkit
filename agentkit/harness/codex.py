@@ -150,7 +150,7 @@ def seat_token_sources(record):
     # A remote seat's private store holds its threads and their subagents, on every login.
     if receipt.get("remote"):
         paths.extend(seat_conversations(receipt["remote"]).rglob("rollout-*.jsonl"))
-    else:
+    elif record.get("conversation"):
         def metadata(entry):
             meta = entry["payload"]
             parent = ((meta.get("source") or {}).get("subagent") or {}).get("thread_spawn") or {}

@@ -447,7 +447,8 @@ def render(board=None):
     def tokens(stats):
         if stats is None:
             return "no tokens recorded"
-        text = f"{stats['total_tokens']:,} tokens; {stats['seat_tokens']:,} from seats"
+        text = (f"{stats['total_tokens']:,} tokens; {stats['seat_tokens']:,} from seats"
+                if stats["total_tokens"] else "no tokens recorded")
         if stats["not_counted"]:
             text += "; not counted: " + ", ".join(stats["not_counted"])
         return text

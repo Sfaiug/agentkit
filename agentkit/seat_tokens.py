@@ -31,7 +31,10 @@ def read(since, until):
         cfg = orch.loaded()
         for name, seat in seats.items():
             plugin = orch.seat_plugin(seat, cfg=cfg)
-            sources = plugin.seat_token_sources(seat)
+            try:
+                sources = plugin.seat_token_sources(seat)
+            except OSError:
+                sources = None
             if sources is None or (not sources and seat.get("conversation")):
                 missing.append(f"{name} ({plugin.name or 'unknown harness'})")
                 continue
