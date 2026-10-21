@@ -51,11 +51,9 @@ class Loop:
 
     def __init__(self, cfg, run_dir, state, opts, log, wt, body, cmds, context):
         self.cfg, self.run_dir, self.state, self.opts, self.log = cfg, run_dir, state, opts, log
-        self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
         path = run_dir / "task.md"
         self.files = taskfile.task_files(path) if path.is_file() else []
-        if self.files:
-            self.context += "\n\nfiles: " + ", ".join(self.files)
+        self.wt, self.body, self.cmds, self.context = wt, body, cmds, context
         # the per-round commands and the ones that run at landing; without a
         # `# once` line the two are the list and the empty one
         self.every, self.once = taskfile.group_commands(cmds)
@@ -78,6 +76,17 @@ class Loop:
         if probe := state.get("probe_checkout"):
             log("--- resuming: restoring the interrupted probe's checkout")
             gitcall.restore_probe_checkout(self, **probe)
+
+    # The task's `files:` scope closes what every worker is first told, however late the body or
+    # the context is set: a fresh run writes its context only once the loop exists.
+    @property
+    def scope(self):
+        return "\n\nfiles: " + ", ".join(self.files) if self.files else ""
+
+    body = property(lambda self: self._body + self.scope,
+                    lambda self, text: setattr(self, "_body", text))
+    context = property(lambda self: self._context + self.scope,
+                       lambda self, text: setattr(self, "_context", text))
 
     def role(self, name):
         """The preamble this run's workers get: a scratch run has no commits to talk about.

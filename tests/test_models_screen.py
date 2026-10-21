@@ -20,7 +20,6 @@ faked, the keys fed in, the usage faked.
 
 from contextlib import redirect_stdout
 import io
-import json
 from pathlib import Path
 import re
 import sys
@@ -30,21 +29,23 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+from fixtures import scores
 from fixtures.sandbox import Sandbox
 from agentkit import config, matrix, menu, terminal, update, usage
 from agentkit.terminal import Key
 from test_c_recommends import Keyboard
 
-CODING = "aa.evaluations.artificial_analysis_coding_index"
-AGENTIC = "aa.evaluations.artificial_analysis_agentic_index"
 LEVELS = {"claude-opus-5-5": ["high", "xhigh", "max"], "gpt-6-astra": ["xhigh"],
           "claude-sonnet-5-5": ["max"], "mimo-pro": ["none", "high"]}
 
 
-def row(harness, model, effort, coding, agentic, intel, cost, agent=None):
-    values = {CODING: coding, AGENTIC: agentic, matrix.INTEL: intel, matrix.COST: cost}
-    if agent is not None:
-        values["arena.agent_task_outcome_explicit"] = agent
+def row(harness, model, effort, *worth, cost=None):
+    """A stored row worth `worth` to orchestrate, build and review (None for no score), its
+    index run costing `cost` (fixtures.scores)."""
+    values = scores.values(**{role: points for role, points in zip(matrix.ROLES, worth)
+                              if points is not None})
+    if cost is not None:
+        values[matrix.COST] = cost
     return {"harness": harness, "model": model, "effort": effort, "name": None, "roles": [],
             "matched": {}, "values": values}
 
@@ -62,28 +63,22 @@ class Screen(Sandbox):
         self.stack.enter_context(patch.object(menu, "effort_levels",
                                               side_effect=lambda entry: LEVELS.get(entry["model"], [])))
         self.stack.enter_context(patch.dict("os.environ", {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
-        # opus at three efforts, told apart by the intelligence index; astra as good as its
-        # xhigh at a tenth of the cost; sonnet, not configured, under the best by more; mimo,
-        # which the boards list naming no effort, one row at none
-        rows = matrix.scored([
-            row("claude", "claude-opus-5-5", "max", 60, 70, 58, 8000, agent=0.2),
-            row("claude", "claude-opus-5-5", "xhigh", 60, 70, 56, 4000),
-            row("claude", "claude-opus-5-5", "high", 60, 70, 50, 2000),
-            row("codex", "gpt-6-astra", "xhigh", 58, 66, 55, 500, agent=0.15),
-            row("claude", "claude-sonnet-5-5", "max", 50, 60, 50, 7000, agent=0.1),
-            row("opencode", "mimo-pro", None, 30, 36, 30, 100),
-            row("muse", "muse-spark-1.3-contributor", None, 0, 0, 0, 0)])
-        rows[-1]["values"] = {}                       # no board has spark
-        rows[-1]["scores"] = {role: None for role in matrix.ROLES}
-        self.store(rows)
+        # opus at three efforts; astra as good as its xhigh at an eighth of the cost; sonnet,
+        # not configured, under the best by more; mimo, which the boards list naming no effort,
+        # one row at none; spark, which no board has
+        self.store([row("claude", "claude-opus-5-5", "max", 100, 100, 100, cost=8000),
+                    row("claude", "claude-opus-5-5", "xhigh", 96.55, 96.55, 96.55, cost=4000),
+                    row("claude", "claude-opus-5-5", "high", 86.2, 86.2, 86.2, cost=2000),
+                    row("codex", "gpt-6-astra", "xhigh", 84.64, 95.48, 95.75, cost=500),
+                    row("claude", "claude-sonnet-5-5", "max", 67.86, 84.52, 84.77, cost=7000),
+                    row("opencode", "mimo-pro", None, None, 50.71, 50.86, cost=100),
+                    row("muse", "muse-spark-1.3-contributor", None)])
         # each configured model as the screen names it, in full (config.model_name)
         self.opus, self.astra, self.spark = (config.model_name(self.cfg, name)
                                              for name in ("opus", "astra", "spark"))
 
     def store(self, rows):
-        matrix.cache_path().parent.mkdir(parents=True, exist_ok=True)
-        matrix.cache_path().write_text(json.dumps({"matrix": {"computed_at": 1, "config": [],
-                                                              "rows": rows}}))
+        scores.store(rows)
 
     def screens(self, keys, width=100):
         """Every frame drawn while `c` is driven by `keys` on a screen `width` wide, its
@@ -109,8 +104,9 @@ class ModelsScreen(Screen):
                       f"{opus} @ xhigh 97 $4000 recommended the cheapest as good: orch {opus} @ "
                       f"xhigh 97 $4000 · builds {astra} @ xhigh 95 $500 · reviews {astra} @ xhigh "
                       "96 $500", text)
-        self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
-                      "cost is what Artificial Analysis's index run cost it, in dollars", text)
+        self.assertIn("quality is 100 less how many points a model is behind the best on the "
+                      "public boards; cost is what Artificial Analysis's index run cost it, in "
+                      "dollars", text)
         self.assertIn("model harness effort orch builds reviews cost $", text)
         # the scored models first by their best quality, each at the effort the config runs
         # it at, else its best; a model with one effort has no arrows; mimo's one row at none
@@ -142,9 +138,9 @@ class ModelsScreen(Screen):
         self.assertIn("↑↓ move r take recommended esc back", text)
         # so does a row at the effort the config runs its model at that every board names no
         # effort for: the matrix would match the same board rows at any
-        one = row("claude", "claude-opus-5-5", "xhigh", 60, 70, 56, 4000, agent=0.2)
+        one = row("claude", "claude-opus-5-5", "xhigh", 100, 100, 100, cost=4000)
         one["matched"] = {"artificialanalysis.ai": {"model": "Claude Opus 5.5", "effort": None}}
-        self.store(matrix.scored([one]))
+        self.store([one])
         text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")])
         self.assertIn(f"› {self.opus} claude ‹ max › 100 100 100 4000 ", text)
 
@@ -186,20 +182,21 @@ class ModelsScreen(Screen):
         self.assertRegex(text, rf"› recommended the cheapest as good: orch {good} · "
                                rf"builds {astra} @ xhigh 95 \$500 · reviews {astra} @ xhigh 96 \$500 "
                                r".*? ↑↓ move r take recommended esc back")
-        self.assertIn("quality is a model's share of the best on the public boards, out of 100; "
-                      "cost is what Artificial Analysis's index run cost it, in dollars", text)
+        self.assertIn("quality is 100 less how many points a model is behind the best on the "
+                      "public boards; cost is what Artificial Analysis's index run cost it, in "
+                      "dollars", text)
         self.assertIn(f"› {self.spark} muse xhigh - - -", text)
 
     def test_a_line_taller_than_the_page_is_read_a_page_at_a_time(self):
         # seven more models as good to build and review: `as good` wraps past a page at 40
         # cells.  Up to the knob, then down through every row, and every line of the screen,
         # including the quality and cost note, is on some page drawn, even at 40x12
-        self.store(matrix.scored([
-            row("claude", "claude-opus-5-5", "max", 60, 70, 58, 8000, agent=0.2),
-            row("claude", "claude-opus-5-5", "xhigh", 60, 70, 56, 4000),
-            row("codex", "gpt-6-astra", "xhigh", 58, 66, 55, 500, agent=0.19),
-            *[row("opencode", f"acme-model-{n}", "high", 58, 68, 56, 3000 + n, agent=0.19)
-              for n in range(7)]]))
+        self.store([
+            row("claude", "claude-opus-5-5", "max", 100, 100, 100, cost=8000),
+            row("claude", "claude-opus-5-5", "xhigh", 96.55, 96.55, 96.55, cost=4000),
+            row("codex", "gpt-6-astra", "xhigh", 94.64, 95.48, 95.75, cost=500),
+            *[row("opencode", f"acme-model-{n}", "high", 96.07, 96.9, 96.61, cost=3000 + n)
+              for n in range(7)]])
         bodies, frames, body, frame = [], [], menu.models_body, terminal.frame
 
         def whole(*args, **kwargs):
