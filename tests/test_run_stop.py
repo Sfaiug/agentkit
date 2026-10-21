@@ -525,11 +525,12 @@ class RunStop(Sandbox):
         self.assertEqual(task["state"], "blocked")
         self.assertIn("launch b.md on its own once a.md merged", task["findings"])
 
-    def test_x_stops_the_sessions_runs_first(self):
+    def test_x_ends_the_seat_then_stops_its_runs(self):
         seat = "atoll-fix"
         mine = self.running("20260101-0900-stop-mine", owner=seat)
         other = self.running("20260101-0900-stop-other", owner="parser")
         done = self.ended("20260101-0900-stop-done", owner=seat)
+        config.save_session(self.cfg, seat, "opus", ["astra"], {"cwd": str(self.root)})
         order = []
         real_stop = stop.cmd_stop
 
@@ -537,24 +538,27 @@ class RunStop(Sandbox):
             order.append(("run", run_id[0]))
             return real_stop(run_id)
 
-        def seat_stop(argv):
-            order.append(("seat", argv[0]))
-            return 0
+        def tmux(*args, **_kw):
+            if args[0] == "kill-session":
+                order.append(("seat", args[-1]))
+            return 0, ""
 
+        live = {"name": seat, "path": str(self.root), "created": 100, "attached": False,
+                "exited": False, "legacy": False}
         seats = [{"name": seat}, {"name": "parser"}]
         out = io.StringIO()
         with patch.object(menu, "read", side_effect=["1", "y"]), \
                 patch.object(stop, "cmd_stop", side_effect=stop_run), \
-                patch.object(orch, "cmd_stop", side_effect=seat_stop), \
+                patch.object(orch, "find", side_effect=lambda name: live if name == seat else None), \
+                patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch("agentkit.browser.close_owned"), patch("agentkit.notify.forget_card"), \
                 redirect_stdout(out):
             menu.stop_session([dict(entry) for entry in seats], dry_run=False)
         self.assertEqual(record.read_state(mine)["state"], "stopped")
         self.assertEqual(record.read_state(other)["state"], "running")
         self.assertEqual(record.read_state(done)["state"], "pass")
-        self.assertIn(("run", mine.name), order)
-        self.assertIn(("seat", seat), order)
-        self.assertLess(order.index(("run", mine.name)), order.index(("seat", seat)),
-                        "the seat ended before its run stopped")
+        self.assertEqual(order, [("seat", f"={seat}"), ("run", mine.name)],
+                         "the seat's run stopped before the seat ended")
 
     def test_from_cuts_the_worktree_from_the_named_branch(self):
         repo = self.repo()
