@@ -12,11 +12,12 @@ import subprocess
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_go_live_retries_install as base
 
-git = base.git
+config, update, git = base.config, base.update, base.git
 DAY = 86400     # any killed git's lock is long past `update.LOCK_STALE` by then
 
 
@@ -24,13 +25,13 @@ class KilledGitMove(unittest.TestCase):
     setUp, tick, installs = (base.GoLiveRetriesInstall.setUp, base.GoLiveRetriesInstall.tick,
                              base.GoLiveRetriesInstall.installs)
 
-    def cut(self, age):
+    def cut(self, age, to=None):
         """The tick's fast-forward, failing on a HEAD.lock a git left `age` seconds ago."""
         self.old, self.lock = git(self.clone, "rev-parse", "HEAD"), self.clone / ".git/HEAD.lock"
         self.lock.write_text("")
         os.utime(self.lock, (time.time() - age,) * 2)
         git(self.clone, "fetch", "-q", "origin", "main")
-        merge = subprocess.run(["git", "-C", str(self.clone), "merge", "--ff-only", self.new],
+        merge = subprocess.run(["git", "-C", str(self.clone), "merge", "--ff-only", to or self.new],
                                capture_output=True, text=True, timeout=60)
         self.assertIn("cannot lock ref 'HEAD'", merge.stderr)
         self.assertEqual(((self.clone / "notes").read_text(), self.head()), ("second\n", self.old))
@@ -53,7 +54,34 @@ class KilledGitMove(unittest.TestCase):
         (self.clone / "notes").write_text("mine\n")
         self.tick()
         self.assertEqual((self.head(), (self.clone / "notes").read_text()), (self.old, "mine\n"))
-        self.assertEqual((self.installs(), self.lock.exists()), (0, False))
+        self.assertEqual((self.installs(), self.lock.exists()), (0, True))
+
+    def test_a_commit_of_its_own_keeps_it_as_it_is(self):
+        (self.clone / "mine").write_text("mine\n")
+        git(self.clone, "add", "mine")
+        git(self.clone, "commit", "-q", "-m", "mine")
+        own = self.head()
+        git(self.clone, "fetch", "-q", "origin", "main")
+        git(self.clone, "rm", "-q", "mine")
+        (self.clone / "notes").write_text("second\n")
+        git(self.clone, "add", "notes")     # staged as origin's main, never a fast-forward
+        self.tick()
+        self.assertEqual((self.head(), self.installs()), (own, 0))
+
+    def test_a_cut_move_past_what_passed_tests_live_sh_keeps_it_as_it_is(self):
+        seed = self.root / "seed"
+        (seed / "tests").mkdir()
+        (seed / "tests/live.sh").write_text("#!/bin/sh\nexit 1\n")
+        git(seed, "add", "-A")
+        git(seed, "commit", "-q", "-m", "third")
+        git(seed, "push", "-q", "origin", "main")
+        self.cut(DAY, to=git(seed, "rev-parse", "HEAD"))
+        passed = config.STATE / update.LIVE / f"{self.new}-{int(time.time()) - 10}"
+        passed.mkdir(parents=True)
+        (passed / "exit").write_text("0\n")
+        with patch.object(update, "_alive", return_value=False):
+            self.assertEqual(update.update_agentkit(), 1)
+        self.assertEqual((self.head(), self.installs(), self.lock.exists()), (self.old, 0, True))
 
 
 if __name__ == "__main__":

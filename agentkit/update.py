@@ -45,7 +45,7 @@ STEP_CAP = 30 * 60          # an upgrade that is not done in half an hour is not
 SMOKE_CAP = 2 * 60 * 60     # the gate makes real model calls and waits out two retry backoffs
 E2E_CAP = 90 * 60           # a fresh account, three harness installs and one real merged run
 FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
-LOCK_STALE = 10 * 60        # git holds a lock while it writes one file: one older, a killed git's
+LOCK_STALE = 10 * 60        # a lock this old beside a cut-off fast-forward is a killed git's
 START_WAIT = 2              # the detached start-up check's deadline for origin
 UPDATE_TAIL = 10            # how many of a failed start-up update's last lines the menu shows
 LIVE_REPORT_CAP = 4 * 1024  # a typed hand-back stays readable even with long diagnostics
@@ -504,14 +504,23 @@ def left_as_is():
             else "dirty" if code or changes else "")
 
 
-def after_killed_git():
-    """Clear what a git killed in ~/agentkit left -- the host's memory killer takes git first --
-    and whether that finished a fast-forward it had cut off, whose install.sh is then owed.
+def after_killed_git(target):
+    """Finish a fast-forward to `target` that a git killed in ~/agentkit cut off -- the host's
+    memory killer takes git first -- and whether it did, whose install.sh is then owed.
 
-    Its locks go once `LOCK_STALE`: a HEAD.lock left so failed each fast-forward after it,
-    every one having moved the files but not HEAD.  A checkout whose files and index are, and
-    are only, a commit origin's main has past HEAD is such a move, and HEAD goes to that commit.
+    A HEAD.lock left so failed each fast-forward after it, every one having moved the files but
+    not HEAD.  Only a checkout whose files and index are, and are only, a commit on the way from
+    HEAD to `target` is such a move: anything else is somebody's work, a git maybe still at it,
+    so only then do locks older than `LOCK_STALE` go and HEAD go to that commit.
     """
+    if (not target or left_as_is() != "dirty" or _git("diff", "--quiet")[0]
+            or _git("ls-files", "--others", "--exclude-standard")[1]):
+        return False
+    tree, head = _git("write-tree")[1], _git("rev-parse", "HEAD")[1]
+    moved = dict(line.split() for line in _git("log", "--ancestry-path", "--format=%T %H",
+                                               f"HEAD..{target}")[1].splitlines()).get(tree)
+    if not moved:
+        return False
     git = agentkit_dir() / ".git"
     for lock in (*git.glob("*.lock"), *git.glob("logs/**/*.lock"), *git.glob("refs/**/*.lock")):
         try:
@@ -519,14 +528,8 @@ def after_killed_git():
                 lock.unlink()
         except OSError:
             pass                # its git ended meanwhile
-    if (left_as_is() != "dirty" or _git("diff", "--quiet")[0]
-            or _git("ls-files", "--others", "--exclude-standard")[1]):
-        return False
-    tree, head = _git("write-tree")[1], _git("rev-parse", "HEAD")[1]
-    moved = dict(line.split() for line in
-                 _git("log", "--format=%T %H", "HEAD..origin/main")[1].splitlines()).get(tree)
-    return bool(moved) and not _git("update-ref", "-m", "ak: the fast-forward a killed git cut off",
-                                    "HEAD", moved, head)[0]
+    return not _git("update-ref", "-m", "ak: the fast-forward a killed git cut off",
+                    "HEAD", moved, head)[0]
 
 
 def startup():
@@ -580,7 +583,7 @@ def update_agentkit(progress=None, pull=True):
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
         pending = config.STATE / "agentkit-install-pending"
-        if after_killed_git():
+        if after_killed_git(pull if isinstance(pull, str) else live_target()):
             pending.touch()
         why = left_as_is()
         if why:
