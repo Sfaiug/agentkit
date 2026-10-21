@@ -266,8 +266,8 @@ def collect(*, refresh=False, now=None, needs=None, build=None):
         for board, ask in asks.items():
             held = cache.get(board) or {}
             fresh = held.get("asked_at") and now - held["asked_at"] < FRESH_FOR
-            if fresh and build is not None and held.get("build") != build and held.get("rows"):
-                carried = {column for row in held["rows"] for column in row["values"]}
+            if fresh and build is not None and held.get("build") != build:
+                carried = {column for row in held.get("rows") or [] for column in row["values"]}
                 fresh = not ((needs or {}).get(board, set()) - carried)
             if not refresh and fresh:
                 continue

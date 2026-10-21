@@ -63,6 +63,26 @@ class Reread(Sandbox):
         boards.collect(now=10004, needs=needs)
         self.assertEqual(self.asked("livebench.ai"), 2 * asked)
 
+    def test_a_new_build_asks_again_for_a_board_whose_cache_holds_no_row(self):
+        needs = {"livebench.ai": {"livebench.coding"}}
+        self.boards.down.add("livebench.ai")
+        boards.collect(now=10000, build="abc1234")          # a first read that failed: no rows at all
+        self.boards.down.clear()
+        asked = self.asked("livebench.ai")
+        boards.collect(now=10001, needs=needs, build="abc1234")
+        self.assertEqual(self.asked("livebench.ai"), asked)     # the build that read it waits for the day
+        held = boards.collect(now=10001, needs=needs, build="def5678")
+        self.assertGreater(self.asked("livebench.ai"), asked)
+        self.assertTrue(held["livebench.ai"]["rows"])
+        # a read that gave no row, held as an empty list, carries no column either
+        cache = json.loads(boards.cache_path().read_text())
+        cache["livebench.ai"]["rows"] = []
+        boards.cache_path().write_text(json.dumps(cache))
+        asked = self.asked("livebench.ai")
+        held = boards.collect(now=10002, needs=needs, build="ghi9012")
+        self.assertGreater(self.asked("livebench.ai"), asked)
+        self.assertTrue(held["livebench.ai"]["rows"])
+
     def test_the_matrix_asks_for_every_column_it_scores_with_its_build(self):
         needs = matrix.needed()
         self.assertEqual(sorted(needs), sorted(boards.BOARDS))
