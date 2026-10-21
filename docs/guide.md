@@ -219,7 +219,9 @@ Where its harness's prompt hook carries context, your prompt arrives with every 
 the seat still has open to you, word for word and with when each was last asked, as the
 questions it may answer. This comes from its notify record even after compaction, alongside
 any rulebook news. A hand-back or wait's end ak typed carries no questions; your own words
-relayed by ak do.
+relayed by ak do. The prompt records its turn before reading that context, so a context
+failure cannot leave the end-of-turn guard without a turn. The question fact stays until
+context has been captured, before the watcher can mark the question answered.
 
 A session is `● working`, `! needs you` or `✓ done`, and nothing else exists. One function, `watch.session_state`,
 decides which, and every screen reads that answer: the menu row, the project heading, the top line, `ak orch list`, `ak
