@@ -377,14 +377,14 @@ def conversation_stores():
 def end_conversation(path, ends):
     """The session's row in session-index.db, then the views cached of it, then its folder:
     a pass cut short finds the folder again, and nothing of it is left once that goes.  Asked
-    once Muse's writers wait on the index, as a session resumed meanwhile has written."""
+    once Muse's writers wait on the index, as a session resumed meanwhile has written or cached."""
     folder = Path(path)
     root = folder.parents[3]
-    views = sorted(root.glob(f".msp-view-*/{folder.name}"))
     index = (root.parent / "session-index.db").as_uri() + "?mode=rw"
     try:
         with contextlib.closing(sqlite3.connect(index, uri=True, timeout=30)) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            views = sorted(root.glob(f".msp-view-*/{folder.name}"))
             if not ends(*views):
                 return
             db.execute("DELETE FROM sessions WHERE session_dir = ?", (str(folder),))
