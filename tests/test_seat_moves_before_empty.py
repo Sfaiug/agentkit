@@ -17,6 +17,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_seat_account as base
 from agentkit import config, orch, usage, watch
+from agentkit.guard import commands
 
 NAME, CONVERSATION = base.NAME, base.CONVERSATION
 HOUR = 3600
@@ -28,22 +29,22 @@ class MovesBeforeEmpty(unittest.TestCase):
 
     def setUp(self):
         base.SeatAccount.setUp(self)
-        self.calls, self.at_look, self.keys_off = [], lambda: None, False
+        self.calls, self.at_look, self.keys_off, self.frozen = [], lambda: None, False, False
 
     def tmux(self, *args, **kwargs):
-        """The seat's server, which takes a command list whole: what the owner does as ak
-        freezes the pane comes in with it."""
+        """The seat's server, which takes a command list whole and stops it at a command that
+        fails: what the owner does as ak freezes the pane comes in with it."""
         self.calls.append(args)
-        command = []
-        for word in (*args, ";"):
-            if word != ";":
-                command.append(word)
-                continue
-            if command[:2] in (["select-pane", "-d"], ["select-pane", "-e"]):
-                self.keys_off = command[1] == "-d"
-                if self.keys_off:
-                    self.at_look()
-            command = []
+        for command in commands(args):
+            if command[:2] == ["select-pane", "-d"]:
+                self.keys_off = self.frozen = True
+                self.at_look()
+            elif command[:2] == ["select-pane", "-e"]:
+                self.keys_off = False
+            elif command[:2] == ["set-option", "-pu"] and command[-1] == orch.FROZEN_OPTION:
+                self.frozen = False
+            elif command[:2] == ["show-options", "-pv"] and not self.frozen:
+                return 1, f"invalid option: {orch.FROZEN_OPTION}"
         return base.SeatAccount.tmux(self, *args, **kwargs)
 
     def meters(self, first, second, gone=2 * HOUR):
@@ -69,10 +70,12 @@ class MovesBeforeEmpty(unittest.TestCase):
         self.tick()
         self.assertEqual(self.account(), "second")
         self.assertIn(CONVERSATION, self.commands[0])
-        freeze = next(n for n, args in enumerate(self.calls) if args[:2] == ("select-pane", "-d"))
-        respawn = next(n for n, args in enumerate(self.calls) if args[0] == "respawn-pane")
+        freeze = next(n for n, args in enumerate(self.calls)
+                      if ["select-pane", "-d", "-t", f"={NAME}:"] in commands(args))
+        respawn = next(n for n, args in enumerate(self.calls) if "respawn-pane" in args)
         self.assertLess(freeze, respawn)
-        self.assertEqual(self.calls[freeze][-2:], ("-C", f"select-pane -e -t ={NAME}:"))
+        self.assertEqual(self.calls[freeze][-2:], ("-C", f"set-option -pu -t ={NAME}: "
+                                                         f"{orch.FROZEN_OPTION} ; select-pane -e -t ={NAME}:"))
         self.assertFalse(self.keys_off)             # the new harness takes keys at once
         self.tick()
         self.assertEqual((self.typed, len(self.commands)), ([], 1))
@@ -123,16 +126,59 @@ class MovesBeforeEmpty(unittest.TestCase):
                     self.assertTrue(any("kept" in line for line in self.logs))
                     self.assertEqual(watch.seat_closed_by_owner(NAME), change is closed)
 
+    def test_a_turn_begun_as_the_move_is_readied_keeps_it(self):
+        self.meters(97, 10)
+        ready = orch.resume_command
+
+        def prompted(*args, **kwargs):
+            config.hook_facts_path(NAME).write_text(json.dumps(
+                {"event": "UserPromptSubmit", "at": self.now, "text": "Continue the work"}))
+            return ready(*args, **kwargs)
+        with patch.object(orch, "resume_command", side_effect=prompted):
+            self.tick()
+        self.assertEqual((self.account(), self.commands), ("default", []))
+        self.assertEqual(watch.hook_facts(NAME)["event"], "UserPromptSubmit")
+
     def test_a_respawn_tmux_refuses_gives_the_pane_its_keys_back(self):
         self.meters(97, 10)
         refuse = self.tmux
 
         def refused(*args, **kwargs):
-            return (1, "no server") if args[0] == "respawn-pane" else refuse(*args, **kwargs)
+            return (1, "no server") if "respawn-pane" in args else refuse(*args, **kwargs)
         with patch.object(orch, "tmux_out", side_effect=refused):
             self.tick()
         self.assertEqual((self.account(), self.commands), ("default", []))
         self.assertFalse(self.keys_off)
+
+    def test_a_freeze_run_out_before_the_respawn_keeps_the_seat(self):
+        def run_out():      # ak stalled: tmux gave the keys back, and they may have reached it
+            self.frozen = self.keys_off = False
+        self.at_look = run_out
+        self.meters(97, 10)
+        self.tick()
+        self.assertEqual((self.account(), self.commands), ("default", []))
+        self.assertFalse(self.keys_off)
+
+    def test_the_launched_pane_is_the_one_looked_at_and_replaced(self):
+        # the owner has another window selected; the harness's own pane holds a draft
+        self.meters(97, 10)
+        server, looked = self.tmux, []
+
+        def tmux(*args, **kwargs):
+            if args[0] == "show-options" and args[-1] == orch.PANE_OPTION:
+                return 0, "%7"
+            if args[0] == "display-message" and args[-1] == "#{session_name}":
+                return 0, NAME
+            return server(*args, **kwargs)
+
+        def capture(seat):
+            looked.append(watch._pane(seat))
+            return DRAFT if looked[-1] == "%7" else "❯"
+        with patch.object(orch, "tmux_out", side_effect=tmux), \
+                patch.object(watch, "pane_text", side_effect=capture):
+            self.tick()
+        self.assertEqual((self.account(), self.commands), ("default", []))
+        self.assertIn("%7", looked)
 
 
 if __name__ == "__main__":

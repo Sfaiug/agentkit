@@ -4324,17 +4324,19 @@ def _resume_on(cfg, name, log, account, continuing, still=None):
                                  "line": ACCOUNT_LINE})
 
 
-def between_turns(name, harness, record, opened_at):
+def between_turns(name, harness, record, opened_at, pane=None):
     """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
-    closed, renamed, reopened or moved since -- at its prompt with nothing in its composer, in
-    no turn, asking nothing, and its terminal given no keys for DRAFT_STILL, none unread?  A
-    capture that failed shows none of that, nor does a terminal that cannot be asked."""
+    closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
+    respawn would take) at its prompt with nothing in its composer, in no turn, asking nothing,
+    and its terminal given no keys for DRAFT_STILL, none unread?  A capture that failed shows
+    none of that, nor does a terminal that cannot be asked."""
     seat, now = orch.find(name), config.session_records().get(name) or {}
     if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
             or any(now.get(key) != record.get(key)
                    for key in ("orchestrator", "conversation", "account"))
             or seat_read(name).get("opened_at") != opened_at):
         return False
+    seat = dict(seat, pane=pane or orch.harness_pane(name, orch.seat_socket(seat)))
     rc, tty = orch.tmux_out("display-message", "-p", "-t", _pane(seat), "#{pane_tty}",
                             socket=orch.seat_socket(seat))
     try:
@@ -4442,10 +4444,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                            if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
             if target is None:
                 return False
-            def still():
+            def still(pane=None):
                 # The last look, the old harness taking no keys from it on (the owner's choice
                 # of 21 Oct 2026: a prompt from the phone in that instant may be lost).
-                return between_turns(name, harness, record, live.get("opened_at"))
+                return between_turns(name, harness, record, live.get("opened_at"), pane)
             with state_lock():
                 if not still():
                     return True
