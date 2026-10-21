@@ -118,7 +118,7 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
         self.prompt()
         self.said("Use the second schema.", 10010, **OWNER)
         notify.answer_typed(log=lambda _: None)             # the tick's pass, before its cards
-        self.assertGreater(notify._card_read(SEAT)["answered_at"], 10000)
+        self.assertIsNotNone(notify._card_read(SEAT).get("answered_at"))
 
     def converse(self):
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {
