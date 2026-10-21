@@ -2469,10 +2469,7 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
                 facts.replace(last)
             except FileNotFoundError:
                 last.unlink(missing_ok=True)    # a launch killed past its move left one
-            # The moment from which an answer is this harness's (watch.follow_model): the one
-            # it replaces was sent SIGHUP and its terminal closed when the respawn returned.
-            _start_harness(name, model, cwd, cmd, session, still, started=lambda: (
-                up.append(True), config.update_session(current, launched=time.time())))
+            _start_harness(name, model, cwd, cmd, session, still, started=lambda: up.append(True))
         except BaseException:
             if up:
                 plugin.retire(before)   # only the setup after the new harness's start failed
@@ -2488,6 +2485,9 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
             raise
         finally:
             last.unlink(missing_ok=True)
+        # The moment from which an answer is this harness's (watch.follow_model): the one it
+        # replaces was sent SIGHUP and its terminal closed when the respawn returned.
+        config.update_session(current, launched=time.time())
     plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
@@ -2521,26 +2521,28 @@ def _start_harness(name, model, cwd, cmd, session, still=None, started=lambda: N
             if rc or owner != name:
                 target = f"={name}:"
         values = seat_env(name, server)
-        if still is not None and not still():
-            raise config.Error(f"{name} took input as its harness was to be replaced; kept")
-        # One command list: a failed respawn keeps the old tty, and a new wrapper's
-        # publishing client cannot run before the old name is removed.
-        rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values),
-                           seat_command(name, cmd, server), ";", "set-option", "-pu",
-                           "-t", target, INPUT_TTY_OPTION, socket=server, path_shim=True,
-                           timeout=5)
-        if rc != 0:
-            config.seat_file("launch", name).unlink(missing_ok=True)
-            raise config.Error(f"cannot resume the session {name}: {out}")
-        started()
-        # A refused respawn leaves the old harness up: its menu keeps that same home too.
-        seat_environment(name, server, values, then=[
-            ["set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}"]])
-        if on_own_server(session):
-            from . import statusbar   # here, not at the top: the bar's module imports this one
-            statusbar.dress(name, model)
-    else:
-        start(name, cwd, cmd, model, started)
+        command = seat_command(name, cmd, server)
+    # last, so all that is left between this look and the kill is tmux's own call
+    if still is not None and not still():
+        config.seat_file("launch", name).unlink(missing_ok=True)
+        raise config.Error(f"{name} changed as its harness was to be replaced; kept")
+    if not session:
+        return start(name, cwd, cmd, model, started)
+    # One command list: a failed respawn keeps the old tty, and a new wrapper's
+    # publishing client cannot run before the old name is removed.
+    rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values), command, ";",
+                       "set-option", "-pu", "-t", target, INPUT_TTY_OPTION, socket=server,
+                       path_shim=True, timeout=5)
+    if rc != 0:
+        config.seat_file("launch", name).unlink(missing_ok=True)
+        raise config.Error(f"cannot resume the session {name}: {out}")
+    started()
+    # A refused respawn leaves the old harness up: its menu keeps that same home too.
+    seat_environment(name, server, values, then=[
+        ["set-option", "-F", "-t", target, PANE_OPTION, "#{pane_id}"]])
+    if on_own_server(session):
+        from . import statusbar   # here, not at the top: the bar's module imports this one
+        statusbar.dress(name, model)
 
 
 def on_disk(path):
