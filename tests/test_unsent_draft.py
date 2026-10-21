@@ -1,9 +1,9 @@
-"""The owner's unsent text never changes a seat's word; once they have left, its reason says it.
+"""The owner's unsent text never changes a seat's word; once they have left, its row marks it.
 
 On 25 Sep three seats read `working` for up to nineteen hours over text the owner had typed
 and never sent, and drafts were made `needs you`.  The owner's rule of 14 Oct 2026: text in
-the composer never changes the word.  Once no client is attached, the reason the ladder gives
-gets `unsent: <text>`, so the row still shows what they never sent; while they are in the seat
+the composer never changes the word.  Once no client is attached, the answer carries it as
+`unsent`, so the row ends in `✎ unsent` and opens the text under it; while they are in the seat
 it is their typing, and mid-turn the composer is the turn's.  A question on its screen needs
 them whatever its runs are doing.
 Offline: fake captures, fake hook records, a fake tmux that answers the attached-client
@@ -111,11 +111,12 @@ class UnsentDraft(Sandbox):
                      started_at=NOW - 600, quota_dry=True)
 
     def decide(self):
-        """Look at the seat the way a screen does, then decide from what was seen."""
+        """Look at the seat the way a screen does, then decide from what was seen: its word, its
+        reason and what it holds unsent."""
         harness, live = watch.look_at(self.seat, cfg=self.cfg)
         found = watch.session_state(SEAT, NOW, session=self.seat, cfg=self.cfg,
                                     live=live, harness=harness)
-        return found["word"], found["reason"]
+        return found["word"], found["reason"], found.get("unsent", "")
 
     def tick(self, later=0):
         """The watch tick's part in it: a look at the seat, then its card's transition."""
@@ -146,29 +147,32 @@ class UnsentDraft(Sandbox):
     def test_a_draft_at_a_quiet_prompt_with_two_going_runs_keeps_their_word_and_says_unsent(self):
         self.going()
         self.fact("Stop")
-        self.assertEqual(self.decide(), ("working", f"{RUNS} · unsent: {TEXT}"))
+        self.assertEqual(self.decide(), ("working", RUNS, TEXT))
         # ... and the row says both at any width it has room
         for width in (170, 40):
             with self.subTest(width=width):
                 self.assertIn("● working", " ".join(self.row(width)))
-        self.assertIn(f"unsent: {TEXT}", " ".join(self.row(170)))
-        self.assertIn(f"unsent: {TEXT}", " ".join(self.row(170, look=False)))
+        for look in (True, False):
+            with self.subTest(look=look):
+                head, under = self.row(170, look=look)
+                self.assertTrue(head.endswith("✎ unsent"), head)
+                self.assertEqual(under.strip(), f"✎ {TEXT}")
         # ... and so does its own bar, which reads the same last column
-        self.assertIn(f"unsent: {TEXT}", self.bar())
+        self.assertIn("✎ unsent", self.bar())
         # the same seat with its text sent is its runs' again
         self.pane = PROMPT
-        self.assertEqual(self.decide(), ("working", RUNS))
+        self.assertEqual(self.decide(), ("working", RUNS, ""))
 
     def test_b_a_question_on_its_screen_with_going_runs_is_needs_you(self):
         self.going()
         self.fact("Notification", kind="permission_prompt", text=BASH)
         self.pane = ASKING
-        self.assertEqual(self.decide(), ("needs you", BASH))
+        self.assertEqual(self.decide()[:2], ("needs you", BASH))
         # ... and one only the screen shows, on a harness whose screen is the authority
         config.hook_facts_path(SEAT).unlink()
         with patch.object(watch, "seat_model", return_value=("codex", "openai")):
             self.pane = capture("codex-dialog-pane.txt")
-            word, reason = self.decide()
+            word, reason, _ = self.decide()
         self.assertEqual(word, "needs you")
         self.assertNotIn("running", reason)
 
@@ -176,19 +180,19 @@ class UnsentDraft(Sandbox):
         self.going()
         self.fact("Stop")
         self.attached = True
-        self.assertEqual(self.decide(), ("working", RUNS))
+        self.assertEqual(self.decide(), ("working", RUNS, ""))
         self.tick()
         self.tick(120)
         self.assertEqual(self.posts, [])
         # The owner leaves it sitting there: the row says what they never sent, and nothing pages
         self.attached = False
-        self.assertEqual(self.decide(), ("working", f"{RUNS} · unsent: {TEXT}"))
+        self.assertEqual(self.decide(), ("working", RUNS, TEXT))
         for later in (240, 360, 480):
             self.tick(later)
         self.assertEqual(self.posts, [])
         # Back in the seat it is their typing again
         self.attached = True
-        self.assertEqual(self.decide(), ("working", RUNS))
+        self.assertEqual(self.decide(), ("working", RUNS, ""))
         self.tick(600)
         self.assertEqual(self.posts, [])
 
@@ -200,7 +204,7 @@ class UnsentDraft(Sandbox):
         self.fact("Notification", kind="permission_prompt", text=BASH)
         self.pane = ASKING
         self.attached = True
-        self.assertEqual(self.decide(), ("needs you", BASH))
+        self.assertEqual(self.decide()[:2], ("needs you", BASH))
         self.tick()
         self.tick(notify.CARD_WAIT - 1)
         self.assertEqual(self.posts, [])
@@ -212,29 +216,30 @@ class UnsentDraft(Sandbox):
         # talks the row out of it -- with runs going, and without
         self.going()
         self.fact("UserPromptSubmit", at=NOW - 60)
-        self.assertEqual(self.decide(), ("working", RUNS))
+        self.assertEqual(self.decide(), ("working", RUNS, ""))
         for name in ("20260101-0900-schema", "20260101-1000-window"):
             shutil.rmtree(config.RUNS / name)
-        self.assertEqual(self.decide(), ("working", ""))
+        self.assertEqual(self.decide(), ("working", "", ""))
 
     def test_e_an_empty_composer_with_going_runs_stays_working(self):
         self.going()
         self.fact("Stop")
         self.pane = PROMPT
-        self.assertEqual(self.decide(), ("working", RUNS))
+        self.assertEqual(self.decide(), ("working", RUNS, ""))
         # a suggestion the harness drew in faint text is nobody's draft either
         self.pane = capture("claude-suggestion-pane.txt")
-        self.assertEqual(self.decide(), ("working", RUNS))
+        self.assertEqual(self.decide(), ("working", RUNS, ""))
 
     def test_e2_a_run_titled_with_the_words_is_no_draft(self):
         # the reason names the run's title, which can say anything: the row keeps its plan
+        # and no mark
         self.receipt("20260101-0900-schema", title="Explain unsent: drafts")
         self.fact("Stop")
         self.pane = PROMPT
         config.plan_path(SEAT).write_text("- [ ] Explain composer drafts\n")
         for shown in (" ".join(self.row(170)), self.bar()):
             with self.subTest(shown=shown):
-                self.assertNotIn("unsent: drafts", shown)
+                self.assertNotIn("✎ unsent", shown)
                 self.assertIn("0 of 1", shown)
 
     def test_f_a_seat_nobody_is_in_is_never_read_by_its_last_draft(self):
@@ -242,7 +247,7 @@ class UnsentDraft(Sandbox):
         # record is history, and the seat reads by its runs, as it always did
         self.going()
         self.fact("Stop")
-        self.assertEqual(self.decide(), ("working", f"{RUNS} · unsent: {TEXT}"))
+        self.assertEqual(self.decide(), ("working", RUNS, TEXT))
         gone = dict(self.seat, exited=True)
         with patch.object(orch, "listing", return_value=[gone]):
             found = watch.session_state(SEAT, NOW, session=gone, cfg=self.cfg)

@@ -88,15 +88,19 @@ class Breathes(Sandbox):
         self.seats = self.seats[:1]
         self.records = self.records[:1]
         for width in (100, 59, 40):
-            for draft in ("unsent: explain ━ please", "unsent: explain ■□□ please",
-                          "unsent: " + "example " * 8 + "╸ ■□□ ■■□ ■■■"):
+            for draft in ("explain ━ please", "explain ■□□ please",
+                          "example " * 8 + "╸ ■□□ ■■□ ■■■"):
                 with self.subTest(width=width, draft=draft), patch.object(
                         menu, "seat_row_state", return_value={"word": "working", "reason": "",
                                                              "unsent": draft, "since": None}):
                     lines, clock = self.drawn("acme-api", width)
                     dot = self.cell(lines, lambda line: " acme-api " in line, "●")
                     square = self.cell(lines, lambda line: line.rstrip().endswith("■■□"), "■■□")
-                    self.assertEqual(set(clock.cells), {dot, (square[0], square[1] + 1)})
+                    # the row keeps its own progress line beside the mark, its tip breathing
+                    bar = next(n for n, line in enumerate(lines, 1) if "2 of 4" in line)
+                    moving = {dot, (square[0], square[1] + 1)}
+                    self.assertLessEqual(moving, set(clock.cells))
+                    self.assertEqual({row for row, _ in set(clock.cells) - moving}, {bar})
 
     def test_only_the_last_bar_cell_breathes_in_each_palette(self):
         for depth, light in ((24, False), (24, True), (256, False), (256, True)):

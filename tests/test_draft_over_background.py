@@ -3,7 +3,7 @@
 A seat that ended its turn on background work still in flight keeps its composer
 open, so a line typed there is not sent. Its hook fact reads `working`, and text in
 the composer never changes the word (owner, 14 Oct 2026): once nobody is in the seat
-its reason says `unsent: <text>`. While a client is attached the draft is their typing,
+its state carries the text as `unsent`. While a client is attached the draft is their typing,
 and with an empty composer the background wait reads `working` alone. Offline: a temporary HOME, fake hook
 records and fake pane text; never a real seat, tmux or ~/.agentkit.
 """
@@ -60,11 +60,11 @@ class DraftOverBackground(Sandbox):
         found = watch.session_state(SEAT, NOW, session=self.seat, cfg=self.cfg,
                                     live=live, harness=harness,
                                     auth_out={}, gh_out={}, token_out={}, previous={})
-        return found["word"], found["reason"]
+        return found["word"], found["reason"], found.get("unsent", "")
 
     def test_background_stop_with_draft_and_nobody_attached_works_and_says_unsent(self):
         self.fact("Stop", kind="background")
-        self.assertEqual(self.decide(), ("working", f"unsent: {TEXT}"))
+        self.assertEqual(self.decide(), ("working", "", TEXT))
 
     def test_background_stop_with_draft_and_client_attached_is_working(self):
         self.fact("Stop", kind="background")

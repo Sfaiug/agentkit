@@ -91,7 +91,7 @@ class AntigravitySeatStates(unittest.TestCase):
                                               exact=True), ["draft while task runs"])
 
     def test_a_draft_says_its_own_words_never_the_footer_or_key_hint(self):
-        # the owner reads `unsent: …` from it; the model footer and the chooser's key hint
+        # the owner reads it under the seat's row; the model footer and the chooser's key hint
         # read there before
         for name, words in (("draft", "Please look at the failing test in the"),
                             ("chooser", "/us"),
