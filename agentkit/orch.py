@@ -63,8 +63,8 @@ SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's def
 CONTROL = "_ak"            # the Go port's hidden control session there: never a seat, never swept
 JOBS = "-jobs"             # appended to it: the server the background jobs run on
 SLICE = "agentkit.slice"   # the user systemd slice every agent process is started inside
-SEATS_SLICE = "agentkit-seats.slice"  # interactive sessions keep the default weight
-RUNS_SLICE = "agentkit-runs.slice"    # detached runs are deliberately below sessions
+SEATS_SLICE = "agentkit-seats.slice"  # seats yield CPU and I/O to runs
+RUNS_SLICE = "agentkit-runs.slice"    # the lander takes priority within the runs
 NO_SLICE = "no slice (no user systemd manager)"   # ... on a host that has no manager to ask
 SLICE_WAIT = 30            # how long `systemd-run` has to say whether it took a unit
 NO_SUCH_UNIT = 5           # what `systemctl` answers about a unit it was never given
@@ -954,6 +954,11 @@ def slice_cgroup():
     pieces = slice_name().removesuffix(".slice").split("-")
     return root.joinpath(*[f"{'-'.join(pieces[:depth + 1])}.slice"
                            for depth in range(len(pieces))])
+
+
+def run_slice_cgroup():
+    """CPU readings for runs and their lander exclude seats in the sibling slice."""
+    return slice_cgroup() / run_slice_name()
 
 
 def slice_ceiling():
