@@ -84,13 +84,13 @@ class UnnamedSeatNamesItself(Sandbox):
                          menu.run_records(), False, lambda line: None)
         return self.sent[before:]
 
-    def judged(self):
+    def judged(self, message=SAID):
         """Every harness's answer to the same stop: the hook's reason, then each tick's lines."""
         transcript = self.root / "transcript.jsonl"
         transcript.write_text(json.dumps({"type": "assistant", "message": {
-            "role": "assistant", "content": [{"type": "text", "text": SAID}]}}) + "\n")
+            "role": "assistant", "content": [{"type": "text", "text": message}]}}) + "\n")
         said = [self.hook(transcript_path=str(transcript)),
-                self.hook(last_assistant_message=SAID)]
+                self.hook(last_assistant_message=message)]
         for harness in TYPED:
             self.harness = harness
             said.append(self.tick())
@@ -107,7 +107,7 @@ class UnnamedSeatNamesItself(Sandbox):
     def test_a_question_to_the_owner_still_ends_the_turn(self):
         config.update_session(SEAT, unnamed=True)
         notify.record(SEAT, "needs", "Which environment should this use?")
-        self.assertEqual(self.judged(), [""] * 2 + [[]] * 3)
+        self.assertEqual(self.judged("Which environment should this use?"), [""] * 2 + [[]] * 3)
 
     def test_the_third_stop_of_a_turn_stands_as_any_other_does(self):
         config.update_session(SEAT, unnamed=True)
