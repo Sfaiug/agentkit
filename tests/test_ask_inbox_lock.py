@@ -21,6 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, notify, orch, watch
+from fixtures.seats import cursor_row
 
 PR = "https://example.test/acme/fix-api/pull/9"
 SHA = "abc123def4567890"
@@ -84,9 +85,10 @@ class AskInboxLock(unittest.TestCase):
     def tmux(self, *args, socket=None, client=False, **_kw):
         if args[0] == "send-keys":
             self.sent.append(args[-1])
-        if args[0] != "capture-pane":
-            return 0, ""
-        return 0, self.pane() if callable(self.pane) else self.pane
+        pane = self.pane() if callable(self.pane) else self.pane
+        if args[-1] == "#{cursor_y}":
+            return 0, cursor_row(pane)
+        return 0, pane if args[0] == "capture-pane" else ""
 
     def ask(self, question=QUESTION):
         return watch.ask_inbox({}, question, PR, SHA, self.logs.append)
