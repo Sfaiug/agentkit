@@ -4353,16 +4353,17 @@ def config_spend_reset(cfg, picked):
 
 def subscription_acts(cfg, keyboard, number, remove=False):
     """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
-    act what to say under the screen or "": `log in again` where a harness signs it in
-    (sign_in), `spend a reset` while it holds one (config_spend_reset), and with `remove`,
+    act what to say under the screen or "": `log in again` where its harness signs it in
+    afresh (sign_in, config.signs_in_again), `spend a reset` while it holds one (config_spend_reset), and with `remove`,
     `remove` (config_remove_provider)."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     name, label, prov, account = usage_rows(cfg)[number - 1]
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
+    harness = logins.harness(cfg, name)
     return [(text[0 if terminal.utf8() else 1], act) for text, act, offers in (
         (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, name, account) or "",
-         logins.harness(cfg, name)),
+         harness and config.signs_in_again(harness)),
         (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
         (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
 
@@ -4428,16 +4429,17 @@ def config_page(name, page):
 
     Enter or a click on a row calls its act.  One that is a list's, (choices, several), opens
     the list under the row, the highlight on the first choice marked: `choices()` gives (value,
-    pick, marked) each, asked again for every draw, and Enter or a click on one calls its
-    `pick()`, the list closing unless `several`; Esc closes it.  Any other act is called with
+    pick, marked) each, asked as it opens and again after each pick, so a reading that moves
+    underneath never moves the highlight onto another choice, and Enter or a click on one calls
+    its `pick()`, the list closing unless `several`; Esc closes it.  Any other act is called with
     `draw`, which draws the page with lines under the row and returns the screen row of the
     first, as terminal.field takes it.  What a call returns is said under the rows, over the
     note, until the next key."""
     here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
+    listed = []                       # the open list's choices, as last asked
     keys = ADD_KEYS["choose"][0 if terminal.utf8() else 1] + "   esc back"
     while True:
         rows, note = page()
-        listed = opened[1]() if opened else []
         drawn = [(("row", number), label, value) for number, (label, value, _) in enumerate(rows)]
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
@@ -4459,12 +4461,14 @@ def config_page(name, page):
             continue
         elif len(here) == 3:
             said = listed[here[2]][1]() or ""
-            if not opened[2]:
+            if opened[2]:
+                listed = opened[1]()
+            else:
                 here, opened = here[:2], None
         elif isinstance(rows[here[1]][2], tuple):
             opened = (here[1], *rows[here[1]][2])
-            choices = opened[1]()
-            here = (*here, next((number for number, (_, _, marked) in enumerate(choices)
+            listed = opened[1]()
+            here = (*here, next((number for number, (_, _, marked) in enumerate(listed)
                                  if marked), 0))
         else:
             opened, at = None, here[1]

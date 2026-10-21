@@ -12,7 +12,8 @@
 #                                  takes `--session` for one that exists and has no flag for one
 #                                  that does not, so a seat's id is the one its plugin reports
 #                     install      -> the owner's installer, unless opencode is already here
-#                     login        -> `opencode auth login <provider>`, unless already logged in
+#                     login [again] -> `opencode auth login <provider>`, unless already logged
+#                                  in; `again` signs in afresh over a login that still stands
 #                     auth [seat]  -> 0 when a turn on each named provider can authenticate, 1
 #                                  and one line why; `seat` is the same login here, and is
 #                                  accepted and ignored
@@ -516,7 +517,7 @@ login)
   # list of every provider it can log in to.
   command -v opencode >/dev/null || { echo "opencode.sh login: opencode is not installed" >&2; exit 2; }
   p=${PROVIDERS%% *}
-  logged_in "$p" && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
+  [ "${1:-}" != again ] && logged_in "$p" && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
   [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
   opencode auth login ${p:+"$p"} ;;
 auth)
@@ -600,6 +601,6 @@ providers)
     echo "opencode: OpenCode did not list its providers" >&2; exit 1
   fi ;;
 *)
-  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
+  echo "usage: opencode.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | opencode.sh usage | opencode.sh interactive <model> <effort> [session-id [new]] | opencode.sh install | opencode.sh login [again] | opencode.sh auth [seat] | opencode.sh hooks | opencode.sh models | opencode.sh providers" >&2
   exit 2 ;;
 esac
