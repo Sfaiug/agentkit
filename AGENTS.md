@@ -38,7 +38,7 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang on your branch, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - Decide from exit codes and files, never another program's output text, except the stop hook's `?` at a turn's end.
-- Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics for it (Linux's path walk inside Git trees): every review round found one more difference.
+- Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics for it: every review round found one more difference.
 - A test never asserts a plain word is absent from output that prints paths (worktree paths carry the run's title), nor a wall-clock duration (host load breaks it at landing). Inject the clock and assert what it read: `tests/fixtures/sandbox.py` and `tests/fixtures/clock.py` say how.
 - When review keeps finding races or recovery paths, delete state or simplify the design.
 - A task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word, and each wider one costs findings.
