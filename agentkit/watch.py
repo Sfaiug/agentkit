@@ -736,6 +736,9 @@ def screen(harness):
              "faint": tuple(colour for colour in block.get("faint") or ()
                             if isinstance(colour, str)),
              "tray": _pattern(block.get("tray"), path),
+             # it keeps the terminal cursor in its composer's box while keys go there
+             # (`off_composer`)
+             "cursor": block.get("cursor") is True,
              # the keys that hand its composer to $VISUAL, ak's editor (`seat_editor`)
              "editor": tuple(key for key in block.get("editor") or ()
                              if isinstance(key, str) and key),
@@ -2313,19 +2316,18 @@ def plan_progress(name):
 
 
 def unsent(name, harness, found, session):
-    """`unsent: <text>` for typed text nobody sent at a quiet prompt once nobody is in the seat
-    to see it, else "".  Text in the composer never changes the word (owner, 14 Oct 2026): it
-    is a reason, so the seat the owner left reads what its runs and its turn say and still shows
-    what they never sent.  Three seats once read `working` over their own unsent text for
-    nineteen hours while they believed each had their message.  While a client is attached it
-    is their typing; a Stop on background work is a quiet prompt, its composer open, and so is
-    a turn refused for usage, whose hooks never saw it end (`usage_wait`)."""
+    """Typed text nobody sent at a quiet prompt once nobody is in the seat to see it, else "".
+    Text in the composer never changes the word (owner, 14 Oct 2026): the seat the owner left
+    reads what its runs and its turn say, and its row still marks what they never sent.  Three
+    seats once read `working` over their own unsent text for nineteen hours while they believed
+    each had their message.  While a client is attached it is their typing; a Stop on
+    background work is a quiet prompt, its composer open, and so is a turn refused for usage,
+    whose hooks never saw it end (`usage_wait`)."""
     if (not harness or any(session.get(key) for key in orch.CLOSED) or session.get("attached")
             or found.get("state") != "draft"
             or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
         return ""
-    text = " ".join(str(found.get("evidence") or "").split())
-    return f"unsent: {text}" if text else ""
+    return " ".join(str(found.get("evidence") or "").split())
 
 
 def session_state(name, now=None, session=None, cfg=None, records=None, number=None,
@@ -2387,10 +2389,9 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     worker-token ask found, and `previous` the record of
     the last word. `run_numbers` is kept for callers that still hand it down and is read no more.
 
-    Typed text nobody sent is never a word: once no client is attached, whatever the ladder
-    says gets `unsent: <text>` in its reason, and the answer carries it as `unsent` too, the one
-    fact a row's last column reads it from (`menu.last_column`).  Never a `card`'s: what the
-    owner never sent is not Discord's.
+    Typed text nobody sent is never a word nor a reason: once no client is attached, the answer
+    carries it as `unsent`, which a row marks (`menu.last_column`) and opens under it
+    (`menu.detail`).  Never a `card`'s: what the owner never sent is not Discord's.
 
     Deciding is the whole of it: nothing here captures a pane, writes a record, sets an
     option or tells anybody -- not even through a lookup, which is why the seat and its
@@ -2432,10 +2433,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                            else previous.get("word_since", answer["since"]))
     elif previous.get("word") is not None:
         answer["since"] = at
-    # after the age, whose warning check reads the ladder's own reason
     draft = "" if card else unsent(name, harness, live, session)
     if draft:
-        answer["reason"] = f"{answer['reason']} · {draft}" if answer["reason"] else draft
         answer["unsent"] = draft
     return answer
 
@@ -2469,6 +2468,7 @@ def announce_state(session, cfg=None, look=False, **facts):
         # preflight's) is a reading nobody has published yet (`unseen`)
         decided = word_from(facts["live"])
         if (previous.get("word") != answer["word"] or previous.get("reason") != answer["reason"]
+                or (previous.get("unsent") or "") != answer.get("unsent", "")
                 or previous.get("word_since") != answer["since"]
                 or previous.get("word_from") != decided):
             seat_write(name, word=answer["word"], reason=answer["reason"],
@@ -2666,7 +2666,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         return {"word": "needs you", "reason": reason, "since": since}
     # 1d. a question on its screen, even during a turn: that needs the owner, whatever its runs
     # are doing, and its card is held back while they are in the seat by the card rule itself.
-    # Typed text nobody sent is no word of its own: `unsent` adds it to the reason.  A seat
+    # Typed text nobody sent is no word of its own: `unsent` carries it.  A seat
     # nobody is in has no screen, so its record is history.
     gone = any(session.get(key) for key in orch.CLOSED)
     # A seat waiting for its usage to come back was refused mid-turn: whatever its screen
@@ -3211,9 +3211,38 @@ def pane_unread(session):
     return False
 
 
+def off_composer(session):
+    """Is that seat's terminal cursor outside its composer's box, of a harness keeping it there
+    while keys go there (`[screen] cursor`): one opening a dialog moves it into the dialog, and
+    a key sent then goes into the dialog's search, Enter picking one of its rows.  The box is
+    the bottom run of rows its `composer` pattern names, read off the same pane as the cursor;
+    a dialog drawn inside that box itself, in a pane too short for it to clear the box, is not
+    told apart.  A cursor or pane that cannot be read is outside."""
+    try:
+        harness = seat_model(config.load(), session["name"])[0]
+        chrome = screen(harness) if harness else {}
+    except (config.Error, OSError):
+        return False
+    if not chrome.get("cursor") or not chrome["composer"]:
+        return False
+    server, pane = orch.seat_socket(session), _pane(session)
+    rc, at = orch.tmux_out("display-message", "-p", "-t", pane, "#{cursor_y}", socket=server)
+    code, shown = orch.tmux_out("capture-pane", "-p", "-t", pane, socket=server, rows=True)
+    box = [chrome["composer"].fullmatch(row.strip()) is not None for row in shown.splitlines()]
+    if rc != 0 or code != 0 or not at.isdigit() or True not in box:
+        return True
+    top = bottom = max(row for row, inside in enumerate(box) if inside)
+    while top and box[top - 1]:
+        top -= 1
+    return not top <= int(at) <= bottom
+
+
 def _send_enter(session, log):
-    """One Enter completing a line already begun; False where the send failed."""
+    """One Enter completing a line already begun; False where the send failed or the seat's
+    cursor is off its composer (`off_composer`)."""
     name = session["name"]
+    if off_composer(session):
+        return False
     rc, out = orch.tmux_out("send-keys", "-t", _pane(session), "Enter",
                             socket=orch.seat_socket(session))
     if rc != 0:
@@ -3227,10 +3256,11 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", put=None)
 
     `typed` is told the moment the text is in, before the Enter that can still fail.
     `source="owner"` marks an owner's reply relayed unchanged, including from Discord.
-    None means unread input deferred this line before any receipt or key was written.
+    None means unread input, or a cursor off the composer (`off_composer`), deferred this line
+    before any receipt or key was written.
     `put`, where given, puts the text in in place of its keys, and says whether it did.
     """
-    if pane_unread(session):
+    if pane_unread(session) or off_composer(session):
         return None
     name = session["name"]
     record = config.session_records().get(name, {})
@@ -3737,10 +3767,13 @@ def seat_editor(session, cfg=None):
 
 def _edit(session, where, mode, line=""):
     """Ask ak's editor for `line` or `back` with that line (`aside_editor`) and press the keys
-    that open it: its answer, or None where it gives none within SENT_WAIT.  The editor reads
+    that open it: its answer, or None where it gives none within SENT_WAIT, or where no key
+    goes out as the pane's cursor is off its composer (`off_composer`).  The editor reads
     the composer itself, which a screen can draw late or cropped.  The ask is taken back after,
     for the owner's own edit never to find -- one that keys went out for and that went
     unanswered turned to `none`, which an edit they open late leaves as it is."""
+    if off_composer(dict(session, pane=where["id"])):
+        return None
     server, pane, ask = orch.seat_socket(session), where["id"], aside_editor.request(mode, line)
     after = ("set-option", "-pu", "-t", pane, aside_editor.ASK)
     try:
@@ -3787,14 +3820,16 @@ def _editor_kept(session):
     return found
 
 
-def _editor_read(session, where, cfg=None):
+def _editor_read(session, where, cfg=None, *, after_line=False):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
-    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL and none
-    unread, read with no question or picker up (`[[rule]] picker`) -- the step's keys open the
-    editor from a composer alone, and a picker drawn on over what it puts there takes its Enter."""
+    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL -- but
+    for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
+    ak's keys as it does the owner's -- and none unread, read with no question or picker up
+    (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
+    drawn on over what it puts there takes its Enter."""
     name = session["name"]
     try:
-        if time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
+        if not after_line and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
             return None
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
@@ -3861,7 +3896,7 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
         return False
     _send_enter(session, log)
     return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
-            and _editor_read(session, where, cfg)
+            and _editor_read(session, where, cfg, after_line=True)
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
@@ -4303,12 +4338,38 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         return True
 
 
-def _resume_on(cfg, name, log, account, continuing):
+def _resume_on(cfg, name, log, account, continuing, still=None):
     """Resume that seat's conversation on `account`; a turn it was in goes on there."""
-    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account)
+    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still)
     if continuing and resumed == "resumed":
         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                  "line": ACCOUNT_LINE})
+
+
+def between_turns(name, harness, record, opened_at, pane=None):
+    """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
+    closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
+    respawn would take) at its prompt with nothing in its composer, in no turn, asking nothing,
+    and its terminal given no keys for DRAFT_STILL, none unread?  A capture that failed shows
+    none of that, nor does a terminal that cannot be asked."""
+    seat, now = orch.find(name), config.session_records().get(name) or {}
+    if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
+            or any(now.get(key) != record.get(key)
+                   for key in ("orchestrator", "conversation", "account"))
+            or seat_read(name).get("opened_at") != opened_at):
+        return False
+    seat = dict(seat, pane=pane or orch.harness_pane(name, orch.seat_socket(seat)))
+    rc, tty = orch.tmux_out("display-message", "-p", "-t", _pane(seat), "#{pane_tty}",
+                            socket=orch.seat_socket(seat))
+    try:
+        # a key its harness took is drawn long before: the kernel dates a read to 8 seconds
+        quiet = rc == 0 and time.time() - os.stat(tty).st_atime >= DRAFT_STILL
+    except (OSError, ValueError):
+        return False
+    pane = pane_text(seat)
+    fresh = observed(name, harness, pane, seat_read(name), time.time())
+    return (quiet and bool(pane.strip()) and fresh["state"] == "at_prompt"
+            and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
 
 def seat_account(cfg, session, harness, provider, pane, dry_run, log):
@@ -4351,6 +4412,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return not spent(account) and not usage.on_credits(
             cfg, model, {provider: readings.get(account, {})})
 
+    def low(account):
+        return usage.model_low(cfg, model, {provider: readings.get(account, {})})
+
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
     if line is None:
@@ -4386,8 +4450,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if not waiting and not refusal and not spent(current):
         # An idle seat comes home once home has a window, and leaves credits for any window; a
         # turn the limit ended goes on there, though the meters may not show that limit yet.
+        # One whose account runs low moves to one that does not, between turns, so no turn of
+        # it is cut off when that account is spent; with every one low it spends its own, and
+        # it comes home only to room it would not leave again at once.
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
-                 and window(a) and (a == home or not window(current))]
+                 and window(a) and (not window(current) or not low(a)
+                                    and (a == home or low(current)))]
         if (moves and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
@@ -4398,15 +4466,15 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                            if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
             if target is None:
                 return False
+            def still(pane=None):
+                # The last look, the old harness taking no keys from it on (the owner's choice
+                # of 21 Oct 2026: a prompt from the phone in that instant may be lost).
+                return between_turns(name, harness, record, live.get("opened_at"), pane)
             with state_lock():
-                current_seat = orch.find(name)
-                if (seat_closed_by_owner(name) or config.session_records().get(name) != record
-                        or seat_read(name).get("opened_at") != live.get("opened_at")
-                        or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                        or pane_text(current_seat) != pane):
+                if not still():
                     return True
                 try:
-                    _resume_on(cfg, name, log, target, limit_ended(harness, name))
+                    _resume_on(cfg, name, log, target, limit_ended(harness, name), still)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
@@ -5127,7 +5195,9 @@ def launch_resume(run_id, log=lambda _: None, verb="resume"):
 
 
 def tell_parked(run_id, step, seat, log):
-    """Tell the launching seat once, or send the one Discord card the rules allow.
+    """Tell the launching seat once, or send the one Discord card the rules allow; a run
+    launched from no seat is one nothing else can move, so its owner is paged, the card's
+    title naming how to resume it.
 
     True once the notice is delivered -- typed into a live seat, or accepted as a card.
     A refused card stays pending in `stalled_notified` and is retried on a later tick.
@@ -5151,7 +5221,8 @@ def tell_parked(run_id, step, seat, log):
             except (config.Error, OSError):
                 pass
     event_id = f"stalled:{run_id}:{step}"[:200]
-    if notify.shaped("needs", line, session=seat, event_id=event_id) == 0:
+    if (notify.shaped("needs", line, session=seat, event_id=event_id) if seat
+            else notify.page(event_id, f"ak run resume {run_id}", line)) == 0:
         return True
     log(f"WARN {run_id}: parking notice was not accepted; it stays pending for a later tick")
     return False

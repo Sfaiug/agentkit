@@ -82,7 +82,9 @@ is its progress line (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, in its word's
 colour while it is not at rest, its work waiting in the line to land too
-(`working` includes landing: its squares say so), else empty. What the
+(`working` includes landing: its squares say so), else empty, then
+`✎ unsent` in the needs-you colour where the owner left text unsent, whose
+whole text opens first under the row. What the
 reason says -- the question the seat asked, `stopped with work open: <line>`,
 the plan's last done line, an idle seat's way back in, `session closed: press 2 to
 reopen` -- opens under the row (Rows are tables), never beside it. Never `N
@@ -176,7 +178,8 @@ its project's heading, numbered on after the live ones in the same order --
 number, name, orchestrator, `stopped 2h ago` in the state's column, and its
 harness's word where it cannot resume the conversation -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`.
 The highlighted row opens its plan's first done line under its name, then, dim,
-`6 tasks · took 4 hours`: hours and days, never minutes, to its last done. Enter or a
+`6 tasks · took 4 hours · Opus 5.5, GPT-6-Astra, Fable 5.1`: hours and days, never minutes, to its last
+done, then its orchestrator and every other model its runs used, by its full name. Enter or a
 click reopens the highlighted seat where it stopped, as its number does from
 the main screen, and the menu is back; `x` removes it at once, the rest
 staying up; Esc goes back. From a pipe a number reopens, `x` asks which to
@@ -238,9 +241,8 @@ explain: nothing lights on them and a click there does nothing of its own
 ## Questions
 
 Every yes-or-no question on a screen read with the keys -- `x` on a seat that
-is not done, in the menu and the popup, `Remove` on a model, a provider or a
-subscription on the `c` screens, and `Move` on another model's orchestrator mark of a
-seat there -- is one card, `terminal.confirm`, drawn where
+is not done, in the menu and the popup, and `Remove` on a model, a provider or a
+subscription on the `c` screens -- is one card, `terminal.confirm`, drawn where
 its screen asks it: a blank line, the question in the normal colour, one dim
 line saying what the answer means, the two choices, and a blank line. The safe
 choice is first and highlighted, `✓ Keep`; the one that ends something follows,
@@ -280,7 +282,7 @@ that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
-drawn at once, the orchestrator only moves, and the last reviewer stays, saying
+drawn at once, asking nothing, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). The highlighted model opens no line: what it
 runs on is the meter that lights it. `r recommended` opens the models screen
 (The models screen).
@@ -330,17 +332,17 @@ record -- opens `agentkit · models · <seat>`: every model the installed harnes
 against the public boards, as `ak models` scores them, with nothing typed. Its first row is
 the one knob, `as good as the best: within ‹ 5 ›`: ←/→ step `within` a point, never
 under 0, saved to config.toml at once, and the lines under it follow. Then the formula,
-each row said with its quality and cost (`opus @ max 100 $8708`): `best`, dim, the row of the
+each row said with its quality and cost (`opus @ max 100 $5.98`): `best`, dim, the row of the
 highest quality per role; `as good`, dim, the rows within the knob of it, cheapest first; and
 `recommended`, the cheapest as good, said so (`recommended  the cheapest as good: orch opus @
-xhigh 97 $4057 · builds opus @ xhigh 96 $4057 · reviews gpt-sol @ max 95 $1082`), then, dim,
+xhigh 97 $2.95 · builds opus @ xhigh 96 $2.95 · reviews gpt-sol @ max 95 $0.72`), then, dim,
 what quality and cost are. Under them one model a row, the scored ones first by their best
 quality: its config
 name, or its id where the config does not run it (dim where no board scores it), its
 harness (dim), its effort between the arrows that step it (`‹ xhigh ›`; the word alone with
 one effort), its quality per role at that effort out of 100 -- the recommended row's in
-`done`'s colour, one as good in the accent, `-` without a score -- and what Artificial
-Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
+`done`'s colour, one as good in the accent, `-` without a score -- and what a task of
+Artificial Analysis's index run cost it, in dollars. On a screen too narrow for the table the harness
 column gives way, then the cost; where the label would still be cut, each model takes two
 lines, its label and harness on the first and its effort and three numbers on the second,
 the highlight on both, and the harness gives way again where the label would still be cut
@@ -395,7 +397,7 @@ and scroll them on a short screen, the role headings kept visible; ←/→ choos
 a click chooses, Enter starts from anywhere -- or, with every model spent and a role still
 empty, takes the highlight to it -- Esc goes back, and reviewers keep their last model, its mark
 shaking (Motion). Executors may be left empty: the orchestrator builds everything, its own
-`builds` mark filled and dim on both `n` and `c`. Enter on an empty name leaves a free one-word
+`builds` mark filled and dim on both `n` and `c`, and no ⚒ in its crew. Enter on an empty name leaves a free one-word
 name of a Star Wars: The Clone Wars character (`orch.character_name`: `ahsoka`, `rex`), unnamed until its orchestrator gives it the shortest name, at most
 three words, with `ak orch rename --auto <name>`; the end-of-turn rule sends its stops back until it has, a
 question to the owner aside. Once named, `--auto` changes nothing, prints
@@ -447,8 +449,8 @@ screen comes up or comes back, nor once the pointer is on no row. They are
 indented under the name and lit as the row is (`menu.detail`): the
 question for `needs you`, what got done for `done` and an idle seat's way back
 in, wrapped whole at words, so a question is read whole on ak's own screen before
-its seat is opened, whatever harness it runs; for any other, each model that builds or
-reviews named once, dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
+its seat is opened, whatever harness it runs; for any other, each marked executor and
+reviewer named once (an orchestrator building alone is not: no ⚒ is the seat itself), dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
 it reviews (glyphs without their word, the owner's pick of 18 Oct 2026), and each task in
 flight as three squares -- build, review, land -- the stages it reached filled, in
 working's colour while a model or ak works on it, dim while it waits, the rest

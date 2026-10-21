@@ -66,12 +66,12 @@ class Screen(Sandbox):
         # opus at three efforts; astra as good as its xhigh at an eighth of the cost; sonnet,
         # not configured, under the best by more; mimo, which the boards list naming no effort,
         # one row at none; spark, which no board has
-        self.store([row("claude", "claude-opus-5-5", "max", 100, 100, 100, cost=8000),
-                    row("claude", "claude-opus-5-5", "xhigh", 96.55, 96.55, 96.55, cost=4000),
-                    row("claude", "claude-opus-5-5", "high", 86.2, 86.2, 86.2, cost=2000),
-                    row("codex", "gpt-6-astra", "xhigh", 84.64, 95.48, 95.75, cost=500),
-                    row("claude", "claude-sonnet-5-5", "max", 67.86, 84.52, 84.77, cost=7000),
-                    row("opencode", "mimo-pro", None, None, 50.71, 50.86, cost=100),
+        self.store([row("claude", "claude-opus-5-5", "max", 100, 100, 100, cost=8),
+                    row("claude", "claude-opus-5-5", "xhigh", 96.55, 96.55, 96.55, cost=4),
+                    row("claude", "claude-opus-5-5", "high", 86.2, 86.2, 86.2, cost=2),
+                    row("codex", "gpt-6-astra", "xhigh", 84.64, 95.48, 95.75, cost=0.5),
+                    row("claude", "claude-sonnet-5-5", "max", 67.86, 84.52, 84.77, cost=7),
+                    row("opencode", "mimo-pro", None, None, 50.71, 50.86, cost=0.1),
                     row("muse", "muse-spark-1.3-contributor", None)])
         # each configured model as the screen names it, in full (config.model_name)
         self.opus, self.astra, self.spark = (config.model_name(self.cfg, name)
@@ -99,23 +99,23 @@ class ModelsScreen(Screen):
         self.assertIn("agentkit · models · fix-api", text)
         self.assertIn("as good as the best: within ‹ 5 ›", text)
         opus, astra = self.opus, self.astra
-        self.assertIn(f"best orch {opus} @ max 100 $8000 · builds {opus} @ max 100 $8000 · reviews "
-                      f"{opus} @ max 100 $8000 as good builds {opus} @ xhigh 97 $4000 · reviews "
-                      f"{opus} @ xhigh 97 $4000 recommended the cheapest as good: orch {opus} @ "
-                      f"xhigh 97 $4000 · builds {astra} @ xhigh 95 $500 · reviews {astra} @ xhigh "
-                      "96 $500", text)
+        self.assertIn(f"best orch {opus} @ max 100 $8.00 · builds {opus} @ max 100 $8.00 · reviews "
+                      f"{opus} @ max 100 $8.00 as good builds {opus} @ xhigh 97 $4.00 · reviews "
+                      f"{opus} @ xhigh 97 $4.00 recommended the cheapest as good: orch {opus} @ "
+                      f"xhigh 97 $4.00 · builds {astra} @ xhigh 95 $0.50 · reviews {astra} @ xhigh "
+                      "96 $0.50", text)
         self.assertIn("quality is 100 less how many points a model is behind the best on the "
-                      "public boards; cost is what Artificial Analysis's index run cost it, in "
+                      "public boards; cost is what a task of Artificial Analysis's index run cost it, in "
                       "dollars", text)
         self.assertIn("model harness effort orch builds reviews cost $", text)
         # the scored models first by their best quality, each at the effort the config runs
         # it at, else its best; a model with one effort has no arrows; mimo's one row at none
         # shows on its first level; spark, which no board has, last at the effort the config
         # runs it at
-        self.assertIn(f"› {opus} claude ‹ xhigh › 97 97 97 4000 "
-                      f"{astra} codex xhigh 85 95 96 500 "
-                      "claude-sonnet-5-5 claude max 68 85 85 7000 "
-                      "mimo-pro opencode ‹ none › - 51 51 100 "
+        self.assertIn(f"› {opus} claude ‹ xhigh › 97 97 97 4.00 "
+                      f"{astra} codex xhigh 85 95 96 0.50 "
+                      "claude-sonnet-5-5 claude max 68 85 85 7.00 "
+                      "mimo-pro opencode ‹ none › - 51 51 0.10 "
                       f"{self.spark} muse xhigh - - - -", text)
         self.assertIn("↑↓ move ←→ effort r take recommended esc back", text)
         # back on `c`, whose key opens the screen
@@ -124,25 +124,25 @@ class ModelsScreen(Screen):
 
     def test_the_arrows_step_a_model_s_effort_and_the_numbers_follow_nothing_saved(self):
         text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")])
-        self.assertIn(f"› {self.opus} claude ‹ max › 100 100 100 8000 ", text)
+        self.assertIn(f"› {self.opus} claude ‹ max › 100 100 100 8.00 ", text)
         self.assertEqual(config.load()["models"]["opus"]["effort"], "xhigh")
         text = self.screens([Key("char", "r"), Key("left"), Key("left"), Key("esc"), Key("esc")])
-        self.assertIn(f"› {self.opus} claude ‹ high › 86 86 86 2000 ", text)
+        self.assertIn(f"› {self.opus} claude ‹ high › 86 86 86 2.00 ", text)
         # on a model with one effort the arrows do nothing and the key line offers none
         text = self.screens([Key("char", "r"), Key("down"), Key("right"), Key("esc"), Key("esc")])
-        self.assertIn(f"› {self.astra} codex xhigh 85 95 96 500 ", text)
+        self.assertIn(f"› {self.astra} codex xhigh 85 95 96 0.50 ", text)
         # a row at none, the boards naming no effort, counts at every effort of its model
         text = self.screens([Key("char", "r"), *[Key("down")] * 3, Key("right"), Key("esc"),
                              Key("esc")])
-        self.assertIn("› mimo-pro opencode ‹ high › - 51 51 100 ", text)
+        self.assertIn("› mimo-pro opencode ‹ high › - 51 51 0.10 ", text)
         self.assertIn("↑↓ move r take recommended esc back", text)
         # so does a row at the effort the config runs its model at that every board names no
         # effort for: the matrix would match the same board rows at any
-        one = row("claude", "claude-opus-5-5", "xhigh", 100, 100, 100, cost=4000)
+        one = row("claude", "claude-opus-5-5", "xhigh", 100, 100, 100, cost=4)
         one["matched"] = {"artificialanalysis.ai": {"model": "Claude Opus 5.5", "effort": None}}
         self.store([one])
         text = self.screens([Key("char", "r"), Key("right"), Key("esc"), Key("esc")])
-        self.assertIn(f"› {self.opus} claude ‹ max › 100 100 100 4000 ", text)
+        self.assertIn(f"› {self.opus} claude ‹ max › 100 100 100 4.00 ", text)
 
     def test_the_knob_steps_within_saved_at_once_and_the_recommendation_follows(self):
         # up past the note and the three lines that say why, each a row, to the knob
@@ -151,14 +151,14 @@ class ModelsScreen(Screen):
         self.assertIn("as good as the best: within ‹ 4 ›", text)
         self.assertEqual(config.load()["within"], 4)
         # within 4, astra's 96 is no longer as good as opus's 100: opus @ xhigh everywhere
-        said = f"{self.opus} @ xhigh 97 $4000"
+        said = f"{self.opus} @ xhigh 97 $4.00"
         self.assertIn(f"as good none recommended the cheapest as good: orch {said} · builds "
                       f"{said} · reviews {said}", text)
         text = self.screens([Key("char", "r"), *[Key("up")] * 5, *[Key("left")] * 6, Key("esc"),
                              Key("esc")])
         self.assertIn("as good as the best: within ‹ 0 ›", text)
         self.assertEqual(config.load()["within"], 0)
-        said = f"{self.opus} @ max 100 $8000"
+        said = f"{self.opus} @ max 100 $8.00"
         self.assertIn(f"recommended the cheapest as good: orch {said} · builds {said} · reviews "
                       f"{said}", text)
 
@@ -173,17 +173,17 @@ class ModelsScreen(Screen):
         self.assertNotIn("cost $", text.split("models · fix-api")[1])
         # each line is read whole on the page it is highlighted on, with no arrows to offer
         best, good = (re.escape(f"{self.opus} @ {at}")
-                      for at in ("max 100 $8000", "xhigh 97 $4000"))
+                      for at in ("max 100 $8.00", "xhigh 97 $4.00"))
         astra = re.escape(self.astra)
         self.assertRegex(text, rf"› best orch {best} · builds {best} · reviews {best} .*? "
                                r"↑↓ move r take recommended esc back")
         self.assertRegex(text, rf"› as good builds {good} · reviews {good} .*? "
                                r"↑↓ move r take recommended esc back")
         self.assertRegex(text, rf"› recommended the cheapest as good: orch {good} · "
-                               rf"builds {astra} @ xhigh 95 \$500 · reviews {astra} @ xhigh 96 \$500 "
+                               rf"builds {astra} @ xhigh 95 \$0\.50 · reviews {astra} @ xhigh 96 \$0\.50 "
                                r".*? ↑↓ move r take recommended esc back")
         self.assertIn("quality is 100 less how many points a model is behind the best on the "
-                      "public boards; cost is what Artificial Analysis's index run cost it, in "
+                      "public boards; cost is what a task of Artificial Analysis's index run cost it, in "
                       "dollars", text)
         self.assertIn(f"› {self.spark} muse xhigh - - -", text)
 
@@ -192,10 +192,10 @@ class ModelsScreen(Screen):
         # cells.  Up to the knob, then down through every row, and every line of the screen,
         # including the quality and cost note, is on some page drawn, even at 40x12
         self.store([
-            row("claude", "claude-opus-5-5", "max", 100, 100, 100, cost=8000),
-            row("claude", "claude-opus-5-5", "xhigh", 96.55, 96.55, 96.55, cost=4000),
-            row("codex", "gpt-6-astra", "xhigh", 94.64, 95.48, 95.75, cost=500),
-            *[row("opencode", f"acme-model-{n}", "high", 96.07, 96.9, 96.61, cost=3000 + n)
+            row("claude", "claude-opus-5-5", "max", 100, 100, 100, cost=8),
+            row("claude", "claude-opus-5-5", "xhigh", 96.55, 96.55, 96.55, cost=4),
+            row("codex", "gpt-6-astra", "xhigh", 94.64, 95.48, 95.75, cost=0.5),
+            *[row("opencode", f"acme-model-{n}", "high", 96.07, 96.9, 96.61, cost=3 + n / 1000)
               for n in range(7)]])
         bodies, frames, body, frame = [], [], menu.models_body, terminal.frame
 

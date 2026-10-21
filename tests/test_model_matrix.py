@@ -1,15 +1,15 @@
 """`ak models` reads the three public boards once a day into `state/boards.json`.
 
-Artificial Analysis is asked with the owner's key alone, Arena through its dataset's pages, each
-of its boards at its category, and LiveBench 2.0 off its newest release that answers; a board's
+Artificial Analysis is read off its site's pages, Arena through its dataset's pages, each of its
+boards at its category, and LiveBench 2.0 off its newest release that answers; a board's
 row is one model at one effort, or at none where the board names no effort; within a day nothing
 is asked again, `--refresh` asks now, and a board that fails keeps its last rows with the error
 beside them.  An install upgraded from before 20 Oct 2026 reads them once out of
 `state/matrix.json`, where they were kept beside the matrix, whole.
 
 Offline: the boards' answers are handed in as bytes, counted, and a throwaway HOME holds the
-cache and the key.  Artificial Analysis answers in pages of three, Arena's dataset in pages of
-two, its rows grouped by category as Hugging Face serves them: overall first, then the others
+cache.  Artificial Analysis's pages hand their scripts the records split across two strings,
+Arena's dataset answers in pages of two, its rows grouped by category as Hugging Face serves them: overall first, then the others
 in their alphabetical order.
 """
 
@@ -31,16 +31,16 @@ sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix
 
+# Artificial Analysis's records on its retired model's page, and on DeepsecBench's
 AA = [
-    {"name": "Claude Opus 5.5 (max)", "evaluations": {"artificial_analysis_coding_index": 59.6,
-                                                      "artificial_analysis_intelligence_index": 58},
-     "pricing": {"price_1m_input_tokens": 4.0}, "performance": {"median_output_tokens_per_second": 95},
-     "reasoning_model": True, "artificial_analysis_intelligence_index_cost":
-         {"total_cost": 20.69, "cost_per_task": {"total_cost": 0.17}}},
-    {"name": "Claude Opus 5.5 (xhigh)", "evaluations": {"artificial_analysis_coding_index": 59.6,
-                                                        "artificial_analysis_intelligence_index": 56}},
-    {"name": "Claude Haiku 4.5 (Non-reasoning)", "evaluations": {"artificial_analysis_coding_index": 9.0}},
-    {"name": "Claude Sonnet 4.6 (Thinking)", "evaluations": {}}]
+    {"name": "Claude Opus 5.5 (max)", "intelligenceIndex": 58, "terminalBench40": 0.6,
+     "price1mInputTokens": 4.0, "isReasoning": True, "omniscienceHallucinationRate": None,
+     "briefcaseBreakdown": {"elo": 1800.0, "rubricPassRate": 0.6},    # flat, as the newest are
+     "intelligenceIndexCostPerTask": {"cost": {"total": 5.98}}},
+    {"name": "Claude Opus 5.5 (xhigh)", "intelligenceIndex": 56},
+    {"name": "Claude Haiku 4.5 (Non-reasoning)", "intelligenceIndex": 9.0},
+    {"name": "Claude Sonnet 4.6 (Thinking)", "briefcaseBreakdown": {"overall": {"elo": 1500.0}}}]
+DEEPSEC = [{"name": "Claude Opus 5.5 (max)", "deepsecBench": 0.27, "intelligenceIndex": None}]
 # each Arena board's rows as (model, category, the board's number), in the order it serves them
 ARENA = {"agent_task_outcome_explicit": [("Claude Opus 5.5 (Max)", "overall", 0.17),
                                          ("GPT 6 Astra (xHigh)", "overall", 0.137)],
@@ -61,6 +61,19 @@ TABLE = "model,coding,long_agentic\nclaude-opus-5.5,96.3,85.0\ngpt-6-astra,93.7,
 COST = "model,coding,nq_coding\nclaude-opus-5.5,113.0,29\ngpt-6-astra,,29\n"
 
 
+def aa_page(records):
+    """A page of Artificial Analysis's site: each record with an id, a slug off its name, its
+    release and its maker, in the data the page hands its scripts, split across two strings."""
+    data = json.dumps({"models": [
+        {"id": f"{n:08x}-0000-4000-8000-000000000000",
+         "slug": "-".join("".join(c if c.isalnum() else " " for c in record["name"].lower()).split()),
+         **record, "release": {"name": record["name"]},
+         "creator": {"id": "00000000-0000-4000-8000-0000000000ac", "slug": "acme", "name": "Acme"}}
+        for n, record in enumerate(records)]}, separators=(",", ":"))
+    return "".join(f"<script>self.__next_f.push([1,{json.dumps(part)}])</script>"
+                   for part in (data[:len(data) // 2], data[len(data) // 2:])).encode()
+
+
 class Boards:
     """The three boards' answers, as bytes per URL, counting the asks."""
     def __init__(self):
@@ -73,10 +86,8 @@ class Boards:
         for part in self.down:
             if part in url:
                 raise OSError(f"{part} refused")
-        if "artificialanalysis" in url:
-            page = int(url.rsplit("page=", 1)[1])
-            return json.dumps({"pagination": {"has_more": page * 3 < len(AA)},
-                               "data": AA[(page - 1) * 3:page * 3]}).encode()
+        if url in boards.AA_PAGES:
+            return aa_page(DEEPSEC if "deepsec" in url else AA)
         if "huggingface" in url:
             if self.hold:
                 try:
@@ -117,23 +128,28 @@ class ModelBoards(Sandbox):
         super().setUp()
         self.boards = Boards()
         self.stack.enter_context(patch.object(boards, "fetch_bytes", self.boards))
-        (config.SECRETS / boards.AA_KEY).write_text("k\n")
+
+    def test_artificial_analysis_s_pages_give_each_model_s_record_whole(self):
+        held = boards.collect(now=10000)
+        aa = {(row["model"], row["effort"]): row["values"] for row in held["artificialanalysis.ai"]["rows"]}
+        # a table's fields under its name, Briefcase's overall rating under `overall` however
+        # the record gives it, and DeepsecBench's page's score merged in, its nulls never
+        self.assertEqual(aa[("Claude Opus 5.5", "max")],
+                         {"aa.intelligenceIndex": 58, "aa.terminalBench40": 0.6,
+                          "aa.price1mInputTokens": 4.0, "aa.briefcaseBreakdown.overall.elo": 1800.0,
+                          "aa.briefcaseBreakdown.rubricPassRate": 0.6,
+                          "aa.intelligenceIndexCostPerTask.cost.total": 5.98,
+                          "aa.deepsecBench": 0.27})
+        self.assertEqual(len(aa), 4)                               # no row for the maker
+        self.assertIn(("Claude Opus 5.5", "xhigh"), aa)
+        self.assertIn(("Claude Haiku 4.5", "none"), aa)            # a board's words, as ak's
+        self.assertEqual(aa[("Claude Sonnet 4.6", None)],          # a bracket naming no effort
+                         {"aa.briefcaseBreakdown.overall.elo": 1500.0})
+        self.assertEqual([url for url, _ in self.boards.asked if "artificialanalysis" in url],
+                         list(boards.AA_PAGES))
 
     def test_each_board_s_rows_are_a_model_at_an_effort_with_its_numbers(self):
         held = boards.collect(now=10000)
-        aa = {(row["model"], row["effort"]): row["values"] for row in held["artificialanalysis.ai"]["rows"]}
-        self.assertEqual(aa[("Claude Opus 5.5", "max")],          # a table's fields under its name
-                         {"aa.evaluations.artificial_analysis_coding_index": 59.6,
-                          "aa.evaluations.artificial_analysis_intelligence_index": 58,
-                          "aa.pricing.price_1m_input_tokens": 4.0,
-                          "aa.performance.median_output_tokens_per_second": 95,
-                          "aa.artificial_analysis_intelligence_index_cost.total_cost": 20.69,
-                          "aa.artificial_analysis_intelligence_index_cost.cost_per_task.total_cost": 0.17})
-        self.assertIn(("Claude Opus 5.5", "xhigh"), aa)
-        self.assertIn(("Claude Haiku 4.5", "none"), aa)            # a board's words, as ak's
-        self.assertIn(("Claude Sonnet 4.6", None), aa)             # a bracket naming no effort; page two
-        self.assertEqual([h for u, h in self.boards.asked if "artificialanalysis" in u],
-                         [{"x-api-key": "k"}] * 2)
         arena = {(row["model"], row["effort"]): row["values"] for row in held["arena.ai"]["rows"]}
         self.assertEqual(arena[("Claude Opus 5.5", "max")],     # each board at its category
                          {"arena.agent_task_outcome_explicit": 0.17, "arena.agent_steerability": 0.2,
@@ -194,10 +210,11 @@ class ModelBoards(Sandbox):
             self.assertEqual(boards.collect(now=20000, refresh=True)["arena.ai"],
                              {**held["arena.ai"], "error": "arena.ai: text_factuality's coding "
                                                            "rows are not where its counts put them"})
-        (config.SECRETS / boards.AA_KEY).unlink()
-        held = boards.collect(now=20000, refresh=True)
+        # a page with no model's record on it is no answer: the site changed
+        with patch.object(sys.modules[__name__], "DEEPSEC", []):
+            held = boards.collect(now=20000, refresh=True)
         self.assertEqual(held["artificialanalysis.ai"]["error"],
-                         f"no key: put one in {config.SECRETS / boards.AA_KEY}")
+                         f"no model's record on {boards.AA_PAGES[1]}")
         self.assertEqual(len(held["artificialanalysis.ai"]["rows"]), 4)
 
     def test_callers_at_once_share_one_collection(self):
