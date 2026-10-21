@@ -82,7 +82,9 @@ is its progress line (see Rows are tables) from the session's plan,
 `~/.agentkit/state/plan-<session>.md` under its name or any name it was renamed
 from (the newest wins), else from its unfinished jobs' tasks, in its word's
 colour while it is not at rest, its work waiting in the line to land too
-(`working` includes landing: its squares say so), else empty. What the
+(`working` includes landing: its squares say so), else empty, then
+`✎ unsent` in the needs-you colour where the owner left text unsent, whose
+whole text opens first under the row. What the
 reason says -- the question the seat asked, `stopped with work open: <line>`,
 the plan's last done line, an idle seat's way back in, `session closed: press 2 to
 reopen` -- opens under the row (Rows are tables), never beside it. Never `N

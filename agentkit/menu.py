@@ -31,9 +31,10 @@ seat's own status bar and its window title.  `ak orch why <seat>` says what deci
 A row is one line: number, name, orchestrator, state, and one last column, its progress line
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
 any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
-waiting to land too -- for `working` what the owner left unsent instead -- else empty.
-What a seat asks or did, else who builds and reviews and each task's squares (`crew`,
-`squares`), open under the row (`detail`).  Never two state words on one row, never `N running`, and never a time estimate.
+waiting to land too, else empty -- and `✎ unsent` after it where the owner left text unsent.
+What a seat left unsent, then what it asks or did, else who builds and reviews and each task's
+squares (`crew`, `squares`), open under the row (`detail`).  Never two state words on one row,
+never `N running`, and never a time estimate.
 
 `ak orch list` carries, after the word, a tally of the runs that seat launched, read from
 their run.json records and nothing else: `<n> running`, then one finished figure -- `<n> needs
@@ -1125,10 +1126,11 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is its progress line from `seat_progress` -- its plan, else its
     unfinished jobs -- while it is not at rest, and for `working` its place in the landing
-    line or what the owner left unsent instead (`_last_text`), else empty -- never two state
-    words on one row; the reason opens under it (`detail`). Every seat `orch.listing` offers gets
-    a row: the ones tmux holds, and the ones only their record does -- a seat whose tmux
-    instance is gone keeps its row and its number opens the conversation where it stopped.
+    line (`_last_text`), else empty, then `✎ unsent` where the owner left text unsent -- never
+    two state words on one row; the reason opens under it (`detail`). Every seat
+    `orch.listing` offers gets a row: the ones tmux holds, and the ones only their record does
+    -- a seat whose tmux instance is gone keeps its row and its number opens the conversation
+    where it stopped.
     Seats with nothing to resume into never reach `found`. `jobs_cache` and `run_numbers`
     are kept for callers that still hand them down; `seat_progress` reads the jobs itself and
     gone seats name their own number now.  `mine` is the runs each seat launched, by its name
@@ -1312,57 +1314,65 @@ def back_at(when, now=None):
     return time.strftime("%H:%M" if at[:3] == today[:3] else "%a %H:%M", at)
 
 
-def last_column(word, reason, done, total, room=8, narrow=False, tmux=False, unsent="",
-                back=None):
-    """The one last column of a seat's row, and of its status bar's line one: for `working` what
-    the owner left unsent (`unsent`, the state function's own field: a run's title in the reason
-    can say anything); else its progress
+def unsent_mark(text="unsent"):
+    """`✎ <text>`, `* <text>` without UTF-8: what the owner left unsent, which never changes the
+    word (owner, 20 Oct 2026) -- the mark ends its row and its whole text opens under it."""
+    return f"{'✎' if terminal.utf8() else '*'} {text}"
+
+
+def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", back=None):
+    """The one last column of a seat's row, and of its status bar's line one: its progress
     (`terminal.plan_bar`, a smooth line and `done of total`) in `room` cells, in its word's
     colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest, its
     work waiting in the line to land too, which its squares say (`detail`); else
     empty -- never `N running`, and no other sentence: what a seat asks or did opens under its
-    row (`detail`).  The line keeps 8 cells at least, which a row too short for them draws
-    under itself; where `room` is all there is -- a `narrow` screen's line, each width of a
-    seat's bar -- it takes that room and never more.  `tmux` draws it for a seat's bar.  The
-    row and the bar read this one function, so the two can never disagree.  A seat out of
-    usage says when it comes back, `back 19:20` (`back`), in its word's colour."""
+    row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
+    in the needs-you colour.  The line keeps 8 cells at least, which a row too short for them
+    draws under itself; where `room` is all there is -- a `narrow` screen's line, each width of
+    a seat's bar -- it takes that room and never more, the mark alone where both do not fit.
+    `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two
+    can never disagree.  A seat out of usage says when it comes back, `back 19:20` (`back`), in
+    its word's colour, in its progress's place."""
+    mark = unsent_mark() if unsent else ""
+    left = room - (terminal.cells(mark) + 2 if mark else 0)
     if word == "out of usage":
-        when = back_at(back)
-        return _paint(f"back {when}", word, tmux) if when else ""
-    if word == "working" and not tasks_bar(word, reason):
-        return terminal.plain(reason or "")
-    if word == "working" and unsent:
-        return terminal.plain(unsent)
-    if not total or word in (None, "idle"):
-        return ""
-    return terminal.plan_bar(done, total, room, 0 if narrow else 8, word, tmux)
-
-
-def tasks_bar(word, reason):
-    """Is a seat's last column its progress line (`last_column`), not a sentence?  A working seat's
-    is, but while it shows what the owner left unsent, which the column then starts with."""
-    return word == "working" and not (reason or "").startswith("unsent: ")
+        text = f"back {back_at(back)}" if back_at(back) else ""
+        bar = _paint(text, word, tmux) if text else ""
+    elif not total or word in (None, "idle"):
+        text = bar = ""
+    else:
+        text = terminal.plan_bar(done, total, left, 0)
+        bar = terminal.plan_bar(done, total, left, 0 if narrow else 8, word, tmux)
+    if narrow and mark and terminal.cells(text) > left:
+        bar = ""
+    if not mark:
+        return bar
+    mark = _paint(mark, "needs you", tmux)
+    return f"{bar}  {mark}" if bar else mark
 
 
 def _last_text(info, room, narrow=False):
     """The row's one last column in `room` cells (`last_column`)."""
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
-    return last_column(info.get("word"), info.get("sentence"), done, total, room, narrow,
-                       unsent=info.get("unsent"), back=info.get("back"))
+    return last_column(info.get("word"), done, total, room, narrow, unsent=info.get("unsent"),
+                       back=info.get("back"))
 
 
 def detail(cfg, info, room, now=None):
-    """The lines under a seat's row, in `room` cells: what a seat not working says -- the
-    question for `needs you`, what got done for `done`, an idle one's way back in, until when
-    one out of usage has none -- wrapped whole at words; for any other, who builds and who reviews (`crew`) and each task in flight
-    as its squares (`squares`), never a task's name.  On a terminal the highlighted row alone
-    opens them; from a pipe every row saying something does, as there is no highlight to open
-    them."""
+    """The lines under a seat's row, in `room` cells: first `✎` and the whole text the owner left
+    unsent, in the needs-you colour; then what a seat not working says -- the question for
+    `needs you`, what got done for `done`, an idle one's way back in, until when one out of
+    usage has none -- wrapped whole at words; for any other, who builds and who reviews
+    (`crew`) and each task in flight as its squares (`squares`), never a task's name.  On a
+    terminal the highlighted row alone opens them; from a pipe every row saying something
+    does, as there is no highlight to open them."""
     if not info:
         return []
     if "born" in info:
         return born_lines(info, room)
+    unsent = [terminal.styled(line, "needs you") for line in
+              terminal.wrap(unsent_mark(info["unsent"]), room)] if info.get("unsent") else []
     word = info.get("word")
     said = "" if word == "working" else terminal.plain(info.get("sentence") or "")
     if word == "out of usage":
@@ -1371,14 +1381,14 @@ def detail(cfg, info, room, now=None):
         said = (f"{provider} has no usage left until {when}." if when else said) + (
             "" if info.get("go_on") else " No other model has any now.")
     if said or word in ("needs you", "done", "out of usage"):
-        return terminal.wrap(said, room) if said else []
+        return unsent + terminal.wrap(said, room)
     tasks = info.get("tasks") or []
     # the crew gives way to the least the squares say: one task's squares, or their count
     least = 3 + terminal.cells(squares(tasks, 3)) if tasks else 0
     who = crew(info, room=room - least)
     left = room - terminal.cells(who) - 3
     line = who + ("   " + squares(tasks, left) if tasks and left >= least - 3 else "")
-    return [line] if terminal.plain(line) else []
+    return unsent + ([line] if terminal.plain(line) else [])
 
 
 WAIT, GO_ON = "wait", "go on"     # the choices under a seat out of usage, as the click reads them
@@ -1507,13 +1517,10 @@ def v5o_seat_blocks(infos, term_width, widths=None, most=None, details=None):
             block = [head + "  " + last]
         else:
             # a line too long for the column is never wrapped, which drops its colours, and a
-            # row without ten cells left starts nothing: it goes under its row, in that room,
-            # where a working seat's sentence is wrapped whole
+            # row without ten cells left starts nothing: it goes under its row, in that room
             cont = max(1, room - 4)
             under = _last_text(info, cont, narrow=narrow)
-            if info.get("word") == "working" and not tasks_bar("working", under):
-                lines = terminal.wrap(under, cont) if under else []
-            elif terminal.cells(under) > cont:       # a count alone, on the narrowest screens
+            if terminal.cells(under) > cont:       # a count alone, on the narrowest screens
                 lines = [terminal.cut(under, cont)]
             else:
                 lines = [under] if under else []
@@ -1636,7 +1643,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     said = {info["name"]: detail(cfg, info, said_room) + (choices(info, said_room) if owned else [])
             for info in infos}
     opened = {} if owned else {info["name"]: said[info["name"]] for info in infos
-                               if info["word"] != "working" and info.get("sentence")}
+                               if info["word"] != "working" and info.get("sentence")
+                               or info.get("unsent")}
 
     def _seat_blocks(most=None):
         # Every line travels with the name of the seat it draws, or None, so the highlight and a

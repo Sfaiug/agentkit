@@ -103,7 +103,8 @@ class SeatNeverSaysWorking(Sandbox):
         self.assertNotIn("waiting for you", (REPO / "agentkit/terminal.py").read_text())
 
     def test_v5n_draft_row_shows_text(self):
-        # The draft is no state: the seat rests, and the row's last column says it.
+        # The draft is no state and no reason: the seat rests, and the state carries it as
+        # `unsent`, which the row marks.
         seat = {"name": "seat", "created": 100}
         live = {"state": "draft", "since": NOW - 90,
                 "began": NOW - 90, "authority": "screen",
@@ -116,8 +117,9 @@ class SeatNeverSaysWorking(Sandbox):
                 patch.object(config, "load_session", return_value={"orchestrator": "astra"}), \
                 patch.object(watch, "load_state", return_value={"stalls": {}}):
             row = menu.row(self.cfg, 1, seat)
-        self.assertEqual(row[3], "idle")
-        self.assertIn(DRAFT, row[4])
+            found = menu.seat_row_state(self.cfg, seat)
+        self.assertEqual(row[3:5], ["idle", ""])
+        self.assertEqual(found["unsent"], DRAFT)
         self.assertEqual(row[5], orch.age(NOW - 90))
 
     def test_v5n_faint_ignores_extended_colours(self):
