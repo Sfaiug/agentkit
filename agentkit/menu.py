@@ -3282,6 +3282,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     way, then the label.
     A `scope` -- `new seats`, whose `selected` is [defaults], or a seat's name -- is the For row
     over the headings (for_text), FOR_ROW: its `‹` a cell of its own (-2), the rest one (-3).
+    For a seat, its orchestrator's effort is the one it runs at (shown_effort).
     """
     room, utf = terminal.layout_width(), terminal.utf8()
     marks = "●○■□" if utf else "*.x."
@@ -3289,7 +3290,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     levels = {name: effort_levels(models[name]) for name in names}
     efforts, levelled = {}, {}
     for name in names:
-        effort, taken = models[name].get("effort", "?"), levels[name]
+        effort, taken = shown_effort(cfg, name, selected, scope), levels[name]
         efforts[name] = effort
         # one effort is nothing to step to and no level to show
         levelled[name] = terminal.effort_cells(len(taken), taken.index(effort) + 1 if effort
@@ -3359,8 +3360,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 cells.append((first + 2, first + 1 + (width if number < 3
                                                       else terminal.cells(text)), number))
                 if number == 3 and moves is not None and len(levels[name]) > 1:
-                    moves.append((len(lines), ("effort", name), models[name].get("effort"),
-                                  _effort_moves(levels[name], models[name].get("effort"), kind,
+                    moves.append((len(lines), ("effort", name), efforts[name],
+                                  _effort_moves(levels[name], efforts[name], kind,
                                                 at == ("model", name),
                                                 first + 2 + terminal.cells(leads[name]),
                                                 first + 2 if leads[name] and not note else None)))
@@ -3381,6 +3382,34 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
     return lines, places
+
+
+def seat_scope(scope, selected, name):
+    """Whether `name` is the orchestrator of the seat the For row's `scope` names, whose
+    effort on `c` is that seat's own."""
+    return scope not in (None, *FOR_SCOPES) and (selected or {}).get("orchestrator") == name
+
+
+def shown_effort(cfg, name, selected, scope):
+    """The effort `c` shows on `name`'s row: the one the seat a `scope` names runs at, its own
+    or its entry's for an orchestrator (orch.seat_effort), else the entry's."""
+    entry = cfg["models"][name]
+    if seat_scope(scope, selected, name):
+        return orch.seat_effort(selected, name) or config.role_effort(entry, "orchestrator")
+    return entry.get("effort", "?")
+
+
+def seat_effort(cfg, seat, selected, name, step, providers, to=None):
+    """That seat's own effort on `name`, its orchestrator, one step on round its levels --
+    level `to` instead, from 0 -- the seat starting again at it on its conversation
+    (orch.switch_orchestrator), its entry and every other seat left as they are.  What to say
+    under the rows, or ""."""
+    levels, current = effort_levels(cfg["models"][name]), shown_effort(cfg, name, selected, seat)
+    at = (to if to is not None else
+          (levels.index(current) + step) % len(levels) if current in levels else 0)
+    if not 0 <= at < len(levels):
+        return ""
+    return orch.switch_orchestrator(cfg, seat, name, providers, effort=levels[at])
 
 
 def effort_levels(entry):
@@ -3869,9 +3898,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             # a click on one of its cells takes that level, and one on its word steps it on
             lead = next((last - first + 1 for row, cells in places.values() if row == here
                          for first, last, at in cells if at == 3), 0) - terminal.cells(
-                cfg["models"][here[1]].get("effort", "?"))
-            note = (config_effort(cfg, here[1], 0, to=act) if isinstance(act, int) and act < lead
-                    else config_effort(cfg, here[1], 1, wrap=True))
+                shown_effort(cfg, here[1], selected, scopes[scope]))
+            to = act if isinstance(act, int) and act < lead else None
+            if seat_scope(scopes[scope], selected, here[1]):
+                # the seat's own orchestrator: that seat alone starts again at the level
+                note = seat_effort(cfg, scopes[scope], selected, here[1], 1, providers, to=to)
+                selected = for_selected(cfg, scopes[scope])[0] or selected
+            else:
+                note = (config_effort(cfg, here[1], 0, to=to) if to is not None
+                        else config_effort(cfg, here[1], 1, wrap=True))
 
 
 def _runs(cfg, harness, model, effort=None):

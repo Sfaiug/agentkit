@@ -108,7 +108,7 @@ class EffortCells(unittest.TestCase):
         screen.leave()
 
     def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
-        screen = Screen(self)
+        screen = Screen(self, session=None)      # For new seats: opus's entry steps
         lines = screen.press(DOWN + RIGHT * 3, lambda lines: lines[-1] == EFFORT_KEYS)
         number, word, first = places(lines, "opus")
         # a click on its second cell, down from xhigh: its fourth cell, then its third, stay

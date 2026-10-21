@@ -51,7 +51,10 @@ class SeatFollows(Sandbox):
     def test_an_answer_since_the_launch_on_another_model_moves_the_seat(self):
         self.assertEqual(self.looked(("fable", 30, None)), "fable")
         self.assertEqual(self.looked(("opus", 60, "xhigh")), "opus")
-        self.assertEqual(self.looked(("opus", 90, "high")), "opus-high")    # `/effort`
+        self.assertEqual(self.looked(("opus", 90, "high")), "opus")    # `/effort`: its own
+        self.assertEqual(config.session_records()[NAME]["effort"], "high")
+        config.update_session(NAME, orchestrator="fable")
+        self.assertEqual(self.looked(("opus", 120, "high")), "opus-high")  # an entry at it
 
     def test_an_answer_up_to_the_launch_moves_nothing(self):
         self.assertEqual(self.looked(("fable", -30, None)), "opus")
