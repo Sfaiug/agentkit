@@ -657,7 +657,7 @@ class Harness:
         hook = self._hook("register_mcp")
         return hook(servers) if hook else None
 
-    # --- what one headless turn spent ----------------------------------------
+    # --- what seats and headless turns spent ---------------------------------
 
     def seat_token_sources(self, record):
         """Usage logs for this seat and its children; None means no reader is available."""

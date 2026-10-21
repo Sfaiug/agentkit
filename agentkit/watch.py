@@ -7327,9 +7327,9 @@ def local_passes(state, dry_run, log):
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("the switch retirement pass did not run", lambda: retire.hand(log), False),
+        ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
         # The first tick of a week writes the board with its largest loss, and the `audit`
         # seat, opened with `[audit]`'s models, is told it at its quiet prompt.
-        ("the seat token pass did not run", lambda: seat_tokens.read(0, 0), False),
         ("the weekly audit pass did not run", lambda: tell_audit(config.load(), log), False),
         # What the owner typed into a seat's turn after it asked answers its question before
         # the cards are read, so no card goes out for a question they answered.

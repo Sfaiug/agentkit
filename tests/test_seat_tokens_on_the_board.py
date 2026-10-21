@@ -143,7 +143,11 @@ class SeatTokens(unittest.TestCase):
     def test_harness_without_a_reader_and_missing_records_are_named(self):
         self.seat("ash", "echo")
         self.seat("elm", "claude")
+        self.seat("new", "codex", conversation=None)
+        self.write(self.root / ".codex/sessions/rollout-other.jsonl",
+                   {"type": "session_meta", "payload": {"id": "other", "source": {}}}, total(999))
         board = scoreboard.compute(NOW)
+        self.assertEqual(board["tokens"][0]["total_tokens"], 0)
         self.assertEqual(board["tokens"][0]["not_counted"], ["ash (echo)", "elm (claude)"])
         text = " ".join(" ".join(scoreboard.render(board)).split())
         self.assertIn("not counted: ash (echo), elm (claude)", text)
