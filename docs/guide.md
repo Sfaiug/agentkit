@@ -58,8 +58,9 @@ with no blocking end-of-turn hook declares `[stop] enforce = "nudge"`, and the t
 
 A hooked turn with recorded unanswered questions first writes their text and choices in its
 closing assistant message. An empty message or a tool result does not deliver them: the Stop
-hook requests the missing text before allowing the turn to end, including when other work
-continues in the background. Questions already answered are not repeated.
+hook requests the missing text, including when other work continues in the background.
+Delivery reminders count toward the same two-block limit; the third stop stands.
+Questions already answered are not repeated.
 
 A hooked orchestrator turn that would end on a last message ending in `?`, with no question
 asked through the question prompt or `ak notify needs`, is sent back once: a question left in

@@ -322,11 +322,9 @@ def held(launched, payload):
         return ""    # no turn was written down; nothing here can say what happened during it
     seat = resolve(launched)
     delivery = questions.reminder(seat, last_message(payload))
-    if delivery:
-        return delivery
-    if background(payload):
+    if not delivery and background(payload):
         return ""
-    if last_message(payload) is None:
+    if not delivery and last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
     # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
     # a hand-back opens turns on a seat while it stands (`watch.stop_nudge`), and one the
@@ -335,7 +333,7 @@ def held(launched, payload):
     asked = (questioned(payload) or told(seat, turn, "needs") or kept
              or owner_question(notify.last(seat)))
     ends, undecided = recorded_ending(seat, question=asked, since=turn)
-    if ends:
+    if ends and not delivery:
         if (asked or record.get("asked_back") or not trails_question(last_message(payload))
                 or question_refused(seat)):
             return ""
@@ -344,11 +342,11 @@ def held(launched, payload):
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
     if blocks > LIMIT:
-        if not undecided:
+        if not undecided and not asked:
             asked_owner(seat, last_message(payload))
         return ""    # the third stop stands: the owner is paged with what the seat is stuck on
     latched(latch, {**record, "session": launched, "turn": turn, "blocks": blocks})
-    return parked_reason(undecided) if undecided else config.name_owed(seat) or REASON
+    return delivery or (parked_reason(undecided) if undecided else config.name_owed(seat) or REASON)
 
 
 def written(launched, kind):
@@ -378,7 +376,7 @@ def main():
         # record before this harness takes its next prompt (`watch.turn_ended`)
         turn_ended(resolve(launched))
     if tells(payload):
-        written(launched, "background" if background(payload) else "held" if back else "")
+        written(launched, "held" if back else "background" if background(payload) else "")
         # looked at again now its Stop is on record, however long judging it took
         start_look(launched)
     if back:
