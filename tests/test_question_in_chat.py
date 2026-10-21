@@ -47,17 +47,18 @@ class QuestionInChat(unittest.TestCase):
         return json.loads(done.stdout) if done.stdout.strip() else None
 
     def test_a_question_hidden_in_tool_output_is_written_before_the_turn_ends(self):
-        self.kept(FIRST)
         for message in (None, "", "Waiting for PR #42.", "Waiting for your answer."):
             with self.subTest(message=message):
+                self.write("stop", {**self.read("stop"), "blocks": 0})
+                self.kept(FIRST)
                 answer = self.stop(message)
                 self.assertIsNotNone(answer)
                 self.assertEqual(answer["decision"], "block")
                 self.assertIn(FIRST, answer["reason"])
                 self.assertIn("assistant message", answer["reason"])
                 self.assertNotIn("ended", self.read("seat")["unasked"]["questions"][0])
-        self.assertIsNone(self.stop(FIRST))
-        self.assertIn("ended", self.read("seat")["unasked"]["questions"][0])
+                self.assertIsNone(self.stop(FIRST))
+                self.assertIn("ended", self.read("seat")["unasked"]["questions"][0])
 
     def test_every_unanswered_question_and_its_choices_are_written(self):
         self.kept(FIRST, SECOND)
@@ -86,9 +87,43 @@ class QuestionInChat(unittest.TestCase):
                 self.assertIsNone(self.stop("Finished."))
 
     def test_background_work_does_not_bury_a_question_at_the_stop(self):
+        for key in ("background_tasks", "backgroundTasks"):
+            with self.subTest(key=key):
+                self.kept(FIRST)
+                payload = {key: [{"type": "subagent"}]}
+                answer = self.stop("The worker will finish later.", **payload)
+                self.assertIn(FIRST, answer["reason"])
+                self.assertEqual(self.read("hook")["kind"], "held")
+                self.assertNotIn("ended", self.read("seat")["unasked"]["questions"][0])
+                self.assertIsNone(self.stop(FIRST, **payload))
+                self.assertEqual(self.read("hook")["kind"], "background")
+                self.assertIn("ended", self.read("seat")["unasked"]["questions"][0])
+
+    def test_missing_delivery_uses_the_turns_two_block_limit(self):
+        for payload in ({}, {"background_tasks": [{"type": "subagent"}]},
+                        {"backgroundTasks": [{"type": "subagent"}]}):
+            for message in (None, "", "Waiting."):
+                with self.subTest(payload=payload, message=message):
+                    self.write("stop", {**self.read("stop"), "blocks": 0})
+                    self.kept(FIRST)
+                    for count in (1, 2):
+                        self.assertEqual(self.stop(message, **payload)["decision"], "block")
+                        self.assertEqual(self.read("stop")["blocks"], count)
+                        self.assertNotIn("ended", self.read("seat")["unasked"]["questions"][0])
+                    self.assertIsNone(self.stop(message, **payload))
+                    self.assertEqual(self.read("stop")["blocks"], 2)
+                    kept = self.read("seat")["unasked"]["questions"]
+                    self.assertEqual([q["text"] for q in kept], [FIRST])
+                    self.assertIn("ended", kept[0])
+
+    def test_delivery_shares_the_budget_with_a_stop_on_open_work(self):
+        (self.state / f"plan-{SEAT}.md").write_text(
+            '- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n')
+        self.assertEqual(self.stop("Waiting.")["decision"], "block")
         self.kept(FIRST)
-        answer = self.stop("The worker will finish later.", background_tasks=[{"type": "agent"}])
-        self.assertIn(FIRST, answer["reason"])
+        self.assertIn(FIRST, self.stop("Waiting.")["reason"])
+        self.assertIsNone(self.stop("Waiting."))
+        self.assertEqual(self.read("stop")["blocks"], 2)
 
     def test_user_text_and_tool_results_are_not_assistant_delivery(self):
         self.kept(FIRST)
