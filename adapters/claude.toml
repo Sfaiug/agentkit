@@ -272,9 +272,10 @@ signatures = [
   "Invalid API key · Fix external API key",
 ]
 
-# The effort words this harness takes, in the order the menu's `c` screen cycles them.
+# The effort words this harness takes, in the order the menu's `c` screen cycles them:
+# `claude --help`'s, which refuses `ultra`.
 [effort]
-levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
+levels = ["low", "medium", "high", "xhigh", "max"]
 
 # The models this harness runs when Anthropic's models API cannot say (`adapters/claude.sh
 # models` asks it): the model table claude 2.1.280 ships, each model with the efforts its
