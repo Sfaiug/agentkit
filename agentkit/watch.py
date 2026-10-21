@@ -3778,14 +3778,16 @@ def _editor_kept(session):
     return found
 
 
-def _editor_read(session, where, cfg=None):
+def _editor_read(session, where, cfg=None, *, after_line=False):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
-    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL and none
-    unread, read with no question or picker up (`[[rule]] picker`) -- the step's keys open the
-    editor from a composer alone, and a picker drawn on over what it puts there takes its Enter."""
+    now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL -- but
+    for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
+    ak's keys as it does the owner's -- and none unread, read with no question or picker up
+    (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
+    drawn on over what it puts there takes its Enter."""
     name = session["name"]
     try:
-        if time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
+        if not after_line and time.time() - os.stat(where["tty"]).st_atime < DRAFT_STILL:
             return None
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         pane = pane_text(session) if harness else ""
@@ -3852,7 +3854,7 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
         return False
     _send_enter(session, log)
     return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
-            and _editor_read(session, where, cfg)
+            and _editor_read(session, where, cfg, after_line=True)
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
