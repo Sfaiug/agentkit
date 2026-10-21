@@ -239,9 +239,8 @@ explain: nothing lights on them and a click there does nothing of its own
 ## Questions
 
 Every yes-or-no question on a screen read with the keys -- `x` on a seat that
-is not done, in the menu and the popup, `Remove` on a model, a provider or a
-subscription on the `c` screens, and `Move` on another model's orchestrator mark of a
-seat there -- is one card, `terminal.confirm`, drawn where
+is not done, in the menu and the popup, and `Remove` on a model, a provider or a
+subscription on the `c` screens -- is one card, `terminal.confirm`, drawn where
 its screen asks it: a blank line, the question in the normal colour, one dim
 line saying what the answer means, the two choices, and a blank line. The safe
 choice is first and highlighted, `✓ Keep`; the one that ends something follows,
@@ -281,7 +280,7 @@ that model's own efforts (`config.efforts`), from the highest round to the
 lowest. The highlighted row
 is `highlight`'s and its cell is drawn reversed. Enter, space or a click flips a
 mark and a click on an effort's arrow steps it; each change is saved at once and
-drawn at once, the orchestrator only moves, and the last reviewer stays, saying
+drawn at once, asking nothing, the orchestrator only moves, and the last reviewer stays, saying
 so under the rows, its mark shaking (Motion). The highlighted model opens no line: what it
 runs on is the meter that lights it. `r recommended` opens the models screen
 (The models screen).
@@ -522,9 +521,10 @@ black -- and the blank line under the grid says the rest, joined with ` · ` and
 each only when it applies: that login, in amber, `login owner@acme.test ends Mon 26 Oct
 04:47 (in 2 days)` or `ended <when>` (`menu.login_notes`), which a short line keeps before
 the name, and `click to log in again`: a click there hands the terminal to its harness's
-`login again`, and the screen is back as soon as that ends, or once what a failed one said
-has been read (`menu.sign_in`); the tick asks an amber login again every time it runs, so
-its meter turns grey at the next tick once a new login stands; `resets <weekday> <HH:MM>` in local
+`login again`, and the screen is back as soon as that ends, its meter grey once the login
+it made stands (`logins.renewed`), or once what a failed one said has been read
+(`menu.sign_in`); the tick asks an amber login again every time it runs, so one made
+elsewhere turns its meter grey at the next tick; `resets <weekday> <HH:MM>` in local
 time from that meter (`resets 23 Oct` more than six days out in a window longer
 than a week, such as MiMo's 30-day plan; `resets in 3d` when only a duration is
 known); the credits; `1 reset in hand` (`2 resets in hand`) while the subscription holds

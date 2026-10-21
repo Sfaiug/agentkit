@@ -22,16 +22,13 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
+from fixtures import scores
 from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix, terminal
 
-CODING = "aa.evaluations.artificial_analysis_coding_index"
-AGENTIC = "aa.evaluations.artificial_analysis_agentic_index"
-
-
 def coding(value):
-    """Half of execute's measures, alike: a model's score is its share of the best."""
-    return {CODING: value, AGENTIC: value}
+    """Values scoring `value` of 60 to build, as a share of 100 (fixtures.scores)."""
+    return scores.values(execute=100 * value / 60)
 
 
 def row(name, model, effort, roles=matrix.ROLES, **values):
@@ -42,7 +39,7 @@ def row(name, model, effort, roles=matrix.ROLES, **values):
 
 def picks(role, *rows, within=matrix.WITHIN):
     return [matrix.row_label(row) for row in
-            matrix.recommended(matrix.scored(list(rows)), within)[role]]
+            matrix.recommended(matrix.scored(list(rows), scores.BEST), within)[role]]
 
 
 class ModelRecommends(unittest.TestCase):
@@ -62,7 +59,8 @@ class ModelRecommends(unittest.TestCase):
         self.assertEqual(picks("execute", *table, within=0), ["acme-a @ max"])
         # a role no model holds half the measures of (review: one of three here) has no
         # recommendation; no row, none at all
-        self.assertEqual(list(matrix.recommended(matrix.scored([best, cheaper]))), ["execute"])
+        self.assertEqual(list(matrix.recommended(matrix.scored([best, cheaper], scores.BEST))),
+                         ["execute"])
         self.assertEqual(matrix.recommended([]), {})
 
     def test_rows_alike_on_cost_go_by_quality_the_config_s_row_the_higher_effort_and_the_name(self):
@@ -70,8 +68,7 @@ class ModelRecommends(unittest.TestCase):
                                row(None, "acme-b", None, **coding(99.99)))[0], "acme-b")
         # a board naming no effort leaves every effort of the model alike: each role keeps the
         # effort the config runs it at
-        alike = {"livebench.coding": 80, "livebench.long_agentic": 70, "livebench.reasoning": 60,
-                 **coding(50)}
+        alike = scores.values(orchestrate=70, execute=80, review=60)
         runs = [row("pro", "acme-pro", effort, [role], **alike) for role, effort in
                 (("orchestrate", "high"), ("execute", "low"), ("review", "medium"))]
         self.assertEqual([picks(role, *runs)[0] for role in matrix.ROLES],
@@ -87,14 +84,13 @@ class ModelRecommends(unittest.TestCase):
 
     def test_the_table_and_json_say_the_recommendation(self):
         table = matrix.scored([
-            row("pro", "acme-pro", "high", **{CODING: 45, "livebench.coding": 90,
-                                              "arena.agent_task_outcome_explicit": 0.1, "arena.agent_steerability": 0.2}),
-            row(None, "acme-mini", None, **{CODING: 60, "livebench.coding": 90,
-                                            "livebench.reasoning": 40, matrix.INTEL: 50})])
+            row("pro", "acme-pro", "high", **scores.values(orchestrate=100, execute=87.5)),
+            row(None, "acme-mini", None, **scores.values(execute=100, review=100))], scores.BEST)
         with patch.object(terminal, "width", return_value=100):
             text = terminal.plain(matrix.render(table, {}))
-            none = terminal.plain(matrix.render(matrix.scored([row(None, "acme-old", None)]), {}))
-        self.assertIn("recommended: orchestrate pro @ high (100 of 2) · execute acme-mini (100 of 2) · "
+            none = terminal.plain(matrix.render(matrix.scored([row(None, "acme-old", None)],
+                                                              scores.BEST), {}))
+        self.assertIn("recommended: orchestrate pro @ high (100 of 2) · execute acme-mini (100 of 3) · "
                       "review acme-mini (100 of 3)", " ".join(text.split()))
         self.assertIn("a row within 5 of the best counts as as good (`within` in config.toml), and the "
                       "cheapest of those is recommended: by `cost`, what Artificial Analysis's index run "
@@ -112,7 +108,7 @@ class ModelRecommends(unittest.TestCase):
         self.assertEqual(data["recommended"], {"orchestrate": ["pro @ high"],
                                                "execute": ["acme-mini", "pro @ high"],
                                                "review": ["acme-mini"]})
-        self.assertEqual(data["rows"][0]["scores"]["execute"], {"score": 87.5, "measures": 2})
+        self.assertEqual(data["rows"][0]["scores"]["execute"], {"score": 87.5, "measures": 3})
 
 
 class WithinInConfig(Sandbox):

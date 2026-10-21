@@ -58,7 +58,7 @@ LIST_CAP = 500                  # files a scratch run's reviewer is shown before
 
 
 
-FRONT = re.compile(r"^---\n(.*?)\n---", re.S)
+FRONT = re.compile(r"^---\n(|.*?\n)---", re.S)  # `---\n---` is a fence holding nothing
 
 
 _RUN_CONTEXT = threading.local()  # job threads export their own depth and slot owner

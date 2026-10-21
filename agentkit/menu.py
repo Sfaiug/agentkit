@@ -135,6 +135,7 @@ from pathlib import Path
 
 from . import command_help, config, gitcall, history, matrix, motion, notify, orch, plan, staffing, terminal, transitions, update, usage, worker
 from . import record
+from . import warm
 
 KEYS = "n new   x stop   c config   esc leave"
 OVERLAY_KEYS = "n start a session   c models   x stop this session   esc leave"
@@ -183,6 +184,14 @@ def read(prompt, default=None):
     if not sys.stdout.isatty():
         print()    # the prompt was answered from a pipe: keep the transcript on separate lines
     return default if answer is None else answer.strip()
+
+
+def rows(cfg):
+    """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
+    found = orch.listing()
+    records = run_records()           # one pass over run.json a read: filing, looking, drawing
+    orch.file_projectless(found, [state for _, state in records])
+    return found, records, v5o_groups(cfg, found, records, look=False)
 
 
 class Live:
@@ -348,10 +357,7 @@ class Live:
             leaves = self.leaves
             self.reads += 1
             began = self.reads
-        found = orch.listing()
-        records = run_records()           # one pass over run.json a read: filing, looking, drawing
-        orch.file_projectless(found, [state for _, state in records])
-        groups = v5o_groups(self.cfg, found, records, look=False)
+        found, records, groups = rows(self.cfg)
         with self.reading:
             if self.leaves != leaves:
                 return
@@ -404,9 +410,10 @@ class Live:
         self.asked.set()
 
     def watch(self, last):
-        """Read into `last` once, now, for the first draw, then again in a thread within STIR
-        of any record changing, or when asked (`ask`): the seats and their groups, for each
-        draw to draw.
+        """Read into `last` once, now, for the first draw -- in a menu the warm server forked, its
+        last read is the first draw's (`warm`), read again within STIR -- then again in a thread
+        within STIR of any record changing, or when asked (`ask`): the seats and their groups,
+        for each draw to draw.
 
         Whatever decides a seat -- its own hook, the tick, `ak orch`, another menu -- writes the
         word to that seat's record and to its bar in one go, and a run's step, round and ending
@@ -419,8 +426,14 @@ class Live:
         only when a seat is listed that it has not met (`read`), once, and writes nothing else,
         so no menu's read keeps waking another, or itself; each one landing asks for one draw.
         """
-        self.last, self.seen = last, self.recorded()
-        self.read(look=True)
+        self.last, primed = last, warm.primed()
+        if primed:
+            # the warm server's last read, read again at the watcher's first look: a read
+            # beside the first frame would hold it back, the two on one interpreter
+            last[:], self.seen, self.looking = primed, None, True
+        else:
+            self.seen = self.recorded()
+            self.read(look=True)
         if self.watcher is None:
             self.watcher = threading.Thread(target=self._watch, daemon=True)
             self.watcher.start()
@@ -884,6 +897,9 @@ class Task(tuple):
         task = super().__new__(cls, (stage, state))
         task.run = run
         return task
+
+    def __getnewargs__(self):
+        return (*self, self.run)      # pickled whole: the warm server's read (`warm`)
 
 
 def seat_tasks(name, records=None, now=None):
@@ -2885,10 +2901,6 @@ MODEL_KEYS = {"step": ("↑↓ move   ←→ choose", "arrows move   left/right 
               "remove": ("↑↓ move   ⏎ remove", "arrows move   enter remove")}
 REMOVE_ASK = ("Remove {} from the config?",   # what `Remove` asks, and what it means
               "Nothing new starts on it; + add a model brings it back.")
-# What another model's orchestrator mark asks of a seat, and what moving means.
-MOVE_ASK = ("Move {} to {}?",
-            "Its conversation starts again on {}, handed its plan, its runs and the last "
-            "exchange; its runs keep going.")
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -2971,8 +2983,8 @@ def take_advice(cfg, name, selected, providers, found):
     at the entry's effort or at none leaves it following the effort, _follows), saved to the
     config (_saved) and then to the seat's record at once as a flipped mark is (marks_saved);
     a config that cannot be saved changes no mark and says why.  The orchestrator is only
-    said, since moving the seat is the owner's (the orchestrator mark asks first).  What to
-    say under the rows, or ""."""
+    said, since moving the seat is its orchestrator mark's.  What to say under the rows, or
+    ""."""
     taken = {role: found.get(role, (None, None, None))[1:] for role in TAKEN}
     if not any(model for model, _ in taken.values()):
         return "nothing to take: the recommended rows are not configured models"
@@ -3015,8 +3027,8 @@ MODELS_TAKE = "r take recommended"
 KNOB = ("knob", "within")
 KNOB_TEXT = "as good as the best: within "
 MODELS_HEADS = ("model", "harness", "effort", *orch.ROLE_HEADS, "cost $")
-MODELS_NOTE = ("quality is a model's share of the best on the public boards, out of 100; cost is "
-               "what Artificial Analysis's index run cost it, in dollars")
+MODELS_NOTE = ("quality is 100 less how many points a model is behind the best on the public "
+               "boards; cost is what Artificial Analysis's index run cost it, in dollars")
 CHEAPEST = "the cheapest as good: "   # why the recommended row is the one: said before it
 SAID = ("best", "as good", "recommended")   # the lines that say why, rows the highlight rests on
 
@@ -3825,9 +3837,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            if column == 0 and here[1] != selected.get("orchestrator") and not move_asked(
-                    cfg, session, selected, providers, here, column, top, title):
-                continue              # kept: the seat stays on its model
             note = session_mark(cfg, session, selected, here[1], column, providers)
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
@@ -4133,13 +4142,13 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 def sign_in(cfg, keyboard, provider, account):
     """`provider`'s login for `account` (None: its only one) made afresh on the terminal, for
     one whose meter is amber: its harness's `login again` (`logins.harness`), and the menu back
-    as soon as that ends, one that failed once what it said has been read.  The tick asks an
-    amber login again every time it runs, so its meter turns grey at the next tick once a new
-    one stands, and nothing here writes `logins.json`."""
+    as soon as that ends, one that failed once what it said has been read.  One that finished
+    is asked its end at once (`logins.renewed`), so the menu comes back with its meter grey."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     harness = logins.harness(cfg, provider)
-    if harness:
-        _adapter_verbs(keyboard, harness, ("login again",), provider, account, provider)
+    if harness and not _adapter_verbs(keyboard, harness, ("login again",), provider, account,
+                                      provider):
+        logins.renewed(cfg, provider, account or config.DEFAULT_ACCOUNT)
 
 
 def _add_subscription(cfg, keyboard, provider, listed, picked, verbs=("login",)):
@@ -4611,29 +4620,12 @@ def show_config(dry_run=False, keyboard=None, session=None):
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
 
 
-def move_asked(cfg, session, selected, providers, here, column, top, title):
-    """Whether `Move` was picked on the card the orchestrator mark of another model asks on,
-    drawn under the rows of the config screen as it stands, the page from `top` giving the card
-    its room and keeping `here` on (matrix_page); False, kept, on Esc.  A seat moved by a slip
-    loses its conversation to a handover, so the mark asks first, as `Remove` does."""
-    def around(card):     # the screen around the card, drawn again on a resize
-        over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-            cfg, here, column, selected, providers), card, "esc back")
-        first, room = matrix_page(body, places, here, top, card, "esc back", over)
-        shown = body[first:first + room]
-        terminal.frame(title, [*over, *shown, *card], "esc back")
-        return 3 + len(over) + len(shown)
-    model = config.model_name(cfg, here[1])
-    return terminal.confirm(MOVE_ASK[0].format(session, model), MOVE_ASK[1].format(model),
-                            "Move", around)
-
-
 def session_mark(cfg, name, selected, model, column, providers):
     """Act on one of a session's marks, saving it to the session's record at once.
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model at once,
-    under the same name (the screen has asked first, `move_asked`), and a harness that is not installed or not logged in, or a meter
+    under the same name, asking nothing, and a harness that is not installed or not logged in, or a meter
     that is spent, is refused in one line with the seat as it was, and so is a record naming
     a model removed on this screen. Reviewers keep one model, executors may be empty, and a
     flip leaving no allowed pair is refused. A run launched afterwards reads the record as
