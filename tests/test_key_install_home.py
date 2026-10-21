@@ -84,6 +84,7 @@ class FreshServer(unittest.TestCase):
                          ["ak", "notify", "worker"])
         self.assertEqual(os.readlink(self.bin / "notify"), str(self.home.path / "tools/notify"))
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "a Mac's install writes zsh files")
     def test_the_path_line_sits_once_above_the_bashrc_s_early_return(self):
         text = (self.home.path / ".bashrc").read_text()
         lines = text.splitlines()

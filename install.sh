@@ -995,7 +995,7 @@ def rewritten(line):
     """
     start = line.find('command="')
     if start < 0:
-        return f'command="{forced}",' + line     # a phone key with no forced command yet
+        return f'command="{forced}" ' + line     # sshd needs whitespace before the key type
     i, end = start + len('command="'), None
     while i < len(line):
         if line[i] == "\\":
