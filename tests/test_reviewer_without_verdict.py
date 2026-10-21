@@ -341,7 +341,7 @@ sys.exit(1)
                                "reason": "Re-review after the rebase of origin/main."},
         }
         record.save_state(run_dir, state)
-        lp = run.Loop(self.cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+        lp = run.Loop(self.cfg, run_dir, state, {}, log, wt, "body", ["true"], "context")
         lp.rnd = 2
         self.reviews(NO_VERDICT, NO_VERDICT)
         with self.assertRaises(run.Exhausted) as ctx:
@@ -423,7 +423,7 @@ sys.exit(1)
             self.assertEqual(parked["state"], "waiting")
             self.assertIsNone(parked["pid"])
             lp = run.Loop(self.cfg, run_dir, parked, {}, run.logger(run_dir),
-                          wt, "body", ["true"], "context", [])
+                          wt, "body", ["true"], "context")
             self.assertEqual(landing(lp, consume=lambda _: run.cmd_resume([run_dir.name])), 0)
         after = record.read_state(run_dir)
         self.assertEqual(after["state"], "pass")

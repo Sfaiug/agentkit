@@ -66,8 +66,8 @@ CONFIG_NAME = "config.toml"                # the one config file, under HOME: ne
 DEFAULT_CONFIG_NAME = "config.default.toml"   # ... whose shipped default install.sh copies there
 # Everything ak keeps at the top of HOME.  Anything else there is a session's own, and the
 # collector removes it a week after its last change.
-OWN = ("bin", CONFIG_NAME, "env", "history.db", "history.db-journal", "history.log", "jobs",
-       "macbridge", "rules.md", "runs", "secrets", "state", "tasks", "tmp", "work", "wt")
+OWN = ("bin", CONFIG_NAME, "env", "history.db", "history.db-journal", "history.lock", "history.log",
+       "jobs", "macbridge", "rules.md", "runs", "secrets", "state", "tasks", "tmp", "work", "wt")
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
                                # harness whose adapter manifest names none of its own
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
@@ -644,19 +644,27 @@ def _ask_catalog(harness):
         pass            # catalog_now falls back to the table, which says the same error
 
 
-def efforts(harness, model=None, now=False):
+def catalog_held(harness):
+    """The catalog that harness last listed, however old, else its manifest's table: for a draw,
+    which asks no harness and waits on none."""
+    cached = _CATALOGS.get(harness)
+    return cached[1] if cached else catalog_table(harness)
+
+
+def efforts(harness, model=None, listing=None):
     """That harness's effort words, in the order the `c` screen cycles them -- or that model's.
 
-    Given a model its catalog says the efforts of, those are the answer -- `none` alone for one
-    that runs at no effort.  Otherwise `[effort] levels` in its adapter manifest is the
-    vocabulary; a harness that names none -- a fourth one, or the echo fixture -- takes the
-    fixed list, which holds every word the shipped defaults use.  `now` reads the catalog
-    through catalog_now, for a key that cannot wait on a listing.
+    A model's are the first of these to say them: its harness's `listing` (catalog() unless
+    given: catalog_now for a key, catalog_held for a draw), its adapter's `[catalog]` row --
+    `none` alone for one that runs at no effort -- its adapter's `[effort] levels`, the fixed
+    list, which holds every word the shipped defaults use.  Without a model nothing is listed.
     """
     if model is not None:
-        for entry in (catalog_now if now else catalog)(harness):
-            if entry["id"] == model and entry["efforts"]:
-                return list(entry["efforts"])
+        for table in ((listing or catalog)(harness), catalog_table(harness)):
+            said = next((entry["efforts"] for entry in table
+                         if entry["id"] == model and entry["efforts"]), None)
+            if said:
+                return list(said)
     block = manifest(harness).get("effort")
     levels = block.get("levels") if isinstance(block, dict) else None
     if isinstance(levels, list) and levels and all(
@@ -833,7 +841,7 @@ def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
     running `claude-opus-5-5` -- its harness's catalog label for its id, read off the manifest's
     table so no draw waits on a listing -- else its id, a provider's prefix off
-    (`deepseek-v4.1-flash-free`).  `name` itself where it is no entry or names no id of its
+    (`acme-flash-free`).  `name` itself where it is no entry or names no id of its
     own (`default`: the harness picks).
     """
     entry = (cfg.get("models") or {}).get(name)
@@ -1479,6 +1487,16 @@ def unswitched_files(harness, env):
     if not env.get(ACCOUNT_ENV):
         found += [p for p in manifest_paths(paths, {"HOME": env.get("HOME")}) if p not in found]
     return found
+
+
+def workspace_rules(harness):
+    """The instruction files and folders this harness loads from the checkout it works in, with
+    no switch to stop it: `[instructions] workspace` in adapters/<h>.toml, named relative to the
+    checkout.  Such a harness never reviews: it would judge a branch by the rules the branch
+    itself wrote (`staffing.barred_reviewer`)."""
+    block = manifest(harness).get("instructions")
+    names = block.get("workspace") if isinstance(block, dict) else None
+    return [name for name in names or [] if isinstance(name, str) and name]
 
 
 def seat_state_path(name):

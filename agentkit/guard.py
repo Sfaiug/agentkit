@@ -199,14 +199,17 @@ def commands(args):
 
 
 def sessions(tmux, server):
-    """{session id: name} on that tmux server; none when there is no server to ask."""
+    """{session id: name} on that tmux server, ak's control session aside; none when there is no
+    server to ask."""
+    from .orch import CONTROL   # here, not at the top: orch imports this module
     try:
         proc = subprocess.run([tmux, *server, "list-sessions", "-F",
                                "#{session_id}\t#{session_name}"],
                               capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         return {}
-    return dict(line.split("\t", 1) for line in proc.stdout.splitlines() if "\t" in line)
+    return {sid: name for sid, name in (line.split("\t", 1) for line in proc.stdout.splitlines()
+                                        if "\t" in line) if name != CONTROL}
 
 
 def resolve_target(tmux, server, command, target):

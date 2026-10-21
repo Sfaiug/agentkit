@@ -226,10 +226,13 @@ def stop_note(state):
 
     The one dim line a stopped run keeps under its row: what ended it, in the
     run's own words.  A run the memory cap killed says its ceiling here too,
-    so a `fail` on `killed: memory cap 4 GB` never reads as work that was judged.
+    so a `fail` on `killed: memory cap 4 GB` never reads as work that was judged.  A run
+    stopped to wait on an older one names the run that took its task once the wait is over
+    (`leases.restart`), not the wait it no longer has.
     """
     if (state or {}).get("state") == "stopped":
-        why = " ".join((state.get("error") or "stopped by the user").split())
+        why = (f"started again as {state['lease_restarted']}" if state.get("lease_restarted")
+               else " ".join((state.get("error") or "stopped by the user").split()))
         return f"stopped · {why}"
     err = " ".join(((state or {}).get("error") or "").split())
     lowered = err.lower()

@@ -55,7 +55,7 @@ class HandoverToNobody(unittest.TestCase):
                  "worktree": str(workspace), "base": None, "rounds": 2,
                  "round_summaries": [], "findings": "", "workers": ["alpha", "bravo"]}
         lp = run.Loop(cfg, run_dir, state, {}, lambda line: None, workspace,
-                      "Review the work.", [], "Fixture", [])
+                      "Review the work.", [], "Fixture")
         lp.rnd = 1
         answers = [(1, "API Error: 500 Internal server error\n"),
                    (1, "API Error: 503 Service unavailable\n"),

@@ -93,7 +93,7 @@ class PickupNewCode(unittest.TestCase):
                 round_summaries=[{"round": 1, "verdict": "PASS", "done_when": True,
                                   "summary": "work"}])
         record.save_state(run_dir, state)
-        return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+        return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context")
 
     def make_repo_run(self, name):
         """A fake passed run of invented acme work with a worktree, as a Loop.
@@ -133,7 +133,7 @@ class PickupNewCode(unittest.TestCase):
             "merge_note": None,
         }
         record.save_state(run_dir, state)
-        return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+        return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context")
 
     def test_moved_install_execs_resume_and_same_pid_is_not_queued(self):
         lp = self.make_scratch("pickup-one", rounds=1)

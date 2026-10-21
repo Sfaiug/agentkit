@@ -222,7 +222,7 @@ sys.exit(1)
                                "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"],
                  "pr": None, "merge_method": "squash"}
         lp = run.Loop(self.cfg, run_dir, state, {}, lambda s: None, wt, "body", ["true"],
-                      "context", [])
+                      "context")
         url = "https://github.com/fixture/repo/pull/7"
         with patch.object(gitcall, "gh", return_value=(0, f"opened {url}")):
             self.assertEqual(deliver.open_pr(lp, "main"), url)
@@ -309,7 +309,7 @@ sys.exit(1)
                  "findings": "", "followups": ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError"],
                  "pr": None, "merge_method": "squash"}
         lp = run.Loop(self.cfg, run_dir, state, {}, lambda s: None, wt, "body", ["true"],
-                      "context", [])
+                      "context")
         url = "https://github.com/fixture/repo/pull/7"
         with patch.object(gitcall, "gh", return_value=(0, f"opened {url}")) as gh:
             self.assertEqual(deliver.open_pr(lp, "main"), url)

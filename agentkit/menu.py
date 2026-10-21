@@ -3360,17 +3360,11 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
 
 
 def effort_levels(entry):
-    """The efforts a model's bars count, as config.efforts gives them off the catalog its harness
-    last listed -- what a step on it walks once that is in hand (config_effort), and what `add a
-    model` and a model's own screen fetched -- else off its manifest's table.  Read from
-    config's own cache: asking catalog() could start the listing, and a draw asks no harness and
-    waits on none.  None where they cannot be read."""
-    harness, model = entry.get("harness"), entry.get("model")
+    """The efforts a model's bars count: config.efforts off the catalog its harness last listed
+    (config.catalog_held), the one list a step on it walks (config_effort).  None where they
+    cannot be read."""
     try:
-        cached = config._CATALOGS.get(harness)
-        listed = cached[1] if cached else config.catalog_table(harness)
-        return next((list(item["efforts"]) for item in listed
-                     if item["id"] == model and item["efforts"]), None) or config.efforts(harness)
+        return config.efforts(entry.get("harness"), entry.get("model"), config.catalog_held)
     except config.Error:
         return []
 
@@ -3417,7 +3411,7 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None):
     never stands between the key and its frame.  What to say under the matrix, or ""."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
-        levels = config.efforts(entry.get("harness"), entry.get("model"), now=True)
+        levels = config.efforts(entry.get("harness"), entry.get("model"), config.catalog_now)
     except config.Error as exc:
         return f"config: {exc}"
     current = entry.get(key, entry.get("effort"))
@@ -3452,14 +3446,14 @@ def _nearest(effort, levels):
 
 def _offered(harness, *screen, provider=None):
     """Every model that harness's catalog lists for `provider`, asked while `screen` waits on
-    it (`waited`), each with the efforts it is offered at (config.efforts): the catalog's own,
-    or for one whose efforts it does not say -- a model newer than its adapter's table -- the
-    harness's `[effort] levels`, read without asking the catalog a second time.  A
-    `<provider>/<model>` id is that provider's, the way OpenCode names every provider's models,
-    and any other id is every provider's the harness runs."""
-    return [dict(model, efforts=model["efforts"] or config.efforts(harness))
-            for model in waited(lambda: config.catalog(harness), *screen,
-                                doing=f"reading the models {harness} offers")
+    it (`waited`), each with the efforts it is offered at (config.efforts), read off that
+    listing without asking the catalog a second time.  A `<provider>/<model>` id is that
+    provider's, the way OpenCode names every provider's models, and any other id is every
+    provider's the harness runs."""
+    listed = waited(lambda: config.catalog(harness), *screen,
+                    doing=f"reading the models {harness} offers")
+    return [dict(model, efforts=config.efforts(harness, model["id"], lambda _harness: listed))
+            for model in listed
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
@@ -4435,13 +4429,14 @@ def config_page(name, page):
         else:
             opened, at = None, here[1]
 
-            def draw(lines):
+            def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
                 body = page_body([(("row", number), label, value)
                                   for number, (label, value, _) in enumerate(rows)])[0]
-                terminal.frame(title, [*body[:at + 1], *lines, *body[at + 1:],
-                                       *note_lines(note)], keys)
-                return 4 + at
+                body[at + 1:at + 1], said = lines, note_lines(note)
+                first, room = matrix_page(body, {at + 1: ("lines", [])}, "lines", top, said, keys)
+                terminal.frame(title, [*body[first:first + room], *said], keys)
+                return 4 + at - first
             said = rows[at][2](draw) or ""
 
 
@@ -4947,9 +4942,12 @@ def past_body(past, at=None, models=None, room=None, said=None):
     flat = [line for number, (heading, rows) in enumerate(projects)
             for line in [("", None)] * bool(number) + [heading] + sum(rows, [])]
     pages = [flat] if room is None or len(flat) <= room else project_pages(projects, room)
-    # a row taller than a page is one body, whose pages ↑/↓ turn before leaving it (matrix_key)
-    page = [line for page in pages if any(name == at for _, name in page) for line in page]
-    page = page or pages[0]
+    # a row taller than a page is one body under its heading, which project_pages puts on a
+    # page of its own before it; ↑/↓ turn the body's pages before leaving it (matrix_key)
+    held = [number for number, page in enumerate(pages) if any(name == at for _, name in page)]
+    if held and held[0] and not any(name for _, name in pages[held[0] - 1]):
+        held.insert(0, held[0] - 1)
+    page = [line for number in held for line in pages[number]] or pages[0]
     return ([line for line, _ in page],
             {number: (("row", name), []) for number, (_, name) in enumerate(page) if name})
 
@@ -5007,6 +5005,7 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         act, row, _column, top = matrix_key("past sessions", body, places,
                                             [("row", name) for name in names], ("row", here),
                                             top, "", keys, clock=clock)
+        top = top if row[1] == here else 0      # another row is another body, from its start
         here = row[1]
         if act is None:
             continue              # a resize or the pointer: drawn again
