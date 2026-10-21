@@ -29,15 +29,13 @@ INBOX = "Merge acme#7? yes/no"
 class Harness:
     """A seat's harness, as notify sees it: one conversation and the owner's messages in it."""
     name = "claude"
+    reads_messages = True
 
     def __init__(self):
         self.said = []
 
     def conversation(self, record, cwd):
         return "c1"
-
-    def transcript(self, record, cwd, conversation):
-        return "c1.jsonl"
 
     def user_messages(self, record, cwd, conversation, *, seat=None):
         return [{"at": at, "text": "words"} for at in self.said]

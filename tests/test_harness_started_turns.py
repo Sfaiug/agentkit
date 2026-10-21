@@ -14,7 +14,7 @@ import json
 import unittest
 
 import test_answer_closes_question as answering
-from agentkit import config, notify
+from agentkit import config, notify, watch
 from agentkit.harness import claude
 
 SEAT = answering.SEAT
@@ -119,6 +119,15 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
         self.said("Use the second schema.", 10010, **OWNER)
         notify.answer_typed(log=lambda _: None)             # the tick's pass, before its cards
         self.assertIsNotNone(notify._card_read(SEAT).get("answered_at"))
+
+    def test_the_owners_prompt_answers_a_question_kept_for_a_turn_whose_end_is_on_record(self):
+        """The Stop's look found the notice lock taken: the owner's prompt asks it, then answers."""
+        self.converse()
+        watch.keep(SEAT, answering.QUESTION)
+        watch.turn_ended(SEAT)
+        self.said("Use the second schema.", 10010, **OWNER)
+        self.prompt()
+        self.assert_answered()
 
     def converse(self):
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {

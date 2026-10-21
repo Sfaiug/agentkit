@@ -523,15 +523,19 @@ def answer_written(name, at=None, wait=0):
     another session's message, a notice that one was refused -- as it hands the owner's, and
     only its conversation marks them nobody's words (`owner_said`, which also leaves ak's own
     lines out).  `wait` gives a prompt's own message that long to arrive: a harness may write it
-    only after its prompt hook returns.  Read only while something asked stands; a question
-    still kept back waits for the look that asks it, which dates it.  None where the seat keeps
-    no conversation to read, and only its hook can say."""
+    only after its prompt hook returns.  Read only while something asked stands; a question kept
+    back whose turn's end is on record is asked first, as `answered` asks it, and one whose turn
+    still runs waits for the look that asks it, which dates it.  None where the seat's harness
+    cannot say whose its messages are, and only its hook can."""
     from . import watch
+    if watch.seat_read(name).get("unasked"):
+        with session_lock(name) as locked:
+            ask_kept(locked, ended=True)
     since, kept = asked_at(name), watch.seat_read(name).get("unasked")
-    if since is None and not kept:
+    if since is None:
         return False
     seat = conversation_of(name)
-    if seat is None or not seat[3] or not seat[0].transcript(*seat[1:]):
+    if seat is None or not seat[3] or not seat[0].reads_messages:
         return None
     deadline = time.monotonic() + wait
     while since is not None and not kept:
