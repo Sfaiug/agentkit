@@ -947,7 +947,6 @@ def tips(line):
     return [len(terminal.ANSI.sub("", line[:start])) + offset for start, offset in found]
 
 
-
 def task_cells(line, tasks):
     """Each task `squares` drew on `line`, a line a row opens as drawn, with the cell its
     squares start at: found by their own drawing, so glyphs in a draft are never a task."""
@@ -3745,10 +3744,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     subscription's meter over its page (config_meters).
 
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
-    a click flips one (for_mark), the orchestrator moving the seat at once, the roles saved
+    a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  The For row over them turns, with ←/→, Enter or
-    a click (`‹` back), to new seats, whose marks are [defaults], or to another of `seats`.
+    a click (`‹` back), to new seats, whose marks are [defaults] (defaults_mark), no open seat
+    changing, or to another of `seats`.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved and drawn
@@ -3866,7 +3866,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            note = for_mark(cfg, scopes[scope], selected, here[1], column, providers)
+            note = (session_mark(cfg, scopes[scope], selected, here[1], column, providers)
+                    if scopes[scope] not in FOR_SCOPES
+                    else defaults_mark(cfg, selected, here[1], column))
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act in ("enter", "space") or isinstance(act, int):     # the effort column
@@ -4671,16 +4673,11 @@ def for_selected(cfg, scope):
         return None, f"{scope}'s roles are not shown: {exc}"
 
 
-def for_mark(cfg, scope, selected, model, column, providers):
-    """Act on one of `c`'s marks for whom the For row says, at once and asking nothing.
-
-    New seats: [defaults], saved (config.remember_defaults) and into `cfg` and `selected`; no
-    open seat changes.  A seat: its record (session_mark), the orchestrator moving it there
-    and then.  What to say under the rows, or "".
-    """
-    if scope not in FOR_SCOPES:
-        return session_mark(cfg, scope, selected, model, column, providers)
-    # a new seat's crew is read as it is made (orch.default_crew), so nothing now refuses one
+def defaults_mark(cfg, selected, model, column):
+    """Act on one of new seats' marks, `selected` being [defaults]: saved at once
+    (config.remember_defaults) and into `cfg` and `selected`, no open seat changing.  What to
+    say under the rows, or ""."""
+    # a new seat's crew is read as it is made (orch.default_crew), so no meter refuses one now
     changed, note = orch.role_mark(cfg, selected, model, column, {})
     if note or changed == selected:
         return note

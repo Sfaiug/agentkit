@@ -1,6 +1,7 @@
-"""`c`'s For row says whom its marks are for -- new seats ([defaults]) or one seat -- and a flip
-goes there at once, asking nothing.  Offline: a throwaway HOME, the keys fed in, and the switch
-faked to write the record alone, as test_switch_orchestrator proves it.
+"""`c`'s For row says whom its marks are for -- new seats ([defaults], test_new_seats_marks) or
+one open seat -- and turns between them; a flip on a seat moves that seat alone, asking nothing.
+Offline: a throwaway HOME, the keys fed in, and the switch faked to write the record alone, as
+test_switch_orchestrator proves it.
 """
 
 from contextlib import redirect_stdout
@@ -62,14 +63,6 @@ class ForRow(Sandbox):
                          ["new seats", "fix-api", "acme", "new seats", "acme"])
         self.assertEqual(self.screen("up", "left", "left", *["right"] * 3, session="acme"),
                          ["acme", "new seats", "fix-api", "new seats", "acme", "fix-api"])
-
-    def test_on_new_seats_a_flip_is_the_defaults_and_no_seat_moves(self):
-        self.screen("enter")                    # the first model's orchestrator mark: fable's
-        self.screen("right", "down", "down", "down", "enter")    # spark builds
-        self.assertEqual(self.orchestrators(), ["fable", "opus", "opus"])
-        self.assertEqual(config.load()["defaults"]["workers"], ["opus", "astra", "spark"])
-        self.assertEqual(config.load_session(config.load(), "acme")["workers"], ["opus", "astra"])
-        self.assertEqual(self.moved, [])
 
     def test_on_a_seat_a_flip_moves_that_seat_alone_asking_nothing(self):
         self.screen("up", "right", "down", "enter")

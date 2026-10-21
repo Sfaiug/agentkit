@@ -55,7 +55,7 @@ class Back(unittest.TestCase):
         screen, read = self.config_screen()
         self.assertEqual(read.call_count, 0)
         self.assertTrue(screen.startswith("agentkit · config"), screen)
-        # the marks are new seats', under the meters
+        # no seat is highlighted from a pipe, so the marks are new seats', under the meters
         lines = terminal.ANSI.sub("", screen).splitlines()
         heads = next(line for line in lines if line.split()[-1:] == ["effort"])
         self.assertEqual(heads.split()[-4:], ["orch", "builds", "reviews", "effort"])
