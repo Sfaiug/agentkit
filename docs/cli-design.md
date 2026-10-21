@@ -174,7 +174,9 @@ screen, `p`, which the key line offers as `p past` while there is one. The
 screen is `past sessions` over the main screen's rows, one a stopped seat under
 its project's heading, numbered on after the live ones in the same order --
 number, name, orchestrator, `stopped 2h ago` in the state's column, and its
-harness's word where it cannot resume the conversation -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`: Enter or a
+harness's word where it cannot resume the conversation -- with the keys `↑↓ move   ⏎ reopen   x remove   esc back`.
+The highlighted row opens its plan's first done line under its name, then, dim,
+`6 tasks · took 4 hours`: hours and days, never minutes, to its last done. Enter or a
 click reopens the highlighted seat where it stopped, as its number does from
 the main screen, and the menu is back; `x` removes it at once, the rest
 staying up; Esc goes back. From a pipe a number reopens, `x` asks which to

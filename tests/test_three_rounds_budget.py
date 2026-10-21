@@ -489,7 +489,7 @@ sys.exit(1)
                 _, directory, state = self.launch(rounds=2)
                 lp = run.Loop(self.cfg, directory, record.read_state(directory), {},
                               lambda line: None, Path(state["worktree"]), "body", ["true"],
-                              "context", [])
+                              "context")
                 lp.rnd = rnd
                 roundloop.pending_review(lp, "Re-review after the rebase of origin/main.")
                 self.assertIn("review_pending", record.read_state(directory))

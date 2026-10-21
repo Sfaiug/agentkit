@@ -18,9 +18,9 @@
 #                                  accepted and ignored
 #                     hooks        -> says where this harness's hooks come from; writes nothing
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
-#                                  OpenCode's own list, with the label and efforts of the
-#                                  [catalog] table of adapters/opencode.toml where it has
-#                                  them, else that table
+#                                  OpenCode's own list, with the label of the [catalog]
+#                                  table of adapters/opencode.toml where it has one, and its
+#                                  efforts where OpenCode says none (MiMo's), else that table
 #                     providers    -> one `id<TAB>name<TAB>mode` line per provider OpenCode
 #                                  can log in to: logged-in ones first, with their mode, then
 #                                  the rest with none
@@ -549,15 +549,18 @@ hooks)
 models)
   # OpenCode's own list of every logged-in provider's models: each `provider/model` under the
   # name OpenCode gives it, its variants its efforts (turn_variants), `none` for one with none.
-  # An id the [catalog] table knows takes the table's label and efforts: MiMo's thinking
-  # switch.  Not --standalone, whose private server lists no model at all (2.0.24).  A list
-  # that fails, outlasts ten seconds or says nothing leaves the table as it is, and so does a
-  # host with no `timeout` to bound it (stock macOS): nothing waits on a listing it cannot
-  # stop.  Settings, keys among them, never leave jq.
+  # A `mimo/` model's are left unsaid for the [catalog] table to give: its variants never reach
+  # MiMo's API, whose one control is the thinking switch turn_variants defines.  An id the table
+  # knows takes the table's label.  Not --standalone, whose private server lists no model at
+  # all (2.0.24).  A list that fails, outlasts ten seconds or says nothing leaves the table as
+  # it is, and so does a host with no `timeout` to bound it (stock macOS): nothing waits on a
+  # listing it cannot stop.  Settings, keys among them, never leave jq.
   listed=$(command -v timeout >/dev/null && command -v opencode >/dev/null \
     && timeout 10 opencode api model.list 2>/dev/null | jq -r '.data[]? | select(.enabled != false)
         | ["\(.providerID)/\(.id)", .name // .id,
-           ([.variants[]?.id] | if length == 0 then "none" else join(" ") end)] | join("\t")') \
+           (if .providerID == "mimo" then ""
+            else [.variants[]?.id] | if length == 0 then "none" else join(" ") end end)]
+        | join("\t")') \
     || listed=""
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   IFS=$'\n'; set -f   # one argument a line

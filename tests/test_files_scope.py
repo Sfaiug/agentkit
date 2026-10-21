@@ -58,7 +58,7 @@ class FilesScope(unittest.TestCase):
         state = {"title": "fix api", "base": "main", "base_sha": self.base, "rounds": 1,
                  "executor": "opus", "reviewer": "astra", "round_summaries": []}
         lp = run.Loop(config.load(), directory, state, {}, lambda text: None,
-                      self.repo, body, list(cmds), body, [])
+                      self.repo, body, list(cmds), body)
         return lp
 
     def verify(self, lp, rnd=1):

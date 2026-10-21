@@ -1,5 +1,9 @@
 """A job saves no copy of the owner's words, and every collection pass removes saved ones.
 
+Owner rule, 2 Oct, 17 Oct, 18 Oct 2026: "The owner's own words are what a job is measured against:
+the orchestrator holds them whole and writes its checks from them; ak keeps no copy. Reason: handed
+to each task's reviewer, they would breed false findings and carry pasted keys."
+
 Job receipts once saved everything the owner had typed into the seat since its last job, for a
 delivery check that was never built: nothing read them back, and one held a key the owner had
 pasted.  A launch now saves none, and each collection pass (before every run and once a day)

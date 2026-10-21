@@ -212,7 +212,6 @@ Path.write_text = paused_write
         proc, resumed, new_receipt = self.start('acme-thread')
         self.assertEqual(home, resumed)
         self.assertNotEqual(receipt, new_receipt)
-        self.assertFalse(receipt.exists())
         self.assertNotEqual(before, json.loads((home / 'fake-server.json').read_text())['pid'])
         argv = json.loads((home / 'fake-tui.json').read_text())['argv']
         self.assertEqual(argv[argv.index('resume') + 1], 'acme-thread')
@@ -313,9 +312,10 @@ Path.write_text = paused_write
             self.wait_for(lambda: (home / 'fake-monitor-closed').exists())
             identity = (home / 'installation_id').read_bytes()
             database = (home / 'state_5.sqlite').read_bytes()
-            # orch prepares the new receipt before respawn-pane kills the old pane.
+            # orch prepares the new receipt before respawn-pane kills the old pane, and drops
+            # the old one only once that respawn has started.
             new_receipt = codex.prepare('acme-seat', self.cwd, 'acme-thread')
-            self.assertFalse(receipt.exists())
+            self.assertTrue(receipt.exists())
             self.stop(proc, home)
             account = self.root / '.codex-acme'
             account.mkdir()

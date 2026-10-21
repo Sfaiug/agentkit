@@ -135,12 +135,14 @@ any = ["esc to interrupt"]
 
 # A picker the owner opened at the composer -- /model, its effort list, /permissions -- ends on
 # its key hint, `enter select · esc back` or `enter default · s session · esc back`.  It is the
-# owner's own hand at the composer, as a draft is, so nothing is typed into it.
+# owner's own hand at the composer, as a draft is, so nothing is typed into it, and its
+# highlighted row reads as typed text, none of which ak's editor sets aside (`picker`).
 [[rule]]
 id = "draft.picker"
 state = "draft"
 lines = 1
 newest = '^enter \w+ · (?:.+ · )?esc back$'
+picker = true
 
 # A composer holding bright, typed text is a draft never sent. A composer whose
 # only content is dim -- the `Ask Codex …` placeholder -- is empty. Both are read

@@ -174,7 +174,7 @@ class GreenBase(unittest.TestCase):
         tip = self.move_target(owner, wt)
         self.integrate(lp, tip)
         lp = run.Loop(lp.cfg, run_dir, record.read_state(run_dir), {}, lp.log, wt,
-                      "body", lp.cmds, "context", [])
+                      "body", lp.cmds, "context")
         self.assertEqual(roundloop.resume_review(lp), "PASS")
         self.assertTrue(run.final_check(lp, "origin/main"))
         self.assertEqual(self.turns, ["final-fixer"])
