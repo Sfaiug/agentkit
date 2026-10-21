@@ -9,13 +9,14 @@ the stub's blanks and dummies.
 """
 
 import calendar
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, closing, redirect_stdout
 import datetime
 import io
 import json
 import os
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -955,11 +956,28 @@ stop();
 console.log(JSON.stringify(refused));
 """
         state = self.home / ".agentkit/state"
-        state.mkdir(parents=True)
-        for plan, refused in (("- [x] the parser parses\n", [stop.DONE_ASKING, None]),
-                              ("- [ ] the parser parses\n", [None, None])):
-            with self.subTest(plan=plan):
-                (state / "plan-fakesession.md").write_text(plan)
+        token, sid = "a" * 32, "ses_0fa1c2d3e4ffAcmeFixture01"
+        (state / f"opencode-launch-{token}").mkdir(parents=True)
+        (state / f"opencode-launch-{token}/session").write_text(sid)
+        (state / "session-fakesession.json").write_text(json.dumps(
+            {"orchestrator": "mimo", "cwd": str(self.home), "opencode_launch": token}))
+        db = self.home / ".local/share/opencode/opencode.db"
+        db.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(db)) as conn, conn:
+            conn.executescript((FIXTURES / "said-opencode.sql").read_text())
+        plan = state / "plan-fakesession.md"
+        # the third: the owner wrote in the seat's session after its plan was done
+        for lines, wrote, refused in (("- [x] the parser parses\n", False, [stop.DONE_ASKING, None]),
+                                      ("- [ ] the parser parses\n", False, [None, None]),
+                                      ("- [x] the parser parses\n", True, [None, None])):
+            with self.subTest(plan=lines, wrote=wrote):
+                plan.write_text(lines)
+                os.utime(plan, (100, 100))
+                if wrote:
+                    with closing(sqlite3.connect(db)) as conn, conn:
+                        conn.execute("INSERT INTO session_message VALUES (?, ?, ?, ?, ?, ?, ?)", (
+                            "msg_10", sid, "user", 10, 200000, 200000,
+                            json.dumps({"text": "Please add CSV export."})))
                 proc = subprocess.run(
                     [node, "--input-type=module", "-e", driver,
                      str(REPO / "hooks/opencode-seat/index.js")],
