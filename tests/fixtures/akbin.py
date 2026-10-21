@@ -52,10 +52,19 @@ REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
 # A socket path outside this Home's socket directory could name any server on the machine, as
 # could a socket name holding a slash (`-L ../../tmux-1000/agentkit` walks out of TMUX_TMPDIR),
 # and TMUX or TMUX_PANE the caller's own; a seat's pane asks its own server by the path tmux
-# gives it.  Every flag is read as tmux's getopt reads them: bundled, a value attached or in the
-# next word.
+# gives it, so a path is judged by the directory it really is in, links followed, and the socket
+# itself is no link.  Every flag is read as tmux's getopt reads them: bundled, a value attached or
+# in the next word.
 TMUX = LOG + """refuse() {{ echo "tmux: no socket outside the test's Home" >&2; exit 2; }}
-value() {{ case $1$2 in L*/*|S*..*) refuse ;; S{tmpdir}/*) ;; S*) refuse ;; esac; }}
+value() {{
+  case $1$2 in
+    L*/*) refuse ;;
+    S*) [ -L "$2" ] && refuse
+        dir=$(cd -P -- "$(dirname -- "$2")" 2>/dev/null && pwd -P) || refuse
+        case $(basename -- "$2") in .|..) refuse ;; esac
+        case $dir/ in {tmpdir}/*) ;; *) refuse ;; esac ;;
+  esac
+}}
 want=
 for a do
   if [ -n "$want" ]; then value "$want" "$a"; want=; continue; fi
