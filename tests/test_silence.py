@@ -272,7 +272,7 @@ class Silence(unittest.TestCase):
         with patch.object(record, "SILENCE_MINUTES", 21), patch.object(record, "CEILING_HOURS", 7):
             saved = record.read_state(self.root)
             record.save_state(self.root, saved)
-            lp = run.Loop({}, self.root, saved, {}, lambda _: None, self.root, "", [], "", [])
+            lp = run.Loop({}, self.root, saved, {}, lambda _: None, self.root, "", [], "")
             self.assertEqual((lp.turn_limit, lp.done_when_limit), (17 * 60, 5 * 3600))
             self.assertEqual(turns.stall_minutes_for(self.root, saved), 17)
             self.assertAlmostEqual(watch.stall_allowance(saved, "done-when", 17),

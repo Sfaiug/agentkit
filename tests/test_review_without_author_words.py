@@ -89,7 +89,7 @@ out = pathlib.Path(sys.argv[6])
                  "executor": "opus", "reviewer": "astra", "round_summaries": [],
                  "repo": str(self.wt), "worktree": str(self.wt), "findings": ""}
         self.lp = run.Loop(self.cfg, self.directory, state, {}, lambda _: None, self.wt,
-                           "# Enable the feature", ["true"], "context", [])
+                           "# Enable the feature", ["true"], "context")
 
     def test_no_summary_reaches_a_reviewer_and_a_dispute_does(self):
         finding = ["finding", "api.py:1", "feature on by default", "task wants it off",

@@ -129,7 +129,7 @@ class ReviewerEdits(unittest.TestCase):
                  "rounds": 3, "round_summaries": [], "executor": "opus", "reviewer": "astra"}
         self.logs = []
         self.lp = run.Loop(cfg, directory, state, {}, self.logs.append, self.wt,
-                           "Review the change.", ["true"], "", ["spark"])
+                           "Review the change.", ["true"], "")
         self.lp.rnd = 1
         self.lp.validation = run.commit_identity(self.wt)
         self.lp.artifacts.add("keep/existing.txt")

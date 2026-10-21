@@ -124,7 +124,7 @@ def make_loop(root, wt, rounds=3, spent=1, cfg=None):
         "merge_note": None, "findings": "", "delivery_sha": head,
     }
     record.save_state(run_dir, state)
-    lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+    lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context")
     return lp, run_dir, lines
 
 
@@ -676,7 +676,7 @@ class MergeStep(unittest.TestCase):
                 run.integrate(lp, "origin/main")
         saved = record.read_state(run_dir)
         self.assertFalse(saved["review_pending"]["record"])
-        resumed = run.Loop(lp.cfg, run_dir, saved, {}, lp.log, wt, "body", ["true"], "context", [])
+        resumed = run.Loop(lp.cfg, run_dir, saved, {}, lp.log, wt, "body", ["true"], "context")
         with patch.object(roundloop, "execute", side_effect=AssertionError("unexpected fixer")):
             run.rounds(resumed)
         self.assertEqual(len(resumed.state["round_summaries"]), 2)

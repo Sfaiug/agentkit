@@ -156,7 +156,7 @@ def sessions():
     if rc != 0:
         return None
     return [parts for parts in (line.split(":", 2) for line in out.splitlines())
-            if len(parts) == 3]
+            if len(parts) == 3 and parts[1] != orch.CONTROL]
 
 
 def seats(listed=None):

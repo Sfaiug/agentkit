@@ -55,7 +55,6 @@ class DeferredChecks(unittest.TestCase):
                 self.reviewer = "reviewer"
                 self.executor = "executor"
                 self.review_sid = None
-                self.spares = []
                 self.findings = ""
                 self.artifacts = set()
                 self.validation = run.commit_identity(workspace)
