@@ -1329,7 +1329,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         timeout = kwargs.pop("on_timeout", None)
         silence = kwargs.pop("silence", None)
         silenced = set()    # the pieces whose first go silence stopped, each to go again
-        here = getattr(_GATE_HELD, "here", None) or (
+        home_reason = getattr(_GATE_HELD, "here", None) or (
             "command is not sent to the suite helper (suite already holds a local turn)")
         home_reasons = {}
 
@@ -1391,7 +1391,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     cancel.set()
                     return worker.TIMEOUT, piece, True, []
                 if log is not None:
-                    reason = here if first else home_reasons.get(shard) or (
+                    reason = home_reason if first else home_reasons.get(shard) or (
                         "command is not sent to the suite helper (piece retry)")
                     with writing:
                         log(f"AK_SHARD={label} on {away.alias}" if away else
