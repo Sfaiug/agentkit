@@ -194,7 +194,8 @@ class SeatMove(Sandbox):
         start, clock = orch._start_harness, Ticking(time.sleep)
         with patch.object(orch, "time", clock), patch.object(
                 orch, "_start_harness",
-                side_effect=lambda *args: self.ends_on("opus", clock.time()) or start(*args)):
+                side_effect=lambda *args, **kw: self.ends_on("opus", clock.time())
+                or start(*args, **kw)):
             self.assertEqual(self.move("fable"), "")
         self.assertEqual(self.looked(), "fable")
 
@@ -207,10 +208,10 @@ class SeatMove(Sandbox):
                 seen.append(self.looked())
         meanwhile = threading.Thread(target=look)
 
-        def starting(*args):
+        def starting(*args, **kw):
             meanwhile.start()
             meanwhile.join(0.5)                  # held off: it looks once the move is done
-            start(*args)
+            start(*args, **kw)
         with patch.object(orch, "_start_harness", side_effect=starting):
             self.assertEqual(self.move("fable"), "")
         meanwhile.join()
