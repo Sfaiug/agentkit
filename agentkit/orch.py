@@ -3598,8 +3598,8 @@ def cmd_stop(argv):
             if removed:
                 stop.stop_owned_runs(name)
             else:
-                stop.release_session(name)
                 watch.forget(name)   # its stall record and open question go with the owner's stop
+                stop.release_session(name)
                 if not record:
                     # tmux alone held it: no record to keep, no number to reopen it
                     forget_seat(name, {}, warn)
