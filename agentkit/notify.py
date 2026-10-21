@@ -451,7 +451,7 @@ def resolved(data):
                 for n in stamps) and stamps[0] <= stamps[1] < stamps[2])
 
 
-def answered(session, at, typed=None, *, prompt=False):
+def answered(session, at, typed=None):
     """The owner submitted a prompt; only the seat's question already standing is answered.
 
     The hook owns this fact. Keep it on the notice so a later line of ak's own or a rename
@@ -462,28 +462,20 @@ def answered(session, at, typed=None, *, prompt=False):
     question lets go of the stall latch it held (`watch.forget`): opening the seat kept it.
     A question the seat kept back for its turn's end, that end on record, is the one he read
     at its stop and answers: it is asked here first, whoever held this lock when it ended.
-    `typed` dates a message no prompt hook heard (`answer_typed`): it answers only a question of
-    the seat's own said before it, judged here, where the seat cannot ask another meanwhile.
-    A `prompt` answers only where the seat's conversation holds a message of the owner's since
-    what it would answer (`owner_wrote`): a harness hands its prompt hook the turns it begins
-    itself -- a scheduled check-in, another session's message, a notice that one was refused --
-    as it hands the owner's, and only its conversation marks them nobody's words.
-    True once a question was answered.
+    `typed` dates a message of the owner's read from the seat's conversation (`answer_written`):
+    it answers only what was asked before it (`asked_at`), judged here, where the seat cannot
+    ask another meanwhile.  True once a question was answered.
     """
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
         ask_kept(session, ended=True)
         previous = last(session)
-        if typed is not None and not (watch.owner_question(previous)
-                                      and typed > spoken_at(previous)):
+        if typed is not None and not typed > (asked_at(session) or math.inf):
             return
         if previous and previous.get("watcher") is True:
             return
         # the needs you he answered has its card retired now, before a retry can take this lock
         card = _card_read(session)
-        if prompt and (previous or card.get("word") == "needs you") and owner_wrote(
-                session, spoken_at(previous) if previous else card.get("since", 0)) is False:
-            return
         if not previous:
             if card.get("word") == "needs you":
                 if at > card["since"]:
@@ -508,20 +500,56 @@ def spoken_at(notice):
     return notice.get("said_at", notice["time"])
 
 
+def asked_at(session):
+    """When what the owner would answer in that seat was said: its own question standing, else
+    a needs you only the screen said, unanswered; None where neither stands."""
+    from . import watch
+    notice = last(session)
+    if notice:
+        return (spoken_at(notice) if watch.owner_question(notice)
+                and isinstance(notice.get("time"), (int, float)) else None)
+    card = _card_read(session)
+    return (card["since"] if card.get("word") == "needs you"
+            and (card.get("answered_at") or 0) <= card["since"] else None)
+
+
+PROMPT_WRITTEN = 2     # seconds a prompt's own message is given to reach the seat's conversation
+
+
+def answer_written(name, at=None, wait=0):
+    """A message of the owner's in that seat's conversation, written after what it asked them,
+    answers it now, by the path their prompt takes (`answered`), whoever asked it.  Their prompt
+    hook cannot say so: a harness hands it the turns it begins itself -- a scheduled check-in,
+    another session's message, a notice that one was refused -- as it hands the owner's, and
+    only its conversation marks them nobody's words (`owner_said`, which also leaves ak's own
+    lines out).  `wait` gives a prompt's own message that long to arrive: Claude Code writes it
+    only after its prompt hook returns.  Read only while something asked stands; a question
+    still kept back waits for the look that asks it, which dates it.  None where the seat keeps
+    no conversation to read, and only its hook can say."""
+    from . import watch
+    since, kept = asked_at(name), watch.seat_read(name).get("unasked")
+    if since is None and not kept:
+        return False
+    seat = conversation_of(name)
+    if seat is None or not seat[3] or not seat[0].transcript(*seat[1:]):
+        return None
+    deadline = time.monotonic() + wait
+    while since is not None and not kept:
+        typed = max(owner_said(name, seat), default=0)
+        if typed > since:
+            return answered(name, at or time.time(), typed=typed)
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.2)
+        since, kept = asked_at(name), watch.seat_read(name).get("unasked")
+    return False
+
+
 def answer_typed(log=print):
     """A message the owner typed while a seat's turn ran went into that turn, and no prompt hook
-    heard it: one written after its standing question was said answers it now, by the path their
-    prompt takes (`answered`), whoever asked it.  Read from the seat's own conversation
-    (`owner_said`, which leaves ak's own lines out), only while a question of its own stands;
-    one it still keeps back waits for the look that asks it, which dates it."""
-    from . import watch
+    heard it: it answers by the conversation (`answer_written`)."""
     for name in config.session_records():
-        notice = last(name)
-        if (not watch.owner_question(notice) or not isinstance(notice.get("time"), (int, float))
-                or watch.seat_read(name).get("unasked")):
-            continue
-        typed = max(owner_said(name), default=0)
-        if typed > spoken_at(notice) and answered(name, time.time(), typed=typed):
+        if answer_written(name):
             log(f"{name}: its question was answered in the turn it was asked in")
 
 
@@ -1403,15 +1431,6 @@ def owner_said(name, seat=None):
         return [message["at"] for message in plugin.user_messages(record, cwd, conversation, seat=name)]
     except (OSError, ValueError):
         return []
-
-
-def owner_wrote(name, since):
-    """Whether the owner wrote in that seat's conversation after `since`, by its harness's own
-    word on whose each message is (`owner_said`); None where it keeps no transcript to read."""
-    seat = conversation_of(name)
-    if seat is None or not seat[3] or not seat[0].transcript(*seat[1:]):
-        return None
-    return any(at > since for at in owner_said(name, seat))
 
 
 def _intent(name, done_at):

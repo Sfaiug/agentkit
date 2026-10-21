@@ -142,7 +142,7 @@ config.record_hook_fact(row, fact, kept)
     /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
   fi
   # The owner's word answers an older question, once the background look checks its pane --
-  # and, for a prompt, the seat's conversation (`notify.answered`).  The launch name still
+  # and, for a prompt, the seat's conversation (`notify.answer_written`).  The launch name still
   # resolves after a rename; main leaves harness bookkeeping alone.
   if [[ $owner = true ]]; then
     look "$seat" "$ts" "$said" "$event"

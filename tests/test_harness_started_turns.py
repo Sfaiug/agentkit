@@ -14,7 +14,7 @@ import json
 import unittest
 
 import test_answer_closes_question as answering
-from agentkit import config
+from agentkit import config, notify
 from agentkit.harness import claude
 
 SEAT = answering.SEAT
@@ -81,7 +81,7 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
                 self.assert_open()
 
     def said(self, text, at, **marks):
-        """One prompt in the seat's Claude conversation, written down before its hook hears it."""
+        """One prompt in the seat's Claude conversation."""
         path = claude.transcript_path({"cwd": str(self.root)}, CONVERSATION)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as fh:
@@ -95,19 +95,41 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
         hears the owner, so the question was closed before its card went out.  The seat's
         conversation marks whose each one is: only a message of the owner's, written after the
         question, answers it."""
+        self.converse()
+        self.notice()                                       # asked at the sandbox's 10000
+        for after, kind in enumerate(CLAUDE_TURNS, 1):
+            with self.subTest(kind=kind):
+                self.claude_began(kind, 10000 + after)
+                self.assert_open()
+        # Claude Code writes the owner's own message only after its prompt hook returns, here
+        # once that hook's look is over: the seat's next look reads it
+        self.prompt()
+        self.said("Use the second schema.", 10010, **OWNER)
+        self.hook("Stop")
+        self.assert_answered()
+
+    def test_a_needs_you_only_the_screen_said_waits_for_the_owners_message(self):
+        self.converse()
+        notify._card_write(SEAT, {"word": "needs you", "since": 10000, "began": 10000,
+                                  "episode": "acme-dialog", "sent": True})
+        self.claude_began("a scheduled check-in", 10001)
+        notify.answer_typed(log=lambda _: None)
+        self.assertIsNone(notify._card_read(SEAT).get("answered_at"))
+        self.prompt()
+        self.said("Use the second schema.", 10010, **OWNER)
+        notify.answer_typed(log=lambda _: None)             # the tick's pass, before its cards
+        self.assertGreater(notify._card_read(SEAT)["answered_at"], 10000)
+
+    def converse(self):
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {
             "cwd": str(self.root), "session_title": SEAT, "conversation": CONVERSATION})
         self.said("Fix the parser.", 9000, **OWNER)
-        self.notice()                                       # asked at the sandbox's 10000
-        for after, (kind, turn) in enumerate(CLAUDE_TURNS.items(), 1):
-            with self.subTest(kind=kind):
-                marks = {key: value for key, value in turn.items() if key != "text"}
-                self.said(turn["text"], 10000 + after, **marks)
-                self.prompt(prompt=turn["text"])
-                self.assert_open()
-        self.said("Use the second schema.", 10010, **OWNER)
-        self.prompt()
-        self.assert_answered()
+
+    def claude_began(self, kind, at):
+        """That turn of Claude Code's own, written down before its hook hears it."""
+        turn = CLAUDE_TURNS[kind]
+        self.said(turn["text"], at, **{key: value for key, value in turn.items() if key != "text"})
+        self.prompt(prompt=turn["text"])
 
     def test_the_owners_own_prompt_still_answers_it(self):
         self.notice()
