@@ -96,7 +96,7 @@ class UsualAccountFirst(unittest.TestCase):
             "fetched_at": self.now, "reset_checked_at": self.now, "providers": providers}))
 
     def tmux(self, *args, **kwargs):
-        if args[0] == "respawn-pane":
+        if "respawn-pane" in args:
             self.commands.append(shlex.split(pane.resolved(args)[-1]))
             self.pane = "❯"
         if args[0] == "display-message" and args[-1] == "#{pane_tty}":
