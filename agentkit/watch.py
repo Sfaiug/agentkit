@@ -4298,15 +4298,23 @@ def _resume_on(cfg, name, log, account, continuing, still=None):
 
 def between_turns(name, harness, record, opened_at):
     """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
-    closed, renamed, reopened or moved since -- at its prompt with nothing in its composer, in
-    no turn and asking nothing?"""
+    closed, renamed, reopened or moved since -- and `at_rest`?"""
     seat, now = orch.find(name), config.session_records().get(name) or {}
     if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
             or any(now.get(key) != record.get(key)
                    for key in ("orchestrator", "conversation", "account"))
             or seat_read(name).get("opened_at") != opened_at):
         return False
-    fresh = observed(name, harness, pane_text(seat), seat_read(name), time.time())
+    return at_rest(name, harness, seat)
+
+
+def at_rest(name, harness, seat):
+    """Is that seat at its prompt with nothing in its composer, in no turn and asking nothing?
+    A capture that failed shows none of that."""
+    pane = pane_text(seat) if seat else ""
+    if not pane.strip():
+        return False
+    fresh = observed(name, harness, pane, seat_read(name), time.time())
     return fresh["state"] == "at_prompt" and not _turn_in_flight(harness, fresh)[0]
 
 
@@ -4404,14 +4412,14 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                            if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
             if target is None:
                 return False
-            prompted = []
-
-            def still():
-                # Asked by the launch last, after every slow step: the stamp first, so a prompt
-                # this look misses is one stamped after it.
-                prompted.append(last_prompt(name))
-                return between_turns(name, harness, record, live.get("opened_at"))
             with state_lock():
+                # read before the look, so a prompt it misses is one stamped after it
+                prompted = last_prompt(name)
+
+                def still():
+                    # Asked by the launch just before its kill: a prompt since is in the stamp,
+                    # whatever of its hooks' facts the launch has moved aside by then.
+                    return last_prompt(name) == prompted and at_rest(name, harness, orch.find(name))
                 if not between_turns(name, harness, record, live.get("opened_at")):
                     return True
                 try:
@@ -4419,10 +4427,13 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True
-                if resumed == "resumed" and last_prompt(name) != prompted[-1]:
+                killed = (config.session_records().get(name) or {}).get("launched") or 0
+                if (resumed == "resumed" and prompted_since(name, prompted or 0)
+                        and not prompted_since(name, killed)):
                     # A prompt in the instant between that look and the kill -- from the owner's
-                    # phone, which takes no lock of ak's -- began a turn the kill cut off.
-                    seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
+                    # phone, which takes no lock of ak's -- began a turn the kill cut off; one
+                    # stamped after the kill went to the new harness.
+                    seat_write(name, midturn={"boot": boot_id(), "at": killed, "name": name,
                                              "line": MIDTURN_LINE})
                 return True
         return False

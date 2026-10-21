@@ -2430,8 +2430,9 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     `session` is an exited pane to respawn.  What a launch owns is the harness's to write
     down -- a launcher-issued id by default -- and whatever else its plugin needs for that,
     Codex's per-invocation receipt among them, is carried into the command as environment.
-    `still`, for a live harness replaced unasked, is asked last under the seat's lock, which
-    ak's own typing takes too: False leaves that harness as it is, and raises config.Error.
+    `still`, for a live harness replaced unasked, is asked under the seat's lock, which ak's own
+    typing takes too, just before the kill: False leaves that harness as it is, and raises
+    config.Error.
     """
     plugin = seat_plugin({"orchestrator": model})
     from . import notify, watch
@@ -2441,8 +2442,6 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     # starts puts the record back, since the harness that read the old one is still there.
     kept = ("rulebook_sha", "rulebook_told", "rulebook_read")
     with notify.session_lock(name) as current:
-        if still is not None and not still():
-            raise config.Error(f"{current} took input as its harness was to be replaced; kept")
         # read under the lock the prompts rewrite it under, and held until the harness is up:
         # till its pane is replaced the one it replaces can still prompt, and that prompt's
         # rewrite waits here, so the file read is the one recorded
@@ -2470,7 +2469,10 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
                 facts.replace(last)
             except FileNotFoundError:
                 last.unlink(missing_ok=True)    # a launch killed past its move left one
-            _start_harness(name, model, cwd, cmd, session, started=lambda: up.append(True))
+            # The moment from which an answer is this harness's (watch.follow_model): the one
+            # it replaces was sent SIGHUP and its terminal closed when the respawn returned.
+            _start_harness(name, model, cwd, cmd, session, still, started=lambda: (
+                up.append(True), config.update_session(current, launched=time.time())))
         except BaseException:
             if up:
                 plugin.retire(before)   # only the setup after the new harness's start failed
@@ -2486,9 +2488,6 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
             raise
         finally:
             last.unlink(missing_ok=True)
-        # The moment from which an answer is this harness's (watch.follow_model): the one it
-        # replaces was sent SIGHUP and its terminal closed when the respawn returned.
-        config.update_session(current, launched=time.time())
     plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
@@ -2507,9 +2506,9 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
                      usage_wait=None, usage_refusal=None)
 
 
-def _start_harness(name, model, cwd, cmd, session, started=lambda: None):
-    """The harness in the seat: respawned in its exited pane, or a new session.  `started` is
-    called once it runs, before the setup after it that can still fail."""
+def _start_harness(name, model, cwd, cmd, session, still=None, started=lambda: None):
+    """The harness in the seat: respawned in its pane, or a new session.  `still` is `launch`'s;
+    `started` is called once it runs, before the setup after it that can still fail."""
     if session:
         # Keep the launched pane even if another window is active. If it was removed,
         # respawn the session's current pane as older launches did, and record that one.
@@ -2522,6 +2521,8 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None):
             if rc or owner != name:
                 target = f"={name}:"
         values = seat_env(name, server)
+        if still is not None and not still():
+            raise config.Error(f"{name} took input as its harness was to be replaced; kept")
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
         # publishing client cannot run before the old name is removed.
         rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values),
