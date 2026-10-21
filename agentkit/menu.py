@@ -3717,7 +3717,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     `selected` is `session`'s record, and its role marks are that seat's models: Enter, space or
     a click flips one (session_mark), the orchestrator moving the seat at once, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
-    and one refused shaking (motion.toggled).  With no session there are no marks.
+    and one refused shaking (motion.toggled).  With no session they are new seats': a flip is
+    [defaults], what the next `n` starts from (defaults_mark), and no open seat changes.
     ↑/↓, k/j and the wheel move between rows and ←/→ between columns, the effort's too.  Enter
     or space on an effort steps it up, from its highest round to its lowest, as a click on its
     word does, and a click on one of its cells takes that level: each change is saved and drawn
@@ -3745,11 +3746,12 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
     columns = (-1, 0, 1, 2, 3) if selected else (-1, 3)    # the label, the marks, the effort
-    title = f"config · {session}" if selected else "config"
+    title = config_title(session, selected)
     here, column, top, clock = None, columns[1], 0, motion.Clock(page=True)
     held = matrix.stored()                          # read once a visit: the tick keeps the file
     while True:
-        found = advice(cfg, held) if selected else None   # against the config as it stands
+        # what `r` recommends is a seat's to take, against the config as it stands
+        found = advice(cfg, held) if selected and session else None
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         subs, spans = usage_rows(cfg), {}
@@ -3826,7 +3828,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if here[1] not in cfg["models"]:
                 here = rows[rows.index(here) + 1]     # removed: the row under it is highlighted
         elif act in ("enter", "space") and column < 3:
-            note = session_mark(cfg, session, selected, here[1], column, providers)
+            note = (session_mark(cfg, session, selected, here[1], column, providers) if session
+                    else defaults_mark(cfg, selected, here[1], column))
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act in ("enter", "space") or isinstance(act, int):     # the effort column
@@ -4568,9 +4571,9 @@ def show_config(dry_run=False, keyboard=None, session=None):
     screen, read from its own record -- and the efforts, under each subscription's meter, then
     `+ add a model`, `+ add a provider`, `Discord` and `Weekly audit`, agentkit's build under
     them, read with the menu's keyboard (config_matrix), so nothing is typed.
-    On a heading, with no seats, or for a seat with no record, the matrix is the efforts alone,
-    and so it is for a record that will not read, saying so under the rows: the screen that
-    changes the models still opens.
+    On a heading, with no seats, or for a seat with no record, the marks are new seats'
+    ([defaults]); a record that will not read has the efforts alone, saying so under the rows:
+    the screen that changes the models still opens.
 
     Providers, models, efforts and the two Discord secrets live here, the way they live in
     ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's
@@ -4591,21 +4594,44 @@ def show_config(dry_run=False, keyboard=None, session=None):
                           if session else None), ""
     except config.Error as exc:
         selected, note = None, f"{session}'s roles are not shown: {exc}"
-    try:                      # what a flip is refused on, and spent; Esc while it is read
+    if selected is None and not note:     # a seat with no record has no models to give
+        session, selected = None, copy.deepcopy(cfg["defaults"])
+    try:                      # what a seat's flip is refused on, and spent; Esc while it is read
         providers = waited(lambda: usage.collect(cfg), f"config · {session}",
-                           keyboard=keyboard, doing=LEFT) if selected else {}
+                           keyboard=keyboard, doing=LEFT) if session and selected else {}
     except Back:
         return cfg
     # one git call a visit, not a draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
-        terminal.frame(f"config · {session}" if selected else "config",
+        terminal.frame(config_title(session, selected),
                        [*config_meters(cfg)[0],
                         *config_body(cfg, selected=selected, providers=providers)[0],
                         *note_lines(f"Version {version or '?'}")],
                        "esc back")
         return cfg
     return config_matrix(cfg, keyboard, version, session, selected, providers, note)
+
+
+def config_title(session, selected):
+    """`c`'s title: whose marks it shows, a seat's or new seats', or none's."""
+    return f"config · {session or 'new seats'}" if selected else "config"
+
+
+def defaults_mark(cfg, selected, model, column):
+    """Act on one of new seats' marks, `selected` being [defaults]: saved at once
+    (config.remember_defaults) and into `cfg` and `selected`, no open seat changing.  What to
+    say under the rows, or ""."""
+    # a new seat's crew is read as it is made (orch.default_crew), so no meter refuses one now
+    changed, note = orch.role_mark(cfg, selected, model, column, {})
+    if note or changed == selected:
+        return note
+    note = config.remember_defaults(changed)
+    if note:
+        return f"config: {note}"
+    cfg["defaults"] = copy.deepcopy(changed)
+    selected.update(changed)
+    return ""
 
 
 def session_mark(cfg, name, selected, model, column, providers):

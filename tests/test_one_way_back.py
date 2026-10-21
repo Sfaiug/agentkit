@@ -55,10 +55,11 @@ class Back(unittest.TestCase):
         screen, read = self.config_screen()
         self.assertEqual(read.call_count, 0)
         self.assertTrue(screen.startswith("agentkit · config"), screen)
-        # no seat is highlighted from a pipe, so the matrix is the efforts alone, under the meters
+        # no seat is highlighted from a pipe, so the marks are new seats', under the meters
+        self.assertTrue(screen.startswith("agentkit · config · new seats"), screen)
         lines = terminal.ANSI.sub("", screen).splitlines()
         heads = next(line for line in lines if line.split()[-1:] == ["effort"])
-        self.assertEqual(heads.split(), ["effort"])
+        self.assertEqual(heads.split(), ["orch", "builds", "reviews", "effort"])
         self.assertIn("  Claude ", "\n".join(lines[2:lines.index(heads)]))  # whatever it reads
 
     def test_v5u_menu_arrow_sequence_is_no_key(self):

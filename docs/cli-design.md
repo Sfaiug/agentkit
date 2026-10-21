@@ -264,7 +264,7 @@ and scroll with it. It is a
 matrix read with the keys, so the file is never
 opened: every offered model once, under its provider's display name in the
 accent, a row of label, then `orch` (`●` on the highlighted
-session's, `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
+session's, on a heading new seats', `config · new seats`, `[defaults]`; `○` dim elsewhere), `builds` and `reviews` (`■`/`□`) and `effort`: a
 cell for each level that model offers, full up to its effort and the rest open
 and dim, then its word (`▰▰▰▰▱  xhigh`; without UTF-8 `####-`), the words in one
 column after the most cells any model has (the owner's pick of 18 Oct 2026). A
