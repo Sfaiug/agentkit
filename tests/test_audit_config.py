@@ -143,6 +143,18 @@ class AuditSetting(unittest.TestCase):
         self.page("enter")
         self.assertEqual(self.table(), {"on": False})
 
+    def test_a_long_name_wraps_on_the_row_and_the_page_never_cut(self):
+        self.write('orchestrator = "spark"\nworkers = ["spark"]\nreviewers = ["spark"]\n')
+        with patch.object(terminal, "width", return_value=60):
+            lines, places = menu.config_body(config.load())
+        row = " ".join(terminal.ANSI.sub("", lines[line]) for line, (key, _) in places.items()
+                       if key == menu.AUDIT)
+        self.assertIn("· reviews muse-spark-1.3-contributor", " ".join(row.split()))
+        page = "\n".join(self.page()[-1])
+        self.assertNotIn("…", row + page)
+        for role in ("Orchestrator", "Builds", "Reviews"):
+            self.assertIn(f"  {role}", page)
+
     def test_c_shows_the_row_with_its_value_from_a_pipe(self):
         out = io.StringIO()
         with patch.object(menu, "read", side_effect=[]) as read, redirect_stdout(out):

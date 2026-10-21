@@ -3324,8 +3324,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row, value in zip(CONFIG_ROWS, values) if value)
     for row, value in zip(CONFIG_ROWS, values):
-        # the value wraps once at a word under itself, and is cut only past that
-        for number, part in enumerate(terminal.title_lines(value, room - 2 - wide - 2) or [""]):
+        # the value wraps at a word under itself, never cut
+        for number, part in enumerate(terminal.wrap(value, room - 2 - wide - 2) or [""]):
             line = terminal.table_row([row if number == 0 else "", part],
                                       [wide, room - 2 - wide - 2], indent="  ") if value else (
                 "  " + terminal.cut(row, room - 2))
@@ -4338,17 +4338,24 @@ def page_body(rows, at=None):
     {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its value,
     lined up past the widest label as `c`'s own rows are, or with no label a choice of a list
     opened under the row above it, indented as `add a model`'s are.  A value is text, or
-    parts, (text, kind) each, a space apart, each cut to the room it has; `at` is the row lit."""
+    parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s own
+    values are, never cut; `at` is the row lit."""
     room = terminal.layout_width()
     wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
     lines, places = [], {}
     for row, label, value in rows:
-        line = "    " if label is None else f"  {terminal.pad(label, wide)}  "
+        lead = "    " if label is None else f"  {terminal.pad(label, wide)}  "
+        left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
         for text, kind in [(value, None)] if isinstance(value, str) else value:
-            text = terminal.cut(text, max(0, room - terminal.cells(line)))
-            line += (terminal.styled(text, kind) if kind else text) + " "
-        places[len(lines)] = (row, [])
-        lines.append(terminal.highlight(line.rstrip()) if row == at else line.rstrip())
+            for piece in terminal.wrap(text, left):
+                if used and used + 1 + terminal.cells(piece) > left:
+                    wrapped, used = [*wrapped, []], 0
+                wrapped[-1].append(terminal.styled(piece, kind) if kind else piece)
+                used += bool(used) + terminal.cells(piece)
+        for number, parts in enumerate(wrapped):
+            line = ((lead if number == 0 else " " * terminal.cells(lead)) + " ".join(parts)).rstrip()
+            places[len(lines)] = (row, [])
+            lines.append(terminal.highlight(line, number == 0) if row == at else line)
     return lines, places
 
 
@@ -4403,12 +4410,14 @@ def config_page(name, page):
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
-                body = page_body([(("row", number), label, value)
-                                  for number, (label, value, _) in enumerate(rows)])[0]
-                body[at + 1:at + 1], said = lines, note_lines(note)
-                first, room = matrix_page(body, {at + 1: ("lines", [])}, "lines", top, said, keys)
+                body, places = page_body([(("row", number), label, value)
+                                          for number, (label, value, _) in enumerate(rows)])
+                # under the row's last line, a value that wrapped included
+                end = 1 + max(line for line, (row, _) in places.items() if row == ("row", at))
+                body[end:end], said = lines, note_lines(note)
+                first, room = matrix_page(body, {end: ("lines", [])}, "lines", top, said, keys)
                 terminal.frame(title, [*body[first:first + room], *said], keys)
-                return 4 + at - first
+                return 3 + end - first
             said = rows[at][2](draw) or ""
 
 
