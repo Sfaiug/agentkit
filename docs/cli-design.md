@@ -397,7 +397,7 @@ and scroll them on a short screen, the role headings kept visible; ←/→ choos
 a click chooses, Enter starts from anywhere -- or, with every model spent and a role still
 empty, takes the highlight to it -- Esc goes back, and reviewers keep their last model, its mark
 shaking (Motion). Executors may be left empty: the orchestrator builds everything, its own
-`builds` mark filled and dim on both `n` and `c`. Enter on an empty name leaves a free one-word
+`builds` mark filled and dim on both `n` and `c`, and no ⚒ in its crew. Enter on an empty name leaves a free one-word
 name of a Star Wars: The Clone Wars character (`orch.character_name`: `ahsoka`, `rex`), unnamed until its orchestrator gives it the shortest name, at most
 three words, with `ak orch rename --auto <name>`; the end-of-turn rule sends its stops back until it has, a
 question to the owner aside. Once named, `--auto` changes nothing, prints
@@ -449,8 +449,8 @@ screen comes up or comes back, nor once the pointer is on no row. They are
 indented under the name and lit as the row is (`menu.detail`): the
 question for `needs you`, what got done for `done` and an idle seat's way back
 in, wrapped whole at words, so a question is read whole on ak's own screen before
-its seat is opened, whatever harness it runs; for any other, each model that builds or
-reviews named once, dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
+its seat is opened, whatever harness it runs; for any other, each marked executor and
+reviewer named once (an orchestrator building alone is not: no ⚒ is the seat itself), dim as the orchestrator column, with ⚒ after it where it builds and ◎ where
 it reviews (glyphs without their word, the owner's pick of 18 Oct 2026), and each task in
 flight as three squares -- build, review, land -- the stages it reached filled, in
 working's colour while a model or ak works on it, dim while it waits, the rest
