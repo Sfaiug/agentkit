@@ -62,7 +62,7 @@ class PhoneKey(unittest.TestCase):
         self.assertEqual(self.repointed, LAPTOP
                          + 'command="ak attach",no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmeold'
                            ' phone-termius\n'
-                         + 'command="ak attach",ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmebare'
+                         + 'command="ak attach" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAacmebare'
                            ' phone-termius\n')
         self.assertEqual(self.backups, [LAPTOP + OLD])
 
