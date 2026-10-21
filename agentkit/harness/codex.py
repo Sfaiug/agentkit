@@ -146,7 +146,7 @@ def seat_token_sources(record):
     from . import token_family
     receipt = read(record)
     path = (receipt.get("event") or {}).get("transcript_path")
-    paths = [Path(path)] if path else []
+    paths = [Path(path)] if path and Path(path).is_file() else []
     # A remote seat's private store holds its threads and their subagents, on every login.
     if receipt.get("remote"):
         paths.extend(seat_conversations(receipt["remote"]).rglob("rollout-*.jsonl"))
