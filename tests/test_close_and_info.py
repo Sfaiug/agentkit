@@ -89,16 +89,21 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 class Menu:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
-    def __init__(self, case, seats, rows=30, cols=100, own=None, hold=None, refuse=False):
+    def __init__(self, case, seats, rows=30, cols=100, own=None, hold=None, refuse=False,
+                 home=None):
+        """`home` is another Menu's, for a menu opened after it."""
         self.case = case
-        home = tempfile.TemporaryDirectory(prefix="close-info-")
-        case.addCleanup(home.cleanup)
-        self.seats = Path(home.name) / "seats.json"
+        if home is None:
+            made = tempfile.TemporaryDirectory(prefix="close-info-")
+            case.addCleanup(made.cleanup)
+            home = made.name
+        self.home = home
+        self.seats = Path(home) / "seats.json"
         self.seats.write_text(json.dumps(seats))
         self.master, self.slave = os.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         env = {key: value for key, value in os.environ.items() if key not in INHERITED}
-        env.update({"HOME": home.name, "TERM": "xterm-256color", "LANG": "C.UTF-8",
+        env.update({"HOME": home, "TERM": "xterm-256color", "LANG": "C.UTF-8",
                     "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
                     "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
                     "CLOSE_REPO": str(REPO), "CLOSE_SEATS": str(self.seats),

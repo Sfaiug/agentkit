@@ -130,7 +130,8 @@ class Cleanup(Sandbox):
         # Waiting writers and a reopened name must keep using the same lock inodes;
         # the daily gc takes unused locks and the stop mark.
         self.assertEqual({path.name for path in orch.session_owned_files("atoll")},
-                         {"seat-atoll.json", "seat-atoll.lock", "notify-atoll.lock"})
+                         {"seat-atoll.json", "seat-atoll.lock", "notify-atoll.lock",
+                          "closing-atoll.lock"})
         seat = watch.seat_read("atoll")
         self.assertTrue(seat.get("closed_by_owner"))
         self.assertTrue(seat.get("stopped_at"))

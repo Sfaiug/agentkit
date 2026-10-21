@@ -3521,6 +3521,40 @@ def session_owned_files(name):
     return found
 
 
+# The seat `x`'s stop is under way for, in that stop's own process (menu.Live.stop): the menu
+# took the seat's `closing` lock before it began and handed it this process, so its cmd_stop
+# goes on under it.
+STOPPING = "AK_STOPPING"
+
+
+def stop_lock(name):
+    """That seat's `closing` lock, taken for its stop: the open file, held until it is closed or
+    its process ends however that ends -- or None while another stop holds it.  A look at it
+    (`stop_held`) holds it shared for a moment, so a clash with one is tried again."""
+    config.ensure_dirs()
+    lock = config.seat_file("closing", name).open("a")
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return lock
+        except BlockingIOError:
+            if stop_held(name):
+                lock.close()
+                return None
+
+
+def stop_held(name):
+    """Whether a stop of that seat is under way (`stop_lock`), in this process or another."""
+    try:
+        with config.seat_file("closing", name).open() as look:
+            fcntl.flock(look, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        pass                      # none: no stop of it ever took one
+    return False
+
+
 def cmd_stop(argv):
     """Stop a seat and everything it runs; stop it again and it is gone.
 
@@ -3555,7 +3589,13 @@ def cmd_stop(argv):
     old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
     removed = False
     warn = lambda line: print(line, file=sys.stderr)
+    held = None
     try:
+        # One stop of a seat at a time: a second, from a screen read before the first began,
+        # would take the seat off the list as a stop of a stopped one does.
+        held = os.environ.get(STOPPING) == name or stop_lock(name)
+        if not held:
+            raise config.Error(f"{name} is stopping already")
         from . import stop
         # Unfinished runs stop before the lock: each one costs up to STALL_KILL_WAIT
         # inside kill_tree, and nothing it touches is the seat's state. The peek is
@@ -3603,6 +3643,8 @@ def cmd_stop(argv):
                 removed = True
     finally:
         signal.signal(signal.SIGHUP, old)
+        if held is not True and held:
+            held.close()          # its own: the one `x` handed it goes with its process
     print(f"removed {name}" if removed else f"stopped {name}; its number reopens it")
     return 0
 

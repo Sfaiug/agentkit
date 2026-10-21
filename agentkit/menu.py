@@ -225,7 +225,7 @@ class Live:
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
         self.reads = 0                   # how many reads have begun, the last one's number
-        self.closing = {}                # seats `stop` took off: the last read begun as it ended
+        self.closing = {}                # seats `stop` took off: how many reads had begun then
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -348,6 +348,7 @@ class Live:
             leaves = self.leaves
             self.reads += 1
             began = self.reads
+        stopping = stops_under_way()      # before the listing: one freed since has it stopped
         found = orch.listing()
         records = run_records()           # one pass over run.json a read: filing, looking, drawing
         orch.file_projectless(found, [state for _, state in records])
@@ -357,37 +358,39 @@ class Live:
                 return
             self.read_from = found, records
             self.meet(look)
-            for name, ended in list(self.closing.items()):
-                if ended is not None and began > ended:
-                    del self.closing[name]    # read since its stop ended: as it now stands
-            self.last[:] = without(found, groups, self.closing)
+            for name, before in list(self.closing.items()):
+                if began > before:
+                    del self.closing[name]    # this read saw its stop's lock, held or freed
+            self.last[:] = without(found, groups, stopping | set(self.closing))
 
     def stop(self, name, dry_run=False):
         """Take that seat's row off the screen now, and stop it behind it (`teardown`).
 
-        No read puts the row back while the stop goes, nor after it until one begun since it
-        ended lands: that one has the seat stopped, or as it was where the stop was refused.
-        The stop is a process of its own, so the menu leaving -- the popup over the seat going
-        with it -- ends nothing halfway, and a refusal is a job's notice, which this menu or
+        The stop holds the seat's lock (`orch.stop_lock`), taken here before it starts and
+        handed it, until it ends however it ends: every menu's read, this one's or another's
+        after the popup over the seat went, has the seat stopped while it goes, and a read
+        whose lock was freed has it as the stop left it, stopped or, refused, as it was.  While
+        another stop holds it, the row only goes.  The stop is a process of its own, so the
+        menu leaving ends nothing halfway, and a refusal is a job's notice, which this menu or
         the next shows.
         """
-        with self.reading:
-            self.closing[name] = None
-            self.last[:] = without(*self.last, self.closing)
-        try:
-            proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
-                                    env=config.child_env(), stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    start_new_session=True)
-        except OSError as exc:
-            self.say(f"stop: {exc}")
-            return self._stopped(name)
-        threading.Thread(target=lambda: (proc.wait(), self._stopped(name)), daemon=True).start()
-
-    def _stopped(self, name):
-        with self.reading:
+        lock = orch.stop_lock(name)
+        with self.reading:                # after the lock: a read begun since sees it held
             self.closing[name] = self.reads
-        self.ask()
+            self.last[:] = without(*self.last, self.closing)
+        if lock is None:
+            return
+        with lock:                        # the stop's process holds it from here
+            try:
+                proc = subprocess.Popen(teardown(name, dry_run), cwd=config.REPO,
+                                        env={**config.child_env(), orch.STOPPING: name},
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, start_new_session=True,
+                                        pass_fds=(lock.fileno(),))
+            except OSError as exc:
+                self.say(f"stop: {exc}")
+                return self.ask()
+        threading.Thread(target=lambda: (proc.wait(), self.ask()), daemon=True).start()
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -1198,6 +1201,11 @@ def tallied(ordered, infos, silent_map):
         project["word"] = rollup([info["word"] for info in project["seats"]])
     # The top line counts the seats whose word is `needs you`, each once, and says so once.
     return ordered, infos, sum(project["needing"] for project in ordered), silent_map
+
+
+def stops_under_way():
+    """The seats whose stop is under way (`orch.stop_held`), from this menu or any other."""
+    return {name for name, _lock in config.seat_files("closing") if orch.stop_held(name)}
 
 
 def without(found, groups, gone):
@@ -2097,8 +2105,12 @@ def open_session(cfg, session, dry_run):
 
     A seat whose orchestrator has exited, and one tmux no longer holds at all, are both opened
     by resuming their owned conversation or clearly starting fresh -- the same key either way.
+    A seat whose stop is under way is opened by none, whatever screen offers it.
     """
     name = session["name"]
+    if orch.stop_held(name):              # a screen read before its stop began offers it
+        pause(f"{name} is still stopping")
+        return
     if not any(session.get(key) for key in orch.CLOSED):
         if dry_run:
             print(f"would attach {name}")

@@ -88,6 +88,20 @@ class StopBehindTheRow(unittest.TestCase):
         self.hold.unlink()
         menu.saw("<stopped omega>")       # and the stop goes on without it
 
+    def test_the_next_menu_has_the_seat_stopped_while_the_popup_s_stop_goes(self):
+        popup = Menu(self, {"alpha": "working", "omega": "done"}, own="omega", hold=self.hold)
+        popup.frame()
+        popup.send(b"x")
+        self.assertEqual(popup.proc.wait(15), 0, popup.text()[-3000:])
+        menu = Menu(self, {"alpha": "working", "omega": "done"}, home=popup.home)
+        lines = menu.frame()
+        # no row: a past seat, whose Enter opens nothing while the stop goes (test_stop_held)
+        self.assertFalse([line for line in lines if "omega" in line])
+        self.assertIn("p past", lines[-1])
+        menu.leave()
+        self.hold.unlink()
+        popup.saw("<stopped omega>")
+
     def test_a_stop_refused_after_the_popup_went_is_left_for_the_next_menu(self):
         menu = Menu(self, {"omega": "done"}, own="omega", hold=self.hold, refuse=True)
         menu.frame()
