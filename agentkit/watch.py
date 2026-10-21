@@ -4316,12 +4316,36 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
         log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
 
 
-def _resume_on(cfg, name, log, account, continuing):
+def _resume_on(cfg, name, log, account, continuing, still=None):
     """Resume that seat's conversation on `account`; a turn it was in goes on there."""
-    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account)
+    resumed = orch.resume(cfg, name, log=log, hand_over=False, account=account, still=still)
     if continuing and resumed == "resumed":
         seat_write(name, midturn={"boot": boot_id(), "at": time.time(), "name": name,
                                  "line": ACCOUNT_LINE})
+
+
+def between_turns(name, harness, record, opened_at):
+    """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
+    closed, renamed, reopened or moved since -- at its prompt with nothing in its composer, in
+    no turn, asking nothing, and its terminal given no keys for DRAFT_STILL, none unread?  A
+    capture that failed shows none of that, nor does a terminal that cannot be asked."""
+    seat, now = orch.find(name), config.session_records().get(name) or {}
+    if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
+            or any(now.get(key) != record.get(key)
+                   for key in ("orchestrator", "conversation", "account"))
+            or seat_read(name).get("opened_at") != opened_at):
+        return False
+    rc, tty = orch.tmux_out("display-message", "-p", "-t", _pane(seat), "#{pane_tty}",
+                            socket=orch.seat_socket(seat))
+    try:
+        # a key its harness took is drawn long before: the kernel dates a read to 8 seconds
+        quiet = rc == 0 and time.time() - os.stat(tty).st_atime >= DRAFT_STILL
+    except (OSError, ValueError):
+        return False
+    pane = pane_text(seat)
+    fresh = observed(name, harness, pane, seat_read(name), time.time())
+    return (quiet and bool(pane.strip()) and fresh["state"] == "at_prompt"
+            and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
 
 def seat_account(cfg, session, harness, provider, pane, dry_run, log):
@@ -4364,6 +4388,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return not spent(account) and not usage.on_credits(
             cfg, model, {provider: readings.get(account, {})})
 
+    def low(account):
+        return usage.model_low(cfg, model, {provider: readings.get(account, {})})
+
     lines = content_lines(harness, pane_tail(pane))
     line = recorded_error(harness, name)
     if line is None:
@@ -4399,8 +4426,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if not waiting and not refusal and not spent(current):
         # An idle seat comes home once home has a window, and leaves credits for any window; a
         # turn the limit ended goes on there, though the meters may not show that limit yet.
+        # One whose account runs low moves to one that does not, between turns, so no turn of
+        # it is cut off when that account is spent; with every one low it spends its own, and
+        # it comes home only to room it would not leave again at once.
         moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
-                 and window(a) and (a == home or not window(current))]
+                 and window(a) and (not window(current) or not low(a)
+                                    and (a == home or low(current)))]
         if (moves and live.get("state") == "at_prompt"
                 and not _turn_in_flight(harness, live)[0]
                 and orch.resumable(record)):
@@ -4411,15 +4442,15 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                            if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
             if target is None:
                 return False
+            def still():
+                # The last look, the old harness taking no keys from it on (the owner's choice
+                # of 21 Oct 2026: a prompt from the phone in that instant may be lost).
+                return between_turns(name, harness, record, live.get("opened_at"))
             with state_lock():
-                current_seat = orch.find(name)
-                if (seat_closed_by_owner(name) or config.session_records().get(name) != record
-                        or seat_read(name).get("opened_at") != live.get("opened_at")
-                        or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                        or pane_text(current_seat) != pane):
+                if not still():
                     return True
                 try:
-                    _resume_on(cfg, name, log, target, limit_ended(harness, name))
+                    _resume_on(cfg, name, log, target, limit_ended(harness, name), still)
                 except (config.Error, OSError) as exc:
                     log(f"WARN {name}: {provider} account reopen failed: {exc}")
                     return True

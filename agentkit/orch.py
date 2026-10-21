@@ -2255,7 +2255,7 @@ def attach(name, log=print, wait=False, session=None):
 
 
 def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand_over=True,
-           account=None):
+           account=None, still=None):
     """Put the orchestrator back in a seat whose process is gone, and hand the terminal over.
 
     Two ways in, and the same ownership check either way. A seat tmux is still holding -- the
@@ -2274,6 +2274,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
 
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation. Ordinary resumes keep the account already recorded.
+    `still` is `_start_harness`'s.
     """
     name = config.resolve_session(name)
     record = (config.session_records() if detached else records()).get(name) or {}
@@ -2326,7 +2327,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if dry_run:
         print(shlex.join(cmd))
         return 0
-    launch(name, orchestrator, cwd, cmd, conversation, session)
+    launch(name, orchestrator, cwd, cmd, conversation, session, still)
     config.update_session(name, account=account)
     if not hand_over:
         # its own conversation only where the harness has opened it: an id nothing wrote
@@ -2428,7 +2429,7 @@ LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch
                "codex_history", "opencode_launch", "session_title", "title_sync")
 
 
-def launch(name, model, cwd, cmd, conversation, session=None):
+def launch(name, model, cwd, cmd, conversation, session=None, still=None):
     """Put the harness in the seat, and write down the conversation it was launched with.
 
     `session` is an exited pane to respawn.  What a launch owns is the harness's to write
@@ -2470,7 +2471,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
                 facts.replace(last)
             except FileNotFoundError:
                 last.unlink(missing_ok=True)    # a launch killed past its move left one
-            _start_harness(name, model, cwd, cmd, session, started=lambda: up.append(True))
+            _start_harness(name, model, cwd, cmd, session, lambda: up.append(True), still)
         except BaseException:
             if up:
                 plugin.retire(before)   # only the setup after the new harness's start failed
@@ -2507,9 +2508,18 @@ def launch(name, model, cwd, cmd, conversation, session=None):
                      usage_wait=None, usage_refusal=None)
 
 
-def _start_harness(name, model, cwd, cmd, session, started=lambda: None):
+# Seconds a restart keeps a pane's keys off at most: tmux gives them back itself, should ak die
+# or stall past it, and a look that slow can miss what is typed after it.
+FROZEN_MOST = 10
+
+
+def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=None):
     """The harness in the seat: respawned in its exited pane, or a new session.  `started` is
-    called once it runs, before the setup after it that can still fail."""
+    called once it runs, before the setup after it that can still fail.
+
+    `still`, for a live harness replaced unasked, is asked once the respawn is ready, with the
+    pane taking no keys until the new harness runs: what it saw is all the old one holds.
+    False leaves that harness as it is, and raises config.Error."""
     if session:
         # Keep the launched pane even if another window is active. If it was removed,
         # respawn the session's current pane as older launches did, and record that one.
@@ -2522,13 +2532,26 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None):
             if rc or owner != name:
                 target = f"={name}:"
         values = seat_env(name, server)
+        command = seat_command(name, cmd, server)
+        thaw = ("select-pane", "-e", "-t", target)
+        if still is not None:
+            # Keys pressed from here on reach no harness, so none is lost in the old one's
+            # composer as it is killed: dropped as on any restart, until the new one runs.
+            frozen = tmux_out("select-pane", "-d", "-t", target, ";", "run-shell", "-b", "-d",
+                              str(FROZEN_MOST), "-C", shlex.join(thaw), socket=server)[0] == 0
+            if not (frozen and still()):
+                tmux_out(*thaw, socket=server)
+                config.seat_file("launch", name).unlink(missing_ok=True)
+                raise config.Error(f"{name} changed as its harness was to be replaced; kept")
         # One command list: a failed respawn keeps the old tty, and a new wrapper's
         # publishing client cannot run before the old name is removed.
-        rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values),
-                           seat_command(name, cmd, server), ";", "set-option", "-pu",
-                           "-t", target, INPUT_TTY_OPTION, socket=server, path_shim=True,
-                           timeout=5)
+        rc, out = tmux_out("respawn-pane", "-k", "-t", target, *pane_env(values), command,
+                           ";", "set-option", "-pu", "-t", target, INPUT_TTY_OPTION,
+                           *((";", *thaw) if still is not None else ()), socket=server,
+                           path_shim=True, timeout=5)
         if rc != 0:
+            if still is not None:
+                tmux_out(*thaw, socket=server)
             config.seat_file("launch", name).unlink(missing_ok=True)
             raise config.Error(f"cannot resume the session {name}: {out}")
         started()
