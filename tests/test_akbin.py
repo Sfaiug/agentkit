@@ -60,7 +60,8 @@ class Runner(unittest.TestCase):
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_tmux_is_real_and_only_this_homes_own(self):
         for flags in (["-S", "/tmp/elsewhere"], ["-2S/tmp/elsewhere"], ["-2uS", "/tmp/elsewhere"],
-                      ["-2f", "/dev/null", "-S", "/tmp/elsewhere"]):
+                      ["-2f", "/dev/null", "-S", "/tmp/elsewhere"], ["-L", "../../elsewhere"],
+                      ["-uL../../elsewhere"]):
             refused = self.home.run("tmux", *flags, "list-sessions")
             self.assertEqual(refused.code, 2, (flags, refused.err))
         kept = self.home.run("tmux", "-f/dev/null", "-L", "Sx", "-uLS", "list-sessions")

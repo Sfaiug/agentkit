@@ -49,18 +49,22 @@ Done = namedtuple("Done", "code out err")
 
 LOG = "#!/bin/sh\n{python} -c 'import json, sys; print(json.dumps(sys.argv[1:]))' \"$@\" >>{log}\n"
 REFUSE = LOG + 'echo "{name}: not scripted in this test" >&2\nexit 1\n'
-# A socket path could name any server on the machine, and TMUX or TMUX_PANE the caller's own.
-# Its flags are read as tmux's getopt reads them: bundled, a value attached or in the next word.
-TMUX = LOG + """skip=
+# A socket path could name any server on the machine, as could a socket name holding a slash
+# (`-L ../../tmux-1000/agentkit` walks out of TMUX_TMPDIR), and TMUX or TMUX_PANE the caller's
+# own.  Its flags are read as tmux's getopt reads them: bundled, a value attached or in the next
+# word.
+TMUX = LOG + """refuse() {{ echo "tmux: a test's tmux takes no socket path" >&2; exit 2; }}
+value() {{ case $1$2 in L*/*) refuse ;; esac; }}
+want=
 for a do
-  if [ -n "$skip" ]; then skip=; continue; fi
+  if [ -n "$want" ]; then value "$want" "$a"; want=; continue; fi
   case $a in --|-|[!-]*) break ;; esac
   flags=${{a#-}}
   while [ -n "$flags" ]; do
     flag=${{flags%"${{flags#?}}"}}; flags=${{flags#?}}
     case $flag in
-      S) echo "tmux: a test's tmux takes no socket path" >&2; exit 2 ;;
-      [cfLT]) [ -z "$flags" ] && skip=1; break ;;
+      S) refuse ;;
+      [cfLT]) if [ -n "$flags" ]; then value "$flag" "$flags"; else want=$flag; fi; break ;;
     esac
   done
 done
