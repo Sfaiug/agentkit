@@ -16,6 +16,7 @@ import re
 import unittest
 
 from test_config_matrix import DOWN, ENTER, ESC, UP, Screen, highlighted
+from test_provider_screen import MATRIX
 from agentkit import config, terminal
 
 CATALOG = {"claude": [("claude-opus-5-5", "Opus 5.5", ["low", "medium", "high", "xhigh", "max"]),
@@ -131,7 +132,7 @@ class AddModel(unittest.TestCase):
                                       "  model    Sonnet 5 · claude-sonnet-5", "  effort"])
         self.assertEqual(listed(lines), [["low"], ["medium"], ["high"]])
         self.assertEqual(lines[-1], KEYS["add"])
-        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
+        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         saved = screen.saved()
         self.assertTrue(on(lines, saved, "sonnet"), lines)
         self.assertEqual(saved["models"]["sonnet"],
@@ -149,7 +150,7 @@ class AddModel(unittest.TestCase):
         self.assertIn("  model    Mystery · claude-mystery", lines)
         levels = config.efforts("claude")          # the manifest's `[effort] levels`, no listing
         self.assertEqual(listed(lines), [[level] for level in levels])
-        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
+        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertTrue(on(lines, screen.saved(), "mystery"), lines)
         self.assertEqual(screen.saved()["models"]["mystery"],
                          {"harness": "claude", "model": "claude-mystery", "effort": levels[1],
@@ -169,7 +170,7 @@ class AddModel(unittest.TestCase):
         lines = step(screen, ESC, "harness")
         self.assertEqual(highlighted(lines).split(), ["›", "claude", "Claude"])
         self.assertNotIn("  model", lines)
-        lines = screen.press(ESC, lambda lines: title(lines) == "agentkit · config")
+        lines = screen.press(ESC, lambda lines: title(lines) == MATRIX)
         self.assertTrue(highlighted(lines).startswith("› + add a model"))
         self.assertEqual(screen.path.read_bytes(), before)
         screen.leave()
@@ -181,7 +182,7 @@ class AddModel(unittest.TestCase):
         step(screen, ENTER, "model")
         step(screen, DOWN + ENTER, "effort")
         lines = screen.press(DOWN + DOWN + ENTER,
-                             lambda lines: title(lines) == "agentkit · config")
+                             lambda lines: title(lines) == MATRIX)
         self.assertTrue(on(lines, screen.saved(), "opus-2"), lines)    # `opus` is Opus 5.5's
         self.assertEqual(screen.saved()["models"]["opus-2"],
                          {"harness": "claude", "model": "claude-opus-5", "effort": "high",
@@ -190,7 +191,7 @@ class AddModel(unittest.TestCase):
         lines = step(screen, ENTER, "model")
         self.assertEqual(listed(lines)[1], ["Opus 5", "claude-opus-5", "✓ opus-2"])
         step(screen, DOWN + ENTER, "effort")
-        lines = screen.press(ENTER, lambda lines: title(lines) == "agentkit · config")
+        lines = screen.press(ENTER, lambda lines: title(lines) == MATRIX)
         self.assertTrue(on(lines, screen.saved(), "opus-3"), lines)
         self.assertEqual(screen.saved()["models"]["opus-3"]["effort"], "low")
         screen.leave()
@@ -208,7 +209,7 @@ class AddModel(unittest.TestCase):
                                                              "xhigh already" in lines[-3])
         self.assertEqual(title(lines), ADD)                   # nothing added, still choosing
         self.assertEqual(screen.path.read_bytes(), before)
-        lines = screen.press(UP + ENTER, lambda lines: title(lines) == "agentkit · config")
+        lines = screen.press(UP + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertTrue(on(lines, screen.saved(), "opus-2"), lines)
         models = screen.saved()["models"]
         self.assertEqual(models["opus-2"], {"harness": "claude", "model": "claude-opus-5-5",
@@ -238,7 +239,7 @@ class AddModel(unittest.TestCase):
                                           "gemini-3.8-flash"]])
         lines = step(screen, ENTER, "effort")
         self.assertEqual(listed(lines), [["low"], ["high"]])
-        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == "agentkit · config")
+        lines = screen.press(DOWN + ENTER, lambda lines: title(lines) == MATRIX)
         self.assertIn("Gemini", lines)
         saved = screen.saved()
         self.assertTrue(on(lines, saved, "gemini-pro"), lines)
@@ -263,7 +264,7 @@ class AddModel(unittest.TestCase):
         self.assertEqual(listed(lines)[1], ["Gemini 3.8 Flash with…", "✓ gemini"])
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        screen.press(ESC + ESC, lambda lines: title(lines) == "agentkit · config")
+        screen.press(ESC + ESC, lambda lines: title(lines) == MATRIX)
         screen.leave()
 
 
