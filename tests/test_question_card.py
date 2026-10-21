@@ -37,7 +37,7 @@ import time
 def session_runs(name):
     time.sleep(1.5)
     return ["one", "two", "three"]
-menu.session_runs = session_runs
+menu.transitions.seat_runs = session_runs
 """
 CFG = {"defaults": {"orchestrator": "opus", "workers": ["opus"]},
        "providers": {"anthropic": {"mode": "subscription"}, "openai": {"mode": "subscription"}},
@@ -156,7 +156,7 @@ class QuestionCard(unittest.TestCase):
                 patch.object(run, "launched_session",
                              side_effect=lambda state: state.get("seat", "fix-api")), patch.object(transitions, "launched_session",
                              side_effect=lambda state, *_a: state.get("seat", "fix-api")):
-            counted = [path.name for path in menu.session_runs("fix-api")]
+            counted = [path.name for path in transitions.seat_runs("fix-api")]
         self.assertEqual(counted, ["going", "queued", "acknowledged", "retried"])
         self.assertEqual([menu.stop_means(runs) for runs in (None, 0, 1, 4)], [
             f"{start} {TAIL}" for start in
