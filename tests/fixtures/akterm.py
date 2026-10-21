@@ -13,8 +13,11 @@ terminal a person started it from.
         menu.keys("q")
 """
 
+import os
 import shlex
+import tempfile
 import time
+from pathlib import Path
 
 from .akbin import AK
 
@@ -34,7 +37,9 @@ class Terminal:
         self.home = home
         conf = home.root / "terminal.conf"
         conf.write_text(CONF)
-        self.status = home.root / f"terminal-{len(list(home.root.glob('terminal-*')))}.status"
+        handle, status = tempfile.mkstemp(".status", "terminal-", home.root)   # one per terminal
+        os.close(handle)
+        self.status = Path(status)
         command = shlex.join(["sh", "-c", KEEP, str(self.status),
                               *(f"{key}={value}" for key, value in (env or {}).items()),
                               AK, *args])
@@ -76,7 +81,7 @@ class Terminal:
         """The program's exit status once it has ended."""
         deadline = time.monotonic() + bound
         while True:
-            status = self.status.read_text() if self.status.exists() else ""
+            status = self.status.read_text()
             if status.endswith("\n"):
                 return int(status)
             if time.monotonic() > deadline:

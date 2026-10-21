@@ -35,6 +35,14 @@ class Terminals(unittest.TestCase):
             self.assertNotEqual(menu.exit_code(), 0)
             self.assertEqual(home.tmux("list-panes", "-a", server="agentkit-term").code, 0)
 
+    def test_terminals_open_at_once_keep_their_own_exit_status(self):
+        with Home() as home:
+            menu = Terminal(home, size=(100, 40))
+            menu.wait("no login")
+            self.assertEqual(Terminal(home, "--help").exit_code(), 0)
+            menu.keys("C-c")
+            self.assertNotEqual(menu.exit_code(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
