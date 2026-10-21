@@ -822,9 +822,8 @@ def stop_marks(harness, pane, found, previous, at):
     if not spoke and not came:
         return {}
     # Words go on standing only while the seat stays at its prompt showing them.  Away and
-    # back, they start again: it is only now stopped on them, and that is what STALL_WAIT
-    # counts.  A turn that ended on the very same words it began with is still a turn, and
-    # they have still stood for nothing yet.
+    # back, they start again: a turn that ended on the very same words it began with is
+    # still a turn, and the completion look judges that new episode.
     marks = {"stop_said": said, "stop_said_at": at}
     # A turn ended between the last look and this one if the words changed, or if the seat
     # was caught working and is stopped now.  A composer typed into and cleared again is
@@ -841,7 +840,7 @@ def stop_enforced(harness):
 
     Claude Code and Codex both run hooks/orchestrator-stop.sh on the end of a turn and decide
     it there, which is where it belongs.  A harness with no blocking end-of-turn hook says
-    `[stop] enforce = "nudge"` and the tick applies the same test to its screen instead.
+    `[stop] enforce = "nudge"` and its completion look applies the same test to its screen.
     """
     block = config.manifest(harness).get("stop")
     return bool(isinstance(block, dict) and block.get("enforce") == "nudge")
@@ -2517,7 +2516,16 @@ def hook_look(launched, answered_at=None, said="", prompt=False):
             notify.answered(name, answered_at)
     else:
         notify.answer_written(name)
-    return announce_state(session, cfg=config.load(), look=True, number=number)
+    cfg = config.load()
+    answer = announce_state(session, cfg=cfg, look=True, number=number)
+    harness = seat_model(cfg, name)[0]
+    if stop_enforced(harness):
+        # A completion is already an event, not a suspected stall. The wrapper supplies
+        # this look even where the harness has no native Stop callback.
+        if stop_nudge(session, harness, pane_text(session), notify.last(name),
+                      menu.run_records(), False, lambda _: None):
+            answer = announce_state(session, cfg=cfg, look=True, number=number)
+    return answer
 
 
 def start_look(launched):
@@ -4222,25 +4230,36 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     moves for it: the seat is at its prompt with the same words it finished on, and what the
     user did in the meantime is their business.
 
-    Nothing is typed before the words it stopped on have stood for STALL_WAIT -- `stop_said_at`
-    and not the prompt's own age, which an unwatched turn never moves -- as nothing else here
-    types before a screen has stood.  And nothing is typed on this pass's capture alone: the
-    seat is read once more first, because a composer the user has begun typing into is theirs
-    and a line appended to it would send what they are still writing.
+    Completion needs no stall timer. Nothing is typed on this pass's capture alone: the seat
+    is read once more first, because a composer the user has begun typing into is theirs and
+    a line appended to it would send what they are still writing. Errors remain with the
+    health pass's recovery. One completion look at a time, including the tick's fallback.
 
     A turn the owner stopped (`interrupted`) is no stop at all: no hook runs on an Esc, and the
     seat rests until their next prompt (owner, 14 Oct 2026).
     """
-    from . import stop   # here, not at the top: stop also calls the watcher
     if not stop_enforced(harness):
         return
+    with announcing(session["name"]):
+        return _stop_nudge(session, harness, pane, notice, records, dry_run, log)
+
+
+def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
+    from . import stop
     name = session["name"]
     live = seat_read(name)
-    if live.get("state") != "at_prompt" or live.get("interrupted") or records is None:
+    if (live.get("state") != "at_prompt" or live.get("interrupted") or records is None
+            or live.get("closed_by_owner") or any(session.get(key) for key in orch.CLOSED)
+            or session.get("legacy") or owner_question(notice)):
         return          # a failed pass over run.json is no evidence that nothing is running
     stood = _stamp(live.get("stop_said_at"))
-    if stood is None or time.time() - stood < STALL_WAIT:
-        return          # what it stopped on has to stand, as every screen here has to
+    if stood is None:
+        return
+    tail = pane_tail(pane)
+    if (auth_expired_on(harness, tail, name) or stuck_on(harness, tail, name)
+            or stall_mark(harness, pane, name, log)
+            or (load_state()["stalls"].get(name) or {}).get("told")):
+        return
     began = _stamp(live.get("turn_began"))
     if began is None:
         return          # nothing has watched this seat finish a turn; there is none to judge
@@ -4279,6 +4298,7 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if type_into(session, keys, log):
         seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
         log(f"{name}: stopped with work open, no question and no run; typed {keys!r}")
+        return True
 
 
 def _resume_on(cfg, name, log, account, continuing):
