@@ -3779,17 +3779,23 @@ def drafts_back(cfg):
 def _past_text(session, cfg=None):
     """That seat's pane whose editor ak's line goes in through (`seat_editor`), or None: its turn
     over, its composer read holding text, or read empty with text that editor keeps, which it can
-    draw late, all of it off one read: the one its editor may be asked a step on (`_editor_read`).
-    The owner: text they leave standing in a seat never keeps ak's line out of it (19 Oct 2026).
-    A composer not read whole -- a picker drawn in its place, text too tall for its rows, or
-    scrolled past them -- says nothing it holds."""
-    where = seat_editor(session, cfg)
-    read = where and _editor_read(session, where, cfg)
-    if not (read and _composer_open(read[0], read[2])):
+    draw late -- on the read its editor may be asked a step on too (`_editor_read`).  The owner:
+    text they leave standing in a seat never keeps ak's line out of it (19 Oct 2026).  A composer
+    not read whole -- a picker drawn in its place, text too tall for its rows, or scrolled past
+    them -- says nothing it holds."""
+    def past(harness, pane, found):
+        return found and _composer_open(harness, found) and (
+            _composer_rows(harness, pane, exact=True)       # rows of text, none left empty
+            or composer_draft(harness, pane) == "" and _editor_kept(session))
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
+        pane = pane_text(session) if harness else ""
+        found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
+    except (config.Error, OSError):
         return None
-    if _composer_rows(read[0], read[1], exact=True):    # rows of text, none left empty
-        return where
-    return where if composer_draft(read[0], read[1]) == "" and _editor_kept(session) else None
+    where = past(harness, pane, found) and seat_editor(session, cfg)   # most seats ask no editor
+    read = where and _editor_read(session, where, cfg)
+    return where if read and past(*read) else None
 
 
 def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source="ak"):
