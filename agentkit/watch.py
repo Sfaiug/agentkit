@@ -2298,12 +2298,13 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                   run_numbers=None, index=None, silent=None, live=None, harness=None,
                   previous=None, auth_out=None, gh_out=None, token_out=None, card=False,
                   stalls=None):
-    """`working`, `needs you`, `done` or `idle` -- why, and since when.  The one decision.
+    """`working`, `needs you`, `done`, `idle` or `out of usage` -- why, and since when.  The one
+    decision.
 
-    Every screen reads this and says one of those four words: the menu row, the project
+    Every screen reads this and says one of those five words: the menu row, the project
     heading, the top line, `ak orch list`, `ak orch why`, the seat's own status bar and its
     window title.  It works until it is done or it is blocked on him, or he closed it and
-    it sits idle; nothing else exists.  It decides from recorded notices, runs and the
+    it sits idle, or its usage ran out; nothing else exists.  It decides from recorded notices, runs and the
     screen, never from when the seat's turn began, and a new fact gets a field of its own
     (`stopped_at` means closed).
 
@@ -2324,7 +2325,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       attention -- recent, unacknowledged, not handed back or superseded -- or a run
       is stalled, or a merge wait only its age turned away;
     * its subscription ran out and ak resumes it when the usage comes back, so the seat is
-      working, its reason saying until when (`resumes_at`);
+      out of usage until then (`resumes_at`), or working while a move to another account
+      that failed is retried;
     * its turn stopped on an error the tick types it back past, as its look saw it (`stall`),
       so the seat is working, `retrying: <error>`, until the tick gives up (`stalls`);
     * a run of its own merged and its project has yet to prove itself live (`awaiting_live`),
@@ -2713,11 +2715,13 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                       or f"run {name} parked: {reason}")
         return {"word": "needs you", "since": first.get("finished_at"), "reason": reason}
     # 3b. ... or its subscription ran out and ak resumes it when the usage comes back, or on
-    # another account sooner: it moves on without him, so it is working until then, the
-    # reason saying until when -- and nothing on him outranked it above.
+    # another account sooner: nothing moves until then unless he moves it, so it is out of
+    # usage until when it comes back (`resumes_at`) -- and nothing on him outranked it above.
+    # A move to another account that failed is retried: working.
     if waiting:
-        return {"word": "working", "reason": waiting["reason"], "since": waiting["since"],
-                "resumes_at": waiting["until"]}
+        until = waiting.get("until")
+        return {"word": "out of usage" if until else "working", "reason": waiting["reason"],
+                "since": waiting["since"], "resumes_at": until}
     # 3c. ... or its turn stopped on an error the tick types it back past (`health`, or
     # `seat_account` for a bare 429): it moves on without the owner until the tick gives
     # up and tells them (`told`), so it is working.  A legacy seat the tick never types into.

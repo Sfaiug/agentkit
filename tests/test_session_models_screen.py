@@ -82,8 +82,8 @@ class SessionModels(Sandbox):
         with patch.object(terminal, "layout_width", return_value=100):
             lines, places = menu.config_body(self.cfg, selected=self.selected("old"))
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews", "effort"])
-        self.assertEqual(self.rows(lines)["opus"], "●■■")
-        self.assertEqual(self.rows(lines)["fable"], "○□□")
+        self.assertEqual(self.rows(lines)["Opus"], "●■■")
+        self.assertEqual(self.rows(lines)["Fable"], "○□□")
         cells = next(cells for row, cells in places.values() if row == ("model", "opus"))
         self.assertEqual([cell[2] for cell in cells], [-1, 0, 1, 2, 3])
         selected = self.selected("old")
@@ -160,8 +160,8 @@ class SessionModels(Sandbox):
         with patch.object(terminal, "layout_width", return_value=100):
             lines, _ = menu.config_body(self.cfg, ("model", "opus"), 1,
                                         self.selected("fix-api"), spent)
-        self.assertEqual(self.rows(lines)["opus"], "●■□")
-        self.assertEqual(self.rows(lines)["astra"], "○■■")
+        self.assertEqual(self.rows(lines)["Opus"], "●■□")
+        self.assertEqual(self.rows(lines)["GPT-6-Astra"], "○■■")
         # its row is its marks and effort, dim; its meter over the page says it is spent
         self.assertTrue(note.startswith("spent · resets "), note)
         self.assertFalse(any(note in terminal.plain(line) for line in lines))
@@ -174,7 +174,7 @@ class SessionModels(Sandbox):
             menu.show_config(dry_run=True, session="fix-api")
         screen = terminal.ANSI.sub("", out.getvalue())
         self.assertIn("agentkit · config · fix-api", screen)
-        self.assertEqual(self.rows(screen.splitlines())["astra"], "○■■")
+        self.assertEqual(self.rows(screen.splitlines())["GPT-6-Astra"], "○■■")
         self.assertIn("esc back", screen)
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 redirect_stdout(io.StringIO()) as out:

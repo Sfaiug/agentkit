@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 import test_close_and_info
 from test_close_and_info import ESC, Menu
-from agentkit import menu, run, stop, terminal, transitions
+from agentkit import config, menu, run, stop, terminal, transitions
 from agentkit import record
 
 Key = terminal.Key
@@ -197,7 +197,8 @@ class QuestionCard(unittest.TestCase):
             self.assertEqual(menu.config_remove_provider(cfg, ("openai", None, "ChatGPT")), "")
             self.assertEqual(menu.config_remove_provider(cfg, ("anthropic", "b2", "Claude II")), "")
         self.assertEqual(seen, [
-            ("Remove opus from the config?", menu.REMOVE_ASK[1], "Remove", "<card>"),
+            (f"Remove {config.model_name(CFG, 'opus')} from the config?", menu.REMOVE_ASK[1],
+             "Remove", "<card>"),
             ("Remove ChatGPT and its models?", menu.REMOVE_PROVIDER_ASK[1], "Remove", "<card>"),
             ("Remove Claude II?", menu.REMOVE_SUBSCRIPTION_ASK[1], "Remove", "<card>")])
         self.assertEqual(cfg["providers"]["anthropic"]["accounts"], ["default", "b2"])

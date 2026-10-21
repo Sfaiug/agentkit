@@ -41,6 +41,8 @@ Words are plain and explain themselves.
 
 - **Glyphs:** every glyph is followed by its word (`● working`), except ⚒ for builds and ◎ for
   reviews.
+- **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
+  (`config.model_name`).
 - **Subscriptions:** a subscription is named by its provider, with a roman numeral when there
   are several (`Claude II`), never by its account.
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
@@ -54,8 +56,8 @@ that row is highlighted, and nowhere else.
 
 ## States
 
-Four words are the whole vocabulary for a seat (`terminal.STATES`): `● working`,
-`! needs you`, `✓ done` and `○ idle`. `watch.session_state` decides which one a seat is, and
+Five words are the whole vocabulary for a seat (`terminal.STATES`): `● working`,
+`! needs you`, `✓ done`, `○ idle` and `◌ out of usage`. `watch.session_state` decides which one a seat is, and
 every screen reads that, the seat's own bar included. A whole row is never coloured: the word
 carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
@@ -86,7 +88,7 @@ Colour says where a thing stands. A screen asks for a colour by its role, never 
 - the accent and `working`, in blue;
 - `needs you`, in amber;
 - `done`, in green;
-- `FAIL`, in red;
+- `FAIL` and `out of usage`, in red;
 - `dim`.
 
 There is one palette for a dark background, `terminal.STATE_STYLES` (Catppuccin Mocha), and

@@ -25,7 +25,9 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 
 
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image")
+# `content:` names, as space-separated path prefixes, the project's own product text (its pages,
+# its knowledge base): words that are the product, not notes about the code.
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content")
 
 
 # The words an AGENTS.md body may grow to: what the project is, and the few facts no code can

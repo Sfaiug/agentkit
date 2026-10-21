@@ -133,6 +133,13 @@ _LITERAL = {}              # ... and the `systemd-run` a seat's scope runs, and 
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
+def in_order(cfg):
+    """The models a seat may run on, as a pick tries them: the default orchestrator, then every
+    other offered model in list order."""
+    default = cfg["defaults"]["orchestrator"]
+    return [default, *(name for name in config.offered(cfg) if name != default)]
+
+
 def choose(cfg, providers):
     """(model, reason).  The default orchestrator, while it has something left to spend.
 
@@ -145,7 +152,7 @@ def choose(cfg, providers):
     """
     default = cfg["defaults"]["orchestrator"]
     notes, credits = [], None
-    for name in [default, *(name for name in config.offered(cfg) if name != default)]:
+    for name in in_order(cfg):
         spent, why = usage.model_spent(cfg, name, providers)
         if not spent and not usage.on_credits(cfg, name, providers):
             return name, "; ".join([why] + notes)
@@ -156,6 +163,18 @@ def choose(cfg, providers):
         return credits
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
+
+
+def going_on(cfg, current, providers):
+    """The model a seat out of usage on `current` goes on with now, or None: the first in
+    `in_order`, other than `current`, whose harness is here and that has a window left -- none
+    the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
+    click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
+    return next((name for name in in_order(cfg)
+                 if name != current and config.harness_present(config.model(cfg, name)["harness"])
+                 and not usage.model_spent(cfg, name, providers)[0]
+                 and not usage.spent_meter(cfg, name, providers)
+                 and not usage.on_credits(cfg, name, providers)), None)
 
 
 @contextmanager
@@ -3219,7 +3238,8 @@ def maintenance(log=print):
 
 
 def state_word(session, cfg=None):
-    """What the listing calls a seat: working, needs you, done or idle, and nothing else.
+    """What the listing calls a seat: working, needs you, done, idle or out of usage, and
+    nothing else.
 
     One function decides it -- `watch.session_state` -- so the list, the menu, the overlay,
     the status bar and the window title can never say different words about the same seat.
@@ -3233,7 +3253,7 @@ def state_word(session, cfg=None):
 def explain(session, cfg):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
-    The word is one of the four every screen says; the evidence lines under it are the facts
+    The word is one of the five every screen says; the evidence lines under it are the facts
     behind it.  A seat whose process is gone was never classified, and saying so is the honest
     answer rather than inventing a rule that matched.
     """
@@ -3966,7 +3986,7 @@ def handover_text(name, old_model, transcript):
             f"Run `ak run status` to see its runs. {old}")
 
 
-def _switch_plan(cfg, name, model, providers):
+def _switch_plan(cfg, name, model, providers, credits=True):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use.
 
     One computation for the refusal and the launch, so the menu's key path asks each
@@ -3974,7 +3994,8 @@ def _switch_plan(cfg, name, model, providers):
     picked account, the meter off the cache. The same provider keeps its login; another
     one takes the first of its accounts whose seat login passes, in the seat's order,
     else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing.
+    turn goes ahead on an `auth` verb that said nothing. Without `credits`, a login that
+    would run on credits refuses the move.
     """
     try:
         record = config.load_session(cfg, name, required=False)
@@ -4016,6 +4037,10 @@ def _switch_plan(cfg, name, model, providers):
     note = spent_note(cfg, model, providers)
     if note:
         return f"{model} is {note}", None
+    reading = providers.get(new_provider) or {}
+    reading = (reading.get("accounts") or {}).get(account) or reading
+    if not credits and usage.on_credits(cfg, model, {new_provider: reading}):
+        return f"{model} has only credits left", None
     return "", account
 
 
@@ -4031,7 +4056,7 @@ LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch
                "codex_history", "opencode_launch", "session_title", "title_sync")
 
 
-def switch_orchestrator(cfg, name, model, providers=None):
+def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     """Move the open seat to another orchestrator at once, under the same name.
 
     The old harness process ends and the new one starts in the seat's directory: a live or
@@ -4039,7 +4064,8 @@ def switch_orchestrator(cfg, name, model, providers=None):
     are never stopped or re-parented -- the name is the same, so endings report to the new
     seat -- and its plan file stays. Where the new model runs in the same harness and that
     harness can resume the seat's conversation, the conversation goes on there, as a
-    reopened seat's does, and a turn it was in is told to go on. Otherwise the record
+    reopened seat's does, and a turn it was in, or one its usage cut off, is told to go
+    on. Otherwise the record
     stays on the conversation the new launch owns, and the old harness's per-seat evidence
     goes with it. This is a new conversation under a saved name, so the watch state is reset
     the way a created seat's is. The handover -- from which model, the plan file, `ak run
@@ -4047,12 +4073,13 @@ def switch_orchestrator(cfg, name, model, providers=None):
     new TUI is listening through the confirmed send, the way a reopened seat's line goes.
     The record names the new model before the harness is up, so no redress draws the old
     one after it. A draft or a question on the screen, which a respawn would lose, refuses
-    the move; a refusal, and a restart that fails, leave the seat as they found it and say
-    so in one line. What to say under the rows, or "".
+    the move, and so does a login on credits without `credits`; a refusal, and a restart that
+    fails, leave the seat as they found it and say so in one line. What to say under the rows,
+    or "".
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers)
+    note, account = _switch_plan(cfg, name, model, providers, credits)
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name
@@ -4099,6 +4126,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
             config.update_session(name, **chosen)
     except OSError as exc:
         return f"session: {_one_line(exc)}"
+    waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
     try:
         launch(name, model, cwd, cmd, conversation, session)
     except (config.Error, OSError) as exc:
@@ -4114,7 +4142,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
             pass    # the note below already says the restart failed
         return _one_line(exc)
     if kept:
-        if watch._turn_in_flight(new_harness, live)[0]:
+        if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
                                             "name": name, "line": watch.MIDTURN_LINE})
         return ""
@@ -4134,7 +4162,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     names = list(notes)
     marks = "●○■□" if terminal.utf8() else "*.x."
     rest = sum(len(head) + 2 for head in ROLE_HEADS)
-    wide = min(max(terminal.cells(name) for name in names),
+    wide = min(max(terminal.cells(config.model_name(cfg, name)) for name in names),
                max(1, min(room // 3, room - 2 - rest)))
     lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in ROLE_HEADS),
                              "dim")]
@@ -4143,7 +4171,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
         entry, note = config.model(cfg, name), notes[name]
         if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
             lines.append(menu.model_heading(cfg, entry["provider"]))
-        line = "  " + terminal.pad(menu.model_label(name, wide), wide)
+        line = "  " + terminal.pad(menu.model_label(cfg, name, wide), wide)
         texts, builds = role_texts(selected, name, marks)
         own = []
         for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):
