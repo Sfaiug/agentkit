@@ -2,7 +2,7 @@
 
 Before the reviewer runs, ak replays each earlier blocking finding's proof on the commit under
 review, a new one or the same again: one still failing blocks whatever the reviewer hands in,
-one fixed is a note, and the ones at a disputed site, or quoted, are left to the reviewer.  The
+one fixed or unable to run or finish is a note; disputed or quoted ones are left to the reviewer. The
 reviewer is given the diff since the commit the last review judged, and a new finding that
 would block outside that delta is kept as a note, unless its proof passes on that commit: the
 fix broke it.  A review of the same commit again (a fixer turn that left no commit) judges the

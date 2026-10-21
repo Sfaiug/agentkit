@@ -102,6 +102,13 @@ class FixerDoneWaitsForItsProofs(unittest.TestCase):
         result = self.cli("done")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_replaying_a_proof_adds_nothing_to_the_working_files(self):
+        self.findings = [self.finding("python3 -c " + shlex.quote(
+            "from pathlib import Path; assert {p.name for p in Path('.').iterdir()} == {'api.py'}"))]
+        self.start()
+        result = self.cli("done")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_quotes_and_other_roles_do_not_replay_proofs(self):
         for role in ("executor", "executor-scratch", "reviewer", "reviewer-pr", "reviewer-scratch"):
             with self.subTest(role=role):

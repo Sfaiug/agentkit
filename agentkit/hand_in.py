@@ -305,8 +305,8 @@ def check_fixer_proofs(turn, records):
         if not command or (finding["path"], finding["line"]) in disputed:
             continue
         # The fixer already has its checkout and sandbox; never reset its uncommitted fix.
-        with tempfile.TemporaryDirectory(dir=turn["workspace"]) as cache, \
-                tempfile.NamedTemporaryFile(dir=turn["workspace"]) as output:
+        with tempfile.TemporaryDirectory(dir=Path(os.environ[ENV]).parent) as cache, \
+                tempfile.NamedTemporaryFile(dir=cache) as output:
             env["PYTHONPYCACHEPREFIX"] = cache
             try:
                 code, _, killed = worker.limited(

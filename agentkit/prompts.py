@@ -521,8 +521,8 @@ def earlier_sites(lp, head, since):
 
 
 def replay_findings(lp, rows, head):
-    """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, not
-    fixed).  A failing proof blocks whatever the reviewer hands in; one that cannot run or
+    """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, whether
+    it blocks).  A failing proof blocks whatever the reviewer hands in; one that cannot run or
     finish is a note, as in the first round."""
     replayed = []
     if rows:
