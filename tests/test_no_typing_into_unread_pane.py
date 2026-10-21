@@ -44,7 +44,7 @@ class UnreadPane(Seats):
         if args[-1] == "#{pane_id}":
             return 1, ""      # no pane named: keys go to the seat's current one
         self.assertEqual(args[args.index("-t") + 1], f"={self.seat['name']}:")
-        if args[-1] == "#{cursor_y}" or args[0] == "capture-pane":
+        if "#{cursor_y}" in args:
             return super().tmux(*args, **kwargs)
         if args[0] == "display-message":
             self.assertEqual(args, ("display-message", "-p", "-t",

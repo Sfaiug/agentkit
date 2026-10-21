@@ -3220,10 +3220,13 @@ def off_composer(session):
     if not chrome.get("cursor") or not chrome["composer"]:
         return False
     server, pane = orch.seat_socket(session), _pane(session)
-    rc, at = orch.tmux_out("display-message", "-p", "-t", pane, "#{cursor_y}", socket=server)
-    code, shown = orch.tmux_out("capture-pane", "-p", "-t", pane, socket=server)
+    # One call, the cursor's row first: tmux_out strips its output, and a capture of its own
+    # would lose the pane's leading blank rows, moving every row the cursor's is compared with.
+    rc, out = orch.tmux_out("display-message", "-p", "-t", pane, "#{cursor_y}", ";",
+                            "capture-pane", "-p", "-t", pane, socket=server)
+    at, _, shown = out.partition("\n")
     box = [chrome["composer"].fullmatch(row.strip()) is not None for row in shown.splitlines()]
-    if rc != 0 or code != 0 or not at.strip().isdigit() or True not in box:
+    if rc != 0 or not at.isdigit() or True not in box:
         return True
     top = bottom = max(row for row, inside in enumerate(box) if inside)
     while top and box[top - 1]:

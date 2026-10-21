@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
-from fixtures.seats import cursor_row
+from fixtures.seats import cursor_reply
 from fixtures.tick import only_passes
 from agentkit import config, orch, watch
 
@@ -71,10 +71,8 @@ class OwnLineGetsItsEnter(Sandbox):
         self.pane = self.base.replace(empty, row.format(line)) if line else self.base
 
     def tmux(self, *args, **kwargs):
-        if args[-1] == "#{cursor_y}":
-            return 0, cursor_row(self.pane)
-        if args[0] == "capture-pane":
-            return 0, self.pane
+        if "#{cursor_y}" in args:
+            return 0, cursor_reply(self.pane)
         self.assertEqual(args, ("send-keys", "-t", f"={SEAT}:", "Enter"))
         self.assertEqual(kwargs.get("socket"), orch.seat_socket(self.seat))
         self.assertTrue(self.locked, "every Enter holds the typing lock")
