@@ -1,5 +1,15 @@
 """Past the size ceilings, ak refuses with `split it`.
 
+Owner rule, 3 Oct, 4 Oct, 9 Oct, 11 Oct, 13 Oct, 15 Oct, 16 Oct, 20 Oct 2026: "A change's first
+review takes at most 400 added lines, a seat's own pull request's and a task's alike (deletions and
+unchanged moves never count), and a task at most three checks a round runs: past either, ak refuses
+with `split it`. Reason: 81% of 201-400-line changes merged, 67% of larger ones (1-16 Oct); it is
+looked at again in early November on first-review sizes recorded since. Review rounds stay three,
+and a pull request mostly re-adding a failed one's lines inherits its rounds. No cap on task points
+or words: size is recorded and shown. Nothing ak hands a model is cut." Held here with
+tests/test_own_pr_rounds.py, tests/test_replacement_pr_rounds.py, tests/test_task_size.py and
+tests/test_rules_cap_told.py.
+
 A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by preflight on the
 list the loop settles: the repository's suite line, however the task names it, runs once at
 landing and never counts; a `# once` line counts where the run has no landing), and a change,
