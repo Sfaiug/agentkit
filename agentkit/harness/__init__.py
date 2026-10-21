@@ -195,19 +195,26 @@ def rows(path, query, *args):
         return None
 
 
+def moment(at):
+    """That time in seconds since the epoch -- a number, or an ISO 8601 time with its zone --
+    or None where it is neither."""
+    if isinstance(at, str):
+        try:
+            stamp = datetime.fromisoformat(at)
+        except ValueError:
+            return None
+        at = stamp.timestamp() if stamp.tzinfo else None
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+        return None
+    return at
+
+
 def user_message(at, text):
     """Keep the recorded text and time, never inventing either for a notice."""
     if not isinstance(text, str) or not text:
         return None
-    if isinstance(at, str):
-        try:
-            stamp = datetime.fromisoformat(at)
-            at = stamp.timestamp() if stamp.tzinfo else None
-        except ValueError:
-            return None
-    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
-        return None
-    return {"at": at, "text": text}
+    at = moment(at)
+    return None if at is None else {"at": at, "text": text}
 
 
 def prompt(entry):
@@ -547,6 +554,13 @@ class Harness:
         one nothing has answered or interrupted yet.  OSError where a record exists and cannot
         be read."""
         hook = self._hook("unanswered")
+        return hook(record, cwd, conversation) if hook else None
+
+    def running(self, record, cwd, conversation):
+        """(model id, effort, when) of that conversation's latest answer, as the harness recorded
+        them -- the effort None where it records none, when in seconds since the epoch (moment)
+        -- or None where it records neither.  OSError where a record exists and cannot be read."""
+        hook = self._hook("running")
         return hook(record, cwd, conversation) if hook else None
 
     @property

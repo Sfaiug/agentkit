@@ -146,7 +146,8 @@ class LiveByEffort(Sandbox):
         table = matrix.rows(self.cfg, held, matrix.present())
         with patch.object(matrix.time, "time", return_value=10000):
             lines = [terminal.plain(line) for line in
-                     matrix.render(matrix.scored(table), held, own).splitlines()]
+                     matrix.render(matrix.scored(table, matrix.bests(held)), held,
+                                   own).splitlines()]
         text = "\n".join(lines)
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
         self.assertRegex(text, r"\nopus @ max +- +50% of 2 +100% of 1\n")
