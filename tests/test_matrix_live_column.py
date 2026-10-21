@@ -89,7 +89,7 @@ class LiveColumn(Sandbox):
 
     def test_the_table_shows_them_under_the_scores_and_json_carries_them(self):
         held = boards.collect(now=10000)
-        table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()))
+        table = matrix.scored(matrix.rows(self.cfg, held, matrix.present()), matrix.bests(held))
         with patch.object(matrix.time, "time", return_value=10000):
             lines = [terminal.plain(line) for line in
                      matrix.render(table, held, matrix.live(self.cfg)).splitlines()]

@@ -2920,6 +2920,9 @@ def main(argv):
     opts.update(flags)
     box.check()
     cfg = config.load()
+    # read here, not first where the run is placed: by then its record exists, and a refusal
+    # would leave a run that status lists and watch resumes
+    config.run_memory_max_mb()
     queued_child = os.environ.get(config.RUN_DIR_ENV)
     # a --bg child carries on the receipt its launch prepared, with the executors it saved
     if not opts["--review-pr"] and not (queued_child and queued(Path(queued_child))):
