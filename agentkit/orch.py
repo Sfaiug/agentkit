@@ -2438,7 +2438,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
         facts = config.hook_facts_path(current)
         last = facts.with_name(f"{facts.name}.last")
-        up = []     # holds True once the new harness runs: what fails after leaves it its own
+        up = []     # holds True once the new harness runs: what fails after leaves it be
         try:
             try:
                 handed = config.rulebook_digest(config.rulebook_path(name).read_bytes())
@@ -2458,7 +2458,9 @@ def launch(name, model, cwd, cmd, conversation, session=None):
                 last.unlink(missing_ok=True)    # a launch killed past its move left one
             _start_harness(name, model, cwd, cmd, session, started=lambda: up.append(True))
         except BaseException:
-            if not up:
+            if up:
+                plugin.retire(before)   # only the setup after the new harness's start failed
+            else:
                 # the harness that read the old one stays, and goes on writing to its own receipt
                 plugin.retire(config.session_records().get(current) or {})
                 config.update_session(current, **{key: before.get(key)
@@ -2470,8 +2472,7 @@ def launch(name, model, cwd, cmd, conversation, session=None):
             raise
         finally:
             last.unlink(missing_ok=True)
-            if up:
-                plugin.retire(before)   # its harness is gone now, replaced by this one
+    plugin.retire(before)   # its harness is gone now, replaced by this one
     if plugin.title_command(name):
         # A held rename survives a relaunch on the same conversation: our own last
         # title stays the echo, so the next tick retypes this name instead of taking
