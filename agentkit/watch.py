@@ -3779,20 +3779,17 @@ def drafts_back(cfg):
 def _past_text(session, cfg=None):
     """That seat's pane whose editor ak's line goes in through (`seat_editor`), or None: its turn
     over, its composer read holding text, or read empty with text that editor keeps, which it can
-    draw late, and its editor one to ask a step now (`_editor_read`).  The owner: text they leave
-    standing in a seat never keeps ak's line out of it (19 Oct 2026).  A composer that cannot be
-    read -- a picker drawn in its place, text too tall for its rows -- says nothing it holds."""
-    try:
-        harness = seat_model(config.load() if cfg is None else cfg, session["name"])[0]
-        pane = pane_text(session) if harness else ""
-        found = live_state(session, harness, pane=pane, cfg=cfg) if pane.strip() else {}
-    except (config.Error, OSError):
-        return None
-    draft = composer_draft(harness, pane) if found and _composer_open(harness, found) else None
-    if not (draft or draft == "" and _editor_kept(session)):
-        return None
+    draw late, all of it off one read: the one its editor may be asked a step on (`_editor_read`).
+    The owner: text they leave standing in a seat never keeps ak's line out of it (19 Oct 2026).
+    A composer not read whole -- a picker drawn in its place, text too tall for its rows, or
+    scrolled past them -- says nothing it holds."""
     where = seat_editor(session, cfg)
-    return where if where and _editor_read(session, where, cfg) else None
+    read = where and _editor_read(session, where, cfg)
+    if not (read and _composer_open(read[0], read[2])):
+        return None
+    if _composer_rows(read[0], read[1], exact=True):    # rows of text, none left empty
+        return where
+    return where if composer_draft(read[0], read[1]) == "" and _editor_kept(session) else None
 
 
 def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source="ak"):
@@ -3808,6 +3805,7 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
         return False
     _send_enter(session, log)
     return (_wait_ready(lambda name: composer_holds(name, session, text, cfg) == "empty", held)
+            and _editor_read(session, where, cfg)
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 

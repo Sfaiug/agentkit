@@ -121,13 +121,40 @@ class LinePastOwnersText(EditorSeat):
         self.assertTrue(self.typed_line())
         self.assertEqual((self.sent, self.composer), ([edited, DOCS], DRAFT))
 
+    def test_text_given_back_waits_for_input_the_line_s_enter_left_unread(self):
+        press = self.press
+
+        def typing(key, pane=PANE):
+            press(key, pane)
+            self.unread = self.unread or key == "Enter"
+        with patch.object(self, "press", side_effect=typing):
+            self.tick()
+        self.assertEqual((self.keys, self.sent, self.composer, self.told()),
+                         (["C-g", "Enter"], [LINE], "", False))
+        self.unread = False
+        self.tick()
+        self.assertEqual((self.composer, self.told()), (DRAFT, True))
+
     def test_text_too_tall_to_read_or_typed_mid_turn_stays(self):
         tall = "\n".join(f"pasted row {n} of a long paste" for n in range(1, 61))
         self.show(tall)
         self.assertIsNone(watch.composer_draft("claude", self.pane))
         self.assertFalse(self.typed_line())
+        # a composer scrolled past its rows shows only the end of what it holds
+        self.pane = (FIXTURES / "antigravity-tall-line-pane.txt").read_text()
+        with patch.object(watch, "seat_model", return_value=("antigravity", "acme")):
+            self.assertFalse(self.typed_line())
         self.pane = (FIXTURES / "claude-draft-while-working-pane.txt").read_text()
         self.assertFalse(self.typed_line())
+        # a turn that starts as the step reads its screen
+        self.show(DRAFT)
+        step = watch._editor_read
+
+        def started(*args, **kwargs):
+            self.pane = (FIXTURES / "claude-draft-while-working-pane.txt").read_text()
+            return step(*args, **kwargs)
+        with patch.object(watch, "_editor_read", side_effect=started):
+            self.assertFalse(self.typed_line())
         self.assertEqual((self.keys, self.typed), ([], []))
 
     def test_a_picker_the_owner_opens_over_their_text_as_the_step_reads_it_takes_no_step(self):
