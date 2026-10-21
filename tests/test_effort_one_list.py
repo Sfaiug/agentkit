@@ -74,10 +74,11 @@ class OneList(unittest.TestCase):
         self.cfg = config.load()
 
     def bar(self, name):
-        """`name`'s effort as `c` draws it: its cells, then its word."""
+        """`name`'s effort as `c` draws it, on the row its full name leads: its cells, then its
+        word."""
         lines, _places = menu.config_body(self.cfg)
         line = next(line for line in (terminal.ANSI.sub("", line) for line in lines)
-                    if line.split()[:1] == [name])
+                    if line.lstrip().startswith(config.model_name(self.cfg, name) + " "))
         return line.split()[-2:]
 
     def step(self, name, step=1):

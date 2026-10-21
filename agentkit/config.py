@@ -841,7 +841,7 @@ def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
     running `claude-opus-5-5` -- its harness's catalog label for its id, read off the manifest's
     table so no draw waits on a listing -- else its id, a provider's prefix off
-    (`deepseek-v4.1-flash-free`).  `name` itself where it is no entry or names no id of its
+    (`acme-flash-free`).  `name` itself where it is no entry or names no id of its
     own (`default`: the harness picks).
     """
     entry = (cfg.get("models") or {}).get(name)

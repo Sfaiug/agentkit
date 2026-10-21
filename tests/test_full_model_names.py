@@ -19,7 +19,7 @@ from agentkit import config, menu, statusbar  # noqa: E402
 MODELS = {"opus": {"harness": "claude", "provider": "anthropic", "model": "claude-opus-5-5"},
           "gpt-sol": {"harness": "codex", "provider": "openai", "model": "gpt-6.1-sol"},
           "flash": {"harness": "opencode", "provider": "opencode",
-                    "model": "opencode/deepseek-v4.1-flash-free"},
+                    "model": "opencode/acme-flash-free"},
           "codex": {"harness": "codex", "provider": "openai", "model": "default"}}
 
 
@@ -31,7 +31,7 @@ class FullNames(Sandbox):
 
     def test_a_model_is_named_by_its_catalog_label_else_its_id(self):
         self.assertEqual([config.model_name(self.cfg, name) for name in MODELS],
-                         ["Opus 5.5", "gpt-6.1-sol", "deepseek-v4.1-flash-free", "codex"])
+                         ["Opus 5.5", "gpt-6.1-sol", "acme-flash-free", "codex"])
         self.assertEqual(config.model_name(self.cfg, "gone"), "gone")
 
     def test_a_seat_row_its_crew_and_its_bar_say_the_full_names(self):
