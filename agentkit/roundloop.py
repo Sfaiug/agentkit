@@ -1129,9 +1129,12 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # what a later round replays, kept on the pending record so no dying attempt overwrites them
     delta_from = lp.state.get("delta_from")
     earlier = prompts.earlier_findings(lp)
+    # who could not finish this round's review, kept across parks as `since` is: none is
+    # asked again in this round, and a new round starts with nobody failed
+    failed = pending.get("failed", []) if pending.get("round") == lp.rnd else []
     lp.state.update(verdict=None, review=None,
                     review_pending={"round": lp.rnd, "summary": summary, "since": since,
-                                    "earlier": earlier,
+                                    "earlier": earlier, "failed": failed,
                                     **({"passed_head_sha": passed_head} if passed_head else {})})
     if not record:
         lp.state["review_pending"]["record"] = False
@@ -1234,14 +1237,15 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     # The round is read off `dir`, which is what free_dir writes through.
     rd = lp.dir("reviewer").parent
     name = turns.open_review(rd)[0] or "reviewer"
-    failed = set()      # who could not finish this round's review: none is asked again in it
     def fall_back(reason, out, allow_self=True, ending=turns.Exhausted):
         """The path a dry, twice-silent or twice-transient reviewer takes: next one, else Exhausted.
 
         The next one is read afresh from the run's marked reviewers and the meters as they
         read now, so a reviewer passed over while its meter was spent is picked once it has
         refilled; only those that already failed this round stay out of it."""
-        failed.add(lp.reviewer)
+        failed = lp.state["review_pending"].setdefault("failed", [])
+        if lp.reviewer not in failed:
+            failed.append(lp.reviewer)
         try:
             providers = staffing.collect_usage(lp.cfg)
         except config.Error as exc:
