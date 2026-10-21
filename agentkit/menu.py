@@ -375,14 +375,15 @@ class Live:
         halfway, and a refusal is a job's notice, which this menu or the next shows.
         """
         config.ensure_dirs()
-        with config.seat_file("closing", name).open("a") as held:
-            try:
-                fcntl.flock(held, fcntl.LOCK_SH | fcntl.LOCK_NB)   # raises while a stop has it
-            except BlockingIOError:
-                ours = False              # another menu's stop of it goes on: hidden as there
-            else:
-                ours = True
-                fcntl.flock(held, fcntl.LOCK_EX)    # waits out only a read's look at it
+        lock = config.seat_file("closing", name)
+        with lock.open("a") as held:
+            ours = False                  # while another stop holds it: hidden as there
+            while not ours and not stop_under_way(lock):    # a read's look holds it a moment
+                try:
+                    fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    ours = True
+                except BlockingIOError:
+                    pass
             with self.reading:            # after the lock: a read begun since sees it held
                 self.closing[name] = self.reads
                 self.last[:] = without(*self.last, self.closing)
@@ -1201,18 +1202,21 @@ def tallied(ordered, infos, silent_map):
 
 
 def stops_under_way():
-    """The seats whose stop is still going, `Live.stop`'s from this menu or any other: each
-    one's `closing` lock is held, by its stop alone, until that ends however it ends."""
-    held = set()
-    for name, path in config.seat_files("closing"):
-        try:
-            with path.open("a") as lock:
-                fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-        except BlockingIOError:
-            held.add(name)
-        except OSError:
-            pass                  # gone since it was listed: no stop holds it
-    return held
+    """The seats whose stop is still going, `Live.stop`'s from this menu or any other."""
+    return {name for name, lock in config.seat_files("closing") if stop_under_way(lock)}
+
+
+def stop_under_way(lock):
+    """Whether a stop holds that `closing` lock: its stop alone holds it, exclusively, until
+    that ends however it ends; a look at it holds it shared, for a moment."""
+    try:
+        with lock.open() as look:
+            fcntl.flock(look, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        pass                      # none: no stop ever took it, or gone since it was listed
+    return False
 
 
 def without(found, groups, gone):
@@ -5209,8 +5213,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 back = True               # each can hand the owner a seat, where nothing is read
                 live.away()
             if key.isdigit():
-                if 1 <= int(key) <= len(found) and not found[int(key) - 1].get("stopping"):
-                    open_session(cfg, found[int(key) - 1], dry_run)
+                chosen = found[int(key) - 1] if 1 <= int(key) <= len(found) else None
+                if chosen and not chosen.get("stopping") and not stop_under_way(
+                        config.seat_file("closing", chosen["name"])):   # one begun since read
+                    open_session(cfg, chosen, dry_run)
                     if overlay:
                         return 0
                 else:

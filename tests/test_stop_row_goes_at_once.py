@@ -92,8 +92,15 @@ class StopBehindTheRow(unittest.TestCase):
     def test_a_stop_still_going_after_the_popup_went_is_offered_by_no_menu(self):
         popup = Menu(self, {"alpha": "working", "omega": "done"}, own="omega", hold=self.hold)
         popup.frame()
+        older = Menu(self, {"alpha": "working", "omega": "done"}, home=popup.home)
+        older.frame()                     # read before the stop began, and not since
         popup.send(b"x")
         self.assertEqual(popup.proc.wait(15), 0, popup.text()[-3000:])
+        older.send(b"2")
+        older.saw("no session 2")
+        older.send(ENTER)
+        older.leave()
+        self.assertNotIn("<opened omega>", older.text())
         menu = Menu(self, {"alpha": "working", "omega": "done"}, home=popup.home)
         self.assertFalse([line for line in menu.frame() if "omega" in line])
         # the stop marks it stopped before its end: still no past seat, and its number opens
