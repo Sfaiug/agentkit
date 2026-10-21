@@ -79,7 +79,7 @@ def make_loop(root, wt, rounds=3):
         "merge_note": None,
     }
     record.save_state(run_dir, state)
-    lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context", [])
+    lp = run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context")
     lp.round_dir.mkdir(parents=True, exist_ok=True)
     return lp, run_dir, lines
 

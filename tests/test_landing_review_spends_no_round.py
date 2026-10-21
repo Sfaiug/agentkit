@@ -77,7 +77,7 @@ class LandingReviewSpendsNoRound(Sandbox):
         self.lp.save()
         saved = record.read_state(self.run_dir)
         return run.Loop(self.cfg, self.run_dir, saved, {}, self.lp.log, self.wt,
-                        "body", ["true"], "context", [])
+                        "body", ["true"], "context")
 
     def land(self, lp=None):
         lp = lp or self.lp
@@ -141,7 +141,7 @@ class LandingReviewSpendsNoRound(Sandbox):
                 run.integrate(self.lp, "origin/main")
         saved = record.read_state(self.run_dir)
         resumed = run.Loop(self.cfg, self.run_dir, saved, {}, self.lp.log, self.wt,
-                           "body", ["true"], "context", [])
+                           "body", ["true"], "context")
         run.rounds(resumed)
         self.assertTrue(self.land(resumed))
         self.assertEqual(self.events, [("reviewer", "round-3")])
@@ -194,7 +194,7 @@ class LandingReviewSpendsNoRound(Sandbox):
                 run.rounds(self.lp)
         saved = record.read_state(self.run_dir)
         resumed = run.Loop(self.cfg, self.run_dir, saved, self.lp.opts, self.lp.log, self.wt,
-                           "body", ["true"], "context", [])
+                           "body", ["true"], "context")
         with patch.object(roundloop, "integrate", wraps=roundloop.integrate) as integrate:
             run.rounds(resumed)
         integrate.assert_not_called()

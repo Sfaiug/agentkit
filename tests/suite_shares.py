@@ -63,7 +63,7 @@ LIVE_CHECKS = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
                "31a", "31d"}
 # The checks that read the checkout alone and take seconds: tests/landing.py runs them first in
 # every share and stops there when one fails; every_file.py leaves them to it.
-STATIC_CHECKS = ("test_dead_code", "test_boundaries", "test_architecture", "test_docs")
+STATIC_CHECKS = ("test_dead_code", "test_boundaries", "test_modules_say_what_they_are", "test_docs")
 
 
 def smoke_blocks(source):

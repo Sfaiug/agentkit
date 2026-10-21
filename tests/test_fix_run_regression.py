@@ -71,7 +71,7 @@ class RegressionFailsBefore(unittest.TestCase):
             record.save_state(self.directory, state)
         cmds = cmds if cmds is not None else [f"bash {shlex.quote(str(self.script))}"]
         lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
-                      "# Fix empty input", cmds, "context", [])
+                      "# Fix empty input", cmds, "context")
         lp.rnd = 1
         return lp
 

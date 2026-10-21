@@ -59,7 +59,7 @@ class LiveByEffort(Sandbox):
                  "base": "main", "base_sha": "0" * 40, "branch": "ak/fix-api",
                  "executor": "opus", "reviewer": "astra", "rounds": 3, "round_summaries": []}
         lp = run.Loop(self.cfg, directory, state, {}, lambda _: None, directory, "Fix it.",
-                      ["true"], "", [])
+                      ["true"], "")
         lp.rnd = 1
         with patch.object(run.history, "update_run") as updated:
             lp.save()

@@ -456,6 +456,13 @@ class Harness:
         if hook:
             hook(record)
 
+    def retire(self, record):
+        """Drop that launch's receipt alone: the one a started launch replaced, or one whose
+        harness never started.  The seat goes on, so nothing else it kept goes."""
+        hook = self._hook("retire")
+        if hook:
+            hook(record)
+
     def opened(self, cwd, conversation):
         """Has the harness written that conversation down yet?
 
@@ -481,6 +488,11 @@ class Harness:
         or protocol frames.  None where this harness keeps nothing ak can read."""
         hook = self._hook("said")
         return hook(record, cwd, conversation) if hook else None
+
+    @property
+    def reads_messages(self):
+        """Whether it can say which messages of a conversation are the owner's (`user_messages`)."""
+        return self._hook("user_messages") is not None
 
     def user_messages(self, record, cwd, conversation, *, seat=None):
         """Owner messages, oldest first, as {at: Unix seconds, text: original words}.

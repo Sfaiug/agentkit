@@ -101,7 +101,7 @@ out = pathlib.Path(sys.argv[6])
                  "reviewer": "astra", "round_summaries": [], "repo": str(self.wt), "worktree": str(self.wt)}
         self.logs = []
         self.lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
-                           "# Fixture", ["true"], "context", [])
+                           "# Fixture", ["true"], "context")
         self.lp.rnd = 0
         self.lp.validation = run.commit_identity(self.wt)
         self.mode_fixed = probe('api.mode == "fixed"')

@@ -41,7 +41,7 @@ class ExecutorTextIgnored(unittest.TestCase):
                  "base": "main", "base_sha": "abc123", "branch": "ak/fix-api",
                  "executor": "opus", "reviewer": "astra", "rounds": 1, "round_summaries": []}
         self.lp = run.Loop(config.load(), directory, state, {}, lambda _s: None, workspace,
-                           "# Fixture", ["true"], "Do the task.", [])
+                           "# Fixture", ["true"], "Do the task.")
         self.calls = []
         self.closing = None
         self.background = False

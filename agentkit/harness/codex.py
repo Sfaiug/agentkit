@@ -227,6 +227,11 @@ def forget(record):
         except (OSError, subprocess.CalledProcessError) as exc:
             print(f"orch: Codex remote cleanup for {home.name} failed ({exc}); "
                   "its enrollment stays until the next forget", file=sys.stderr)
+    retire(record)
+
+
+def retire(record):
+    """Drop that launch's receipt alone: the remote home is the seat's, and outlives a launch."""
     path = path_for(record)
     if path:
         path.unlink(missing_ok=True)
@@ -313,9 +318,6 @@ def prepare(name, cwd, owned):
     config.update_session(name, codex_launch=token, codex_history=history or None,
                           conversation=owned, id_source=SOURCE if owned else None,
                           resumable=bool(owned))
-    old_path = path_for(record)
-    if old_path:
-        old_path.unlink(missing_ok=True)
     return path
 
 

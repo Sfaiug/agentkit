@@ -51,6 +51,7 @@ KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
 _LIGHT = False     # its background is light (`sense`)
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
+FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
 LEVELS = (0, 95, 135, 175, 215, 255)   # each channel's steps in xterm's 6x6x6 colour cube
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -890,7 +891,8 @@ def sense():
     """What the terminal is, asked once per menu start on a keyboard `Keyboard.take` has taken.
 
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
-    (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in.  And whether the
+    (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
+    handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
     background is light, from the terminal's answer to OSC 11 within a tenth of a second; no
     answer by then is a dark one.  Its attributes are asked for after it (DA1), which every
     terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
@@ -899,8 +901,8 @@ def sense():
     `read_key`, and one that comes later is `_sequence`'s.
     """
     global _RGB, _LIGHT, _KEYED
-    features = ""
-    if os.environ.get("TMUX"):
+    features = os.environ.get(FEATURES_ENV)
+    if features is None and os.environ.get("TMUX"):
         try:
             features = subprocess.run([guard.real("tmux"), "display", "-p",
                                        "#{client_termfeatures}"],
@@ -908,7 +910,7 @@ def sense():
                                       text=True, timeout=1).stdout
         except (OSError, subprocess.SubprocessError):
             pass
-    _RGB = bool({"RGB", "Tc"} & set(features.strip().split(",")))
+    _RGB = bool({"RGB", "Tc"} & set((features or "").strip().split(",")))
     fd = sys.stdin.fileno()
     os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
     heard, until = b"", time.monotonic() + 0.1
