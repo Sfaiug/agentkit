@@ -212,26 +212,32 @@ def serve(lock):
 
 def _resident():
     """Whatever of the server's memory the host swapped out, back in RAM, read through
-    /proc/self/mem: every private writable page, which is what swap holds and a fork shares.
-    With nothing swapped it reads its status alone, at each wake (`serve`)."""
+    /proc/self/mem: each mapping /proc/self/smaps has anything of in swap, whatever its
+    permissions, as a fork shares them.  With nothing swapped it reads its status alone, at each
+    wake (`serve`)."""
     try:
         with open("/proc/self/status", "rb") as status:
             if not any(line.startswith(b"VmSwap:") and line.split()[1] != b"0" for line in status):
                 return
-        with open("/proc/self/maps", "rb") as maps:
-            spans = [line.split() for line in maps]
+        spans = []
+        with open("/proc/self/smaps", "rb") as smaps:
+            for line in smaps:
+                field = line.split()
+                if not field[0].endswith(b":"):
+                    span = field[0]            # a mapping's first line: its addresses
+                elif field[0] == b"Swap:" and field[1] != b"0":
+                    spans.append(span)
         mem = os.open("/proc/self/mem", os.O_RDONLY)
     except OSError:
         return            # no /proc here: nothing to read it back by
     try:
         for span in spans:
-            if span[1] == b"rw-p":
-                start, end = (int(edge, 16) for edge in span[0].split(b"-"))
-                try:
-                    for at in range(start, end, CHUNK):
-                        os.pread(mem, min(CHUNK, end - at), at)
-                except OSError:
-                    pass  # gone since the list was read: the rest comes back all the same
+            start, end = (int(edge, 16) for edge in span.split(b"-"))
+            try:
+                for at in range(start, end, CHUNK):
+                    os.pread(mem, min(CHUNK, end - at), at)
+            except OSError:
+                pass  # gone since the list was read: the rest comes back all the same
     finally:
         os.close(mem)
 

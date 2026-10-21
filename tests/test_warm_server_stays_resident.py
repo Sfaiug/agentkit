@@ -45,9 +45,9 @@ class StaysResident(unittest.TestCase):
                                   stderr=subprocess.DEVNULL, start_new_session=True, text=True)
         home.started.append(server)
         out = int(server.stdout.readline() or 0)
+        home.up()                         # up before any skip: `Home.stop` stops what is up
         if out < SIZE >> 10:
             self.skipTest(f"this host swapped out {out} kB of {SIZE >> 10}: no swap to test with")
-        home.up()
         deadline = time.monotonic() + 60
         while swapped(server.pid) >= SIZE >> 10:
             self.assertLess(time.monotonic(), deadline,
