@@ -293,6 +293,40 @@ def checked(argv, workspace, role="reviewer", findings=()):
     return row
 
 
+def check_fixer_proofs(turn, records):
+    from . import record, worker
+    disputed = {(row["path"], row["line"]) for row in records if row["kind"] == "dispute"}
+    env = dict(os.environ)
+    for key in (ENV, CONTINUE, FINDINGS_ENV):
+        env.pop(key, None)
+    failed = []
+    for finding in turn.get("findings", []):
+        command = finding["evidence"].get("run")
+        if not command or (finding["path"], finding["line"]) in disputed:
+            continue
+        # The fixer already has its checkout and sandbox; never reset its uncommitted fix.
+        with tempfile.TemporaryDirectory(dir=turn["workspace"]) as cache, \
+                tempfile.NamedTemporaryFile(dir=turn["workspace"]) as output:
+            env["PYTHONPYCACHEPREFIX"] = cache
+            try:
+                code, _, killed = worker.limited(
+                    ["bash", "-c", command], record.CEILING_HOURS * 3600,
+                    silence=record.SILENCE_MINUTES * 60, activity=output.name, output=output,
+                    cwd=turn["workspace"], env=env, stdin=subprocess.DEVNULL,
+                    stderr=subprocess.STDOUT)
+            except (FileNotFoundError, PermissionError):
+                continue
+            if proof_failed({"returncode": code, "killed": killed}):
+                tail = "\n".join(output_excerpt(output).splitlines()[-10:])
+                failed.append(f"{finding['path']}:{finding['line']} - {finding['what']} "
+                              f"[exit {code}]\n{tail}")
+    if failed:
+        raise config.Error("done refused: earlier findings still fail:\n" + "\n".join(failed)
+                           + '\nFix the code or dispute the finding with '
+                           '`ak hand-in dispute path:line "why" --run COMMAND` '
+                           'whose command exits 0.')
+
+
 def main(argv):
     if command_help.show("hand-in", argv):
         return 0
@@ -309,6 +343,8 @@ def main(argv):
                 raise config.Error("this turn is already closed; hand in records before done, blocked or not-needed")
             row = checked(argv, rows[0]["workspace"], rows[0].get("role", "reviewer"),
                           rows[0].get("findings", []))
+            if row["kind"] == "done" and rows[0].get("role", "reviewer").startswith("fixer"):
+                check_fixer_proofs(rows[0], rows[1:])
             fh.write(json.dumps(row) + "\n")
     except (OSError, ValueError, KeyError, AttributeError) as exc:
         raise config.Error("cannot hand in this record: " + " ".join(str(exc).split())) from None

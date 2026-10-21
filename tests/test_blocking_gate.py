@@ -327,20 +327,41 @@ out = pathlib.Path(sys.argv[6])
         self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
         self.assertNotIn("still fails", prompt)
 
-    def test_a_replay_that_cannot_run_or_finish_proves_no_fix(self):
+    def test_a_replay_that_cannot_run_or_finish_is_a_note(self):
         (self.wt / "probe.sh").write_text('python3 -c \'import api; raise SystemExit(0 if api.flag == "fixed" else 7)\'\n')
         self.commit("A probe on the branch")
         self.head = run.git(self.wt, "rev-parse", "HEAD")
         self.lp.validation = run.commit_identity(self.wt)
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", "bash probe.sh")), "FAIL")
         (self.wt / "probe.sh").unlink()                  # the fix deletes the probe; the flag stays
+        out = self.root / "fixer"
+        out.mkdir()
+        findings = out / "findings.json"
+        findings.write_text(json.dumps(prompts.earlier_findings(self.lp)))
+        with patch.dict(os.environ, {hand_in.ENV: hand_in.start(
+                out, self.wt, role="fixer", findings=findings)}):
+            self.assertEqual(hand_in.main(["done"]), 0)
+        self.assertFalse((self.wt / "probe.sh").exists())
         self.commit("Remove the probe")
         self.head = run.git(self.wt, "rev-parse", "HEAD")
         self.lp.validation = run.commit_identity(self.wt)
-        self.assertEqual(self.review(), "FAIL")
-        self.assertEqual(self.records("finding"), [("api.py", 2, "still failing; it blocks until its proof passes")])
-        self.assertIn("api.py:2 - flag is wrong - could not run (exit 127); it blocks until its proof passes",
+        self.assertEqual(self.review(), "PASS")
+        self.assertEqual(self.records("finding"), [])
+        self.assertEqual(self.records("note"), [("api.py", 2, "could not run (exit 127); kept as a note")])
+        self.assertIn("api.py:2 - flag is wrong - could not run (exit 127); kept as a note",
                       self.prompt())
+
+    def test_unfinished_and_unexecutable_replays_reach_the_reviewer_as_notes(self):
+        for code, killed, message in ((124, True, "did not finish"), (-9, False, "did not finish"),
+                                      (126, False, "could not run (exit 126)"),
+                                      (0, True, "did not finish")):
+            with self.subTest(code=code, killed=killed):
+                self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
+                with patch.object(worker, "boxed", return_value=(code, "", killed)):
+                    self.assertEqual(self.review(), "PASS")
+                self.assertEqual(self.records("finding"), [])
+                self.assertEqual(self.records("note"), [("api.py", 2, message + "; kept as a note")])
+                self.assertIn("flag is wrong - " + message + "; kept as a note", self.prompt())
 
     def test_the_record_this_review_took_of_the_earlier_findings_outlives_an_attempt(self):
         self.assertEqual(self.review(finding("api.py:2", "flag is wrong", self.flag_fixed)), "FAIL")
