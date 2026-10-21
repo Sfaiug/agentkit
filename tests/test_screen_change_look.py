@@ -126,7 +126,7 @@ class Check(unittest.TestCase):
         self.show("claude-draft-pane.txt", ("Fix the login redirect", "Fix the search filter"))
         looks.check()
         self.assertEqual(made, [True, True])
-        self.assertEqual(watch.seat_read("herdr")["reason"], "unsent: Fix the search filter")
+        self.assertEqual(watch.seat_read("herdr")["unsent"], "Fix the search filter")
         # a codex seat's timer line is what its working rule reads, and no news a second on
         config.save_session(self.seat.cfg, "herdr", "astra", ["opus", "astra"],
                             {"repo": self.seat.repo, "cwd": self.seat.repo})
