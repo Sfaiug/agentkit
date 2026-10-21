@@ -58,8 +58,9 @@ class QualifiedNames(Sandbox):
         held = index(board(NAMES))
         self.assertEqual([(row["model"], row["effort"]) for row in matrix.found(held, "acme-5")],
                          [("Acme 5 (Default Fallback)", "max"), ("Acme 5 (Default Fallback)", "low")])
-        self.assertEqual(matrix.matching(held, "acme-5", "low")["values"], {"aa.score": 2})
-        self.assertIsNone(matrix.matching(held, "acme-5", "high"))      # never another effort's
+        found = matrix.found(held, "acme-5")
+        self.assertEqual(matrix.placed(found, "low", None, {})[0]["values"], {"aa.score": 2})
+        self.assertIsNone(matrix.placed(found, "high", None, {}))   # no index says what high loses
         # the exact name wins over a qualified one
         self.assertEqual([row["values"] for row in matrix.found(held, "acme-4")], [{"aa.score": 3}])
         # two qualified names stand for nothing; the config's benchmark still names one

@@ -13,11 +13,12 @@ import io
 import json
 import os
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, watch
+from agentkit import config, notify, stop, watch
 from agentkit.harness import codex
 
 SEAT = "fix-api"
@@ -65,6 +66,22 @@ class CodexQuestion(Sandbox):
         self.assertTrue(answer["reason"].startswith(
             "ak did not ask the owner this: put the question first"), answer)
         self.assertIsNone(self.kept())
+
+    def test_a_seat_whose_plan_is_done_asks_nothing_until_the_owner_writes_again(self):
+        plan = config.plan_path(SEAT)
+        plan.write_text("- [x] the parser parses · check: `true` · acme · written "
+                        "2026-10-09 12:00 · done 0123456789ab\n")
+        done = time.time() - 600
+        os.utime(plan, (done, done))
+        refused = {"decision": "block", "reason": stop.DONE_ASKING.rstrip(".")}
+        with patch.object(notify, "owner_said", return_value=[done - 3600]):
+            # its Plan-mode dialog too, which then never reads as the seat asking
+            for tool in ("request_user_input_async", "request_user_input"):
+                self.assertEqual(self.hook(dict(CALL, tool_name=tool)), refused, tool)
+            self.assertIsNone(self.kept())
+            self.assertNotEqual(watch.hook_state("codex", watch.hook_facts(SEAT))[0], "asking")
+        with patch.object(notify, "owner_said", return_value=[done + 60]):
+            self.assertTrue(self.hook(CALL)["reason"].startswith("ak asks the owner this for you"))
 
     def test_only_a_seats_question_is_taken(self):
         self.assertIsNone(self.hook(dict(CALL, tool_name="Bash")))

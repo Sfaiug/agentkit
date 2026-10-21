@@ -25,7 +25,15 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 
 
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image")
+# `content:` names, as space-separated path prefixes, the project's own product text (its pages,
+# its knowledge base): words that are the product, not notes about the code.
+FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content")
+
+
+# The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
+# hold.  A floor, not a target: past it a body only shrinks, so what a branch would add there
+# moves into the test, check or comment that holds it by itself, and no file ever needs a cleanup.
+BODY_WORDS = 300
 
 
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -271,7 +279,8 @@ def files_scope(lp):
 
 def rules_check(lp):
     """Refuse a branch's change to AGENTS.md that workers would not get as written: a link, a
-    Git filter, more than a harness reads of it, or a front matter line ak does not read.
+    Git filter, more than a harness reads of it, or a front matter line ak does not read; or
+    one that grows its body past `BODY_WORDS` and past what the base holds.
     A branch that leaves the file alone, or deletes it, passes."""
     if lp.scratch or not gitcall.git(lp.wt, "diff", "--name-only", "--no-renames",
                              f"{lp.base_sha}...HEAD", "--", "AGENTS.md"):
@@ -297,6 +306,12 @@ def rules_check(lp):
     if ceiling and len(held) > ceiling[0]:
         return (f"AGENTS.md is {len(held)} bytes, past the {ceiling[0]} bytes {ceiling[1]} "
                 "reads of it: tighten it.")
+    words = len(gitcall.agents_body(lp.wt, "HEAD").split())
+    before = len(gitcall.agents_body(lp.wt, lp.base_sha).split())
+    if words > max(BODY_WORDS, before):
+        return (f"AGENTS.md's body grows from {before} to {words} words; past {BODY_WORDS} it "
+                "only shrinks. Move what this adds into a test, a check or a comment at the code "
+                "it is about.")
     text = held.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
     unread = unknown_front_lines(text.strip())
     if not unread:
@@ -1101,7 +1116,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
 
     `record` is off for landing re-review and the merge pipeline's fixer rounds: they are not task rounds
     and must not spend one, so no summary of them enters the rounds' own history.
-    The verdict is recorded either way, because delivery is decided
+    `summary` is the author's own account of its work: it is recorded, never handed to the
+    reviewer, whom it would prime.  The verdict is recorded either way, because delivery is decided
     on it.
     """
     passed_head = passed_review_head(lp.state)
@@ -1203,7 +1219,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     def body_with(section):
         text = (f"{lp.body}\n\n{section}\n\n"
                 + (disputes.text + "\n" if disputes.disputes else "")
-                + f"## Executor summary\n{summary}\n\n{heading}\n"
+                + f"{heading}\n"
                 + (f"{deferred}\n" if deferred else "")
                 + (f"{flaky}\n" if flaky else "")
                 + f"```\n{dw_log}\n```")

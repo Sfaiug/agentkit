@@ -120,6 +120,8 @@ class UsageRow(Sandbox):
                               self.meter("weekly_scoped", None)]}, "bad reading"),
                  ({"meters": [], "error": "unknown: every meter the cache reports has already reset"},
                   "window reset"),
+                 # ... and one with no reading at all had no window to reset
+                 (usage._without_past({}, 10000, "the adapter"), "no reading yet"),
                  ({"meters": [self.meter("session", 30, window=18000)]}, "no weekly meter"),
                  ({"meters": [self.meter("weekly", "lots")]}, "bad reading"),
                  ({"meters": [], "error": "unknown: muse reported a meter without a name and a "

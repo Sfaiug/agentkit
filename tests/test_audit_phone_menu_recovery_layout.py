@@ -674,17 +674,18 @@ class Phone(Sandbox):
                              prompt="esc back")
         self.fits(screen, width, height)
         phone.keys("Down", "Space")          # astra orchestrates, from the row below opus
-        screen = self.picked(phone, "astra", "●■■")
+        screen = self.picked(phone, "GPT-6-Astra", "●■■")
         phone.keys("Right")                  # the executor column, then every worker added
-        for title, steps in (("fable", ("Up", "Up")), ("spark", ("Down",) * 3),
-                             ("grok", ("Down",)), ("gemini", ("Down",)),
-                             ("mimo", ("Down",))):
+        # each by its full name, as much of it as a phone's third of the screen holds
+        for title, steps in (("Fable 5.1", ("Up", "Up")), ("muse-spark", ("Down",) * 3),
+                             ("Grok 4.7", ("Down",)), ("Gemini 3.8", ("Down",)),
+                             ("MiMo V2.6", ("Down",))):
             phone.keys(*steps, "Space")
             screen = self.picked(phone, title, "○■□")   # executing, not reviewing
         self.fits(screen, width, height)
         phone.keys("Enter")
         # the unnamed seat opens in this terminal by a character's name, and its bar keeps the key
-        screen = phone.until(STAND_IN, "astra", "Ctrl-b m  menu")
+        screen = phone.until(STAND_IN, "GPT-6-Astra", "Ctrl-b m  menu")
         self.fits(screen, width, height)
         bar = screen[-1]
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
@@ -789,7 +790,7 @@ class Phone(Sandbox):
             self.assertTrue(top.endswith(f"    {LONG_NAME[:7]}… ! 11 need you"), top)
         else:
             # the word the row shows opens the bar, then the name and the model that orchestrates it
-            self.assertIn(f"! needs you    {LONG_NAME}   astra", top)
+            self.assertIn(f"! needs you    {LONG_NAME}   GPT-6-Astra", top)
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
         phone.keys("C-b", "d")
         screen = phone.until("esc leave", prompt="esc leave")

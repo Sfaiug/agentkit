@@ -1,9 +1,8 @@
-"""A round keeps the executor's whole summary, so a landing re-review reads all of it.
+"""A round keeps the executor's whole summary, a landing re-review's pending record included.
 
 The round record kept only a summary's last 4000 characters, with no word that the rest was
-gone, and a landing re-review hands the reviewer that record: what the executor said first
-(often what it changed and why) never reached the reviewer of a longer summary.  Now the
-record holds the summary whole.
+gone: what the executor said first (often what it changed and why) was lost from result.md.
+Now the record holds the summary whole.  No reviewer reads it (`roundloop.review`).
 
 Offline: the fake harness and temporary HOME of test_reviewer_judges_the_diff.
 """
@@ -28,14 +27,14 @@ class SummaryWhole(unittest.TestCase):
     log = fixture.ReviewerJudgesTheDiff.log
     launch_scratch = fixture.ReviewerJudgesTheDiff.launch_scratch
 
-    def test_a_landing_re_review_hands_on_the_whole_summary(self):
+    def test_the_record_keeps_the_whole_summary_for_a_landing_re_review(self):
         adapter = fixture.ADAPTER.replace('"## Summary\\nFixture work."', json.dumps(LONG))
         self.assertNotEqual(adapter, fixture.ADAPTER)
         for path in (self.root / "adapters").glob("*.sh"):
             self.script(path, adapter)
         code, directory, state = self.launch_scratch(fixture.PASS)
         self.assertEqual(code, 0, self.log(directory))
-        self.assertIn("FIRST changed the widget.", self.calls("reviewer")[0]["prompt"])
+        self.assertNotIn("FIRST changed the widget.", self.calls("reviewer")[0]["prompt"])
         self.assertEqual(state["round_summaries"][-1]["summary"], LONG)
 
         class Run:

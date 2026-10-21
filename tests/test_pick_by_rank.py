@@ -35,7 +35,8 @@ MORE = [{"name": "Claude Opus 5.5 (max)", "evaluations": {
              "artificial_analysis_intelligence_index": 58}, "performance": {"median_output_tokens_per_second": 95}},
         {"name": "Claude Opus 5.5 (xhigh)", "evaluations": {
              "artificial_analysis_coding_index": 60, "artificial_analysis_agentic_index": 70,
-             "artificial_analysis_intelligence_index": 56}, "performance": {"median_output_tokens_per_second": 82}},
+             "artificial_analysis_intelligence_index": 56}, "performance": {"median_output_tokens_per_second": 82},
+         "artificial_analysis_intelligence_index_cost": {"total_cost": 2000}},
         {"name": "GPT 6 Astra (max)", "evaluations": {
              "artificial_analysis_coding_index": 25, "artificial_analysis_agentic_index": 40,
              "artificial_analysis_intelligence_index": 53}, "performance": {"median_output_tokens_per_second": 57}}]
@@ -64,8 +65,9 @@ class PickByRank(Sandbox):
         _, table = matrix.refresh(self.cfg, now=10000)
         held = json.loads(matrix.cache_path().read_text())["matrix"]
         self.assertEqual(held["computed_at"], 10000)
+        # xhigh as good as max, and priced
         self.assertEqual(matrix.row_label(matrix.recommended(held["rows"])["execute"][0]),
-                         "claude-opus-5-5 @ max")
+                         "opus @ xhigh")
         self.assertEqual(matrix.stored()["config"], matrix.config_key(self.cfg))
         # scores stored under another scoring rule are read scored afresh, by a pick as well
         stale = json.loads(matrix.cache_path().read_text())
@@ -110,10 +112,10 @@ class PickByRank(Sandbox):
         matrix.refresh(self.cfg, now=10000)
         ranks = matrix.rank(self.cfg, "execute")
         scores = {(row["model"], row["effort"]): row["scores"]["execute"] for row in matrix.stored()["rows"]}
-        # opus @ xhigh is as good as the best: first by cost (LiveBench's, Artificial Analysis
-        # having priced no run), then its quality; astra @ max is under the best by more than
-        # `within`: after every row as good, by quality
-        self.assertEqual(ranks["opus"], (0, 1, 4.05, -scores[("claude-opus-5-5", "xhigh")]["score"]))
+        # opus @ xhigh is as good as the best: first by what Artificial Analysis's index run cost
+        # at xhigh, then its quality; astra @ max is under the best by more than `within`: after
+        # every row as good, by quality
+        self.assertEqual(ranks["opus"], (0, 0, 2000, -scores[("claude-opus-5-5", "xhigh")]["score"]))
         self.assertEqual(ranks["astra"], (1, 0, 0.0, -scores[("gpt-6-astra", "max")]["score"]))
         self.assertLess(scores[("gpt-6-astra", "max")]["score"], 100 - matrix.within(self.cfg))
         self.assertIsNone(ranks["fable"])                     # no board has Fable 5.1

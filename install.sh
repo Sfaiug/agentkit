@@ -733,10 +733,10 @@ fi
 # user runs, so ssh and the owner's own shells keep room under load.  Where this install
 # may use sudo without a password, every install rewrites that ceiling from this
 # machine's own numbers before (g3), so the slice derives from the new value: memory as
-# shares above the slice's 60%/70%, tasks as a share of the kernel's thread limit, the
-# CPU weight below the default, always OOMPolicy=continue.  Only agentkit-limits.conf is
-# ever written: a file that is missing or opens with agentkit's own first line is agentkit's;
-# any other file is left alone.  Without passwordless sudo nothing
+# a share above the slice's 70% (no MemoryHigh, as for the slice), tasks as a share of the
+# kernel's thread limit, the CPU weight below the default, always OOMPolicy=continue.  Only
+# agentkit-limits.conf is ever written: a file that is missing or opens with agentkit's own
+# first line is agentkit's; any other file is left alone.  Without passwordless sudo nothing
 # is written and one line says what to run instead; sudo is never asked for a password.
 # There are no pins for this ceiling: the slice's slice_* pins stay what they are.
 user_manager() {   # is there a user systemd manager here, to hold a slice and its limits?
@@ -771,7 +771,7 @@ else
   elif ! have sudo || ! sudo -n true 2>/dev/null; then
     echo "user-unit: no passwordless sudo, so $UNIT_LIMITS is not written; run \`sudo -v\` and re-run ./install.sh to add it"
   else
-  # Memory is shares above the slice's 60%/70%, and tasks are a share of the kernel's
+  # Memory is a share above the slice's 70%, and tasks are a share of the kernel's
   # thread limit, so systemd follows this machine with no rewrite: 4% keeps the hand-written
   # ceiling's headroom on its own host and grows on a larger one, where a per-core count
   # would silently shrink the slice on a small one.  CPU weight yields to other work
@@ -784,7 +784,6 @@ else
 # by itself.  The slice's slice_* pins hold slice values still; this ceiling always follows.
 [Service]
 TasksMax=$unit_tasks
-MemoryHigh=80%
 MemoryMax=90%
 CPUWeight=40
 OOMPolicy=continue
@@ -855,9 +854,12 @@ else
   # thread the owner's login needs; a user unit with no ceiling offers no share to take, and a
   # plain number stands in for it.  Memory is shares of what this machine has, so systemd
   # follows it with no rewrite; CPU weight yields to other work without keeping a core idle.
+  # No MemoryHigh unless pinned: above it the kernel throttles every process in the slice and
+  # never kills one, and with swap full that froze every seat, tmux and harness at once
+  # (20 Oct 2026); at MemoryMax it ends the largest process instead.
   user_tasks=$(systemctl show "user@$(id -u).service" -p TasksMax --value 2>/dev/null || true)
   case "$user_tasks" in ''|*[!0-9]*) slice_tasks=3072 ;; *) slice_tasks=$((user_tasks * 3 / 4)) ;; esac
-  mem_high=60% mem_max=70%
+  mem_high="" mem_max=70%
   if pin=$(slice_pin slice_tasks_max); then slice_tasks=$pin; fi
   if pin=$(slice_pin slice_memory_high); then mem_high=$pin; fi
   if pin=$(slice_pin slice_memory_max); then mem_max=$pin; fi
@@ -869,18 +871,18 @@ else
 # slice_memory_high, slice_memory_max, slice_cpu_quota.
 [Slice]
 TasksMax=$slice_tasks
-MemoryHigh=$mem_high
 MemoryMax=$mem_max
 CPUWeight=40
 EOF
+  if [ -n "$mem_high" ]; then printf 'MemoryHigh=%s\n' "$mem_high" >>"$LIMITS"; fi
   if pin=$(slice_pin slice_cpu_quota); then printf 'CPUQuota=%s\n' "$pin" >>"$LIMITS"; fi
   systemctl --user daemon-reload 2>/dev/null ||
     note "run \`systemctl --user daemon-reload\` to pick up $LIMITS"
   echo "slice: $LIMITS caps agentkit at $slice_tasks tasks and $mem_max of memory; CPU yields to other work"
   fi
   # Sessions keep the larger share of a busy host.  These are separate child slices so a
-  # leaking detached run cannot consume the session slice's weight.  Memory says the same: up
-  # to half the slice's 60% is protected for the seats, so under pressure inside the slice the
+  # leaking detached run cannot consume the session slice's weight.  Memory says the same: 30%
+  # of the machine is protected for the seats, so under pressure inside the slice the
   # runs give memory back first.  A share, like the ceiling, so it follows this machine.  Our
   # own file is rewritten when it differs; one whose first line is not ours is left alone.
   for child in agentkit-seats.slice agentkit-runs.slice; do
@@ -903,9 +905,45 @@ IOWeight=$weight$protect"
       WEIGHTS_CHANGED=1
     fi
   done
+  # Each seat and each tmux pane holds a run's cap, so a runaway dies alone, long before the
+  # slice fills: agentkit-seat-*.scope is a seat's harness with all it starts (and a server
+  # started from a seat), agentkit-seat-*.service a server the tick started, tmux-spawn-*.scope
+  # any other pane, a watcher's among them.  Swap is a quarter of the cap: idle harnesses park
+  # a few hundred MB there, and a runaway hiding in swap is what froze the host.
+  # OOMPolicy=continue ends only the process that grew, never its seat or the server; the
+  # reload hands it to units already running, whose memory caps follow at their next start.
+  cap=$(cd -- "$REPO" && env -u AGENTKIT_TMUX_SOCKET XDG_CONFIG_HOME="$HOME/.config" python3 -c \
+    'from agentkit import run; print(run.memory_cap_mb())' 2>/dev/null) || cap=""
+  case "$cap" in
+    ''|*[!0-9]*) note "jobs: no memory cap could be derived, so seats and panes start uncapped" ;;
+    *)
+      for unit in agentkit-seat-.scope agentkit-seat-.service tmux-spawn-.scope; do
+        section=Scope
+        [ "${unit##*.}" = service ] && section=Service
+        dropin="$HOME/.config/systemd/user/$unit.d/agentkit-limits.conf"
+        want="# Written by agentkit's install.sh: one job's memory, so a runaway ends alone.
+[$section]
+MemoryMax=${cap}M
+MemorySwapMax=$((cap / 4))M
+OOMPolicy=continue"
+        if [ -e "$dropin" ]; then
+          case "$(head -n 1 -- "$dropin" 2>/dev/null || true)" in
+            "# Written by agentkit's install.sh"*) ;;
+            *) continue ;;
+          esac
+        fi
+        if [ "$(cat -- "$dropin" 2>/dev/null)" != "$want" ]; then
+          mkdir -p -- "${dropin%/*}"
+          printf '%s\n' "$want" >"$dropin"
+          WEIGHTS_CHANGED=1
+        fi
+      done
+      echo "jobs: each seat and tmux pane is capped at ${cap}M of memory and $((cap / 4))M of swap"
+      ;;
+  esac
   if [ "$WEIGHTS_CHANGED" = 1 ]; then
     systemctl --user daemon-reload 2>/dev/null ||
-      note "run \`systemctl --user daemon-reload\` to pick up the session and run weights"
+      note "run \`systemctl --user daemon-reload\` to pick up the session, run and job limits"
   fi
 fi
 

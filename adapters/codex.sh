@@ -170,9 +170,16 @@ interactive)
   if [ -n "$ACCOUNT" ]; then
     printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$CODEX_HOME"
   fi
-  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"' %s\n" \
+  # The seat's first message, when its launch carries one, goes in as codex's `[PROMPT]`,
+  # which `codex resume` takes too: sent once the conversation has loaded, never typed into a
+  # TUI still loading it.  codex-seat.py keeps the options it adds ahead of it.
+  # After `--`, so a message starting with `-` is no option; in single quotes, not %q:
+  # shlex.split, which `ak orch` parses this line with, reads no $'...'.
+  first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
+    { sq="'"; first=" -- '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
+  printf "python3 %q --harness codex -- python3 %q %s-- codex %s--yolo %s-c 'model_reasoning_effort=\"%s\"' %s%s\n" \
       "$REPO/tools/idle-compact.py" "$REPO/tools/codex-seat.py" "$rules" \
-      "$resume" "$mflag" "$2" "$OWN_RULES_OFF" ;;
+      "$resume" "$mflag" "$2" "$OWN_RULES_OFF" "$first" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   [ -r "$AUTH" ] || err "no $AUTH; run 'codex login' once"

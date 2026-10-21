@@ -8,6 +8,10 @@ version = 1
 model = "claude-haiku-4-5"
 effort = "none"
 
+[launch]
+# `interactive` hands $AGENTKIT_FIRST_PROMPT to the TUI as its first prompt, fresh or resumed
+first_prompt = true
+
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
 logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]

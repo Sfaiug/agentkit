@@ -193,6 +193,18 @@ Path.write_text = paused_write
         self.assertEqual(codex.session_title(record), '')
         self.stop(proc, home)
 
+    def test_first_prompt_stays_after_every_option_the_wrapper_adds(self):
+        # a message that reads like an option is still the TUI's first prompt, never the server's
+        with patch.dict(os.environ, {'AGENTKIT_FIRST_PROMPT': '-c --yolo'}):
+            proc, home, _ = self.start()
+        server = json.loads((home / 'fake-server.json').read_text())['argv']
+        tui = json.loads((home / 'fake-tui.json').read_text())['argv']
+        self.assertEqual(tui[tui.index('--'):], ['--', '-c --yolo'])
+        self.assertIn('sqlite_home=' + json.dumps(str(home)), tui[:tui.index('--')])
+        self.assertTrue(any(a.startswith('hooks.state=') for a in tui[:tui.index('--')]))
+        self.assertNotIn('-c --yolo', server)
+        self.stop(proc, home)
+
     def test_stop_and_resume_keep_identity_and_owned_conversation(self):
         proc, home, receipt = self.start()
         before = json.loads((home / 'fake-server.json').read_text())['pid']

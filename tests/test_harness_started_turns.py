@@ -68,7 +68,7 @@ class HarnessStartedTurns(answering.AnswerClosesQuestion):
                 self.prompt()
                 self.hook("Stop", script="orchestrator-stop.sh",
                           last_assistant_message="Acme's build runs in the background.",
-                          **{field: [{"type": "shell", "status": "running"}]})
+                          **{field: [{"type": "subagent", "status": "running"}]})
                 fact = json.loads(config.hook_facts_path(SEAT).read_text())
                 self.assertEqual((fact["event"], fact["kind"]), ("Stop", "background"), fact)
 

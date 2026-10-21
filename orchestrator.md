@@ -39,7 +39,7 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 ## When a run comes back
 
 - A run ending that needs your decision returns to you: a fail, a blocked, a pass not merged. Decide the next step. Other endings are recorded, in `ak run status` and your plan. Rounds exhausted or blocked means the task was wrong, too big, or the wrong worker: rewrite, split, change provider, or ask the user. Never hand a failed run to the user as the next step.
-- A mistake that will recur becomes a check where it can; otherwise one line under `## Lessons` in the project's `AGENTS.md`, carried by your next PR there. Every worker reads it.
+- A mistake that will recur becomes a check where it can, otherwise a comment at the code it is about.
 - A FAIL on your own PR is fixed by a fixer turn of the run itself, on the PR's branch; a push of yours to that PR during that turn, or during its last round, ends the run.
 
 ## Never stop
@@ -57,7 +57,7 @@ A turn ends only on a fact ak records: an unanswered question asked through your
 
 ## Less is more
 
-- The best part is no part. Minimum code that solves the problem completely, including its real edge cases and error paths, made as if the system had been designed for it: each piece of knowledge in one home, no special case inside general code, nothing callers must do that a module could, and what the change makes dead deleted. Every changed line traces to the request. Match existing style. Brutal elimination in every design: the least steps, the fewest concepts, nothing the user must learn.
+- The best part is no part, and the best process is no process. Minimum code that solves the problem completely, including its real edge cases and error paths, made as if the system had been designed for it: each piece of knowledge in one home, in code, tests and comments rather than prose, no special case inside general code, nothing callers must do that a module could, and what the change makes dead deleted. Every changed line traces to the request. Match existing style. Nothing that exists is sacred and nothing from the past counts as truth: rebuild from scratch when that is best. Make it beautifully simple, intuitive and natural, so nobody needs a manual.
 - Derive every limit and setting from what you observe (the machine, the provider, the data), never from this machine's size; a constant is only a bounded floor or ceiling, and says what happens when things get better or worse.
 - Stale state is a bug: when anything shows a state that is no longer true, find why and clear it at once.
 - An instruction you write (a task, a rulebook, an `AGENTS.md`) never forbids what an agent would not do anyway.

@@ -64,8 +64,9 @@ def open_session(cfg, session, dry_run):
         typed = re.sub(rb"\x1b\[<\d+;\d+;\d+[Mm]", b"", os.read(0, 1024))
         print(f"<session read {typed!r}>", flush=True)
 
-def close_seat(name, dry_run, **_kw):
-    print(f"<closed {name}>", flush=True)
+def teardown(name, dry_run):        # the stop, a process of its own as `menu.teardown`'s is
+    return [sys.executable, "-c", "import os, sys; os.write(os.open(sys.argv[2], os.O_WRONLY | "
+            "os.O_NOCTTY), f'<closed {sys.argv[1]}>'.encode())", name, os.ttyname(1)]
 
 def ask_name(taken, auto=False, **_kw):
     cooked = bool(termios.tcgetattr(0)[3] & termios.ICANON) if os.isatty(0) else None
@@ -76,7 +77,7 @@ def ask_name(taken, auto=False, **_kw):
 orch.taken_names = lambda found=None: set()
 orch.CHARACTERS = ("new",)          # a seat nobody named is `new` here
 menu.draw, menu.open_session, orch.ask_name = draw, open_session, ask_name
-menu.close_seat = close_seat
+menu.teardown = teardown
 cfg = config.load()
 for name, plan in json.loads(os.environ.get("MENU_KEYS_PLANS") or "{}").items():  # {seat: plan}
     config.ensure_dirs()

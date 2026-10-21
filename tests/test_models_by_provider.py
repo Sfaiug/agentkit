@@ -52,7 +52,11 @@ class ModelsByProvider(unittest.TestCase):
         for drawn, positions in ((lines, [row.start for row in rows]),
                                  (body, [line for line, (hit, _) in places.items()
                                          if hit[0] == "model"])):
-            self.assertEqual([terminal.plain(drawn[line]).split()[0] for line in positions], ORDER)
+            # each by its full name (config.model_name), cut where the screen is narrow
+            shown = [terminal.plain(drawn[line]).split()[0].rstrip("…") for line in positions]
+            self.assertEqual(len(shown), len(ORDER))
+            for text, name in zip(shown, ORDER):
+                self.assertTrue(config.model_name(config_, name).startswith(text), (text, name))
 
 
 if __name__ == "__main__":

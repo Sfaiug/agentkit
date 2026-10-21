@@ -23,6 +23,7 @@ in a popup over whatever is running.
 
 import atexit
 import difflib
+import fcntl
 import fnmatch
 import json
 import math
@@ -52,6 +53,7 @@ from .harness import LAUNCHER, load as harness_plugin
 # tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
 # one call's words may hold, with room left for that header
 TMUX_MESSAGE = 15 * 1024
+TMUX_CEILING = 15          # seconds: tmux answers in milliseconds, so one silent this long never will
 MARK = "@ak_orch"          # the tmux session option that says agentkit opened this seat
 PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of the active window
 INPUT_TTY_OPTION = "@ak_input_tty"   # the current harness wrapper's inner tty, reset on respawn
@@ -88,16 +90,20 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 # the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
 # pane's own tmux lock, so two popups over one pane never count, keep or put back over each
 # other, and every lock is let go by a command of its own, which a command failing before it
-# cannot skip.  It ends in `true` whatever failed (a pane stopped under it), because tmux shows
-# a job that ends otherwise over the pane.
-FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
+# cannot skip.  The pane goes dim beside the popup coming up, not before it, and the popup
+# down waits for it to have; every call is the real tmux (`guard.real`), since the shim a
+# seat's PATH starts with costs each a Python start, and the key waited on all of them.  It
+# ends in `true` whatever failed (a pane stopped under it), because tmux shows a job that ends
+# otherwise over the pane.
+FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
+         'o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
-         'l() { tmux wait-for "$1" "ak-float$p"; }; l -L; n=$(o @ak_floats); '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); '
          'for s in window-style window-active-style; do '
          'if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; '
          'tmux set-option -p -t "$p" $s %(dim)s; done; '
-         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; '
-         'tmux %(popup)s -c "$c" -t "$p" %(command)s; l -L; n=$(o @ak_floats); '
+         'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; '
+         'tmux %(popup)s -c "$c" -t "$p" %(command)s; wait $d; l -L; n=$(o @ak_floats); '
          'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
          'else for s in window-style window-active-style; do '
          'if h @ak_was_$s; then tmux set-option -p -t "$p" $s "$(o @ak_was_$s)" \\; '
@@ -106,6 +112,7 @@ FLOAT = ('o() { tmux show-options -pqv -t "$p" "$1"; }; '
 SMALL_CLIENT = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 UPDATE_JOB = "update"      # the tmux session an update runs in, on the jobs server
 UPDATE_RESULT = "update-result"   # where it leaves the one line the menu shows when it is done
+NOTICES = "notices"        # the lines other jobs leave the menu (`leave_notice`), a stop's refusal
 AGENT_LOOK_EVERY = 10      # how long one reading of the process table answers for every pane
 # The programs that run a script they are handed, which may be a harness (`node .../bin/codex`),
 # each by its own option grammar: what starts an option, the short letters and long options
@@ -126,6 +133,13 @@ _LITERAL = {}              # ... and the `systemd-run` a seat's scope runs, and 
 _PROCESSES = {}            # the last reading of the process table, when, and whether it is held
 
 
+def in_order(cfg):
+    """The models a seat may run on, as a pick tries them: the default orchestrator, then every
+    other offered model in list order."""
+    default = cfg["defaults"]["orchestrator"]
+    return [default, *(name for name in config.offered(cfg) if name != default)]
+
+
 def choose(cfg, providers):
     """(model, reason).  The default orchestrator, while it has something left to spend.
 
@@ -138,7 +152,7 @@ def choose(cfg, providers):
     """
     default = cfg["defaults"]["orchestrator"]
     notes, credits = [], None
-    for name in [default, *(name for name in config.offered(cfg) if name != default)]:
+    for name in in_order(cfg):
         spent, why = usage.model_spent(cfg, name, providers)
         if not spent and not usage.on_credits(cfg, name, providers):
             return name, "; ".join([why] + notes)
@@ -149,6 +163,18 @@ def choose(cfg, providers):
         return credits
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
+
+
+def going_on(cfg, current, providers):
+    """The model a seat out of usage on `current` goes on with now, or None: the first in
+    `in_order`, other than `current`, whose harness is here and that has a window left -- none
+    the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
+    click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
+    return next((name for name in in_order(cfg)
+                 if name != current and config.harness_present(config.model(cfg, name)["harness"])
+                 and not usage.model_spent(cfg, name, providers)[0]
+                 and not usage.spent_meter(cfg, name, providers)
+                 and not usage.on_credits(cfg, name, providers)), None)
 
 
 @contextmanager
@@ -1063,8 +1089,10 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     cannot be made, the command is run again plainly: a seat outside the ceiling is worth
     more than no seat at all, and the same is true of a job.
 
-    Targets are `={name}:`, as a bare name also matches any longer one; every call on a run's
-    path passes a timeout; and a test's fake tmux answers only what real tmux 3.5a does.
+    Targets are `={name}:`, as a bare name also matches any longer one; and a test's fake tmux
+    answers only what real tmux 3.5a does.  A call that is not answered within its `timeout`
+    (`TMUX_CEILING` unless the caller says) ends as a refusal, 124: a wedged pane holds every
+    client of its server, and the tick that asked goes on without that answer.
     """
     fix_term()
     socket = socket_name() if socket is None else socket
@@ -1076,11 +1104,15 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         env = {**env, "PATH": os.pathsep.join([str(guard.install_shim()), env.get("PATH", "")])}
     if unit:
         argv, env = in_slice(argv, unit, socket, env)
+    timeout = TMUX_CEILING if timeout is None else timeout
     try:
         proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
                               env=env, timeout=timeout)
     except OSError as exc:
         return 127, str(exc)
+    except subprocess.TimeoutExpired:
+        # the command's name, never its words: send-keys carries what the owner typed
+        return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
         return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim)
     return proc.returncode, (proc.stdout + proc.stderr).strip()
@@ -1894,8 +1926,11 @@ def tmux_text(text):
 
 
 def popup_command():
-    """What `Ctrl-b m` runs: this checkout's `ak`, on the interpreter it is installed against."""
-    return shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "attach", "--overlay"])
+    """What `Ctrl-b m` runs: this checkout's `ak attach --overlay`, on the interpreter it is
+    installed against, from the warm server (`warm`), started bare: the client imports only
+    what the interpreter is built with."""
+    return shlex.join([sys.executable, "-S", "-I", str(config.REPO / "agentkit" / "warm.py"),
+                       "attach", "--overlay"])
 
 
 def tmux_version():
@@ -1925,6 +1960,9 @@ def tmux_conf():
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs.
+    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
+    wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
+    one attached before this file was loaded gets the rows apart until it attaches again.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -1949,8 +1987,8 @@ def tmux_conf():
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
-                FLOAT % {"dim": shlex.quote(DIM), "popup": popup,
-                         "command": shlex.quote(popup_command())}))
+                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
+                         "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border}",
                           f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
@@ -1960,7 +1998,7 @@ def tmux_conf():
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             "set -g allow-passthrough on\n"
-            'set -as terminal-features ",*:RGB"\n'
+            'set -as terminal-features ",*:RGB:hyperlinks"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
     try:
@@ -3038,10 +3076,25 @@ def job_notices():
     path = config.STATE / UPDATE_RESULT
     try:
         text = path.read_text(encoding="utf-8")
+        path.unlink(missing_ok=True)
     except (OSError, ValueError):
-        return []
-    path.unlink(missing_ok=True)
+        text = ""
+    try:
+        with open(config.STATE / NOTICES, "r+", encoding="utf-8") as notices:
+            fcntl.flock(notices, fcntl.LOCK_EX)    # a line being left is taken whole, or after
+            text += notices.read()
+            notices.truncate(0)
+    except (OSError, ValueError):
+        pass
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def leave_notice(line):
+    """Leave the next menu `line` to show once (`job_notices`)."""
+    config.ensure_dirs()
+    with open(config.STATE / NOTICES, "a", encoding="utf-8") as notices:
+        fcntl.flock(notices, fcntl.LOCK_EX)        # held until the line is written, at close
+        notices.write(line + "\n")
 
 
 def rename(old, new, log=print, *, auto=False):
@@ -3185,7 +3238,8 @@ def maintenance(log=print):
 
 
 def state_word(session, cfg=None):
-    """What the listing calls a seat: working, needs you, done or idle, and nothing else.
+    """What the listing calls a seat: working, needs you, done, idle or out of usage, and
+    nothing else.
 
     One function decides it -- `watch.session_state` -- so the list, the menu, the overlay,
     the status bar and the window title can never say different words about the same seat.
@@ -3199,7 +3253,7 @@ def state_word(session, cfg=None):
 def explain(session, cfg):
     """The `--why` block for one seat: its word, why it has it, on what, and since when.
 
-    The word is one of the four every screen says; the evidence lines under it are the facts
+    The word is one of the five every screen says; the evidence lines under it are the facts
     behind it.  A seat whose process is gone was never classified, and saying so is the honest
     answer rather than inventing a rule that matched.
     """
@@ -3932,7 +3986,7 @@ def handover_text(name, old_model, transcript):
             f"Run `ak run status` to see its runs. {old}")
 
 
-def _switch_plan(cfg, name, model, providers):
+def _switch_plan(cfg, name, model, providers, credits=True):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use.
 
     One computation for the refusal and the launch, so the menu's key path asks each
@@ -3940,7 +3994,8 @@ def _switch_plan(cfg, name, model, providers):
     picked account, the meter off the cache. The same provider keeps its login; another
     one takes the first of its accounts whose seat login passes, in the seat's order,
     else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing.
+    turn goes ahead on an `auth` verb that said nothing. Without `credits`, a login that
+    would run on credits refuses the move.
     """
     try:
         record = config.load_session(cfg, name, required=False)
@@ -3982,6 +4037,10 @@ def _switch_plan(cfg, name, model, providers):
     note = spent_note(cfg, model, providers)
     if note:
         return f"{model} is {note}", None
+    reading = providers.get(new_provider) or {}
+    reading = (reading.get("accounts") or {}).get(account) or reading
+    if not credits and usage.on_credits(cfg, model, {new_provider: reading}):
+        return f"{model} has only credits left", None
     return "", account
 
 
@@ -3997,7 +4056,7 @@ LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch
                "codex_history", "opencode_launch", "session_title", "title_sync")
 
 
-def switch_orchestrator(cfg, name, model, providers=None):
+def switch_orchestrator(cfg, name, model, providers=None, credits=True):
     """Move the open seat to another orchestrator at once, under the same name.
 
     The old harness process ends and the new one starts in the seat's directory: a live or
@@ -4005,7 +4064,8 @@ def switch_orchestrator(cfg, name, model, providers=None):
     are never stopped or re-parented -- the name is the same, so endings report to the new
     seat -- and its plan file stays. Where the new model runs in the same harness and that
     harness can resume the seat's conversation, the conversation goes on there, as a
-    reopened seat's does, and a turn it was in is told to go on. Otherwise the record
+    reopened seat's does, and a turn it was in, or one its usage cut off, is told to go
+    on. Otherwise the record
     stays on the conversation the new launch owns, and the old harness's per-seat evidence
     goes with it. This is a new conversation under a saved name, so the watch state is reset
     the way a created seat's is. The handover -- from which model, the plan file, `ak run
@@ -4013,12 +4073,13 @@ def switch_orchestrator(cfg, name, model, providers=None):
     new TUI is listening through the confirmed send, the way a reopened seat's line goes.
     The record names the new model before the harness is up, so no redress draws the old
     one after it. A draft or a question on the screen, which a respawn would lose, refuses
-    the move; a refusal, and a restart that fails, leave the seat as they found it and say
-    so in one line. What to say under the rows, or "".
+    the move, and so does a login on credits without `credits`; a refusal, and a restart that
+    fails, leave the seat as they found it and say so in one line. What to say under the rows,
+    or "".
     """
     from . import watch   # here, not at the top: watch imports this module
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers)
+    note, account = _switch_plan(cfg, name, model, providers, credits)
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name
@@ -4065,6 +4126,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
             config.update_session(name, **chosen)
     except OSError as exc:
         return f"session: {_one_line(exc)}"
+    waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
     try:
         launch(name, model, cwd, cmd, conversation, session)
     except (config.Error, OSError) as exc:
@@ -4080,7 +4142,7 @@ def switch_orchestrator(cfg, name, model, providers=None):
             pass    # the note below already says the restart failed
         return _one_line(exc)
     if kept:
-        if watch._turn_in_flight(new_harness, live)[0]:
+        if watch._turn_in_flight(new_harness, live)[0] or (waited or {}).get("continue"):
             watch.seat_write(name, midturn={"boot": watch.boot_id(), "at": time.time(),
                                             "name": name, "line": watch.MIDTURN_LINE})
         return ""
@@ -4100,7 +4162,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
     names = list(notes)
     marks = "●○■□" if terminal.utf8() else "*.x."
     rest = sum(len(head) + 2 for head in ROLE_HEADS)
-    wide = min(max(terminal.cells(name) for name in names),
+    wide = min(max(terminal.cells(config.model_name(cfg, name)) for name in names),
                max(1, min(room // 3, room - 2 - rest)))
     lines = [terminal.styled(" " * (2 + wide) + "".join("  " + head for head in ROLE_HEADS),
                              "dim")]
@@ -4109,7 +4171,7 @@ def picker_lines(cfg, notes, selected, at, column, room, moves=None):
         entry, note = config.model(cfg, name), notes[name]
         if at_row == 0 or entry["provider"] != cfg["models"][names[at_row - 1]]["provider"]:
             lines.append(menu.model_heading(cfg, entry["provider"]))
-        line = "  " + terminal.pad(menu.model_label(name, wide), wide)
+        line = "  " + terminal.pad(menu.model_label(cfg, name, wide), wide)
         texts, builds = role_texts(selected, name, marks)
         own = []
         for number, (text, head) in enumerate(zip(texts, ROLE_HEADS)):
