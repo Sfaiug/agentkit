@@ -108,7 +108,7 @@ class CloseBetweenTypedLines(Sandbox):
             real_drop_aliases(name)
             config.save_session(self.cfg, name, "opus", ["astra"],
                                 {"cwd": str(self.root), "created": 200})
-            orch.launch(name, "opus", self.root, ["fake-harness"], "new-conversation")
+            start()         # back in tmux by hand: `launch` refuses it while the stop goes
             first = threading.Thread(target=lambda:
                 results.append(watch.type_into(dict(self.seat), "first", print)))
             threads.append(first)
