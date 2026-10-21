@@ -88,8 +88,11 @@ writes its session into one, and Muse and Antigravity open a new conversation ea
 harness launched after it is up, so a restart tmux refuses leaves the running one on its own. A seat moved on `c` to another
 model of its harness goes on with the conversation that harness can resume, without a handover, and a turn it was in
 is told to go on; one moved to another harness, or with no conversation to resume, opens a new one with the handover.
-Either way its bar and row name the new model from the moment the new harness is up, and a draft or a question on its
-screen refuses the move in one line. The other way round, a model changed inside a Claude Code or Codex seat
+Either way its bar and row name the new model from the moment the new harness is up. Nothing on its screen refuses the
+move: text you typed and had not sent waits in the new composer once it is up, where both harnesses hand their composer
+to ak's editor (Claude Code, Codex, Antigravity, Muse); elsewhere it goes with the old harness. Where that editor
+does not answer, or still keeps text it set aside for one of ak's lines and finds more typed since, the move is refused
+in one line and the text stays where it is. The other way round, a model changed inside a Claude Code or Codex seat
 (`/model`) becomes its orchestrator at its next answer, the configured model running it there at the effort that answer
 recorded where one does (`watch.follow_model`); a model no entry runs, or an answer from before the harness in the seat
 was launched (the old model's last, after a move), leaves it as it was. A seat whose harness exited

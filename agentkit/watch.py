@@ -3815,7 +3815,8 @@ def _editor_read(session, where, cfg=None, *, after_line=False):
     """That seat's screen as (harness, pane, live state) where it may be asked an editor step
     now, or None: nothing typed into its pane (`where`, `seat_editor`) for DRAFT_STILL -- but
     for the step that follows its line's own Enter at once (`after_line`), as the terminal takes
-    ak's keys as it does the owner's -- and none unread, read with no question or picker up
+    ak's keys as it does the owner's, or text set aside for no line, a switch's (`carry_draft`)
+    -- and none unread, read with no question or picker up
     (`[[rule]] picker`) -- the step's keys open the editor from a composer alone, and a picker
     drawn on over what it puts there takes its Enter."""
     name = session["name"]
@@ -3837,17 +3838,21 @@ def drafts_back(cfg):
     """Each tick: text ak's editor set aside from a pane of a seat's (`aside_editor.ASIDE`) asked
     back, every read and key of the step on that pane, whichever the owner selects: the editor
     hands it back only into an empty composer, however the pass that put ak's line in its place
-    ended.  A line still in the composer is the mark's pass to send first."""
+    ended.  A line still in the composer is the mark's pass to send first, and a line the seat
+    is owed (a `midturn` mark) goes before any text back; text a switch carried (`carry_draft`)
+    goes back at once after it."""
     seats = [session for session in orch.sessions() if not session.get("legacy")
              and not any(session.get(key) for key in orch.CLOSED)]
     for session in seats:
         if not _editor_kept(session):   # most ticks keep nothing: no seat's send lock waited on
             continue
         with seat_held(session["name"]):
-            for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
+            if seat_read(session["name"]).get("midturn"):
+                continue    # its line goes first: text back in the composer would go with it
+            for pane, (state, put) in sorted((_editor_kept(session) or {}).items()):
                 bound = dict(session, pane=pane)
                 where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
-                read = where and _editor_read(bound, where, cfg)
+                read = where and _editor_read(bound, where, cfg, after_line=not put)
                 if read and composer_draft(read[0], read[1]) == "":
                     _edit(bound, where, "back")
 
@@ -3903,6 +3908,22 @@ def _line_left(session, text, log, cfg, stale):
             kept_asked_first(dict(session, name=held))
             _send_enter(session, log)
         return word == "sent" and not pane_unread(session)
+
+
+def carry_draft(session, harness, pane, to, cfg=None):
+    """Whether the owner's unsent text in that seat's composer is kept from a switch ending its
+    harness, on any turn: lifted whole by ak's editor (its `line` step with no line) into its
+    pane's kept buffer, which the respawn keeps with the pane and `drafts_back` hands the
+    harness launched there next, or left there, set aside already for a line of ak's.  Not
+    where the editor gives no answer, or finds text typed since that set aside, which no step
+    merges.  Only through ak's editor, which reads a composer whole, and only to a harness
+    (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
+    the text goes with the old harness.  Under the seat's lock its caller holds over the
+    respawn too, so no tick hands the text back to the harness going."""
+    # keys go out unless the composer reads empty, and never to a question: they could answer it
+    where = (harness and screen(to).get("editor") and composer_draft(harness, pane) != ""
+             and not asking(session["name"], harness, pane) and seat_editor(session, cfg))
+    return not where or _edit(session, where, "line") in ("line", "unsent")
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
