@@ -2481,7 +2481,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, answered_at=None, said=""):
+def hook_look(launched, answered_at=None, said="", prompt=False):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it hears -- a turn
@@ -2498,7 +2498,10 @@ def hook_look(launched, answered_at=None, said=""):
     through the same check before answering a question; waiting for its notice lock happens
     here, off the harness's path.  A prompt `said` that is a line ak typed into the seat is the
     seat's own news, never the owner's answer (`notify.ak_prompt`): the harness's hook reports
-    it as it reports the owner's words.
+    it as it reports the owner's words.  A `prompt`, unlike an answer through the harness's
+    question tool, is the owner's only where the seat's conversation says so
+    (`notify.answer_written`), which every other look also asks: the owner's message reaches it
+    after their prompt hook ran.
     """
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
@@ -2510,7 +2513,10 @@ def hook_look(launched, answered_at=None, said=""):
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None
     if answered_at is not None and not notify.ak_prompt(name, said, notify.last(name)):
-        notify.answered(name, answered_at)
+        if not prompt or notify.answer_written(name, answered_at, notify.PROMPT_WRITTEN) is None:
+            notify.answered(name, answered_at)
+    else:
+        notify.answer_written(name)
     return announce_state(session, cfg=config.load(), look=True, number=number)
 
 

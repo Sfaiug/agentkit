@@ -61,7 +61,7 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
 
     def test_a_waiting_launch_moves_to_the_installed_code_as_the_same_launch(self):
         self.assertTrue(self.pickup())
-        self.assertEqual(self.execs, [(sys.executable, [sys.executable, *sys.argv])])
+        self.assertEqual(self.execs, [(sys.executable, [sys.executable, str(config.REPO / "bin" / "ak"), *sys.argv[1:]])])
         self.assertIn(f"picked up agentkit {OLD}..{NEW} while waiting for a slot",
                       (self.run_dir / "log.txt").read_text())
 

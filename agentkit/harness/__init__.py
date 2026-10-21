@@ -496,6 +496,11 @@ class Harness:
         hook = self._hook("said")
         return hook(record, cwd, conversation) if hook else None
 
+    @property
+    def reads_messages(self):
+        """Whether it can say which messages of a conversation are the owner's (`user_messages`)."""
+        return self._hook("user_messages") is not None
+
     def user_messages(self, record, cwd, conversation, *, seat=None):
         """Owner messages, oldest first, as {at: Unix seconds, text: original words}.
 

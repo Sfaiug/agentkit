@@ -56,7 +56,7 @@ class FollowupRule(unittest.TestCase):
                           for name, provider in (("executor", "acme"), ("reviewer", "beta"))},
                "providers": {"acme": {}, "beta": {}}}
         self.lp = run.Loop(cfg, directory, state, {}, lambda _: None, self.workspace,
-                           "# Fixture", ["true"], "", [])
+                           "# Fixture", ["true"], "")
         self.lp.rnd = 1
         self.lp.save()
 

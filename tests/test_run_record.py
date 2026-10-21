@@ -36,7 +36,7 @@ class Fixture(Sandbox):
             "launched_session": "lagoon", "base": "main", "rounds": 3, "executor": "opus",
             "reviewer": "astra", "round_summaries": [], "stalls": [], "silence_minutes": 17})
         self.lp = run.Loop({}, self.run_dir, record.read_state(self.run_dir), {}, lambda _: None,
-                           self.root, "", [], "", [])
+                           self.root, "", [], "")
         self.stack.enter_context(patch.object(record, "run_dirs", return_value=[self.run_dir]))
         self.stack.enter_context(patch.object(record, "process_active", return_value=True))
 
@@ -137,8 +137,7 @@ class LiveRun(Fixture):
         handed = record.read_state(self.run_dir)
         with patch.object(host, "frozen_cgroup", return_value="/agentkit.slice"):
             watch.recover_runs({}, log=lambda _: None, now=5000)
-        self.lp = run.Loop({}, self.run_dir, handed, {}, lambda _: None, self.root, "", [], "",
-                           [])
+        self.lp = run.Loop({}, self.run_dir, handed, {}, lambda _: None, self.root, "", [], "")
         self.assertEqual(self.loop_saves("execute")["frozen_since"], 5000)
 
     def test_a_stop_between_two_saves_still_ends_the_loop(self):

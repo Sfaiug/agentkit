@@ -172,7 +172,7 @@ class LeaseScan(LiveRuns):
                  "reviewer": "astra", "round_summaries": []}
         record.save_state(directory, state)
         lp = run.Loop(config.load(), directory, state, {}, lambda _: None, younger, "# Fixture",
-                      ["true"], "context", [])
+                      ["true"], "context")
         lp.artifacts.add("checks.log")
         lp.write()
         self.assertEqual(record.read_state(directory)["artifacts"], ["checks.log"])

@@ -63,7 +63,7 @@ class TransientHandover(unittest.TestCase):
 
         return calls, submitting(call)
 
-    def loop(self, executor="alpha", reviewer="bravo", spares=()):
+    def loop(self, executor="alpha", reviewer="bravo", reviewers=None):
         run_dir = self.root / "run"
         run_dir.mkdir(exist_ok=True)
         (run_dir / "log.txt").touch(exist_ok=True)
@@ -75,12 +75,14 @@ class TransientHandover(unittest.TestCase):
                  "rounds": 2, "round_summaries": [], "findings": "",
                  "workers": ["alpha", "bravo", "charlie"]}
         lp = run.Loop(self.cfg, run_dir, state, {}, self.logs.append, workspace,
-                      "Review the work.", [], "Fixture", list(spares))
+                      "Review the work.", [], "Fixture")
+        if reviewers:
+            lp.state["reviewers"] = reviewers
         lp.rnd = 1
         return lp
 
     def test_executor_failing_twice_hands_the_round_to_the_next_worker(self):
-        lp = self.loop(executor="alpha", reviewer="bravo", spares=["charlie"])
+        lp = self.loop(executor="alpha", reviewer="bravo", reviewers=["bravo", "charlie"])
         calls, fake = self.worker([
             (1, "API Error: 500 Internal server error\n", "sess-a"),
             (1, "API Error: 503 Service unavailable\n", "sess-a"),
@@ -114,7 +116,7 @@ class TransientHandover(unittest.TestCase):
         self.assertTrue(any("sess-a" in line for line in self.logs))
 
     def test_reviewer_failing_twice_falls_back_to_a_spare(self):
-        lp = self.loop(executor="charlie", reviewer="alpha", spares=["bravo"])
+        lp = self.loop(executor="charlie", reviewer="alpha", reviewers=["alpha", "bravo"])
         calls, fake = self.worker([
             (1, "API Error: 500 Internal server error\n", "sess-r"),
             (1, "Overloaded: the provider is busy\n", "sess-r"),
@@ -135,7 +137,7 @@ class TransientHandover(unittest.TestCase):
         self.assertIn("reviewer-bravo", outs)
 
     def test_no_other_worker_retries_the_same_session_with_the_growing_waits(self):
-        lp = self.loop(executor="alpha", reviewer="bravo", spares=[])
+        lp = self.loop(executor="alpha", reviewer="bravo", reviewers=["bravo"])
         calls, fake = self.worker([
             (1, "API Error: 500 Internal server error\n", "sess-a"),
             (1, "API Error: 503 Service unavailable\n", "sess-a"),
@@ -167,7 +169,7 @@ class TransientHandover(unittest.TestCase):
     def test_transient_executor_waits_rather_than_handing_to_a_self_review(self):
         # bravo is the only other worker: moving there would leave it reviewing
         # itself, so the flake waits out the backoff on its own session instead
-        lp = self.loop(executor="alpha", reviewer="bravo", spares=[])
+        lp = self.loop(executor="alpha", reviewer="bravo", reviewers=["bravo"])
         lp.state["workers"] = ["alpha", "bravo"]
         calls, fake = self.worker([
             (1, "API Error: 500 Internal server error\n", "sess-a"),
@@ -189,7 +191,7 @@ class TransientHandover(unittest.TestCase):
     def test_transient_reviewer_waits_rather_than_falling_back_to_self_review(self):
         # the executor is the only spare: falling back would review its own work,
         # so the flake waits out the backoff on its own session instead
-        lp = self.loop(executor="charlie", reviewer="alpha", spares=["charlie"])
+        lp = self.loop(executor="charlie", reviewer="alpha", reviewers=["alpha", "charlie"])
         calls, fake = self.worker([
             (1, "API Error: 500 Internal server error\n", "sess-r"),
             (1, "Overloaded: the provider is busy\n", "sess-r"),
@@ -208,7 +210,7 @@ class TransientHandover(unittest.TestCase):
     def test_flake_then_silence_still_falls_back_to_self_review(self):
         # two flakes wait without consuming the only spare: when the reviewer then
         # stays silent twice, the executor's own model still reviews
-        lp = self.loop(executor="charlie", reviewer="alpha", spares=["charlie"])
+        lp = self.loop(executor="charlie", reviewer="alpha", reviewers=["alpha", "charlie"])
         calls, fake = self.worker([
             (1, "API Error: 500 Internal server error\n", "sess-r"),
             (1, "Overloaded: the provider is busy\n", "sess-r"),

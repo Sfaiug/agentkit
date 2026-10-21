@@ -59,6 +59,7 @@ PANE_OPTION = "@ak_harness_pane"  # the pane our launch created, independent of 
 INPUT_TTY_OPTION = "@ak_input_tty"   # the current harness wrapper's inner tty, reset on respawn
 SOCKET_ENV = "AGENTKIT_TMUX_SOCKET"   # the test suite's way to a server of its own
 SOCKET = "agentkit"        # the toolkit's own tmux server, never the user's default one
+CONTROL = "_ak"            # the Go port's hidden control session there: never a seat, never swept
 JOBS = "-jobs"             # appended to it: the server the background jobs run on
 SLICE = "agentkit.slice"   # the user systemd slice every agent process is started inside
 SEATS_SLICE = "agentkit-seats.slice"  # interactive sessions keep the default weight
@@ -1210,7 +1211,7 @@ def dead(socket):
     for line in out.splitlines():
         name, _, flag = line.partition("\t")
         (gone if flag == "1" else alive).add(name)
-    return gone - alive
+    return gone - alive - {CONTROL}
 
 
 def agent_programs():
@@ -1348,7 +1349,7 @@ def agentless(socket, names):
                        socket=socket)
     if rc != 0:
         return set()
-    panes = {name: [] for name in names}
+    panes = {name: [] for name in names if name != CONTROL}
     for line in out.splitlines():
         parts = line.split("\t")
         if len(parts) == 3 and parts[0] in panes and parts[1].isdigit() and parts[2] != "1":
@@ -1484,7 +1485,7 @@ def server_sessions(socket, marked_only, legacy):
         parts = line.split("\t")
         if len(parts) == 4:
             parts.append("")   # no mark: the last line's empty field went with the output's strip
-        if len(parts) != 5 or (marked_only and parts[4] != "1"):
+        if len(parts) != 5 or parts[0] == CONTROL or (marked_only and parts[4] != "1"):
             continue
         try:
             created = int(parts[2])
@@ -1843,7 +1844,7 @@ def taken_names(found=None):
 def held_names():
     """Every session name agentkit's own tmux server holds, a seat's or not."""
     rc, out = tmux_out("list-sessions", "-F", "#{session_name}", socket=socket_name())
-    return set(out.splitlines()) if rc == 0 else set()
+    return set(out.splitlines()) - {CONTROL} if rc == 0 else set()
 
 
 def refuse_held(name):
@@ -1889,10 +1890,12 @@ def session_name(raw):
     Lowercased, with spaces and slashes -- and the `:` and `.` tmux reads as target syntax --
     turned into dashes, so that one answer is both a tmux session name and one component of its
     state file's path.  Cut to 40 characters, which is what a phone shows whole.  Empty is
-    empty: the caller asks again rather than inventing a name.
+    empty, and so is CONTROL, which no seat may take: the caller asks again rather than
+    inventing a name.
     """
     name = re.sub(r"[^a-z0-9_-]+", "-", config.normalize_session(raw).lower())
-    return re.sub(r"-+", "-", name).strip("-")[:NAME_CAP].strip("-")
+    name = re.sub(r"-+", "-", name).strip("-")[:NAME_CAP].strip("-")
+    return "" if name == CONTROL else name
 
 
 def typed_here():
@@ -1968,7 +1971,9 @@ def tmux_conf():
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
     border, because a popup of 80% by 70% of forty by twelve holds a key line and nothing to
     press it on; anywhere larger it is the 80% by 70% it always was.  `display-popup` takes
-    no format for its size, so the choice is `if-shell -F`'s.
+    no format for its size, so the choice is `if-shell -F`'s.  The client's terminal features
+    ride in with it (`terminal.FEATURES_ENV`), read as the key is pressed, so the menu's first
+    frame waits on no tmux call to learn whether it takes true colour.
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
@@ -1986,11 +1991,13 @@ def tmux_conf():
     if tmux_version() >= FLOATS:
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
         small, large = (
-            "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}'; " + tmux_text(
+            "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
+                                        "f='#{client_termfeatures}'; " + tmux_text(
                 FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
                          "popup": popup, "command": shlex.quote(popup_command())}))
-            for popup in (f"{small} {border}",
-                          f"{large} {border} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
+            for popup in (f'{small} {border} -e "{terminal.FEATURES_ENV}=$f"',
+                          f'{large} {border} -e "{terminal.FEATURES_ENV}=$f"'
+                          f" -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
         small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
@@ -2912,7 +2919,7 @@ def sweep_finished(found, log):
     cutoff = time.time() - 86400
     for sid, panes in grouped.items():
         name, mark = panes[0][:2]
-        if mark == "1" or name in found or guard.seat(name):
+        if mark == "1" or name in (CONTROL, *found) or guard.seat(name):
             continue
         if any(not re.fullmatch(r"%[0-9]+", p[2]) or p[3] != "1"
                or not p[4].isdigit() or not 0 < int(p[4]) <= cutoff for p in panes):

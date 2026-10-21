@@ -1,5 +1,8 @@
 """A wrapped terminal makes progress when its two directions fill together.
 
+Owner rule, 8 Oct 2026: "Terminal input and output keep moving when both fill at once, for every
+model and harness, in the shared transport."
+
 Real PTYs and pipes, a fake harness, and an isolated HOME; no model or live seat.
 """
 import errno
