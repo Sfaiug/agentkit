@@ -37,7 +37,7 @@ from .roundloop import (Loop, note,
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
-from .staffing import (best_pair, collect_usage, head_writers, next_executor,
+from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (carried_lines, change_budget, change_on, first_review_refusal, replacement_refusal,
@@ -2488,6 +2488,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         reviewer = opts["--review"]
     elif preset_rev or order:
         reviewer = preset_rev or order[0]
+    elif barred := barred_refusal(cfg, reviewers or config.reviewers(cfg)):
+        raise config.Error(barred)
     else:
         raise QuotaDry("every worker has a gate meter at 100% used")
     spares = [n for n in order if n != reviewer]

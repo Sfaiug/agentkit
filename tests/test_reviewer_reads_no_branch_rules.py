@@ -106,6 +106,37 @@ class ReviewerReadsNoBranchRules(unittest.TestCase):
         self.assertIsNone(staffing.pair_refusal(self.cfg, self.providers, ["acme-reads"],
                                                 reviewers=["acme-reads", "beta-plain"]))
 
+    def test_an_own_pull_request_whose_only_reviewers_read_the_branchs_rules_is_refused(self):
+        receipt = {"workers": ["acme-reads"], "reviewers": ["acme-reads"]}
+        checkout = Path(os.environ["HOME"]) / "checkout"
+        checkout.mkdir()
+        values = {"launch_session": None, "collect_usage": self.providers, "saved_findings": "",
+                  "pr_view": {"state": "OPEN", "author": "owner", "title": "Mend fence",
+                              "baseRefName": "main", "headRefOid": "a" * 40},
+                  "pr_writer": (True, "acme-reads", "high"), "own_pr_budget": (3, None),
+                  "checkout_for": checkout, "git": "a" * 40, "plan_context": "",
+                  "make_worktree": (checkout, "ak/pr-7"), "text_only_pr": False,
+                  "own_pr_first_review": None}
+        with ExitStack() as stack:
+            for name, value in values.items():
+                stack.enter_context(patch.object(run, name, return_value=value))
+            for name in ("fetch_pr", "join_session_project", "history_start", "exclude_junk",
+                         "Loop"):
+                stack.enter_context(patch.object(run, name))
+            stack.enter_context(patch.object(run, "stamp_origin", side_effect=lambda state: state))
+            stack.enter_context(patch.object(run.gc, "before_run"))
+            stack.enter_context(patch.object(run.gitcall, "declared_suite", return_value=None))
+            stack.enter_context(patch.object(config, "repo_env", return_value={}))
+            stack.enter_context(patch.object(run.run_record, "process_owner", return_value={}))
+            stack.enter_context(patch.object(run.run_record, "read_state",
+                                             side_effect=lambda _: dict(receipt)))
+            stack.enter_context(patch.object(run.run_record, "save_state",
+                                             side_effect=lambda _, state: receipt.update(state)))
+            with self.assertRaises(config.Error) as caught:
+                run.review_pr_round(self.cfg, checkout, "https://github.com/acme/widget/pull/7",
+                                    {"--review": None}, lambda _: None)
+        self.assertEqual(str(caught.exception), staffing.barred_refusal(self.cfg, ["acme-reads"]))
+
 
 if __name__ == "__main__":
     unittest.main()

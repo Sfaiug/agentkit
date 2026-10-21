@@ -113,6 +113,17 @@ def barred_reviewer(cfg, name):
     return f"its harness loads the branch's own {', '.join(files)}" if files else None
 
 
+def barred_refusal(cfg, names):
+    """The one sentence a selection is refused with when every reviewer in it is barred
+    (`barred_reviewer`), or None.  A task's launch and an own pull request's review alike."""
+    barred = {name: barred_reviewer(cfg, name) for name in names}
+    if not names or not all(barred.values()):
+        return None
+    return (f"none of the reviewers {', '.join(names)} may review: "
+            + "; ".join(f"{name}: {why}" for name, why in barred.items())
+            + "; mark a reviewer on another harness")
+
+
 def refuse_unready(cfg, providers, name, role="executor"):
     """A model named outright whose harness cannot run here, or that may not take the role, is
     refused, in one sentence.
@@ -211,8 +222,7 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     review_list = listed if review_list is None else review_list
     skipped = {name: usage.unready(cfg, name, providers) for name in [*listed, *review_list]}
     ready = [name for name in listed if not skipped[name]]
-    barred = {name: why for name in review_list if (why := barred_reviewer(cfg, name))}
-    reviews = [name for name in review_list if not skipped[name] and name not in barred]
+    reviews = [name for name in review_list if not skipped[name] and not barred_reviewer(cfg, name)]
     if want_exec:
         ready = [name for name in ready if name == want_exec] if bound_exec else [want_exec]
     if want_review:
@@ -220,11 +230,8 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
                    if bound_review else [want_review])
     if any(reviewer_order(cfg, name, reviews) for name in ready):
         return None
-    wanted = [want_review] if want_review else review_list
-    if wanted and all(name in barred for name in wanted):
-        return (f"none of the reviewers {', '.join(wanted)} may review: "
-                + "; ".join(f"{name}: {barred[name]}" for name in wanted)
-                + "; mark a reviewer on another harness")
+    if barred := barred_refusal(cfg, [want_review] if want_review else review_list):
+        return barred
     why = "; ".join(f"{name}: {reason}" for name, reason in skipped.items() if reason)
     missing = []
     if not ready:
