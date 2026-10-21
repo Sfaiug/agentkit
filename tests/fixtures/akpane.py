@@ -29,13 +29,13 @@ KEY = re.compile(r"\x1b\[[0-9;]*[A-Z~]|.", re.S)
 def compose(typed):
     """What a harness's composer makes of every key typed so far: its draft, and each line
     entered with Enter.  Read whole each time, a sequence split across reads is never seen
-    half; inside a bracketed paste a line break is part of the draft."""
+    half; inside a bracketed paste every key is part of the draft, a line break or tab too."""
     draft, pasting, entered = "", False, []
     for key in KEY.findall(typed):
         if key in ("\x1b[200~", "\x1b[201~"):
             pasting = key == "\x1b[200~"
-        elif key in ("\r", "\n") and pasting:
-            draft += "\n"
+        elif pasting:
+            draft += "\n" if key == "\r" else key
         elif key in ("\r", "\n"):
             entered.append(draft)
             draft = ""
